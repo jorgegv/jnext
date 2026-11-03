@@ -1,13 +1,28 @@
 #pragma once
 
+#include <QPointer>
 #include <QWidget>
 
-#include <cstdint>
-#include <string>
+#include "platform/source_scheme.h"
 
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "debug/long_address.h"
+
+class BreakpointModel;
+class QAction;
 class QLabel;
+class QMenu;
 class QPlainTextEdit;
 class QPushButton;
+class QTextBlock;
+class SourceHighlighter;
+enum class SourceLanguage;
+class WatchPanel;
+struct SymbolNameKey;
 namespace jnext { namespace dbg { class Debugger; } }
 
 /// CAP-SRC — the Source tab: the source file the PC's statement came from,
@@ -15,9 +30,9 @@ namespace jnext { namespace dbg { class Debugger; } }
 /// (doc/design/SOURCE-LEVEL-DEBUGGING.md), and the source-step buttons.
 ///
 /// The buttons only REQUEST; DebuggerManager runs the verbs, exactly as the
-/// Debug menu's actions do. They live on the tab, not in the menu bar, and
-/// carry no mnemonic and no shortcut: the debugger's menu tree and its key
-/// bindings are pinned by the accelerator and keymap suites.
+/// Debug menu's actions do. The buttons carry no mnemonic and no shortcut;
+/// the same verbs are Debug > Source actions on the same manager slots, keyed
+/// from the keymap and enabled through steps_available().
 class SourcePanel : public QWidget {
     Q_OBJECT
 public:
@@ -28,16 +43,90 @@ public:
     /// The machine stopped (a breakpoint, a step, a Pause, a rewind): the next
     /// refresh puts the view on the current line even when the line and the PC
     /// are the ones it last showed and the user has scrolled away since.
-    void follow_pc() { placed_ = false; }
+    /// Back to following the PC. GH #428: repaints at once - a paused tick redraws only when the
+    /// machine moved, and this changes what the tab shows without moving it.
+    void follow_pc();
     /// Enable the step buttons for this state, without re-reading anything.
     void update_buttons(bool paused);
 
-    /// CAP-SRC: why the last program load attached no source map, shown in
-    /// place of "No source map loaded" until a map loads. Empty clears it.
-    void set_load_problem(const QString& problem);
+    /// GH #420 - the directories searched for the files the map names, after the
+    /// map's own directory and its parents (source_search::resolve). Takes effect
+    /// at once; DebuggerManager owns the list and pushes it.
+    void set_search_dirs(std::vector<std::string> dirs);
+    const std::vector<std::string>& search_dirs() const { return search_dirs_; }
+
+    /// GH #421 - the GUI's breakpoints, which the gutter's BP column draws and
+    /// a click on it edits (the Disassembly's gutter follows the same model).
+    void set_breakpoint_model(BreakpointModel* model);
+
+    /// What the BP column draws on a line of the file shown (one-based).
+    /// `Armed`/`Suspended`: a breakpoint at every place of the line (a disc, a
+    /// ring); `Part*`: at some places only, or only inside the line (its left half).
+    enum class LineMark { None, Armed, Suspended, PartArmed, PartSuspended };
+    LineMark line_mark(int line) const;
+    /// The gutter's hover words for a line: its breakpoint, or why it has none.
+    QString line_tooltip(int line) const;
+    /// The one toggle of a source line (the gutter click; the context menu of
+    /// GH #423 calls it too): removes every breakpoint the line shows, else sets
+    /// ONE group at every place the line compiled to. A line without code adds
+    /// nothing and says so.
+    void toggle_breakpoint_at_line(int line);
+    /// The map's name of the file shown, empty when the tab shows a message.
+    const std::string& shown_file() const { return shown_file_; }
+    /// GH #422 - the language the text shown is coloured as (Plain while a message shows).
+    SourceLanguage source_language() const;
+    /// GH #422 stage 2 - choose the colour scheme of the text, the background and the current-line
+    /// bar (Auto follows the application's light or dark palette). Applied at once.
+    void set_colour_scheme(SourceScheme scheme);
+
+    /// GH #423 - the Watches panel, which the menu's "Watch ..." entries add to
+    /// (the Disassembly's menu offers them with one set, and without it not at all).
+    void set_watch_panel(WatchPanel* watches);
+    /// GH #387 - the backend the annotation entries of the context menu write to (the panel reads
+    /// through its const pointer). Without one the menu offers no annotation entries.
+    void set_annotation_backend(jnext::dbg::Debugger* dbg) { annot_ = dbg; }
+
+    /// GH #423 - the right-click menu of source line `line` (one-based) with the
+    /// Disassembly's actions: Copy, Copy with Addresses, Select All, Toggle
+    /// Breakpoint, Run to Here, Show in Disassembly, and the watch and data
+    /// breakpoint entries for the labels of the line and for the symbol, number
+    /// or register in parentheses under character `column` (-1: no word, the
+    /// gutter's). Like the Disassembly's menu, a right click outside the
+    /// selection first selects the line. Line 0 (or no file shown) gives the
+    /// copy entries only. Called by the editor's and the gutter's context menu
+    /// events, and by the tests.
+    void fill_context_menu(QMenu& menu, int line, int column);
+
+    /// GH #423 - Run to Here on the cursor line (Enter in the tab, and the
+    /// bindable Run to Cursor while the tab has focus). Nothing when no file is
+    /// shown or the line has no code.
+    void run_to_cursor();
+    /// Whether the keyboard focus is in the source text (not a button or another panel).
+    bool has_text_focus() const;
+    /// Each line the selection touches as `file:line  places  text`, one per
+    /// line; the places are every address the line compiled to, `-` for none.
+    /// Empty without a selection.
+    QString selection_text_with_addresses() const;
+
+    // --- GH #347: the Disassembly's selection -------------------------------
+
+    /// The Disassembly's USER selection `lo..hi` with its caret line: the cursor goes to
+    /// the caret's source line, shown in its own file when that is not the PC's line
+    /// ("browsing", until the next stop, a run, another map or Go to PC Line), and every
+    /// line with an instruction of the range is tinted. Ignored while the machine runs or
+    /// no map is loaded; an address with no source line leaves the view and tints nothing.
+    void set_disasm_selection(uint16_t lo, uint16_t hi, uint16_t caret);
+    /// The Disassembly menu's Show in Source: as a one-address selection, centred.
+    void show_address(uint16_t addr);
+    /// Go to PC Line: end browsing and put the view on the PC's line.
+    void go_to_pc_line();
+    /// Whether the label describes an address the Disassembly led to, not the PC.
+    bool browsing() const { return browse_addr_.has_value(); }
 
     /// What the panel shows right now (for tests and the status line).
     QString location_text() const;
+    /// The label's tooltip: the path of the file shown (empty when none is).
+    QString location_tooltip() const;
     /// One-based line highlighted in the editor, 0 when none.
     int highlighted_line() const { return highlighted_line_; }
     /// GH #428 — the file shown has changed on disk since it was loaded, which
@@ -45,7 +134,13 @@ public:
     /// an edit-and-rebuild still shows while nothing else changes.
     bool file_changed_on_disk() const;
 
+    /// GH #360 - Friendly (`P04`) or Physical (`$048000`) wherever the tab names the
+    /// memory of an address: the label, the place lists, the tooltips, the menus.
+    void set_address_style(jnext::dbg::AddressStyle st) { style_ = st; }
+
 signals:
+    /// Emitted by update_buttons() with the two enabled states it applied.
+    void steps_available(bool forward, bool backward);
     void step_into_requested();
     void step_over_requested();
     void step_out_requested();
@@ -53,30 +148,98 @@ signals:
     void reverse_continue_requested();
     void load_sld_requested();
     void load_symbols_requested();
+    /// GH #420 - Locate File... found the directory that holds the file the map
+    /// names: search it from now on.
+    void source_dir_located(const QString& dir);
+    /// ... and the user chose to keep it for later sessions.
+    void source_dir_save_requested(const QString& dir);
+    /// GH #423 - Run to Here on `file_line` ("main.bas:12"): DebuggerManager runs
+    /// Debugger::run_to_source_line behind its corruption gate.
+    void run_to_line_requested(const QString& file_line);
+    /// GH #423 - Show in Disassembly: put the Disassembly on `addr`.
+    void show_address_requested(uint16_t addr);
+    /// GH #387 - a menu entry changed a label or a comment: the manager refreshes the panels.
+    void annotations_changed();
+    /// GH #347 - the lines the Source cursor or selection covers, `first..last` of `file`
+    /// (an empty file: none, a message or Running is shown). `reveal`: the user made the
+    /// move in this tab, so the Disassembly may scroll to the addresses; a placement the
+    /// panel made itself (a stop, the Disassembly's own click) never asks for it. Emitted
+    /// only when the file or the lines changed.
+    void source_lines_selected(const QString& file, int first, int last, bool reveal);
 
 private:
+    void refresh_();
+    /// GH #347 - "  also: f:l, ..." for the other source places of `address` (OD-7), or empty.
+    QString also_text(uint16_t address) const;
+    void update_gutter();
+    /// Everything the BP column derives for one line (see source_panel.cpp).
+    struct LineState;
+    LineState line_state(int line) const;
+    /// The symbol a word of the source names, or none. THE seam for the names
+    /// the source uses (GH #424: C names): it asks the backend's resolver with
+    /// '@', which forces a symbol, so the word BEEF is a name and not the
+    /// number $BEEF.
+    std::optional<SymbolNameKey> symbol_for_word(const QString& word) const;
     QString resolve_source_file(const std::string& source_name) const;
+    /// Locate File...: ask for the file the map names and derive the directory to search.
+    void locate_file();
+    /// The name the tab could not find, or empty; enables Locate File... exactly then.
+    void set_unresolved(const std::string& name);
     void show_message(const QString& message);
+    /// GH #422 - the one way a text enters the editor: language first, then the text.
+    void set_source_text(const QString& text, const std::string& file);
+    void apply_scheme_();
+    /// GH #347 - announce the lines under the cursor (see source_lines_selected()).
+    void emit_lines_(bool reveal, bool none = false);
+    /// The blocks of the lines the cursor or its selection covers (a selection that ends at
+    /// the start of a block does not take that block).
+    void selected_blocks_(QTextBlock& first, QTextBlock& last) const;
+    /// The lines of `file` with an instruction (any location) in the Disassembly's range.
+    std::vector<int> linked_lines_(const std::string& file) const;
     /// While the machine runs there is no current line: say so, and drop the
     /// highlight of the last stop.
     void show_running();
 
     const jnext::dbg::Debugger* dbg_ = nullptr;
+    jnext::dbg::Debugger* annot_ = nullptr;   // GH #387
+    jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     QLabel* location_label_ = nullptr;
     QPlainTextEdit* editor_ = nullptr;
+    SourceHighlighter* highlighter_ = nullptr;
     QPushButton* into_btn_ = nullptr;
     QPushButton* over_btn_ = nullptr;
     QPushButton* out_btn_ = nullptr;
     QPushButton* back_btn_ = nullptr;
     QPushButton* reverse_btn_ = nullptr;
+    QPushButton* locate_btn_ = nullptr;
+    QPushButton* goto_pc_btn_ = nullptr;
+    QPointer<BreakpointModel> bp_model_;
+    QPointer<WatchPanel> watch_panel_;
+    QAction* copy_action_ = nullptr;
+    QAction* copy_addresses_action_ = nullptr;
+    QAction* select_all_action_ = nullptr;
+    std::string shown_file_;
+    std::vector<std::string> search_dirs_;
+    std::string unresolved_name_;
     QString loaded_source_;
     qint64 loaded_mtime_ = -1;
     int highlighted_line_ = 0;
-    QString load_problem_;
     // Where the view was last put: the cursor is moved and centred only when
     // the line or the PC differ, or the text was loaded since (refresh() runs
     // on every tick while paused, and must not undo the user's scrolling).
     bool placed_ = false;
     int placed_line_ = 0;
     uint16_t placed_pc_ = 0;
+
+    // GH #347 - browsing: the address the Disassembly led to (the label describes it, not the PC),
+    // and the map it was in. The Disassembly's range, whose lines are tinted. The guard around the
+    // panel's own cursor moves, and the lines last announced.
+    std::optional<uint16_t> browse_addr_;
+    std::string browse_map_;
+    struct DisasmRange { uint16_t lo, hi, caret; };
+    std::optional<DisasmRange> disasm_range_;
+    bool syncing_ = false;
+    QString lines_file_;
+    int lines_first_ = 0, lines_last_ = 0;
+    bool place_now_ = false;   // the next refresh puts the cursor on its line even if it was placed there
 };

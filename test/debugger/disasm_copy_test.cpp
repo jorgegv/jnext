@@ -692,14 +692,14 @@ QRgb gutter_bg(const QImage& img, int line) {
 }
 
 /// Left edge of the mnemonic column: GUTTER_WIDTH + 4 + ADDR_WIDTH(48) +
-/// BYTES_WIDTH(100). The panel's own layout constants, restated because they
-/// are private — a change to either side must move both.
-constexpr int MNEMONIC_X = GUTTER_W + 4 + 48 + 100;
+/// MEM_WIDTH(96, GH #360) + BYTES_WIDTH(100). The panel's own layout constants,
+/// restated because they are private — a change to either side must move both.
+constexpr int MNEMONIC_X = GUTTER_W + 4 + 48 + 96 + 100;
 constexpr int MNEMONIC_W = 260;
 
 /// The painted mnemonic column of line `line`, as an image.
-QImage mnemonic_cell(const QImage& img, int line) {
-    return img.copy(MNEMONIC_X, PAINT_Y + line * LINE_H, MNEMONIC_W, LINE_H);
+QImage mnemonic_cell(const QImage& img, int line, int x = MNEMONIC_X) {
+    return img.copy(x, PAINT_Y + line * LINE_H, MNEMONIC_W, LINE_H);
 }
 
 /// `text` drawn the way DisasmPanel::paintEvent draws a mnemonic: the same
@@ -845,13 +845,116 @@ void test_painter_symbols() {
     // gone. Hence the clear, and hence rendering only once, here.
     fx.panel->clear_selection();
     QApplication::processEvents();
-    const QImage painted_plain = mnemonic_cell(render_panel(fx.panel), 0);
+    // GH #387: with a label known the Label column sits before the mnemonic; the panel says where it starts.
+    const QImage painted_plain = mnemonic_cell(render_panel(fx.panel), 0, fx.panel->mnemonic_x());
 
     check("GH21-29", "the painted mnemonic is exactly the text the clipboard gives",
           painted_plain == expected,
           fmt("copied=%s painted%s match reference",
               shown(copied).c_str(),
               painted_plain == expected ? "es" : " does NOT"));
+}
+
+// ── Group SYM, paged labels (GH #375) ───────────────────────────────
+// Two labels at $C000, assembled for pages 20 and 30: the painter and the
+// clipboard name a CALL $C000 after whichever page MMU slot 6 maps now, and
+// leave the address alone when neither does.
+
+void test_paged_symbols() {
+    set_group("SYM");
+    Fixture fx;
+    if (!fx.ok) {
+        check("QSYM-01", "fixture came up", false, "emulator or memory setup failed");
+        check("QSYM-02", "fixture came up", false, "emulator or memory setup failed");
+        return;
+    }
+    fx.symbols.clear();
+    fx.symbols.add_label("banked", 0xC000, jnext::dbg::MemSpace::page(20));
+    fx.symbols.add_label("other_bank", 0xC000, jnext::dbg::MemSpace::page(30));
+    // CALL $C000 on the sixth line ($800A, over the NOP padding).
+    const uint8_t call[] = {0xCD, 0x00, 0xC0};
+    for (size_t i = 0; i < sizeof call; ++i)
+        fx.emu.mmu().write(static_cast<uint16_t>(0x800A + i), call[i]);
+
+    struct Seen { QString copied; QImage painted; };
+    auto with_slot6 = [&](uint8_t page) {
+        fx.emu.mmu().set_page(6, page);
+        fx.panel->refresh();
+        QApplication::processEvents();
+        press_line(fx.panel, 5);
+        release_mouse(fx.panel, 5);
+        Seen seen;
+        seen.copied = fx.panel->selection_text(disasm_text::CopyFormat::AsmOnly).trimmed();
+        fx.panel->clear_selection();
+        QApplication::processEvents();
+        seen.painted = mnemonic_cell(render_panel(fx.panel), 5, fx.panel->mnemonic_x());   // GH #387: after the Label column, if shown
+        return seen;
+    };
+    const Seen a = with_slot6(20), b = with_slot6(30), c = with_slot6(21);
+
+    check("QSYM-01", "the painter names CALL $C000 after the page mapped at slot 6, exactly as the clipboard text",
+          a.painted == reference_cell("CALL banked") && b.painted == reference_cell("CALL other_bank") &&
+              c.painted == reference_cell("CALL $C000") && a.painted != b.painted,
+          "copied: " + shown(a.copied) + " / " + shown(b.copied) + " / " + shown(c.copied));
+    check("QSYM-02", "the copied text names CALL $C000 after the page mapped at slot 6: banked, other_bank, or the address",
+          a.copied == "CALL banked" && b.copied == "CALL other_bank" && c.copied == "CALL $C000",
+          shown(a.copied) + " / " + shown(b.copied) + " / " + shown(c.copied));
+}
+
+// ── Group SYM, z88dk C names (GH #424, design 10.6) ──────────────────
+// A symbol of a C module (`main_c`) is painted by its C name; the clipboard keeps the assembler
+// name, so a pasted listing still assembles (D4). Oracle: zcc's MODULE naming and the compiler's `_`
+// prefix; the painter row reads pixels, as GH21-28.
+
+void test_c_names() {
+    set_group("SYM");
+    Fixture fx;
+    if (!fx.ok) {
+        check("DCN-01", "fixture came up", false, "emulator or memory setup failed");
+        check("DCN-02", "fixture came up", false, "emulator or memory setup failed");
+        return;
+    }
+    const QString path = QDir::temp().filePath(
+        QStringLiteral("jnext-gh424-c-%1.map").arg(QCoreApplication::applicationPid()));
+    {
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            check("DCN-01", "could not write the fixture MAP file", false);
+            check("DCN-02", "could not write the fixture MAP file", false);
+            return;
+        }
+        f.write("_screen_buf = $1234 ; addr, public, , main_c, bss_compiler, main.c:1\n");
+    }
+    const auto painted_with = [&](const std::function<void(SymbolTable&)>& fill) {
+        fx.symbols.clear();
+        fill(fx.symbols);
+        fx.panel->refresh();
+        QApplication::processEvents();
+        return mnemonic_cell(render_panel(fx.panel), 0);
+    };
+    const QImage c_map = painted_with([&](SymbolTable& t) { t.load_z88dk_map(path.toStdString()); });
+    const QImage simple_plain = painted_with([](SymbolTable& t) { t.add_label("screen_buf", 0x1234, std::nullopt); });
+    const QImage simple_us = painted_with([](SymbolTable& t) { t.add_label("_screen_buf", 0x1234, std::nullopt); });
+    check("DCN-01", "the painter shows a z88dk C symbol by its C name: the same pixels as a plain `screen_buf`, "
+                    "different from `_screen_buf` of a table with no C module",
+          c_map == simple_plain && c_map != simple_us);
+
+    fx.symbols.clear();
+    fx.symbols.load_z88dk_map(path.toStdString());
+    fx.panel->refresh();
+    QApplication::processEvents();
+    press_line(fx.panel, 0);
+    release_mouse(fx.panel, 0);
+    const QString plain = fx.panel->selection_text(disasm_text::CopyFormat::AsmOnly);
+    const QString addressed = fx.panel->selection_text(disasm_text::CopyFormat::WithAddresses);
+    fx.panel->clear_selection();
+    QFile::remove(path);
+    check("DCN-02", "the copy keeps the assembler name of a C symbol, in both formats: LD HL,_screen_buf, never "
+                    "LD HL,screen_buf",
+          plain.contains(QStringLiteral("LD HL,_screen_buf")) && !plain.contains(QStringLiteral("LD HL,screen_buf")) &&
+              addressed.contains(QStringLiteral("LD HL,_screen_buf")) &&
+              !addressed.contains(QStringLiteral("LD HL,screen_buf")),
+          shown(plain) + " | " + shown(addressed));
 }
 
 // ── Group EDGE — the branches nothing else reaches ───────────────────
@@ -898,7 +1001,8 @@ void test_edge_cases() {
             return (a < sizeof(mem)) ? mem[a] : 0x00;
         };
 
-        const auto lines = disasm_text::collect_range(0x0000, 0x0003, read_fn, &syms);
+        const auto lines = disasm_text::collect_range(0x0000, 0x0003, read_fn,
+                                                      disasm_text::symbol_namer(&syms, {}));
         const std::string text =
             disasm_text::format_lines(lines, disasm_text::CopyFormat::AsmOnly);
 
@@ -920,7 +1024,7 @@ void test_edge_cases() {
             return 0x00;
         };
 
-        const auto lines = disasm_text::collect_range(0xFFFD, 0xFFFF, read_fn, nullptr);
+        const auto lines = disasm_text::collect_range(0xFFFD, 0xFFFF, read_fn, {});
         const std::string text =
             disasm_text::format_lines(lines, disasm_text::CopyFormat::WithAddresses);
 
@@ -1107,6 +1211,20 @@ void test_navigation() {
 
 } // namespace
 
+// QLADDR-17 (GH #360): the Mem column takes its room from the mnemonic area, not from the panel's
+// minimum. The debugger's left column of tabs gets what the right-hand side does not ask for, so a
+// minimum that includes MEM_WIDTH took ~50 px from the Video panel on 1366 and 1280 px screens.
+// Oracle: the minimum is the columns without Mem: gutter 20 + address 48 + bytes 100 + 200 of mnemonic = 368.
+void test_minimum_width() {
+    set_group("QLADDR");
+    Fixture fx;
+    check("QLADDR-17",
+          "the Disassembly's minimum width does not include the Mem column (20 + 48 + 100 + 200 = 368)",
+          fx.ok && fx.panel->minimumWidth() == 368,
+          fx.ok ? fmt("min %d", fx.panel->minimumWidth())
+                : std::string("fixture failed"));
+}
+
 int main(int argc, char** argv)
 {
     // DisasmPanel is a QWidget and QClipboard needs a QGuiApplication, so a
@@ -1143,6 +1261,9 @@ int main(int argc, char** argv)
     test_selection_painting();
     std::printf("  Group: PAINT          — done\n");
     test_painter_symbols();
+    test_paged_symbols();
+    test_c_names();
+    test_minimum_width();
     std::printf("  Group: SYM            — done\n");
     test_edge_cases();
     std::printf("  Group: EDGE           — done\n");

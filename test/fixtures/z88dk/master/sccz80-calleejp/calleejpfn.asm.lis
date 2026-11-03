@@ -1,0 +1,28 @@
+/tmp/tmpXXXXXXXX.asm:
+     1                          MODULE calleejpfn_asm
+     2                          LINE 0, "calleejpfn.asm"
+calleejpfn.asm:
+                                
+     1                          ; unsigned int addtwo(unsigned int a, unsigned int b) __z88dk_callee
+     2                          ; A hand-written callee routine whose body jumps with JP (HL) while its
+     3                          ; return address sits ABOVE its CALL's slot (GH #349 R1'').
+     4                          SECTION code_user
+     5                          PUBLIC _addtwo
+     6                          _addtwo:
+     7  0000  e1                    pop hl              ; the return address
+     8  0001  d1                    pop de              ; one argument
+     9  0002  c1                    pop bc              ; the other
+    10  0003  e5                    push hl             ; the return address back: 4 bytes above the CALL's slot
+    11  0004  c5                    push bc             ; one more word: the return address is at SP+2
+    12  0005  210900                ld hl,stage2
+    13  0008  e9                    jp (hl)             ; an internal jump, not a return
+    14                          stage2:
+    15  0009  c1                    pop bc              ; the return address is at SP
+    16  000a  210e00                ld hl,stage3
+    17  000d  e9                    jp (hl)             ; another internal jump
+    18                          stage3:
+    19  000e  69                    ld l,c
+    20  000f  60                    ld h,b
+    21  0010  19                    add hl,de
+    22  0011  c9                    ret
+    23                          

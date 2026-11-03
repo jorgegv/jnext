@@ -4,6 +4,7 @@
 #include "platform/config_keys.h"
 #include "gui/recent_files.h"
 #include "peripheral/esp_host_policy.h"
+#include "debug/source_search.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -35,6 +36,15 @@ static_assert(config_keys::word_at(config_keys::info(KeyId::ScreenshotQuickForma
               config_keys::word_at(config_keys::info(KeyId::ScreenshotQuickFormat).values,
                   static_cast<int>(ScreenshotFormat::Scr)) == "scr",
               "config_keys quick_format words must follow the enum order");
+static_assert(config_keys::word_at(config_keys::info(KeyId::SourceColourScheme).values,
+                  static_cast<int>(SourceScheme::Auto)) == "auto" &&
+              config_keys::word_at(config_keys::info(KeyId::SourceColourScheme).values,
+                  static_cast<int>(SourceScheme::Light)) == "light" &&
+              config_keys::word_at(config_keys::info(KeyId::SourceColourScheme).values,
+                  static_cast<int>(SourceScheme::Dark)) == "dark" &&
+              config_keys::word_at(config_keys::info(KeyId::SourceColourScheme).values,
+                  static_cast<int>(SourceScheme::Borland)) == "borland",
+              "config_keys source.colour_scheme words must follow the enum order");
 
 // A free-text value read from the INI. QSettings IniFormat reads an UNQUOTED value
 // containing a comma as a QStringList, and toString() of a multi-element list is "":
@@ -70,6 +80,13 @@ QString quick_screenshot_format_to_key(ScreenshotFormat f) {
     return QString::fromLatin1(w.data(), static_cast<qsizetype>(w.size()));
 }
 
+// GH #422 stage 2 - on-disk spelling of the Source tab's colour scheme.
+QString source_scheme_to_key(SourceScheme s) {
+    const std::string_view w = config_keys::word_at(
+        config_keys::info(KeyId::SourceColourScheme).values, static_cast<int>(s));
+    return QString::fromLatin1(w.data(), static_cast<qsizetype>(w.size()));
+}
+
 void load_gain(QSettings& settings, KeyId id, float& target)
 {
     bool ok = false;
@@ -88,6 +105,22 @@ QString gain_text(float db) {
     return QString::number(static_cast<double>(db), 'g', 6);
 }
 
+// GH #420 - the one-string spelling of paths.source_dirs and the list it stands for.
+QStringList source_dirs_from_text(const QString& text)
+{
+    QStringList out;
+    for (const std::string& d : source_search::split_list(text.toStdString()))
+        out << QString::fromStdString(d);
+    return out;
+}
+
+QString source_dirs_to_text(const QStringList& dirs)
+{
+    std::vector<std::string> list;
+    for (const QString& d : dirs) list.push_back(d.toStdString());
+    return QString::fromStdString(source_search::join_list(list));
+}
+
 } // namespace
 
 void merge_cli_assignments(AppConfigData& d, const std::vector<config_keys::Assignment>& list)
@@ -102,9 +135,15 @@ void merge_cli_assignments(AppConfigData& d, const std::vector<config_keys::Assi
         case KeyId::PathsLastLoadDir:       d.last_load_dir = text; break;
         case KeyId::PathsScreenshotDir:     d.screenshot_dir = text; break;
         case KeyId::ScreenshotQuickDir:     d.quick_screenshot_dir = text; break;
+        case KeyId::PathsSourceDirs:        d.source_dirs = source_dirs_from_text(text); break;
         case KeyId::ScreenshotQuickFormat: {
             const int i = config_keys::word_index(config_keys::info(KeyId::ScreenshotQuickFormat).values, a.text);
             if (i >= 0) d.quick_screenshot_format = static_cast<ScreenshotFormat>(i);
+            break;
+        }
+        case KeyId::SourceColourScheme: {
+            const int i = config_keys::word_index(config_keys::info(KeyId::SourceColourScheme).values, a.text);
+            if (i >= 0) d.source_scheme = static_cast<SourceScheme>(i);
             break;
         }
         default: break;   // not a Qt-window-only key: main.cpp applied it elsewhere
@@ -255,6 +294,18 @@ void AppConfig::load() {
     data_.last_load_dir  = ini_text(settings_.value(N(KeyId::PathsLastLoadDir), data_.last_load_dir));
     data_.sd_card_path   = ini_text(settings_.value(N(KeyId::PathsSdCardPath), data_.sd_card_path));
     data_.screenshot_dir = ini_text(settings_.value(N(KeyId::PathsScreenshotDir), data_.screenshot_dir));
+    data_.source_dirs    = source_dirs_from_text(ini_text(settings_.value(N(KeyId::PathsSourceDirs))));
+    settings_.endGroup();
+
+    // GH #422 stage 2. An unknown word keeps the default (a typo in a hand-edited file must not
+    // change what the Source tab shows).
+    settings_.beginGroup(S(KeyId::SourceColourScheme));
+    {
+        const QString word = settings_.value(N(KeyId::SourceColourScheme), source_scheme_to_key(data_.source_scheme))
+                                 .toString().trimmed().toLower();
+        const int idx = config_keys::word_index(config_keys::info(KeyId::SourceColourScheme).values, word.toStdString());
+        if (idx >= 0) data_.source_scheme = static_cast<SourceScheme>(idx);
+    }
     settings_.endGroup();
 
     // GH #406. Its own group; cleaned of blanks and cut to the cap, so a
@@ -414,6 +465,13 @@ void AppConfig::save() const {
     settings_.setValue(N(KeyId::PathsLastLoadDir), data_.last_load_dir);
     settings_.setValue(N(KeyId::PathsSdCardPath), data_.sd_card_path);
     settings_.setValue(N(KeyId::PathsScreenshotDir), data_.screenshot_dir);
+    // One string, not a QStringList: a path may hold a comma, and QSettings would
+    // split the unquoted form of a list at it. An empty list is an empty value.
+    settings_.setValue(N(KeyId::PathsSourceDirs), source_dirs_to_text(data_.source_dirs));
+    settings_.endGroup();
+
+    settings_.beginGroup(S(KeyId::SourceColourScheme));   // GH #422 stage 2
+    settings_.setValue(N(KeyId::SourceColourScheme), source_scheme_to_key(data_.source_scheme));
     settings_.endGroup();
 
     settings_.beginGroup(S(KeyId::RecentFiles));

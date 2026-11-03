@@ -1,5 +1,6 @@
 #include "debugger/watch_panel.h"
 #include "debug/debugger.h"
+#include "debugger/memory_text.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -40,8 +41,8 @@ WatchPanel::WatchPanel(QWidget* parent)
     layout->addLayout(btn_row);
 
     // Table
-    table_ = new QTableWidget(0, 4, this);
-    table_->setHorizontalHeaderLabels({tr("Address"), tr("Label"), tr("Type"), tr("Value")});
+    table_ = new QTableWidget(0, 5, this);
+    table_->setHorizontalHeaderLabels({tr("Address"), tr("Label"), tr("Type"), tr("Value"), tr("Memory")});
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
     table_->setAlternatingRowColors(true);
@@ -49,6 +50,8 @@ WatchPanel::WatchPanel(QWidget* parent)
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    // GH #360: Memory is the last column and takes the stretch, so Value is sized to its text.
+    table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     table_->verticalHeader()->setVisible(false);
 
     QFont mono("Monospace", 10);
@@ -75,6 +78,9 @@ void WatchPanel::refresh() {
         return QString::asprintf("$%0*X (%ud)", digits, static_cast<unsigned>(v),
                                  static_cast<unsigned>(v));
     };
+
+    // GH #360: the memory a read of each watch's address reaches NOW (live).
+    const auto sinfo = dbg_->mmu_slots();
 
     for (int i = 0; i < static_cast<int>(watches_.size()); ++i) {
         const auto& w = watches_[i];
@@ -107,6 +113,8 @@ void WatchPanel::refresh() {
         if (i < table_->rowCount()) {
             auto* item = table_->item(i, 3);
             if (item) item->setText(value_str);
+            if (auto* mem = table_->item(i, 4))
+                mem->setText(memtext::text(dbg_, style_, memtext::now_of(sinfo, w.addr), w.addr));
         }
     }
 }
@@ -190,7 +198,7 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
         std::string name = entered;
         if (!name.empty() && name.front() == '@')
             name = QString::fromStdString(name.substr(1)).trimmed().toStdString();
-        if (dbg_->lookup_name(name) == resolved) label = name;
+        if (dbg_->lookup_name(name) == resolved) label = dbg_->symbols().shown_name(name);
     }
     type = type_combo->currentIndex();
     return true;
@@ -240,6 +248,8 @@ void WatchPanel::update_table() {
 
         auto* value_item = new QTableWidgetItem("--");
         table_->setItem(i, 3, value_item);
+
+        table_->setItem(i, 4, new QTableWidgetItem(QString()));
     }
 
     refresh();

@@ -110,6 +110,12 @@ the machine by hand.
 
 ## What to expect
 
+- **`get-memory-pages` names what each slot reads now**, in ZEsarUX's spelling: `O<n>`
+  for a ROM page (`O0` and `O1` are ROM 0's two halves), `A<n>` for a RAM page, `SR<n>`
+  in config mode, `RO` for the boot ROM, and `DIV` while the DivMMC is paged in over
+  the slot. The Multiface, Layer 2 and the alternate ROM have no ZEsarUX spelling, so
+  their slot shows the page or ROM it covers. The `MMU=` field of `get-registers`
+  is unchanged.
 - **Connecting does not stop the machine**; `enter-cpu-step` does. Leaving
   (or `quit`) resumes it if the stop was the client's own and nothing else is
   attached; with JNEXT's debugger window open, or another remote debugger
@@ -120,6 +126,9 @@ the machine by hand.
   Conditions are ZEsarUX's (`PC=8000H`, `SP>=65280`,
   `PC=PEEKW(SP-2) AND SP>=65280`, `A<>0 AND (HL&FFH)=5`, ...); `help
   set-breakpoint` lists the terms JNEXT honours.
+  With JNEXT's debugger window open they appear in its Breakpoints panel as `Execute (client N)`, read-only, but
+  are not drawn as a dot in the Disassembly or Source breakpoint columns, and a click there does not remove them
+  (see [Whose breakpoints the gutters show and change](../panels/08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)).
 - **The history, the coverage and the call tracking are the machine's.** A
   client that turns one on turns it off again when it leaves; one that was
   already on — the trace you enabled in the debugger window — stays on. A

@@ -17,7 +17,10 @@ $ zcc +zxn -vn -startup=31 -clib=sdcc_ix -SO3 mygame.c -o mygame \
       -subtype=nex -create-app -m
 ```
 
-That writes `mygame.map` next to `mygame.nex`.
+That writes `mygame.map` next to `mygame.nex`. (With `-debug` as well, JNEXT's own
+Source tab steps through the C source too: see
+[Building programs with z88dk](../source-debugger/02-building-with-z88dk.md); sessions are in
+[Scripts and remote debuggers](../source-debugger/09-scripts-and-remote-debuggers.md).)
 
 ## Start JNEXT, then connect
 
@@ -77,6 +80,9 @@ Press **Ctrl-C** while the program runs to stop it.
   and nothing else is attached; with JNEXT's debugger window open, or another
   remote debugger connected, it stays paused and the pause becomes theirs. A
   pause you made in JNEXT's debugger window stays.
+  In that window they appear in the Breakpoints panel as `Execute (client N)`, read-only, but are not drawn as a dot
+  in the Disassembly or Source breakpoint columns, and a click there does not remove them (use `delete` in
+  `z88dk-gdb`; see [Whose breakpoints the gutters show and change](../panels/08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)).
 - **Both can drive the machine.** JNEXT's debugger window and `z88dk-gdb`
   control the same machine, and whichever acted last wins. If something else
   stops the machine while `z88dk-gdb` has it running, the client is told it
@@ -97,17 +103,26 @@ reaches what the GDB protocol itself cannot express:
 | `monitor help` | lists these commands |
 | `monitor regs` | I, R, IFF1, IFF2, IM, HALT and MEMPTR, and the register pairs |
 | `monitor set i\|r\|iff1\|iff2\|im VALUE` | writes one of those |
-| `monitor mmu` | the eight MMU slots and the paging ports |
+| `monitor mmu` | the eight MMU slots and the paging ports. Each slot line ends with the memory the slot reads now (`P0A`, `ROM0`, `DIVROM`...), and on the Next its address in the machine's memory (`$048000`, `BRAM5+$0000`); the tags are the ones of [the trace log](06-the-trace-log.md) |
 | `monitor mmu SLOT PAGE` | maps a page at a slot, as `NEXTREG 0x50+SLOT` does |
 | `monitor nextreg [REG [VALUE]]` | all NextREGs, one, or writes one |
 | `monitor page N OFF [LEN]` | a hex dump of physical 8 KB page N |
 | `monitor in PORT` / `monitor out PORT VALUE` | a real port access — it can change the device's state, so both are refused while an RZX recording or playback is running |
-| `monitor sym NAME\|ADDR` | JNEXT's own symbol table (the debugger window's map) |
+| `monitor sym NAME\|ADDR` | JNEXT's own symbol table (the debugger window's map); an address is named only by a label that is visible in the page mapped there now, and the answer carries the tag of that memory (`$C004 P14 = banked+4`, `banked = $C000 P14`) |
+| `monitor src [ADDR]` | the source line JNEXT's own map gives an address (default the PC) and the memory it is in, such as `$8CB8 main.c:19 P04`, or `$8CB8 unmapped P04`; a cross-check like `monitor sym`; ADDR may be a symbol |
 | `monitor time` | frame, cycle, T-states and the raster position |
 | `monitor reset [soft\|hard]` | resets the machine; it stays stopped |
 | `monitor bp` | every breakpoint and watchpoint, and who set it |
 
 Numbers may be written `0x..`, `$..` or in decimal.
+
+## Source lines
+
+`z88dk-gdb` does its own source mapping, from the map you give it with `-x`:
+build the program with `-m -debug` and `break main.c:19`, `list` and `next`
+work in the client. `monitor src` shows what JNEXT's own map (the one it
+attaches when it loads the program) says about an address, so the two can be
+compared.
 
 ## Headless runs
 

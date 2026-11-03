@@ -15,10 +15,16 @@ breakpoint and the magic port.
 
 | Bit | Is | Gates |
 |---|---|---|
-| `armed()` | `clients_attached_ \|\| persistent_ \|\| replay_armed_ \|\| magic_hold_` | the per-instruction breakpoint and event tests, the boundary drain |
+| `armed()` | `clients_attached_ \|\| persistent_ \|\| replay_armed_ \|\| magic_hold_ \|\| verify_hold_` | the per-instruction breakpoint and event tests, the boundary drain |
 | `attached()` | an arming client is attached | the step machinery: `OUT`, `STEP_BACK`, `RUN_BACK_TO_CYCLE` |
 | `raster_live()` | some client asked for the live raster | the render-every-frame hint and `video_timing_.advance()` |
 | `watchpoints_live()` | `armed()` and `guest_access_` | every memory and port watch site |
+
+`verify_hold_` is held while a source map attached to a tape program is waiting for its
+program (`set_verify_window()`, [3.9.1](09-1-the-backend-api.md)): it arms the machine
+only for that, so a headless run with a tape map pays the armed block's tests until the
+program first runs its code, then nothing. `SuspendScope` saves and clears it like
+`magic_hold_`.
 
 [3.9.3](09-3-sessions-the-pump-and-reconstruct.md) describes where the arm bits
 come from. Unarmed, the default configuration executes one load and one branch
@@ -168,9 +174,11 @@ region of `max_frames × snapshot_bytes` up front, so pages fault in lazily, and
 a point inside a frame restores that frame's snapshot and replays forward to the
 target instruction. That is why turning rewind on also turns on the trace log:
 `step_back()` needs it to know which cycle the target instruction started at.
-Each slot also keeps the call-stack tracker's frames, which are debugger side
-state and not in the serialised stream; a restore puts them back, and the replay
-re-runs the tracker's hooks up to the target. Any other replacement of the
+Each slot also keeps the call-stack tracker's frames and the debugger's load
+generation (`DebugState::load_generation()`), which are debugger side state and
+not in the serialised stream; a restore puts them back (the generation before
+`load_state()`, so the machine-replaced hook sees it), and the replay re-runs the
+tracker's hooks up to the target. Any other replacement of the
 machine — a state loaded from outside the ring (a bookmark, a DZRP or ZRCP
 restore, a snapshot) or a reset — empties the tracker
 (`Emulator::debug_after_machine_transition_()`): that state carries no call

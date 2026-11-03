@@ -1,0 +1,1086 @@
+/tmp/tmpXXXXXXXX.asm:
+     1                          MODULE calleejp_c
+     2                          LINE 0, "calleejp.c"
+calleejp.c:
+                                
+     1                          ;* * * * *  Small-C/Plus z88dk * * * * *
+     2                          ;  Version: 23856-580777436e-20251005
+     3                          ;
+     4                          ;	Reconstructed for z80 Module Assembler
+     5                          ;
+     6                          ;	Module compile time: (normalised)
+     7                          
+     8                          
+     9                          	C_LINE	2,"/tmp/tmpXXXXXXXX.i"
+/tmp/tmpXXXXXXXX.i:
+     2                          	C_LINE	0,"calleejp.c"
+calleejp.c:
+                                
+                                	MODULE	calleejp_c
+                                
+                                
+                                	INCLUDE "z80_crt0.hdr"
+z88dk/lib/z80_crt0.hdr:
+     1                          ;
+     2                          ;	Header file which contains all required variables from the
+     3                          ;	startup that need to be exposed to individual C files
+     4                          ;
+     5                          ;	Stick in this file any routines which are needed or implicitly
+     6                          ;	implied by sccz80.
+     7                          ;
+     8                          ;	This file is included by every module
+     9                          ;	To handle multi module programs which use floating point
+    10                          ;	routines in different modules, we have got rid of
+    11                          ;	the conditional assembly around the float routines
+    12                          
+    13                          
+    14                          	EXTERN	base_graphics	; Address of graphics screen
+    15                          
+    16                          	EXTERN	_cpfar2near	; Far->near conversion (z88)
+    17                          	EXTERN	packintrout	; Process interrupt (z88 apps)
+    18                          
+    19                          	EXTERN	l_dcal		; jp(hl)
+    20                          	EXTERN	cleanup		; cleanup before program exit
+    21                          
+    22                          	EXTERN	l_jphl		; another jp(hl)
+    23                          	EXTERN	l_jpix		; jp(ix)
+    24                          	EXTERN	l_jpiy		; jp(iy)
+    25                          
+    26                          	EXTERN	l_setix		; set non-z80 jp(ix) smc
+    27                          	EXTERN	l_setiy		; set non-z80 jp(iy) smc
+    28                          
+    29                          	EXTERN	l_ldi
+    30                          	EXTERN	l_ldi_128
+    31                          	EXTERN	l_ldi_256
+    32                          
+    33                          	EXTERN	l_outi
+    34                          	EXTERN	l_outi_128
+    35                          	EXTERN	l_outi_256
+    36                          
+    37                          	EXTERN	l_ini
+    38                          	EXTERN	l_ini_128
+    39                          	EXTERN	l_ini_256
+    40                          	EXTERN	l_ini_512
+    41                          
+    42                          	; Used for banked calls for __banked for sccz80 + sdcc
+    43                          	EXTERN	banked_call
+    44                          
+    45                          ;------------------------------------
+    46                          ; Scopes for integer library routines
+    47                          ;------------------------------------
+    48                          
+    49                          	EXTERN	l_getptr	;Get 3 byte pointer
+    50                          	EXTERN	l_putptr	;Put 3 byte pointer
+    51                          	EXTERN	l_gchar		;Get signed char
+    52                          	EXTERN	l_gchar1
+    53                          	EXTERN	l_gchar2
+    54                          	EXTERN	l_gchar3
+    55                          	EXTERN	l_gchar4
+    56                          	EXTERN	l_gchar5
+    57                          	EXTERN	l_gchar6
+    58                          	EXTERN	l_gchar7
+    59                          	EXTERN	l_gchar8
+    60                          	EXTERN	l_gcharsp	;Get signed char  (peephole opt)
+    61                          	EXTERN	l_gcharspsp	;Get signed char and push  (peephole opt)
+    62                          	EXTERN	l_g2charspsp	;Get 2 signed char and push  (peephole opt)
+    63                          	EXTERN	l_sxt		;Sign extend char
+    64                          	EXTERN	l_gint		;Get int ld hl,(hl)
+    65                          	EXTERN	l_gint1sp	;Optimized variants ld hl,x add hl,sp ld hl,(hl)
+    66                          	EXTERN	l_gint2sp
+    67                          	EXTERN	l_gint3sp
+    68                          	EXTERN	l_gint4sp
+    69                          	EXTERN	l_gint5sp
+    70                          	EXTERN	l_gint6sp
+    71                          	EXTERN	l_gint7sp
+    72                          	EXTERN	l_gint8sp
+    73                          	EXTERN	l_gint1		;Optimized variants inc hl,x ld hl,(hl)
+    74                          	EXTERN	l_gint2
+    75                          	EXTERN	l_gint3
+    76                          	EXTERN	l_gint4
+    77                          	EXTERN	l_gint5
+    78                          	EXTERN	l_gint6
+    79                          	EXTERN	l_gint7
+    80                          	EXTERN	l_gint8
+    81                          	EXTERN	l_gintsp	;Get int (peephole opt)
+    82                          	EXTERN	l_gintspchar	;Get int,char (peephole opt)
+    83                          	EXTERN	l_gintspsp	;Get int and push (peephole opt)
+    84                          	EXTERN	l_g2intspsp	;Get 2 int and push (peephole opt)
+    85                          	EXTERN	l_gintsp2de	;Get int, multiply by 2 and add from SP by de
+    86                          	EXTERN	l_gint7de	;Get int, multiply by 7 and add from SP by de
+    87                          	EXTERN	l_gint_eq	;Get int and test == 0
+    88                          	EXTERN	l_ghtonsint	;Get reverse order int
+    89                          	EXTERN	l_pint		;Put int: ld (de),hl
+    90                          	EXTERN	l_pint_eq	;Put int and test == 0
+    91                          	EXTERN	l_pint_pop	;Put int and pop place address
+    92                          	EXTERN	l_or		;Int logical or
+    93                          	EXTERN	l_xor		;Int logical xor
+    94                          	EXTERN	l_and		;Int logical and
+    95                          	EXTERN	l_eq		;Int equality de == hl
+    96                          	EXTERN	l_eq_hlbc	;Int equality bc == hl
+    97                          	EXTERN	l_ne		;Int inequality de != hl
+    98                          	EXTERN	l_ne_hlbc	;Int inequality bc != hl
+    99                          	EXTERN	l_gt		;Int signed de > hl
+   100                          	EXTERN	l_gt_hlbc	;Int signed bc > hl
+   101                          	EXTERN	l_le		;Int signed de <= hl
+   102                          	EXTERN	l_le_hlbc	;Int signed bc <= hl
+   103                          	EXTERN	l_ge		;Int signed de >= hl
+   104                          	EXTERN	l_ge_hlbc	;Int signed bc >= hl
+   105                          	EXTERN	l_lt		;Int signed de < hl
+   106                          	EXTERN	l_lt_hlbc	;Int signed bc < hl
+   107                          	EXTERN	l_uge		;Int unsigned de >= hl
+   108                          	EXTERN	l_uge_hlbc	;Int unsigned bc >= hl
+   109                          	EXTERN	l_ult		;Int unsigned de < hl
+   110                          	EXTERN	l_ult_hlbc	;Int unsigned bc < hl
+   111                          	EXTERN	l_ugt		;Int unsigned de > hl
+   112                          	EXTERN	l_ugt_hlbc	;Int unsigned bc > hl
+   113                          	EXTERN	l_ule		;Int unsigned de <= hl
+   114                          	EXTERN	l_ule_hlbc	;Int unsigned bc <= hl
+   115                          	EXTERN	l_cmp		;Int signed compare
+   116                          	EXTERN	l_ucmp		;Int unsigned compare
+   117                          	EXTERN	l_asr		;Int signed de >> hl
+   118                          	EXTERN	l_asr_hl_by_e	;Int signed hl >> e
+   119                          	EXTERN	l_asr_u		;Int unsigned de >> hl
+   120                          	EXTERN	l_asr_u_hl_by_e	;Int unsigned hl >> e
+   121                          	EXTERN	l_asl		;Int de << hl
+   122                          	EXTERN	l_sub		;Int subtract hl = de - hl
+   123                          	EXTERN	l_neg		;Int negate
+   124                          	EXTERN	l_com		;Int ~
+   125                          	EXTERN	l_lneg		;Int logical negate
+   126                          	EXTERN	l_bool		;Int boolean test
+   127                          	EXTERN	l_cm_de
+   128                          	EXTERN	l_cm_bc
+   129                          	EXTERN	l_deneg
+   130                          	EXTERN	l_bcneg
+   131                          	EXTERN	l_case		;Integer case
+   132                          	EXTERN	l_mult		;Integer hl = hl * de
+   133                          	EXTERN	l_mult_u	;Integer unsigned *
+   134                          	EXTERN	l_div		;Integer signed / hl=de/hl, de=de%hl
+   135                          	EXTERN	l_div_u		;Integer unsigned /
+   136                          	EXTERN	l_mod		;Integer % (for gbz80) hl=de%hl
+   137                          	EXTERN	l_mod_u		;Integer unsigned % (for gbz80)
+   138                          
+   139                          
+   140                              EXTERN  l_lsr_dehl  ;Shift dehl by a
+   141                              EXTERN  l_asr_dehl  ;Arithmetic (signed) shift dehl by a
+   142                              EXTERN  l_lsl_dehl  ;Shift dehl by a
+   143                          
+   144                          ;------------------
+   145                          ;Long functions now
+   146                          ;------------------
+   147                          
+   148                          	EXTERN	lpush2		;Push a long under the stack
+   149                          	EXTERN	l_int2long_s	;Int->long signed conversion
+   150                          	EXTERN	l_int2long_s_float	;Int->long->float signed conversion (optimizer: use -O3)
+   151                          	EXTERN	l_int2long_u_float	;uInt->ulong->float signed conversion
+   152                          	EXTERN	l_glong		;Get long
+   153                          	EXTERN	l_glongsp	;Get long (peephole opt)
+   154                          	EXTERN	l_glonghlp	;Get pointer, then get long
+   155                          	EXTERN	l_glong2sp	;Get long and copy on stack (peephole opt)
+   156                          	EXTERN	l_glong2sp_hlp
+   157                          	EXTERN	l_long_add
+   158                          	EXTERN	l_long_and
+   159                          	EXTERN	l_long_asl
+   160                          	EXTERN	l_long_asr
+   161                          	EXTERN	l_long_aslo	;Long << shift in c
+   162                          	EXTERN	l_long_asro	;Long >> shift in c (signed)
+   163                          	EXTERN	l_long_bool
+   164                          	EXTERN	l_long_cmp
+   165                          	EXTERN	l_long_com
+   166                          	EXTERN	l_long_eq
+   167                          	EXTERN	l_long_ge
+   168                          	EXTERN	l_long_gt
+   169                          	EXTERN	l_long_le
+   170                          	EXTERN	l_long_lneg
+   171                          	EXTERN	l_long_lt
+   172                          	EXTERN	l_long_ne
+   173                          	EXTERN	l_long_neg
+   174                          	EXTERN	l_long_or
+   175                          	EXTERN	l_long_sub
+   176                          	EXTERN	l_long_ucmp
+   177                          	EXTERN	l_long_uge
+   178                          	EXTERN	l_long_ugt
+   179                          	EXTERN	l_long_ule
+   180                          	EXTERN	l_long_ult
+   181                          	EXTERN	l_long_xor
+   182                          	EXTERN	l_plong
+   183                          	EXTERN	l_inclong	;Increment long
+   184                          	EXTERN	l_declong	;Decrement long
+   185                          	EXTERN	l_inc_dehl	;Increment dehl
+   186                          	EXTERN	l_dec_dehl	;Decrement dehl
+   187                          	EXTERN	l_long_div
+   188                          	EXTERN	l_long_div_u
+   189                          	EXTERN	l_long_mod
+   190                          	EXTERN	l_long_mod_u
+   191                          	EXTERN	l_long_mult
+   192                          	EXTERN	l_long_mult_u
+   193                          	EXTERN	l_mulu_32_16x16	;Unsigned 16x16->32 (dehl = hl * de)
+   194                          	EXTERN	l_long_asr_u	;Long unsigned >>
+   195                          	EXTERN	l_long_asr_uo	;Long unsigned >> shift in c
+   196                          	EXTERN	l_long_case
+   197                          	EXTERN	l_long_inc_mhl
+   198                          	EXTERN	l_long_dec_mhl
+   199                          
+   200                          ;--------------------------------------------------------------
+   201                          ; Floating point support routines, mostly in library
+   202                          ;--------------------------------------------------------------
+   203                          
+   204                          	EXTERN	dadd
+   205                          	EXTERN	ddiv
+   206                          	EXTERN	dsub
+   207                          	EXTERN	dmul
+   208                          
+   209                          	EXTERN	dge
+   210                          	EXTERN	dgt
+   211                          	EXTERN	dleq
+   212                          	EXTERN	dlt
+   213                          	EXTERN	deq
+   214                          	EXTERN	dne
+   215                          
+   216                          	EXTERN	minusfa		;FA=-FA
+   217                          
+   218                          	EXTERN	dswap		;Exchange FA with top of stack
+   219                          	EXTERN	float		;Convert int to float
+   220                          	EXTERN	ufloat		;unsigned int to float
+   221                          	EXTERN	ifix		;Convert float to int
+   222                          
+   223                          	EXTERN	dstore		;FA->(de)
+   224                          	EXTERN	dload		;FA<-(hl)
+   225                          	EXTERN	dldpsh		;(hl)->(stack)
+   226                          	EXTERN	dpush		;FA->(stack)
+   227                          	EXTERN	dpush2		;FA->(stack under)
+   228                          	EXTERN	dpush3		;FA->(stack under,long)
+   229                          
+   230                          	EXTERN	fa		;may not be needed in this file
+   231                          	EXTERN	extra		;ditto
+   232                          	EXTERN	__atof2		;string->fa conversion
+   233                          	EXTERN	l_f48_ldexp	;FA * pow2(N)
+   234                          	EXTERN	l_f48_f16tof	;Convert _Float16 to float
+   235                          	EXTERN	l_f48_ftof16	;Convert float to _Float16
+   236                              EXTERN  l_f48_sllong2f
+   237                              EXTERN  l_f48_ullong2f
+   238                              EXTERN  l_f48_f2sllong
+   239                              EXTERN  l_f48_f2ullong
+   240                          
+   241                          	; 16 bit float ABI
+   242                          	EXTERN	l_f16_add
+   243                          	EXTERN	l_f16_sub
+   244                          	EXTERN	l_f16_mul
+   245                          	EXTERN	l_f16_div
+   246                          	EXTERN	l_f16_le
+   247                          	EXTERN	l_f16_lt
+   248                          	EXTERN	l_f16_ge
+   249                          	EXTERN	l_f16_gt
+   250                          	EXTERN	l_f16_eq
+   251                          	EXTERN	l_f16_ne
+   252                          	EXTERN	l_f16_swap
+   253                          	EXTERN	l_f16_schar2f
+   254                          	EXTERN	l_f16_uchar2f
+   255                          	EXTERN	l_f16_sint2f
+   256                          	EXTERN	l_f16_uint2f
+   257                          	EXTERN	l_f16_slong2f
+   258                          	EXTERN	l_f16_ulong2f
+   259                          	EXTERN	l_f16_f2sint
+   260                          	EXTERN	l_f16_f2uint
+   261                          	EXTERN	l_f16_f2slong
+   262                          	EXTERN	l_f16_f2ulong
+   263                          	EXTERN	l_f16_ldexp
+   264                          	EXTERN	l_f16_invf	;Only for ieee16
+   265                          	EXTERN	l_f16_f16tof	;A noop
+   266                          	EXTERN	l_f16_ftof16	;A noop
+   267                          
+   268                          	; 32 bit float ABI
+   269                          	EXTERN	l_f32_add
+   270                          	EXTERN	l_f32_sub
+   271                          	EXTERN	l_f32_mul
+   272                          	EXTERN	l_f32_div
+   273                          	EXTERN	l_f32_le
+   274                          	EXTERN	l_f32_lt
+   275                          	EXTERN	l_f32_ge
+   276                          	EXTERN	l_f32_gt
+   277                          	EXTERN	l_f32_eq
+   278                          	EXTERN	l_f32_ne
+   279                          	EXTERN	l_f32_swap
+   280                          	EXTERN	l_f32_negate
+   281                          	EXTERN	l_f32_schar2f
+   282                          	EXTERN	l_f32_uchar2f
+   283                          	EXTERN	l_f32_sint2f
+   284                          	EXTERN	l_f32_uint2f
+   285                          	EXTERN	l_f32_slong2f
+   286                          	EXTERN	l_f32_ulong2f
+   287                          	EXTERN	l_f32_f2sint
+   288                          	EXTERN	l_f32_f2uint
+   289                          	EXTERN	l_f32_f2slong
+   290                          	EXTERN	l_f32_f2ulong
+   291                          	EXTERN	l_f32_ldexp
+   292                          	EXTERN	l_f32_invf	;Only for math32
+   293                          	EXTERN	l_f32_f16tof	;Convert _Float16 to float
+   294                          	EXTERN	l_f32_ftof16	;Convert float to _Float16
+   295                          
+   296                          	; 64 bit float ABI
+   297                          	EXTERN	l_f64_load
+   298                          	EXTERN	l_f64_add
+   299                          	EXTERN	l_f64_sub
+   300                          	EXTERN	l_f64_mul
+   301                          	EXTERN	l_f64_div
+   302                          	EXTERN	l_f64_le
+   303                          	EXTERN	l_f64_lt
+   304                          	EXTERN	l_f64_ge
+   305                          	EXTERN	l_f64_gt
+   306                          	EXTERN	l_f64_eq
+   307                          	EXTERN	l_f64_ne
+   308                          	EXTERN	l_f64_negate
+   309                          	EXTERN	l_f64_swap
+   310                          	EXTERN	l_f64_store
+   311                          	EXTERN	l_f64_dpush
+   312                          	EXTERN	l_f64_dldpsh
+   313                          	EXTERN	l_f64_dpush2
+   314                          	EXTERN	l_f64_dpush3
+   315                          	EXTERN	l_f64_schar2f
+   316                          	EXTERN	l_f64_uchar2f
+   317                          	EXTERN	l_f64_sint2f
+   318                          	EXTERN	l_f64_uint2f
+   319                          	EXTERN	l_f64_slong2f
+   320                          	EXTERN	l_f64_ulong2f
+   321                          	EXTERN	l_f64_f2sint
+   322                          	EXTERN	l_f64_f2uint
+   323                          	EXTERN	l_f64_f2slong
+   324                          	EXTERN	l_f64_f2ulong
+   325                          	EXTERN	l_f64_ldexp
+   326                          	EXTERN	l_f64_f16tof	;Convert _Float16 to float
+   327                          	EXTERN	l_f64_ftof16	;Convert float to _Float16
+   328                          
+   329                          
+   330                          ;--------------------------------------------------
+   331                          ; Routines for picking up variables from far memory
+   332                          ;--------------------------------------------------
+   333                          
+   334                          	EXTERN	lp_gchar
+   335                          	EXTERN	lp_guchar
+   336                          	EXTERN	lp_gdoub
+   337                          	EXTERN	lp_gint
+   338                          	EXTERN	lp_glong
+   339                          	EXTERN	lp_gptr
+   340                          	EXTERN	lp_pchar
+   341                          	EXTERN	lp_pdoub
+   342                          	EXTERN	lp_pint
+   343                          	EXTERN	lp_plong
+   344                          	EXTERN	lp_pptr
+   345                          
+   346                          	EXTERN	l_farcall	; Long call
+   347                          	EXTERN  l_far_mapaddr	; Map __banked to __far
+   348                          
+   349                          ;--------------------------------------------------
+   350                          ; Routines for handling 16 bit fixed point for sccz80
+   351                          ;--------------------------------------------------
+   352                          
+   353                          	EXTERN	l_f16_fix16tof
+   354                          	EXTERN	l_f16_ftofix16
+   355                          	EXTERN	l_f32_fix16tof
+   356                          	EXTERN	l_f32_ftofix16
+   357                          	EXTERN	l_f48_fix16tof
+   358                              EXTERN  l_f48_ftofix16s
+   359                          	EXTERN	l_f48_ftofix16
+   360                          	EXTERN	l_f64_fix16tof
+   361                          	EXTERN	l_f64_ftofix16
+   362                          	EXTERN	l_fix16_divu
+   363                          	EXTERN	l_fix16_divs
+   364                          	EXTERN	l_fix16_f2sint
+   365                          	EXTERN	l_fix16_f2slong
+   366                          	EXTERN	l_fix16_f2uint
+   367                          	EXTERN	l_fix16_f2ulong
+   368                              EXTERN  l_fix16_uchar2f
+   369                              EXTERN  l_fix16_uint2f
+   370                              EXTERN  l_fix16_ulong2f
+   371                              EXTERN  l_fix16_schar2f
+   372                              EXTERN  l_fix16_sint2f
+   373                              EXTERN  l_fix16_slong2f
+   374                          	EXTERN	l_fix16_inv
+   375                          	EXTERN	l_fix16_mul
+   376                          	EXTERN	l_fix16_mulu
+   377                          	EXTERN	l_fix16_muls
+   378                          	EXTERN	l_fix16_negate
+   379                          
+   380                          ;--------------------------------------------------
+   381                          ; Routines for handling 64 bit integers for sccz80
+   382                          ;--------------------------------------------------
+   383                          
+   384                          	EXTERN	__i64_acc
+   385                          	EXTERN	l_i64_load
+   386                          	EXTERN	l_i64_store
+   387                          	EXTERN	l_i64_push
+   388                          	EXTERN	l_i64_add
+   389                          	EXTERN	l_i64_sub
+   390                          	EXTERN	l_i64_mult
+   391                          	EXTERN	l_i64_mult_u
+   392                          	EXTERN	l_i64_mod
+   393                          	EXTERN	l_i64_mod_u
+   394                          	EXTERN	l_i64_div
+   395                          	EXTERN	l_i64_div_u
+   396                          	EXTERN	l_i64_or
+   397                          	EXTERN	l_i64_xor
+   398                          	EXTERN	l_i64_and
+   399                          	EXTERN	l_i64_asr_u
+   400                          	EXTERN	l_i64_asr_uo
+   401                          	EXTERN	l_i64_asr
+   402                          	EXTERN	l_i64_asro
+   403                          	EXTERN	l_i64_asl
+   404                          	EXTERN	l_i64_aslo
+   405                          	EXTERN	l_i64_inc
+   406                          	EXTERN	l_i64_dec
+   407                          	EXTERN	l_i64_eq0
+   408                          	EXTERN	l_i64_eq
+   409                          	EXTERN	l_i64_ne
+   410                          	EXTERN	l_i64_ge
+   411                          	EXTERN	l_i64_gt
+   412                          	EXTERN	l_i64_uge
+   413                          	EXTERN	l_i64_ugt
+   414                          	EXTERN	l_i64_le
+   415                          	EXTERN	l_i64_lt
+   416                          	EXTERN	l_i64_ule
+   417                          	EXTERN	l_i64_ult
+   418                          	EXTERN	l_i64_lneg
+   419                          	EXTERN	l_i64_neg
+   420                          	EXTERN	l_i64_com
+   421                          	EXTERN	l_i64_case
+   422                          	EXTERN	l_i64_push_under_int
+   423                          	EXTERN	l_i64_push_under_int_mhl
+   424                          	EXTERN	l_i64_copy
+   425                          	EXTERN	l_i64_slong2i64
+   426                          	EXTERN	l_i64_ulong2i64
+   427                          	EXTERN	l_i64_sint2i64
+   428                          	EXTERN	l_i64_uint2i64
+   429                          	EXTERN	l_i64_u64_toi32
+   430                          	EXTERN	l_i64_s64_toi32
+   431                          
+   432                          
+   433                          ;-------------------
+   434                          ; Routines for SDCC
+   435                          ;-------------------
+   436                          
+   437                          	EXTERN	__divsint_rrx_s
+   438                          	EXTERN	__divsint_rrx_hds
+   439                          	EXTERN	__divuint_rrx_s
+   440                          	EXTERN	__divuint_rrx_hds
+   441                          	EXTERN	__divsuchar_rrx_s
+   442                          	EXTERN	__divuschar_rrx_s
+   443                          	EXTERN	__divuchar_rrx_s
+   444                          	EXTERN	__divuchar_rrx_hds
+   445                          	EXTERN	__moduchar_rrx_s
+   446                          	EXTERN	__moduchar_rrx_hds
+   447                          	EXTERN	__moduschar_rrx_s
+   448                          	EXTERN	__modsuchar_rrx_s
+   449                          	EXTERN	__modschar_rrx_s
+   450                          	EXTERN	__modschar_rrx_hds
+   451                          	EXTERN	__modsint_rrx_s
+   452                          	EXTERN	__modsint_rrx_hds
+   453                          	EXTERN	__moduint_rrx_s
+   454                          	EXTERN	__moduint_rrx_hds
+   455                          	EXTERN	__get_remainder
+   456                          	EXTERN	__divunsigned
+   457                          	EXTERN	__div_signexte
+   458                          	EXTERN	__divu16
+   459                          	EXTERN	__div16
+   460                          	EXTERN	__div8
+   461                          	EXTERN	__muluchar_rrx_s
+   462                          	EXTERN	__muluchar_rrx_hds
+   463                          	EXTERN	__mulsuchar_rrx_s
+   464                          	EXTERN	__muluschar_rrx_s
+   465                          	EXTERN	__mulschar_rrx_s
+   466                          	EXTERN	__mulschar_rrx_hds
+   467                          	EXTERN	__mulint_rrx_s
+   468                          	EXTERN	__mulint_rrx_hds
+   469                          	EXTERN	__mul16
+   470                          	EXTERN	__rrulong_rrx_s
+   471                          	EXTERN	__rrslong_rrx_s
+   472                          	EXTERN	__rlslong_rrx_s
+   473                          	EXTERN	__rlulong_rrx_s
+   474                          	EXTERN	__muluchar
+   475                          	EXTERN	__mulschar
+   476                          
+   477                          	EXTERN	l_push_di
+   478                          	EXTERN	l_pop_ei
+   479                          
+   480                          	EXTERN	l_debug_push_frame
+   481                          	EXTERN	l_debug_pop_frame
+   482                          
+calleejp.c:
+                                
+                                
+                                	C_LINE	2,"calleejp.c"
+     2                          	C_LINE	0,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound.h"
+z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound.h:
+                                	C_LINE	9,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound.h"
+     9                          	C_LINE	0,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sys/compiler.h"
+z88dk/lib/config/../..//include/_DEVELOPMENT/common/sys/compiler.h:
+                                	C_LINE	12,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sys/compiler.h"
+    12                          	C_LINE	34,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sys/compiler.h"
+    34                          	C_LINE	91,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sys/compiler.h"
+    91                          	C_LINE	8,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound.h"
+z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound.h:
+     8                          	C_LINE	10,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound.h"
+    10                          	C_LINE	0,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h:
+                                	C_LINE	9,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+     9                          	C_LINE	0,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h:
+                                	C_LINE	10,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    10                          	C_LINE	10,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    10                          	C_LINE	11,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    11                          	C_LINE	11,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    11                          	C_LINE	12,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    12                          	C_LINE	12,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    12                          	C_LINE	14,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    14                          	C_LINE	14,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    14                          	C_LINE	15,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    15                          	C_LINE	15,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    15                          	C_LINE	16,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    16                          	C_LINE	16,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    16                          	C_LINE	18,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    18                          	C_LINE	18,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    18                          	C_LINE	19,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    19                          	C_LINE	19,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    19                          	C_LINE	20,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    20                          	C_LINE	20,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    20                          	C_LINE	22,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    22                          	C_LINE	22,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    22                          	C_LINE	23,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    23                          	C_LINE	23,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    23                          	C_LINE	24,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    24                          	C_LINE	24,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    24                          	C_LINE	26,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    26                          	C_LINE	26,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    26                          	C_LINE	27,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    27                          	C_LINE	27,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    27                          	C_LINE	28,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    28                          	C_LINE	28,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    28                          	C_LINE	30,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    30                          	C_LINE	30,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    30                          	C_LINE	31,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    31                          	C_LINE	31,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    31                          	C_LINE	32,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    32                          	C_LINE	32,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    32                          	C_LINE	62,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    62                          	C_LINE	62,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    62                          	C_LINE	63,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    63                          	C_LINE	63,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    63                          	C_LINE	65,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    65                          	C_LINE	65,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    65                          	C_LINE	66,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    66                          	C_LINE	66,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    66                          	C_LINE	68,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    68                          	C_LINE	68,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    68                          	C_LINE	69,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    69                          	C_LINE	69,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    69                          	C_LINE	75,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    75                          	C_LINE	75,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    75                          	C_LINE	78,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    78                          	C_LINE	78,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    78                          	C_LINE	96,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    96                          	C_LINE	96,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    96                          	C_LINE	97,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    97                          	C_LINE	97,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    97                          	C_LINE	271,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+   271                          	C_LINE	8,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h:
+     8                          	C_LINE	20,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+    20                          	C_LINE	55,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+    55                          	C_LINE	113,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   113                          	C_LINE	113,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   113                          	C_LINE	114,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   114                          	C_LINE	114,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   114                          	C_LINE	118,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   118                          	C_LINE	118,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   118                          	C_LINE	119,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   119                          	C_LINE	119,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   119                          	C_LINE	123,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   123                          	C_LINE	123,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   123                          	C_LINE	126,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   126                          	C_LINE	126,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   126                          	C_LINE	135,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   135                          	C_LINE	135,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   135                          	C_LINE	144,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   144                          	C_LINE	144,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   144                          	C_LINE	153,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   153                          	C_LINE	153,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   153                          	C_LINE	161,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   161                          	C_LINE	161,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   161                          	C_LINE	162,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   162                          	C_LINE	162,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   162                          	C_LINE	167,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   167                          	C_LINE	167,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   167                          	C_LINE	168,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   168                          	C_LINE	168,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   168                          	C_LINE	172,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   172                          	C_LINE	172,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   172                          	C_LINE	173,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   173                          	C_LINE	173,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   173                          	C_LINE	177,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   177                          	C_LINE	177,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   177                          	C_LINE	180,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   180                          	C_LINE	180,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   180                          	C_LINE	189,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   189                          	C_LINE	189,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   189                          	C_LINE	198,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   198                          	C_LINE	198,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   198                          	C_LINE	207,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   207                          	C_LINE	207,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   207                          	C_LINE	215,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   215                          	C_LINE	215,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   215                          	C_LINE	216,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   216                          	C_LINE	216,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   216                          	C_LINE	223,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   223                          	C_LINE	223,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   223                          	C_LINE	224,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   224                          	C_LINE	224,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   224                          	C_LINE	225,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   225                          	C_LINE	225,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   225                          	C_LINE	226,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   226                          	C_LINE	226,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   226                          	C_LINE	227,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   227                          	C_LINE	227,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   227                          	C_LINE	228,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   228                          	C_LINE	228,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   228                          	C_LINE	229,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   229                          	C_LINE	229,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   229                          	C_LINE	230,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   230                          	C_LINE	230,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   230                          	C_LINE	231,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   231                          	C_LINE	231,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   231                          	C_LINE	232,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   232                          	C_LINE	232,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   232                          	C_LINE	233,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   233                          	C_LINE	233,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   233                          	C_LINE	234,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   234                          	C_LINE	234,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   234                          	C_LINE	235,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   235                          	C_LINE	235,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   235                          	C_LINE	236,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   236                          	C_LINE	236,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   236                          	C_LINE	237,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   237                          	C_LINE	237,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   237                          	C_LINE	238,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   238                          	C_LINE	238,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   238                          	C_LINE	239,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   239                          	C_LINE	239,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   239                          	C_LINE	240,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   240                          	C_LINE	240,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   240                          	C_LINE	241,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   241                          	C_LINE	241,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   241                          	C_LINE	242,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   242                          	C_LINE	242,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   242                          	C_LINE	243,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   243                          	C_LINE	243,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   243                          	C_LINE	244,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   244                          	C_LINE	244,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   244                          	C_LINE	245,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   245                          	C_LINE	245,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   245                          	C_LINE	246,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   246                          	C_LINE	246,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   246                          	C_LINE	247,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   247                          	C_LINE	247,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   247                          	C_LINE	248,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   248                          	C_LINE	248,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   248                          	C_LINE	249,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   249                          	C_LINE	249,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   249                          	C_LINE	250,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   250                          	C_LINE	250,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   250                          	C_LINE	251,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   251                          	C_LINE	251,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   251                          	C_LINE	252,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   252                          	C_LINE	252,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   252                          	C_LINE	253,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   253                          	C_LINE	253,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   253                          	C_LINE	254,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   254                          	C_LINE	254,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   254                          	C_LINE	258,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   258                          	C_LINE	258,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   258                          	C_LINE	259,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   259                          	C_LINE	259,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   259                          	C_LINE	260,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   260                          	C_LINE	260,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   260                          	C_LINE	261,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   261                          	C_LINE	261,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   261                          	C_LINE	262,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   262                          	C_LINE	262,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   262                          	C_LINE	263,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   263                          	C_LINE	263,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   263                          	C_LINE	264,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   264                          	C_LINE	264,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   264                          	C_LINE	265,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   265                          	C_LINE	265,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   265                          	C_LINE	266,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   266                          	C_LINE	266,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   266                          	C_LINE	267,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   267                          	C_LINE	267,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   267                          	C_LINE	268,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   268                          	C_LINE	268,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   268                          	C_LINE	269,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   269                          	C_LINE	269,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   269                          	C_LINE	270,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   270                          	C_LINE	270,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   270                          	C_LINE	271,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   271                          	C_LINE	271,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   271                          	C_LINE	272,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   272                          	C_LINE	272,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   272                          	C_LINE	273,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   273                          	C_LINE	273,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   273                          	C_LINE	274,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   274                          	C_LINE	274,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   274                          	C_LINE	275,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   275                          	C_LINE	275,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   275                          	C_LINE	276,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   276                          	C_LINE	276,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   276                          	C_LINE	277,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   277                          	C_LINE	277,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   277                          	C_LINE	278,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   278                          	C_LINE	278,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   278                          	C_LINE	279,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   279                          	C_LINE	279,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   279                          	C_LINE	280,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   280                          	C_LINE	280,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   280                          	C_LINE	281,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   281                          	C_LINE	281,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   281                          	C_LINE	282,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   282                          	C_LINE	282,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   282                          	C_LINE	283,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   283                          	C_LINE	283,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   283                          	C_LINE	284,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   284                          	C_LINE	284,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   284                          	C_LINE	285,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   285                          	C_LINE	285,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   285                          	C_LINE	286,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   286                          	C_LINE	286,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   286                          	C_LINE	287,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   287                          	C_LINE	287,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   287                          	C_LINE	288,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   288                          	C_LINE	288,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   288                          	C_LINE	289,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   289                          	C_LINE	289,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   289                          	C_LINE	290,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   290                          	C_LINE	290,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   290                          	C_LINE	291,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   291                          	C_LINE	291,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   291                          	C_LINE	292,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   292                          	C_LINE	292,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   292                          	C_LINE	293,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   293                          	C_LINE	293,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   293                          	C_LINE	294,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   294                          	C_LINE	294,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   294                          	C_LINE	295,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   295                          	C_LINE	295,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   295                          	C_LINE	296,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   296                          	C_LINE	296,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   296                          	C_LINE	297,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   297                          	C_LINE	297,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   297                          	C_LINE	298,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   298                          	C_LINE	298,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   298                          	C_LINE	299,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   299                          	C_LINE	299,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   299                          	C_LINE	300,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   300                          	C_LINE	300,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   300                          	C_LINE	301,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   301                          	C_LINE	301,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   301                          	C_LINE	302,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   302                          	C_LINE	302,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   302                          	C_LINE	303,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   303                          	C_LINE	303,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   303                          	C_LINE	304,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   304                          	C_LINE	304,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   304                          	C_LINE	305,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   305                          	C_LINE	305,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   305                          	C_LINE	306,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   306                          	C_LINE	306,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   306                          	C_LINE	307,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   307                          	C_LINE	307,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   307                          	C_LINE	308,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   308                          	C_LINE	308,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   308                          	C_LINE	309,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   309                          	C_LINE	309,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   309                          	C_LINE	310,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   310                          	C_LINE	310,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   310                          	C_LINE	311,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   311                          	C_LINE	311,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   311                          	C_LINE	312,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   312                          	C_LINE	312,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   312                          	C_LINE	313,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   313                          	C_LINE	313,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   313                          	C_LINE	314,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   314                          	C_LINE	314,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   314                          	C_LINE	315,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   315                          	C_LINE	315,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   315                          	C_LINE	318,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound/bit.h"
+   318                          	C_LINE	9,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound.h"
+z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound.h:
+     9                          	C_LINE	12,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sound.h"
+    12                          	C_LINE	1,"calleejp.c"
+calleejp.c:
+     1                          	C_LINE	3,"calleejp.c"
+     3                          	C_LINE	3,"calleejp.c"
+     3                          	C_LINE	5,"calleejp.c"
+     5                          	C_LINE	5,"calleejp.c"
+     5                          	SECTION	code_compiler
+     5                          
+     5                          ; Function twice flags 0x00000200 __smallc
+     5                          ; unsigned int twice(unsigned int v)
+     5                          ; parameter 'unsigned int v' at sp+4 size(2)
+     5                          	C_LINE	6,"calleejp.c::twice::0::0"
+calleejp.c::twice::0::0:
+     6                          ._twice
+     6  0000  cd0000            	call	l_debug_push_frame
+     6                          	C_LINE	6,"calleejp.c::twice::0::0"
+     6                          	C_LINE	7,"calleejp.c::twice::1::1"
+calleejp.c::twice::1::1:
+     7                          	C_LINE	7,"calleejp.c::twice::1::1"
+     7                          	C_LINE	8,"calleejp.c::twice::1::1"
+     8                          	C_LINE	8,"calleejp.c::twice::1::1"
+     8  0003  c5                	push	bc
+     8  0004  cd0000            	call	l_gint6sp	;
+     8  0007  e5                	push	hl
+     8  0008  e5                	push	hl
+     8  0009  cd0000            	call	_addtwo
+     8  000c  c1                	pop	bc
+     8  000d  e5                	push	hl
+     8                          	C_LINE	9,"calleejp.c::twice::1::1"
+     9                          	C_LINE	9,"calleejp.c::twice::1::1"
+     9  000e  e1                	pop	hl
+     9  000f  e5                	push	hl
+     9  0010  23                	inc	hl
+     9  0011  c1                	pop	bc
+     9  0012  e5                	push	hl
+     9                          	C_LINE	10,"calleejp.c::twice::1::1"
+    10                          	C_LINE	10,"calleejp.c::twice::1::1"
+    10  0013  e1                	pop	hl
+    10  0014  e5                	push	hl
+    10  0015  c1                	pop	bc
+    10  0016  cd0000            	call	l_debug_pop_frame
+    10  0019  c9                	ret
+    10                          
+    10                          
+    10                          	C_LINE	13,"calleejp.c::twice::0::1"
+calleejp.c::twice::0::1:
+    13                          	C_LINE	13,"calleejp.c::twice::0::1"
+    13                          
+    13                          ; Function beep flags 0x00000200 __smallc
+    13                          ; void beep()
+    13                          	C_LINE	14,"calleejp.c::beep::0::1"
+calleejp.c::beep::0::1:
+    14                          ._beep
+    14  001a  cd0000            	call	l_debug_push_frame
+    14                          	C_LINE	14,"calleejp.c::beep::0::1"
+    14                          	C_LINE	15,"calleejp.c::beep::1::2"
+calleejp.c::beep::1::2:
+    15                          	C_LINE	15,"calleejp.c::beep::1::2"
+    15  001d  210300            	ld	hl,3	;const
+    15  0020  e5                	push	hl
+    15  0021  2e64              	ld	l,100
+    15  0023  e5                	push	hl
+    15  0024  cd0000            	call	bit_beep_raw_callee
+    15                          	C_LINE	16,"calleejp.c::beep::1::2"
+    16                          	C_LINE	16,"calleejp.c::beep::1::2"
+    16  0027  210300            	ld	hl,3	;const
+    16  002a  e5                	push	hl
+    16  002b  2e64              	ld	l,100
+    16  002d  e5                	push	hl
+    16  002e  cd0000            	call	bit_beep_raw_callee
+    16  0031  cd0000            	call	l_debug_pop_frame
+    16  0034  c9                	ret
+    16                          
+    16                          
+    16                          	C_LINE	19,"calleejp.c::beep::0::2"
+calleejp.c::beep::0::2:
+    19                          	C_LINE	19,"calleejp.c::beep::0::2"
+    19                          
+    19                          ; Function main flags 0x00000000 __stdc
+    19                          ; int main()
+    19                          	C_LINE	20,"calleejp.c::main::0::3"
+calleejp.c::main::0::3:
+    20                          ._main
+    20  0035  cd0000            	call	l_debug_push_frame
+    20                          	C_LINE	20,"calleejp.c::main::0::3"
+    20                          	C_LINE	21,"calleejp.c::main::1::4"
+calleejp.c::main::1::4:
+    21                          	C_LINE	21,"calleejp.c::main::1::4"
+    21                          	C_LINE	22,"calleejp.c::main::1::4"
+    22                          	C_LINE	22,"calleejp.c::main::1::4"
+    22  0038  c5                	push	bc
+    22  0039  211500            	ld	hl,21	;const
+    22  003c  e5                	push	hl
+    22  003d  cd0000            	call	_twice
+    22  0040  c1                	pop	bc
+    22  0041  c1                	pop	bc
+    22  0042  e5                	push	hl
+    22                          	C_LINE	23,"calleejp.c::main::1::4"
+    23                          	C_LINE	23,"calleejp.c::main::1::4"
+    23  0043  cd1a00            	call	_beep
+    23                          	C_LINE	24,"calleejp.c::main::1::4"
+    24                          	C_LINE	24,"calleejp.c::main::1::4"
+    24  0046  e1                	pop	hl
+    24  0047  e5                	push	hl
+    24  0048  c1                	pop	bc
+    24  0049  cd0000            	call	l_debug_pop_frame
+    24  004c  c9                	ret
+    24                          
+    24                          
+    24                          	SECTION	bss_compiler
+    24                          	SECTION	code_compiler
+    24                          ; --- Start of Optimiser additions ---
+    24                          
+    24                          
+    24                          ; --- Start of Static Variables ---
+    24                          
+    24                          	SECTION	bss_compiler
+    24                          	SECTION	code_compiler
+    24                          
+    24                          
+    24                          ; --- Start of Scope Defns ---
+    24                          
+    24                          	GLOBAL	bit_beep
+    24                          	GLOBAL	bit_beep_callee
+    24                          	GLOBAL	bit_beep_raw
+    24                          	GLOBAL	bit_beep_raw_callee
+    24                          	GLOBAL	bit_click
+    24                          	GLOBAL	bit_fx
+    24                          	GLOBAL	bit_beepfx
+    24                          	GLOBAL	bit_play
+    24                          	GLOBAL	bit_play_tritone
+    24                          	GLOBAL	bit_synth
+    24                          	GLOBAL	bit_synth_callee
+    24                          	GLOBAL	bit_beep_di
+    24                          	GLOBAL	bit_beep_di_callee
+    24                          	GLOBAL	bit_beep_raw_di
+    24                          	GLOBAL	bit_beep_raw_di_callee
+    24                          	GLOBAL	bit_click_di
+    24                          	GLOBAL	bit_fx_di
+    24                          	GLOBAL	bit_beepfx_di
+    24                          	GLOBAL	bit_play_di
+    24                          	GLOBAL	bit_play_tritone_di
+    24                          	GLOBAL	bit_synth_di
+    24                          	GLOBAL	bit_synth_di_callee
+    24                          	GLOBAL	_bitfx_0
+    24                          	GLOBAL	_bitfx_1
+    24                          	GLOBAL	_bitfx_2
+    24                          	GLOBAL	_bitfx_3
+    24                          	GLOBAL	_bitfx_4
+    24                          	GLOBAL	_bitfx_5
+    24                          	GLOBAL	_bitfx_6
+    24                          	GLOBAL	_bitfx_7
+    24                          	GLOBAL	_bitfx_8
+    24                          	GLOBAL	_bitfx_9
+    24                          	GLOBAL	_bitfx_10
+    24                          	GLOBAL	_bitfx_11
+    24                          	GLOBAL	_bitfx_12
+    24                          	GLOBAL	_bitfx_13
+    24                          	GLOBAL	_bitfx_14
+    24                          	GLOBAL	_bitfx_15
+    24                          	GLOBAL	_bitfx_16
+    24                          	GLOBAL	_bitfx_17
+    24                          	GLOBAL	_bitfx_18
+    24                          	GLOBAL	_bitfx_19
+    24                          	GLOBAL	_bitfx_20
+    24                          	GLOBAL	_bitfx_21
+    24                          	GLOBAL	_bitfx_22
+    24                          	GLOBAL	_bitfx_23
+    24                          	GLOBAL	_bitfx_24
+    24                          	GLOBAL	_bitfx_25
+    24                          	GLOBAL	_bitfx_26
+    24                          	GLOBAL	_bitfx_27
+    24                          	GLOBAL	_bitfx_28
+    24                          	GLOBAL	_bitfx_29
+    24                          	GLOBAL	_bitfx_30
+    24                          	GLOBAL	_bitfx_31
+    24                          	GLOBAL	_bfx_0
+    24                          	GLOBAL	_bfx_1
+    24                          	GLOBAL	_bfx_2
+    24                          	GLOBAL	_bfx_3
+    24                          	GLOBAL	_bfx_4
+    24                          	GLOBAL	_bfx_5
+    24                          	GLOBAL	_bfx_6
+    24                          	GLOBAL	_bfx_7
+    24                          	GLOBAL	_bfx_8
+    24                          	GLOBAL	_bfx_9
+    24                          	GLOBAL	_bfx_10
+    24                          	GLOBAL	_bfx_11
+    24                          	GLOBAL	_bfx_12
+    24                          	GLOBAL	_bfx_13
+    24                          	GLOBAL	_bfx_14
+    24                          	GLOBAL	_bfx_15
+    24                          	GLOBAL	_bfx_16
+    24                          	GLOBAL	_bfx_17
+    24                          	GLOBAL	_bfx_18
+    24                          	GLOBAL	_bfx_19
+    24                          	GLOBAL	_bfx_20
+    24                          	GLOBAL	_bfx_21
+    24                          	GLOBAL	_bfx_22
+    24                          	GLOBAL	_bfx_23
+    24                          	GLOBAL	_bfx_24
+    24                          	GLOBAL	_bfx_25
+    24                          	GLOBAL	_bfx_26
+    24                          	GLOBAL	_bfx_27
+    24                          	GLOBAL	_bfx_28
+    24                          	GLOBAL	_bfx_29
+    24                          	GLOBAL	_bfx_30
+    24                          	GLOBAL	_bfx_31
+    24                          	GLOBAL	_bfx_32
+    24                          	GLOBAL	_bfx_33
+    24                          	GLOBAL	_bfx_34
+    24                          	GLOBAL	_bfx_35
+    24                          	GLOBAL	_bfx_36
+    24                          	GLOBAL	_bfx_37
+    24                          	GLOBAL	_bfx_38
+    24                          	GLOBAL	_bfx_39
+    24                          	GLOBAL	_bfx_40
+    24                          	GLOBAL	_bfx_41
+    24                          	GLOBAL	_bfx_42
+    24                          	GLOBAL	_bfx_43
+    24                          	GLOBAL	_bfx_44
+    24                          	GLOBAL	_bfx_45
+    24                          	GLOBAL	_bfx_46
+    24                          	GLOBAL	_bfx_47
+    24                          	GLOBAL	_bfx_48
+    24                          	GLOBAL	_bfx_49
+    24                          	GLOBAL	_bfx_50
+    24                          	GLOBAL	_bfx_51
+    24                          	GLOBAL	_bfx_52
+    24                          	GLOBAL	_bfx_53
+    24                          	GLOBAL	_bfx_54
+    24                          	GLOBAL	_bfx_55
+    24                          	GLOBAL	_bfx_56
+    24                          	GLOBAL	_bfx_57
+    24                          	GLOBAL	_addtwo
+    24                          	GLOBAL	_twice
+    24                          	GLOBAL	_beep
+    24                          	GLOBAL	_main
+    24                          
+    24                          
+    24                          ; --- End of Scope Defns ---
+    24                          
+    24                          ; F:G$twice$0_0$0({0}DF,SI:U),C,0,0,0,0,0
+    24                          	PUBLIC	__CDBINFO__F_3aG_24twice_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aU_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    24                          	defc	__CDBINFO__F_3aG_24twice_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aU_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    24                          ; S:Lcalleejp.c.twice$v$0_0$0({2}SI:U),B,1,4
+    24                          	PUBLIC	__CDBINFO__S_3aLcalleejp_2ec_2etwice_24v_24_30_5f_30_24_30_28_7b_32_7dSI_3aU_29_2cB_2c_31_2c_34
+    24                          	defc	__CDBINFO__S_3aLcalleejp_2ec_2etwice_24v_24_30_5f_30_24_30_28_7b_32_7dSI_3aU_29_2cB_2c_31_2c_34 = 1
+    24                          ; S:Lcalleejp.c.twice$r$1_0$1({2}SI:U),B,1,-2
+    24                          	PUBLIC	__CDBINFO__S_3aLcalleejp_2ec_2etwice_24r_24_31_5f_30_24_31_28_7b_32_7dSI_3aU_29_2cB_2c_31_2c_2d_32
+    24                          	defc	__CDBINFO__S_3aLcalleejp_2ec_2etwice_24r_24_31_5f_30_24_31_28_7b_32_7dSI_3aU_29_2cB_2c_31_2c_2d_32 = 1
+    24                          ; F:G$beep$0_0$1({0}DF,DV),C,0,0,0,0,0
+    24                          	PUBLIC	__CDBINFO__F_3aG_24beep_24_30_5f_30_24_31_28_7b_30_7dDF_2cDV_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    24                          	defc	__CDBINFO__F_3aG_24beep_24_30_5f_30_24_31_28_7b_30_7dDF_2cDV_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    24                          ; F:G$main$0_0$2({0}DF,SI:S),C,0,0,0,0,0
+    24                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_32_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    24                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_32_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    24                          ; S:Lcalleejp.c.main$t$1_0$4({2}SI:U),B,1,-2
+    24                          	PUBLIC	__CDBINFO__S_3aLcalleejp_2ec_2emain_24t_24_31_5f_30_24_34_28_7b_32_7dSI_3aU_29_2cB_2c_31_2c_2d_32
+    24                          	defc	__CDBINFO__S_3aLcalleejp_2ec_2emain_24t_24_31_5f_30_24_34_28_7b_32_7dSI_3aU_29_2cB_2c_31_2c_2d_32 = 1
+    24                          ; F:G$twice$0_0$0({0}DF,SI:U),C,0,0,0,0,0
+    24                          	PUBLIC	__CDBINFO__F_3aG_24twice_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aU_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    24                          	defc	__CDBINFO__F_3aG_24twice_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aU_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    24                          ; F:G$beep$0_0$1({0}DF,DV),C,0,0,0,0,0
+    24                          	PUBLIC	__CDBINFO__F_3aG_24beep_24_30_5f_30_24_31_28_7b_30_7dDF_2cDV_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    24                          	defc	__CDBINFO__F_3aG_24beep_24_30_5f_30_24_31_28_7b_30_7dDF_2cDV_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    24                          ; F:G$main$0_0$2({0}DF,SI:S),C,0,0,0,0,0
+    24                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_32_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    24                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_32_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    24                          
+    24                          ; --- End of Compilation ---
+    24                          

@@ -85,6 +85,7 @@ extern libspectrum_dword event_next_event;
 
 /* These are implemented by the Z80Cpu wrapper (z80_cpu.cpp) */
 extern libspectrum_byte fuse_z80_readbyte_raw(libspectrum_word address); /* no timing */
+extern libspectrum_byte fuse_z80_readbyte_raw_data(libspectrum_word address); /* no timing, not an M1 */
 extern libspectrum_byte fuse_z80_readbyte(libspectrum_word address);     /* +3T +contention */
 extern void             fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b); /* +3T +contention */
 extern libspectrum_byte fuse_z80_readport(libspectrum_word port);

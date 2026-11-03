@@ -1,0 +1,3 @@
+# z88dk 39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7 (master)
++ zcc +zxn -clib=new -compiler=80cc -debug -m --list -subtype=nex -o prog -create-app main.c util.c asmfn.asm
+rc=0

@@ -41,3 +41,20 @@ inference this document refuses. A guard that carries a citation of its own
 therefore does win, and 12 rows of `## Contention` are in exactly that shape:
 their citation is right and their `Test file:line` names the guard. Untouched
 here, and the fix is to drop the ID reuse in that suite.
+
+## GH #339 — the M1 prediction (MF-M1G-07)
+
+`Multiface::would_latch_on_m1(pc)` answers, without running the edge, what
+`is_mem_active()` will be once an M1 at `pc` has been clocked: `mf_enable_eff`
+of that M1, i.e. `mf_enable OR fetch_66` (multiface.vhd:186), `fetch_66` being
+the 0x0066 fetch while `nmi_active` (:169) and the same fetch latching
+`mf_enable` (:176), with every flip-flop held in reset while `enable_i` is low
+(:103). `Emulator::predict_fetch()` uses it where it used to copy the 16 KB
+object and run `on_m1()` on the copy.
+
+| ID | Test | Setup | Expected |
+|----|------|-------|----------|
+| MF-M1G-07 | The prediction equals the VHDL expression and the clocked process | Every state reachable from reset by up to four of {button press, an M1 at 0x0066, an M1 elsewhere, the four port strobes, a RETN}, in each NR 0x0A mode, enabled and not, plus a restored enabled=0 / nmi_active=1 state; pcs 0x0066, 0x0065, 0x0067, 0x0000, 0x8066 | `would_latch_on_m1(pc)` equals `enabled AND (mf_enable OR (pc==0x0066 AND nmi_active))` and equals `is_mem_active()` after `on_m1(pc, true)` on a copy; the walk reaches latched, latching-at-0x0066, armed-but-elsewhere, disabled and idle states (multiface.vhd:103,169,176,186) |
+
+(The issue named this row `MF-58`, the 58th row; the suite's IDs are families
+and `MF-M1G-*` is the M1 gating one.)

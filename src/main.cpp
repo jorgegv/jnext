@@ -342,6 +342,10 @@ int main(int argc, char* argv[]) {
     std::vector<std::string>              script_files;   // GH #26 WP4
     std::vector<std::pair<uint32_t, int>> script_keys;
     std::string                           map_file;
+    std::string                           source_map_file;
+    std::string                           annotations_file;
+    std::vector<std::string>              import_skoolkit_files;   // GH #389
+    std::vector<std::string>              import_ghidra_files;
     std::string                           record_script_file;   // GH #26 WP6
     bool        esxdos_stub = false;
     std::string esxdos_stub_root;
@@ -408,6 +412,9 @@ int main(int argc, char* argv[]) {
     bool        mouse_release_set = false;     // was --mouse-release given?
     int         rewind_buffer_frames = 0;
     bool        trace_enabled = false;
+    bool        coverage_enabled = false;
+    std::string export_skoolkit_dir;       // GH #389
+    std::string export_ghidra_dir;
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
     bool        compositor_trace_frame_set = false;
@@ -450,6 +457,8 @@ int main(int argc, char* argv[]) {
     std::vector<config_keys::Assignment> qt_assignments;        // the keys only the Qt window has
     std::vector<std::pair<std::string, std::string>> debug_key_assignments;   // debugger_keys.ID=COMBO
     std::optional<bool> debugger_attached_opt;                  // debugger.attached
+    std::optional<bool> debugger_physical_opt;                  // debugger.physical_addresses
+    std::optional<std::string> source_dirs_text;                // paths.source_dirs / --source-dir (GH #420)
     // How each key was spelled on the command line, for the "has no effect" warnings.
     std::vector<std::pair<config_keys::KeyId, std::string>> given_as;
     auto note_given = [&](config_keys::KeyId id, const std::string& spelling) {
@@ -502,6 +511,7 @@ int main(int argc, char* argv[]) {
         case KeyId::PathsScreenshotDir:
         case KeyId::ScreenshotQuickDir:
         case KeyId::ScreenshotQuickFormat:
+        case KeyId::SourceColourScheme:
             qt_assignments.push_back(a);   // merged into the Qt session's copy (merge_cli_assignments)
             break;
         case KeyId::StartupSilent:
@@ -529,6 +539,9 @@ int main(int argc, char* argv[]) {
         case KeyId::AudioGainDacDb:    gain(cli::OptId::AudioGainDacDb); break;
         case KeyId::PathsSdCardPath:
             sd_card_image = t;
+            break;
+        case KeyId::PathsSourceDirs:
+            source_dirs_text = t;   // a later --set replaces everything before it; --source-dir appends
             break;
         case KeyId::SnapshotQuickKeep:
             quick_snapshot_keep = (t == "unlimited") ? 0 : static_cast<int>(num);
@@ -578,6 +591,9 @@ int main(int argc, char* argv[]) {
         case KeyId::NextpiQemuArgs:   nextpi_cli.qemu_args = t; break;
         case KeyId::DebuggerAttached:
             debugger_attached_opt = on;
+            break;
+        case KeyId::DebuggerPhysicalAddresses:
+            debugger_physical_opt = on;
             break;
         // Not settings (parse_assignment refuses them before they get here):
         // history, derived names, the file format version, remembered geometry.
@@ -858,6 +874,32 @@ int main(int argc, char* argv[]) {
             case cli::OptId::Map:
                 map_file = v[0];
                 break;
+            case cli::OptId::SourceMap:
+                source_map_file = v[0];
+                break;
+            case cli::OptId::Annotations:
+                annotations_file = v[0];
+                break;
+            case cli::OptId::ImportSkoolkit:
+                import_skoolkit_files.push_back(v[0]);
+                break;
+            case cli::OptId::ImportGhidra:
+                import_ghidra_files.push_back(v[0]);
+                break;
+            case cli::OptId::SourceDir: {
+                // ONE directory per occurrence, appended to the list --set may have
+                // given (the esp-allow semantics). Merged into the Qt session's copy
+                // below; never written to jnext.conf.
+                std::string list = source_dirs_text.value_or(std::string());
+                std::string why;
+                if (!config_keys::append_list_entry(list, v[0], why)) {
+                    fprintf(stderr, "%s\n", why.c_str());
+                    return 1;
+                }
+                source_dirs_text = list;
+                note_given(config_keys::KeyId::PathsSourceDirs, arg);
+                break;
+            }
             case cli::OptId::RecordScript:
                 record_script_file = v[0];
                 break;
@@ -1285,6 +1327,15 @@ int main(int argc, char* argv[]) {
             case cli::OptId::Trace:
                 trace_enabled = true;
                 break;
+            case cli::OptId::Coverage:
+                coverage_enabled = true;
+                break;
+            case cli::OptId::ExportSkoolkit:
+                export_skoolkit_dir = v[0];
+                break;
+            case cli::OptId::ExportGhidra:
+                export_ghidra_dir = v[0];
+                break;
             case cli::OptId::CompositorTrace:
                 compositor_trace_path = v[0];
                 break;
@@ -1651,6 +1702,10 @@ int main(int argc, char* argv[]) {
                 "--wav-record cannot be combined with --silent because --silent disables mixer synthesis.\n");
         return 1;
     }
+
+    // GH #420 - a --set / --source-dir list goes to the session copy, like the other Qt keys.
+    if (source_dirs_text)
+        qt_assignments.push_back({ config_keys::KeyId::PathsSourceDirs, {}, *source_dirs_text });
 
     // Task 66 (Configurability) — load saved GUI preferences once, early
     // enough to seed the SD-card resolution below. Only ever done for the
@@ -2135,6 +2190,22 @@ int main(int argc, char* argv[]) {
         cfg.script_files = script_files;   // GH #26 WP4
         cfg.script_keys  = script_keys;
         cfg.map_file     = map_file;
+        cfg.source_map_file = source_map_file;
+        cfg.annotations_file = annotations_file;
+        cfg.import_skoolkit_files = import_skoolkit_files;
+        cfg.import_ghidra_files = import_ghidra_files;
+        // GH #351: with no program to load (no --load, or an RZX replay: --rzx-play R or
+        // --load R.rzx) only a z88dk dot command's map is accepted; the frontend attaches it
+        // at start-up, pending, and refuses any other map.
+        {
+            std::string ext;
+            if (const auto dot = load_file.rfind('.'); dot != std::string::npos) {
+                ext = load_file.substr(dot);
+                for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            const bool rzx = !rzx_play_file.empty() || ext == ".rzx";
+            cfg.source_map_no_program = source_map_file.empty() ? 0 : rzx ? 2 : load_file.empty() ? 1 : 0;
+        }
         cfg.record_script_file = record_script_file;   // GH #26 WP6
         cfg.esxdos_stub = esxdos_stub;
         cfg.esxdos_stub_root = esxdos_stub_root;
@@ -2150,6 +2221,9 @@ int main(int argc, char* argv[]) {
         cfg.magic_port_mode = magic_port_mode;
         cfg.rewind_buffer_frames = rewind_buffer_frames;
         cfg.trace = trace_enabled;
+        cfg.coverage = coverage_enabled;
+        cfg.export_skoolkit_dir = export_skoolkit_dir;
+        cfg.export_ghidra_dir   = export_ghidra_dir;
         cfg.compositor_trace_path  = compositor_trace_path;
         cfg.compositor_trace_frame = compositor_trace_frame;
         cfg.profile                = profile_enabled;
@@ -2514,6 +2588,7 @@ int main(int argc, char* argv[]) {
                 if (session_debug_keys_given) mw->set_session_debug_keys(session_debug_keys);
 #ifdef ENABLE_DEBUGGER
                 if (debugger_attached_opt) mw->set_debugger_attach_override(*debugger_attached_opt);
+                if (debugger_physical_opt) mw->set_debugger_physical_override(*debugger_physical_opt);
 #endif
             }
         }

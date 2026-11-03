@@ -95,6 +95,13 @@ enum class OptId {
     ScriptKey,
     RecordScript,
     Map,
+    SourceMap,
+    SourceDir,
+    Annotations,
+    ImportSkoolkit,
+    ImportGhidra,
+    ExportSkoolkit,
+    ExportGhidra,
     EsxdosStub,
     EsxdosStubRoot,
     EsxdosStubWritable,
@@ -139,6 +146,7 @@ enum class OptId {
     PokTrainers,
     RewindBufferSize,
     Trace,
+    Coverage,
     CompositorTrace,
     CompositorTraceFrame,
     Profile,
@@ -613,6 +621,10 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Enable the per-instruction trace log (10K-entry ring;\n"
       "implied by --rewind-buffer-size N with N>0)" },
+    { "--coverage", 0, Doc::Documented, OptId::Coverage,
+      "",
+      "Record memory coverage (executed, read and written bytes per\n"
+      "page) from the start; see Debug > Coverage" },
 
     // Headless and automation
     { "--headless", 0, Doc::Documented, OptId::Headless,
@@ -848,6 +860,67 @@ inline constexpr Option OPTIONS[] = {
       "or --exp file, told apart by its contents, for `@symbol`\n"
       "in scripts and for the debugger (the same table\n"
       "Map > Load MAP fills)." },
+    { "--source-map", 1, Doc::Documented, OptId::SourceMap,
+      "FILE",
+      "Attach a source map, an sjasmplus SLD or a z88dk -debug .map\n"
+      "(told by its contents), to the program --load loads, as if\n"
+      "loaded by hand (Debug > Source > Load Source Map...). Refused\n"
+      "without --load unless FILE is a z88dk dot command's map,\n"
+      "which attaches pending and is checked when the dot command\n"
+      "runs; the same with an RZX replay (--rzx-play, --load R.rzx).\n"
+      "Refused when the program does not match the map's\n"
+      "binary identity (exit 1). With a tape program the map\n"
+      "attaches at once and is checked the first time the program\n"
+      "runs its code; a mismatch then drops it (exit 1)." },
+    // Repeatable: each occurrence appends one directory (GH #420).
+    { "--source-dir", 1, Doc::Documented, OptId::SourceDir,
+      "DIR",
+      "Also search DIR for the source files a source map names\n"
+      "(Qt window with the debugger). ONE directory per option,\n"
+      "repeat it for more; a path-list separator is rejected.\n"
+      "Tried after the map's own directory and its parents.\n"
+      "The same as --set paths.source_dirs=DIRS." },
+    { "--annotations", 1, Doc::Documented, OptId::Annotations,
+      "FILE",
+      "Load a debugger annotations file (.jdp): the user's labels\n"
+      "and comments, by memory page, which the debugger views, a\n"
+      "script's `@name` and GDB `monitor sym` show over the\n"
+      "toolchain's symbols. Loaded before the scripts. In the Qt\n"
+      "debugger, Map > Save Annotations writes back to it. A file that\n"
+      "cannot be read or does not parse is a startup error (exit 1)." },
+    // GH #389 (E23-26): the reverse-engineering imports (at start, repeatable) and exports (at exit).
+    { "--import-skoolkit", 1, Doc::Documented, OptId::ImportSkoolkit,
+      "FILE",
+      "At start, after --annotations, read FILE, a skoolkit control\n"
+      "file, into the debugger's labels and comments (the\n"
+      "`@ ADDR label=NAME` lines and the instruction comments of\n"
+      "B/C/S/T/W sub-blocks; titles and the rest are counted, not\n"
+      "imported). Repeatable. The memory is the file's `# jnext\n"
+      "space TAG` line, else its name (TAG.ctl, WWWW-TAG.ctl), else\n"
+      "the memory mapped at that address when the file is read,\n"
+      "which is before --load runs. A file that does not parse or\n"
+      "cannot be read is a startup error (exit 1) naming the line" },
+    { "--import-ghidra", 1, Doc::Documented, OptId::ImportGhidra,
+      "FILE",
+      "As --import-skoolkit for a Ghidra symbol file (lines `NAME\n"
+      "[TAG:]0xADDR l`, as --export-ghidra writes). Repeatable" },
+    // GH #389 (E23-26): the exports, written when jnext exits.
+    { "--export-skoolkit", 1, Doc::Documented, OptId::ExportSkoolkit,
+      "DIR",
+      "At exit, write the debugger's labels and the code/data map of\n"
+      "--coverage into DIR as skoolkit control files: one\n"
+      "WWWW-TAG.ctl and WWWW-TAG.bin per memory page and window\n"
+      "(sna2skool.py -o 0xWWWW WWWW-TAG.bin, or -c DIR), and\n"
+      "0000-0CPU.ctl for the unpaged labels. DIR is created; a\n"
+      "previous export's files in it are replaced, other files are\n"
+      "never touched. A failure exits 1" },
+    { "--export-ghidra", 1, Doc::Documented, OptId::ExportGhidra,
+      "DIR",
+      "At exit, write the debugger's labels into DIR as Ghidra symbol\n"
+      "files for ImportSymbolsScript.py: TAG.ghidra.txt per memory\n"
+      "page (an overlay named TAG), CPU.ghidra.txt for the unpaged\n"
+      "labels and view.ghidra.txt for the memory as mapped at exit.\n"
+      "A failure exits 1" },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },

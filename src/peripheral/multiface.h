@@ -118,6 +118,24 @@ public:
         on_m1_clock_(pc, mreq_low);
     }
 
+    /// What `is_mem_active()` WILL be once `on_m1(pc, true)` has run, asked
+    /// without running it: `mf_enable_eff` for an M1 at `pc` (multiface.vhd:186,
+    /// `mf_enable OR fetch_66`, with `fetch_66` = the 0x0066 fetch while
+    /// `nmi_active`, :169). The MMU's overlay gate for that fetch, so a debugger
+    /// can name its source before the instruction runs without copying the
+    /// Multiface (GH #339; it used to copy the 16 KB object).
+    ///
+    /// `enabled_` is the multiface.vhd:103 gate (`reset = reset_i OR NOT
+    /// enable_i` holds every flip-flop at its reset value). For a state reached
+    /// through the public API it cannot change the answer, because disabling
+    /// clears `nmi_active_` and `mf_enable_`; it is kept so the answer equals the
+    /// edge's for a state that never was (a restored one: `enabled` and the
+    /// flip-flops are declared fields, so a hand-built `.jns` can disagree), and
+    /// multiface_test MF-M1G-07 pins it.
+    bool would_latch_on_m1(uint16_t pc) const {
+        return enabled_ && (mf_enable_ || (pc == 0x0066 && nmi_active_));
+    }
+
     /// VHDL `cpu_retn_seen_i` pulse. Clears nmi_active (line 144) AND
     /// mf_enable (line 178) for one cycle. Emulator latches
     /// Im2Controller::retn_seen_this_cycle() during decode and calls this

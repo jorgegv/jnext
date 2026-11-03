@@ -1,0 +1,4 @@
+# z88dk 4d530b6eb779ad0f2a1d13c0bb670cf717477501 (v2.4)
++ zcc +zxn -clib=sdcc_iy -SO0 --c-code-in-asm -m --list -subtype=nex -o prog -create-app main.c util.c asmfn.asm
+main.c:28: warning 126: unreachable code
+rc=0

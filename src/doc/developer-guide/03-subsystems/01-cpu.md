@@ -154,6 +154,13 @@ slot). An engaged Layer 2 mapping decides alone: it waits on an active page and
 does not on an inactive one, whatever the slot holds. A boot-ROM read waits as
 the access beneath it would.
 
+The DivMMC term follows the view of the cycle that asks: the M1 view for an
+opcode fetch, the after-fetch (`hold`) view for every other read, DMA included.
+`Z80Cpu` decides each M1's wait when it reads that byte, under the overlay that
+M1's own automap decode left, and `contend_read(PC, 4)` charges that recorded
+value, so the first M1 of a prefix chain is not charged for the state the chain's
+last M1 leaves behind.
+
 ## M1 hooks and interrupts
 
 Two callbacks bracket the opcode fetch, and the order matters. `on_m1_prefetch`
@@ -161,13 +168,16 @@ fires *before* the read, because DivMMC automap, the NMI FSM and the Multiface
 window all decide what memory the CPU is about to see, and must be settled
 before the byte is fetched through them. `on_m1_cycle` fires *after*, once per
 fetched byte of a prefix chain — including the inner byte of `DD ED xx` —
-because the IM2 opcode decoder models one event per M1.
+because the IM2 opcode decoder models one event per M1. Both fire for every M1
+byte of an instruction, the inner bytes of a prefix chain included
+(`fetch_prefix_chain_()`): the DivMMC and Multiface decisions are per M1, and an
+inner byte can sit on an entry point or in the unmap window.
 
 `request_interrupt(vector, first, last)` gives the CPU the window of
 instruction boundaries, on the FUSE T-state counter, at which /INT is seen low.
 The T80 samples INT_n into INT_s on every CPU rising edge (`t80n.vhd:1664`) and
 decides at the end of an instruction with the INT_s taken at the *start* of its
-last T-state (`:1742-1772`), so a pulse first sampled on CPU edge E_1 and last on
+last T-state (`t80n.vhd:1742-1772`), so a pulse first sampled on CPU edge E_1 and last on
 E_N is taken at a boundary in [E_1 + 1 T, E_N + 1 T] — 32 CPU cycles on 48K/+3,
 36 otherwise (`zxnext.vhd:2033`). `execute()` takes it at the first boundary
 inside the window, keeps it pending at one before (a request resolved at the end

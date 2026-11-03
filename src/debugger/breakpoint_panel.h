@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QTableWidget>
 
+#include <utility>
 #include <vector>
 
 #include "debugger/breakpoint_model.h"
@@ -56,10 +57,17 @@ public slots:
     void on_remove();
 
 private:
-    /// `page` is in and out: an Execute breakpoint set on a source line whose
-    /// record names a physical page comes back qualified with it.
-    bool show_bp_dialog(const QString& title, uint16_t& addr, uint16_t& page,
-                        int& type_index);
+    /// What the dialog resolved: one address with the memory that must supply
+    /// it, or (`source_line` non-empty) a source line, which the model arms at
+    /// every place it compiled to as one group (E23-09).
+    struct BpTarget {
+        uint16_t addr = 0;
+        jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
+        QString source_line;
+    };
+    /// `addr` / `space` seed the text.
+    bool show_bp_dialog(const QString& title, uint16_t addr, jnext::dbg::MemSpace space,
+                        int& type_index, BpTarget& target);
 
     /// GH #225 — apply the check state of the Enabled cell `row` to the model.
     void apply_enabled_cell(int row, bool enabled);

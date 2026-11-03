@@ -11,12 +11,15 @@
 #include "platform/cli_capture.h"
 #include "platform/cli_delay.h"
 #include "platform/auto_exit.h"
+#include "platform/coverage_startup.h"   // GH #388
+#include "platform/re_export_at_exit.h"   // GH #389
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
 #include "platform/render_policy.h"
 #include "platform/speed_report.h"
 #include "platform/sdl_audio.h"
 #include "core/log.h"
+#include "debug/source_file.h"   // GH #344: program_loads_later
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #endif
@@ -317,6 +320,7 @@ bool QtApp::init(int argc, char* argv[]) {
     // the choice is visible.
     debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
     debugger_->set_stop_policy(jnext::dbg::StopPolicy::Pause);
+    apply_startup_coverage(*debugger_, cfg);   // GH #388 --coverage
     {
         jnext::dbg::LoopDriver driver;
         driver.cold_boot = [this]() {
@@ -342,14 +346,33 @@ bool QtApp::init(int argc, char* argv[]) {
     // (post_frames() below). platform/debug_servers.h.
     if (!debug_servers_.start(*debugger_, config_)) return false;
     // ── end GH #12 ──────────────────────────────────────────────────────────
+    // GH #351 - --source-map without --load (or with an RZX replay): the map of a z88dk dot command, attached
+    // now (before the scripts, so a `file:line` rule resolves) and pending until the
+    // guest runs the command. Any other map needs a program: refused.
+    if (!config_.source_map_file.empty() && config_.source_map_no_program != 0) {
+        const auto sm = emulator_attach_cli_source_map(
+            *debugger_, config_.source_map_file, /*deferred=*/false, /*dot_only=*/true,
+            /*rzx=*/config_.source_map_no_program == 2);
+        if (!sm.ok) {
+            Log::platform()->error("{}", sm.line);
+            return false;
+        }
+        Log::platform()->info("{}", sm.line);
+        source_map_watch_ = sm.pending;
+        config_.source_map_file.clear();
+    }
     // GH #26 WP4 — the scripts, after the servers and before the machine runs:
     // a script that does not load is a startup failure (exit 1, §6.5).
     {
         jnext::script::ScriptHostOptions so;
         so.map_file = config_.map_file;
+        so.annotations_file = config_.annotations_file;
+        so.import_skoolkit_files = config_.import_skoolkit_files;
+        so.import_ghidra_files = config_.import_ghidra_files;
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
         so.record_file = config_.record_script_file;   // GH #26 WP6
+        so.program_pending = jnext::script::load_pending_for_scripts(config_.load_file);   // GH #346
         so.exits    = false;  // the GUI pauses; it never exits from a script (§6.3)
         script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
         if (!script_host_.start(*debugger_, so)) return false;
@@ -364,6 +387,12 @@ bool QtApp::init(int argc, char* argv[]) {
     main_window_->set_debugger(debugger_.get());
     main_window_->set_script_host(&script_host_);   // GH #26 WP5 — the Script tab
     main_window_->set_emulator(&emulator_);
+    // GH #387 - the file --annotations loaded is the one Save writes back to.
+#ifdef ENABLE_DEBUGGER
+    if (!config_.annotations_file.empty())
+        if (auto* mgr = main_window_->debugger_manager())
+            mgr->set_annotations_file(QString::fromStdString(config_.annotations_file));
+#endif
     main_window_->set_unattended(exit_countdown_.armed());   // see set_delayed_exit()
     main_window_->set_joy_device_provider([this]() {      // GH #311
         return gamepad_host_ ? gamepad_host_->devices() : std::vector<JoyDeviceInfo>{};
@@ -488,6 +517,9 @@ int QtApp::run() {
 }
 
 void QtApp::shutdown() {
+    if (debugger_) log_coverage_summary(*debugger_);   // GH #388
+    // GH #389: --export-skoolkit / --export-ghidra, after the coverage they map is final.
+    if (debugger_ && !write_re_exports_at_exit(*debugger_, config_) && exit_code_ == 0) exit_code_ = 1;
     // A screenshot that was asked for and never taken is a FAILURE, not a
     // footnote. The capture is deferred while no frame is rendering (debugger
     // paused), but --delayed-automatic-exit is a hard bound and must stay one,
@@ -686,13 +718,44 @@ bool QtApp::TickEffects::pre_frames() {
             if (!sidecars.problem.empty())
                 Log::platform()->warn("load: {}", sidecars.problem);
 #endif
+            // --source-map: attached once, as the user's map, on top of them.
+            if (!a.config_.source_map_file.empty()) {
+                const auto sm = emulator_attach_cli_source_map(
+                    *a.debugger_, a.config_.source_map_file,
+                    program_loads_later(a.load_file_));
+                if (sm.ok) {
+                    Log::platform()->info("{}", sm.line);
+                    a.source_map_watch_ = sm.pending;
+                } else {
+                    Log::platform()->error("{}", sm.line);
+                    a.exit_code_ = 1;
+                }
+            }
         }
+        a.config_.source_map_file.clear();
+        // GH #346 - the scripts held back for the program's maps (the GUI keeps
+        // running on a failure, as for a failed --source-map).
+        if (!a.script_host_.program_loaded()) a.exit_code_ = 1;
         // A File > Open load that failed gets its dialog (deferred to the
         // event loop by the window; this is inside the frame tick).
         if (a.main_window_) a.main_window_->load_finished(a.load_file_, loaded);
         a.load_countdown_ = -1;
     } else if (a.load_countdown_ > 0) {
         --a.load_countdown_;
+    }
+
+    // A --source-map still waiting for its tape program: dropped by a mismatch exits 1.
+    if (a.source_map_watch_) {
+        std::string why;
+        switch (emulator_poll_cli_source_map(*a.debugger_, &why)) {
+            case CliSourceMapWatch::Waiting: break;
+            case CliSourceMapWatch::Done: a.source_map_watch_ = false; break;
+            case CliSourceMapWatch::Failed:
+                Log::platform()->error("--source-map: dropped: {}", why);
+                a.exit_code_ = 1;
+                a.source_map_watch_ = false;
+                break;
+        }
     }
 
     // --rzx-record, once the load/inject above is in the machine.

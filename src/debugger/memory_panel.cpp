@@ -1,7 +1,9 @@
 #include "debugger/memory_panel.h"
 #include "qt/palette_tint_qt.h"   // GH #363
+#include "debugger/coverage_colors.h"   // GH #388
 #include "debug/debugger.h"
 #include "debug/symbol_table.h"
+#include "debugger/memory_text.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -85,6 +87,12 @@ void MemoryPanel::create_ui() {
         update();
     });
 
+    // GH #388 - the memory-coverage legend, shown only while coverage is on.
+    coverage_legend_ = new QLabel(this);
+    coverage_legend_->setTextFormat(Qt::RichText);
+    coverage_legend_->setVisible(false);
+    top_bar->addWidget(coverage_legend_);
+
     top_bar->addStretch();
     outer->addLayout(top_bar);
 
@@ -121,16 +129,42 @@ void MemoryPanel::create_ui() {
 
 void MemoryPanel::refresh() {
     update_page_selector();
+    update_coverage_legend();
     update();
 }
 
+// GH #388 - "Coverage: X R W" in the three colours while coverage is on. Rebuilt
+// on every refresh, so a light/dark switch recolours it.
+void MemoryPanel::update_coverage_legend() {
+    if (!coverage_legend_) return;
+    const bool on = dbg_ && dbg_->mem_coverage_enabled();
+    coverage_legend_->setVisible(on);
+    if (!on) return;
+    const QPalette pal = palette();
+    auto span = [&](const QColor& c, const char* t) {
+        return QString("<b style=\"color:%1\">%2</b>").arg(palette_tint::css(c), t);
+    };
+    coverage_legend_->setText(tr("Coverage:") + " " + span(coverage_colors::exec(pal), "X") + " " +
+                              span(coverage_colors::read(pal), "R") + " " +
+                              span(coverage_colors::write(pal), "W"));
+}
+
 QSize MemoryPanel::sizeHint() const {
-    return QSize(620, 550);
+    return QSize(760, 550);   // GH #360: the memory tag after the ASCII column
 }
 
 // ---------------------------------------------------------------------------
 // Memory access helpers
 // ---------------------------------------------------------------------------
+
+// GH #360: the space a Slot view shows, as SlotInfo names it; a RAM-page index at or
+// above 0xE0 (a slot paged to nothing) is `floating()`, never a page the tag grammar
+// refuses (design 4.6).
+static jnext::dbg::MemSpace own_space(const jnext::dbg::SlotInfo& si) {
+    if (si.space.kind == jnext::dbg::MemSpace::Kind::Page && si.space.index >= 0xE0)
+        return jnext::dbg::MemSpace::floating();
+    return si.space;
+}
 
 MemoryPanel::Where MemoryPanel::locate(uint16_t addr) const {
     int mode = page_selector_ ? page_selector_->currentIndex() : 0;
@@ -220,13 +254,13 @@ void MemoryPanel::update_page_selector() {
 
     const auto slot_info = dbg_->mmu_slots();   // INS-03
     for (int i = 0; i < 8; ++i) {
-        // effective_page: physical page in use (explicit NR 0x50-0x57 or
-        // derived legacy page). nr_page would show 0xFF for legacy ROM slots.
-        uint8_t page = slot_info[i].effective_page;
-        // The HEX is upper case, the words are not (GH #278 WP0): this used to
-        // upper-case the whole label, "SLOT 3 (PAGE 0B)" beside "CPU View".
+        // GH #360: the slot's own space through the formatter ("ROM0", "P0A"). The
+        // old "page %02X" printed effective_page, which for a ROM slot is the
+        // un-shifted ROM page and read as RAM page 00. A slot paged to nothing
+        // (NR >= 0xE0) is FLOAT. The words are not upper-cased (GH #278 WP0).
         page_selector_->setItemText(i + 1,
-            QString("Slot %1 (page %2)").arg(i).arg(QString::asprintf("%02X", page)));
+            QString("Slot %1 (%2)").arg(i).arg(QString::fromStdString(
+                jnext::dbg::space_tag(own_space(slot_info[i])))));
     }
 }
 
@@ -330,8 +364,12 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
 
     if (!dbg_ || vis <= 0) return;
 
-    bool cpu_view = (page_selector_ ? page_selector_->currentIndex() : 0) == 0;
+    const int  mode_sel  = page_selector_ ? page_selector_->currentIndex() : 0;
+    const bool cpu_view  = mode_sel == 0;
+    const int  mode_slot = (mode_sel >= 1 && mode_sel < PAGE_ITEM) ? mode_sel : 0;   // GH #360
+    const auto sinfo     = dbg_->mmu_slots();                                        // GH #360
     uint16_t sp = dbg_->registers().SP;
+    const bool cov_on = dbg_->mem_coverage_enabled();   // GH #388
 
     for (int vrow = 0; vrow < vis; ++vrow) {
         int abs_row = scroll_offset_ + vrow;
@@ -376,6 +414,14 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
         char ascii_buf[BYTES_PER_ROW + 1];
         uint8_t row_bytes[BYTES_PER_ROW] = {};
         read_bytes(static_cast<uint16_t>(base_addr), row_bytes, BYTES_PER_ROW);
+        // GH #388 - the row's coverage flags, through the SAME locate() as the
+        // bytes (the CPU view is the live data route, a Slot view the slot's
+        // space, a Page view Page{n}).
+        uint8_t row_cov[BYTES_PER_ROW] = {};
+        if (cov_on) {
+            const Where cw = locate(static_cast<uint16_t>(base_addr));
+            dbg_->mem_coverage(cw.space, cw.addr, BYTES_PER_ROW, row_cov);
+        }
 
         for (int col = 0; col < BYTES_PER_ROW; ++col) {
             uint16_t addr = static_cast<uint16_t>(base_addr + col);
@@ -404,6 +450,24 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
             QString hex_str = QString("%1").arg(byte, 2, 16, QChar('0')).toUpper();
             p.drawText(x_pos, y + fm.ascent(), hex_str);
 
+            // GH #388 - a three-segment underline under the byte, X | R | W in
+            // thirds of the cell: every combination is shown with no precedence.
+            if (row_cov[col]) {
+                const int cell = char_w_ * 2;
+                const int seg = cell / 3;
+                // On the selected cell (a fixed blue fill) the blue R, and in the dark
+                // palette every mark, would sit on a like colour: lift the marks one pixel
+                // and give them a white backing, one pixel wider all round.
+                const int uy = y + rh - (selected ? 3 : 2);
+                if (selected) p.fillRect(x_pos - 1, uy - 1, cell + 2, 4, Qt::white);
+                if (row_cov[col] & jnext::dbg::COVERAGE_EXEC)
+                    p.fillRect(x_pos, uy, seg, 2, coverage_colors::exec(palette()));
+                if (row_cov[col] & jnext::dbg::COVERAGE_READ)
+                    p.fillRect(x_pos + seg, uy, seg, 2, coverage_colors::read(palette()));
+                if (row_cov[col] & jnext::dbg::COVERAGE_WRITE)
+                    p.fillRect(x_pos + 2 * seg, uy, cell - 2 * seg, 2, coverage_colors::write(palette()));
+            }
+
             // ASCII representation
             ascii_buf[col] = (byte >= 0x20 && byte <= 0x7E)
                              ? static_cast<char>(byte) : '.';
@@ -414,6 +478,17 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
         p.setPen(palette_tint::ink(palette(), QColor(Qt::darkBlue)));
         int asc_x = ascii_area_left();
         p.drawText(asc_x, y + fm.ascent(), QString("|%1|").arg(ascii_buf));
+
+        // GH #360 - which memory the row's bytes came from: the slot's live data route
+        // in the CPU view, the space shown in a Slot or Page view; its own address in the
+        // physical style. After the ASCII item, so nothing before it moves.
+        const Where tw = locate(static_cast<uint16_t>(base_addr));
+        const jnext::dbg::MemSpace tag_space =
+            cpu_view ? memtext::now_of(sinfo, static_cast<uint16_t>(base_addr))
+                     : (mode_slot > 0 ? own_space(sinfo[mode_slot - 1]) : tw.space);
+        p.setPen(palette_tint::ink(palette(), QColor(Qt::darkMagenta)));
+        p.drawText(asc_x + 19 * char_w_, y + fm.ascent(),
+                   memtext::text(dbg_, style_, tag_space, static_cast<uint16_t>(tw.addr)));
     }
 }
 

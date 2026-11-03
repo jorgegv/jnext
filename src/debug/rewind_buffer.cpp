@@ -81,6 +81,7 @@ void RewindBuffer::take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint
     s.clock       = emu.clock().get();
     s.mutated_at  = UINT64_MAX;   // a fresh snapshot carries every change made so far
     s.call_frames = emu.call_stack().frames();
+    s.generation  = emu.debug_state().load_generation();
     if (full) {
         head_ = (head_ + 1) % slots_.size();
     } else {
@@ -150,6 +151,9 @@ uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) con
         explicit RingRestore(DebugState& d) : ds(d) { ds.set_restoring_from_rewind(true); }
         ~RingRestore() { ds.set_restoring_from_rewind(false); }
     };
+    // The landing's generation is set BEFORE the load, so the hook (which fires
+    // inside load_state) and the replay that follows already see it.
+    emu.debug_state().set_load_generation(s.generation);
     bool loaded;
     {
         const RingRestore ring_restore(emu.debug_state());

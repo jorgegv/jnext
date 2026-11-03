@@ -1521,6 +1521,130 @@ static void g_mf_m1gate()
                   !mf.port_io_dly() && !mf.is_mem_active(),
               "multiface.vhd:103,126,141,156,175");
     }
+
+    // MF-M1G-07 -- GH #339: would_latch_on_m1(pc), the Multiface half of the
+    // debugger's prediction of the next opcode fetch, is mf_enable_eff for an
+    // M1 at pc: `mf_enable OR fetch_66` (multiface.vhd:186), fetch_66 being the
+    // 0x0066 fetch while nmi_active (:169), latched by that same fetch (:176),
+    // with every flip-flop held at its reset value while enable_i is low
+    // (:103). It used to be answered by COPYING the 16 KB object and running
+    // on_m1() on the copy; it must give the same answer, in every state.
+    //
+    // The oracle is both the VHDL expression above (written out here from the
+    // accessors) and the clocked process itself (is_mem_active() after
+    // on_m1(pc, true) on a copy). The states are every one reachable from reset
+    // by up to four of {button press, an M1 at 0x0066, an M1 elsewhere, the four
+    // port strobes, a RETN}, in each of the four NR 0x0A modes, with the device
+    // enabled and not; and the row asserts the walk REACHED the classes the
+    // formula's terms exist for, so a constant answer cannot pass.
+    {
+        using Op = void (*)(Multiface&);
+        static const Op ops[] = {
+            [](Multiface& m) { m.button_press(); },
+            [](Multiface& m) { m.on_m1(0x0066, true); },
+            [](Multiface& m) { m.on_m1(0x1234, true); },
+            [](Multiface& m) { m.on_port_enable_rd(true); },
+            [](Multiface& m) { m.on_port_enable_wr(true); },
+            [](Multiface& m) { m.on_port_disable_rd(true); },
+            [](Multiface& m) { m.on_port_disable_wr(true); },
+            [](Multiface& m) { m.on_retn_seen(); },
+        };
+        static constexpr uint16_t pcs[] = {0x0066, 0x0065, 0x0067, 0x0000, 0x8066};
+        long states = 0, probes = 0, mismatches = 0;
+        long w_latched = 0, w_latching_66 = 0, w_armed_elsewhere = 0, w_disabled = 0, w_idle = 0;
+        std::string first_bad;
+
+        struct Walker {
+            long& states; long& probes; long& mismatches;
+            long& w_latched; long& w_latching_66; long& w_armed_elsewhere;
+            long& w_disabled; long& w_idle; std::string& first_bad;
+            void walk(const Multiface& m, int depth) {
+                ++states;
+                for (uint16_t pc : pcs) {
+                    // The VHDL: mf_enable_eff of an M1 at pc.
+                    const bool fetch_66 = pc == 0x0066 && m.nmi_active();
+                    const bool vhdl = m.is_enabled() && (m.mf_enable() || fetch_66);
+                    // The clocked process, run on a copy.
+                    Multiface copy = m;
+                    copy.on_m1(pc, true);
+                    const bool edge = copy.is_mem_active();
+                    const bool got  = m.would_latch_on_m1(pc);
+                    ++probes;
+                    if (got != vhdl || got != edge) {
+                        ++mismatches;
+                        if (first_bad.empty())
+                            first_bad = "pc=" + std::to_string(pc) + " enabled=" +
+                                        std::to_string(m.is_enabled()) + " nmi=" +
+                                        std::to_string(m.nmi_active()) + " mfe=" +
+                                        std::to_string(m.mf_enable()) + " got=" +
+                                        std::to_string(got) + " vhdl=" + std::to_string(vhdl) +
+                                        " edge=" + std::to_string(edge);
+                    }
+                    if (!m.is_enabled())                                   ++w_disabled;
+                    else if (m.mf_enable())                                ++w_latched;
+                    else if (m.nmi_active() && pc == 0x0066)               ++w_latching_66;
+                    else if (m.nmi_active())                               ++w_armed_elsewhere;
+                    else                                                   ++w_idle;
+                }
+                if (depth == 4) return;
+                for (const Op op : ops) {
+                    Multiface next = m;
+                    op(next);
+                    walk(next, depth + 1);
+                }
+            }
+        } walker{states, probes, mismatches, w_latched, w_latching_66, w_armed_elsewhere,
+                 w_disabled, w_idle, first_bad};
+
+        for (int enabled = 0; enabled < 2; ++enabled) {
+            for (uint8_t mode = 0; mode < 4; ++mode) {
+                Multiface start;
+                start.set_mode(mode);
+                start.set_enabled(enabled != 0);
+                start.reset(true);
+                walker.walk(start, 0);
+            }
+        }
+
+        // A RESTORED state can disagree with itself: `enabled` and the
+        // flip-flops are separate declared fields, so a hand-built stream can
+        // carry enabled=0 beside nmi_active=1. Disabled, the process holds every
+        // flip-flop in reset (:103), so the answer is still "no" -- the one
+        // state where the enable term is not redundant.
+        bool restored_ok = false;
+        {
+            Multiface armed = make_mf();
+            armed.button_press();                       // nmi_active = 1
+            StateWriter measure;
+            armed.save_state(measure);
+            std::vector<uint8_t> snap(measure.position());
+            StateWriter w(snap.data(), snap.size());
+            armed.save_state(w);
+            snap[0] = 0;                                // the stream's first field is `enabled`
+            Multiface dst;
+            StateReader r(snap.data(), snap.size());
+            dst.load_state(r);
+            Multiface copy = dst;
+            copy.on_m1(0x0066, true);
+            restored_ok = !dst.is_enabled() && dst.nmi_active() &&
+                          !dst.would_latch_on_m1(0x0066) && !copy.is_mem_active();
+        }
+
+        check("MF-M1G-07",
+              "would_latch_on_m1(pc) equals mf_enable_eff of an M1 at pc -- enabled AND (mf_enable "
+              "OR (pc==0x0066 AND nmi_active)) -- and equals is_mem_active() after on_m1(pc) on a "
+              "copy, in every state reachable by <= 4 events, in each NR 0x0A mode, enabled or not, "
+              "and in a restored enabled=0/nmi_active=1 state "
+              "(multiface.vhd:103,169,176,186)",
+              mismatches == 0 && probes > 0 && w_latched > 0 && w_latching_66 > 0 &&
+                  w_armed_elsewhere > 0 && w_disabled > 0 && w_idle > 0 && restored_ok,
+              "states=" + std::to_string(states) + " probes=" + std::to_string(probes) +
+                  " mismatches=" + std::to_string(mismatches) + " first=[" + first_bad +
+                  "] latched=" + std::to_string(w_latched) + " latching_66=" +
+                  std::to_string(w_latching_66) + " armed_elsewhere=" +
+                  std::to_string(w_armed_elsewhere) + " disabled=" + std::to_string(w_disabled) +
+                  " idle=" + std::to_string(w_idle) + " restored_ok=" + std::to_string(restored_ok));
+    }
 }
 
 // =====================================================================

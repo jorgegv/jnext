@@ -90,6 +90,11 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
         sub.access == Access::None)
         return make_refused<EventId>(Result::RefusedUnavailable);
 
+    // `space` qualifies an opcode fetch; on any other kind it can never match
+    // while the subscription reports `live`.
+    if (sub.kind != EventKind::Execute && sub.filter.space != MemSpace::cpu())
+        return make_refused<EventId>(Result::RefusedUnavailable);
+
     // `EventSource::Debugger` is documented in `events.h` as a source that NEVER
     // appears in a delivered `Event` — a debugger write fires no event at all
     // (§4.2a) — so a filter naming it can never match while reporting `live`.
@@ -130,6 +135,57 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
     impl_->gates_changed();
     impl_->bump_revision();   // GH #428
     return make_ok<EventId>(id);
+}
+
+Expected<GroupId> Debugger::subscribe_source_line(ClientId by, const std::string& file_line,
+                                                  const Subscription& like) {
+    if (impl_->client_gone(by)) return make_refused<GroupId>(Result::RefusedUnavailable);
+    if (like.kind != EventKind::Execute) return make_refused<GroupId>(Result::RefusedUnavailable);
+    const SourceResolution r = source_map().resolve(file_line);
+    if (r.starts.empty()) return make_refused<GroupId>(Result::RefusedUnavailable);
+
+    const GroupId group = impl_->next_group_id++;
+    for (const SourceAddress& s : r.starts) {
+        Subscription m = like;
+        m.filter.lo = m.filter.hi = s.address;
+        m.filter.page  = PAGE_ANY;
+        m.filter.space = s.space;
+        impl_->events.add(by, m, group);
+    }
+    impl_->gates_changed();
+    impl_->bump_revision();   // GH #428
+    return make_ok<GroupId>(group);
+}
+
+Result Debugger::unsubscribe_group(ClientId by, GroupId group) {
+    if (group == GROUP_NONE) return Result::RefusedUnavailable;
+    std::vector<EventId> ids;
+    for (const auto& e : impl_->events.entries())
+        if (!e.removed && e.group == group) {
+            // Same refusal as `unsubscribe`: another client's group is not shown to exist.
+            if (e.owner != by) return Result::RefusedUnavailable;
+            ids.push_back(e.id);
+        }
+    if (ids.empty()) return Result::RefusedUnavailable;
+    for (EventId id : ids) impl_->events.erase(id);
+    impl_->gates_changed();
+    impl_->bump_revision();   // GH #428
+    return Result::Ok;
+}
+
+Result Debugger::set_group_enabled(ClientId by, GroupId group, bool enabled) {
+    if (group == GROUP_NONE) return Result::RefusedUnavailable;
+    std::vector<EventId> ids;
+    for (const auto& e : impl_->events.entries())
+        if (!e.removed && e.group == group) {
+            if (e.owner != by) return Result::RefusedUnavailable;
+            ids.push_back(e.id);
+        }
+    if (ids.empty()) return Result::RefusedUnavailable;
+    for (EventId id : ids) impl_->events.set_enabled(id, enabled);
+    impl_->gates_changed();
+    impl_->bump_revision();   // GH #428
+    return Result::Ok;
 }
 
 Result Debugger::unsubscribe(ClientId by, EventId id) {
@@ -224,14 +280,12 @@ std::vector<EventId> Debugger::probe_execute(uint16_t pc) const {
     ev.frame     = frame_tag(impl_->emu);
     ev.pc        = pc;
     ev.phys_page = impl_->emu.mmu().get_effective_page(pc >> 13);
-    ev.fetch_not_ram = impl_->emu.fetch_not_mmu_ram(pc);
+    ev.space     = impl_->emu.predict_fetch(pc);
 
     DebugState::InspectionScope scope(impl_->ds());
     for (const auto& e : impl_->events.entries()) {
         if (!e.live || e.once_fired || e.kind != EventKind::Execute) continue;
-        if (pc < e.filter.lo || pc > e.filter.hi) continue;
-        if (e.filter.page != PAGE_ANY && e.filter.page != ev.phys_page) continue;
-        if (e.filter.page != PAGE_ANY && e.filter.page_ram_only && ev.fetch_not_ram) continue;
+        if (!e.filter.matches(ev)) continue;
         if (e.condition) {
             Event mine = ev;
             mine.id    = e.id;
@@ -314,6 +368,7 @@ std::vector<SubscriptionInfo> Debugger::subscriptions(bool include_transient) co
         si.enabled = e.enabled;
         si.live    = e.live;
         si.owner   = e.owner;
+        si.group   = e.group;
         out.push_back(std::move(si));
     }
     return out;
@@ -618,7 +673,7 @@ bool Debugger::Impl::execute_gate(uint16_t pc) {
     ev.frame     = frame_tag(emu);
     ev.pc        = pc;
     ev.phys_page = emu.mmu().get_effective_page(pc >> 13);
-    ev.fetch_not_ram = emu.fetch_not_mmu_ram(pc);
+    ev.space     = emu.predict_fetch(pc);
 
     events.clear_hits();
     bool stop = false;

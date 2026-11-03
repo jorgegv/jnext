@@ -14,6 +14,7 @@
 
 #include "debug/debugger_impl.h"
 
+#include <algorithm>
 #include <cinttypes>
 #include <cstdio>
 #include <utility>
@@ -52,6 +53,9 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
     // the restore, so its own reason still wins. CAP-SRC: the same place drops
     // a previous program's sidecars (`Impl::machine_replaced()`).
     impl_->ds().set_machine_replaced_hook([this]() { impl_->machine_replaced(); });
+    // GH #344 stage 3 - the tape-identity verify window's hook. No window is set until a
+    // map is attached pending (sync_verify_window()), so this costs nothing by itself.
+    impl_->ds().set_verify_hook([this](uint16_t pc) { impl_->verify_hook(pc); });
 
     // §6.1 — SEED THE EIGHT LIVE PAGES. `DebugState::on_slot_remapped()`
     // early-returns while the table is null, so every `rebuild_ptr()` during
@@ -96,6 +100,9 @@ Debugger::~Debugger() {
     impl_->ds().set_event_table(nullptr);
     impl_->ds().set_event_hooks(nullptr, nullptr);
     impl_->ds().set_machine_replaced_hook(nullptr);
+    // GH #344 stage 3 - and the verify window: its hook points into this object.
+    impl_->ds().set_verify_hook(nullptr);
+    impl_->ds().clear_verify_window();
     // The masks are `BreakpointSet`'s, so they survive this object, and the event
     // half has to be zeroed or a retired subscription keeps the gate open for
     // ever. `refresh_event_gates()` DOES that — the table pointer was retired
@@ -113,6 +120,8 @@ Debugger::~Debugger() {
     // (row LIFE-07). Retired unconditionally — a sink that is already null
     // stays null.
     impl_->ds().set_coverage_sink(nullptr);
+    // GH #388 - and the memory-coverage sink, which points into `Impl` likewise.
+    impl_->ds().set_mem_coverage_sink(nullptr);
     // GH #276 B4 — CAP-01. A capture still queued can never be taken now: say
     // so, one line each (§4.5's `NoFrame`, which has no other carrier — see
     // `debugger_capture.cpp`), then take down what the queue had armed on the
@@ -239,20 +248,26 @@ Result Debugger::set_stop_policy(StopPolicy policy) {
 // ---------------------------------------------------------------------------
 
 Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std::string* why) {
+    impl_->recheck();   // a writer first (CAP-SRC)
     int n = -1;
     switch (format) {
-        case MapFormat::Z88dk:     n = impl_->symbols.load_z88dk_map(path); break;
-        case MapFormat::Simple:    n = impl_->symbols.load_simple_map(path); break;
-        case MapFormat::NextBuild: n = impl_->symbols.load_nextbuild_memory(path, why); break;
-        case MapFormat::SjasmplusEqu: n = impl_->symbols.load_sjasmplus_equ(path); break;
-        case MapFormat::Z88dkOrSjasmplus: n = impl_->symbols.load_z88dk_or_sjasmplus(path); break;
+        case MapFormat::Z88dk:     n = impl_->toolchain_symbols.load_z88dk_map(path, why); break;
+        case MapFormat::Simple:    n = impl_->toolchain_symbols.load_simple_map(path, why); break;
+        case MapFormat::NextBuild: n = impl_->toolchain_symbols.load_nextbuild_memory(path, why); break;
+        case MapFormat::SjasmplusEqu: n = impl_->toolchain_symbols.load_sjasmplus_equ(path, why); break;
+        case MapFormat::Z88dkOrSjasmplus: n = impl_->toolchain_symbols.load_z88dk_or_sjasmplus(path, why); break;
     }
     // A MAP the user chose replaces whatever a program's sidecar brought —
     // once it HAS: a file that cannot be read leaves the table, and so its
     // owner, as they were.
     if (n >= 0) {
-        impl_->symbols_owner = Impl::StoreOwner::User;
+        impl_->symbols_owner    = Impl::StoreOwner::User;
+        impl_->symbols_from_sld = false;
         impl_->bump_revision();   // GH #428
+        // A z88dk map's rule-4 symbols take the RAM page mapped now (and again
+        // at the program load), the function `source_page()` answers with.
+        impl_->toolchain_symbols.bind([this](uint16_t a) { return impl_->emu.predict_fetch(a); });
+        impl_->recompose_names();
     }
     // Both loaders return -1 on a file that cannot be read or parsed. That is
     // not a refusal of the verb by the machine's state, and it is not "there is
@@ -262,25 +277,28 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
 }
 
 Result Debugger::clear_symbols() {
-    impl_->symbols.clear();
-    impl_->symbols_owner = Impl::StoreOwner::None;
+    impl_->recheck();   // a writer first (CAP-SRC)
+    impl_->toolchain_symbols.clear();
+    impl_->symbols_owner    = Impl::StoreOwner::None;
+    impl_->symbols_from_sld = false;
+    impl_->recompose_names();
     impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
 std::optional<std::string> Debugger::lookup(uint16_t addr) const {
-    impl_->recheck_sidecars();   // CAP-SRC: a reader never sees a stale sidecar
-    return impl_->symbols.lookup(addr);
+    impl_->recheck();   // CAP-SRC: a reader never sees a stale sidecar
+    return impl_->names.lookup(source_page(addr), addr);
 }
 
 std::optional<uint16_t> Debugger::lookup_name(const std::string& name) const {
-    impl_->recheck_sidecars();
-    return impl_->symbols.lookup_name(name);
+    impl_->recheck();
+    return impl_->names.lookup_name(name);
 }
 
 const SymbolTable& Debugger::symbols() const {
-    impl_->recheck_sidecars();
-    return impl_->symbols;
+    impl_->recheck();
+    return impl_->names;
 }
 
 // ---------------------------------------------------------------------------
@@ -375,10 +393,13 @@ RunState Debugger::state() const {
         case PauseReason::Kind::RunTo:
             // A run-to stops at its target OR earlier, on a breakpoint the run
             // crossed. Which one it was is readable: the target address.
-            if (!impl_->has_target || impl_->armed_target == st.pc) {
+            if (!impl_->has_target || impl_->armed_target == st.pc ||
+                std::find(impl_->armed_targets.begin(), impl_->armed_targets.end(), st.pc) !=
+                    impl_->armed_targets.end()) {
                 st.pause_reason.kind = PauseReason::Kind::RunTo;
                 st.pause_reason.by   = impl_->armed_by;
-                st.pause_reason.addr = impl_->armed_target;
+                // GH #423: a source line has several targets; the one reached is the PC.
+                st.pause_reason.addr = impl_->armed_targets.empty() ? impl_->armed_target : st.pc;
                 st.pause_reason.id   = impl_->armed_target_id;
                 return st;
             }

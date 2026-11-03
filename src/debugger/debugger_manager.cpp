@@ -24,8 +24,17 @@
 #include <QEvent>
 #include <QCoreApplication>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QStatusBar>
+
+namespace {
+// The reason a loader gave for refusing a file (empty when it only could not open
+// it), set off from the message above it.
+QString load_failure_reason(const std::string& why) {
+    return why.empty() ? QString() : QStringLiteral("\n\n") + QString::fromStdString(why);
+}
+}  // namespace
 
 DebuggerManager::DebuggerManager(QMainWindow* main_window, jnext::dbg::Debugger& dbg,
                                  QObject* parent)
@@ -277,11 +286,45 @@ void DebuggerManager::set_keymap(const jnext::dbgkeys::Keymap& km) {
         debugger_window_->set_keymap(km);
 }
 
+QStringList DebuggerManager::source_dirs() const {
+    QStringList all;
+    for (const QStringList* list : {&configured_source_dirs_, &located_source_dirs_})
+        for (const QString& d : *list)
+            if (!d.isEmpty() && !all.contains(d)) all << d;
+    return all;
+}
+
+void DebuggerManager::push_source_dirs(bool log) {
+    std::vector<std::string> dirs;
+    for (const QString& d : source_dirs()) dirs.push_back(d.toStdString());
+    if (debugger_window_ && debugger_window_->source_panel())
+        debugger_window_->source_panel()->set_search_dirs(dirs);
+    if (log) emit source_dirs_changed(source_dirs());
+}
+
+void DebuggerManager::set_source_dirs(const QStringList& configured) {
+    const QStringList before = source_dirs();
+    configured_source_dirs_ = configured;
+    if (source_dirs() != before) push_source_dirs(true);
+}
+
+void DebuggerManager::set_source_scheme(SourceScheme scheme) {
+    source_scheme_ = scheme;
+    if (debugger_window_ && debugger_window_->source_panel())
+        debugger_window_->source_panel()->set_colour_scheme(scheme);
+}
+
+void DebuggerManager::on_source_dir_located(const QString& dir) {
+    if (dir.isEmpty() || located_source_dirs_.contains(dir)) return;
+    located_source_dirs_ << dir;
+    push_source_dirs(true);
+}
+
 void DebuggerManager::ensure_window() {
     if (debugger_window_)
         return;
 
-    debugger_window_ = new DebuggerWindow(dbg_, nullptr, attach_override_);
+    debugger_window_ = new DebuggerWindow(dbg_, nullptr, attach_override_, physical_override_);
     debugger_window_->set_debugger_manager(this);
     // GH #1 — BEFORE anything else touches the window. The window is created
     // lazily (the first time the debugger is enabled, from the menu, a magic
@@ -290,6 +333,15 @@ void DebuggerManager::ensure_window() {
     // about: rebinding and then opening the debugger for the first time left
     // the toolbar on the old keys.
     debugger_window_->set_keymap(keymap_);
+    // GH #420 - the same for the Source tab's search path, and its Locate File... .
+    if (auto* sp = debugger_window_->source_panel()) {
+        connect(sp, &SourcePanel::source_dir_located, this, &DebuggerManager::on_source_dir_located);
+        connect(sp, &SourcePanel::source_dir_save_requested, this,
+                &DebuggerManager::source_dir_save_requested);
+    }
+    push_source_dirs(false);
+    // GH #422 stage 2 - and its colour scheme.
+    if (auto* sp = debugger_window_->source_panel()) sp->set_colour_scheme(source_scheme_);
 
     // Closing the debugger window disables the debugger.
     connect(debugger_window_, &DebuggerWindow::window_closed, this, [this]() {
@@ -313,8 +365,6 @@ void DebuggerManager::ensure_window() {
             dp->set_watch_panel(debugger_window_->watch_panel());
     }
 
-    if (auto* sp = debugger_window_->source_panel()) sp->set_load_problem(sidecar_problem_);
-
     // Wire call stack panel with symbol table.
     if (auto* cs = debugger_window_->callstack_panel()) {
         cs->set_symbol_table(&dbg_.symbols());
@@ -330,6 +380,27 @@ void DebuggerManager::ensure_window() {
     }
     if (auto* dp = debugger_window_->disasm_panel())
         dp->set_breakpoint_model(bp_model_);
+    // GH #387 - the annotation entries of the Disassembly and Source menus write to the backend and
+    // ask for a refresh.
+    if (auto* dp = debugger_window_->disasm_panel()) {
+        dp->set_annotation_backend(&dbg_);
+        connect(dp, &DisasmPanel::annotations_changed, this, [this]() { refresh_panels(); });
+    }
+    if (auto* sp = debugger_window_->source_panel()) {
+        sp->set_annotation_backend(&dbg_);
+        connect(sp, &SourcePanel::annotations_changed, this, [this]() { refresh_panels(); });
+    }
+    if (auto* sp = debugger_window_->source_panel()) {   // GH #421: the BP column
+        sp->set_breakpoint_model(bp_model_);
+        // GH #423 - the menu's Watch entries, and Run to Here on a source line.
+        sp->set_watch_panel(debugger_window_->watch_panel());
+        connect(sp, &SourcePanel::run_to_line_requested, this, [this](const QString& file_line) {
+            if (!confirm_resume_if_corrupt()) return;
+            if (dbg_.run_to_source_line(client_, file_line.toStdString()) != jnext::dbg::Result::Ok)
+                return;
+            apply_pause_state(false);
+        });
+    }
     // GH #278 WP4c — a watch is a peek through the backend (§3.5).
     if (auto* wp = debugger_window_->watch_panel())
         wp->set_backend(&dbg_);
@@ -577,15 +648,16 @@ void DebuggerManager::on_load_map_z88dk() {
     // (GH #278 WP0): a readable map with no `; addr` symbols loads 0 and is
     // still "MAP Loaded"; a failed read never reports success over the old
     // table.
-    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Z88dk)) {
+    std::string why;
+    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Z88dk, &why)) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
-                .arg(dbg_.symbols().size())
+                .arg(dbg_.toolchain_symbols().size())
                 .arg(path));
         refresh_panels();   // GH #390: the Breakpoints / Call Stack names are computed there
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
-            QObject::tr("Could not load MAP file:\n%1").arg(path));
+            QObject::tr("Could not load MAP file:\n%1").arg(path) + load_failure_reason(why));
     }
 }
 
@@ -596,15 +668,16 @@ void DebuggerManager::on_load_map_simple() {
     if (path.isEmpty())
         return;
 
-    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Simple)) {
+    std::string why;
+    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Simple, &why)) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
-                .arg(dbg_.symbols().size())
+                .arg(dbg_.toolchain_symbols().size())
                 .arg(path));
         refresh_panels();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
-            QObject::tr("Could not load MAP file:\n%1").arg(path));
+            QObject::tr("Could not load MAP file:\n%1").arg(path) + load_failure_reason(why));
     }
 }
 
@@ -615,15 +688,16 @@ void DebuggerManager::on_load_map_sjasmplus() {
     if (path.isEmpty())
         return;
 
-    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::SjasmplusEqu)) {
+    std::string why;
+    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::SjasmplusEqu, &why)) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
-                .arg(dbg_.symbols().size())
+                .arg(dbg_.toolchain_symbols().size())
                 .arg(path));
         refresh_panels();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
-            QObject::tr("Could not load MAP file:\n%1").arg(path));
+            QObject::tr("Could not load MAP file:\n%1").arg(path) + load_failure_reason(why));
     }
 }
 
@@ -638,7 +712,7 @@ void DebuggerManager::on_load_nextbuild_memory() {
     if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::NextBuild, &why)) {
         QMessageBox::information(main_window_, QObject::tr("Symbols Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
-                .arg(dbg_.symbols().size())
+                .arg(dbg_.toolchain_symbols().size())
                 .arg(path));
         refresh_panels();
     } else {
@@ -648,10 +722,143 @@ void DebuggerManager::on_load_nextbuild_memory() {
     }
 }
 
+void DebuggerManager::set_annotations_file(const QString& path)
+{
+    annotations_file_ = path;
+    saved_revision_ = dbg_.annotations_revision();
+}
+
+bool DebuggerManager::save_annotations_to(const QString& path)
+{
+    std::string why;
+    if (dbg_.save_annotations(path.toStdString(), &why) != jnext::dbg::Result::Ok) {
+        QMessageBox::warning(main_window_, QObject::tr("Save Failed"),
+            QObject::tr("Could not save the annotations to:\n%1\n\n%2").arg(path, QString::fromStdString(why)));
+        return false;
+    }
+    annotations_file_ = path;
+    saved_revision_ = dbg_.annotations_revision();
+    return true;
+}
+
+void DebuggerManager::on_save_annotations_as()
+{
+    QString path = QFileDialog::getSaveFileName(
+        main_window_, QObject::tr("Save Annotations"), annotations_file_,
+        QObject::tr("jnext annotations (*.jdp);;All Files (*)"));
+    if (path.isEmpty()) return;
+    if (QFileInfo(path).suffix().isEmpty()) path += QStringLiteral(".jdp");
+    save_annotations_to(path);
+}
+
+void DebuggerManager::on_save_annotations()
+{
+    if (annotations_file_.isEmpty()) on_save_annotations_as();
+    else save_annotations_to(annotations_file_);
+}
+
+bool DebuggerManager::confirm_discard_annotations()
+{
+    if (!annotations_unsaved()) return true;
+    QMessageBox box(QMessageBox::Warning, QObject::tr("Unsaved Annotations"),
+                    QObject::tr("The labels and comments have changed since they were last saved."),
+                    QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, main_window_);
+    box.setDefaultButton(QMessageBox::Save);
+    switch (box.exec()) {
+    case QMessageBox::Save:
+        on_save_annotations();
+        return !annotations_unsaved();
+    case QMessageBox::Discard:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void DebuggerManager::on_open_annotations()
+{
+    if (!confirm_discard_annotations()) return;
+    const QString path = QFileDialog::getOpenFileName(
+        main_window_, QObject::tr("Open Annotations"), annotations_file_,
+        QObject::tr("jnext annotations (*.jdp);;All Files (*)"));
+    if (path.isEmpty()) return;
+    std::string why;
+    if (dbg_.load_annotations(path.toStdString(), &why) != jnext::dbg::Result::Ok) {
+        QMessageBox::warning(main_window_, QObject::tr("Open Failed"),
+            QObject::tr("Could not open the annotations:\n%1\n\n%2").arg(path, QString::fromStdString(why)));
+        return;
+    }
+    annotations_file_ = path;
+    saved_revision_ = dbg_.annotations_revision();
+    refresh_panels();
+}
+
+namespace {
+
+/// The report box text of an import or an export: the counts, then each note on its own line.
+QString re_report_text(const jnext::dbg::ReReport& rep, const QString& where)
+{
+    const auto count = [](size_t n, const char* one, const char* many) {
+        return QStringLiteral("%1 %2").arg(n).arg(QString::fromLatin1(n == 1 ? one : many));
+    };
+    QString t = count(rep.files, "file", "files") + QStringLiteral(", ") + count(rep.labels, "label", "labels") +
+                QStringLiteral(", ") + count(rep.comments, "comment", "comments") + QStringLiteral("\n") + where;
+    for (const std::string& n : rep.notes) t += QStringLiteral("\n- ") + QString::fromStdString(n);
+    return t;
+}
+
+}  // namespace
+
+void DebuggerManager::import_re_files(bool skoolkit)
+{
+    const QString title = skoolkit ? QObject::tr("Import skoolkit Control Files") : QObject::tr("Import Ghidra Symbols");
+    const QStringList paths = QFileDialog::getOpenFileNames(
+        main_window_, title, QString(),
+        skoolkit ? QObject::tr("skoolkit control files (*.ctl);;All Files (*)")
+                 : QObject::tr("Ghidra symbol files (*.txt);;All Files (*)"));
+    if (paths.isEmpty()) return;
+    std::vector<std::string> files;
+    for (const QString& p : paths) files.push_back(p.toStdString());
+    jnext::dbg::ReReport rep;
+    std::string why;
+    const jnext::dbg::Result r = skoolkit ? dbg_.import_skoolkit(files, &rep, &why) : dbg_.import_ghidra(files, &rep, &why);
+    if (r != jnext::dbg::Result::Ok) {
+        QMessageBox::warning(main_window_, QObject::tr("Import Failed"),
+            QObject::tr("Nothing was imported:\n%1").arg(QString::fromStdString(why.empty() ? jnext::dbg::result_name(r) : why)));
+        return;
+    }
+    QMessageBox::information(main_window_, QObject::tr("Import Done"),
+        re_report_text(rep, QObject::tr("imported into the labels and comments (Save Annotations keeps them)")));
+    refresh_panels();
+}
+
+void DebuggerManager::export_re_files(bool skoolkit)
+{
+    const QString title = skoolkit ? QObject::tr("Export skoolkit Control Files") : QObject::tr("Export Ghidra Symbols");
+    const QString dir = QFileDialog::getExistingDirectory(main_window_, title, QString());
+    if (dir.isEmpty()) return;
+    jnext::dbg::ReReport rep;
+    std::string why;
+    const jnext::dbg::Result r = skoolkit ? dbg_.export_skoolkit(dir.toStdString(), &rep, &why)
+                                          : dbg_.export_ghidra(dir.toStdString(), &rep, &why);
+    if (r != jnext::dbg::Result::Ok) {
+        QMessageBox::warning(main_window_, QObject::tr("Export Failed"),
+            QObject::tr("Could not export to:\n%1\n\n%2").arg(dir, QString::fromStdString(why.empty() ? jnext::dbg::result_name(r) : why)));
+        return;
+    }
+    QMessageBox::information(main_window_, QObject::tr("Export Done"), re_report_text(rep, QObject::tr("written to %1").arg(dir)));
+}
+
+void DebuggerManager::on_import_skoolkit() { import_re_files(true); }
+void DebuggerManager::on_import_ghidra() { import_re_files(false); }
+void DebuggerManager::on_export_skoolkit() { export_re_files(true); }
+void DebuggerManager::on_export_ghidra() { export_re_files(false); }
+
 void DebuggerManager::on_load_sld() {
     QString path = QFileDialog::getOpenFileName(
         main_window_, QObject::tr("Load Source Map"), QString(),
-        QObject::tr("SLD Source Map (*.sld *.sld.txt);;All Files (*)"));
+        QObject::tr("Source Maps (*.sld *.sld.txt *.map);;SLD Source Map (*.sld *.sld.txt);;"
+                    "z88dk Map (*.map);;All Files (*)"));
     if (path.isEmpty())
         return;
 
@@ -665,20 +872,26 @@ void DebuggerManager::on_load_sld() {
             main_window_, QObject::tr("Source Map Identity Mismatch"),
             QObject::tr("The program in memory no longer matches this source map. "
                         "This can happen when the program stores variables in its "
-                        "binary address range, but it can also mean the SLD belongs "
-                        "to another build.\n\nLoad it anyway?"),
+                        "binary address range, but it can also mean the source map "
+                        "belongs to another build.\n\nLoad it anyway?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (answer != QMessageBox::Yes) return;
         r = dbg_.load_source_map(path.toStdString(), /*accept_identity_mismatch=*/true);
     }
     if (r.count >= 0) {
-        QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"),
-            QObject::tr("Loaded %1 source traces from:\n%2").arg(r.count).arg(path));
+        QString text = r.labels > 0
+            ? QObject::tr("Loaded %1 source traces and %2 labels from:\n%3")
+                  .arg(r.count).arg(r.labels).arg(path)
+            : QObject::tr("Loaded %1 source traces from:\n%2").arg(r.count).arg(path);
+        if (r.listings == 1) text += QObject::tr("\nwith 1 z88dk listing");
+        else if (r.listings > 1) text += QObject::tr("\nwith %1 z88dk listings").arg(r.listings);
+        if (!r.listing_note.empty()) text += "\n\n" + QString::fromStdString(r.listing_note);
+        QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"), text);
         refresh_panels();
         update_actions();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
-            QObject::tr("Could not load SLD source map:\n%1\n\n%2")
+            QObject::tr("Could not load source map:\n%1\n\n%2")
                 .arg(path, QString::fromStdString(r.error)));
     }
 }
@@ -686,11 +899,9 @@ void DebuggerManager::on_load_sld() {
 void DebuggerManager::report_sidecars(const jnext::dbg::Debugger::SidecarLoad& result) {
     if (!result.problem.empty())
         dbg_.log(client_, jnext::dbg::LogLevel::Warn, "load: " + result.problem);
-    sidecar_problem_ = QString::fromStdString(result.problem);
-    if (!sidecar_problem_.isEmpty() && main_window_->statusBar())
-        main_window_->statusBar()->showMessage(sidecar_problem_, 10000);
-    if (debugger_window_ && debugger_window_->source_panel())
-        debugger_window_->source_panel()->set_load_problem(sidecar_problem_);
+    if (!result.problem.empty() && main_window_->statusBar())
+        main_window_->statusBar()->showMessage(QString::fromStdString(result.problem), 10000);
+    if (debugger_window_) refresh_window();   // GH #428: also takes the paused stamp
 }
 
 void DebuggerManager::run_source_step(jnext::dbg::Debugger::SourceStep kind,

@@ -310,9 +310,9 @@ static void test_accelerators(Fixture& fx)
     // whose E is free in the Breakpoints popup — DACC-02 is what proves
     // that. Nine shortcuts until GH #21 gave the disassembly panel Ctrl+C
     // and Ctrl+A: those two are Qt::WidgetShortcut actions on the panel
-    // rather than menu-bar entries, and harvest_shortcuts() does not filter
-    // by context — deliberately, since a window-wide action that later took
-    // Ctrl+C would then collide with them and DACC-03 would say so.) Adding
+    // rather than menu-bar entries; harvest_shortcuts() scopes them by their
+    // widget (GH #423), and still reports a window-wide action, or one on an ancestor
+    // or descendant widget, that later took Ctrl+C, so DACC-03 would say so.) Adding
     // or removing a menu entry means updating these numbers, and that edit is
     // the point — it is the claim about how much of the menu tree is checked.
     // It counts the SAME vector DACC-03 checks, not a second walk that could
@@ -329,18 +329,31 @@ static void test_accelerators(Fixture& fx)
         // Capture &Screen, S&top Recording) — three more mnemonics.
         // GH #390: + the Load MAP File popup's s&jasmplus item: one more
         // mnemonic, J (Z and S are taken in that popup), no new popup.
+        // GH #337: + the Debug > Source popup (one popup, its "Sourc&e" title
+        // and seven item mnemonics = 8 more) and Ctrl+F6/F7/F8 (Back and
+        // Reverse Continue ship unbound).
+        // GH #388: + the Debug > Coverage popup (one popup, its "Co&verage"
+        // title and the two items' mnemonics, &Enable Coverage and &Clear
+        // Coverage = 3 more mnemonics); no new shortcut (bound to no key). The Source tab's Ctrl+C and Ctrl+A (GH #423): 22 -> 24.
+        // GH #360: + the Debug menu's "Physical &Addresses" toggle: one more mnemonic (A, free in
+        // the Debug popup), no new popup, no shortcut: 50 -> 51.
+        // GH #387: + the Map menu's &Open Annotations..., &Save Annotations and Save Annotations &As... (O, S and A
+        // are free in that popup): three more mnemonics, no new popup, no shortcut: 51 -> 54.
+        // GH #389 stage C: + the Map menu's &Import and &Export submenus (two popups; their own two
+        // mnemonics in the Map popup and two items each, &skoolkit Control Files... and &Ghidra Symbols...):
+        // 11 -> 13 popups, 54 -> 60 mnemonics, no shortcut.
         const bool as_expected = top == 6
-                              && popup_scopes.size() == 9
-                              && menu_accels.size() == 39
-                              && shortcuts == 19;
+                              && popup_scopes.size() == 13
+                              && menu_accels.size() == 60
+                              && shortcuts == 24;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
         // four size checks cannot establish (add one menu and delete another
         // and the counts still agree).
         check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
-              fmt("menus=%zu (want 6), popups=%zu (want 9), mnemonics=%zu (want 39), "
-                  "shortcuts=%zu (want 19)",
+              fmt("menus=%zu (want 6), popups=%zu (want 13), mnemonics=%zu (want 60), "
+                  "shortcuts=%zu (want 24)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }
 }

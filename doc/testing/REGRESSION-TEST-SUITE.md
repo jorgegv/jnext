@@ -12,6 +12,8 @@ See also: [TEST-TAXONOMY.md](TEST-TAXONOMY.md) — every screenshot row belongs 
 - z88dk toolchain (only if rebuilding demo programs)
 - `xvfb-run` + `python3` (for `audio-underrun-func`; without them the row SKIPs and the run FAILS)
 - `z88dk-gdb` (for `gdb-z88dk-func`): **provisioned, not assumed** — see below
+- skoolkit 10.1 (for `skoolkit-foreign-func`) and Ghidra 12.2 with a JDK 25 (for
+  `ghidra-foreign-func`): skoolkit and Ghidra are **provisioned**, the JDK is on the host — see below
 
 ### Tools the suite needs
 
@@ -28,6 +30,22 @@ its pinned sha256 **before** unpacking, builds only `z88dk-gdb` (about 4 s, `cc`
 and `make` only) and installs it into
 `~/.cache/jnext/tools/z88dk-gdb-2.4/`. A no-op once cached; needs the network
 once, exactly like the SD image. Nothing is committed or shipped.
+
+The two foreign readers of the reverse-engineering exports (GH #389) are provisioned
+the same way, and run `make skoolkit` and `make ghidra` first, in the same three
+targets (not in the Windows or macOS ones: the rows are `os=linux`). `test/provision-skoolkit.sh`
+downloads SkoolKit 10.1's source distribution from PyPI (1.3 MB, sha256-pinned,
+checked before unpacking) and unpacks it into `~/.cache/jnext/tools/skoolkit-10.1/`;
+it runs with plain `python3`. `test/provision-ghidra.sh` downloads Ghidra 12.2's release
+zip (570 MB, sha256-pinned, checked before unpacking; 954 MB on disk) with the Jython
+extension it bundles, into `~/.cache/jnext/tools/ghidra-12.2/`. Ghidra needs a JDK 25 or
+newer to launch (`java-25-openjdk-devel`, in the CI dnf list); a host without one FAILS
+`ghidra-foreign-func`. Both are used at test time only, never committed or shipped.
+`skoolkit-foreign-func` runs `sna2skool.py` and `skool2asm.py` on the control files and
+`ghidra-foreign-func` runs Ghidra's `ImportSymbolsScript.py` on the symbol files; what
+they made of the files is read back by `skoolkit-check.py` and the helpers in
+`test/00regression/ghidra/`, never by jnext's own reader. Ghidra's user directories are
+under the row's `$TMP_DIR`, so the run leaves nothing in `~`.
 
 ## Failures on a loaded host
 

@@ -53,7 +53,8 @@ the row of the table says where:
   CPU speed into its own copy of the saved values, then hands that copy to
   `MainWindow::apply_startup_config()`. The debugger keys of the run go to
   `set_session_debug_keys()` after `dbgkeys::apply_overrides()` has refused a
-  clash, and `debugger.attached` to `DebuggerManager::set_attach_override()`.
+  clash, `debugger.attached` to `DebuggerManager::set_attach_override()` and
+  `debugger.physical_addresses` to `DebuggerManager::set_physical_override()`.
   None of it reaches `MainWindow::app_config_`, the object that is saved.
 
 Two argument shapes bypass the table lookup, both on purpose.

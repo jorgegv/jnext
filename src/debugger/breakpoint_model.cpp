@@ -1,4 +1,5 @@
 #include "debugger/breakpoint_model.h"
+#include "debugger/memory_text.h"
 
 #include <algorithm>
 
@@ -29,17 +30,14 @@ uint16_t port_mask_for(uint16_t addr) { return addr <= 0x00FF ? 0x00FF : 0xFFFF;
 // The subscription one GUI breakpoint is: a single address, no condition, no
 // handler, not once, the Stop action (REQ-qt-13d). READ_WRITE is ONE row with
 // both access bits (REQ-qt-13c).
-Subscription sub_for(int type, uint16_t addr, uint16_t page) {
+Subscription sub_for(int type, uint16_t addr, jnext::dbg::MemSpace space) {
     Subscription s;
     s.action = jnext::dbg::Action::Stop;
     switch (type) {
         case BreakpointModel::Execute:
             s.kind        = EventKind::Execute;
             s.filter.lo   = s.filter.hi = addr;
-            s.filter.page = page;   // CAP-SRC; PAGE_ANY = a logical breakpoint
-            // A page here names RAM (a source line's): never match ROM or an
-            // overlay that happens to carry the same page number.
-            s.filter.page_ram_only = page != jnext::dbg::PAGE_ANY;
+            s.filter.space = space;   // E23-09; cpu() = a logical breakpoint
             break;
         case BreakpointModel::Read:
         case BreakpointModel::Write:
@@ -70,8 +68,10 @@ int type_of(const SubscriptionInfo& si) {
         si.action != jnext::dbg::Action::Stop ||
         !f.pages.empty() || f.source != jnext::dbg::EventSource::Any)
         return -1;
-    // A page qualifier is expressible on an Execute breakpoint only (CAP-SRC).
-    if (f.page != jnext::dbg::PAGE_ANY && si.kind != EventKind::Execute) return -1;
+    // The legacy page qualifier (DZRP, the DSL) is not the Add dialog's.
+    if (f.page != jnext::dbg::PAGE_ANY) return -1;
+    // A space qualifier is expressible on an Execute breakpoint only (E23-09).
+    if (f.space != jnext::dbg::MemSpace::cpu() && si.kind != EventKind::Execute) return -1;
     switch (si.kind) {
         case EventKind::Execute:
             return f.lo == f.hi ? BreakpointModel::Execute : -1;
@@ -89,6 +89,15 @@ int type_of(const SubscriptionInfo& si) {
         default:
             return -1;
     }
+}
+
+// The Address column's qualifier, after "$ADDR": nothing for a logical
+// breakpoint, otherwise the memory the location is qualified with, through the
+// long-address formatter (GH #360: `P04`, `ROM1`, `DIVROM`, or the physical
+// text). Another client's legacy page qualifier is spelled apart, "@pp".
+QString space_suffix(jnext::dbg::MemSpace sp, uint16_t addr, jnext::dbg::AddressStyle st, bool next) {
+    if (sp == jnext::dbg::MemSpace::cpu()) return QString();
+    return QStringLiteral(" ") + QString::fromStdString(jnext::dbg::space_text(sp, addr, st, next));
 }
 
 // The Type column for a row the Add dialog could not have made.
@@ -135,8 +144,9 @@ BreakpointModel::~BreakpointModel() {
 }
 
 void BreakpointModel::publish_() {
-    std::vector<Row>  rows;
-    std::vector<Seen> seen;
+    std::vector<Row>    rows;
+    std::vector<Member> members;
+    std::vector<Seen>   seen;
     for (const SubscriptionInfo& si : dbg_.subscriptions(/*include_transient=*/false)) {
         Row r;
         r.id      = si.id;
@@ -146,12 +156,32 @@ void BreakpointModel::publish_() {
         r.own     = si.owner == client_ && r.type >= 0;
         const bool port = si.kind == EventKind::Port;
         r.addr = port ? si.filter.port_value : si.filter.lo;
-        r.page = si.kind == EventKind::Execute ? si.filter.page : jnext::dbg::PAGE_ANY;
+        if (si.kind == EventKind::Execute) r.space = si.filter.space;
+        if (r.own) members.push_back(Member{si.id, r.type, r.addr, r.space, si.enabled, si.live});
+        // E23-09 -- the members of one source breakpoint are ONE row: the
+        // lowest address's, enabled only while every location is, live while
+        // any is.
+        if (si.group != jnext::dbg::GROUP_NONE && r.type == Execute) {
+            const auto g = std::find_if(rows.begin(), rows.end(), [&](const Row& o) {
+                return o.group == si.group;
+            });
+            if (g != rows.end()) {
+                ++g->locations;
+                g->enabled = g->enabled && si.enabled;
+                g->live    = g->live || si.live;
+                if (r.addr < g->addr) {
+                    g->addr      = r.addr;
+                    g->space     = r.space;
+                    g->addr_text = address_text(r.addr, r.space, style_, memtext::next_layout(&dbg_));
+                }
+                seen.push_back(Seen{si.id, si.kind, si.enabled, si.live});
+                continue;
+            }
+            r.group = si.group;
+        }
         if (r.type >= 0) {
             r.type_text = QString::fromLatin1(kTypeNames[r.type]);
-            r.addr_text = r.page == jnext::dbg::PAGE_ANY
-                              ? QString::asprintf("$%04X", r.addr)
-                              : QString::asprintf("$%04X @%02X", r.addr, r.page);
+            r.addr_text = address_text(r.addr, r.space, style_, memtext::next_layout(&dbg_));
         } else {
             r.type_text = kind_text(si);
             if (port)
@@ -162,6 +192,10 @@ void BreakpointModel::publish_() {
                                   ? QString::asprintf("$%04X", si.filter.lo)
                                   : QString::asprintf("$%04X-$%04X", si.filter.lo,
                                                       si.filter.hi);
+            // Another client's legacy page qualifier (DZRP, the DSL) reads as it did.
+            if (si.kind == EventKind::Execute && si.filter.page != jnext::dbg::PAGE_ANY)
+                r.addr_text += QString::asprintf(" @%02X", si.filter.page);
+            if (si.kind == EventKind::Execute) r.addr_text += space_suffix(si.filter.space, r.addr, style_, memtext::next_layout(&dbg_));
         }
         // REQ-qt-13d — another client's row is listed, read-only, and says
         // whose it is: the id is the one the backend's ATTACH log line names.
@@ -193,6 +227,7 @@ void BreakpointModel::publish_() {
     }
 
     rows_        = std::move(rows);
+    members_     = std::move(members);
     seen_        = std::move(seen);
     master_seen_ = master;
     if (kinds) emit changed(kinds);
@@ -204,45 +239,65 @@ void BreakpointModel::sync() {
     publish_();
 }
 
-const BreakpointModel::Row* BreakpointModel::find_own_(int type, uint16_t addr,
-                                                       uint16_t page) const {
-    for (const Row& r : rows_)
-        if (r.own && r.type == type && r.addr == addr && r.page == page) return &r;
+const BreakpointModel::Member* BreakpointModel::find_own_(int type, uint16_t addr,
+                                                          jnext::dbg::MemSpace space) const {
+    for (const Member& m : members_)
+        if (m.type == type && m.addr == addr && m.space == space) return &m;
     return nullptr;
 }
 
-void BreakpointModel::add(int type, uint16_t addr, uint16_t page) {
+void BreakpointModel::add(int type, uint16_t addr, jnext::dbg::MemSpace space) {
     if (type < Execute || type > IoWrite) return;
-    if (type != Execute) page = jnext::dbg::PAGE_ANY;
-    if (find_own_(type, addr, page)) return;
-    dbg_.subscribe(client_, sub_for(type, addr, page));
+    if (type != Execute) space = jnext::dbg::MemSpace::cpu();
+    if (find_own_(type, addr, space)) return;
+    dbg_.subscribe(client_, sub_for(type, addr, space));
     publish_();
 }
 
-void BreakpointModel::remove(int type, uint16_t addr, uint16_t page) {
-    const Row* r = find_own_(type, addr, page);
-    if (!r) return;
-    dbg_.unsubscribe(client_, r->id);
+jnext::dbg::GroupId BreakpointModel::add_source_line(const QString& file_line) {
+    const auto g = dbg_.subscribe_source_line(
+        client_, file_line.toStdString(), sub_for(Execute, 0, jnext::dbg::MemSpace::cpu()));
+    if (!g) return jnext::dbg::GROUP_NONE;
+    publish_();
+    return g.value;
+}
+
+void BreakpointModel::remove(int type, uint16_t addr, jnext::dbg::MemSpace space) {
+    const Member* m = find_own_(type, addr, space);
+    if (!m) return;
+    dbg_.unsubscribe(client_, m->id);
     publish_();
 }
 
-void BreakpointModel::set_enabled(int type, uint16_t addr, bool enabled, uint16_t page) {
-    const Row* r = find_own_(type, addr, page);
-    if (!r || r->enabled == enabled) return;
-    dbg_.set_enabled(client_, r->id, enabled);
+void BreakpointModel::remove(const Row& row) {
+    if (row.group != jnext::dbg::GROUP_NONE) dbg_.unsubscribe_group(client_, row.group);
+    else                                     dbg_.unsubscribe(client_, row.id);
+    publish_();
+}
+
+void BreakpointModel::set_enabled(int type, uint16_t addr, bool enabled,
+                                  jnext::dbg::MemSpace space) {
+    const Member* m = find_own_(type, addr, space);
+    if (!m || m->enabled == enabled) return;
+    dbg_.set_enabled(client_, m->id, enabled);
+    publish_();
+}
+
+void BreakpointModel::set_enabled(const Row& row, bool enabled) {
+    if (row.group != jnext::dbg::GROUP_NONE) dbg_.set_group_enabled(client_, row.group, enabled);
+    else                                     dbg_.set_enabled(client_, row.id, enabled);
     publish_();
 }
 
 void BreakpointModel::clear_all() {
     std::vector<jnext::dbg::EventId> ids;
-    for (const Row& r : rows_)
-        if (r.own) ids.push_back(r.id);
+    for (const Member& m : members_) ids.push_back(m.id);
     for (jnext::dbg::EventId id : ids) dbg_.unsubscribe(client_, id);
     publish_();
 }
 
-bool BreakpointModel::exists(int type, uint16_t addr, uint16_t page) const {
-    return find_own_(type, addr, page) != nullptr;
+bool BreakpointModel::exists(int type, uint16_t addr, jnext::dbg::MemSpace space) const {
+    return find_own_(type, addr, space) != nullptr;
 }
 
 bool BreakpointModel::pc_exists(uint16_t addr) const {
@@ -250,18 +305,40 @@ bool BreakpointModel::pc_exists(uint16_t addr) const {
 }
 
 bool BreakpointModel::pc_live(uint16_t addr) const {
-    const Row* r = find_own_(Execute, addr);
-    return r && r->live;
+    const Member* m = find_own_(Execute, addr);
+    return m && m->live;
 }
 
-bool BreakpointModel::pc_marked(uint16_t addr, uint16_t page) const {
-    return find_own_(Execute, addr) || find_own_(Execute, addr, page);
+bool BreakpointModel::pc_marked(uint16_t addr, jnext::dbg::MemSpace space) const {
+    return find_own_(Execute, addr) || find_own_(Execute, addr, space);
 }
 
-bool BreakpointModel::pc_marked_live(uint16_t addr, uint16_t page) const {
-    const Row* any = find_own_(Execute, addr);
-    const Row* on  = find_own_(Execute, addr, page);
+bool BreakpointModel::pc_marked_live(uint16_t addr, jnext::dbg::MemSpace space) const {
+    const Member* any = find_own_(Execute, addr);
+    const Member* on  = find_own_(Execute, addr, space);
     return (any && any->live) || (on && on->live);
+}
+
+std::vector<BreakpointModel::PcBreakpoint> BreakpointModel::pc_breakpoints() const {
+    std::vector<PcBreakpoint> out;
+    for (const Member& m : members_)
+        if (m.type == Execute) out.push_back(PcBreakpoint{m.addr, m.space, m.live});
+    return out;
+}
+
+QString BreakpointModel::address_text(uint16_t addr, jnext::dbg::MemSpace space) {
+    return address_text(addr, space, jnext::dbg::AddressStyle::Friendly, false);
+}
+
+QString BreakpointModel::address_text(uint16_t addr, jnext::dbg::MemSpace space,
+                                      jnext::dbg::AddressStyle style, bool next_layout) {
+    return QString::asprintf("$%04X", addr) + space_suffix(space, addr, style, next_layout);
+}
+
+void BreakpointModel::set_address_style(jnext::dbg::AddressStyle style) {
+    if (style_ == style) return;
+    style_ = style;
+    publish_();
 }
 
 bool BreakpointModel::master_enabled() const { return dbg_.master_enabled(); }

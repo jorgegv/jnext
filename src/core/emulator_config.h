@@ -236,6 +236,19 @@ struct EmulatorConfig {
     // needs the trace to locate the target instruction within a frame.
     bool trace = false;
 
+    // GH #388 (--coverage): record memory coverage (executed, read and written
+    // bytes per page) from the start. Not a Preferences field: it is a debugger
+    // session toggle like the trace (Debug > Coverage), so it has no
+    // config_keys row. Applied by the loop owners right after hosting the
+    // debugger backend (platform/coverage_startup.h).
+    bool coverage = false;
+
+    // GH #389 (--export-skoolkit, --export-ghidra): directories the loop owners
+    // fill with the debugger's labels and code/data map when jnext exits
+    // (platform/re_export_at_exit.h). Not Preferences fields, like --coverage.
+    std::string export_skoolkit_dir;
+    std::string export_ghidra_dir;
+
     // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
     bool magic_breakpoint = false;
 
@@ -272,6 +285,17 @@ struct EmulatorConfig {
     std::vector<std::string>                   script_files;
     std::vector<std::pair<uint32_t, int>>      script_keys;
     std::string                                map_file;
+    /// `--annotations`: a debugger annotations file (.jdp), loaded before the scripts (GH #387).
+    std::string                                annotations_file;
+    // GH #389 stage B (--import-skoolkit, --import-ghidra): files read into the user's labels and
+    // comments at start, after annotations_file (script_host.cpp). Not Preferences fields.
+    std::vector<std::string>                   import_skoolkit_files;
+    std::vector<std::string>                   import_ghidra_files;
+    /// `--source-map`: a source map to attach after the first `--load` (empty = none).
+    std::string                                source_map_file;
+    /// GH #351: 0 a program loads (--source-map follows it); 1 no --load; 2 an RZX replay.
+    /// 1 and 2 accept only a z88dk dot command's map, attached at start-up.
+    uint8_t                                    source_map_no_program = 0;
     // GH #26 WP6 / #20 — `--record-script FILE`: record the session as a
     // replay script (any frontend). Empty = not recording.
     std::string                                record_script_file;

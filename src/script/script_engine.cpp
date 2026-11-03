@@ -324,6 +324,31 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
             s.kind = ev.type == EventType::Execute ? EventKind::Execute : EventKind::Mem;
             if (ev.type == EventType::Read)  s.access = Access::Read;
             if (ev.type == EventType::Write) s.access = Access::Write;
+            if (!ev.file_line.empty()) {
+                // GH #346: one subscription per start of the line, each in the
+                // memory the map built it for (the GUI group's resolver).
+                const SourceResolution res = dbg_.source_map().resolve(ev.file_line);
+                if (res.starts.empty()) {
+                    std::string why;
+                    if (dbg_.source_map().empty())
+                        why = "`" + ev.file_line + "`: no source map is loaded";
+                    else if (!res.error.empty())
+                        why = res.error;
+                    else
+                        why = "unknown source line `" + ev.file_line + "` (not in the loaded source map)";
+                    errors.push_back(Diagnostic{ev.file_line_pos, why});
+                    bad = true;
+                    break;
+                }
+                for (const SourceAddress& st : res.starts) {
+                    Subscription one = s;
+                    one.filter.lo = one.filter.hi = st.address;
+                    one.filter.space = st.space;
+                    one.filter.page = dbg::PAGE_ANY;
+                    finish(one);
+                }
+                break;
+            }
             if (ev.page_only) {
                 int32_t p1 = 0, p2 = 0;
                 range(ev.page_lo, ev.page_hi, 0xFF, "page", p1, p2);
@@ -356,6 +381,13 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
             if (bad) break;
             s.filter.lo = static_cast<uint16_t>(lo);
             s.filter.hi = static_cast<uint16_t>(hi);
+            // GH #346 (346-D10): exactly one `@name`, no `page`: its own memory.
+            // find_name is the one resolver (C names included).
+            if (ev.type == EventType::Execute && ev.lo && ev.lo->kind == ExprKind::Symbol &&
+                !ev.hi && !ev.page_lo) {
+                const auto key = dbg_.symbols().find_name(ev.lo->text);
+                if (key && key->space) s.filter.space = *key->space;
+            }
             // §3(a): a PAGE predicate over more than one slot drains every
             // access in the range through the predicate — the page filter is
             // the cheap form. A warning, at registration where the bounds are
@@ -1067,6 +1099,11 @@ static std::string describe_event(const Rule& r, const std::vector<dbg::Subscrip
                 const unsigned p1 = e.type == EventType::Execute ? t.front().filter.page : f.pages.front();
                 const unsigned p2 = e.type == EventType::Execute ? t.back().filter.page : f.pages.back();
                 s += " page " + std::to_string(p1) + (p2 != p1 ? ".." + std::to_string(p2) : "");
+            } else if (!e.file_line.empty()) {
+                s += " " + e.file_line + " (";
+                for (size_t k = 0; k < t.size(); ++k)
+                    s += (k ? ", " : "") + hex4(t[k].filter.lo);
+                s += ")";
             } else {
                 s += " " + range(f.lo, f.hi);
                 if (f.page != dbg::PAGE_ANY) s += " page " + std::to_string(f.page);

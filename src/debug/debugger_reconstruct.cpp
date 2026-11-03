@@ -130,6 +130,10 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     ds().set_event_hooks([this]() { return drain_boundary(); },
                          [this](uint16_t pc) { return execute_gate(pc); });
     ds().set_machine_replaced_hook([this]() { machine_replaced(); });
+    // GH #344 stage 3 - the verify window belonged to the DebugState the cold boot replaced:
+    // the hook and the window follow the checks, which live here.
+    ds().set_verify_hook([this](uint16_t pc) { verify_hook(pc); });
+    sync_verify_window();
 
     //     THE MASTER SWITCH'S LEGACY MIRROR (GH #278 WP4c). The switch is the
     //     `EventTable`'s and survived; the rebuilt `BreakpointSet` starts with
@@ -182,9 +186,10 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     exactly right for an UNOWNED pause (below), and why (4) re-arms `User`
     //     only for an owned one.
     //
-    //     CAP-SRC: the hook also drops the previous program's sidecars (a
-    //     rebuilt machine is not the program they describe), so a cold boot
-    //     needs it as much as a reset does. A program loaded by this very
+    //     CAP-SRC: the hook also opens a new load generation (a rebuilt machine
+    //     is not the program the sidecars described, unless their binary
+    //     identity says it is), so a cold boot needs it as much as a reset
+    //     does. A program loaded by this very
     //     verb attaches its own afterwards (`Debugger::load()`).
     machine_replaced();
 
@@ -232,6 +237,9 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     before the boot is kept, because "since clear" is not "since boot"
     //     (rows INS-20-10/11).
     publish_coverage();
+    //     GH #388 - memory coverage, the same: the set and the switch never left
+    //     `Impl`, only the pointer did, and the bits recorded before the boot stay.
+    publish_mem_coverage();
     //     GH #276 B4 — CAP-01. The queued screenshots are backend state and
     //     survive; what the machine held for them did not — the head's layer
     //     mask (the new `Renderer` starts at LAYER_ALL) and the force-render bit
@@ -516,7 +524,12 @@ Result Debugger::load(ClientId by, const std::string& path) {
     if (loaded) impl_->note_mutation();
     if (reconstructed) impl_->notify_reset(ResetKind::Hard);
     // CAP-SRC — the program's own symbols and source map, if it has them.
-    if (loaded) load_program_sidecars(path);
+    if (loaded) {
+        const SidecarLoad sidecars = load_program_sidecars(path);
+        // A refused sidecar is reported to every client, not only the frontend
+        // that asked for the load (the status bar shows the same line).
+        if (!sidecars.problem.empty()) log(by, LogLevel::Warn, "load: " + sidecars.problem);
+    }
     return loaded ? Result::Ok : Result::RefusedUnavailable;
 }
 

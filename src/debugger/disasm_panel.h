@@ -6,10 +6,15 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollBar>
+#include <array>
+#include <optional>
+#include <string>
 #include <vector>
 #include "debug/disasm.h"
 #include "debug/disasm_text.h"
 #include "debug/events.h"
+#include "debug/long_address.h"
+#include "debugger/breakpoint_glyph.h"
 
 class QAction;
 class BreakpointModel;
@@ -28,8 +33,9 @@ class DisasmPanel : public QWidget {
     Q_OBJECT
 public:
     /// @param dbg  the debugger backend every read goes through (GH #278 WP5):
-    ///             the bytes are its memory_reader() — a peek, so disassembling
-    ///             moves nothing — and the registers its registers().
+    ///             the bytes are its memory_reader() — a peek (the PC
+    ///             instruction as the CPU will fetch it, GH #360), so
+    ///             disassembling moves nothing — and the registers its registers().
     explicit DisasmPanel(const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
 
     /// Re-disassemble around current PC and repaint.
@@ -54,6 +60,10 @@ public:
     /// the same thing "Run to Here" on the current line has always done.
     void run_to_selected();
 
+    /// GH #423 - centre the view on `addr` and select that line (the caret, so
+    /// Run to Cursor and a copy act on it): the Source tab's "Show in Disassembly".
+    void show_address(uint16_t addr);
+
     /// Activate "Follow PC" mode (called when Break or Step is used).
     void activate_follow_pc();
 
@@ -62,6 +72,20 @@ public:
 
     /// Set symbol table for address resolution in disassembly display.
     void set_symbol_table(const SymbolTable* st) { symbol_table_ = st; }
+
+    /// GH #387 - the backend the annotation menu entries write to (the panel reads through its
+    /// const pointer). Without one the menu offers no annotation entries.
+    void set_annotation_backend(jnext::dbg::Debugger* dbg) { annot_ = dbg; }
+
+    /// GH #387 - what a line shows in the Label column (the name the one reader gives its
+    /// address in its memory, elided to LABEL_CHARS) and after its mnemonic (`; first line`,
+    /// ` ...` when the comment has more); "" for none or a line out of range.
+    QString line_label(int line) const;
+    QString line_comment(int line) const;
+    /// GH #387 - whether the Label column is shown: while the symbol table holds any label.
+    bool label_column_shown() const;
+    /// GH #387 - x of the mnemonic text of every line (for the layout rows).
+    int mnemonic_x() const;
 
     /// Set watch panel for "Add Watch" context menu actions.
     void set_watch_panel(WatchPanel* wp) { watch_panel_ = wp; }
@@ -90,6 +114,13 @@ public:
     /// freely can catch self-modifying code mid-write.
     QString selection_text(disasm_text::CopyFormat fmt) const;
 
+    /// GH #360 - Friendly (`P04`, `DIVROM`) or Physical (`$048000`, `BRAM7+$0000`) in
+    /// the Mem column.
+    void set_address_style(jnext::dbg::AddressStyle st) { style_ = st; }
+
+    /// Names an address in the memory that supplies it now (GH #375).
+    disasm_text::SymbolNamer namer(bool assembler_names = false) const;
+
     /// Put the current selection on the clipboard. A copy with nothing
     /// selected is a no-op — it never clears what is already there.
     void copy_selection(disasm_text::CopyFormat fmt);
@@ -108,8 +139,26 @@ public:
     /// Drop the selection (nothing is highlighted, a copy is a no-op).
     void clear_selection();
 
+    // --- GH #347: the Source tab's selection --------------------------------
+
+    /// The Source tab's selected lines, `first..last` of `file` (an empty file: none).
+    /// Every instruction with a source location on one of them (any location, not only
+    /// the primary) is tinted. With `reveal` (a move the user made in the Source tab)
+    /// and none of them in view, the view centres on the first of those addresses that
+    /// is mapped now; without it the view stays where it is. The selection is untouched.
+    void set_source_lines(const std::string& file, int first, int last, bool reveal);
+    /// Whether the instruction at `addr` is tinted by the Source tab's lines now.
+    bool source_linked(uint16_t addr) const;
+
 signals:
     void run_to_requested(uint16_t addr);
+    /// GH #347 - the USER changed the selection: its bounds and the caret line. Not
+    /// emitted by show_address() (the Source tab asked for that one), nor by a refresh.
+    void selection_changed(uint16_t lo, uint16_t hi, uint16_t caret);
+    /// GH #347 - the menu's Show in Source on `addr`.
+    void show_source_requested(uint16_t addr);
+    /// GH #387 - a menu entry changed a label or a comment: the manager refreshes the panels.
+    void annotations_changed();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -136,10 +185,15 @@ private:
     void set_selection(uint16_t addr, bool extend);
     bool line_selected(uint16_t addr) const;
     void navigate_to_address(const QString& text);
+    /// Centre the view on `addr`, leaving the selection alone (the address box).
+    void center_on(uint16_t addr);
     /// The gutter click and the context menu's Toggle Breakpoint: remove the
     /// Execute breakpoint drawn at `addr`, or add a logical one.
     void toggle_breakpoint(uint16_t addr, int line);
     static uint16_t extract_immediate16(const char* mnemonic);
+    /// Emit selection_changed() when the (lo, hi, caret) differs from the last one emitted.
+    void notify_selection_();
+    bool linked_at_(jnext::dbg::MemSpace space, uint16_t addr) const;
 
     const jnext::dbg::Debugger* dbg_;
 
@@ -159,12 +213,17 @@ private:
         /// on. The gutter draws a filled dot for live and a hollow ring for
         /// suspended, so the two are never confused for one another.
         bool breakpoint_live;
-        /// The page the line was drawn with (`source_page`). While running
-        /// the panel is not redrawn, so a click must act on what it shows,
-        /// not on what is mapped by then.
-        uint16_t page = jnext::dbg::PAGE_ANY;
+        /// The memory that supplied the line when it was drawn (`source_page`).
+        /// While running the panel is not redrawn, so a click must act on what
+        /// it shows, not on what is mapped by then.
+        jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
+        /// GH #360 - the memory the line's BYTES came from, for the Mem column:
+        /// the PC line's is `space` (the fetch prediction), any other line's is
+        /// the live data route of its slot (`SlotInfo::now`, design 10.3).
+        jnext::dbg::MemSpace mem = jnext::dbg::MemSpace::cpu();
     };
     std::vector<DisasmEntry> entries_;
+    jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     int selected_line_ = -1;
 
     // GH #21 — the clipboard commands, as real QActions on this widget.
@@ -182,15 +241,25 @@ private:
     uint16_t sel_cursor_    = 0;   // where it is now
     uint16_t view_addr_ = 0; // top address in view
 
+    // GH #347 - the Source tab's lines, and the last selection announced to it.
+    std::string link_file_;
+    int link_first_ = 0, link_last_ = 0;
+    std::optional<std::array<uint16_t, 3>> notified_;
+    bool notifying_ = false;
+
     // Vertical offset for the painting area (below the top bar)
     int paint_y_offset_ = 0;
 
     // Layout constants
-    static constexpr int GUTTER_WIDTH = 20;   // breakpoint indicator column
+    static constexpr int GUTTER_WIDTH = kBreakpointColumnWidth;   // breakpoint indicator column
     static constexpr int LINE_HEIGHT = 18;    // pixels per line
     int visible_lines() const { return std::max(4, (height() - paint_y_offset_) / LINE_HEIGHT); }
     static constexpr int ADDR_WIDTH = 48;     // address column width
+    static constexpr int MEM_WIDTH = 96;      // GH #360: memory column; holds "BRAM7+$1FFF"
     static constexpr int BYTES_WIDTH = 100;   // hex bytes column width
+    static constexpr int LABEL_CHARS = 16;    // GH #387: the Label column holds this many characters
+    int label_width() const;
+    jnext::dbg::Debugger* annot_ = nullptr;
 
     QFont mono_font_;
 

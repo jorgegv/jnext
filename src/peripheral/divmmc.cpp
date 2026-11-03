@@ -397,7 +397,7 @@ void DivMmc::decode_m1_(uint16_t pc, bool sram_pre_override_2, bool sram_pre_ove
 }
 
 bool DivMmc::active_on_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
-                          bool sram_altrom_en_read, bool sram_alt_128_n) const {
+                          bool sram_altrom_en_read, bool sram_alt_128_n, bool hold_in) const {
     // What check_automap(pc, true, ...) would leave is_active() at for the
     // fetch of this M1, without changing anything: held <= hold, the
     // button_nmi clear, then automap = held OR instant (divmmc.vhd:141,
@@ -407,11 +407,22 @@ bool DivMmc::active_on_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_o
     if (!enabled_) return automap_active_;   // check_automap returns early
     // The button_nmi clear needs no modelling: it only acts while held, and
     // then the answer is held whatever the decode says.
-    const bool held = automap_hold_;
     bool instant = false, delayed = false, off = false;
     decode_m1_(pc, sram_pre_override_2, sram_pre_override_0, sram_altrom_en_read,
                sram_alt_128_n, button_nmi_, instant, delayed, off);
-    return held || instant;
+    return hold_in || instant;
+}
+
+bool DivMmc::hold_after_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
+                           bool sram_altrom_en_read, bool sram_alt_128_n, bool hold_in) const {
+    // The `hold` check_automap(pc, true, ...) would load (divmmc.vhd:128-131),
+    // where `held` is the previous hold: it is what is_active_after_fetch()
+    // answers from then on.
+    if (!enabled_) return hold_in;   // check_automap returns early
+    bool instant = false, delayed = false, off = false;
+    decode_m1_(pc, sram_pre_override_2, sram_pre_override_0, sram_altrom_en_read,
+               sram_alt_128_n, button_nmi_, instant, delayed, off);
+    return instant || delayed || (hold_in && !off);
 }
 
 void DivMmc::check_automap(uint16_t pc, bool is_m1,
@@ -596,15 +607,8 @@ bool DivMmc::is_ram_mapped(uint16_t addr) const {
 }
 
 bool DivMmc::is_read_only(uint16_t addr) const {
-    if (addr < 0x2000) {
-        // Slot 0 is always read-only (ROM, or RAM page 3 with mapram)
-        return true;
-    }
-    // Slot 1: RAM bank 3 is read-only when mapram is set (from VHDL)
-    if (addr < 0x4000 && mapram_ && bank_ == 3) {
-        return true;
-    }
-    return false;
+    // divmmc.vhd:100, once: overlay_at().rdonly (page 0, or MAPRAM with bank 3).
+    return addr < 0x4000 && overlay_at(addr).rdonly;
 }
 
 int DivMmc::ram_page_for(uint16_t addr) const {
@@ -615,52 +619,36 @@ int DivMmc::ram_page_for(uint16_t addr) const {
     return bank_;  // slot 1 → selected bank
 }
 
-uint8_t DivMmc::read(uint16_t addr) const {
-    if (addr >= 0x4000) return 0xFF;  // outside DivMMC range
-
-    bool page0 = (addr < 0x2000);
-
-    if (page0) {
-        if (mapram_) {
-            // mapram: read from RAM page 3
-            return ram_data()[3 * kRamPageSize + (addr & 0x1FFF)];
-        } else {
-            // Normal: read from DivMMC ROM
-            return rom_data()[addr & 0x1FFF];
-        }
-    } else {
-        // Slot 1: read from selected RAM bank
-        return ram_data()[bank_ * kRamPageSize + (addr & 0x1FFF)];
+// divmmc.vhd:88-101: `rom_en` is page 0 (conmem or automap) with MAPRAM clear,
+// `ram_en` is page 0 with MAPRAM or page 1, and `ram_bank` is 3 at page 0 and
+// the control register's bits 3:0 at page 1 (ram_page_for()).
+DivMmc::Overlay DivMmc::overlay_at(uint16_t addr) const {
+    const uint16_t off = addr & 0x1FFF;
+    if (addr < 0x2000 && !mapram_) {
+        // Normal: the DivMMC ROM (read-only: page 0)
+        return Overlay{false, 0, rom_data() + off, true};
     }
+    // MAPRAM at page 0: RAM page 3; page 1: the selected RAM bank
+    const uint8_t bank = static_cast<uint8_t>(ram_page_for(addr));
+    // divmmc.vhd:100: page 0, or MAPRAM with ram_bank 3.
+    const bool rdonly = addr < 0x2000 || (mapram_ && bank == 3);
+    return Overlay{true, bank, ram_data() + bank * kRamPageSize + off, rdonly};
 }
 
+uint8_t DivMmc::read(uint16_t addr) const {
+    if (addr >= 0x4000) return 0xFF;  // outside DivMMC range
+    return *overlay_at(addr).ptr;
+}
+
+// TEST-ONLY since GH #388: the Mmu no longer calls this. Its write path stores through the
+// pointer of the write route (Mmu::write_route), whose read-only decision is the same
+// overlay_at().rdonly used here. Kept for the divmmc_test rows (RB-02/RB-03) that drive the
+// peripheral on its own.
 bool DivMmc::write(uint16_t addr, uint8_t val) {
     if (addr >= 0x4000) return false;  // outside DivMMC range
-
-    bool page0 = (addr < 0x2000);
-
-    if (page0) {
-        // Slot 0: writable only when conmem is set AND mapram is NOT set
-        // (i.e. writing to the ROM area — which actually writes to... nothing
-        // useful, but the VHDL allows it when conmem is set).
-        // When mapram is set, page 3 at slot 0 is read-only.
-        if (conmem_ && !mapram_) {
-            // In the real hardware with conmem, writes go to... the ROM area.
-            // Since we model ROM as writable storage when conmem forces it:
-            // Actually from VHDL: rdonly = '1' when page0 — slot 0 is ALWAYS
-            // read-only regardless of conmem. Writes are simply discarded.
-            return false;
-        }
-        // All other cases: slot 0 is read-only
-        return false;
-    }
-
-    // Slot 1: writable unless mapram is set AND bank is 3
-    if (mapram_ && bank_ == 3) {
-        return false;  // read-only
-    }
-
-    ram_data()[bank_ * kRamPageSize + (addr & 0x1FFF)] = val;
+    const Overlay o = overlay_at(addr);
+    if (o.rdonly) return false;        // divmmc.vhd:100 -> zxnext.vhd:3089, :3097
+    ram_data()[o.bank * kRamPageSize + (addr & 0x1FFF)] = val;
     return true;
 }
 

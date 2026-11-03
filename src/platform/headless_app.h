@@ -195,6 +195,7 @@ private:
     // Pending --load state
     std::string load_file_;
     int         load_countdown_ = -1;
+    bool        source_map_watch_ = false;   // --source-map attached pending (a tape): GH #344
 
     // Pending --delayed-screenshot state
     std::string screenshot_file_;

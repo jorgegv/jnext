@@ -993,6 +993,36 @@ static void register_rows() {
               r.len == 38 && r.payload == want, hex(r.payload));
     }
     {
+        // DZRP-REG-08 (GH #360 F3): a ROM slot is 0xFF, whatever NR 0x50/0x51 holds (>= 0xE0
+        // reads ROM, zxnext.vhd:2964, :3052), but the same value in slots 2-7 is "nothing
+        // answers" (:3061) and DZRP has no value for it, so it keeps the NR value. An overlay
+        // (DivMMC conmem) has no DZRP value either: the bytes do not change.
+        Rig rig(MachineType::ZXN_ISSUE2);
+        Dz  c(rig);
+        c.init();
+        rig.dbg->nextreg_write(1, 0x50, 0xE5);
+        rig.dbg->nextreg_write(1, 0x52, 0xE5);
+        const Resp a = c.cmd(CMD_GET_REGISTERS);
+        rig.emu.port().out(0x00E3, 0x82);   // DivMMC conmem
+        const Resp b = c.cmd(CMD_GET_REGISTERS);
+        auto slot = [](const Resp& r, int i) {
+            return static_cast<unsigned char>(r.payload[29 + static_cast<std::size_t>(i)]);
+        };
+        // The overlay half needs a slot that is NOT ROM: RAM page 0x10 at slot 0, then DivMMC
+        // conmem overlays it (zxnext.vhd:3037-3043, :3084), and the byte stays 0x10.
+        rig.dbg->nextreg_write(1, 0x50, 0x10);
+        const Resp c0 = c.cmd(CMD_GET_REGISTERS);
+        rig.emu.port().out(0x00E3, 0x82);   // DivMMC conmem
+        const Resp c1 = c.cmd(CMD_GET_REGISTERS);
+        check("DZRP-REG-08", "CMD_GET_REGISTERS: MMU0 = 0xE5 (ROM) is sent as 0xFF, MMU2 = 0xE5 "
+                             "(floating) stays 0xE5, DivMMC conmem changes no byte, and over a "
+                             "RAM page (MMU0 = 0x10) it stays 0x10 rather than becoming 0xFF",
+              a.payload.size() == 37 && slot(a, 0) == 0xFF && slot(a, 1) == 0xFF &&
+                  slot(a, 2) == 0xE5 && b.payload == a.payload && slot(c0, 0) == 0x10 &&
+                  slot(c1, 0) == 0x10 && rig.dbg->mmu_slots()[0].now == jnext::dbg::MemSpace::divmmc_rom(),
+              hex(a.payload) + " / " + hex(b.payload) + " / " + hex(c1.payload));
+    }
+    {
         // THE REGISTER NUMBERS, ALL OF THEM: spec 0..35 (12 unused) == DeZog's
         // Z80_REG enum. Each write must change exactly the register it names.
         Rig  rig;
@@ -2064,6 +2094,33 @@ static void breakpoint_rows() {
                   bp_id(rom) == 2 && rom_any);
     }
     {
+        // SRCBP-05 (GH #341 / E23-09) -- THE LEGACY MEANING IS PINNED. DZRP's bank+1 is the page
+        // NUMBER: `EventFilter::page` compares Mmu::get_effective_page(slot) and nothing more, so it
+        // fires on a ROM that carries that number (a ROM-slot effective page is sram_rom*2+slot, a
+        // number in the RAM-page range), which the canonical `space` qualifier never would. Premises (measured):
+        // reset leaves ROM 0 in slot 0, source_page says so, and its effective page p is 0.
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        load_prog(rig, 0x8000, {0xC3, 0x00, 0x00});  // JP $0000
+        set_pc(rig, 0x8000);
+        const unsigned p = rig.dbg->effective_page(0x0000);
+        const bool premise = rig.dbg->source_page(0x0000).kind == jnext::dbg::MemSpace::Kind::Rom && p == 0;
+        const Resp a = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x0000, static_cast<int>(p) + 1));
+        c.cmd(CMD_CONTINUE, cont());
+        run_until_paused(rig, 3);
+        c.tick();
+        const Ntf hit = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        const auto subs = rig.dbg->subscriptions(false);
+        check("SRCBP-05", "a DZRP breakpoint with bank+1 = p+1 is the legacy page-number qualifier: it "
+                          "stops a fetch from the ROM at $0000 whose effective page number is p, and "
+                          "carries no space",
+              premise && bp_id(a) == 1 && subs.size() == 1 && subs[0].filter.page == p &&
+                  subs[0].filter.space == jnext::dbg::MemSpace::cpu() && hit.ok &&
+                  hit.reason == BREAK_BP && hit.addr == 0x0000,
+              "premise=" + std::to_string(premise) + " p=" + std::to_string(p) + " " + ntf_str(hit));
+    }
+    {
         // ROM BANK BYTES (§5.3): slot 0's ROM reports 0xFF (DeZog 3.7.4's
         // 0xFE + 1, which it can match), slot 1's reports 0 (0xFF + 1 does not
         // fit the byte).
@@ -2880,11 +2937,11 @@ static void edge_rows() {
         const Resp regs = c.cmd(CMD_GET_REGISTERS);
         check("DZRP-EDGE-03", "CMD_SET_SLOT slot 7 and bank 223 — the last of each — map (error "
                               "0); 0xFE on slot 1 is NOT rewritten to 0xFF (that is slot 0's rule) "
-                              "and slot 1 still serves ROM",
+                              "and slot 1 still serves ROM, which CMD_GET_REGISTERS reports as 0xFF",
               s7.payload == bytes({0}) && rd.payload == bytes({0xDF}) &&
                   fe1.payload == bytes({0}) && regs.payload.size() == 37 &&
                   static_cast<unsigned char>(regs.payload[29 + 7]) == 223 &&
-                  static_cast<unsigned char>(regs.payload[29 + 1]) == 0xFE &&
+                  static_cast<unsigned char>(regs.payload[29 + 1]) == 0xFF &&
                   rig.emu.mmu().is_slot_rom(1));
     }
     {

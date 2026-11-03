@@ -2,6 +2,7 @@
 #include "qt/palette_tint_qt.h"   // GH #363
 #include <QApplication>
 #include "debug/debugger.h"
+#include "debugger/memory_text.h"
 
 #include <QGridLayout>
 #include <QVBoxLayout>
@@ -46,8 +47,8 @@ void MmuPanel::create_ui() {
     mmu_grid->setSpacing(1);
     mmu_grid->setContentsMargins(0, 0, 0, 0);
 
-    const char* mmu_hdrs[] = {"Slot", "Page", "Type"};
-    for (int c = 0; c < 3; ++c) {
+    const char* mmu_hdrs[] = {"Slot", "Page", "Type", "Memory"};
+    for (int c = 0; c < 4; ++c) {
         auto* lbl = new QLabel(mmu_hdrs[c], this);
         lbl->setFont(mono_bold);
         lbl->setAlignment(Qt::AlignCenter);
@@ -69,6 +70,11 @@ void MmuPanel::create_ui() {
         slot_type_[s]->setFont(mono_small);
         slot_type_[s]->setAlignment(Qt::AlignCenter);
         mmu_grid->addWidget(slot_type_[s], s + 1, 2);
+
+        slot_mem_[s] = new QLabel("--", this);
+        slot_mem_[s]->setFont(mono_small);
+        slot_mem_[s]->setAlignment(Qt::AlignCenter);
+        mmu_grid->addWidget(slot_mem_[s], s + 1, 3);
     }
 
     top_layout->addLayout(mmu_grid);
@@ -103,7 +109,7 @@ void MmuPanel::create_ui() {
     top_layout->addStretch();
 
     setMinimumWidth(200);
-    setMaximumWidth(260);
+    setMaximumWidth(340);   // GH #360: the Memory column ("BRAM7+$1FFF")
 }
 
 void MmuPanel::refresh() {
@@ -121,6 +127,9 @@ void MmuPanel::refresh() {
         bool is_rom = slot_info[s].is_rom;
 
         slot_page_[s]->setText(QString::asprintf("%02X", page));
+        // GH #360: what a read of the slot reaches now (overlays included).
+        slot_mem_[s]->setText(memtext::text(dbg_, style_, slot_info[s].now,
+                                            static_cast<uint16_t>(s << 13)));
 
         if (is_rom) {
             slot_type_[s]->setText("ROM");

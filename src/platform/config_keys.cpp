@@ -2,6 +2,7 @@
 
 #include "core/cli_options.h"
 #include "core/emulator_config.h"
+#include "debug/source_search.h"
 #include "debug/debug_keymap.h"
 #include "input/joy_source.h"
 #include "peripheral/esp_host_policy.h"
@@ -128,6 +129,24 @@ bool canon_value(const Key& k, const std::string& key, const std::string& val,
         case Type::Path:
             canon = val;
             return true;
+        case Type::PathList: {
+            // An empty entry (a leading, trailing or doubled separator) is a typo
+            // that would silently search nothing: refuse it, as the host list does.
+            const char sep = source_search::kListSeparator;
+            if (!val.empty()) {
+                size_t begin = 0;
+                for (;;) {
+                    const size_t at = val.find(sep, begin);
+                    if ((at == std::string::npos ? val.size() : at) == begin)
+                        return bad(why, key, val, std::string("directories separated by '") + sep
+                                                  + "' with no empty entry");
+                    if (at == std::string::npos) break;
+                    begin = at + 1;
+                }
+            }
+            canon = val;
+            return true;
+        }
         case Type::TrimmedText:
             canon = trimmed(val);
             return true;
@@ -258,6 +277,22 @@ void append_crt_effect(std::vector<Assignment>& out, bool filter, bool shader, i
     out.push_back({ KeyId::StartupCrtFilter, {}, filter ? "true" : "false" });
     out.push_back({ KeyId::StartupCrtShader, {}, shader ? "true" : "false" });
     if (style >= 0) out.push_back({ KeyId::StartupCrtShaderStyle, {}, std::to_string(style) });
+}
+
+bool append_list_entry(std::string& canon, const char* dir, std::string& why) {
+    const std::string d = dir ? dir : "";
+    if (d.empty()) {
+        why = "--source-dir: DIR must not be empty.";
+        return false;
+    }
+    if (d.find(source_search::kListSeparator) != std::string::npos) {
+        why = std::string("--source-dir: DIR must be a single directory; '") + source_search::kListSeparator
+              + "' is not a separator here.\n  Repeat the option instead: --source-dir a --source-dir b";
+        return false;
+    }
+    if (!canon.empty()) canon += source_search::kListSeparator;
+    canon += d;
+    return true;
 }
 
 } // namespace config_keys

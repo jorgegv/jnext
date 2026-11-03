@@ -52,6 +52,22 @@ extern "C" {
 static MemoryInterface* s_mem = nullptr;
 static IoInterface*     s_io  = nullptr;
 
+// The M1 bytes of the instruction being executed, fetched ONCE each (GH #339):
+// the opcode byte and the inner bytes of a prefix chain, each under the
+// overlay ITS OWN M1 selects. The DivMMC automap is decided per M1
+// (divmmc.vhd:127-131 loads the hold on every M1, :139-143 releases it to
+// `held` between two), so the bytes of one instruction can come from different
+// memories; the FUSE core re-reads them through fuse_z80_readbyte_raw() and
+// must get these, not whatever the overlay is by then. The bytes that are not
+// an M1 (operands, the d and op of DD CB d op) are plain data reads.
+// 1 opcode + up to 64 DD/FD + 1 CB/ED/opcode + 1 ED inner.
+static uint16_t s_fetch_base = 0;
+static uint8_t  s_fetch_n    = 0;
+static uint8_t  s_fetch_buf[68];
+// The 28 MHz read wait of each M1 in s_fetch_buf, decided when that byte was
+// read (see record_m1_wait28()); valid for [0, s_fetch_n).
+static uint8_t  s_fetch_wait[68];
+
 // There is no per-instruction contention callback, and that is deliberate:
 // the contention path runs entirely through ContentionModel::contention_tick()
 // via the FUSE read/write overrides below (Phase-2 wiring + G141), which apply
@@ -277,10 +293,21 @@ inline uint8_t mem_active_page_for(uint16_t address) {
 /// bus-idle-latched `cpu_speed` signal the VHDL expression reads
 /// (zxnext.vhd:5816-5820). Null s_contention (FUSE Z80 standalone
 /// harness) or null s_contention_mmu keeps this inert.
-inline void sram_wait28_read_tick(libspectrum_word address) {
+inline void sram_wait28_read_tick(libspectrum_word address, bool fetch = false) {
     if (s_contention && s_contention->cpu_speed() == 3 && s_contention_mmu) {
-        tstates += s_contention_mmu->sram_read_wait28(address);
+        tstates += s_contention_mmu->sram_read_wait28(address, fetch);
     }
+}
+
+/// The wait of the M1 just read into s_fetch_buf[idx] at `address`, decided NOW:
+/// E23-07 reads every M1 byte of a prefix chain up front, each under the
+/// DivMMC/Multiface state its own automap decode left, but FUSE charges the
+/// cycles later (contend_read(PC,4)), when the live overlay is the chain's LAST
+/// M1's. The wait of an M1 is the overlay's of its own read (divmmc.vhd:124-148,
+/// zxnext.vhd:3084-3099), so it is recorded here and contend_read consumes it.
+inline void record_m1_wait28(uint8_t idx, libspectrum_word address) {
+    s_fetch_wait[idx] = (s_contention && s_contention->cpu_speed() == 3 && s_contention_mmu)
+        ? s_contention_mmu->sram_read_wait28(address, true) : 0;
 }
 
 } // anonymous namespace
@@ -290,6 +317,14 @@ extern "C" {
 // Raw memory read — no timing, no contention.  Used for opcode fetches
 // where contend_read() already handled the timing.
 libspectrum_byte fuse_z80_readbyte_raw(libspectrum_word address) {
+    const uint16_t off = static_cast<uint16_t>(address - s_fetch_base);
+    if (off < s_fetch_n) return s_fetch_buf[off];
+    return s_mem->read_fetch(address);
+}
+
+// A byte that is not an M1: the d and op of DD CB d op. The overlay after the
+// fetch, like any operand. No timing, as the raw fetch above.
+libspectrum_byte fuse_z80_readbyte_raw_data(libspectrum_word address) {
     return s_mem->read(address);
 }
 
@@ -488,7 +523,19 @@ extern "C" void contend_read(libspectrum_word address, libspectrum_dword time) {
     // read of a not-taken JR/DJNZ (contend_read(PC,3)) — each stretches by
     // +1 T-state at cpu_speed="11". The no-MREQ macros below do NOT get
     // this: sram_memcycle requires cpu_mreq_n='0' (zxnext.vhd:3144).
-    sram_wait28_read_tick(address);
+    // contend_read(PC, 4) is the M1 opcode fetch (GH #339: the DivMMC view of
+    // an M1); contend_read(PC, 3) is an operand read.
+    if (time == 4) {
+        const uint16_t off = static_cast<uint16_t>(address - s_fetch_base);
+        if (off < s_fetch_n) {
+            if (s_contention && s_contention->cpu_speed() == 3 && s_contention_mmu)
+                tstates += s_fetch_wait[off];
+        } else {
+            sram_wait28_read_tick(address, true);
+        }
+    } else {
+        sram_wait28_read_tick(address, false);
+    }
     tstates += time;
 }
 
@@ -671,6 +718,38 @@ uint32_t Z80Cpu::io_clock_into_instruction(unsigned io_clock) const {
     return t;
 }
 
+// The prefix chain of the instruction at `pc` (CB / ED: one more M1; DD / FD:
+// DD and FD bytes, then the instruction's own opcode, and one more after an ED;
+// the d and op of DD CB d op are data reads and not fetched here). Every byte
+// is an M1: the automap decode of its address runs first (the on_m1_prefetch
+// hook, as for the opcode byte), then the byte is read under the overlay that
+// leaves - zxnext.vhd:4112-4132 and divmmc.vhd:127-148 do this on every M1.
+void Z80Cpu::fetch_prefix_chain_(uint16_t pc, uint8_t opcode) {
+    auto m1 = [this](uint16_t a) -> uint8_t {
+        if (on_m1_prefetch) on_m1_prefetch(a);
+        const uint8_t v = mem_.read_fetch(a);
+        record_m1_wait28(s_fetch_n, a);
+        s_fetch_buf[s_fetch_n++] = v;
+        return v;
+    };
+    uint16_t a = static_cast<uint16_t>(pc + 1);
+    if (opcode == 0xCB || opcode == 0xED) {
+        m1(a);
+        return;
+    }
+    for (int hop = 0; hop < 64; ++hop, ++a) {
+        const uint8_t b = m1(a);
+        if (b == 0xDD || b == 0xFD) continue;
+        if (b == 0xED) m1(static_cast<uint16_t>(a + 1));
+        return;
+    }
+}
+
+uint8_t Z80Cpu::chain_byte_(uint16_t addr) {
+    const uint16_t off = static_cast<uint16_t>(addr - s_fetch_base);
+    return off < s_fetch_n ? s_fetch_buf[off] : mem_.read_fetch(addr);
+}
+
 int Z80Cpu::execute() {
     s_mem = &mem_;
     s_io  = &io_;
@@ -689,6 +768,8 @@ int Z80Cpu::execute() {
     // can tell a completed instruction from an NMI/INT acknowledge or an
     // intercepted esxdos call. See fetched_opcode_last_execute().
     slot_kind_ = SlotKind::Other;
+
+    s_fetch_n = 0;
 
     // Push any externally set registers into FUSE state
     sync_fuse_from_regs(regs_);
@@ -938,11 +1019,19 @@ int Z80Cpu::execute() {
     // the opcode read, matching real hardware combinatorial decode.
     if (on_m1_prefetch) on_m1_prefetch(pc);
 
-    uint8_t  opcode = mem_.read(pc);
+    uint8_t  opcode = mem_.read_m1(pc);   // GH #339: the fetch records what supplied it
     slot_kind_ = SlotKind::Opcode;   // past every early return; the CPU read PC itself
+    s_fetch_base = pc;
+    s_fetch_buf[0] = opcode;
+    record_m1_wait28(0, pc);
+    s_fetch_n = 1;
+    // The inner bytes of a prefix chain are M1s too: each runs the automap
+    // decode at its own address, then is read under what that leaves.
+    if (opcode == 0xCB || opcode == 0xED || opcode == 0xDD || opcode == 0xFD)
+        fetch_prefix_chain_(pc, opcode);
 
     if (opcode == 0xED) {
-        uint8_t ext = mem_.read(static_cast<uint16_t>(pc + 1));
+        uint8_t ext = chain_byte_(static_cast<uint16_t>(pc + 1));
 
         // Magic breakpoint: ED FF (ZEsarUX/Spectaculator convention)
         if (ext == 0xFF && on_magic_breakpoint) {
@@ -1109,7 +1198,7 @@ int Z80Cpu::execute() {
 
     // Magic breakpoint: DD 01 (CSpect convention)
     if (opcode == 0xDD) {
-        uint8_t ext = mem_.read(static_cast<uint16_t>(pc + 1));
+        uint8_t ext = chain_byte_(static_cast<uint16_t>(pc + 1));
         if (ext == 0x01 && on_magic_breakpoint) {
             if (on_magic_breakpoint(pc)) {
                 // Advance PC past DD 01 (acts as 2-byte NOP)
@@ -1164,7 +1253,7 @@ int Z80Cpu::execute() {
             // before we got here in practice).
             uint16_t walk_pc = static_cast<uint16_t>((pc + 1) & 0xFFFF);
             for (int hop = 0; hop < 64; ++hop) {
-                uint8_t b = mem_.read(walk_pc);
+                uint8_t b = chain_byte_(walk_pc);
                 on_m1_cycle(walk_pc, b);
                 if (b == 0xDD || b == 0xFD) {
                     walk_pc = static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
@@ -1175,7 +1264,7 @@ int Z80Cpu::execute() {
                     // FUSE main switch does contend_read(PC, 4)).
                     uint16_t ed_inner_pc =
                         static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
-                    uint8_t ed_inner = mem_.read(ed_inner_pc);
+                    uint8_t ed_inner = chain_byte_(ed_inner_pc);
                     on_m1_cycle(ed_inner_pc, ed_inner);
                 }
                 // CB inside DD/FD chain: only the CB itself is M1; the
@@ -1186,7 +1275,7 @@ int Z80Cpu::execute() {
             }
         } else if (opcode == 0xCB) {
             // Plain CB <op>: inner byte is M1.
-            uint8_t inner = mem_.read(static_cast<uint16_t>((pc + 1) & 0xFFFF));
+            uint8_t inner = chain_byte_(static_cast<uint16_t>((pc + 1) & 0xFFFF));
             on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), inner);
         }
     }
@@ -1249,7 +1338,7 @@ int Z80Cpu::execute() {
     if (opcode == 0xDD || opcode == 0xFD) {
         uint16_t walk_pc = static_cast<uint16_t>((pc + 1) & 0xFFFF);
         for (int hop = 0; hop < 64; ++hop) {
-            uint8_t b = mem_.read(walk_pc);
+            uint8_t b = chain_byte_(walk_pc);
             if (b == 0xDD || b == 0xFD) {
                 walk_pc = static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
                 continue;
@@ -1257,7 +1346,7 @@ int Z80Cpu::execute() {
             // Found the inner (non-prefix) opcode.
             inner_opcode = b;
             if (b == 0xED) {
-                uint8_t ext = mem_.read(
+                uint8_t ext = chain_byte_(
                     static_cast<uint16_t>((walk_pc + 1) & 0xFFFF));
                 if ((ext == 0xA0) || (ext == 0xA8) || (ext == 0xB0) ||
                     (ext == 0xB8) || (ext == 0xA1) || (ext == 0xA9) ||

@@ -120,7 +120,7 @@
 //   Oracle for CLI-DLY: no VHDL (a host CLI). The arithmetic of the definition
 //   above: nominal 1/50 s and 1/60 s per frame.
 //
-//   CLI-SET-01..12  (GH #417) `--set SECTION.KEY=VALUE` and the flags --cpu-speed,
+//   CLI-SET-01..14  (GH #417) `--set SECTION.KEY=VALUE` and the flags --cpu-speed,
 //               --scale and --crt. Oracle for all: no VHDL (a host CLI); the man page's
 //               "Settings for --set" and the key table (platform/config_keys.h). CLI-SET-06
 //               and CLI-SET-07's start value are checked against the machine itself:
@@ -128,7 +128,7 @@
 //               speed in bits 5:4 (zxnext.vhd:5785-5791, 5817, 5903), so a write of 3
 //               reads 0x33.
 //   CLI-SET-01  the man page's Settings subsection lists every settable key (the
-//               debugger_keys family with its twelve action ids).
+//               debugger_keys family with its seventeen action ids).
 //   CLI-SET-02  ...and nothing else: no unknown key, no key that is not a setting, no repeat.
 //   CLI-SET-03  `--help` lists every settable key on its own entry line.
 //   CLI-SET-04  a refusal table: exit 1, the key and the value named, stdout clean, no crash.
@@ -143,6 +143,10 @@
 //   CLI-SET-11  --set nextpi.* reaches the NextPi settings (the "is ignored" warning names
 //               the flag).
 //   CLI-SET-12  a flag and --set accept the same values of the same key.
+//   CLI-SET-13  a host list given to --set esp.allowed_hosts builds the same allowlist as
+//               the hosts given one per --esp-allow.
+//   CLI-SET-14  the `--help` debugger_keys.ACTION entry names every debugger action id
+//               as a whole token (step_into is not satisfied by source_step_into).
 //
 // Every row above was mutation-tested: the thing it protects was broken, the
 // suite rebuilt, and the row confirmed to fail. CLI-BIN-01's timeout guard
@@ -160,6 +164,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
@@ -584,7 +589,7 @@ int main() {
         std::vector<std::string> missing;
         for (const std::string& w : want)
             if (std::find(names.begin(), names.end(), w) == names.end()) missing.push_back(w);
-        // The family entry names every action id, or a twelfth could go undocumented.
+        // The family entry names every action id, or an eighteenth could go undocumented.
         for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT; ++i) {
             const std::string id = jnext::dbgkeys::info(static_cast<jnext::dbgkeys::Action>(i)).id;
             if (text.find("`" + id + "`") == std::string::npos) missing.push_back("debugger_keys." + id);
@@ -1047,6 +1052,16 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-SET-12", "a flag and --set accept the same values",
                  "jnext binary not built at " + bin);
+            skip("CLI-SET-14", "`--help` names every debugger action id",
+                 "jnext binary not built at " + bin);
+            skip("CLI-COV-01", "--coverage reaches the loop owner",
+                 "jnext binary not built at " + bin);
+            skip("CLI-ANN-01", "--annotations reaches the backend before the first frame",
+                 "jnext binary not built at " + bin);
+            skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
+                 "jnext binary not built at " + bin);
+            skip("CLI-REX-02", "--import-skoolkit and --import-ghidra read files at start",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -1085,6 +1100,16 @@ int main() {
             skip("CLI-SET-11", "--set nextpi.* reaches the NextPi settings",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-SET-12", "a flag and --set accept the same values",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-14", "`--help` names every debugger action id",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-COV-01", "--coverage reaches the loop owner",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-ANN-01", "--annotations reaches the backend before the first frame",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-REX-02", "--import-skoolkit and --import-ghidra read files at start",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -1525,6 +1550,37 @@ int main() {
                       nohelp.empty(), "missing from --help: " + join(nohelp));
             }
 
+            // CLI-SET-14: the --help entry of the debugger_keys family names every action id,
+            // so an action added to the table cannot be missing from the text a user reads.
+            {
+                std::vector<std::string> nohelp;
+                const size_t at = help_text.find("\n  debugger_keys.ACTION=");
+                // The entry wraps onto deeper-indented lines; it ends at the next two-space entry line.
+                size_t end = at == std::string::npos ? at : at + 1;
+                while (end != std::string::npos && (end = help_text.find("\n  ", end)) != std::string::npos &&
+                       end + 3 < help_text.size() && help_text[end + 3] == ' ')
+                    ++end;
+                const std::string entry = at == std::string::npos ? std::string()
+                    : help_text.substr(at, end == std::string::npos ? std::string::npos : end - at);
+                if (entry.empty()) nohelp.push_back("no debugger_keys.ACTION entry in --help");
+                // Whole tokens, not substrings: `step_into` is a substring of `source_step_into`
+                // and `run` of `run_to_cursor`, so a substring test passes with the id dropped.
+                std::set<std::string> tokens;
+                {
+                    std::string tok;
+                    for (const char ch : entry + " ") {
+                        if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_') tok += ch;
+                        else if (!tok.empty()) { tokens.insert(tok); tok.clear(); }
+                    }
+                }
+                for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT && !entry.empty(); ++i) {
+                    const std::string id = jnext::dbgkeys::info(static_cast<jnext::dbgkeys::Action>(i)).id;
+                    if (tokens.count(id) == 0) nohelp.push_back(id);
+                }
+                check("CLI-SET-14", "`--help` names every debugger action id in the debugger_keys.ACTION entry",
+                      nohelp.empty(), "missing from --help: " + join(nohelp));
+            }
+
             // CLI-SET-04: the refusals.
             {
                 struct Refuse { const char* args; std::vector<const char*> named; bool version; };
@@ -1566,6 +1622,145 @@ int main() {
                                     "--tape-auto-play wins, in both orders",
                       a == "off" && b == "on" && c == "off" && d == "on",
                       "alone=" + a + " then-flag=" + b + " flag-then=" + c + " nofl-then-true=" + d);
+            }
+
+            // CLI-COV-01: --coverage takes no value and reaches the backend (GH #388): the
+            // loop owner logs when it enables recording, which it does only for config.coverage
+            // (false when the flag is absent).
+            {
+                auto cov_line = [&](const std::string& flags) {
+                    run_split("--headless --machine 48k" + sd_arg + " " + flags +
+                              " --delayed-automatic-exit-frames 1");
+                    const std::string all = slurp(out_path) + slurp(err_path);
+                    // the start line and the exit summary both appear, or neither
+                    const bool start = all.find("Memory coverage recording: on") != std::string::npos;
+                    const bool summary = all.find("Memory coverage at exit: ") != std::string::npos;
+                    return start && summary;
+                };
+                const bool without = cov_line(""), with = cov_line("--coverage");
+                const bool arity0 = cli::find("--coverage") && cli::find("--coverage")->arity == 0 &&
+                                    cli::find("--coverage")->id == cli::OptId::Coverage;
+                check("CLI-COV-01", "--coverage takes no value and enables memory coverage in the loop "
+                                    "owner before the first frame; without it nothing is enabled",
+                      arity0 && with && !without,
+                      std::string("arity0=") + (arity0 ? "1" : "0") + " with=" + (with ? "1" : "0") +
+                          " without=" + (without ? "1" : "0"));
+            }
+
+            // CLI-REX-01: --export-skoolkit DIR and --export-ghidra DIR (GH #389) write their files
+            // when jnext exits and log what they wrote; with a file where DIR should be, the run
+            // fails (non-zero: run_bounded reports only that) naming it. The label comes from an sjasmplus --sym (an unpaged label).
+            {
+                const std::string rex = bin + tag + ".rex";
+                const std::string symf = rex + ".sym", dsk = rex + ".sk", dgh = rex + ".gh", bad_dir = rex + ".file";
+                std::error_code ec;
+                std::filesystem::remove_all(dsk, ec);
+                std::filesystem::remove_all(dgh, ec);
+                { std::ofstream f(symf); f << "rexlabel: EQU 0x00000010\n"; }
+                { std::ofstream f(bad_dir); f << "x"; }
+                const std::string base = "--headless --machine 48k" + sd_arg + " --coverage --map \"" + symf +
+                                         "\" --delayed-automatic-exit-frames 20";
+                const std::string both = base + " --export-skoolkit \"" + dsk + "\" --export-ghidra \"" + dgh + "\"";
+                const int rc = run_split(both);
+                const std::string all = slurp(out_path) + slurp(err_path);
+                const bool logs = all.find("--export-skoolkit " + dsk + ": ") != std::string::npos &&
+                                  all.find("--export-ghidra " + dgh + ": 2 files, 1 labels, 0 comments") != std::string::npos;
+                const std::string cpu_ctl = slurp(dsk + "/0000-0CPU.ctl");
+                const bool files = cpu_ctl.find("@ $0010 label=rexlabel\n") != std::string::npos &&
+                                   slurp(dsk + "/0000-ROM0.ctl").find("# jnext space ROM0\n") == 0 &&
+                                   slurp(dgh + "/CPU.ghidra.txt") == "rexlabel 0x0010 l\n";
+                const std::string refuse = base + " --export-skoolkit \"" + bad_dir + "\"";
+                const int rc_bad = run_split(refuse);
+                const bool names_it = slurp(err_path).find(bad_dir) != std::string::npos ||
+                                      slurp(out_path).find(bad_dir) != std::string::npos;
+                const std::string refuse_g = base + " --export-ghidra \"" + bad_dir + "\"";
+                const int rc_bad_g = run_split(refuse_g);
+                const bool names_g = slurp(err_path).find(bad_dir) != std::string::npos ||
+                                     slurp(out_path).find(bad_dir) != std::string::npos;
+                const bool arity = cli::find("--export-skoolkit") && cli::find("--export-skoolkit")->arity == 1 &&
+                                   cli::find("--export-ghidra") && cli::find("--export-ghidra")->arity == 1;
+                std::filesystem::remove_all(dsk, ec);
+                std::filesystem::remove_all(dgh, ec);
+                std::remove(symf.c_str());
+                std::remove(bad_dir.c_str());
+                check("CLI-REX-01", "--export-skoolkit DIR and --export-ghidra DIR write their files when jnext "
+                                    "exits and log the counts; a file where DIR should be fails the run, naming it, for either option",
+                      arity && rc == 0 && logs && files && rc_bad != 0 && names_it && rc_bad_g != 0 && names_g,
+                      std::string("rc=") + std::to_string(rc) + " logs=" + (logs ? "1" : "0") + " files=" +
+                          (files ? "1" : "0") + " rc_bad=" + std::to_string(rc_bad) + " names=" + (names_it ? "1" : "0") + " rc_bad_g=" + std::to_string(rc_bad_g) + " names_g=" + (names_g ? "1" : "0"));
+            }
+
+            // CLI-ANN-01: --annotations FILE loads a project file before the first frame (GH #387):
+            // it logs its counts; a file that does not parse exits 1 naming the line; absent, nothing.
+            {
+                const std::string good = bin + tag + ".good.jdp", bad_file = bin + tag + ".bad.jdp";
+                { std::ofstream f(good, std::ios::binary);
+                  f << "jnext-annotations 1\nlabel P04 $8000 Start\nlabel P1E $8000 Other\n"
+                       "comment P04 $8000 Entry\\npoint\n"; }
+                { std::ofstream f(bad_file, std::ios::binary);
+                  f << "jnext-annotations 1\nlabel P04 $8000 Start\nlabel P04 $8001 !\n"; }
+                const auto go = [&](const std::string& flags) {
+                    std::remove(out_path.c_str());
+                    std::remove(err_path.c_str());
+                    const int rc = jtp::run_bounded(bin, "--headless --machine 48k" + sd_arg + " " + flags +
+                                                         " --delayed-automatic-exit-frames 1", out_path, err_path);
+                    return std::make_pair(rc, slurp(out_path) + slurp(err_path));
+                };
+                const auto ok = go("--annotations \"" + good + "\"");
+                const auto bad = go("--annotations \"" + bad_file + "\"");
+                const auto none = go("");
+                const auto opt = cli::find("--annotations");
+                check("CLI-ANN-01", "--annotations FILE takes one value, loads the project file (logging its labels "
+                                    "and comments) and exits 0; a file that does not parse exits non-zero naming the "
+                                    "line; without it nothing is loaded",
+                      opt && opt->arity == 1 && opt->id == cli::OptId::Annotations && ok.first == 0 &&
+                          ok.second.find(": 2 labels, 1 comment") != std::string::npos && bad.first != 0 &&
+                          bad.second.find("--annotations") != std::string::npos &&
+                          bad.second.find("line 3:") != std::string::npos &&
+                          none.second.find("--annotations") == std::string::npos,
+                      "rc " + std::to_string(ok.first) + "/" + std::to_string(bad.first) + " ok: " + ok.second.substr(0, 300) +
+                          " bad: " + bad.second.substr(0, 300));
+                std::remove(good.c_str());
+                std::remove(bad_file.c_str());
+            }
+
+            // CLI-REX-02: --import-skoolkit FILE (repeatable) and --import-ghidra FILE read files into the
+            // debugger's labels and comments at start (GH #389 stage B), logging their counts; a bad file exits
+            // non-zero naming the option and the line.
+            {
+                const std::string rx = bin + tag + ".imp";
+                const std::string fa = rx + ".a.ctl", fb = rx + ".b.ctl", fg = rx + ".g.txt", fbad = rx + ".bad.ctl";
+                { std::ofstream f(fa); f << "# jnext space P04\nc $8000\n@ $8000 label=la\nB $8000 note\n"; }
+                { std::ofstream f(fb); f << "# jnext space P04\nc $8010\n@ $8010 label=lb\n"; }
+                { std::ofstream f(fg); f << "lg P04:0x8020 l\n"; }
+                { std::ofstream f(fbad); f << "# jnext space P04\nc $ZZZZ\n"; }
+                const std::string fbadg = rx + ".bad.txt";
+                { std::ofstream f(fbadg); f << "x ram:0x8000 l\n"; }
+                const std::string base = "--headless --machine 48k" + sd_arg + " --delayed-automatic-exit-frames 1";
+                const std::string good = base + " --import-skoolkit \"" + fa + "\" --import-skoolkit \"" + fb +
+                                         "\" --import-ghidra \"" + fg + "\"";
+                const int rc = run_split(good);
+                const std::string all = slurp(out_path) + slurp(err_path);
+                const bool logged = all.find("--import-skoolkit: 2 files, 2 labels, 1 comment") != std::string::npos &&
+                                    all.find("--import-ghidra: 1 file, 1 label, 0 comments") != std::string::npos;
+                const std::string badcmd = base + " --import-skoolkit \"" + fa + "\" --import-skoolkit \"" + fbad + "\"";
+                const int rc_bad = run_split(badcmd);
+                const std::string bad_all = slurp(out_path) + slurp(err_path);
+                const bool names = bad_all.find("--import-skoolkit") != std::string::npos &&
+                                   bad_all.find("bad.ctl: line 2:") != std::string::npos;
+                const std::string badg = base + " --import-ghidra \"" + fbadg + "\"";
+                const int rc_bad_g = run_split(badg);
+                const std::string badg_all = slurp(out_path) + slurp(err_path);
+                const bool names_g = badg_all.find("--import-ghidra") != std::string::npos &&
+                                     badg_all.find("bad.txt: line 1:") != std::string::npos;
+                const bool arity = cli::find("--import-skoolkit") && cli::find("--import-skoolkit")->arity == 1 &&
+                                   cli::find("--import-ghidra") && cli::find("--import-ghidra")->arity == 1;
+                for (const std::string& f : {fa, fb, fg, fbad, fbadg}) std::remove(f.c_str());
+                check("CLI-REX-02", "two --import-skoolkit and one --import-ghidra read their files at start and log the "
+                                    "counts; a bad control file and a bad Ghidra file each fail the run, naming the option, the file and the line",
+                      arity && rc == 0 && logged && rc_bad != 0 && names && rc_bad_g != 0 && names_g,
+                      std::string("rc=") + std::to_string(rc) + " logged=" + (logged ? "1" : "0") + " rc_bad=" +
+                          std::to_string(rc_bad) + " names=" + (names ? "1" : "0") + " " + all.substr(0, 300));
             }
 
             // CLI-SET-06: the CPU speed reaches the machine. A 48K run, so the firmware does not

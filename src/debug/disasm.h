@@ -5,8 +5,8 @@
 
 struct DisasmLine {
     uint16_t addr;           // address of instruction
-    uint8_t  bytes[4];       // raw bytes (max 4 for standard Z80; DDCB/FDCB can be 4)
-    int      byte_count;     // 1-4
+    uint8_t  bytes[4];       // the first (up to) 4 raw bytes, for display
+    int      byte_count;     // the instruction's true length: 1-4, more for a DD/FD prefix chain
     char     mnemonic[64];   // null-terminated mnemonic string
 };
 
@@ -19,6 +19,10 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn);
 
 /// Get instruction length at addr without full disassembly (faster).
 int instruction_length(uint16_t addr, DisasmReadFn read_fn);
+
+/// Returns true if the instruction at addr is a Z80N extension (`ED` + one of the opcodes
+/// the Next adds: NEXTREG, MUL, PUSH nn, ...). A plain Z80 (skoolkit's) does not decode these.
+bool is_z80n_extension(uint16_t addr, DisasmReadFn read_fn);
 
 /// Returns true if the instruction at addr is CALL-like (CALL nn, CALL cc,nn, RST n, DJNZ).
 /// Used by step-over to decide whether to set a one-shot breakpoint.

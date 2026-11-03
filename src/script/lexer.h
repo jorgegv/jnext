@@ -31,6 +31,12 @@
 //    It may also be identifiers joined by `.` (`@main.loop`, an sjasmplus
 //    label; GH #390): a `.` joins only when a letter or `_` follows it, so
 //    `@a..@b` is still a range and `@a.1` is `@a`, `.`, `1`.
+//  * `file:line` (GH #346) is one token, `[A-Za-z_.][A-Za-z0-9_./-]*:[0-9]+`,
+//    recognised by lookahead: the run of path characters must be followed
+//    DIRECTLY by `:` and digits that do not run into an identifier character
+//    (`main.c :19`, `main.c: 19`, `x:y` and `lbl: on` are not one). The run
+//    stops at `//` (a comment). Not lexed inside `${...}`. No valid script
+//    changes: `NAME : NUMBER` with no space is nowhere valid otherwise.
 //  * LINE ENDS ARE WHITESPACE. See the "WP1 as built" notes in
 //    dsl-frontend.md for why no construct of §2.1 needs one.
 // ---------------------------------------------------------------------------
@@ -51,6 +57,7 @@ enum class Tok : uint8_t {
     Int,      ///< an integer literal (`value`)
     String,   ///< a string literal (`pieces`)
     Symbol,   ///< `@name` (`text` = the name without `@`)
+    FileLine, ///< `main.c:19` (`text` = the whole spelling; GH #346)
 
     // The bracketed accessors, one token each (see the banner).
     MemL, Mem16L, PhysL, NextRegL, MmuL, PageL, StackL, ChangedL, DepthL,

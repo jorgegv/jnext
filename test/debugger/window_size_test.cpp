@@ -52,6 +52,10 @@
 #include "platform/config_keys.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debugger/breakpoint_model.h"
+#include "debugger/callstack_panel.h"
+#include "debugger/stack_panel.h"
+#include "debugger/watch_panel.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/window_attach.h"
@@ -64,12 +68,14 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QFile>
+#include <QLabel>
 #include <QEventLoop>
 #include <QMainWindow>
 #include <QScreen>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSet>
+#include <QTableWidget>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -174,15 +180,29 @@ struct Fixture {
 
     /// `attach_override`: GH #417's `--set debugger.attached=`, handed to the manager
     /// before the window is built (it is created lazily).
-    explicit Fixture(std::optional<bool> attach_override = std::nullopt) {
+    explicit Fixture(std::optional<bool> attach_override = std::nullopt,
+                     std::optional<bool> physical_override = std::nullopt) {
         if (!build_next_emulator(emu)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         if (attach_override) mgr->set_attach_override(*attach_override);
+        if (physical_override) mgr->set_physical_override(*physical_override);   // GH #360
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);
         settle();
+        // The opening fit is a chain of queued passes (and, under a window manager, of round trips).
+        // Keep waiting until the size has not changed for five consecutive 100 ms polls (bounded at
+        // 5 s); DW-11/DW-12 read the frame after the last pass.
+        if (ok) {
+            QSize last = dbg->size();
+            int stable = 0;
+            for (int i = 0; i < 50 && stable < 5; ++i) {
+                settle(100);
+                stable = (dbg->size() == last) ? stable + 1 : 0;
+                last = dbg->size();
+            }
+        }
     }
     ~Fixture() {
         if (mgr) mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
@@ -336,6 +356,16 @@ static void test_window(const QString& cfg_dir)
 
     const QRect avail = work_area();
 
+    // WF-12 (GH #360) — the FRAME fits the work area horizontally as well: the side borders come off
+    // the width the way the title bar comes off the height. 1366 wide with 2 x 2 px borders: 1362.
+    {
+        WindowSize s = clamp_window_size_to_screen(1397, 700, AttachRect{0, 0, 1366, 768}, kTitleBar, 4);
+        WindowSize n = clamp_window_size_to_screen(1397, 700, AttachRect{0, 0, 1366, 768}, kTitleBar);
+        check("WF-12", "a side-border width given to the clamp comes off the width budget (1366 - 4); "
+                       "without one the old client-only clamp is unchanged (1366)",
+              s.w == 1362 && n.w == 1366, fmt("%d / %d", s.w, n.w));
+    }
+
     // Rows on a window opened with NO saved geometry.
     {
         clear_saved_geometry(cfg_dir);
@@ -348,6 +378,21 @@ static void test_window(const QString& cfg_dir)
         // DW-01 — the window fits the screen it opened on. Before #114 it
         // opened at its layout minimum (1170x1069) whatever the screen was,
         // which is the whole report.
+        // DW-11 (GH #360) - the FRAME, not only the client, is inside the work area horizontally. The
+        // width growth reaches the screen width on 1280 and 1366 px laptops, where the side borders
+        // used to push the frame over the edge.
+        check("DW-11", "the window FRAME opens no wider than the screen work area",
+              fx.dbg->frameGeometry().width() <= avail.width(),
+              fmt("frame %d wide, client %d, work area %d", fx.dbg->frameGeometry().width(),
+                  fx.dbg->width(), avail.width()));
+
+        // DW-12 (GH #360) - and vertically: the frame height uses the decoration the window manager
+        // really added once mapped, not only the style's title-bar estimate (3 px short under openbox).
+        check("DW-12", "the window FRAME opens no taller than the screen work area",
+              fx.dbg->frameGeometry().height() <= avail.height(),
+              fmt("frame %d tall, client %d, work area %d", fx.dbg->frameGeometry().height(),
+                  fx.dbg->height(), avail.height()));
+
         check("DW-01", "the window opens no larger than the screen work area",
               fx.dbg->width() <= avail.width() && fx.dbg->height() <= avail.height(),
               fmt("opened %dx%d, work area %dx%d",
@@ -734,7 +779,7 @@ static void test_key_names(const QString& dir)
         QStringList w(written.begin(), written.end());
         w.sort();
         check("DWK-01", "the keys DebuggerWindow writes under [debugger] (detached, then attached) are exactly the table's DebuggerWindow-owned keys, and the Attach toggle itself writes debugger/attached before any save",
-              fx.ok && attach && written == want && want.size() == 3 &&
+              fx.ok && attach && written == want && want.size() == 4 &&
                   toggle_false == QLatin1String("false") && toggle_true == QLatin1String("true"), w.join(',').toStdString());
     }
     wipe_dir(dir);
@@ -799,11 +844,103 @@ static void test_attach_override(const QString& dir)
     wipe_dir(dir);
 }
 
+// DWK-04 (GH #360): `--set debugger.physical_addresses=` governs the run and never the file; the
+// Debug > Physical Addresses toggle writes the file at once. Oracle: the same contract as DWK-02,
+// read from the real file with a fresh QSettings.
+static void test_physical_override(const QString& dir)
+{
+    set_group("DWK");
+    const QString conf = dir + QStringLiteral("/jnext.conf");
+    const QString key = QString::fromStdString(config_keys::path(config_keys::KeyId::DebuggerPhysicalAddresses));
+    const auto file_value = [&]() { QSettings s(conf, QSettings::IniFormat); return s.value(key).toString(); };
+
+    // What a window opened in the physical style SHOWS, without any toggle: the MMU panel's Memory
+    // cell of slot 2 (page 0x0A, the bank-5 BRAM) and a Breakpoints row's address text.
+    const auto shown = [](Fixture& f) {
+        bool mmu = false;
+        for (QLabel* l : f.dbg->findChildren<QLabel*>())
+            if (l->text() == QLatin1String("BRAM5+$0000")) mmu = true;
+        f.mgr->breakpoints().add(BreakpointModel::Execute, 0x8005, jnext::dbg::MemSpace::page(4));
+        const auto rows = f.mgr->breakpoints().rows();
+        // Watches, Stack and Call Stack: one physical cell each (page 4 at $8000, $9000).
+        auto cell = [](QWidget* w, int r, int c) {
+            QTableWidget* t = w ? w->findChild<QTableWidget*>() : nullptr;
+            return t && t->item(r, c) ? t->item(r, c)->text() : QString("<none>");
+        };
+        f.dbg->watch_panel()->add_watch(0x8000, "w", 0);
+        Z80Registers regs = f.emu.cpu().get_registers();
+        regs.PC = 0x8000;
+        regs.SP = 0x8000;
+        f.emu.cpu().set_registers(regs);
+        f.emu.mmu().write(0x8000, 0xCD);   // CALL $9000, then its first instruction
+        f.emu.mmu().write(0x8001, 0x00);
+        f.emu.mmu().write(0x8002, 0x90);
+        f.emu.debug_state().pause();
+        f.backend->set_call_stack_enabled(true);
+        f.backend->step_into(jnext::dbg::CLIENT_NONE);
+        f.backend->step_into(jnext::dbg::CLIENT_NONE);
+        f.dbg->stack_panel()->set_paused(true);
+        f.dbg->callstack_panel()->set_paused(true);
+        f.dbg->refresh_panels();
+        const bool views = cell(f.dbg->watch_panel(), 0, 4) == QLatin1String("$048000") &&
+                           cell(f.dbg->stack_panel(), 0, 4) == QLatin1String("BRAM5+$3FFE") &&   // SP $7FFE, page 0x0B
+                           cell(f.dbg->callstack_panel(), 0, 5) == QLatin1String("$048000") &&
+                           cell(f.dbg->callstack_panel(), 0, 6) == QLatin1String("$049000");
+        return views && mmu && !rows.empty() && rows[0].addr_text == QLatin1String("$8005 $048005");
+    };
+    wipe_dir(dir);
+    { QSettings s(conf, QSettings::IniFormat); s.setValue(key, false); s.sync(); }
+    bool ok = true, panels_physical = false, reopened_shown = false, physical = false, checked = false, friendly_after = false, reopened_physical = false;
+    QString opened, saved, toggled_on, toggled_off;
+    {
+        Fixture fx(std::nullopt, true);
+        ok = ok && fx.ok;
+        if (fx.ok) {
+            QAction* act = nullptr;
+            for (QAction* a : fx.dbg->findChildren<QAction*>())
+                if (a->text().remove(QLatin1Char('&')) == QLatin1String("Physical Addresses")) act = a;
+            ok = ok && act;
+            physical = fx.dbg->address_style() == jnext::dbg::AddressStyle::Physical;
+            panels_physical = shown(fx);
+            checked = act && act->isChecked();
+            opened = file_value();
+            fx.dbg->save_position();   // what a hide writes: the override is not the file's
+            saved = file_value();
+            if (act) {
+                act->trigger();        // unchecks: the toggle IS a change of the saved setting
+                toggled_off = file_value();
+                friendly_after = fx.dbg->address_style() == jnext::dbg::AddressStyle::Friendly;
+                act->trigger();
+                toggled_on = file_value();
+            }
+            fx.dbg->close();
+        }
+    }
+    {   // a new window over the file's last value starts as that value says
+        Fixture fx;
+        ok = ok && fx.ok;
+        reopened_physical = fx.ok && fx.dbg->address_style() == jnext::dbg::AddressStyle::Physical;
+        reopened_shown = fx.ok && shown(fx);
+    }
+    check("DWK-04", "a physical-addresses override opens the window in the physical style and a save leaves the file's "
+                    "value, and the panels (Watches, Stack, Call Stack, MMU) and the Breakpoints rows show it at once, without a toggle; toggling Physical "
+                    "Addresses then writes the toggled value at once, and a new window starts as the file says "
+                    "(its panels too)",
+          ok && physical && panels_physical && reopened_shown && checked && opened == QLatin1String("false") && saved == QLatin1String("false") &&
+              toggled_off == QLatin1String("false") && friendly_after && toggled_on == QLatin1String("true") &&
+              reopened_physical,
+          (opened + "|" + saved + "|" + toggled_off + "|" + toggled_on).toStdString());
+    wipe_dir(dir);
+}
+
 int main(int argc, char** argv)
 {
     // The debugger window owns QWidgets, so a QApplication is required — but
     // not a display: force the offscreen QPA platform.
-    qputenv("QT_QPA_PLATFORM", "offscreen");
+    // JNEXT_TEST_KEEP_QPA (set by the debugger-window-wm-func row): keep the platform the
+    // environment names (xcb under a real window manager) instead of forcing offscreen.
+    if (qgetenv("JNEXT_TEST_KEEP_QPA").isEmpty())
+        qputenv("QT_QPA_PLATFORM", "offscreen");
 
     // Isolate the config file: these rows write saved geometries, and the real
     // ~/.jnext/Debugger.conf belongs to the user.
@@ -825,6 +962,7 @@ int main(int argc, char** argv)
     std::printf("  Group: DCF            — done\n");
     test_key_names(cfg.path());
     test_attach_override(cfg.path());
+    test_physical_override(cfg.path());
     std::printf("  Group: DWK            - done\n");
 
     std::printf("\n=====================================\n");

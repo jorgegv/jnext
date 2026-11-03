@@ -3880,6 +3880,19 @@ uint64_t sw28_step_c000(Emulator& emu, std::initializer_list<uint8_t> code,
     return emu.monotonic_tstates() - before;
 }
 
+// As sw28_step(), but the instruction is already in place and runs at `pc`
+// with AF = `af` (the DivMMC/Multiface rows put code under the overlays).
+uint64_t sw28_run_at(Emulator& emu, uint16_t pc, uint16_t af = 0x8100) {
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = pc;
+    r.AF = af;
+    r.halted = false;
+    emu.cpu().set_registers(r);
+    const uint64_t before = emu.monotonic_tstates();
+    emu.execute_single_instruction();
+    return emu.monotonic_tstates() - before;
+}
+
 uint8_t sw28_a(Emulator& emu) {
     return static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
 }
@@ -4512,6 +4525,152 @@ static void test_sw28_sram_read_wait() {
                   t == 8,
                   fmt("t=%llu expected=8",
                       static_cast<unsigned long long>(t)));
+        }
+    }
+    // CT-SW28-33..37 (GH #339 x GH #391) - the wait of an M1 is decided under the
+    // overlay ITS OWN read saw, and a DivMMC read waits under the view of its own
+    // cycle: the M1 view for an opcode fetch, the after-fetch (hold) view for every
+    // other read. Every row sits over a bank-7 slot 0 (MMU0 = 0x0E: slot flag 0,
+    // zxnext.vhd:3037-3043), so the overlay alone decides the wait: DivMMC
+    // (:3084-3099) and Multiface (:3029-3036) request SRAM (+1 T), bank 7 does not.
+    // The DivMMC `automap` of an M1 is divmmc.vhd:148 (held OR the instant terms);
+    // `hold` is loaded by that M1 and becomes `held` for the next bus cycle
+    // (divmmc.vhd:124-143).
+    auto dm_init = [&](Emulator& emu, uint8_t entry_bit, uint8_t instant) {
+        sw28_set_speed(emu, 3);
+        emu.nextreg().write(0x50, 0x0E);       // slot 0 -> bank-7 BRAM (no wait)
+        emu.nextreg().write(0x0A, 0x10);       // automap enable
+        emu.nextreg().write(0xB8, entry_bit);
+        emu.nextreg().write(0xB9, entry_bit);
+        emu.nextreg().write(0xBA, instant);
+    };
+
+    {
+        // CT-SW28-33: CB 07 (RLC A) at $000F/$0010, RST $10 instant-on. M1 #1 ($000F,
+        // CB) is bank 7: no wait. M1 #2 ($0010) is instant-on DivMMC ROM: wait.
+        // 4+0 + 4+1 = 9 T, RLC of $81 = $03. The prefetch reads both M1s up front, so
+        // the live overlay at the time FUSE charges M1 #1 is #2's: 10 T if not recorded.
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-33", "Emulator::init failed (Next machine)", false, "init returned false");
+        } else {
+            dm_init(emu, 0x04, 0x04);
+            emu.mmu().write(0x000F, 0xCB);
+            emu.divmmc().rom_data()[0x10] = 0x07;
+            const uint64_t t = sw28_run_at(emu, 0x000F);
+            const uint8_t a = sw28_a(emu);
+            check("CT-SW28-33",
+                  "Prefix chain whose inner M1 is an instant DivMMC entry over a bank-7 "
+                  "slot at 28 MHz = 9 T: the first M1 (bank 7) does not wait, the inner "
+                  "one (DivMMC) does (divmmc.vhd:148, zxnext.vhd:3084-3099, :3037-3043)",
+                  t == 9 && a == 0x03,
+                  fmt("t=%llu expected=9 A=0x%02X expected=0x03",
+                      static_cast<unsigned long long>(t), a));
+        }
+    }
+
+    {
+        // CT-SW28-34: JP $1FF8 from an instant entry at $0000, auto-unmap range
+        // $1FF8-$1FFF (NR 0xBB bit 6). Then CB 07 at $1FF8/$1FF9: M1 #1 is still the
+        // DivMMC (held, wait), M1 #2 is bank 7 again (hold cleared by the M1 at $1FF8,
+        // divmmc.vhd:128-131): 4+1 + 4+0 = 9 T, RLC of $81 = $03.
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-34", "Emulator::init failed (Next machine)", false, "init returned false");
+        } else {
+            dm_init(emu, 0x01, 0x01);
+            emu.nextreg().write(0xBB, 0x40);
+            emu.divmmc().rom_data()[0] = 0xC3;       // JP $1FF8
+            emu.divmmc().rom_data()[1] = 0xF8;
+            emu.divmmc().rom_data()[2] = 0x1F;
+            emu.divmmc().rom_data()[0x1FF8] = 0xCB;
+            emu.mmu().write(0x1FF9, 0x07);           // bank 7: the byte after the unmap
+            (void)sw28_run_at(emu, 0x0000);          // the JP, from the DivMMC
+            const uint64_t t = sw28_run_at(emu, 0x1FF8);
+            const uint8_t a = sw28_a(emu);
+            check("CT-SW28-34",
+                  "Prefix chain across the auto-unmap range ($1FF8 DivMMC, $1FF9 bank 7) "
+                  "at 28 MHz = 9 T: the first M1 waits, the inner one does not "
+                  "(divmmc.vhd:128-131,141, zxnext.vhd:3084-3099, :3037-3043)",
+                  t == 9 && a == 0x03,
+                  fmt("t=%llu expected=9 A=0x%02X expected=0x03",
+                      static_cast<unsigned long long>(t), a));
+        }
+    }
+
+    {
+        // CT-SW28-35: CB 07 at $0065/$0066 with the Multiface armed (button pressed):
+        // M1 #1 ($0065) is bank 7, no wait; M1 #2 is the $0066 fetch, which switches
+        // the Multiface in (mf_enable_eff = mf_enable OR fetch_66, multiface.vhd:186):
+        // MF ROM $0066 = $07, wait. 4+0 + 4+1 = 9 T, RLC of $81 = $03.
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-35", "Emulator::init failed (Next machine)", false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x50, 0x0E);
+            std::vector<uint8_t> mfrom(0x2000, 0x00);
+            mfrom[0x66] = 0x07;
+            emu.multiface().load_rom_bytes(mfrom.data(), mfrom.size());
+            emu.multiface().set_enabled(true);
+            emu.multiface().button_press();
+            emu.mmu().write(0x0065, 0xCB);
+            const uint64_t t = sw28_run_at(emu, 0x0065);
+            const uint8_t a = sw28_a(emu);
+            check("CT-SW28-35",
+                  "Prefix chain whose inner M1 is the Multiface $0066 fetch over a bank-7 "
+                  "slot at 28 MHz = 9 T: the first M1 does not wait, the inner one does "
+                  "(multiface.vhd:169,186, zxnext.vhd:3029-3036, :3037-3043)",
+                  t == 9 && a == 0x03,
+                  fmt("t=%llu expected=9 A=0x%02X expected=0x03",
+                      static_cast<unsigned long long>(t), a));
+        }
+    }
+
+    {
+        // CT-SW28-36: RST $10 DELAYED-on, LD A,n at $0010. The M1 sees no hold
+        // (bank 7, no wait); it loads hold, so the operand at $0011 is read from the
+        // DivMMC ROM ($77, wait): 4+0 + 3+1 = 8 T, A = $77 (divmmc.vhd:128-148; the
+        // after-fetch view is the one a non-M1 read has).
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-36", "Emulator::init failed (Next machine)", false, "init returned false");
+        } else {
+            dm_init(emu, 0x04, 0x00);
+            emu.mmu().write(0x0010, 0x3E);
+            emu.mmu().write(0x0011, 0x55);
+            emu.divmmc().rom_data()[0x11] = 0x77;
+            const uint64_t t = sw28_run_at(emu, 0x0010);
+            const uint8_t a = sw28_a(emu);
+            check("CT-SW28-36",
+                  "Delayed-on DivMMC entry: the opcode M1 (bank 7) does not wait, its "
+                  "operand read (DivMMC ROM, after-fetch view) does: 8 T at 28 MHz and the "
+                  "operand comes from the DivMMC (divmmc.vhd:128-148, zxnext.vhd:3084-3099)",
+                  t == 8 && a == 0x77,
+                  fmt("t=%llu expected=8 A=0x%02X expected=0x77",
+                      static_cast<unsigned long long>(t), a));
+        }
+    }
+
+    {
+        // CT-SW28-37: as -36 with JR NZ,d NOT taken (Z set): the displacement read is
+        // FUSE's contend_read(PC,3), a non-M1 read under the after-fetch view:
+        // 4+0 + 3+1 = 8 T (a not-taken JR cc is 7 T).
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-37", "Emulator::init failed (Next machine)", false, "init returned false");
+        } else {
+            dm_init(emu, 0x04, 0x00);
+            emu.mmu().write(0x0010, 0x20);
+            emu.mmu().write(0x0011, 0x00);
+            emu.divmmc().rom_data()[0x11] = 0x00;
+            const uint64_t t = sw28_run_at(emu, 0x0010, /*af=*/0x0140);   // Z set
+            check("CT-SW28-37",
+                  "Delayed-on DivMMC entry, JR NZ not taken: the displacement read "
+                  "(contend_read(PC,3), after-fetch view) waits: 8 T at 28 MHz "
+                  "(divmmc.vhd:128-148, zxnext.vhd:3084-3099)",
+                  t == 8,
+                  fmt("t=%llu expected=8", static_cast<unsigned long long>(t)));
         }
     }
 }

@@ -177,6 +177,7 @@ private:
     bool monitor_in(const std::vector<std::string>& args);
     bool monitor_out(const std::vector<std::string>& args);
     bool monitor_sym(const std::vector<std::string>& args);
+    bool monitor_src(const std::vector<std::string>& args);
     bool monitor_time(const std::vector<std::string>& args);
     bool monitor_reset(const std::vector<std::string>& args);
     bool monitor_bp(const std::vector<std::string>& args);

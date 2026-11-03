@@ -1,0 +1,5 @@
+# z88dk 39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7 (master)
++ zcc +zxn -clib=sdcc_iy -debug -m --list -subtype=nex -o prog -create-app main.c util.c asmfn.asm
+main.c:28: warning 126: unreachable code
+main.c:22: warning 110: conditional flow changed by optimizer: so said EVELYN the modified DOG
+rc=0

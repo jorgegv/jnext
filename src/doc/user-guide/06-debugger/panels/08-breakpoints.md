@@ -6,9 +6,38 @@ Every breakpoint in one list, sorted by address: an **On** checkbox, the type,
 the address and — with a MAP file loaded — the symbol at that address, or with
 a source map the source line. The Add dialog takes a symbol or, for an Execute
 breakpoint, a source line (`main.bas:120`); see
-[Source-level debugging](../functions/14-source-level-debugging.md).
+[Breakpoints on a source line](../source-debugger/06-breakpoints-and-steps.md).
 **Add**, **Edit** and **Remove** manage them; double-clicking a row edits it.
-The list and the disassembly gutter stay in sync in both directions.
+The list, the disassembly gutter and the Source tab's BP column stay in sync in both directions.
+A breakpoint qualified with the memory its opcode comes from reads `$8005 P04` or
+`$0008 DIVROM` in the address column
+([which memory an address is in](../index.md#which-memory-an-address-is-in)); the `@14`
+of `$C000 @14` is another client's *page* qualifier (a DZRP or script breakpoint), which
+is a different thing.
+
+## Whose breakpoints the gutters show and change
+
+Every breakpoint belongs to whoever set it. The debugger window is one owner; GDB
+(`z88dk-gdb`, a GDB-protocol client), ZRCP, DZRP (DeZog in VS Code) and a debugger script are
+others, each its own. They all stop the same machine, and the **Breakpoints panel** lists all
+of them together, but the **breakpoint column of the Disassembly and of the Source tab** draws
+and edits only the debugger window's own breakpoints:
+
+- **Drawing.** A red dot or ring in either column is a breakpoint this window set (a gutter
+  click, **Toggle Breakpoint**, the Add dialog, the Breakpoints menu). An Execute breakpoint
+  that GDB, ZRCP, DeZog or a script set at the same address draws nothing there. It is a row in
+  the Breakpoints panel, marked `(client N)` after its type, read-only: its **On** box cannot be
+  ticked, and **Edit** and **Remove** refuse it.
+- **Clicking.** A click on a line that carries only someone else's breakpoint **adds the window's
+  own** breakpoint beside it (two rows in the list, the line now shows a dot) and does not touch
+  the other. A click on a line with the window's own breakpoint removes **that** one only. The
+  window never removes another client's breakpoint, from a gutter, from the right-click menu,
+  from **Remove** or from **Clear All Breakpoints** (which clears only the window's own).
+- **Seeing and removing the others.** Read them in the Breakpoints panel. To remove one, use the
+  tool that set it (`delete` in GDB, the breakpoint list in DeZog, the ZRCP command, the
+  script). The **Breakpoints enabled** master switch below is shared: unticking it suspends every
+  owner's breakpoints.
+- **Data breakpoints** (Read, Write, ports) are not drawn in the gutters at all, whoever owns them.
 
 ## Turning breakpoints off without losing them
 
@@ -41,7 +70,7 @@ refresh. Saving a snapshot does not trip one either.
 So you can safely watch an address in a panel and watchpoint it at the same
 time, which is usually what you want to do.
 
-In the disassembly gutter, a suspended breakpoint — individually disabled, or
+In the disassembly gutter and the Source tab's BP column, a suspended breakpoint — individually disabled, or
 any breakpoint while the master switch is off — is drawn as a **hollow red
 ring** instead of a filled red dot. It stays visible, in the same place, so you
 can still see where your breakpoints are; it just does not look armed.

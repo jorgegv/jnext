@@ -38,6 +38,7 @@
 
 #include "debug/debugger_impl.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -68,8 +69,50 @@ std::string space_name(MemSpace space, uint32_t addr) {
             std::snprintf(buf, sizeof(buf), "mem rom%u:0x%04X",
                           static_cast<unsigned>(space.index), addr);
             break;
+        // The identity-only kinds (GH #339) are refused before anything can be
+        // mutated, so no MUTATE line is ever written for one; they are listed so
+        // this switch stays total and `-Werror=switch` notices the next kind.
+        case MemSpace::Kind::BootRom:
+        case MemSpace::Kind::MultifaceRom:
+        case MemSpace::Kind::MultifaceRam:
+        case MemSpace::Kind::DivMmcRom:
+        case MemSpace::Kind::DivMmcRam:
+        case MemSpace::Kind::AltRom:
+        case MemSpace::Kind::Layer2:
+        case MemSpace::Kind::Config:
+        case MemSpace::Kind::Floating:
+            std::snprintf(buf, sizeof(buf), "mem kind%u:%u:0x%04X",
+                          static_cast<unsigned>(space.kind),
+                          static_cast<unsigned>(space.index), addr);
+            break;
     }
     return buf;
+}
+
+/// Kinds the read arbiter NAMES (`Mmu::route()`, GH #339) that `poke` does not
+/// write: it refuses them with `Result::Unsupported` until a consumer adds the
+/// access with its own rows. `peek` reads `DivMmcRam` (GH #351) and refuses the
+/// rest the same way; `poke(DivMmcRam)` stays refused. One total
+/// switch, no `default`, so `-Werror=switch` makes a new kind a compile error
+/// here instead of a silent fall-through into a store it does not address.
+bool identity_only(MemSpace::Kind kind) {
+    switch (kind) {
+        case MemSpace::Kind::Cpu:
+        case MemSpace::Kind::Page:
+        case MemSpace::Kind::Rom:
+            return false;
+        case MemSpace::Kind::BootRom:
+        case MemSpace::Kind::MultifaceRom:
+        case MemSpace::Kind::MultifaceRam:
+        case MemSpace::Kind::DivMmcRom:
+        case MemSpace::Kind::DivMmcRam:
+        case MemSpace::Kind::AltRom:
+        case MemSpace::Kind::Layer2:
+        case MemSpace::Kind::Config:
+        case MemSpace::Kind::Floating:
+            return true;
+    }
+    return true;
 }
 
 /// INS-15's `PaletteId` superset -> the hardware enum, with `UlaActive`
@@ -261,6 +304,29 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
                 buf[done] = p[addr + done];
             return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
         }
+        // GH #351 (E23-21): a DivMMC RAM bank, read-only here (`poke` refuses it). Bank
+        // b is SRAM page 0x10 + b on the Next (zxnext.vhd:3092-3098), the page
+        // `DivMmc::ram_page()` returns whatever E3 selects now. Side-effect free.
+        case MemSpace::Kind::DivMmcRam: {
+            if (space.index >= static_cast<unsigned>(DivMmc::kRamPages)) return make_refused<size_t>(Result::InvalidPage);
+            const uint8_t* p = emu.divmmc().ram_page(space.index);
+            size_t done = 0;
+            for (; done < n && addr + done < static_cast<size_t>(DivMmc::kRamPageSize); ++done)
+                buf[done] = p[addr + done];
+            return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
+        }
+        // The identity-only kinds (GH #339): named by the read arbiter, accessed
+        // by no verb yet. Listed one by one (no `default`) so `-Werror=switch`
+        // flags the next kind added to `MemSpace::Kind`.
+        case MemSpace::Kind::BootRom:
+        case MemSpace::Kind::MultifaceRom:
+        case MemSpace::Kind::MultifaceRam:
+        case MemSpace::Kind::DivMmcRom:
+        case MemSpace::Kind::AltRom:
+        case MemSpace::Kind::Layer2:
+        case MemSpace::Kind::Config:
+        case MemSpace::Kind::Floating:
+            return make_refused<size_t>(Result::Unsupported);
     }
     return make_refused<size_t>(Result::Unsupported);
 }
@@ -273,6 +339,10 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
         return make_refused<size_t>(Result::RefusedRzx);
 
     Emulator& emu = impl_->emu;
+
+    // An identity-only kind (GH #339) names no store a verb can write: refused
+    // BEFORE anything is written or logged, like every refusal below.
+    if (identity_only(space.kind)) return make_refused<size_t>(Result::Unsupported);
 
     // ROM is read-only in both spellings: `Rom{}` by kind, and a ROM-class page
     // under `Page{}` by its sentinel. Refused BEFORE anything is written, so a
@@ -398,6 +468,7 @@ std::array<SlotInfo, 8> Debugger::mmu_slots() const {
             si.space        = MemSpace::page(si.nr_page);
             si.space_offset = 0;
         }
+        si.now = mmu.route(static_cast<uint16_t>(s << 13)).space;
     }
     return out;
 }
@@ -758,13 +829,33 @@ Result Debugger::set_audio_mute_mask(ClientId by, uint8_t mask) {
 // INS-11 — disassembly
 //
 // All four read guest memory through `memory_reader()`, i.e. through
-// `Mmu::peek()`: a disassembly is an observation, and before F1 the panel's own
-// read was the one that latched the floating bus.
+// `Mmu::peek()` (no floating-bus latch): a disassembly is an observation, and
+// before F1 the panel's own read was the one that latched the floating bus. The
+// instruction at the PC is the exception (GH #360): its bytes are the ones the
+// CPU will fetch, which differ from a peek at a DivMMC instant entry.
 // ---------------------------------------------------------------------------
 
 DisasmReadFn Debugger::memory_reader() const {
     Emulator* emu = &impl_->emu;
-    return [emu](uint16_t addr) -> uint8_t { return emu->mmu().peek(addr); };
+    // GH #360 F1: the instruction at the PC is read as the CPU WILL fetch it, not
+    // as the data view shows it. At a DivMMC instant entry the M1 itself maps
+    // DivMMC (design 4.4), so a peek of the PC line shows the bytes of the map
+    // before the M1 while the CPU executes others. Every other address is a peek.
+    const uint16_t pc = emu->cpu().get_registers().PC;
+    uint8_t b[4];
+    emu->predict_instruction_bytes(pc, b);
+    auto peek = [emu](uint16_t a) -> uint8_t { return emu->mmu().peek(a); };
+    const auto mixed = [pc, b, peek](uint16_t a) -> uint8_t {
+        const uint16_t off = static_cast<uint16_t>(a - pc);
+        return off < 4 ? b[off] : peek(a);
+    };
+    // Only the bytes of the PC instruction itself are predicted; what follows it
+    // is the next instruction, which the CPU fetches after the M1 has run.
+    const int n = std::min(4, ::instruction_length(pc, mixed));
+    return [pc, b, n, peek](uint16_t addr) -> uint8_t {
+        const uint16_t off = static_cast<uint16_t>(addr - pc);
+        return off < n ? b[off] : peek(addr);
+    };
 }
 
 std::vector<DisasmLine> Debugger::disassemble(uint16_t addr, size_t n,
@@ -772,6 +863,8 @@ std::vector<DisasmLine> Debugger::disassemble(uint16_t addr, size_t n,
     std::vector<DisasmLine> out;
     out.reserve(n);
     const DisasmReadFn read = memory_reader();
+    const disasm_text::SymbolNamer namer = disasm_text::symbol_namer(
+        syms, [this](uint16_t a) { return source_page(a); });
     uint16_t pc = addr;
     for (size_t i = 0; i < n; ++i) {
         DisasmLine line = disasm_one(pc, read);
@@ -779,7 +872,7 @@ std::vector<DisasmLine> Debugger::disassemble(uint16_t addr, size_t n,
             // ONE substitution rule, shared with the panel's painter and with
             // the clipboard path (`disasm_text::apply_symbols`), so a symbol
             // cannot be spelled one way in a panel and another in a script.
-            const std::string m = disasm_text::apply_symbols(line.mnemonic, syms);
+            const std::string m = disasm_text::apply_symbols(line.mnemonic, namer);
             std::snprintf(line.mnemonic, sizeof(line.mnemonic), "%s", m.c_str());
         }
         out.push_back(line);
@@ -896,6 +989,73 @@ Result Debugger::coverage_clear() {
 }
 
 const CoverageBits& Debugger::coverage() const { return impl_->coverage; }
+
+// ---------------------------------------------------------------------------
+// INS-21 -- memory coverage by execute, read and write (GH #388, E23-25)
+//
+// The set is `Impl::mem_cov`; `Mmu` writes it through
+// `DebugState::mem_coverage_live()` from the one arbiter (mmu.h `route_bits_`).
+// SAME RULES AS INS-20: off clears, `on` over `on` does not, the set and its
+// switch are backend state (published by `publish_mem_coverage()`, retired by
+// `~Debugger()`), so a rewind, a reset, a state load and a cold boot keep the
+// bits. A rewind neither removes nor adds a mark: a replay re-executes accesses
+// already recorded and a set bit set again is the same bit.
+// ---------------------------------------------------------------------------
+
+Result Debugger::mem_coverage_enable(bool enabled) {
+    if (enabled && !impl_->mem_cov) impl_->mem_cov = std::make_unique<MemCoverage>();
+    impl_->mem_cov_on = enabled;
+    if (!enabled && impl_->mem_cov) impl_->mem_cov->clear();
+    impl_->publish_mem_coverage();
+    impl_->bump_revision();   // GH #428
+    return Result::Ok;
+}
+
+bool Debugger::mem_coverage_enabled() const { return impl_->mem_cov_on; }
+
+Result Debugger::mem_coverage_clear() {
+    if (impl_->mem_cov) impl_->mem_cov->clear();
+    impl_->bump_revision();   // GH #428
+    return Result::Ok;
+}
+
+Expected<size_t> Debugger::mem_coverage(MemSpace space, uint32_t addr, size_t n,
+                                        uint8_t* out) const {
+    if (!out) return make_refused<size_t>(Result::RefusedUnavailable);
+    const MemCoverage* cov = impl_->mem_cov.get();
+    if (space.kind == MemSpace::Kind::Cpu) {
+        // The live DATA route, as peek(Cpu): each byte of the window through
+        // Mmu::route(), so a Layer 2 read mapping or the DivMMC shows its own map.
+        for (size_t i = 0; i < n; ++i) {
+            const uint16_t a = static_cast<uint16_t>((addr + i) & 0xFFFF);
+            const Mmu::Route r = impl_->emu.mmu().route(a);
+            out[i] = cov ? cov->get(r.space, r.offset) : 0;
+        }
+        return make_ok<size_t>(n);
+    }
+    // The store's own bounds, as peek() has them: an index outside the 8-bit
+    // space, a Page the SRAM does not have (>= 0xE0), a Rom image > 3.
+    if (space.index > 0xFF) return make_refused<size_t>(Result::InvalidPage);
+    if (space.kind == MemSpace::Kind::Page && space.index >= 0xE0)
+        return make_refused<size_t>(Result::InvalidPage);
+    if (space.kind == MemSpace::Kind::Rom && space.index > 3)
+        return make_refused<size_t>(Result::InvalidPage);
+    const uint32_t size = space_size(space.kind);
+    size_t done = 0;
+    for (; done < n && addr + done < size; ++done)
+        out[done] = cov ? cov->get(space, static_cast<uint16_t>(addr + done)) : 0;
+    return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
+}
+
+uint8_t Debugger::mem_coverage_fetch(uint16_t addr) const {
+    if (!impl_->mem_cov) return 0;
+    const MemSpace s = source_page(addr);
+    return impl_->mem_cov->get(s, space_offset(s, addr));
+}
+
+std::vector<MemSpace> Debugger::mem_coverage_spaces() const {
+    return impl_->mem_cov ? impl_->mem_cov->spaces() : std::vector<MemSpace>{};
+}
 
 // ---------------------------------------------------------------------------
 // INS-14 — framebuffer

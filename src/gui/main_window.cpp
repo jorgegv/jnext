@@ -22,6 +22,7 @@
 #include "platform/pok_trainers.h"    // GH #381
 #include "core/rzx.h"                 // rzx::playable, before a cold boot plays a file
 #include "core/log.h"
+#include "debug/source_search.h"
 #include <stdexcept>
 #include "core/screenshot.h"
 #include "core/quick_snapshot.h"
@@ -437,6 +438,34 @@ void MainWindow::set_emulator(Emulator* emu) {
         // built now, and a keymap pushed only when it is first SHOWN would
         // leave the emulator window forwarding keys the debugger does not have.
         push_debug_keymap();
+        // GH #420 - the Source tab's search path, and the Yes of Locate File... .
+        connect(debugger_mgr_, &DebuggerManager::source_dirs_changed, this,
+                [](const QStringList& dirs) {
+            std::vector<std::string> list;
+            for (const QString& d : dirs) list.push_back(d.toStdString());
+            Log::platform()->info("Source search path: {}",
+                                  list.empty() ? std::string("none") : source_search::join_list(list));
+        });
+        push_source_dirs();
+        push_source_scheme();
+        connect(debugger_mgr_, &DebuggerManager::source_dir_save_requested, this,
+                [this](const QString& dir) {
+            // Only the saved list: the located directory is in force through the manager's
+            // own list, and a command-line list stays in force.
+            // A directory holding the list separator would load back as two: refused,
+            // as --source-dir refuses it. It stays searched for this session.
+            if (dir.contains(QChar(QLatin1Char(source_search::kListSeparator)))) {
+                QMessageBox::warning(this, tr("Source search path"),
+                                     tr("The directory \"%1\" contains '%2', which separates directories "
+                                        "in the saved list, so it is not saved. It stays searched for "
+                                        "this session.").arg(dir, QChar(QLatin1Char(source_search::kListSeparator))));
+                return;
+            }
+            QStringList& saved = app_config_.data().source_dirs;
+            if (saved.contains(dir)) return;
+            saved << dir;
+            app_config_.save();
+        });
     }
 #endif
 }
@@ -1064,15 +1093,18 @@ void MainWindow::create_menus() {
     // that was being dropped.
     //
     // close() returns false only if closeEvent() ignored the event.
-    // MainWindow::closeEvent() never does — it contains no ignore() call — and
-    // it cannot put a question to the user either: stop_recording() shows no
-    // dialog, and the debugger teardown deliberately passes
-    // prompt_on_corrupt=false (Task 60f, pinned by debugger_quit_gate_test
-    // QG-01/QG-04). So Quit always quits today. The guard exists so that IF a
-    // veto is ever added — an "unsaved changes?" prompt, say — declining it
-    // cancels the quit instead of the app dying anyway. It can BLOCK, briefly:
-    // stopping a recording runs the ffmpeg mux synchronously. That is the same
-    // wait the [X] path has always had, and it finishes.
+    // MainWindow::closeEvent() ignores it in ONE case: the user has unsaved
+    // debugger labels or comments (GH #387, D11), is asked Save / Discard /
+    // Cancel, and answers Cancel (or Save fails); the guard below then cancels
+    // the quit instead of the app dying anyway. That question is the only one
+    // closeEvent() puts: stop_recording() shows no dialog, and the debugger
+    // teardown deliberately passes prompt_on_corrupt=false (Task 60f, pinned by
+    // debugger_quit_gate_test QG-01/QG-04). An UNATTENDED close (the delayed
+    // automatic exit, a signal: set_unattended()) skips even that question,
+    // logs that the changes were discarded and quits, since nobody could answer
+    // (QG-ANN-05). Stopping a recording can BLOCK, briefly: it runs the ffmpeg
+    // mux synchronously. That is the same wait the [X] path has always had, and
+    // it finishes.
     //
     // qApp->quit() stays explicit rather than being left to
     // quitOnLastWindowClosed: that fallback depends on no OTHER top-level
@@ -2881,6 +2913,10 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
     // dialog's. Either way app_config_ (what is saved) is not touched here.
     session_ = { cfg.last_load_dir, cfg.screenshot_dir, cfg.quick_screenshot_dir,
                  cfg.quick_screenshot_format };
+    source_dirs_ = cfg.source_dirs;   // GH #420
+    push_source_dirs();
+    source_scheme_ = cfg.source_scheme;   // GH #422 stage 2
+    push_source_scheme();
     // Machine type and silent are deliberately NOT applied here: main.cpp
     // already merged them into the EmulatorConfig used for Emulator::init()
     // (CLI wins when given), so re-applying the raw AppConfigData value here
@@ -3081,7 +3117,25 @@ void MainWindow::set_debugger_attach_override(bool attached) {
     Log::platform()->info("debugger window: attached={} for this run by --set debugger.attached "
                           "(jnext.conf keeps its value until the Attach item is toggled)", attached);
 }
+
+void MainWindow::set_debugger_physical_override(bool physical) {
+    if (debugger_mgr_) debugger_mgr_->set_physical_override(physical);
+    Log::platform()->info("debugger window: physical_addresses={} for this run by --set debugger.physical_addresses "
+                          "(jnext.conf keeps its value until the Physical Addresses item is toggled)", physical);
+}
 #endif
+
+void MainWindow::push_source_dirs() {
+#ifdef ENABLE_DEBUGGER
+    if (debugger_mgr_) debugger_mgr_->set_source_dirs(source_dirs_);
+#endif
+}
+
+void MainWindow::push_source_scheme() {
+#ifdef ENABLE_DEBUGGER
+    if (debugger_mgr_) debugger_mgr_->set_source_scheme(source_scheme_);
+#endif
+}
 
 void MainWindow::push_debug_keymap() {
 #ifdef ENABLE_DEBUGGER
@@ -3764,6 +3818,21 @@ void MainWindow::wheelEvent(QWheelEvent* event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+#ifdef ENABLE_DEBUGGER
+    // GH #387 (D11): unsaved labels and comments are asked about first; Cancel keeps the app open
+    // (File > Quit goes through close(), which returns false when the event is ignored). An
+    // UNATTENDED close (the delayed automatic exit, SIGINT/SIGTERM) asks nothing: nobody would
+    // answer, and the exit must happen (GH #364). The changes are discarded and the log says so.
+    if (debugger_mgr_) {
+        if (unattended_) {
+            if (debugger_mgr_->annotations_unsaved())
+                Log::platform()->warn("unattended exit: the unsaved debugger labels and comments were discarded");
+        } else if (!debugger_mgr_->confirm_discard_annotations()) {
+            event->ignore();
+            return;
+        }
+    }
+#endif
     // Stop any active recording before closing. The result is not lost:
     // a failed stop is latched per output path (GH #86 — see
     // VideoRecorder::output_failed(), read by main.cpp after run()).

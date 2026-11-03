@@ -3,10 +3,12 @@
 #include <QWidget>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QLabel>
 #include <QScrollBar>
 
 #include "debug/events.h"   // jnext::dbg::ClientId
 #include "debug/inspect.h"  // jnext::dbg::MemSpace
+#include "debug/long_address.h"
 
 namespace jnext { namespace dbg { class Debugger; } }
 
@@ -26,6 +28,9 @@ public:
     /// manager sets the debugger window's client while the window is open;
     /// CLIENT_NONE otherwise.
     void set_client(jnext::dbg::ClientId by) { client_ = by; }
+
+    /// GH #360 - Friendly (`P0E`) or Physical (`$060000`) in the tag after the ASCII column.
+    void set_address_style(jnext::dbg::AddressStyle st) { style_ = st; }
 
     /// Update display with current memory and MMU state.
     void refresh();
@@ -63,6 +68,9 @@ private:
     };
     Where locate(uint16_t addr) const;
 
+    /// GH #388 - show / recolour the "Coverage: X R W" legend.
+    void update_coverage_legend();
+
     /// Read `n` bytes of the current view from `addr` in ONE backend peek (the
     /// paint reads a row at a time). A peek moves nothing: no watch, no +3
     /// floating-bus latch.
@@ -89,10 +97,12 @@ private:
 
     jnext::dbg::Debugger* dbg_;
     jnext::dbg::ClientId  client_ = jnext::dbg::CLIENT_NONE;
+    jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
 
     // Top bar widgets
     QLineEdit* addr_input_ = nullptr;
     QComboBox* page_selector_ = nullptr;
+    QLabel* coverage_legend_ = nullptr;   // GH #388
 
     // Scroll bar
     QScrollBar* scroll_bar_ = nullptr;

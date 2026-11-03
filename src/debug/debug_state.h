@@ -7,6 +7,7 @@
 
 namespace jnext { namespace dbg {
 class EventTable;
+class MemCoverage;
 struct LatchEntry;
 } }
 
@@ -38,6 +39,33 @@ public:
     /// belong to whoever is driving the machine, and nobody is while it holds.
     void hold_for_magic_stop() { magic_hold_ = true; refresh_gates_(); }
     bool magic_hold() const { return magic_hold_; }
+
+    /// GH #344 stage 3 - the one-shot VERIFY WINDOW: a source map attached to a tape
+    /// program is judged the first time the CPU is about to execute inside the memory
+    /// it describes. While a window is set the machine is armed (an armed_
+    /// contributor of its own, like magic_hold_), and the hot loop's armed block
+    /// asks `verify_window_hit(pc)` - two compares - before anything else, ahead of
+    /// the breakpoint tests, so a stop on that very instruction already sees the
+    /// verdict. The hook is the backend's; it never pauses. Set and cleared by the
+    /// backend (`Debugger::Impl::sync_verify_window()`), never by the hot path.
+    void set_verify_window(uint16_t lo, uint16_t hi) {
+        verify_lo_ = lo;
+        verify_hi_ = hi;
+        verify_hold_ = true;
+        refresh_gates_();
+    }
+    void clear_verify_window() {
+        verify_hold_ = false;
+        refresh_gates_();
+    }
+    bool verify_hold() const { return verify_hold_; }
+    bool verify_window_hit(uint16_t pc) const {
+        return verify_hold_ && pc >= verify_lo_ && pc <= verify_hi_;
+    }
+    void set_verify_hook(std::function<void(uint16_t)> fn) { verify_hook_ = std::move(fn); }
+    void run_verify_hook(uint16_t pc) {
+        if (verify_hook_) verify_hook_(pc);
+    }
 
     /// GH #219 — `--persistent-breakpoints`: keep breakpoints live for the
     /// whole run, not just while the debugger window is open. Set once from
@@ -111,6 +139,19 @@ public:
     /// changed it, so the eight Mmu sites execute exactly the load-and-branch
     /// they executed when they read armed() directly.
     bool watchpoints_live() const { return wp_live_; }
+
+    /// GH #388 (E23-25) - the Mmu's ONE gate for "is anything watching this
+    /// guest access": a watchpoint (`wp_live_`) OR a memory-coverage client
+    /// (`mem_cov_live_`). Folded into one cached bool so that, with nothing
+    /// armed, the memory hot path executes the load-and-branch it always did.
+    /// `watchpoints_live()` keeps its meaning for every other reader (ports).
+    bool mem_gate_live() const { return mem_gate_live_; }
+
+    /// The memory-coverage set an access is recorded into, or null: the
+    /// published sink, and only while the machine is EXECUTING (the same
+    /// guest-access rule as a watchpoint - the debugger's own reads and the
+    /// loaders never record).
+    jnext::dbg::MemCoverage* mem_coverage_live() const { return mem_cov_live_; }
 
     /// Is the emulated machine currently executing? See GuestExecutionScope.
     /// Public for the one assertion that enforces the invariant, and for
@@ -187,12 +228,15 @@ public:
     public:
         explicit SuspendScope(DebugState& ds)
             : ds_(ds), paused_(ds.paused_), magic_hold_(ds.magic_hold_),
+              verify_hold_(ds.verify_hold_),
               clients_(ds.clients_attached_), live_raster_(ds.live_raster_),
               persistent_(ds.persistent_), replay_(ds.replay_armed_),
               step_(ds.step_mode_), step_off_(ds.step_off_pending_) {
             ds_.paused_     = false;
             // GH #278 WP4c — the magic hold, which replaced active_ here.
             ds_.magic_hold_ = false;
+            // GH #344 - and the tape-identity verify window's hold.
+            ds_.verify_hold_ = false;
             // GH #276 B3 — EVERY armed_ contributor, not just the two that
             // existed when this scope was written. The comment above promises
             // "disarms breakpoints"; leaving clients_attached_ standing would
@@ -214,6 +258,7 @@ public:
         ~SuspendScope() {
             ds_.paused_     = paused_;
             ds_.magic_hold_ = magic_hold_;
+            ds_.verify_hold_ = verify_hold_;
             ds_.clients_attached_ = clients_;
             ds_.live_raster_ = live_raster_;
             ds_.persistent_ = persistent_;
@@ -229,6 +274,7 @@ public:
         DebugState& ds_;
         bool        paused_;
         bool        magic_hold_;
+        bool        verify_hold_;
         bool        clients_;
         bool        live_raster_;
         bool        persistent_;
@@ -474,6 +520,14 @@ public:
     /// to tell the two apart.
     bool restoring_from_rewind() const { return restoring_from_rewind_; }
     void set_restoring_from_rewind(bool v) { restoring_from_rewind_ = v; }
+    /// CAP-SRC - the load generation the machine is in now (GH #342): a new one
+    /// starts at every landing that is not a rewind-ring restore and at every
+    /// program-load notification. Host-side, never serialised (the snapshot
+    /// width and the `.jns` do not change); each rewind slot keeps the value it
+    /// was taken with and `RewindBuffer::restore_nearest()` sets it back before
+    /// the load. The counter itself is the backend's (`Debugger::Impl`).
+    uint64_t load_generation() const { return load_generation_; }
+    void set_load_generation(uint64_t g) { load_generation_ = g; }
 
     /// THE MEMORY-WATCH GATE the eight `Mmu` sites read, in place of
     /// has_any_watchpoints(). One byte load, a shift and a test (§6.1); it
@@ -576,6 +630,18 @@ public:
     std::bitset<65536>* coverage_sink() const { return coverage_; }
     void set_coverage_sink(std::bitset<65536>* s) { coverage_ = s; }
 
+    // ── GH #388 (E23-25) - memory coverage by execute / read / write ─────
+    //
+    // The same arrangement as the INS-20 sink above: the set is the BACKEND's
+    // (`Debugger::Impl::mem_cov`), this is where the Mmu finds it, published
+    // by `Impl::publish_mem_coverage()` and retired by `~Debugger()`. Setting it
+    // recomputes the Mmu gate (`mem_gate_live()`).
+    jnext::dbg::MemCoverage* mem_coverage_sink() const { return mem_cov_sink_; }
+    void set_mem_coverage_sink(jnext::dbg::MemCoverage* s) {
+        mem_cov_sink_ = s;
+        refresh_gates_();
+    }
+
     // ── GH #276 B4 — CAP-01, a screenshot is waiting for a rendered frame ─
     //
     // Set by the backend while a deferred capture is queued; ORed into
@@ -616,10 +682,14 @@ private:
     /// the machine entered or left execution (twice per frame, or twice per
     /// debugger Step). Never from the hot path.
     void refresh_gates_() {
-        armed_ = clients_attached_ || persistent_ || replay_armed_ || magic_hold_;
+        armed_ = clients_attached_ || persistent_ || replay_armed_ || magic_hold_ || verify_hold_;
         attached_    = clients_attached_;
         raster_live_ = live_raster_;
         wp_live_ = armed_ && guest_access_;
+        // GH #388: the coverage half of the Mmu gate. Same rule as wp_live_:
+        // nothing records unless the emulator itself declared it is executing.
+        mem_cov_live_  = guest_access_ ? mem_cov_sink_ : nullptr;
+        mem_gate_live_ = wp_live_ || mem_cov_live_ != nullptr;
         // Disarming breakpoints drops any pending step-off with them. The gate
         // that consumes it does not run while !armed(), so PC moves on freely
         // and a surviving arm would suppress an unrelated test the moment
@@ -666,6 +736,12 @@ private:
     // GH #278 WP4c — the magic stop's hold (hold_for_magic_stop()), in the slot
     // the retired active_ occupied. Read only by refresh_gates_().
     bool magic_hold_ = false;
+    // GH #344 stage 3 - the verify window's hold and bounds (set_verify_window()),
+    // an armed_ contributor read only by refresh_gates_() and verify_window_hit().
+    bool verify_hold_ = false;
+    uint16_t verify_lo_ = 0;
+    uint16_t verify_hi_ = 0;
+    std::function<void(uint16_t)> verify_hook_;
     // GH #276 B3 — the third armed_ contributor. APPENDED next to its siblings
     // rather than at the end of the class: all three are read only by
     // refresh_gates_(), never by the hot path (which reads armed_).
@@ -685,6 +761,11 @@ private:
     // construction rather than by remembering to say so.
     bool guest_access_ = false;
     bool wp_live_ = false;
+    // GH #388 - read by the Mmu on every access (mem_gate_live_) and, behind it,
+    // by the recording hook (mem_cov_live_). Written only by refresh_gates_().
+    bool mem_gate_live_ = false;
+    jnext::dbg::MemCoverage* mem_cov_live_ = nullptr;
+    jnext::dbg::MemCoverage* mem_cov_sink_ = nullptr;
     // GH #276 B3 — the two gates that replace active() in the hot path, and the
     // one input only they read. Precomputed by refresh_gates_(). After wp_live_
     // rather than between it and armed_, which the comment above keeps adjacent.
@@ -717,6 +798,7 @@ private:
     std::function<void(jnext::dbg::LatchEntry&, const uint64_t*)> stamp_common_;
     std::function<void()> machine_replaced_;
     bool restoring_from_rewind_ = false;
+    uint64_t load_generation_   = 0;
     bool event_boundary_work_ = false;
     bool ring_nonempty_       = false;
     bool cycle_armed_         = false;

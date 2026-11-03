@@ -175,6 +175,10 @@ private:
         /// depth and every reader of `call_stack()` see calls that, after the
         /// rewind, have not happened yet.
         std::vector<CallFrame> call_frames;
+        /// The debugger's load generation at the snapshot (GH #342): which
+        /// program load the history behind this slot belongs to. Host-side,
+        /// not in the serialised stream; set back before `load_state()`.
+        uint64_t generation = 0;
     };
 
     std::vector<Slot> slots_;

@@ -67,6 +67,7 @@
 #include "debug/result.h"
 #include "debug/source_map.h"
 #include "debug/symbol_table.h"
+#include "debug/user_annotations.h"
 
 class Emulator;
 
@@ -261,6 +262,16 @@ public:
     virtual bool peer_connected() const = 0;
 };
 
+/// CAP-REX - what an export reports (GH #389): the files it wrote (control files and
+/// their `.bin` images, or symbol files), the labels and comments in them, and what
+/// the user should know about (a name skipped, a space whose bytes cannot be read).
+struct ReReport {
+    size_t files = 0;
+    size_t labels = 0;
+    size_t comments = 0;
+    std::vector<std::string> notes;
+};
+
 /// The frontend sequences the backend cannot reach (SES-07).
 ///
 /// Both live in `src/platform/`, the layer ABOVE the backend, so the loop owner
@@ -383,6 +394,13 @@ public:
     /// CTL-06 — transient `Execute[addr,addr]` plus `run()`. "Run to Here", and
     /// RSP's `i<len>` is `run_to(pc + len)`.
     Result run_to(ClientId by, uint16_t addr);
+
+    /// CTL-06 for a source line (GH #423): a transient `Execute` group at every
+    /// start of `file_line` (`subscribe_source_line`, each member tied to its
+    /// memory) plus a run. The stop at any start reports `RunTo` with that
+    /// address. Refused, the machine untouched, for no live map or a line with no
+    /// code; the gates of run_to() otherwise. ASYNCHRONOUS.
+    Result run_to_source_line(ClientId by, const std::string& file_line);
 
     /// CTL-07 / TIME-03 — run until the master cycle counter reaches
     /// `master_cycle`. The primitive under CTL-08.
@@ -639,7 +657,9 @@ public:
     /// INS-11 — is the instruction at `addr` CALL-like? What CTL-04 asks.
     bool is_call_like(uint16_t addr) const;
 
-    /// INS-11 — a reader over `peek(Cpu)`, so `disasm_text::collect_range()` and
+    /// INS-11 — a reader over `peek(Cpu)`, except that the instruction at the PC
+    /// is read as the CPU will FETCH it (GH #360 F1: at a DivMMC instant entry
+    /// the M1 itself maps DivMMC), so `disasm_text::collect_range()` and
     /// `disasm_text::apply_symbols()` (already published, already Qt-free) can be
     /// driven with no `Emulator*`. Without this the INS-11 promise of
     /// "`disasm_text::*`" is unreachable from a frontend.
@@ -721,6 +741,47 @@ public:
     /// const reference: it is 8 KB.
     const CoverageBits& coverage() const;
 
+    // -----------------------------------------------------------------------
+    // INS-21 (GH #388, E23-25) -- memory coverage by execute, read and write,
+    // per physical memory (the FetchSource the read arbiter names)
+    //
+    // Recorded in `Mmu` from the one arbiter (`route_bits_`, given the access
+    // direction), so what is recorded is what answered: X = the first opcode byte
+    // of an executed instruction (the M1), R = every other memory read (operands,
+    // data, DMA), W = every write that LANDED (CPU or DMA). Only guest accesses
+    // count (what a watchpoint can see): a debugger peek/poke, a trace capture,
+    // video and a loader never do. A SET, not counts: it survives a rewind (a
+    // replay re-sets the same bits), a reset, a state load and a cold boot.
+    // Only `mem_coverage_clear()` and switching off empty it. Zero cost when off.
+    // INS-20's logical-PC set above is a separate switch, unchanged.
+    // -----------------------------------------------------------------------
+
+    /// Off clears; `on` over `on` does not.
+    Result mem_coverage_enable(bool enabled);
+    bool   mem_coverage_enabled() const;
+    /// Empty every space; recording goes on.
+    Result mem_coverage_clear();
+
+    /// The flags (`COVERAGE_EXEC | COVERAGE_READ | COVERAGE_WRITE`, mem_coverage.h)
+    /// of [addr, addr+n) in `space`, addressed like `peek()`: `Cpu` resolves each
+    /// byte through the live DATA route (what `peek(Cpu)` shows); any other space
+    /// takes offsets within its store (identity-only kinds are NOT refused here,
+    /// unlike peek). `InvalidPage` for an index outside the space (above 0xFF, a
+    /// `Page` >= 0xE0, a `Rom` image > 3); an offset past the store's end is a short
+    /// (or empty) read, `RefusedUnavailable` with the count done, as in peek.
+    Expected<size_t> mem_coverage(MemSpace space, uint32_t addr, size_t n, uint8_t* out) const;
+
+    /// The flags of the byte an M1 at `addr` would fetch NOW (`source_page(addr)`
+    /// + `space_offset`): the Disassembly's view. 0 while off.
+    uint8_t mem_coverage_fetch(uint16_t addr) const;
+
+    /// Every space with at least one mark, sorted by (kind, index).
+    std::vector<MemSpace> mem_coverage_spaces() const;
+
+    /// 1-based lines of `file` (as the live source map names it) any of whose
+    /// ranges holds an X byte. Empty while off or without a map.
+    std::vector<uint32_t> executed_source_lines(const std::string& file) const;
+
     // =======================================================================
     // §4.3 — CAP-EVT, events, breakpoints, conditions
     // =======================================================================
@@ -736,6 +797,28 @@ public:
 
     /// CAP-EVT — set a subscription's own enable flag. Owner only.
     Result set_enabled(ClientId by, EventId id, bool enabled);
+
+    /// E23-09 (design 8.1) -- a breakpoint on a source line. Resolves
+    /// `file_line` in the live source map (`source_map().resolve()`) and
+    /// subscribes one `Execute` per start, each a copy of `like` with
+    /// `lo = hi = start.address`, `space = start.space` and `page = PAGE_ANY`,
+    /// all under one new group. All or nothing. `like.transient` and
+    /// `like.once` reach every member, so a transient group dies as a whole at
+    /// the next stop. `RefusedUnavailable` for a gone client, a `like.kind` that
+    /// is not `Execute`, no live map, or a line with no start
+    /// (`source_map().resolve(file_line).error` says why). A detach erases the
+    /// members, so the group goes with them.
+    Expected<GroupId> subscribe_source_line(ClientId by, const std::string& file_line,
+                                            const Subscription& like);
+
+    /// E23-09 -- remove every member of `group`. Owner only: an unknown group,
+    /// or another client's, is `RefusedUnavailable`. `unsubscribe(by, id)` still
+    /// removes one member.
+    Result unsubscribe_group(ClientId by, GroupId group);
+
+    /// E23-09 -- set every member's own enable flag. Owner only, as above.
+    /// `set_enabled(by, id, on)` still acts on one member.
+    Result set_group_enabled(ClientId by, GroupId group, bool enabled);
 
     /// CAP-EVT — the master switch (GH #225). Suspends every subscription
     /// without deleting one and without touching any per-subscription flag;
@@ -916,20 +999,117 @@ public:
     /// dialect: z88dk, simple, NextBuild `Memory.txt`, or sjasmplus `--sym` /
     /// `--exp` (GH #390); `Z88dkOrSjasmplus`, which `--map` uses, tells those
     /// two by the file's first line. Returns the number of symbols loaded. A
-    /// refused NextBuild file sets `why` to the reason.
+    /// refused file (not a regular file, over the size cap; for `Z88dkOrSjasmplus`,
+    /// which reads a pipe too, more than the cap arriving) sets `why` to the
+    /// reason; a file that simply cannot be opened leaves it empty, except for
+    /// `NextBuild`, which says "could not open Memory.txt file".
     Expected<int> load_map(const std::string& path, MapFormat format,
                            std::string* why = nullptr);
 
     /// CAP-SYM — forget them all.
     Result clear_symbols();
 
-    /// CAP-SYM — name for an address, address for a name.
+    /// CAP-SYM — name for an address, address for a name. The name is that of
+    /// `addr` in the memory that supplies it NOW (`source_page`): a label
+    /// assembled for a page names it only while that page is mapped there; an
+    /// unpaged label names it whatever is mapped.
     std::optional<std::string> lookup(uint16_t addr) const;
     std::optional<uint16_t>    lookup_name(const std::string& name) const;
 
     /// CAP-SYM — the table itself, for `disasm_text::apply_symbols()` and for a
     /// frontend that lists symbols.
     const SymbolTable& symbols() const;
+
+    // =======================================================================
+    // CAP-ANN -- the user's labels and comments (GH #387, E23-24; design 10.2,
+    // 10.3, 10.5, 6.8; added to this frozen header under the #378 decision, 5.2)
+    //
+    // A second layer beside the toolchain's symbols. `symbols()`, `lookup()` and
+    // `lookup_name()` above read the COMPOSITION of the two (the user's label
+    // first, by address and by name), so no consumer merges them. The store is
+    // kept across loads, resets, state loads and rewinds and is not in `.jns`;
+    // only these verbs and a project file change it. None touches the machine,
+    // so all are allowed while it runs; each success bumps `state_revision()`.
+    //
+    // A refused argument (the Cpu space, a name outside the label grammar, a name
+    // already in use, text that is not UTF-8, a project file that does not parse)
+    // is `Unsupported`; nothing to remove, or a file that cannot be read or
+    // written, is `RefusedUnavailable`; `why`, when given, says which.
+    // =======================================================================
+
+    /// Name `addr` in `space` (a rename when it has a user label). The name must not
+    /// be one the loaded symbols give another address, or another paged memory.
+    Result set_user_label(FetchSource space, uint16_t addr, const std::string& name,
+                          std::string* why = nullptr);
+    /// Remove the user label at the key (the toolchain's is not touched).
+    Result remove_user_label(FetchSource space, uint16_t addr);
+    /// Set the user comment at the key; empty text removes it.
+    Result set_user_comment(FetchSource space, uint16_t addr, const std::string& text,
+                            std::string* why = nullptr);
+    /// The user's store, and a counter that rises with every successful change.
+    const UserAnnotations& annotations() const;
+    uint64_t annotations_revision() const;
+    /// Replace the whole store with the project file `path`, or leave it as it is.
+    Result load_annotations(const std::string& path, std::string* why = nullptr);
+    /// Write the store to `path` (through `path.part`, then renamed over it).
+    Result save_annotations(const std::string& path, std::string* why = nullptr) const;
+    /// Replace the whole store (an import builds one offline).
+    Result replace_annotations(UserAnnotations a);
+    /// The loaded layer alone: what a sidecar, Load MAP or `--map` put there.
+    const SymbolTable& toolchain_symbols() const;
+
+    // =======================================================================
+    // CAP-REX - skoolkit and Ghidra exports (GH #389, E23-26;
+    // doc/design/SOURCE-LEVEL-DEBUGGING.md section 11.2)
+    //
+    // Both write a DIRECTORY (created when missing) with what the disassembly
+    // shows: every label of `symbols()` under the name `lookup()` gives, and for
+    // skoolkit the code/data map the coverage recorded (`mem_coverage()`, so run
+    // with `--coverage` or Debug > Coverage; with it off the control files carry
+    // labels and one code run per window). Read-only: peek, coverage and the
+    // symbol table are side-effect free, so no machine state changes and no
+    // generation moves; allowed while the machine runs.
+    //
+    // Each file is written to `<name>.part` and renamed. A previous export's files
+    // this one does not write are removed: a `*.ctl` whose first line is
+    // `# jnext space ` and the `.bin` of its `WWWW-TAG` stem, or `CPU.ghidra.txt`,
+    // `view.ghidra.txt` and `<TAG>.ghidra.txt` for a TAG that names a space (any other
+    // `*.ghidra.txt` is the user's), so a stale space never
+    // reaches `sna2skool.py -c DIR`. A `.ctl` or `.bin` the export would write that
+    // exists and is not jnext's refuses the export before anything is written.
+    //
+    // `Unsupported`: such a file in the way. `RefusedUnavailable`: DIR is not a
+    // directory or cannot be created, or a file cannot be written. `why` says which.
+    // =======================================================================
+
+    /// CAP-REX - one control file and one `.bin` per (space, window), plus
+    /// `0000-0CPU.ctl` for the unpaged labels (skoolkit_ctl.h).
+    Result export_skoolkit(const std::string& dir, ReReport* report = nullptr,
+                           std::string* why = nullptr) const;
+
+    /// CAP-REX - one `<TAG>.ghidra.txt` per space, `CPU.ghidra.txt` and `view.ghidra.txt`
+    /// (ghidra_symbols.h).
+    Result export_ghidra(const std::string& dir, ReReport* report = nullptr,
+                         std::string* why = nullptr) const;
+
+    /// CAP-REX - read skoolkit control files into the user's store (GH #389 stage B): the labels
+    /// (`@ $A label=NAME`) and the instruction comments (`B C S T W` sub-blocks and their `.` / `:`
+    /// lines); titles, descriptions and the other directives are counted in the report, not imported.
+    /// A file's memory is its `# jnext space <TAG>` line, else its name (`<TAG>.ctl`,
+    /// `<WWWW>-<TAG>.ctl`); with neither, each entry takes the memory that supplies its address NOW
+    /// (`source_page()`). ALL the files are read and checked into a scratch copy of `annotations()`
+    /// first: an imported label replaces the label at its key, a comment the comment; any refusal
+    /// (a file that cannot be read: `RefusedUnavailable`; a line skoolkit would warn about, a name
+    /// outside the label grammar or used at another key: `Unsupported`) leaves the store and its
+    /// revision untouched and `why` is `<file>: line N: reason`. A success is ONE
+    /// `replace_annotations()`: one revision bump.
+    Result import_skoolkit(const std::vector<std::string>& files, ReReport* report = nullptr,
+                           std::string* why = nullptr);
+
+    /// CAP-REX - the same for Ghidra symbol files (`NAME [TAG:]0xHHHH l`); no comments.
+    Result import_ghidra(const std::vector<std::string>& files, ReReport* report = nullptr,
+                         std::string* why = nullptr);
+
 
     // =======================================================================
     // CAP-SRC — source-level debugging (doc/design/SOURCE-LEVEL-DEBUGGING.md)
@@ -949,57 +1129,143 @@ public:
         /// The map's binary identity checked against memory: nullopt when the
         /// map carries none, else whether it matched.
         std::optional<bool> identity;
+        /// What to append to a report of the attach, for a frontend that logs one:
+        /// " (program identity verified)", or for a z88dk map the way it was not
+        /// (" (program identity not verified: no section binaries beside it)", or
+        /// verified with some code ranges unchecked); empty for an SLD with none.
+        std::string identity_note;
+        /// z88dk only (GH #348): the `--list` listings beside the map that supplied
+        /// the lines (0 none), and what to tell the user about the ones that did not
+        /// hold up, the notes joined with "; " (empty when there is nothing to say).
+        int listings = 0;
+        std::string listing_note;
+        /// SLD labels put in the symbol table; 0 none in the file; -1 refused, or
+        /// the symbols you loaded (Load MAP, Load Memory.txt, --map) kept.
+        int labels = -1;
+        /// Attached, its identity not yet judged: it was loaded with
+        /// `verify_at_first_execution` and carries one (see `load_source_map`).
+        bool pending = false;
+        /// `dot_only` was given and the map is not a z88dk dot command's (`error` says so).
+        bool not_dot = false;
     };
 
-    /// CAP-SRC — load an sjasmplus SLD file, replacing the current map only on
-    /// success. A map that carries a binary identity which no longer matches
-    /// memory is refused unless `accept_identity_mismatch` (a program may have
+    /// CAP-SRC - load a source map, an sjasmplus SLD file or a z88dk `-debug` map
+    /// (told by its first line), replacing the current map only on success. A
+    /// z88dk map fills the source half only (its symbols stay with Load MAP and
+    /// `--map`) and is refused when it has no line records. An SLD's labels
+    /// replace the symbol table unless that holds symbols the user loaded (a MAP, a Memory.txt); a file with no labels clears only an
+    /// earlier SLD's. A map that carries a binary identity which no longer
+    /// matches memory is refused unless `accept_identity_mismatch` (a program may have
     /// legitimately changed variables inside its own image since it loaded).
-    SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch);
+    ///
+    /// GH #344 stage 3 - `verify_at_first_execution` is for a program that is not in
+    /// memory yet (a tape): a map that carries an identity attaches at once, PENDING,
+    /// and `accept_identity_mismatch` is not consulted. Each memory space the identity
+    /// covers (main memory for an SLD's hash, each page a z88dk section binary lies
+    /// in) is judged the first time the CPU is about to execute inside it; the check
+    /// stays armed for the spaces not run yet. A space that does not match drops the
+    /// map (`source_map_status()` is then `None`, with the reason, and the error is
+    /// logged). A map with no identity attaches unverified, not pending.
+    ///
+    /// GH #351 - a z88dk dot command's map (`SourceMap::dot()`) is deferred whatever
+    /// `verify_at_first_execution` says (NextZXOS loads the command into DivMMC RAM when it
+    /// is typed), so it attaches pending, unless the CPU is already running the command from
+    /// bank 2 with its bytes in place: a load made there judges like a landing there and is
+    /// verified (`pending` false, `identity_note` says so). It is judged where the command starts ($2000 fetched from
+    /// DivMMC RAM bank 2); an entry that does not match is another dot command and
+    /// keeps it pending, and a landing (reset, state load, rewind) never drops or
+    /// stales it. `dot_only` refuses a map that is not a dot command's (`--source-map`
+    /// without `--load`: there is no program to judge any other map against).
+    SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch,
+                                  bool verify_at_first_execution = false, bool dot_only = false);
 
     /// CAP-SRC — forget the source map.
     Result clear_source_map();
 
-    /// CAP-SRC — the store itself.
+    /// CAP-SRC — the store itself. Empty while the user's map is stale.
     const SourceMap& source_map() const;
 
-    /// CAP-SRC — the source position of `addr` as it is mapped NOW (the
-    /// physical page behind its slot), or of the current PC.
-    std::optional<SourceLocation> source_location(uint16_t addr) const;
-    std::optional<SourceLocation> source_location() const;
+    /// CAP-SRC (GH #342) — is there a source map, and if not or if it is stale,
+    /// why. A map the user loaded by hand is judged at every landing that is
+    /// not a rewind-ring restore (state load, reset, RZX, bookmark, remote
+    /// restore) against its binary identity, if it has one: it stays `Attached`
+    /// when the identity matches the memory now, and goes `Stale` otherwise
+    /// (`source_map()` is then empty). Loading it again by hand makes it live.
+    /// Only the source half: a Memory.txt refusal is in `SidecarLoad::problem`.
+    struct SourceMapStatus {
+        enum class State : uint8_t { None, Attached, Stale };
+        State state = State::None;
+        bool by_user = false;      ///< loaded by hand (only that one can go Stale)
+        std::string file;          ///< Attached / Stale: the map's file
+        std::string reason;        ///< None: the last refusal or drop; Stale: why
+        /// Attached, its identity is judged the first time the CPU runs the code it
+        /// describes, space by space (a tape program's map). `state` stays `Attached`.
+        bool pending = false;
+        /// The attached map is a z88dk dot command's: `pending` then waits for the
+        /// command to run, not for a program to load.
+        bool dot = false;
+    };
+    SourceMapStatus source_map_status() const;
+
+    /// CAP-SRC — the primary source position of `addr` as it is mapped NOW (what
+    /// `source_page(addr)` says supplies it), or of the current PC. Null when
+    /// unmapped. A pointer into the store, valid until the store changes: copy
+    /// what you keep. Every location there: `source_map().lookup_all()`.
+    const SourceLocation* source_location(uint16_t addr) const;
+    const SourceLocation* source_location() const;
+    /// The same in a memory the caller names, whatever is mapped at `addr` now (a
+    /// paged symbol's own page: `monitor src NAME`, GH #349).
+    const SourceLocation* source_location(MemSpace space, uint16_t addr) const;
 
     /// CAP-SRC — the physical 8K page the MMU maps behind logical `addr` now.
     uint8_t effective_page(uint16_t addr) const;
 
-    /// CAP-SRC — the RAM page an instruction at `addr` would be fetched from
-    /// now, or NOT_RAM_PAGE (debug/ram_page.h) when a ROM slot or an overlay
-    /// (boot ROM, Multiface, DivMMC, Layer 2 read mapping) supplies it. This,
-    /// not `effective_page()`, is what source records are matched against:
-    /// ROM and RAM page numbers overlap.
-    uint8_t source_page(uint16_t addr) const;
+    /// CAP-SRC - what an instruction at `addr` would be fetched from NOW, as a
+    /// `MemSpace` (GH #339; `Emulator::predict_fetch()`): `Page{n}` when the
+    /// MMU's RAM page `n` supplies it, `Rom{i}` for a ROM slot, and the overlay
+    /// or special source otherwise (boot ROM, Multiface, DivMMC ROM or RAM, the
+    /// Layer 2 read mapping, the alternate ROM, config mode, or nothing). This,
+    /// not `effective_page()`, is what source records are matched against: ROM
+    /// and RAM page numbers overlap. `ram_page_of()` (debug/ram_page.h) is the
+    /// page-keyed view, `NOT_RAM_PAGE` for anything but `Page`.
+    MemSpace source_page(uint16_t addr) const;
 
     /// CAP-SRC — attach the debug sidecars of a program that was just loaded:
-    /// `<stem>.Memory.txt` (or `Memory.txt`) beside a `.nex` for symbols, and
-    /// `<stem>.sld` / `<stem>.sld.txt` for the source map — except beside a
-    /// tape program (`.tap`, `.tzx`, `.wav`), which is not in memory when
-    /// its load call returns: its map must be loaded by hand once it has
-    /// loaded. The sidecars belong to that load: a reset, a cold boot, or a
-    /// state restored from outside the rewind ring (a snapshot, a bookmark, a
-    /// remote client's) drops them, and so does rewinding to a point before it
-    /// (a rewind to after it keeps them). A sidecar fills a
+    /// `<stem>.Memory.txt` (or `Memory.txt`) beside a `.nex` for symbols,
+    /// `<stem>.sld` / `<stem>.sld.txt` for the source map, and `<stem>.map` (a
+    /// z88dk map, beside a `.nex`, `.tap` or `.sna`) for both: its symbols join
+    /// the program's last, and only when no Memory.txt exists; its source lines
+    /// are used only when no SLD sidecar exists; a `.map` with neither is not a
+    /// z88dk map and is ignored. A tape program (`.tap`, `.tzx`, `.wav`) is not in
+    /// memory when its load call returns, so a source map that carries an identity
+    /// attaches PENDING (`SidecarLoad::sources_pending`): each memory space it
+    /// covers is judged the first time the CPU runs inside it, a mismatch drops the
+    /// map and the symbols that came with it. The sidecars belong to that load, a LOAD GENERATION this call
+    /// opens (design §6.5): a reset, a cold boot, or a state restored from
+    /// outside the rewind ring (a snapshot, a bookmark, a remote client's, an
+    /// RZX start) keeps them only if the source map's binary identity matches
+    /// the memory now (checked again at the next pause after a reset); rewinding
+    /// brings back the sidecars of the point it lands on (the last 4
+    /// attachments are remembered). A sidecar fills a
     /// store that is empty or was filled by a previous program's sidecar; a
     /// store the user filled (a MAP or SLD loaded by hand, `--map`) is kept.
     /// A previous program's sidecar data is cleared when the new program has
     /// none, so a stale map never describes the wrong binary. An SLD whose
-    /// binary identity does not match the loaded program is refused.
+    /// binary identity does not match the loaded program is refused. The SLD's
+    /// labels join the program's symbols (after a `Memory.txt`, first wins), also
+    /// beside a tape, and also when only its source records are refused; not when
+    /// its identity does not match or the user's source map is kept.
     /// Each outcome is logged. Every frontend calls this after a successful
     /// program load.
     struct SidecarLoad {
-        int symbols = -1;   ///< labels loaded, -1 when none was found
+        int symbols = -1;   ///< labels loaded from every symbol sidecar together, -1 when none attached
         int sources = -1;   ///< source records loaded, -1 when none was attached
         /// A Memory.txt was found and could not be read (the previous
         /// program's sidecar symbols are cleared all the same).
         bool symbols_unreadable = false;
+        /// The source map attached (`sources` >= 0) and its identity is still to be
+        /// judged: a tape program's map that carries one.
+        bool sources_pending = false;
         /// What was found and refused, in one line for a frontend to show:
         /// "NextBuild symbols 'p.Memory.txt' rejected: <reason>" and/or
         /// "source map 'p.sld' rejected: <reason>" (the file is named, not the
@@ -1037,7 +1303,8 @@ public:
     /// (`set_call_stack_enabled`); with no tracked frame, Out is one
     /// instruction. Back / ReverseContinue search only the retained trace
     /// BEFORE the machine's current cycle (a Frame Back leaves newer entries
-    /// in it). `RefusedUnavailable` with no source map, and for Back /
+    /// in it) and in the machine's current load generation: Back never crosses
+    /// a landing into the history of the machine before it. `RefusedUnavailable` with no source map, and for Back /
     /// ReverseContinue with no earlier position to go to; the rewind refusals
     /// of `step_back()` otherwise.
     Result source_step(ClientId by, SourceStep kind);

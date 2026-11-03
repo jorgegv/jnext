@@ -109,6 +109,24 @@ nav:
       - 6.1 Issues and pull requests: 06-contributing/01-issues-and-pull-requests.md
       - 6.2 Branches, worktrees and review: 06-contributing/02-branches-worktrees-and-review.md
       - 6.3 House style: 06-contributing/03-house-style.md
+  - 7. Source-level debugging:
+      - 07-source-level-debugging/index.md
+      - 7.1 Which memory supplied the instruction: 07-source-level-debugging/01-which-memory.md
+      - 7.2 The source map: 07-source-level-debugging/02-the-source-map.md
+      - 7.3 Loading: 07-source-level-debugging/03-loaders.md
+      - 7.4 File formats and records:
+          - 7.4 Overview: 07-source-level-debugging/04-formats.md
+          - 7.4.1 sjasmplus SLD: 07-source-level-debugging/04-1-sld.md
+          - 7.4.2 sjasmplus --sym and --exp: 07-source-level-debugging/04-2-sjasmplus-equ.md
+          - 7.4.3 The z88dk map: 07-source-level-debugging/04-3-z88dk-map.md
+          - 7.4.4 z88dk listings: 07-source-level-debugging/04-4-z88dk-listings.md
+          - 7.4.5 NextBuild Memory.txt: 07-source-level-debugging/04-5-nextbuild-memory-txt.md
+          - 7.4.6 Annotations project file: 07-source-level-debugging/04-6-user-annotations.md
+          - 7.4.7 skoolkit and Ghidra exports: 07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md
+      - 7.5 Breakpoints, steps, history and call frames: 07-source-level-debugging/05-breakpoints-steps-history.md
+      - 7.6 Lifetime: 07-source-level-debugging/06-lifetime.md
+      - 7.7 The frontends: 07-source-level-debugging/07-frontends.md
+      - 7.8 Tests, fixtures and adding a producer: 07-source-level-debugging/08-tests-and-new-producers.md
 
 # Same posture as the user guide: `mkdocs build --strict` must fail on a page
 # missing from the nav and on a cross-reference that no longer resolves.

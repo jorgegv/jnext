@@ -78,12 +78,30 @@ with status 1.
     the program. More than 16 KB of ignored bytes also logs a warning.
 
     The debugger’s source map and symbols attach from beside the
-    program: *NAME*`.sld` (or *NAME*`.sld.txt`), an sjasmplus source
-    map, beside any program but a tape, and *NAME*`.Memory.txt` (or
-    `Memory.txt`), NextBuild / Boriel ZX Basic symbols, beside a `.nex`.
-    A map given with **--map** or loaded by hand is kept over them. An
-    SLD built for another binary, or a file over 64 MiB, is refused,
-    with the reason in the log.
+    program: *NAME*`.sld` (or *NAME*`.sld.txt`), an sjasmplus source map
+    whose labels join the symbols (a label assembled for a page names
+    its address only while that page is mapped), beside any program,
+    *NAME*`.Memory.txt` (or `Memory.txt`), NextBuild / Boriel ZX Basic
+    symbols, beside a `.nex`, and *NAME*`.map`, a z88dk map (`-m`),
+    beside a `.nex`, `.tap` or `.sna`: its symbols join the others (not
+    when a `Memory.txt` exists; a symbol of a `BANK_n` or `PAGE_n`
+    section names its address only while its page is mapped, the others
+    take the page mapped at their address when the program is loaded,
+    from tape too), and with `-debug` also its source lines, which
+    attach when there is no SLD. z88dk’s **-create-app** also writes the
+    section binaries (*NAME*`_CODE.bin`, …) that the map is checked
+    against; without them it attaches unverified. Beside a tape (`.tap`,
+    `.tzx`, `.wav`), whose program is not in memory yet, a map that
+    carries a binary identity attaches at once and each memory space it
+    covers is checked the first time the program runs its code there; a
+    space that does not match drops the map and the symbols that came
+    with it, with the reason in the log. A map given with **--map** or
+    loaded by hand is kept over them. z88dk’s `--list` listings beside
+    the map (*NAME*`.lis`, *FILE*`.lis`) are read too when they match
+    the map, and add assembly lines and sdcc’s lines on z88dk 2.4; a
+    listing that does not match is skipped with a note in the log. A map
+    built for another binary, or a file over 64 MiB, is refused, with
+    the reason in the log.
 
 **--nex-args** *LINE*
 :   Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim
@@ -791,6 +809,17 @@ with status 1.
     enabled implicitly by **--rewind-buffer-size** *N* with *N* \> 0,
     and toggleable in the debugger.
 
+**--coverage**
+:   Record memory coverage from the start: for every byte of every
+    memory (each RAM page, ROM image, DivMMC and Multiface window, Layer
+    2 mapping, …) whether the program executed it (first opcode byte of
+    an instruction), read it or wrote it. Toggleable in the debugger
+    (Debug \> Coverage), where the Disassembly, Memory and Source views
+    show it. With the SDL frontend or **--headless** it records but
+    there is no viewer; it logs one summary line at exit. Costs a little
+    speed while on (3-8% in release builds); no measurable cost while
+    off.
+
 ## Headless and automation
 
 **--headless**
@@ -1062,11 +1091,19 @@ with status 1.
     scripts load, and their rules run, in the order given. A script that
     cannot be read, or that has any error, is reported as
     *file*:*line*:*column*: *message* and jnext exits 1 before the
-    machine runs - nothing of it runs partially. In **--headless** and
-    the SDL-only build a script decides the exit status: `exit` *N*
-    exits *N*, a `stop` or a failed `assert` exits 3, a run-time error
-    exits 1. In the Qt GUI a script never ends the program: `stop` and
-    `exit` pause the machine instead.
+    machine runs - nothing of it runs partially. With **--load**, a
+    script that names a source line (`on execute main.c:19`), an
+    `@symbol` that **--map** does not know, or a z88dk **--map** symbol
+    of a section that names no page waits, with the scripts after it,
+    until the program is in (it is still read and parsed at once); an
+    error then also exits 1. Its rules start at the load: an `on frame`
+    *N* or a **--script-key** due before it never fires (a `.tzx` or
+    `.wav` loads about 100 frames in), so give such rules in an earlier
+    script that names neither. In **--headless** and the SDL-only build
+    a script decides the exit status: `exit` *N* exits *N*, a `stop` or
+    a failed `assert` exits 3, a run-time error exits 1. In the Qt GUI a
+    script never ends the program: `stop` and `exit` pause the machine
+    instead.
 
 **--script-key** *FRAME* *N*
 :   Deliver script host key *N* (`1` to `8`) at emulated frame *FRAME*
@@ -1088,8 +1125,136 @@ with status 1.
     `--exp` file, told apart by its contents (z88dk’s assembler also
     writes a `.sym`, in the map format), so a script can name an address
     as `@symbol` (an sjasmplus label is `@main.loop`), and the debugger
-    shows the names (the same table **Map \> Load MAP** fills). A file
-    that cannot be loaded, or holds no symbols, is a startup error.
+    shows the names (the same table **Map \> Load MAP** fills). A z88dk
+    map’s symbols take their pages as its source lines do: a banked one
+    only while its page is mapped, the rest in the page mapped at their
+    address when the program is loaded (a map read before **--load**
+    takes them then). A file that cannot be loaded, or holds no symbols,
+    is a startup error. More than 64 MiB (of a file, or of what a pipe
+    such as `--map <(cmd)` delivers) is refused, and the error names the
+    limit.
+
+**--source-map** *FILE*
+:   Attach a source map, an sjasmplus SLD or a z88dk `-debug` `.map`
+    (told apart by its contents), to the program **--load** loads, as if
+    loaded by hand with **Debug \> Source \> Load Source Map…**. A z88dk
+    map gives source lines only (and reads the `--list` listings beside
+    it); its symbols stay with **--map**. Requires **--load**, unless
+    *FILE* is the map of a z88dk dot command (`-subtype=dot`, `dotx`;
+    built with `-debug`): that map is attached at once, before any
+    script loads, and stays pending until the guest runs the command,
+    when it is checked (the command is loaded into DivMMC RAM by
+    NextZXOS, which jnext does not know until it runs; see the User
+    Guide). Any other map without **--load** is refused (exit status 1).
+    An RZX replay (**--rzx-play** *R*, or **--load** *R*`.rzx`) is the
+    same case: a dot command’s map attaches pending, any other map is
+    refused at start-up naming RZX (exit status 1). A map whose binary
+    identity does not match the program, or that cannot be loaded, is a
+    startup error (exit status 1). With a tape program (`.tap`, `.tzx`,
+    `.wav`) the map attaches at once and is checked the first time the
+    program runs its code; a mismatch then drops it, and the run exits
+    with status 1.
+
+**--source-dir** *DIR*
+:   Also search *DIR* for the source files a source map names, in the
+    Source tab of the debugger (the Qt window with the debugger;
+    elsewhere a warning, and ignored). One directory per option, repeat
+    it for more; the list separator (`:`, `;` on Windows) is refused.
+    The Source tab tries a file beside the source map and in its parent
+    directories first, then these directories, the longest matching
+    trailing part of the recorded name first and the directories in the
+    order given. For this run only, like **--set** `paths.source_dirs`,
+    whose list it appends to (a later **--set** of that key replaces
+    what came before). A list given on the command line REPLACES the
+    saved one for the run; directories added by **Locate File…** still
+    apply. A relative *DIR* is taken from the working directory. The
+    saved list is edited under **Preferences \> Paths**, and **Locate
+    File…** in the Source tab adds a directory.
+
+**--annotations** *FILE*
+:   Load a debugger annotations file (`.jdp`): the user’s labels and
+    comments, each keyed by a memory (the page or ROM that supplies the
+    address, written as the debugger shows it: `P0E`, `ROM1`, `DIVRAM2`)
+    and a 16-bit address. A user label is shown by the debugger views,
+    named by a script’s `@name` and by GDB `monitor sym`, over the
+    toolchain’s own symbols, and only while its memory supplies the
+    address. The file is plain UTF-8 text: the line
+    `jnext-annotations 1`, then `label SPACE $ADDR NAME` and
+    `comment SPACE $ADDR TEXT` records (in TEXT `\\` is a backslash and
+    `\n` a line break); lines starting with `#` and blank lines are
+    ignored. It is loaded before the scripts, replaces nothing the
+    program or **--map** loaded, and is kept across resets, state loads
+    and rewinds. In the Qt debugger the labels and comments are added
+    from the Disassembly and Source right-click menus, and **Map \> Open
+    Annotations…**, **Save Annotations** and **Save Annotations As…**
+    read and write the file (Save writes back to *FILE*). A file that
+    cannot be read, or does not parse (the message names the line), is a
+    startup error (exit status 1).
+
+**--import-skoolkit** *FILE*
+:   At start, after **--annotations**, read *FILE*, a skoolkit control
+    file (your own, or one made by `skool2ctl.py -k -h` from a
+    disassembly), into the debugger’s labels and comments. Taken: the
+    `@ ADDR label=NAME` lines (a leading `*` is dropped) and the text of
+    the `B`, `C`, `S`, `T` and `W` sub-blocks, with their `.` and `:`
+    continuation lines, as the instruction comment at that address.
+    Counted in the log, not imported: block titles (sna2skool writes its
+    own), `D` descriptions and the other directives. The memory of a
+    file is its `# jnext space TAG` first line, else its name (`TAG.ctl`
+    or `WWWW-TAG.ctl`, as **--export-skoolkit** writes them), else the
+    memory that supplies the address when the file is read, which is
+    before **--load** runs (the page mapped at start, the ROM at
+    `$0000`). An imported label or comment replaces the one at the same
+    address; all the files of the option are read first, so a failure
+    changes nothing. Repeatable. A file that cannot be read, or that
+    skoolkit would only warn about (an address that is not decimal,
+    `$hex` or `%binary`, or above 65535; an unknown directive; a label
+    name that is not a name; one name at two addresses), is a startup
+    error (exit status 1) naming the line.
+
+**--import-ghidra** *FILE*
+:   As **--import-skoolkit** for a Ghidra symbol file: lines
+    `NAME ADDRESS l` (`l` or `f` or anything else, ignored), the address
+    `0xHHHH` or `TAG:0xHHHH` with a jnext memory tag, as
+    **--export-ghidra** writes them. A blank line is skipped. A `#`
+    line, an address prefix that is not a jnext memory tag
+    (`ram:0x8000`), an expression, or a name that is not a name is a
+    startup error (exit status 1). Repeatable. There are no comments in
+    the format.
+
+**--export-skoolkit** *DIR*
+:   When jnext exits, write the debugger’s labels and the code/data map
+    that **--coverage** recorded into *DIR* as skoolkit control files
+    (*DIR* is created). One `WWWW-TAG.ctl` and `WWWW-TAG.bin` pair per
+    memory and window: *TAG* names the memory as the debugger does
+    (`P0A`, `ROM0`, `DIVRAM3`), *WWWW* is the hex base of the 8 KB
+    window (16 KB for ROM) the labels sit in, and the `.bin` holds that
+    window’s bytes, so `sna2skool.py -o 0xWWWW WWWW-TAG.bin` picks its
+    control file by itself and `sna2skool.py -c DIR` combines them.
+    Unpaged labels are in `0000-0CPU.ctl`. Executed bytes become `c`
+    blocks, read or written ones `b`, the rest `u`; without
+    **--coverage** each window is one `c` block. skoolkit has no Z80N
+    support, so Z80N instructions are written as `DEFB` sub-blocks.
+    sna2skool drops without a word a label that is not at the start of a
+    line it writes, so every window file also splits (`B`/`C`
+    sub-blocks) at each unpaged label that falls in it, and the labels
+    survive `sna2skool.py -c DIR`. A previous export’s files in *DIR*
+    are replaced; any other file there is never touched, and a `.ctl` or
+    `.bin` of the same name that is not jnext’s makes the export fail. A
+    failed export is logged and jnext exits with status 1.
+
+**--export-ghidra** *DIR*
+:   When jnext exits, write the debugger’s labels into *DIR* (created)
+    as symbol files for Ghidra’s `ImportSymbolsScript.py`, one line
+    `NAME ADDRESS l` per label: `TAG.ghidra.txt` for each memory
+    (`P0A:0x8000`, the address in the overlay address space *TAG* that
+    you create for that page), `CPU.ghidra.txt` for the unpaged labels
+    (`0x8000`) and `view.ghidra.txt` for the memory as mapped when jnext
+    exits (`0x8000`, no overlay needed). A previous export’s
+    `CPU.ghidra.txt`, `view.ghidra.txt` and `TAG.ghidra.txt` files in
+    *DIR* are replaced or removed; any other file there, any other
+    `*.ghidra.txt` included, is never touched. A failed export is logged
+    and jnext exits with status 1.
 
 **--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, `0x` prefix optional,
@@ -1193,6 +1358,13 @@ use the key: the Qt window, the SDL-only build (both interactive) or
 `paths.screenshot_dir` *PATH*
 :   The directory the Save Screenshot dialog opens in. The Qt window.
 
+`paths.source_dirs` *DIRS*
+:   The directories the debugger’s Source tab also searches for source
+    files, separated by `:` (`;` on Windows); **--source-dir** appends
+    one. Empty means none. Given on the command line, the list REPLACES
+    the saved one for that run. A relative directory is taken from the
+    working directory. The Qt window with the debugger.
+
 `screenshot.quick_dir` *PATH*
 :   The Quick Screenshot directory; empty means `~/.jnext/screenshots`.
     The Qt window.
@@ -1222,11 +1394,19 @@ use the key: the Qt window, the SDL-only build (both interactive) or
 :   The key combination of a debugger action, like the **Preferences**
     Debugger Keys tab: *ACTION* is `run`, `pause`, `step_into`,
     `step_over`, `step_out`, `step_back`, `frame_back`, `run_to_cursor`,
-    `run_to_eof`, `run_to_eosl`, `trace_toggle` or `trace_export`, and
-    `none` unbinds it. A combination that is not legal there, or that
-    another action already holds (unless the same command line frees
-    it), is refused with exit status 1 before the window opens. The Qt
-    window with the debugger.
+    `run_to_eof`, `run_to_eosl`, `trace_toggle`, `trace_export`,
+    `source_step_into`, `source_step_over`, `source_step_out`,
+    `source_step_back` or `source_reverse_continue`, and `none` unbinds
+    it. A combination that is not legal there, or that another action
+    already holds (unless the same command line frees it), is refused
+    with exit status 1 before the window opens. The Qt window with the
+    debugger.
+
+`source.colour_scheme` *auto\|light\|dark\|borland*
+:   The colour scheme of the debugger’s Source tab, like the
+    **Preferences** Debugger tab: `auto` (the default) is light or dark
+    after the application, `borland` is Borland C++ 3.1 (yellow on
+    blue). The Qt window with the debugger.
 
 `esp.enabled` *true\|false*
 :   The emulated ESP-01 WiFi module; **--esp** and **--no-esp**. All
@@ -1252,3 +1432,11 @@ use the key: the Qt window, the SDL-only build (both interactive) or
     opens as told for this run; the file keeps its value until the
     **Attach to Emulator Window** menu item is toggled. The Qt window
     with the debugger.
+
+`debugger.physical_addresses` *true\|false*
+:   Whether the debugger names an address’s memory by where it sits in
+    the Next’s memory (`$060000`, `BRAM7+$0000`) instead of by page and
+    ROM name (`P0E`, `ROM1`, `DIVROM`). The window opens as told for
+    this run; the file keeps its value until the **Physical Addresses**
+    item of the **Debug** menu is toggled. The Qt window with the
+    debugger.

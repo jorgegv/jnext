@@ -27,7 +27,7 @@ class ShortcutCaptureButton;
 /// and its hostname allowlist), and **Paths** (last load directory, default
 /// SD card image, screenshot directory, and the GH #19 quick-screenshot
 /// directory and format), and — only in a build with the debugger compiled in
-/// — **Debugger Keys** (GH #1: the twelve rebindable debugger commands).
+/// — **Debugger Keys** (GH #1: the rebindable debugger commands).
 ///
 /// A build WITHOUT the debugger has no Debugger Keys tab but still carries the
 /// saved keymap through collect() untouched. That is not tidiness: collect()
@@ -64,6 +64,7 @@ private:
     QWidget* build_nextpi_tab();
     QWidget* build_paths_tab();
 #ifdef ENABLE_DEBUGGER
+    QWidget* build_debugger_tab();   // GH #422 stage 2
     QWidget* build_debug_keys_tab(const std::vector<jnext::dbgkeys::LoadIssue>& key_issues);
     /// Accept a captured chord for `index`, or refuse it because another
     /// action already holds it. Refusing here is the point: Qt dispatches two
@@ -74,6 +75,7 @@ private:
     void refresh_key_row(int index);
 #endif
     AppConfigData collect() const;
+    bool source_dirs_ok();   // GH #420 - refuses a directory holding the list separator
     void browse_directory(QLineEdit* target);
     void browse_sd_image(QLineEdit* target);
 
@@ -118,6 +120,17 @@ private:
     QLineEdit* last_load_dir_edit_  = nullptr;
     QLineEdit* sd_card_path_edit_   = nullptr;
     QLineEdit* screenshot_dir_edit_ = nullptr;
+
+    // GH #420 - Paths > Source search path (a debugger build only); one directory per
+    // line. source_dirs_saved_ is what collect() hands back when there is no control.
+    QPlainTextEdit* source_dirs_edit_ = nullptr;
+    QStringList     source_dirs_saved_;
+
+    // GH #422 stage 2 - Debugger > Source tab colours (a debugger build only).
+    // source_scheme_ is ALWAYS present, seeded from `current`, because collect() must hand
+    // it back: a build with no Debugger tab must not reset a saved scheme.
+    QComboBox*   source_scheme_combo_ = nullptr;
+    SourceScheme source_scheme_ = SourceScheme::Auto;
 
     QLineEdit* quick_screenshot_dir_edit_  = nullptr;   // GH #19
     QComboBox* quick_screenshot_fmt_combo_ = nullptr;

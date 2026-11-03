@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QActionGroup>
 #include <QPoint>
+#include <QStringList>
 #include <functional>
 #include <memory>
 #include <string>
@@ -355,6 +356,14 @@ public:
     /// apply_preferences(), so a rebind applies live rather than at next launch.
     void push_debug_keymap();
 
+    /// GH #420 - hand the Source tab's search directories (source_dirs_) to the
+    /// debugger manager. No-op without ENABLE_DEBUGGER or before the manager exists;
+    /// called when the manager is created and from apply_startup_config().
+    void push_source_dirs();
+
+    /// GH #422 stage 2 - the same for the Source tab's colour scheme (source_scheme_).
+    void push_source_scheme();
+
     /// Update status bar information.  Called once per second from the frame timer.
     /// Refresh the status bar. `fps` is the EMULATED frame rate (run_frame()
     /// calls/s); `presented_fps` is the rate at which frames actually reached
@@ -392,6 +401,8 @@ public:
     /// attached or detached as told, whatever jnext.conf says, and the file keeps
     /// what it had until the Attach menu item is toggled.
     void set_debugger_attach_override(bool attached);
+    /// GH #360 - `--set debugger.physical_addresses=` for this run, likewise.
+    void set_debugger_physical_override(bool physical);
 #endif
 
 signals:
@@ -723,6 +734,12 @@ private:
     // persist it. Both the emulator window's own forwarding and the push into
     // the debugger window read THIS, so the two windows can never disagree.
     jnext::dbgkeys::Keymap debug_keys_;
+
+    // GH #420 - the Source tab's search directories IN EFFECT (the command line's, else
+    // the saved list; Preferences takes over). Not app_config_'s, for the same reason
+    // as session_ below: a command-line list must never reach jnext.conf.
+    QStringList source_dirs_;
+    SourceScheme source_scheme_ = SourceScheme::Auto;   // GH #422 stage 2: IN EFFECT (the command line's, else saved)
 
     // GH #417 - the four paths/format settings this session reads LIVE, kept apart
     // from app_config_ so a command-line value (`--set paths.last_load_dir=...`)

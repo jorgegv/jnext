@@ -1,6 +1,10 @@
 #include "disasm_panel.h"
 #include "qt/palette_tint_qt.h"   // GH #363
+#include "debugger/coverage_colors.h"   // GH #388
+#include "debugger/source_sync_colors.h"   // GH #347
 #include "debugger/breakpoint_model.h"
+#include "debugger/operand_menu.h"
+#include "debugger/annotation_menu.h"
 
 #include <cstring>
 #include <cstdlib>
@@ -21,6 +25,7 @@
 #include <QKeySequence>
 
 #include "debug/debugger.h"
+#include "debugger/memory_text.h"
 #include "debug/symbol_table.h"
 #include "debugger/watch_panel.h"
 
@@ -159,8 +164,9 @@ void DisasmPanel::toggle_breakpoint(uint16_t addr, int line)
     BreakpointModel* bps = bp_model_.data();
     if (!bps) return;
     // The click removes the breakpoint the gutter draws, so it asks the same
-    // question the gutter does: a logical one, or one tied to the page the
-    // line was drawn with (a breakpoint set on a source line of banked code).
+    // question the gutter does: a logical one, or one tied to the memory that
+    // supplied the line when it was drawn (a location of a source breakpoint;
+    // the click removes that one location, not its group).
     // Asking only for the logical one added a second breakpoint on top of a
     // drawn dot; asking for the page mapped now did the same after a bank
     // switch while running, when the line is not redrawn.
@@ -168,13 +174,13 @@ void DisasmPanel::toggle_breakpoint(uint16_t addr, int line)
     // there, and a click on it removes it rather than stacking another.
     const bool shown = line >= 0 && line < static_cast<int>(entries_.size()) &&
                        entries_[line].line.addr == addr;
-    const uint16_t page = shown ? entries_[line].page
-                        : dbg_  ? dbg_->source_page(addr)
-                                : jnext::dbg::PAGE_ANY;
+    const jnext::dbg::MemSpace space = shown ? entries_[line].space
+                                     : dbg_  ? dbg_->source_page(addr)
+                                             : jnext::dbg::MemSpace::cpu();
     if (bps->pc_exists(addr))
         bps->remove(BreakpointModel::Execute, addr);
-    else if (bps->exists(BreakpointModel::Execute, addr, page))
-        bps->remove(BreakpointModel::Execute, addr, page);
+    else if (bps->exists(BreakpointModel::Execute, addr, space))
+        bps->remove(BreakpointModel::Execute, addr, space);
     else
         bps->add(BreakpointModel::Execute, addr);
     // The model's notification has already run. While PAUSED it
@@ -183,8 +189,8 @@ void DisasmPanel::toggle_breakpoint(uint16_t addr, int line)
     // patch plus update() is what still shows the dot the instant it is
     // clicked.
     if (line < static_cast<int>(entries_.size())) {
-        entries_[line].has_breakpoint  = bps->pc_marked(addr, page);
-        entries_[line].breakpoint_live = bps->pc_marked_live(addr, page);
+        entries_[line].has_breakpoint  = bps->pc_marked(addr, space);
+        entries_[line].breakpoint_live = bps->pc_marked_live(addr, space);
     }
     update();
 }
@@ -196,7 +202,22 @@ void DisasmPanel::navigate_to_address(const QString& text)
     const auto resolved = dbg_ ? dbg_->symbols().resolve(text.toStdString())
                                : SymbolTable().resolve(text.toStdString());
     if (!resolved) return;
-    const uint16_t addr = *resolved;
+    center_on(*resolved);   // the address box only moves the view; the selection stays
+}
+
+void DisasmPanel::show_address(uint16_t addr)
+{
+    center_on(addr);
+    // GH #423 - the line is the caret and the selection, so it is also the target of
+    // Run to Cursor and of a copy.
+    for (int i = 0; i < static_cast<int>(entries_.size()); ++i)
+        if (entries_[i].line.addr == addr) { selected_line_ = i; break; }
+    set_selection(addr, /*extend=*/false);
+}
+
+void DisasmPanel::center_on(uint16_t addr)
+{
+    if (!dbg_) return;
 
     // Center the target address in the view
     int half = visible_lines() / 2;
@@ -243,6 +264,7 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
 
     uint16_t current_pc = dbg_->registers().PC;
     const BreakpointModel* bps = bp_model_.data();
+    const auto sinfo = dbg_->mmu_slots();   // GH #360: the Mem column of the non-PC lines
 
     uint16_t cur = addr;
     for (int i = 0; i < count; ++i) {
@@ -253,11 +275,13 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
         // and can it fire? paintEvent draws a filled dot for the second and a
         // hollow ring for a breakpoint that is only the first.
         // CAP-SRC — a breakpoint set on a source line of banked code is
-        // qualified with its page: drawn only while that page is mapped here.
-        const uint16_t page   = dbg_ ? dbg_->source_page(cur) : jnext::dbg::PAGE_ANY;
-        entry.has_breakpoint  = bps && bps->pc_marked(cur, page);
-        entry.breakpoint_live = bps && bps->pc_marked_live(cur, page);
-        entry.page            = page;
+        // qualified with its fetch source: drawn only while that memory
+        // supplies the opcode here.
+        const jnext::dbg::MemSpace space = dbg_ ? dbg_->source_page(cur) : jnext::dbg::MemSpace::cpu();
+        entry.has_breakpoint  = bps && bps->pc_marked(cur, space);
+        entry.breakpoint_live = bps && bps->pc_marked_live(cur, space);
+        entry.space           = space;
+        entry.mem             = entry.is_current_pc ? space : memtext::now_of(sinfo, cur);
         entries_.push_back(entry);
 
         cur = static_cast<uint16_t>(cur + entry.line.byte_count);
@@ -383,6 +407,58 @@ int DisasmPanel::line_at_y_clamped(int y) const
 // GH #21 — selection and copy
 // ---------------------------------------------------------------------------
 
+// GH #347 - the selection as the Source tab sees it. Called from the user's paths only
+// (a click, a drag, a key, Select All, the menu's collapse); show_address() is the Source
+// tab's own request and goes through set_selection() directly, so it never echoes back.
+void DisasmPanel::notify_selection_()
+{
+    uint16_t lo = 0, hi = 0;
+    if (!selection_range(lo, hi)) return;
+    const std::array<uint16_t, 3> now{lo, hi, sel_cursor_};
+    if (notified_ && *notified_ == now) return;
+    notified_ = now;
+    notifying_ = true;   // the Source tab's echo (set_source_lines) arrives inside the emit
+    emit selection_changed(lo, hi, sel_cursor_);
+    notifying_ = false;
+}
+
+bool DisasmPanel::linked_at_(jnext::dbg::MemSpace space, uint16_t addr) const
+{
+    if (!dbg_ || link_file_.empty()) return false;
+    for (const SourceLocation* l : dbg_->source_map().lookup_all(space, addr))
+        if (l->file == link_file_ && l->line >= link_first_ && l->line <= link_last_) return true;
+    return false;
+}
+
+bool DisasmPanel::source_linked(uint16_t addr) const
+{
+    return dbg_ && linked_at_(dbg_->source_page(addr), addr);
+}
+
+void DisasmPanel::set_source_lines(const std::string& file, int first, int last, bool reveal)
+{
+    link_file_ = file;
+    link_first_ = first;
+    link_last_ = last;
+    // The Source tab moved on its own (a stop, the user's click there): the next click on the same
+    // lines is a change again. Its echo of our own notification is not such a move.
+    if (!notifying_) notified_.reset();
+    if (dbg_ && reveal && !file.empty()) {
+        bool in_view = false;
+        for (const DisasmEntry& e : entries_)
+            if (linked_at_(e.space, e.line.addr)) { in_view = true; break; }
+        if (!in_view) {
+            // The first place of the first line that has one mapped now.
+            for (int line = first; line <= last && line <= first + 500; ++line) {
+                const SourceResolution res = dbg_->source_map().resolve(file + ":" + std::to_string(line));
+                for (const SourceAddress& s : res.starts)
+                    if (dbg_->source_page(s.address) == s.space) { center_on(s.address); return; }
+            }
+        }
+    }
+    update();
+}
+
 void DisasmPanel::set_selection(uint16_t addr, bool extend)
 {
     if (!extend || !has_selection_) sel_anchor_ = addr;
@@ -426,6 +502,15 @@ void DisasmPanel::select_all_visible()
     // trap for whoever wires it to something.
     selected_line_ = static_cast<int>(entries_.size()) - 1;
     update();
+    notify_selection_();
+}
+
+// The one naming rule: a label names an address in the memory that supplies it.
+disasm_text::SymbolNamer DisasmPanel::namer(bool assembler_names) const
+{
+    return disasm_text::symbol_namer(symbol_table_, [this](uint16_t a) {
+        return dbg_ ? dbg_->source_page(a) : jnext::dbg::MemSpace::cpu();
+    }, assembler_names);
 }
 
 QString DisasmPanel::selection_text(disasm_text::CopyFormat fmt) const
@@ -438,7 +523,7 @@ QString DisasmPanel::selection_text(disasm_text::CopyFormat fmt) const
     // full: nothing about the copy depends on what is currently on screen.
     const DisasmReadFn read_fn = dbg_->memory_reader();   // INS-11: a peek
 
-    const auto lines = disasm_text::collect_range(low, high, read_fn, symbol_table_);
+    const auto lines = disasm_text::collect_range(low, high, read_fn, namer(true));   // assembler names: the copy assembles (design 10.6)
     return QString::fromStdString(disasm_text::format_lines(lines, fmt));
 }
 
@@ -472,6 +557,10 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
     int header_y = paint_y_offset_ - 4;
     painter.drawText(2, header_y, "BP");
     painter.drawText(GUTTER_WIDTH + 4, header_y, "Addr");
+    painter.drawText(GUTTER_WIDTH + 4 + ADDR_WIDTH, header_y, "Mem");   // GH #360
+    const bool label_col = label_column_shown();   // GH #387
+    if (label_col)
+        painter.drawText(GUTTER_WIDTH + 4 + ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH, header_y, "Label");
     painter.setFont(mono_font_);
 
     // Draw gutter separator
@@ -480,12 +569,19 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
                      GUTTER_WIDTH, paint_y_offset_ + visible_lines() * LINE_HEIGHT);
 
     QFontMetrics fm(mono_font_);
+    const bool cov_on = dbg_ && dbg_->mem_coverage_enabled();   // GH #388
 
     for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
         const auto& entry = entries_[i];
         int y = paint_y_offset_ + i * LINE_HEIGHT;
         int text_y = y + fm.ascent() + (LINE_HEIGHT - fm.height()) / 2;
 
+        // GH #347 - the Source tab's lines: drawn first, so the PC row keeps its yellow and the
+        // selection and the coverage bar show over it.
+        if (linked_at_(entry.space, entry.line.addr)) {
+            painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
+                             source_sync_colors::linked(palette()));
+        }
         // Row background highlights
         if (entry.is_current_pc) {
             painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
@@ -500,6 +596,19 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         if (line_selected(entry.line.addr)) {
             painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
                              palette_tint::surface(palette(), QColor(204, 221, 255, 128))); // semi-transparent light blue
+        }
+
+        // GH #388 - memory coverage: a bar in the margin between the gutter
+        // separator and the address text on a line whose first opcode byte ran
+        // (X), looked up the way an M1 at that address would fetch it NOW
+        // (mem_coverage_fetch), so the DivMMC at RST 8 shows the DivMMC ROM's
+        // mark. After the PC and selection fills so it stays visible on them;
+        // nothing is drawn while coverage is off. X only: the R and W of a
+        // line's bytes are its operands and self-modification, which the Memory
+        // panel shows per byte.
+        if (cov_on && (dbg_->mem_coverage_fetch(entry.line.addr) & jnext::dbg::COVERAGE_EXEC)) {
+            painter.fillRect(GUTTER_WIDTH + 1, y + 1, 3, LINE_HEIGHT - 2,
+                             coverage_colors::exec(palette()));
         }
 
         // Breakpoint indicator in the gutter.
@@ -524,15 +633,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         if (entry.has_breakpoint) {
             const int cx = GUTTER_WIDTH / 2;
             const int cy = y + LINE_HEIGHT / 2;
-            if (entry.breakpoint_live) {
-                painter.setBrush(QColor(255, 0, 0));
-                painter.setPen(Qt::NoPen);
-                painter.drawEllipse(QPoint(cx, cy), 5, 5);
-            } else {
-                painter.setBrush(Qt::NoBrush);
-                painter.setPen(QPen(QColor(255, 0, 0), 2));
-                painter.drawEllipse(QPoint(cx, cy), 4, 4);
-            }
+            paint_breakpoint_glyph(painter, QPoint(cx, cy), entry.breakpoint_live, false);
         }
 
         // Address column
@@ -541,18 +642,30 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         QString addr_str = QString::asprintf("$%04X", entry.line.addr);
         painter.drawText(x, text_y, addr_str);
 
-        // Hex bytes column
+        // GH #360 - the memory column: which memory the line's bytes came from.
         x += ADDR_WIDTH;
+        painter.setPen(palette_tint::ink(palette(), QColor(0x80, 0x40, 0x80)));
+        painter.drawText(x, text_y, memtext::text(dbg_, style_, entry.mem, entry.line.addr));
+
+        // Hex bytes column
+        x += MEM_WIDTH;
         painter.setPen(palette_tint::ink(palette(), QColor(150, 150, 150)));
         QString bytes_str;
-        for (int b = 0; b < entry.line.byte_count; ++b) {
+        for (int b = 0; b < entry.line.byte_count && b < 4; ++b) {   // bytes[] holds 4
             if (b > 0) bytes_str += ' ';
             bytes_str += QString::asprintf("%02X", entry.line.bytes[b]);
         }
         painter.drawText(x, text_y, bytes_str);
 
-        // Mnemonic column — with optional symbol resolution
+        // GH #387 - the Label column: the name of this line's own address in its own memory.
         x += BYTES_WIDTH;
+        if (label_col) {
+            painter.setPen(palette_tint::ink(palette(), QColor(0x20, 0x70, 0x20)));
+            painter.drawText(x, text_y, line_label(i));
+            x += label_width();
+        }
+
+        // Mnemonic column — with optional symbol resolution
         if (entry.is_current_pc) {
             QFont bold = mono_font_;
             bold.setBold(true);
@@ -565,8 +678,15 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         // to carry the symbolic form, and one shared rule is what guarantees
         // the two can never drift apart.
         const QString mnemonic_str = QString::fromStdString(
-            disasm_text::apply_symbols(entry.line.mnemonic, symbol_table_));
+            disasm_text::apply_symbols(entry.line.mnemonic, namer()));
         painter.drawText(x, text_y, mnemonic_str);
+
+        // GH #387 - the user's comment after the mnemonic, in muted ink.
+        const QString comment = line_comment(i);
+        if (!comment.isEmpty()) {
+            painter.setPen(palette_tint::ink(palette(), QColor(0x60, 0x80, 0x60)));
+            painter.drawText(x + fm.horizontalAdvance(mnemonic_str) + 12, text_y, comment);
+        }
 
         if (entry.is_current_pc) {
             painter.setFont(mono_font_);
@@ -607,6 +727,7 @@ void DisasmPanel::mousePressEvent(QMouseEvent* event)
                       (event->modifiers() & Qt::ShiftModifier) != 0);
         dragging_ = true;
         update();
+        notify_selection_();
     }
 }
 
@@ -626,6 +747,7 @@ void DisasmPanel::mouseMoveEvent(QMouseEvent* event)
     if (line < 0) return;
     selected_line_ = line;
     set_selection(entries_[line].line.addr, /*extend=*/true);
+    notify_selection_();
 }
 
 void DisasmPanel::mouseReleaseEvent(QMouseEvent* event)
@@ -788,7 +910,10 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
     // as Shift-click does.
     if (nav && selected_line_ >= 0 &&
         selected_line_ < static_cast<int>(entries_.size()))
+    {
         set_selection(entries_[selected_line_].line.addr, extend);
+        notify_selection_();
+    }
 }
 
 void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
@@ -806,6 +931,7 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         set_selection(clicked_addr, /*extend=*/false);
 
     update();
+    notify_selection_();
 
     uint16_t addr = entries_[line].line.addr;
 
@@ -840,103 +966,80 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         addr_input_->selectAll();
     });
 
-    // --- Shared: extract immediate and register info for watch/breakpoint actions ---
+    // GH #347 - the Source tab's counterpart of its "Show in Disassembly": only with a source
+    // map loaded, and disabled where no source line covers the address.
+    if (dbg_ && !dbg_->source_map().empty()) {
+        menu.setToolTipsVisible(true);
+        auto* show_src = menu.addAction("Show in Source");
+        if (!dbg_->source_map().lookup(entries_[line].space, addr)) {
+            show_src->setEnabled(false);
+            show_src->setToolTip(tr("no source line at $%1").arg(QString::asprintf("%04X", addr)));
+        }
+        connect(show_src, &QAction::triggered, this, [this, addr]() { emit show_source_requested(addr); });
+    }
+
+    // GH #387 - the user's labels and comments on the line's own address, in its own memory.
+    if (annot_)
+        add_annotation_actions(menu, this, *annot_, {{addr, entries_[line].space, QString()}},
+                               [this]() { emit annotations_changed(); update(); });
+
+    // --- The operands of the line: watch and data breakpoint entries ---
+    // One builder for this view and the Source tab (GH #423), so the two cannot
+    // differ in words or order.
     const auto& entry = entries_[line];
     const char* mnem = entry.line.mnemonic;
-    uint16_t imm = extract_immediate16(mnem);
-    bool has_imm = (imm != 0 || std::strstr(mnem, "$0000"));
+    const uint16_t imm = extract_immediate16(mnem);
+    MenuOperands ops;
+    if (imm != 0 || std::strstr(mnem, "$0000")) {
+        ops.immediate = imm;
+        if (symbol_table_)
+            if (auto sym = namer()(imm)) ops.immediate_label = *sym;
+    }
+    if (symbol_table_)
+        if (auto sym = namer()(addr)) ops.labels.push_back({*sym, addr});
 
     auto regs = dbg_->registers();
     struct { const char* name; const char* pattern; uint16_t val; } reg_pairs[] = {
         {"HL", "(HL)", regs.HL}, {"DE", "(DE)", regs.DE}, {"BC", "(BC)", regs.BC},
         {"IX", "(IX", regs.IX}, {"IY", "(IY", regs.IY}, {"SP", "(SP)", regs.SP}
     };
-
-    // --- Watch actions ---
-    if (watch_panel_) {
-        menu.addSeparator();
-
-        if (symbol_table_) {
-            auto sym = symbol_table_->lookup(addr);
-            if (sym) {
-                auto* watch_sym = menu.addAction(
-                    QString("Watch '%1' ($%2)").arg(QString::fromStdString(*sym))
-                        .arg(addr, 4, 16, QChar('0')));
-                connect(watch_sym, &QAction::triggered, this, [this, addr, sym]() {
-                    watch_panel_->add_watch(addr, *sym);
-                });
-            }
-        }
-
-        if (has_imm) {
-            QString label;
-            if (symbol_table_) {
-                auto sym = symbol_table_->lookup(imm);
-                if (sym) label = QString::fromStdString(*sym);
-            }
-            auto* watch_imm = menu.addAction(
-                QString("Watch $%1").arg(imm, 4, 16, QChar('0')));
-            connect(watch_imm, &QAction::triggered, this, [this, imm, label]() {
-                watch_panel_->add_watch(imm, label.toStdString());
-            });
-        }
-
-        for (const auto& rp : reg_pairs) {
-            if (std::strstr(mnem, rp.pattern)) {
-                auto* watch_reg = menu.addAction(
-                    QString("Watch (%1) = $%2").arg(rp.name)
-                        .arg(rp.val, 4, 16, QChar('0')));
-                connect(watch_reg, &QAction::triggered, this, [this, rp]() {
-                    watch_panel_->add_watch(rp.val,
-                        std::string("(") + rp.name + ")");
-                });
-            }
-        }
-    }
-
-    // --- Data breakpoint actions ---
-    //
-    // GH #218/#220 — every one of these adds a DATA breakpoint, which the
-    // Breakpoints panel lists but this gutter does not draw (it paints Execute
-    // breakpoints only). #218 gave them an explicit signal to repaint that
-    // list; #220 deleted it, because the model's mutators notify the list
-    // themselves. Note what is NOT here as a result: no repaint of our own, and
-    // no wire to a panel we do not own.
-    {
-        menu.addSeparator();
-
-        if (has_imm) {
-            auto* bp_read = menu.addAction(
-                QString("Break on Read $%1").arg(imm, 4, 16, QChar('0')));
-            connect(bp_read, &QAction::triggered, this, [this, imm]() {
-                if (bp_model_) bp_model_->add(BreakpointModel::Read, imm);
-            });
-            auto* bp_write = menu.addAction(
-                QString("Break on Write $%1").arg(imm, 4, 16, QChar('0')));
-            connect(bp_write, &QAction::triggered, this, [this, imm]() {
-                if (bp_model_) bp_model_->add(BreakpointModel::Write, imm);
-            });
-        }
-
-        for (const auto& rp : reg_pairs) {
-            if (std::strstr(mnem, rp.pattern)) {
-                auto* bp_read = menu.addAction(
-                    QString("Break on Read (%1) = $%2").arg(rp.name)
-                        .arg(rp.val, 4, 16, QChar('0')));
-                connect(bp_read, &QAction::triggered, this, [this, rp]() {
-                    if (bp_model_) bp_model_->add(BreakpointModel::Read, rp.val);
-                });
-                auto* bp_write = menu.addAction(
-                    QString("Break on Write (%1) = $%2").arg(rp.name)
-                        .arg(rp.val, 4, 16, QChar('0')));
-                connect(bp_write, &QAction::triggered, this, [this, rp]() {
-                    if (bp_model_) bp_model_->add(BreakpointModel::Write, rp.val);
-                });
-            }
-        }
-    }
+    for (const auto& rp : reg_pairs)
+        if (std::strstr(mnem, rp.pattern)) ops.regs.push_back({rp.name, rp.val});
+    add_operand_actions(menu, this, ops, watch_panel_, bp_model_.data());
 
     menu.exec(event->globalPos());
+}
+
+bool DisasmPanel::label_column_shown() const { return symbol_table_ && !symbol_table_->empty(); }
+
+int DisasmPanel::label_width() const
+{
+    return QFontMetrics(mono_font_).horizontalAdvance(QLatin1Char('0')) * LABEL_CHARS + 8;
+}
+
+int DisasmPanel::mnemonic_x() const
+{
+    return GUTTER_WIDTH + 4 + ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH + (label_column_shown() ? label_width() : 0);
+}
+
+QString DisasmPanel::line_label(int line) const
+{
+    if (!symbol_table_ || line < 0 || line >= static_cast<int>(entries_.size())) return QString();
+    const auto name = symbol_table_->lookup(entries_[line].space, entries_[line].line.addr);
+    if (!name) return QString();
+    QString t = QString::fromStdString(*name);
+    if (t.size() > LABEL_CHARS) t = t.left(LABEL_CHARS - 3) + QStringLiteral("...");
+    return t;
+}
+
+QString DisasmPanel::line_comment(int line) const
+{
+    if (!dbg_ || line < 0 || line >= static_cast<int>(entries_.size())) return QString();
+    const auto* a = dbg_->annotations().find(entries_[line].space, entries_[line].line.addr);
+    if (!a || a->comment.empty()) return QString();
+    const QString c = QString::fromStdString(a->comment);
+    const int nl = c.indexOf(QLatin1Char('\n'));
+    return QStringLiteral("; ") + (nl < 0 ? c : c.left(nl) + QStringLiteral(" ..."));
 }
 
 uint16_t DisasmPanel::extract_immediate16(const char* mnemonic)

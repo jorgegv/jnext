@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <QStringList>
 #include <QObject>
 #include <QAction>
 #include <QToolBar>
@@ -8,6 +9,7 @@
 
 #include "debug/debug_keymap.h"
 #include "debug/debugger.h"
+#include "platform/source_scheme.h"
 
 class BreakpointModel;
 namespace jnext { namespace script { class ScriptHost; } }
@@ -109,8 +111,35 @@ public:
     /// Applies immediately when a window already exists.
     void set_keymap(const jnext::dbgkeys::Keymap& km);
 
+    /// GH #387 - the annotations project file (.jdp): the one `--annotations` loaded at start-up (so
+    /// Save writes back to it and nothing is unsaved), or the last one opened or saved. Empty = none yet.
+    void set_annotations_file(const QString& path);
+    QString annotations_file() const { return annotations_file_; }
+    /// The user's labels and comments differ from the file last opened or saved (D11).
+    bool annotations_unsaved() const { return dbg_.annotations_revision() != saved_revision_; }
+    /// With unsaved annotations, ask Save / Discard / Cancel. True: go on (nothing unsaved, saved, or
+    /// discarded); false: cancelled, or the save failed.
+    bool confirm_discard_annotations();
+
+    /// GH #420 - the directories the Source tab also searches for the source files
+    /// a map names: the configured list (command line, else the saved one; MainWindow
+    /// sets it) and, after it, the ones a Locate File... found this session, which a
+    /// change of the configured list keeps. Held HERE for the same reason as the
+    /// keymap: the window is created lazily. Announces the effective list when it changes.
+    void set_source_dirs(const QStringList& configured);
+    /// The effective list: configured, then located, exact duplicates dropped.
+    QStringList source_dirs() const;
+
+    /// GH #422 stage 2 - the Source tab's colour scheme. Held here for the same reason: the
+    /// window is created lazily and a scheme set before it exists must still reach it.
+    void set_source_scheme(SourceScheme scheme);
+    SourceScheme source_scheme() const { return source_scheme_; }
+
     /// GH #417 - `--set debugger.attached=` for this run, handed to the window when it
     /// is built (it is created lazily). The file keeps its own value.
+    /// GH #360 - `--set debugger.physical_addresses=` for this run, handed to the window
+    /// when it is created; jnext.conf keeps its value until the Debug menu item is toggled.
+    void set_physical_override(bool physical) { physical_override_ = physical; }
     void set_attach_override(bool attached) { attach_override_ = attached; }
 
     /// GH #278 WP3 — the backend this adapter drives, for the DebuggerWindow's
@@ -146,11 +175,23 @@ public slots:
     void on_rewind_to_frame(uint32_t frame_num);
     void on_load_map_z88dk();
     void on_load_map_simple();
+    /// GH #387: Map > Open Annotations..., Save Annotations, Save Annotations As...
+    void on_open_annotations();
+    void on_save_annotations();
+    void on_save_annotations_as();
+    /// GH #389 stage C: Map > Import > skoolkit Control Files... / Ghidra Symbols... (several files, one
+    /// store change) and Map > Export > the same two (a directory).
+    void on_import_skoolkit();
+    void on_import_ghidra();
+    void on_export_skoolkit();
+    void on_export_ghidra();
     /// GH #390: Map > Load MAP File > sjasmplus Format (`--sym` / `--exp`).
     void on_load_map_sjasmplus();
-    /// CAP-SRC: the Source tab's Load Memory.txt... and Load SLD... buttons.
+    /// CAP-SRC: the Source tab's Load Memory.txt... and Load Source Map... buttons.
     void on_load_nextbuild_memory();
     void on_load_sld();
+    /// GH #420: the Source tab's Locate File... found `dir`; searched from now on.
+    void on_source_dir_located(const QString& dir);
     /// CAP-SRC: the Source tab's step buttons: step by source statement over
     /// the loaded source map (doc/design/SOURCE-LEVEL-DEBUGGING.md).
     void on_source_step_into();
@@ -173,6 +214,12 @@ public slots:
     void reposition_debugger_window();
 
 signals:
+    /// The user answered Yes to saving a directory Locate File... added (GH #420);
+    /// MainWindow appends it to the saved list.
+    void source_dir_save_requested(const QString& dir);
+    /// The effective source search path changed (GH #420); MainWindow logs it (the
+    /// debugger layer names no logger).
+    void source_dirs_changed(const QStringList& effective);
     void paused();
     void resumed();
     void enabled_changed(bool enabled);
@@ -181,6 +228,12 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
+    /// GH #389: the bodies of Map > Import / Export (`skoolkit` selects the format).
+    void import_re_files(bool skoolkit);
+    void export_re_files(bool skoolkit);
+    bool save_annotations_to(const QString& path);
+    QString  annotations_file_;
+    uint64_t saved_revision_ = 0;   // annotations_revision() at the last open / save / --annotations
     /// GH #428 — everything a paused panel can show that a tick can see
     /// change: the CPU register file (a direct core write, as the tests and host
     /// actions make), the master clock (steps, run-to, rewinds), the backend's state
@@ -268,8 +321,6 @@ private:
     bool confirm_resume_if_corrupt();
 
     QMainWindow* main_window_;
-    /// The last refused sidecar, kept for a Source tab built after it.
-    QString sidecar_problem_;
     jnext::dbg::Debugger& dbg_;
 
     /// GH #278 WP4c — owned (a QObject child); holds the observer client.
@@ -302,6 +353,12 @@ private:
     DebuggerWindow* debugger_window_ = nullptr;
     jnext::dbgkeys::Keymap keymap_;      // GH #1
     std::optional<bool> attach_override_;   // GH #417
+    std::optional<bool> physical_override_; // GH #360
+    QStringList configured_source_dirs_;    // GH #420
+    SourceScheme source_scheme_ = SourceScheme::Auto;   // GH #422 stage 2
+    QStringList located_source_dirs_;
+    /// Hand the effective list to the Source tab (if the window exists) and log it.
+    void push_source_dirs(bool log);
 
     // Enable/disable action (points to View menu's Debugger action)
     QAction* enable_action_ = nullptr;

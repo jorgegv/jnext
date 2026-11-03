@@ -3,8 +3,11 @@
 ![Disassembly panel](../../img/debugger-disassembly.png)
 
 Z80 plus all 26 Z80N instructions, disassembled live from memory as the CPU
-sees it. Columns are the breakpoint gutter, the address, the raw opcode bytes
-and the mnemonic. The line at `PC` is highlighted in yellow and set in bold;
+sees it. Columns are the breakpoint gutter, the address, the **Mem** column
+(which memory the line's bytes come from: `P04`, `ROM0`, `DIVROM`, or the
+physical address; [details](../index.md#which-memory-an-address-is-in)), the raw
+opcode bytes and the mnemonic. At a DivMMC entry the line at `PC` shows the
+DivMMC ROM's instruction, the one the CPU is about to run, with `DIVROM` beside it. The line at `PC` is highlighted in yellow and set in bold;
 the lines you select are highlighted in blue — over the top of the yellow, so
 the `PC` line stays recognisable inside a selection, and clear of the gutter,
 so breakpoint dots stay visible.
@@ -13,7 +16,11 @@ so breakpoint dots stay visible.
   as a red dot). A breakpoint that has been
   [suspended](08-breakpoints.md) — unticked in the Breakpoints panel, or
   covered by its master switch — is drawn as a hollow red ring instead;
-  clicking its gutter still removes it.
+  clicking its gutter still removes it. The gutter draws and changes only this window's own
+  breakpoints, never one that GDB, ZRCP, DeZog or a script set: see
+  [Whose breakpoints the gutters show and change](08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change).
+- With [memory coverage](../functions/15-memory-coverage.md) on, a green bar
+  sits left of the address on every line whose instruction ran.
 - **Click and drag** over the listing to select a range of lines, or click one
   line to select just that one. **Shift+click** extends the selection from
   where it started, and **Shift + ↑ ↓ Page Up/Down Home End** do the same from
@@ -22,6 +29,16 @@ so breakpoint dots stay visible.
   symbol and press Enter to centre the view there. A number wins over a symbol
   spelled like one; write `@name` to mean the symbol.
 - **Go to PC** re-centres on the current instruction.
+- A **Label** column appears between the bytes and the instruction once any label is known: the name
+  of the line's own address in its memory, loaded or your own, shortened after 16 characters. Your
+  comment follows the instruction as `; first line`. See
+  [Your own labels and comments](../functions/16-user-labels-and-comments.md).
+- With a source map loaded, a selection here moves the [Source](15-source.md) tab (the cursor goes
+  to the line of the instruction you clicked, and the lines of the whole range are tinted), and the
+  instructions of the Source tab's selected lines are tinted pale violet here. The right-click menu
+  adds **Show in Source**, which raises the Source tab on the line of that instruction; it is
+  disabled, with the tooltip *no source line at $A000*, where no line covers the address, and not
+  offered without a source map.
 - The scrollbar spans the whole `$0000`–`$FFFF` address space. **↑ ↓**,
   **Page Up/Down**, **Home** and **End** navigate; **Enter** runs to the
   selected line.
@@ -49,6 +66,9 @@ $8000  21 34 12     LD HL,screen_buf
 $8003  00           NOP
 $8004  CD 00 80     CALL entry
 ```
+
+A z88dk C symbol is painted by its C name (`counter`) but copied by its
+assembler name (`_counter`), so the pasted text still assembles.
 
 Right-clicking inside the selection keeps it; right-clicking outside collapses
 it onto the line you clicked, so **Copy** on a line you have not selected
@@ -78,6 +98,7 @@ The right-click menu is where most of the day-to-day work happens:
 | Toggle Breakpoint | Execute breakpoint on this line |
 | Run to Here | Resume until this address is reached |
 | Go to Address… | Jump to the address box |
+| Add / Rename Label…, Remove Label, Add / Edit Comment… | Your own label and comment for this line's address, in its memory ([Your own labels and comments](../functions/16-user-labels-and-comments.md)) |
 | Watch *symbol* / Watch `$nnnn` | Watch this line's symbol, or a 16-bit immediate in the instruction |
 | Watch `(HL)` `(DE)` `(BC)` `(IX` `(IY` `(SP)` | Watch the address the register currently holds |
 | Break on Read / Break on Write | Data breakpoint on that immediate, or on the register's current value |

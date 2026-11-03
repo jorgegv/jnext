@@ -41,6 +41,7 @@
 #include "debug/debug_state.h"
 #include "debug/disasm_text.h"
 #include "debug/rewind_buffer.h"
+#include "debug/source_file.h"
 #include "debug/symbol_table.h"
 #include "debug/trace.h"
 #include "debugger/breakpoint_model.h"
@@ -50,6 +51,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/mmu_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/video_panel.h"
@@ -72,6 +74,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QKeyEvent>
+#include <QLineEdit>
 #include <QKeySequence>
 #include <QMouseEvent>
 #include <QShortcutEvent>
@@ -82,10 +85,12 @@
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QToolBar>
 
 #include <cstdarg>
+#include <filesystem>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -342,9 +347,12 @@ QRgb ball_colour(QPushButton* b) {
 // it rejects whatever else appears, so a dialog that keeps re-opening (a file
 // dialog refusing its answer) ends the row instead of the suite.
 struct Modals {
-    struct Seen { QString kind, title, text, filters; };
+    struct Seen { QString kind, title, text, filters; int icon = 0; };   // icon: a QMessageBox's (GH #389)
 
     QString                    file_path;            // for a QFileDialog
+    QStringList                file_paths;           // GH #389: the files of a multi-select dialog (ExistingFiles)
+    QString                    dir_path;             // GH #389: the directory of a directory dialog
+    bool                       cancel_files = false; // GH #389: cancel the file/directory dialog instead of answering it
     std::function<void()>      after_file_accept;    // e.g. make the file vanish
     int                        spin_value = -1;      // for a dialog with a QSpinBox
     int                        spin_seen  = -1;      // ... and what it opened showing
@@ -359,21 +367,53 @@ struct Modals {
     }
     ~Modals() { timer.stop(); }
 
+    // GH #387 review: a bound. A modal that stays open past `deadline_ms` is rejected and recorded as "stuck"
+    // (the row FAILs naming it, instead of the suite waiting for an answer nobody gives), and with
+    // `expect_modals` false any modal is rejected unanswered and recorded as "unexpected". Neither changes what a
+    // row that expects its dialogs gets.
+    bool                       expect_modals = true;
+    bool                       stuck = false;
+    int                        deadline_ms = 20000;
+    QElapsedTimer              open_since;
+
     void poll() {
         QWidget* w = QApplication::activeModalWidget();
-        if (!w) return;
+        if (!w) { open_since.invalidate(); return; }
         auto* dlg = qobject_cast<QDialog*>(w);
         if (!dlg) return;
+        if (!open_since.isValid()) open_since.start();
+        else if (open_since.elapsed() > deadline_ms) {
+            stuck = true;
+            seen.push_back({"stuck", dlg->windowTitle(), {}});
+            dlg->reject();
+            return;
+        }
+        if (!expect_modals) {
+            seen.push_back({"unexpected", dlg->windowTitle(), {}});
+            dlg->reject();
+            return;
+        }
         if (seen.size() >= kMaxModals) { dlg->reject(); return; }
         if (auto* fd = qobject_cast<QFileDialog*>(w)) {
             seen.push_back({"file", fd->windowTitle(), {}, fd->nameFilters().join(QStringLiteral(";;"))});
-            fd->selectFile(file_path);
+            if (cancel_files) { dlg->reject(); return; }
+            if (fd->fileMode() == QFileDialog::ExistingFiles || fd->fileMode() == QFileDialog::Directory) {
+                // The widget dialog takes the typed names: a quoted list for several files, the path for a directory.
+                QString typed = dir_path;
+                if (fd->fileMode() == QFileDialog::ExistingFiles) {
+                    typed.clear();
+                    for (const QString& f : file_paths) typed += (typed.isEmpty() ? "" : " ") + QStringLiteral("\"%1\"").arg(f);
+                }
+                if (auto* le = fd->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) le->setText(typed);
+            } else {
+                fd->selectFile(file_path);
+            }
             dlg->accept();          // virtual: QFileDialog::accept(), which validates
             if (after_file_accept) after_file_accept();
             return;
         }
         if (auto* mb = qobject_cast<QMessageBox*>(w)) {
-            seen.push_back({"box", mb->windowTitle(), mb->text()});
+            seen.push_back({"box", mb->windowTitle(), mb->text(), {}, static_cast<int>(mb->icon())});
             if (QAbstractButton* b = mb->button(box_answer)) b->click();
             else mb->done(box_answer);
             return;
@@ -1248,6 +1288,71 @@ static void test_throttle() {
 // DebuggerManager::take_panel_refresh_count(); every row ticks like QtApp
 // (Fixture::tick() = check_breakpoint_hit() + refresh_panels()).
 // ===========================================================================
+// QLADDR-18/19 (GH #360 with GH #428) -- what the long-address views show while paused reaches the
+// panels. Oracle: the QIDLE contract above (a paused window is redrawn when the clock, the backend's
+// revision, an input or the registers moved, and at no other time) and the panels' own spelling.
+//  18: the Debug > Physical Addresses toggle is the user's input and redraws the panels itself; the
+//      idle ticks after it refresh nothing and do not undo it.
+//  19: another client's NextREG write that remaps a slot (a backend verb, so the revision moves)
+//      refreshes once at the next tick and the MMU panel names the new page ("P20").
+static void test_long_address_paused() {
+    set_group("QLADDR");
+    Fixture fx(MachineType::ZXN_ISSUE2);
+    if (!fx.ok) {
+        check("QLADDR-18", "fixture", false);
+        check("QLADDR-19", "fixture", false);
+        return;
+    }
+    fx.load(PROG, {0x00, 0x00, 0x18, 0xFE});
+    fx.regs(PROG);
+    fx.enable();
+    jnext::dbg::ClientInfo oi;
+    oi.name = "other";
+    oi.kind = jnext::dbg::ClientKind::Test;
+    const jnext::dbg::ClientId other = fx.backend->attach(oi).value;
+    fx.tick();
+    fx.tick();
+    fx.mgr->take_panel_refresh_count();
+    DebuggerWindow* win = fx.dbg();
+    auto mmu_text = [&]() {
+        QString t;
+        if (MmuPanel* m = win->findChild<MmuPanel*>())
+            for (QLabel* l : m->findChildren<QLabel*>()) t += l->text() + "|";
+        return t;
+    };
+    {
+        const QString before = mmu_text();
+        win->set_address_style(jnext::dbg::AddressStyle::Physical);
+        const QString after = mmu_text();
+        for (int i = 0; i < 20; ++i) fx.tick();
+        const uint64_t n = fx.mgr->take_panel_refresh_count();
+        const QString later = mmu_text();
+        win->set_address_style(jnext::dbg::AddressStyle::Friendly);
+        check("QLADDR-18",
+              "Debug > Physical Addresses on a paused idle machine redraws the panels at once (the MMU panel's "
+              "text changes), and 20 idle ticks after it refresh nothing and keep the new style",
+              !before.isEmpty() && before != after && later == after && n == 0,
+              fmt("changed=%d kept=%d n=%llu", before != after, later == after, (unsigned long long)n));
+    }
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        const QString before = mmu_text();
+        fx.backend->nextreg_write(other, 0x56, 0x20);   // slot 6 ($C000) -> 8K page $20
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        const QString after = mmu_text();
+        fx.tick();
+        const uint64_t n2 = fx.mgr->take_panel_refresh_count();
+        check("QLADDR-19",
+              "another client's NextREG write that remaps slot 6 while paused refreshes once at the next tick and "
+              "the MMU panel names the new page P20; the tick after refreshes nothing",
+              n1 == 1 && n2 == 0 && !before.contains("P20") && after.contains("P20"),
+              fmt("n1=%llu n2=%llu before_has=%d after_has=%d", (unsigned long long)n1, (unsigned long long)n2,
+                  before.contains("P20"), after.contains("P20")));
+    }
+}
+
 static void test_idle_refresh() {
     set_group("QIDLE");
 
@@ -2527,7 +2632,7 @@ static void test_map_load() {
 
     Fixture fx;
     if (!fx.ok) {
-        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06"})
+        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06", "QMAP-07", "QMAP-08", "QMAP-09", "QMAP-10"})
             check(id, "fixture", false);
         return;
     }
@@ -2636,6 +2741,63 @@ static void test_map_load() {
     }
 
     {
+        // QMAP-07 (GH #344): a file over the size cap is refused by both loaders with the
+        // reason, not the bare "Could not load"; the table is untouched.
+        const std::string big_z88dk = write_file("big_z88dk.map", "_x = $1234 ; addr\n");
+        const std::string big_simple = write_file("big_simple.map", "X = $1234\n");
+        std::error_code ec;
+        std::filesystem::resize_file(big_z88dk, SOURCE_FILE_MAX_BYTES + 1, ec);    // sparse
+        std::filesystem::resize_file(big_simple, SOURCE_FILE_MAX_BYTES + 1, ec);
+        const size_t before = fx.backend->symbols().size();
+        Modals z;
+        z.file_path = QString::fromStdString(big_z88dk);
+        if (QAction* a = item_named(load_menu, "Z88DK Format...")) a->trigger();
+        z.timer.stop();
+        Modals sm;
+        sm.file_path = QString::fromStdString(big_simple);
+        if (QAction* a = item_named(load_menu, "Simple Format (48K ROM)...")) a->trigger();
+        sm.timer.stop();
+        const Modals::Seen* zb = z.first("box");
+        const Modals::Seen* sb = sm.first("box");
+        const QString why = QString::fromStdString(source_file_problem(big_z88dk));
+        check("QMAP-07",
+              "Z88DK Format... and Simple Format... with a file over the size cap: \"Load "
+              "Failed\" / \"Could not load MAP file:\\n<path>\\n\\n<why>\", the table untouched",
+              !why.isEmpty() && zb && zb->title == "Load Failed" &&
+                  zb->text == QStringLiteral("Could not load MAP file:\n%1\n\n%2")
+                                  .arg(QString::fromStdString(big_z88dk), why) &&
+                  sb && sb->title == "Load Failed" &&
+                  sb->text == QStringLiteral("Could not load MAP file:\n%1\n\n%2")
+                                  .arg(QString::fromStdString(big_simple), why) &&
+                  fx.backend->symbols().size() == before,
+              fmt("z: %s simple: %s", z.describe().c_str(), sm.describe().c_str()));
+    }
+
+    {
+        // QMAP-09 (GH #427 stage 2a): the sjasmplus item of the same menu, on a file over the
+        // size cap, is refused with the reason before the file is opened; the table is untouched.
+        // (A FIFO is the same refusal, "not a regular file", and would block the GUI otherwise.)
+        const std::string big_equ = write_file("big_sjasmplus.sym", "X: EQU 0x00001234\n");
+        std::error_code ec;
+        std::filesystem::resize_file(big_equ, SOURCE_FILE_MAX_BYTES + 1, ec);    // sparse
+        const size_t before = fx.backend->symbols().size();
+        Modals e;
+        e.file_path = QString::fromStdString(big_equ);
+        if (QAction* a = item_named(load_menu, "sjasmplus Format (--sym, --exp)...")) a->trigger();
+        e.timer.stop();
+        const Modals::Seen* eb = e.first("box");
+        const QString why = QString::fromStdString(source_file_problem(big_equ));
+        check("QMAP-09",
+              "sjasmplus Format... with a file over the size cap: \"Load Failed\" / \"Could not load "
+              "MAP file:\\n<path>\\n\\n<why>\", the table untouched",
+              !why.isEmpty() && eb && eb->title == "Load Failed" &&
+                  eb->text == QStringLiteral("Could not load MAP file:\n%1\n\n%2")
+                                  .arg(QString::fromStdString(big_equ), why) &&
+                  fx.backend->symbols().size() == before,
+              fmt("e: %s", e.describe().c_str()));
+    }
+
+    {
         // Reload the Z88DK map and look at the three panels that read the table.
         const std::string path = write_file("prog2.map",
             "_main   = $8000 ; addr, public\n_sub    = $9000 ; addr, public\n"
@@ -2672,6 +2834,48 @@ static void test_map_load() {
               asm_text.contains("LD HL,_buffer") && target == "_sub" && sym_col == "_main",
               fmt("asm has LD HL,_buffer=%d target='%s' symbol='%s'",
                   asm_text.contains("LD HL,_buffer"), s(target).c_str(), s(sym_col).c_str()));
+    }
+
+    {
+        // QMAP-08 (GH #424): QMAP-03's setup with C-module symbols (module main_c). The panels show the C names;
+        // the copy keeps the assembler name, so it still assembles (D4). QMAP-03 is the module-less control.
+        fx.mgr->breakpoints().clear_all();
+        fx.regs(PROG);
+        const std::string path = write_file("prog3.map",
+            "_main   = $8000 ; addr, public, , main_c, code_compiler, main.c:1\n"
+            "_sub    = $9000 ; addr, public, , main_c, code_compiler, main.c:5\n"
+            "_buffer = $9100 ; addr, public, , main_c, bss_compiler, main.c:2\n");
+        Modals m;
+        m.file_path = QString::fromStdString(path);
+        if (QAction* a = item_named(load_menu, "Z88DK Format...")) a->trigger();
+        m.timer.stop();
+
+        DisasmPanel* dp = dbg->disasm_panel();
+        if (auto* sb = dp->findChild<QScrollBar*>()) sb->setValue(0x9000);
+        QApplication::processEvents();
+        dp->select_all_visible();
+        const QString asm_text = dp->selection_text(disasm_text::CopyFormat::AsmOnly);
+        const QString with_addr = dp->selection_text(disasm_text::CopyFormat::WithAddresses);
+        dp->clear_selection();
+
+        fx.mgr->on_step_into();
+        const QString target = table_cell(dbg->callstack_panel(), 0, 3);
+
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8000);
+        BreakpointPanel* bp = dbg->breakpoint_panel();
+        QString sym_col;
+        if (auto* t = bp->findChild<QTableWidget*>())
+            for (int r = 0; r < t->rowCount(); ++r)
+                if (t->item(r, 2) && t->item(r, 2)->text() == "$8000" && t->item(r, 3))
+                    sym_col = t->item(r, 3)->text();
+
+        check("QMAP-08",
+              "C-module symbols reach the Call Stack (target `sub`) and the Breakpoints Symbol column (`main`) by "
+              "their C names, and the Disassembly copy keeps the assembler name `_buffer`",
+              asm_text.contains("LD HL,_buffer") && with_addr.contains("LD HL,_buffer") &&
+                  !asm_text.contains("LD HL,buffer") && target == "sub" && sym_col == "main",
+              fmt("asm has _buffer=%d target='%s' symbol='%s'", asm_text.contains("LD HL,_buffer"),
+                  s(target).c_str(), s(sym_col).c_str()));
     }
 
     {
@@ -2732,6 +2936,48 @@ static void test_map_load() {
               fmt("ok: %s bad: %s table after bad=%zu; empty: %s table after=%zu", ok.describe().c_str(),
                   bad.describe().c_str(), after_bad, empty.describe().c_str(),
                   fx.backend->symbols().size()));
+    }
+
+    {
+        // QMAP-10 (GH #387): the box of each of the four symbol loads counts the file it loaded, not the
+        // user's labels that share the table the panels read: with one user label in the store,
+        // symbols() is one more than the box says. Z88DK (3 `; addr` symbols), Simple (2), sjasmplus
+        // (the fixture's 14 addresses, QMAP-05) and NextBuild Memory.txt (2 labels).
+        fx.backend->clear_symbols();
+        const bool user = fx.backend->set_user_label(jnext::dbg::MemSpace::page(4), 0x7000, "mine") ==
+                          jnext::dbg::Result::Ok;
+        struct Case { const char* what; std::string path; const char* title; unsigned n; };
+        const Case cases[] = {
+            {"Z88DK", write_file("q9_z88dk.map", "_a = $8000 ; addr, public\n_b = $8001 ; addr, public\n_c = $8002 ; addr, public\n"), "MAP Loaded", 3},
+            {"Simple", write_file("q9_simple.map", "QA = $8000\nQB = $8001\n"), "MAP Loaded", 2},
+            {"sjasmplus", std::string(JNEXT_SJASMEQU_DIR "/equlabels.sym"), "MAP Loaded", 14},
+            {"NextBuild", write_file("q9.Memory.txt", "8000: ._Main\nC000: .banked\n"), "Symbols Loaded", 2},
+        };
+        std::string bad;
+        for (const Case& c : cases) {
+            Modals m;
+            m.file_path = QString::fromStdString(c.path);
+            if (std::string(c.what) == "NextBuild") fx.mgr->on_load_nextbuild_memory();
+            else if (QAction* a = item_named(load_menu, std::string(c.what) == "Z88DK" ? "Z88DK Format..."
+                                                       : std::string(c.what) == "Simple" ? "Simple Format (48K ROM)..."
+                                                                                         : "sjasmplus Format (--sym, --exp)..."))
+                a->trigger();
+            m.timer.stop();
+            const Modals::Seen* box = m.first("box");
+            if (!box || box->title != c.title ||
+                box->text != QStringLiteral("Loaded %1 symbols from:\n%2").arg(c.n).arg(QString::fromStdString(c.path)) ||
+                fx.backend->symbols().size() != c.n + 1 || fx.backend->toolchain_symbols().size() != c.n ||
+                !fx.backend->annotations().find_name("mine"))
+                bad += std::string(" ") + c.what + "(" + (box ? s(box->text) : std::string("no box")) + " table=" +
+                       std::to_string(fx.backend->symbols().size()) + ")";
+        }
+        check("QMAP-10",
+              "with one user label in the store, each of the four symbol loads (Z88DK, Simple, sjasmplus, "
+              "NextBuild Memory.txt) reports the file's own count in its box, and the table the panels read is "
+              "one label bigger",
+              user && bad.empty(), bad);
+        fx.backend->clear_symbols();
+        fx.backend->remove_user_label(jnext::dbg::MemSpace::page(4), 0x7000);
     }
 
     {
@@ -3074,6 +3320,382 @@ static void test_rewind_refusal_ui() {
     }
 }
 
+// ===========================================================================
+// QANN -- GH #387 (E23-24): the user's labels in the other views, and the Map menu's annotation items.
+//
+// Oracle: design 10.3 (every consumer reads the one reader, by the memory that supplies the address),
+// 10.5 (the file: Open replaces the store whole or not at all; Save writes the canonical bytes) and
+// D11 (unsaved changes are asked about before an Open over them). NR 0x56 picks the page in slot 6.
+// ===========================================================================
+static std::string slurp_file(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+static void test_annotations_ui() {
+    set_group("QANN");
+    const jnext::dbg::MemSpace P10 = jnext::dbg::MemSpace::page(0x10);
+    {   // QANN-05: the Call Stack target and the Breakpoints Symbol column
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QANN-05", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.load(0x8000, {0xCD, 0x00, 0xC0, 0x18, 0xFE});   // CALL $C000 / JR $
+        fx.load(0xC000, {0x00, 0x18, 0xFE});
+        fx.regs(0x8000);
+        fx.backend->set_user_label(P10, 0xC000, "banked");
+        fx.enable();
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0xC000);
+        fx.mgr->on_step_into();
+        DebuggerWindow* dbg = fx.dbg();
+        const QString target = table_cell(dbg->callstack_panel(), 0, 3);
+        auto bp_symbol = [&]() {
+            QString out = QStringLiteral("<no row>");
+            if (auto* t = dbg->breakpoint_panel()->findChild<QTableWidget*>())
+                for (int r = 0; r < t->rowCount(); ++r)
+                    if (t->item(r, 2) && t->item(r, 2)->text() == "$C000" && t->item(r, 3)) out = t->item(r, 3)->text();
+            return out;
+        };
+        const QString sym10 = bp_symbol();
+        fx.emu.nextreg().write(0x56, 0x11);   // behind the backend's back: the stamp is unchanged, so redraw by hand
+        dbg->refresh_panels();
+        const QString sym11 = bp_symbol();
+        check("QANN-05", "the Call Stack target of a CALL $C000 and the Breakpoints Symbol cell of a breakpoint there "
+                         "show the user label 'banked' (page 0x10 mapped) and the breakpoint's cell is empty with 0x11",
+              target == "banked" && sym10 == "banked" && sym11.isEmpty(),
+              fmt("target='%s' bp10='%s' bp11='%s'", s(target).c_str(), s(sym10).c_str(), s(sym11).c_str()));
+    }
+    // The Map menu
+    const std::string good = write_file("ann-good.jdp", "jnext-annotations 1\nlabel P10 $C000 banked\ncomment P10 $C000 hi\n");
+    const std::string bad = write_file("ann-bad.jdp", "jnext-annotations 1\nlabel P10 $C000 ok\nlabel P10 $C001 !\n");
+    {   // QANN-12
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QANN-12", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.regs(0x8000);
+        fx.enable();
+        QMenu* map = menu_named(fx.dbg()->menuBar(), "Map");
+        // three items, mnemonics unique across the whole popup
+        QStringList letters;
+        for (QAction* a : map->actions()) {
+            const int at = a->text().indexOf(QLatin1Char('&'));
+            if (at >= 0 && at + 1 < a->text().size()) letters << a->text().at(at + 1).toUpper();
+        }
+        QStringList uniq = letters; uniq.removeDuplicates();
+        QAction* open = item_named(map, "Open Annotations...");
+        QAction* save = item_named(map, "Save Annotations");
+        QAction* save_as = item_named(map, "Save Annotations As...");
+        const bool items = open && save && save_as && uniq.size() == letters.size();
+        // Open loads the file and the Disassembly shows it
+        Modals mo;
+        mo.file_path = QString::fromStdString(good);
+        if (open) open->trigger();
+        mo.timer.stop();
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        if (auto* sb = dp->findChild<QScrollBar*>()) sb->setValue(0xC000);
+        QApplication::processEvents();
+        const bool opened = fx.backend->annotations().find(P10, 0xC000) &&
+                            fx.backend->annotations().find(P10, 0xC000)->label == "banked" &&
+                            dp->line_label(0) == "banked" && dp->line_comment(0) == "; hi" && !fx.mgr->annotations_unsaved() &&
+                            mo.first("file");
+        // Save with a current file writes the canonical bytes, with no dialog
+        fx.backend->set_user_label(P10, 0xC010, "second");
+        const bool dirty = fx.mgr->annotations_unsaved();
+        Modals ms;
+        ms.expect_modals = false;   // Save with a current file opens no dialog: one that does is rejected and FAILs the row
+        if (save) save->trigger();
+        ms.timer.stop();
+        const std::string written = slurp_file(good);
+        const bool saved = ms.seen.empty() && !ms.stuck && !fx.mgr->annotations_unsaved() &&
+                           written == "jnext-annotations 1\nlabel P10 $C000 banked\ncomment P10 $C000 hi\nlabel P10 $C010 second\n";
+        // a failed Open: the box names the line, the store is as it was
+        const auto before = fx.backend->annotations();
+        Modals mb;
+        mb.file_path = QString::fromStdString(bad);
+        if (open) open->trigger();
+        mb.timer.stop();
+        const Modals::Seen* box = mb.first("box");
+        const bool failed = box && box->title == "Open Failed" && box->text.contains("line 3:") &&
+                            fx.backend->annotations() == before;
+        // Save with no current file asks where (Save As), and appends .jdp
+        Fixture f2(MachineType::ZXN_ISSUE2);
+        f2.regs(0x8000);
+        f2.enable();
+        f2.backend->set_user_label(P10, 0xC000, "x");
+        Modals mn;
+        mn.file_path = g_tmp->filePath(QStringLiteral("ann-new"));
+        if (QAction* sv = item_named(menu_named(f2.dbg()->menuBar(), "Map"), "Save Annotations")) sv->trigger();
+        mn.timer.stop();
+        const std::string created = slurp_file(g_tmp->filePath(QStringLiteral("ann-new.jdp")).toStdString());
+        const bool asked = mn.first("file") && created == "jnext-annotations 1\nlabel P10 $C000 x\n" &&
+                           !f2.mgr->annotations_unsaved() &&
+                           f2.mgr->annotations_file().endsWith(QStringLiteral("ann-new.jdp"));
+        check("QANN-12", "Map menu: Open, Save and Save As with unique mnemonics; Open loads the file and the Disassembly "
+                         "shows its label and comment; Save with a current file writes the canonical bytes without a "
+                         "dialog; a file that does not parse gives an 'Open Failed' box naming the line and keeps the "
+                         "store; Save with no file asks where and adds .jdp",
+              items && opened && dirty && saved && failed && asked,
+              fmt("items=%d opened=%d dirty=%d saved=%d failed=%d asked=%d dialogs-on-save=%s", items, opened, dirty, saved, failed,
+                  asked, ms.describe().c_str()));
+    }
+    {   // QANN-18: Open Annotations refreshes the panels at once, like every Map load (the GH #390 R-1 row)
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QANN-18", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.regs(0x8000);
+        fx.enable();
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0xC000);
+        DebuggerWindow* d = fx.dbg();
+        auto bp_symbol = [&]() {
+            QString out = QStringLiteral("<no row>");
+            if (auto* t = d->breakpoint_panel()->findChild<QTableWidget*>())
+                for (int r = 0; r < t->rowCount(); ++r)
+                    if (t->item(r, 2) && t->item(r, 2)->text() == "$C000" && t->item(r, 3)) out = t->item(r, 3)->text();
+            return out;
+        };
+        const QString before = bp_symbol();
+        Modals mo;
+        mo.file_path = QString::fromStdString(good);
+        if (QAction* open = item_named(menu_named(d->menuBar(), "Map"), "Open Annotations...")) open->trigger();
+        mo.timer.stop();
+        const QString after = bp_symbol();   // no tick, no other refresh
+        check("QANN-18", "Map > Open Annotations refreshes the panels at once: the Breakpoints Symbol cell of a breakpoint "
+                         "at $C000 shows the opened file's label right after the dialog, with no tick",
+              before.isEmpty() && after == "banked" && !mo.stuck,
+              fmt("before='%s' after='%s'", s(before).c_str(), s(after).c_str()));
+    }
+    {   // QANN-13
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QANN-13", "fixture", false); return; }
+        fx.regs(0x8000);
+        fx.enable();
+        QAction* open = item_named(menu_named(fx.dbg()->menuBar(), "Map"), "Open Annotations...");
+        fx.backend->set_user_label(P10, 0xC020, "mine");
+        const auto before = fx.backend->annotations();
+        Modals cancel;
+        cancel.box_answer = QMessageBox::Cancel;
+        cancel.file_path = QString::fromStdString(good);
+        if (open) open->trigger();
+        cancel.timer.stop();
+        const Modals::Seen* ask = cancel.first("box");
+        const bool cancelled = ask && ask->title == "Unsaved Annotations" && !cancel.first("file") &&
+                               fx.backend->annotations() == before;
+        Modals discard;
+        discard.box_answer = QMessageBox::Discard;
+        discard.file_path = QString::fromStdString(good);
+        if (open) open->trigger();
+        discard.timer.stop();
+        const bool discarded = discard.first("box") && discard.first("file") && !fx.backend->annotations().find(P10, 0xC020) &&
+                               fx.backend->annotations().find(P10, 0xC000);
+        check("QANN-13", "Open over unsaved changes asks Save / Discard / Cancel first: Cancel opens no file dialog "
+                         "and keeps the store; Discard goes on to open and replaces it",
+              cancelled && discarded, fmt("cancelled=%d discarded=%d", cancelled, discarded));
+    }
+}
+
+// ===========================================================================
+// QREX -- Map > Import and Export (GH #389 stage C): skoolkit control files and Ghidra symbol files, in and out of the
+// debugger. The dialogs are the REAL QFileDialog (several files / a directory), the answer a message box.
+// ===========================================================================
+static void test_reexport_ui() {
+    set_group("QREX");
+    const jnext::dbg::MemSpace P10 = jnext::dbg::MemSpace::page(0x10);
+    {   // QREX-01: the menu
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-01", "fixture", false); return; }
+        fx.regs(0x8000);
+        fx.enable();
+        QMenu* map = menu_named(fx.dbg()->menuBar(), "Map");
+        QMenu* imp = submenu_named(map, "Import");
+        QMenu* exp = submenu_named(map, "Export");
+        auto unique = [](QMenu* m) {
+            QStringList letters;
+            for (QAction* a : m->actions()) {
+                const int at = a->text().indexOf(QLatin1Char('&'));
+                if (at >= 0 && at + 1 < a->text().size()) letters << a->text().at(at + 1).toUpper();
+            }
+            QStringList u = letters; u.removeDuplicates();
+            return !letters.isEmpty() && u.size() == letters.size();
+        };
+        check("QREX-01", "Map has an Import and an Export submenu, each with 'skoolkit Control Files...' and 'Ghidra Symbols...'; "
+                         "the mnemonics are unique in the Map popup and in each submenu",
+              imp && exp && item_named(imp, "skoolkit Control Files...") && item_named(imp, "Ghidra Symbols...") &&
+                  item_named(exp, "skoolkit Control Files...") && item_named(exp, "Ghidra Symbols...") &&
+                  unique(map) && unique(imp) && unique(exp));
+    }
+    {   // QREX-02: Export writes what the backend verb writes
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-02", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.regs(0x8000);
+        fx.backend->set_user_label(P10, 0xC000, "banked");
+        fx.backend->set_user_comment(P10, 0xC000, "a note");
+        fx.enable();
+        QMenu* exp = submenu_named(menu_named(fx.dbg()->menuBar(), "Map"), "Export");
+        const QString d_sk = g_tmp->filePath(QStringLiteral("qrex-sk")), d_gh = g_tmp->filePath(QStringLiteral("qrex-gh"));
+        QDir().mkpath(d_sk); QDir().mkpath(d_gh);
+        Modals m1, m2;
+        m1.dir_path = d_sk;
+        if (QAction* a = item_named(exp, "skoolkit Control Files...")) a->trigger();
+        m1.timer.stop();
+        m2.dir_path = d_gh;
+        if (QAction* a = item_named(exp, "Ghidra Symbols...")) a->trigger();
+        m2.timer.stop();
+        const std::string ref_sk = g_tmp->filePath(QStringLiteral("qrex-ref-sk")).toStdString();
+        const std::string ref_gh = g_tmp->filePath(QStringLiteral("qrex-ref-gh")).toStdString();
+        jnext::dbg::ReReport rs, rg;
+        std::string why;
+        fx.backend->export_skoolkit(ref_sk, &rs, &why);
+        fx.backend->export_ghidra(ref_gh, &rg, &why);
+        const std::string a1 = slurp_file((d_sk + "/C000-P10.ctl").toStdString()), a2 = slurp_file(ref_sk + "/C000-P10.ctl");
+        const std::string b1 = slurp_file((d_gh + "/P10.ghidra.txt").toStdString()), b2 = slurp_file(ref_gh + "/P10.ghidra.txt");
+        const Modals::Seen* box1 = m1.first("box");
+        const Modals::Seen* box2 = m2.first("box");
+        check("QREX-02", "Export > skoolkit and > Ghidra write the directory the dialog chose with exactly the bytes the backend "
+                         "verbs write, and the box reports the counts",
+              !a1.empty() && a1 == a2 && !b1.empty() && b1 == b2 && box1 && box1->title == "Export Done" &&
+                  box1->text.startsWith(QStringLiteral("2 files, 1 label, 1 comment\n")) && rs.files == 2 && rs.labels == 1 && rs.comments == 1 &&
+                  box2 && box2->title == "Export Done" &&
+                  box2->text.startsWith(QStringLiteral("2 files, 1 label, 0 comments\n")) && rg.files == 2 && rg.labels == 1,
+              fmt("a1=%zu a2=%zu b1=%zu b2=%zu m1=%s m2=%s", a1.size(), a2.size(), b1.size(), b2.size(), m1.describe().c_str(),
+                  m2.describe().c_str()));
+    }
+    {   // QREX-03: Import of two files; the Disassembly shows the label; quitting asks to save
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-03", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.regs(0x8000);
+        fx.enable();
+        const std::string f1 = write_file("qrex-a.ctl", "# jnext space P10\nc $C000\n@ $C000 label=imp_a\nB $C000 note a\n");
+        const std::string f2 = write_file("qrex-b.ctl", "# jnext space P10\nc $C010\n@ $C010 label=imp_b\n");
+        QMenu* imp = submenu_named(menu_named(fx.dbg()->menuBar(), "Map"), "Import");
+        const bool clean_before = !fx.mgr->annotations_unsaved();
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0xC000);
+        auto bp_symbol = [&]() {
+            QString out = QStringLiteral("<no row>");
+            if (auto* t = fx.dbg()->breakpoint_panel()->findChild<QTableWidget*>())
+                for (int r = 0; r < t->rowCount(); ++r)
+                    if (t->item(r, 2) && t->item(r, 2)->text() == "$C000" && t->item(r, 3)) out = t->item(r, 3)->text();
+            return out;
+        };
+        const QString sym_before = bp_symbol();
+        Modals m;
+        m.file_paths = {QString::fromStdString(f1), QString::fromStdString(f2)};
+        if (QAction* a = item_named(imp, "skoolkit Control Files...")) a->trigger();
+        m.timer.stop();
+        const QString sym_after = bp_symbol();   // no tick, no other refresh: the import refreshed the panels itself
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        if (auto* sb = dp->findChild<QScrollBar*>()) sb->setValue(0xC000);
+        QApplication::processEvents();
+        const Modals::Seen* box = m.first("box");
+        check("QREX-03", "Import > skoolkit Control Files with two files selected imports both (the Disassembly shows imp_a), the box "
+                         "reports '2 files, 2 labels, 1 comment', the panels are refreshed at once (a Breakpoints symbol cell, no tick), and the labels count as unsaved annotations (the quit question)",
+              clean_before && fx.backend->annotations().find(P10, 0xC000) && fx.backend->annotations().find(P10, 0xC010) &&
+                  dp->line_label(0) == "imp_a" && fx.mgr->annotations_unsaved() && box && box->title == "Import Done" &&
+                  box->text.startsWith(QStringLiteral("2 files, 2 labels, 1 comment\n")) && box->icon == QMessageBox::Information &&
+                  sym_before.isEmpty() && sym_after == "imp_a",
+              fmt("m=%s label0='%s'", m.describe().c_str(), s(dp->line_label(0)).c_str()));
+    }
+    {   // QREX-04: a failed import
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-04", "fixture", false); return; }
+        fx.regs(0x8000);
+        fx.enable();
+        fx.backend->set_user_label(P10, 0xC100, "keep");
+        const auto before = fx.backend->annotations();
+        const uint64_t rev = fx.backend->annotations_revision();
+        const std::string good = write_file("qrex-ok.ctl", "# jnext space P10\nc $C000\n@ $C000 label=fine\n");
+        const std::string bad = write_file("qrex-bad.ctl", "# jnext space P10\nc $ZZZZ\n");
+        QMenu* imp = submenu_named(menu_named(fx.dbg()->menuBar(), "Map"), "Import");
+        Modals m;
+        m.file_paths = {QString::fromStdString(good), QString::fromStdString(bad)};
+        if (QAction* a = item_named(imp, "skoolkit Control Files...")) a->trigger();
+        m.timer.stop();
+        const Modals::Seen* box = m.first("box");
+        check("QREX-04", "a failed Import shows an 'Import Failed' warning naming the file and the line and leaves the store and its "
+                         "revision as they were",
+              box && box->title == "Import Failed" && box->icon == QMessageBox::Warning && box->text.contains("qrex-bad.ctl: line 2:") &&
+                  fx.backend->annotations() == before && fx.backend->annotations_revision() == rev,
+              m.describe());
+    }
+    {   // QREX-05: a failed export
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-05", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.regs(0x8000);
+        fx.backend->set_user_label(P10, 0xC000, "banked");
+        fx.enable();
+        const QString dir = g_tmp->filePath(QStringLiteral("qrex-foreign"));
+        QDir().mkpath(dir);
+        const std::string foreign = (dir + "/C000-P10.ctl").toStdString();
+        { std::ofstream f(foreign); f << "not a jnext file\n"; }
+        QMenu* exp = submenu_named(menu_named(fx.dbg()->menuBar(), "Map"), "Export");
+        Modals m;
+        m.dir_path = dir;
+        if (QAction* a = item_named(exp, "skoolkit Control Files...")) a->trigger();
+        m.timer.stop();
+        const Modals::Seen* box = m.first("box");
+        check("QREX-05", "a failed Export shows an 'Export Failed' warning naming the directory and the reason (a foreign file of the "
+                         "same name), and leaves that file as it was",
+              box && box->title == "Export Failed" && box->icon == QMessageBox::Warning && box->text.contains("qrex-foreign") &&
+                  box->text.contains("C000-P10.ctl exists and is not a jnext control file") && slurp_file(foreign) == "not a jnext file\n" &&
+                  m.boxes() == 1,
+              m.describe());
+    }
+    {   // QREX-06: a report box carries the notes, not only the counts
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-06", "fixture", false); return; }
+        fx.regs(0x8000);
+        fx.backend->set_user_label(P10, 0xC000, "banked");
+        fx.enable();
+        const QString d = g_tmp->filePath(QStringLiteral("qrex-notes"));
+        QDir().mkpath(d);
+        const std::string f1 = write_file("qrex-n.ctl", "# jnext space P10\nc $C000 a title\n@ $C000 label=ln\n");
+        QMenu* map = menu_named(fx.dbg()->menuBar(), "Map");
+        Modals me;
+        me.dir_path = d;
+        if (QAction* a = item_named(submenu_named(map, "Export"), "skoolkit Control Files...")) a->trigger();
+        me.timer.stop();
+        Modals mi;
+        mi.file_paths = {QString::fromStdString(f1)};
+        if (QAction* a = item_named(submenu_named(map, "Import"), "skoolkit Control Files...")) a->trigger();
+        mi.timer.stop();
+        const Modals::Seen* be = me.first("box");
+        const Modals::Seen* bi = mi.first("box");
+        check("QREX-06", "the report boxes list the notes after the counts: an Export with coverage off says 'memory coverage is off', "
+                         "an Import of a block title says '1 block title(s) not imported'",
+              be && be->title == "Export Done" && be->text.contains("\n- memory coverage is off") && bi && bi->title == "Import Done" &&
+                  bi->text.contains("\n- 1 block title(s) not imported"),
+              fmt("%s | %s", me.describe().c_str(), mi.describe().c_str()));
+    }
+    {   // QREX-07: a cancelled Import dialog does nothing
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-07", "fixture", false); return; }
+        fx.regs(0x8000);
+        fx.enable();
+        fx.backend->set_user_label(P10, 0xC100, "keep");
+        const auto before = fx.backend->annotations();
+        const uint64_t rev = fx.backend->annotations_revision();
+        QMenu* map = menu_named(fx.dbg()->menuBar(), "Map");
+        QMenu* imp = submenu_named(map, "Import");
+        QMenu* exp = submenu_named(map, "Export");
+        const QStringList tree_before = QDir(g_tmp->path()).entryList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name);
+        Modals m;
+        m.cancel_files = true;
+        if (QAction* a = item_named(imp, "skoolkit Control Files...")) a->trigger();
+        if (QAction* a = item_named(imp, "Ghidra Symbols...")) a->trigger();
+        if (QAction* a = item_named(exp, "skoolkit Control Files...")) a->trigger();
+        if (QAction* a = item_named(exp, "Ghidra Symbols...")) a->trigger();
+        m.timer.stop();
+        int file_dialogs = 0;
+        for (const auto& sn : m.seen) file_dialogs += sn.kind == "file";
+        check("QREX-07", "cancelling any of the four Import and Export dialogs shows no box, writes no file and leaves the store and its "
+                         "revision as they were",
+              file_dialogs == 4 && m.boxes() == 0 && fx.backend->annotations() == before && fx.backend->annotations_revision() == rev &&
+                  QDir(g_tmp->path()).entryList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name) == tree_before,
+              m.describe());
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -3099,11 +3721,14 @@ int main(int argc, char** argv) {
     test_pause_edge();
     test_throttle();
     test_idle_refresh();
+    test_long_address_paused();
     test_enable_seeds();
     test_rewind_ui();
     test_rewind_refusal_ui();
     test_trace_ui();
     test_map_load();
+    test_annotations_ui();
+    test_reexport_ui();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

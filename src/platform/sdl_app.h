@@ -201,6 +201,7 @@ private:
     // Pending --load state
     std::string load_file_;
     int         load_countdown_ = -1;    // -1 = no pending load
+    bool        source_map_watch_ = false;   // --source-map attached pending (a tape): GH #344
 
     // Pending --delayed-pok-frames request (GH #381); empty when not given.
     std::optional<jnext::pok::CliJob> pok_job_;

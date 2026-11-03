@@ -1,0 +1,1452 @@
+// The z88dk `-debug` map adapter (GH #344, E23-13; design 9.1, 9.4, 9.7):
+//
+//   Z88MAP-*   the section-to-page rules, the line records into SourceMap
+//              ranges (extents, zero-width lines, strict refusal), the program
+//              identity from the section binaries, and the symbol loaders'
+//              file-type residual
+//   Z88DOT-*   z88dk dot commands (GH #351): rule 5 - the CODE group of a dot / dotx is
+//              DivMMC RAM bank 2, a dotn is refused, detection is by the map
+//
+// Oracle: the committed fixtures test/fixtures/z88dk (what the two z88dk installs
+// produced from our own sources, with the NEX placement and the .lis listings next
+// to each map) and, for the rows that need a map no install produced, a map in the
+// real line format whose expected answer is the cited rule of the design. No VHDL
+// counterpart. Pure: no machine; the NEX files are read by the test itself.
+// Run: ./build/test/z88dk_map_test
+
+#include "debug/disasm_text.h"
+#include "debug/source_file.h"
+#include "debug/source_map.h"
+#include "debug/symbol_table.h"
+#include "debug/z88dk_source_map.h"
+#include "debug/z88dk_space.h"
+
+#include <cctype>
+#include <cstdint>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <map>
+#include <optional>
+#include <set>
+#include <string>
+#include <unistd.h>
+#include <vector>
+#include "../row_id.h"
+
+namespace fs = std::filesystem;
+using jnext::dbg::FetchSource;
+using jnext::dbg::MemSpace;
+
+static int g_total = 0;
+static int g_pass  = 0;
+static int g_fail  = 0;
+
+static void check(const char* id, const char* desc, bool cond) {
+    report_row_id(id);
+    ++g_total;
+    if (cond) {
+        ++g_pass;
+    } else {
+        ++g_fail;
+        std::printf("  FAIL %s: %s\n", id, desc);
+    }
+}
+
+static void write_text(const fs::path& path, const std::string& text) {
+    std::ofstream out(path, std::ios::binary);
+    out << text;
+}
+
+static const fs::path kFixtures = JNEXT_Z88DK_FIXTURE_DIR;
+static const fs::path kNoDebugMap = fs::path(JNEXT_ZDEBUGMAP_DIR) / "nodebug.map";
+
+// What the NEX loader leaves mapped (nex_loader.cpp: MMU2-5 = 10, 11, 4, 5, then
+// 0 and 1; slots 0 and 1 are the ROM).
+static FetchSource nex_space(uint16_t address) {
+    static const int kPage[8] = {-1, -1, 10, 11, 4, 5, 0, 1};
+    const int slot = address >> 13;
+    return slot < 2 ? MemSpace::rom(0) : MemSpace::page(static_cast<uint16_t>(kPage[slot]));
+}
+
+static const MemSpace P4 = MemSpace::page(4);
+static const MemSpace P20 = MemSpace::page(20);
+static const MemSpace P21 = MemSpace::page(21);
+
+// The 8K pages a NEX file loads: banks in the file's order (5, 2, 0, 1, 3, 4, 6...),
+// 16K each from byte 512, bank b = pages 2b and 2b + 1. Presence flags at 18 + b.
+struct NexMemory {
+    std::map<int, std::vector<uint8_t>> pages;
+    bool ok = false;
+
+    explicit NexMemory(const fs::path& file) {
+        std::ifstream in(file, std::ios::binary);
+        const std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)),
+                                        std::istreambuf_iterator<char>());
+        if (data.size() < 512 || std::string(data.begin(), data.begin() + 4) != "Next") return;
+        static const int kOrder[] = {5, 2, 0, 1, 3, 4};
+        std::vector<int> order(std::begin(kOrder), std::end(kOrder));
+        for (int b = 6; b < 112; ++b) order.push_back(b);
+        size_t at = 512;
+        for (const int bank : order) {
+            if (data[18 + bank] == 0) continue;
+            if (at + 0x4000 > data.size()) return;
+            for (int half = 0; half < 2; ++half)
+                pages[2 * bank + half].assign(data.begin() + at + half * 0x2000,
+                                              data.begin() + at + (half + 1) * 0x2000);
+            at += 0x4000;
+        }
+        ok = true;
+    }
+
+    SourceMap::SpaceReader reader() const {
+        return [this](FetchSource s, uint16_t a) -> std::optional<uint8_t> {
+            if (s.kind != MemSpace::Kind::Page) return std::nullopt;
+            const auto it = pages.find(s.index);
+            if (it == pages.end()) return std::nullopt;
+            return it->second[a & 0x1FFF];
+        };
+    }
+};
+
+// The SHA-256 reader a z88dk map never uses: any byte but the program's.
+static uint8_t logical_junk(uint16_t) { return 0xA5; }
+
+static std::string rec(const char* name, uint64_t value, const char* module, const char* section,
+                       const char* location, const char* type = "addr") {
+    char buf[600];
+    std::snprintf(buf, sizeof buf, "%s = $%llX ; %s, local, , %s, %s, %s\n", name,
+                  static_cast<unsigned long long>(value), type, module, section, location);
+    return buf;
+}
+
+static bool is_at(const SourceLocation* l, const char* file, int line) {
+    return l && l->file == file && l->line == line;
+}
+
+static bool starts_are(const SourceResolution& r, std::vector<SourceAddress> want) {
+    if (r.starts.size() != want.size()) return false;
+    for (size_t i = 0; i < want.size(); ++i)
+        if (!(r.starts[i].space == want[i].space) || r.starts[i].address != want[i].address) return false;
+    return true;
+}
+
+int main() {
+    std::printf("z88dk -debug map adapter\n");
+
+    const fs::path dir = fs::temp_directory_path() / ("jnext-z88dk-map-" + std::to_string(::getpid()));
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+
+    const fs::path v24 = kFixtures / "v2.4";
+    const fs::path master = kFixtures / "master";
+    const std::function<std::optional<uint16_t>(int)> no_head = [](int) { return std::nullopt; };
+
+    auto load = [&](SourceMap& m, const fs::path& map, const SymbolSpaceOf& space = nex_space) {
+        return load_z88dk_source_map(m, map.string(), space);
+    };
+    auto synth = [&](const char* name, const std::string& body) {
+        const fs::path p = dir / name;
+        write_text(p, body);
+        return p;
+    };
+
+    // ── Z88MAP-01..07: v2.4 sccz80, the program every other row compares with ──
+    SourceMap sc;
+    const auto sc_r = load(sc, v24 / "sccz80-debug" / "prog.map");
+    check("Z88MAP-01", "main.c:19 starts at $8CB5 in page 4 (__C_LINE_19 = $8CB5, prog_CODE.bin at bank 2)",
+          sc_r && starts_are(sc.resolve("main.c:19"), {{P4, 0x8CB5}}) && sc.resolve("main.c:19").error.empty() &&
+              sc.format() == "z88dk" && SourceMap().format() == "SLD");
+    check("Z88MAP-02", "a range is looked up in its own page: $8CB8 is main.c:19 in page 4, nothing in page 5",
+          is_at(sc.lookup(P4, 0x8CB8), "main.c", 19) && !sc.lookup(MemSpace::page(5), 0x8CB8));
+    {
+        SourceMap m;
+        // a.c:3 runs to the next start, not past the foreign module's symbol (the same module's
+        // `i_1` at $9008 bounds nothing); no section tail in the map.
+        const auto r = load(m, synth("z03.map",
+            rec("__C_LINE_3_a_2ec", 0x9000, "a_c", "code_compiler", "a.c::f::0::0:3") +
+            rec("i_1", 0x9008, "a_c", "code_compiler", "a.c::f::0::0:3") +
+            rec("_lib_fn", 0x9010, "lib_mod", "code_compiler", "lib.asm:1")));
+        check("Z88MAP-03", "a line's extent stops at the next addr symbol of another module, not at one of its own module",
+              r && is_at(m.lookup(P4, 0x900F), "a.c", 3) && is_at(m.lookup(P4, 0x9008), "a.c", 3) &&
+                  !m.lookup(P4, 0x9010));
+    }
+    check("Z88MAP-04", "asmfn.asm:5 owns $8D65 and util.c:8 ends where it starts ($8D63 is util.c:8)",
+          is_at(sc.lookup(P4, 0x8D65), "asmfn.asm", 5) && is_at(sc.lookup(P4, 0x8D63), "util.c", 8) &&
+              is_at(sc.lookup(P4, 0x8D64), "util.c", 8));
+    check("Z88MAP-05", "lines 16 and 17 share $8C95 in main::1::3: 17 owns it, 16 resolves to it, one location there",
+          is_at(sc.lookup(P4, 0x8C95), "main.c", 17) && starts_are(sc.resolve("main.c:16"), {{P4, 0x8C95}}) &&
+              sc.lookup_all(P4, 0x8C95).size() == 1);
+    check("Z88MAP-06", "line 14 (square's scope) shares $8C92 with line 15 (main): it has no code, 15 owns the address",
+          sc.resolve("main.c:14").starts.empty() && sc.resolve("main.c:14").error == "no code at main.c:14" &&
+              is_at(sc.lookup(P4, 0x8C92), "main.c", 15));
+    check("Z88MAP-07", "the 50 line records in a section give 46 ranges; lines in an empty section ($0000) are dropped",
+          sc.size() == 46 && sc.resolve("main.c:1").error == "no code at main.c:1" &&
+              !sc.lookup(MemSpace::page(0), 0) && !sc.lookup(MemSpace::rom(0), 0) &&
+              !sc.lookup(MemSpace::page(10), 0));
+
+    // ── Z88MAP-08..11: where the page comes from ──
+    {
+        SourceMap m;
+        SourceMap mb;
+        const auto r = load(m, v24 / "sccz80-page20" / "prog.map");
+        const auto rb = load(mb, master / "sdcc-banked" / "prog.map");
+        check("Z88MAP-08", "PAGE_20 lines are in page 20 whatever is mapped at $C000 (sccz80 on 2.4, sdcc on master)",
+              r && starts_are(m.resolve("banked.c:7"), {{P20, 0xC003}}) &&
+                  is_at(m.lookup(P20, 0xC003), "banked.c", 8) && !m.lookup(P21, 0xC003) &&
+                  rb && starts_are(mb.resolve("banked.c:8"), {{P20, 0xC008}}));
+    }
+    {
+        SourceMap m;
+        SourceMap synthetic;
+        const auto r = load(m, v24 / "sccz80-bank10" / "prog.map");
+        const auto rs = load(synthetic, synth("z09.map",
+            rec("__C_LINE_5_x_2ec", 0xE010, "x_c", "BANK_10", "x.c:5")));
+        check("Z88MAP-09", "BANK_10 lines are in page 20 or 21 by bit 13 of the address: $C01B page 20, $E010 page 21",
+              r && starts_are(m.resolve("banked.c:9"), {{P20, 0xC01B}}) &&
+                  rs && starts_are(synthetic.resolve("x.c:5"), {{P21, 0xE010}}));
+    }
+    {
+        const auto a = z88dk_section_space("BANK_10", 0xAC000, no_head);
+        const auto b = z88dk_section_space("BANK_10", 0x14C000, no_head);
+        const auto b2 = z88dk_section_space("BANK_10", 0x14E010, no_head);
+        const auto c = z88dk_section_space("code_compiler", 0x1C000, no_head);
+        SourceMap m;
+        const auto d = load(m, synth("z10.map", rec("__C_LINE_3_a", 0x1C000, "a_c", "code_compiler", "a.c:3")));
+        check("Z88MAP-10", "a classic 24-bit BANK_10 address is read by its low 16 bits (2.4 $AC000, master $14C000); an unnumbered section with a 24-bit value is refused",
+              a.kind == Z88dkSpace::Kind::Paged && a.space == P20 && a.addr16 == 0xC000 &&
+                  b.kind == Z88dkSpace::Kind::Paged && b.space == P20 && b.addr16 == 0xC000 &&
+                  b2.kind == Z88dkSpace::Kind::Paged && b2.space == P21 &&
+                  c.kind == Z88dkSpace::Kind::Refused &&
+                  !d && d.error.find("line 1") != std::string::npos && m.empty());
+    }
+    {
+        SourceMap m;
+        SourceMap moved;
+        SourceMap rom;
+        const auto r = load(m, v24 / "sccz80-debug" / "prog.map");
+        const SymbolSpaceOf slot4_is_40 = [](uint16_t a) {
+            return (a >> 13) == 4 ? MemSpace::page(40) : nex_space(a);
+        };
+        const auto rm = load(moved, v24 / "sccz80-debug" / "prog.map", slot4_is_40);
+        const auto rr = load(rom, synth("z11.map", rec("__C_LINE_3_a", 0x2000, "a_c", "code_compiler", "a.c:3")));
+        check("Z88MAP-11", "a section that names no page takes the page the MMU maps: $8CB5 is page 4, or page 40 when slot 4 holds it; $2000 (ROM) refuses the half",
+              r && starts_are(m.resolve("main.c:19"), {{P4, 0x8CB5}}) &&
+                  rm && starts_are(moved.resolve("main.c:19"), {{MemSpace::page(40), 0x8CB5}}) &&
+                  !rr && rr.error.find("line 1") != std::string::npos &&
+                  rr.error.find("$2000") != std::string::npos && rom.empty());
+    }
+
+    // ── Z88MAP-12..13: the three location forms ──
+    {
+        SourceMap m;
+        const auto r = load(m, master / "sdcc-debug" / "prog.map");
+        const SourceLocation* l = m.lookup(P4, 0x8C5F);
+        const auto t = parse_z88dk_map_line(
+            "__C_LINE_11_x = $8C5F ; addr, local, , main_c, code_compiler, main.c::x::10000::11\t:11\r");
+        const auto big = parse_z88dk_map_line(
+            "__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF ; const, local, , zxn_crt_asm_m4, , a,b.m4:482");
+        const auto none = parse_z88dk_map_line("; just a comment = nothing");
+        check("Z88MAP-12", "an sdcc location (file::x::level::block TAB :line) gives file and line with no TAB in the file; the tokenizer keeps the whole location (TAB, commas) and 64-bit values",
+              r && starts_are(m.resolve("main.c:11"), {{P4, 0x8C5F}}) && l && l->file == "main.c" && l->line == 11 &&
+                  t && t->is_addr && !t->is_const && t->value == 0x8C5F && t->module == "main_c" &&
+                  t->section == "code_compiler" && t->location == "main.c::x::10000::11\t:11" &&
+                  big && big->is_const && big->value == 0xFFFFFFFFFFFFFFFFull && big->location == "a,b.m4:482" &&
+                  big->section.empty() && !none);
+    }
+    {
+        SourceMap m;
+        const fs::path map = v24 / "sccz80-subdir" / "prog.map";
+        const auto r = load(m, map);
+        const SourceLocation* l = m.lookup(P4, 0x8D5C);
+        const std::string tail = "sccz80-subdir/prog.map";
+        const std::string loaded = fs::path(m.loaded_file()).generic_string();   // '/' on Windows too
+        check("Z88MAP-13", "a file in a subdirectory keeps its path (game/util.c), resolves by its tail; the stored map path is absolute",
+              r && starts_are(m.resolve("util.c:8"), {{P4, 0x8D5C}}) && l && l->file == "game/util.c" &&
+                  fs::path(m.loaded_file()).is_absolute() && loaded.size() > tail.size() &&
+                  loaded.compare(loaded.size() - tail.size(), tail.size(), tail) == 0);
+    }
+
+    // ── Z88MAP-14: identity from the section binaries ──
+    {
+        const NexMemory nex(v24 / "sccz80-debug" / "prog.nex");
+        SourceMap m;
+        const auto r = load(m, v24 / "sccz80-debug" / "prog.map");
+        const auto verdict = [&](NexMemory& mem) { return m.verify_program(logical_junk, mem.reader()); };
+        NexMemory a = nex, b = nex, c = nex;
+        a.pages[4][0x0CB5] ^= 0xFF;   // main.c:19, code
+        b.pages[4][0x0E0E] ^= 0xFF;   // clib_variables.inc:35, data_alloc_malloc: data is not compared
+        c.pages[4][0x0F62] ^= 0xFF;   // zxn_crt.asm.m4:9577, BSS_UNINITIALIZED
+        NexMemory original = nex;
+        const fs::path alone = dir / "alone" / "prog.map";
+        fs::create_directories(alone.parent_path());
+        fs::copy_file(v24 / "sccz80-debug" / "prog.map", alone);
+        SourceMap lonely;
+        const auto rl = load(lonely, alone);
+
+        const NexMemory nex20(v24 / "sccz80-page20" / "prog.nex");
+        SourceMap m20;
+        const auto r20 = load(m20, v24 / "sccz80-page20" / "prog.map");
+        NexMemory ok20 = nex20, bad20 = nex20;
+        bad20.pages[20][3] ^= 0xFF;   // banked.c:8 in page 20; the logical reader never sees page 20
+        NexMemory last20 = nex20, no20 = nex20;
+        no20.pages.erase(20);
+        last20.pages[20][0x23] ^= 0xFF;   // the last byte of prog_PAGE_20.bin, in banked.c:9
+        // A lower-case head (__code_compiler_head) names a section, not a group: a file
+        // that happens to be called prog_code_compiler.bin is not its binary (no other
+        // binary here, so any check made from it would make the map verifiable).
+        const fs::path decoy = dir / "decoy" / "prog.map";
+        fs::create_directories(decoy.parent_path());
+        fs::copy_file(v24 / "sccz80-debug" / "prog.map", decoy);
+        write_text(decoy.parent_path() / "prog_code_compiler.bin", std::string(16, '\0'));
+        // A binary covers a range by address only when its group puts the range in the
+        // range's own space: this PAGE_20 line lies inside the CODE binary's addresses.
+        const fs::path foreign = dir / "foreign" / "prog.map";
+        fs::create_directories(foreign.parent_path());
+        write_text(foreign,
+            rec("__CODE_head", 0x8000, "", "", "", "const") + rec("__PAGE_20_head", 0x8100, "", "", "", "const") +
+            rec("__C_LINE_3_a", 0x8100, "a_c", "PAGE_20", "a.c:3"));
+        write_text(foreign.parent_path() / "prog_CODE.bin", std::string(0x2000, '\x11'));
+        SourceMap mf;
+        const auto rf = load(mf, foreign);
+        const SourceMap::SpaceReader all22 = [](FetchSource, uint16_t) -> std::optional<uint8_t> { return 0x22; };
+        SourceMap md;
+        const auto rd = load(md, decoy);
+        // Self-modifying code is data (D6): `smc_*` / `SMC_*` ranges are covered by the binary but
+        // never checked, while the code range beside them is.
+        const fs::path smc = dir / "smc" / "prog.map";
+        fs::create_directories(smc.parent_path());
+        write_text(smc,
+            rec("__CODE_head", 0x9000, "", "", "", "const") +
+            rec("__C_LINE_3_a", 0x9000, "a_c", "code_compiler", "a.c:3") +
+            rec("__C_LINE_4_a", 0x9010, "a_c", "smc_patch", "a.c:4") +
+            rec("__C_LINE_5_a", 0x9020, "a_c", "SMC_PATCH", "a.c:5") +
+            rec("__C_LINE_6_a", 0x9030, "a_c", "code_compiler", "a.c:6"));
+        write_text(smc.parent_path() / "prog_CODE.bin", std::string(0x400, '\x11'));
+        SourceMap ms;
+        const auto rs = load(ms, smc);
+        std::vector<uint8_t> smc_mem(0x2000, 0x11);
+        const auto smc_reader = [&smc_mem]() -> SourceMap::SpaceReader {
+            return [&smc_mem](FetchSource sp, uint16_t a) -> std::optional<uint8_t> {
+                if (!(sp == P4)) return std::nullopt;
+                return smc_mem[a & 0x1FFF];
+            };
+        };
+        const bool smc_intact = ms.verify_program(logical_junk, smc_reader()) == true;
+        for (int i = 0x1010; i < 0x1030; ++i) smc_mem[i] = 0x99;   // the patched bytes
+        const bool smc_patched_ok = ms.verify_program(logical_junk, smc_reader()) == true;
+        smc_mem[0x1000] = 0x99;                                     // a code byte
+        const bool smc_code_bad = ms.verify_program(logical_junk, smc_reader()) == false;
+        // A section binary that fails source_file_problem() refuses the half and is named: over the
+        // cap, and a directory (a FIFO would block the load, the reason the check is made).
+        const fs::path badbin = dir / "badbin" / "prog.map";
+        fs::create_directories(badbin.parent_path());
+        fs::copy_file(v24 / "sccz80-debug" / "prog.map", badbin);
+        SourceMap kept;
+        load(kept, v24 / "sccz80-debug" / "prog.map");
+        const std::string kept_file = kept.loaded_file();
+        write_text(badbin.parent_path() / "prog_CODE.bin", "x");
+        fs::resize_file(badbin.parent_path() / "prog_CODE.bin", SOURCE_FILE_MAX_BYTES + 1);
+        const auto rbig = load(kept, badbin);
+        fs::remove(badbin.parent_path() / "prog_CODE.bin");
+        fs::create_directories(badbin.parent_path() / "prog_CODE.bin");
+        const auto rdir = load(kept, badbin);
+        const bool bins_refused = !rbig && rbig.error.find("prog_CODE.bin") != std::string::npos &&
+            !rdir && rdir.error.find("prog_CODE.bin") != std::string::npos && rdir.error.find("not a regular file") != std::string::npos &&
+            kept.size() == 46 && kept.loaded_file() == kept_file;
+        check("Z88MAP-14", "the identity is the section binaries against the range's own page: code is checked, data and bss are not, no binary is unverified, a bank not mapped is checked",
+              nex.ok && nex20.ok && r && verdict(original) == true && verdict(a) == false &&
+                  verdict(b) == true && verdict(c) == true &&
+                  rl && !lonely.verify_program(logical_junk, original.reader()).has_value() &&
+                  r20 && m20.verify_program(logical_junk, ok20.reader()) == true &&
+                  m20.verify_program(logical_junk, bad20.reader()) == false &&
+                  m20.verify_program(logical_junk, last20.reader()) == false &&
+                  m20.verify_program(logical_junk, no20.reader()) == false &&   // page 20 unreadable
+                  m20.verify_program(logical_junk).value_or(true) == false &&
+                  rd && !md.verify_program(logical_junk, original.reader()).has_value() &&
+                  rf && mf.lookup(P20, 0x8100) && !mf.verify_program(logical_junk, all22).has_value() &&
+                  rs && smc_intact && smc_patched_ok && smc_code_bad && bins_refused);
+    }
+
+    // ── Z88MAP-15: the symbol half is the symbol loader's ──
+    {
+        SymbolTable st;
+        const int n = st.load_z88dk_map((v24 / "sccz80-debug" / "prog.map").string());
+        const auto key = st.find_name("_main");
+        check("Z88MAP-15", "the same map still gives its 19 addr symbols, with _main at $8C92 and no line record among them",
+              n == 19 && st.lookup(MemSpace::cpu(), 0x8C92) == std::string("main") && key && key->addr == 0x8C92);
+    }
+
+    // ── Z88MAP-16..20: the other compilers, the toolchain's own quirks ──
+    bool z23a = false;
+    {
+        SourceMap sdcc;
+        const auto r = load(sdcc, master / "sdcc-debug" / "prog.map");
+        check("Z88MAP-16", "a line with two ranges has two starts on sdcc (main.c:18 at $8C6F and $8C89); sccz80 has one ($8C9D)",
+              r && starts_are(sdcc.resolve("main.c:18"), {{P4, 0x8C6F}, {P4, 0x8C89}}) &&
+                  starts_are(sc.resolve("main.c:18"), {{P4, 0x8C9D}}));
+        check("Z88MAP-17", "master sdcc reports header code compiled into util_c as the map says: $8CAC is util.h:9",
+              is_at(sdcc.lookup(P4, 0x8CAC), "util.h", 9));
+        z23a = starts_are(sdcc.resolve("main.c:14"), {{P4, 0x8C6B}}) &&
+               starts_are(sdcc.resolve("main.c:25"), {{P4, 0x8CA6}}) &&
+               starts_are(sdcc.resolve("main.c:28"), {{P4, 0x8CAA}}) &&
+               is_at(sdcc.lookup(P4, 0x8C6B), "main.c", 17);
+    }
+    {
+        SourceMap m;
+        const auto r = load(m, master / "80cc-debug" / "prog.map");
+        check("Z88MAP-18", "80cc: main.c:10 at $8C62; line 14 has no code; 19 and 20 share $8C88 in main::0::5 so 19 is an alias",
+              r && is_at(m.lookup(P4, 0x8C62), "main.c", 10) &&
+                  m.resolve("main.c:14").error == "no code at main.c:14" &&
+                  starts_are(m.resolve("main.c:19"), {{P4, 0x8C88}}));
+    }
+    {
+        SourceMap m;
+        const auto r = load(m, master / "sccz80-debug" / "prog.map");
+        check("Z88MAP-19", "sccz80 splits a statement over two lines on 2.4 (19 ends at $8CBD, 20 starts at $8CBE) and on master at $8CCD",
+              r && is_at(sc.lookup(P4, 0x8CBD), "main.c", 19) && is_at(sc.lookup(P4, 0x8CBE), "main.c", 20) &&
+                  is_at(m.lookup(P4, 0x8CCC), "main.c", 19) && is_at(m.lookup(P4, 0x8CCD), "main.c", 20));
+    }
+    {
+        SourceMap m20;
+        const auto r = load(m20, v24 / "sccz80-page20" / "prog.map");
+        // D3: the tail bounds only when it is above the start. Fixture, v2.4 sccz80-debug:
+        // `__ASM_LINE_9496 = $800C ; CODE`, `__CODE_tail = $800C`; $800C-$8031 is code_crt_init
+        // (`ld hl,$8E8F` ...), $8032 is `call _main` in code_crt_main; next record 9535 at $8035.
+        // Neither has a record of its own, so the extent to the next start gives line 9496
+        // [$800C, $8035).
+        const SourceLocation* const at_tail = sc.lookup(P4, 0x800C);
+        const SourceLocation* const before_next = sc.lookup(P4, 0x8034);
+        const auto ends_with = [](const std::string& text, const std::string& tail) {
+            return text.size() >= tail.size() && text.compare(text.size() - tail.size(), tail.size(), tail) == 0;
+        };
+        const bool crt_line_9496 = at_tail && before_next && at_tail->line == 9496 && before_next->line == 9496 &&
+            ends_with(at_tail->file, "zxn_crt.asm.m4") && sc.lookup(P4, 0x8035) && sc.lookup(P4, 0x8035)->line == 9535;
+        check("Z88MAP-20", "a last line ends at its section's tail: asmfn.asm:10 at $8D6C (__code_user_tail $8D6D), banked.c:9 at $C023 (__PAGE_20_tail $C024)",
+              is_at(sc.lookup(P4, 0x8D6C), "asmfn.asm", 10) && !sc.lookup(P4, 0x8D6D) &&
+                  r && is_at(m20.lookup(P20, 0xC023), "banked.c", 9) && !m20.lookup(P20, 0xC024) &&
+                  crt_line_9496);
+    }
+
+    // ── Z88MAP-21..22: the extent caps ──
+    {
+        SourceMap m;
+        const auto r = load(m, synth("z21.map", rec("__C_LINE_3_a", 0x9000, "a_c", "code_compiler", "a.c:3")));
+        check("Z88MAP-21", "with nothing to stop it a line covers 0x400 bytes (DeZog's MAX_C_LINE_SIZE)",
+              r && is_at(m.lookup(P4, 0x93FF), "a.c", 3) && !m.lookup(P4, 0x9400));
+    }
+    {
+        SourceMap m;
+        const auto r = load(m, synth("z22.map",
+            rec("__C_LINE_3_a", 0x9F00, "a_c", "code_compiler", "a.c:3") +
+            rec("__C_LINE_4_a", 0xA010, "a_c", "code_compiler", "a.c:4")));
+        check("Z88MAP-22", "a line does not run past the 8K page end: $9FFF is in the line, $A005 is not",
+              r && is_at(m.lookup(P4, 0x9FFF), "a.c", 3) && !m.lookup(P4, 0xA000) && !m.lookup(P4, 0xA005));
+    }
+
+    // ── Z88MAP-23(b), 24..27: sdcc's later entry, refusal, atomicity ──
+    {
+        SourceMap m;
+        const auto r = load(m, synth("z23.map",
+            rec("__C_LINE_12_a", 0x9010, "a_c", "code_compiler", "a.c::x::10000::1\t:12") +
+            rec("__C_LINE_20_a", 0x9010, "a_c", "code_compiler", "a.c::x::10000::2\t:20") +
+            rec("_next", 0x9010, "a_c", "code_compiler", "a.c::x::10000::2\t:20")));
+        // Two modules' lines at one address: no function is known, but they are not one function.
+        SourceMap modules;
+        const auto rm = load(modules, synth("z23m.map",
+            rec("__C_LINE_5_x", 0x9100, "x_c", "code_compiler", "x.c:5") +
+            rec("__C_LINE_7_y", 0x9100, "y_c", "code_compiler", "y.c:7") +
+            rec("__C_LINE_9_x", 0x9200, "x_c", "code_compiler", "x.c:9")));
+        // Not a function entry that comes later: the lower line stays an alias.
+        const char* const not_entries[] = {
+            "loop = $9400 ; addr, local, , m_c, code_compiler, m.c:6\n",          // not a `_` name
+            "_f = $9400 ; addr, public, , n_c, code_compiler, m.c:6\n",           // another module
+            "_f = $9400 ; addr, public, , m_c, code_compiler, other.c:6\n",       // another file
+            "_f = $9400 ; addr, public, , m_c, code_compiler, m.c:3\n",           // not a later line
+            "_f = $9500 ; addr, public, , m_c, code_compiler, m.c:6\n",           // another address
+        };
+        bool aliases_kept = true;
+        for (const char* symbol : not_entries) {
+            SourceMap a;
+            const auto ra = load(a, synth("z23n.map",
+                rec("__C_LINE_3_q", 0x9400, "m_c", "code_compiler", "m.c:3") +
+                rec("__C_LINE_6_q", 0x9400, "m_c", "code_compiler", "m.c:6") + symbol));
+            aliases_kept = aliases_kept && ra && starts_are(a.resolve("m.c:3"), {{P4, 0x9400}});
+        }
+        SourceMap early;
+        const auto re = load(early, synth("z23e.map",
+            rec("__C_LINE_12_a", 0x9010, "a_c", "code_compiler", "a.c::x::10000::1\t:12") +
+            rec("__C_LINE_20_a", 0x9010, "a_c", "code_compiler", "a.c::x::10000::2\t:20") +
+            rec("_cur", 0x9010, "a_c", "code_compiler", "a.c::x::10000::1\t:12")));
+        check("Z88MAP-23", "sdcc has no function name (x): 14 is an alias of 17 at $8C6B (_main is located at line 14), 25 of 26, 28 of 29; a function entry located at a later line means the lower line has no code",
+              z23a && r && m.resolve("a.c:12").error == "no code at a.c:12" && starts_are(m.resolve("a.c:20"), {{P4, 0x9010}}) &&
+                  re && starts_are(early.resolve("a.c:12"), {{P4, 0x9010}}) &&
+                  aliases_kept && rm && modules.resolve("x.c:5").error == "no code at x.c:5" &&
+                  starts_are(modules.resolve("y.c:7"), {{P4, 0x9100}}));
+    }
+    {
+        const char* const body[3] = {"__C_LINE_3_a = $C000 ; addr, local, , a_c, DIV_3, a.c:3\n",
+                                     "__C_LINE_3_a = $C000 ; addr, local, , a_c, PAGE_16, a.c:3\n",
+                                     "__C_LINE_3_a = $C000 ; addr, local, , a_c, PAGE_224, a.c:3\n"};
+        bool all = true;
+        for (int i = 0; i < 3; ++i) {
+            SourceMap m;
+            const auto r = load(m, synth("z24.map", body[i]));
+            all = all && !r && r.count == -1 && r.error.find("line 1") != std::string::npos && m.empty();
+        }
+        // A PAGE line below its section's head, one that runs on past page 223, and numbers past
+        // the limits (BANK 111, DIV 15) refuse the half too.
+        const char* const more[] = {
+            "__PAGE_16_head = $C100 ; const, public, def, , ,\n__C_LINE_3_a = $C000 ; addr, local, , a_c, PAGE_16, a.c:3\n",
+            "__PAGE_223_head = $C000 ; const, public, def, , ,\n__C_LINE_3_a = $E000 ; addr, local, , a_c, PAGE_223, a.c:3\n",
+            "__C_LINE_3_a = $C000 ; addr, local, , a_c, BANK_112, a.c:3\n",
+            "__C_LINE_3_a = $C000 ; addr, local, , a_c, DIV_16, a.c:3\n",
+        };
+        for (const char* text : more) {
+            SourceMap m;
+            const auto r = load(m, synth("z24b.map", text));
+            all = all && !r && r.count == -1 && r.error.find("line ") != std::string::npos && m.empty();
+        }
+        check("Z88MAP-24", "a DIV section, a PAGE section with no __PAGE_n_head or below it or running past page 223, and a number out of range each refuse the half, naming the line",
+              all);
+    }
+    {
+        SourceMap bad_loc;
+        SourceMap bad_value;
+        const auto rl = load(bad_loc, synth("z25a.map",
+            rec("__x", 1, "a_c", "", "", "const") + rec("__C_LINE_3_a", 0x9000, "a_c", "code_compiler", "main.c:abc")));
+        const auto rv = load(bad_value, synth("z25b.map",
+            rec("__x", 1, "a_c", "", "", "const") + rec("__C_LINE_3_a", 0x1000000, "a_c", "code_compiler", "a.c:3")));
+        SourceMap bad_bank;
+        const auto rb = load(bad_bank, synth("z25c.map",
+            rec("__x", 1, "a_c", "", "", "const") + rec("__C_LINE_3_a", 0x1000000, "a_c", "BANK_10", "a.c:3")));
+        // Records that do not tokenize at all (no `$` value, no `;`) refuse the half too.
+        SourceMap bad_tok1;
+        SourceMap bad_tok2;
+        const auto rt1 = load(bad_tok1, synth("z25d.map",
+            rec("__x", 1, "a_c", "", "", "const") + "__C_LINE_3_a = 9000 ; addr, local, , a_c, code_compiler, a.c:3\n"));
+        const auto rt2 = load(bad_tok2, synth("z25e.map",
+            rec("__x", 1, "a_c", "", "", "const") + "__ASM_LINE_3_a = $9000\n"));
+        SourceMap loaded;
+        load(loaded, v24 / "sccz80-debug" / "prog.map");
+        const std::string before = loaded.loaded_file();
+        const auto rn = load(loaded, kNoDebugMap);
+        check("Z88MAP-25", "an unparsable location and a value over 24 bits refuse the half naming line 2; a map with no line records gives 0, no error, and leaves the store alone",
+              !rl && rl.error.find("line 2") != std::string::npos && !rv && rv.error.find("line 2") != std::string::npos &&
+                  !rb && rb.error.find("line 2") != std::string::npos && bad_bank.empty() &&
+                  bad_loc.empty() && bad_value.empty() &&
+                  !rt1 && rt1.error.find("line 2") != std::string::npos && bad_tok1.empty() &&
+                  !rt2 && rt2.error.find("line 2") != std::string::npos && bad_tok2.empty() &&
+                  rn && rn.count == 0 && rn.error.empty() && loaded.size() == 46 && loaded.loaded_file() == before);
+    }
+    {
+        SourceMap m;
+        load(m, v24 / "sccz80-debug" / "prog.map");
+        const std::string before = m.loaded_file();
+        const auto bad = load(m, synth("z26.map", "__C_LINE_3_a = $9000 ; addr, local, , a_c, code_compiler, main.c:abc\n"));
+        check("Z88MAP-26", "a refused load leaves the previous store and its file name",
+              !bad && m.size() == 46 && m.loaded_file() == before && is_at(m.lookup(P4, 0x8CB8), "main.c", 19));
+    }
+    {
+        const fs::path huge = dir / "huge.map";
+        write_text(huge, "_x = $9000 ; addr, public, , m, code, a.c:1\n");
+        fs::resize_file(huge, SOURCE_FILE_MAX_BYTES + 1);
+        SymbolTable st;
+        st.load_z88dk_map((v24 / "sccz80-debug" / "prog.map").string());
+        const size_t before = st.symbols().size();
+        std::string why_z88dk;
+        std::string why_simple;
+        const int rz = st.load_z88dk_map(huge.string(), &why_z88dk);
+        const int rs = st.load_simple_map(huge.string(), &why_simple);
+        SourceMap m;
+        const auto rm = load(m, huge);
+        const std::string expected = source_file_problem(huge.string());
+        check("Z88MAP-27", "a map over the size cap is refused by both symbol loaders with the reason, the loaded table stays; the source half refuses it too",
+              !expected.empty() && rz == -1 && rs == -1 && why_z88dk == expected && why_simple == expected &&
+                  st.symbols().size() == before && st.lookup_name("_main") == 0x8C92 && !rm && rm.error == expected &&
+                  program_loads_later("a.tap") && program_loads_later("DIR/A.TZX") && program_loads_later("a.wav") &&
+                  !program_loads_later("a.nex") && !program_loads_later("a.sna") && !program_loads_later("tap"));
+    }
+    {
+        // GH #427 stage 2a: the two sjasmplus-capable symbol loaders obey the same cap.
+        // Sparse, so it costs no disk. The reads stop at the cap, they do not need the file.
+        const fs::path huge = dir / "huge.sym";
+        write_text(huge, "X: EQU 0x00001234\n");
+        fs::resize_file(huge, SOURCE_FILE_MAX_BYTES + 1);
+        const std::string equ = (fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sym").string();
+        SymbolTable st;
+        st.load_sjasmplus_equ(equ);
+        const size_t before = st.symbols().size();
+        std::string why_equ;
+        const int re = st.load_sjasmplus_equ(huge.string(), &why_equ);
+        check("MAPCAP-01", "load_sjasmplus_equ() refuses a file over the size cap before opening it, "
+                           "with source_file_problem()'s reason, and the loaded table stays",
+              !source_file_problem(huge.string()).empty() && re == -1 &&
+                  why_equ == source_file_problem(huge.string()) && before > 0 &&
+                  st.symbols().size() == before && st.lookup_name("main") == 0x8000);
+        std::string why_both;
+        const int rb = st.load_z88dk_or_sjasmplus(huge.string(), &why_both);
+        std::string why_ok;
+        const int ok = st.load_z88dk_or_sjasmplus(equ, &why_ok);
+        check("MAPCAP-02", "load_z88dk_or_sjasmplus() refuses more than the size cap from its read, "
+                           "naming the limit, with the table kept; a normal file under it still loads",
+              rb == -1 && why_both == "input is over the " + std::to_string(SOURCE_FILE_MAX_BYTES) +
+                                          "-byte limit" &&
+                  ok == 16 && why_ok.empty() && st.lookup_name("main") == 0x8000);
+        fs::remove(huge);
+        // The boundary, the other side: exactly the cap is NOT over it.
+        const fs::path exact = dir / "exact.sym";
+        write_text(exact, "edge: EQU 0x00004321\n");
+        fs::resize_file(exact, SOURCE_FILE_MAX_BYTES);
+        SymbolTable edge;
+        std::string why_edge;
+        const int re2 = edge.load_z88dk_or_sjasmplus(exact.string(), &why_edge);
+        check("MAPCAP-03", "load_z88dk_or_sjasmplus() accepts a file of exactly the size cap (the bound is "
+                           "\"more than\"): it loads, says nothing, and the name resolves",
+              re2 >= 0 && why_edge.empty() && edge.lookup_name("edge") == 0x4321);
+        fs::remove(exact);
+    }
+    {
+        const auto with = [](uint16_t h) {
+            return [h](int) -> std::optional<uint16_t> { return h; };
+        };
+        const auto page = [&](const char* section, uint16_t h, uint32_t v) {
+            const auto s = z88dk_section_space(section, v, with(h));
+            return s.kind == Z88dkSpace::Kind::Paged ? static_cast<int>(s.space.index) : -1;
+        };
+        const auto bank = [&](const char* section, uint32_t v) {
+            const auto s = z88dk_section_space(section, v, no_head);
+            return s.kind == Z88dkSpace::Kind::Paged ? static_cast<int>(s.space.index) : -1;
+        };
+        check("Z88MAP-28", "the section rules: PAGE_n runs on into later pages by its head offset, BANK_n and its siblings by bit 13, _L and _H fix the half, DIV is unpaged, others bind at load",
+              page("PAGE_16", 0xC000, 0xEEE0) == 17 && page("PAGE_16", 0xE100, 0xE358) == 16 &&
+                  page("PAGE_16", 0xC100, 0xE000) == 17 && page("CODE_PAGE_16", 0xC000, 0xEEE0) == 17 &&
+                  bank("BANK_10", 0xD000) == 20 && bank("BANK_10", 0xE000) == 21 && bank("BANK_10", 0xA000) == 21 &&
+                  bank("BANK_10_L", 0xC000) == 20 && bank("BANK_10_H", 0xC000) == 21 &&
+                  bank("BANK_10_H", 0xE000) == 21 && bank("CODE_10", 0xC000) == 20 &&
+                  bank("RODATA_10_align_256", 0xD000) == 20 &&
+                  z88dk_section_space("DIV_3", 0x2000, no_head).kind == Z88dkSpace::Kind::Unpaged &&
+                  bank("BANK_111", 0xC000) == 222 && bank("BANK_111", 0xE000) == 223 &&
+                  z88dk_section_space("BANK_112", 0xC000, no_head).kind == Z88dkSpace::Kind::Unpaged &&
+                  z88dk_section_space("BANK_112", 0x1C000, no_head).kind == Z88dkSpace::Kind::Refused &&
+                  z88dk_section_space("DIV_15", 0x2000, no_head).why.find("out of range") == std::string::npos &&
+                  z88dk_section_space("DIV_16", 0x2000, no_head).why.find("out of range") != std::string::npos &&
+                  z88dk_section_space("DIV_16", 0x12000, no_head).kind == Z88dkSpace::Kind::Refused &&
+                  z88dk_section_space("PAGE_16", 0xC000, with(0xC100)).kind == Z88dkSpace::Kind::Unpaged &&
+                  z88dk_section_space("PAGE_223", 0xE000, with(0xC000)).kind == Z88dkSpace::Kind::Unpaged &&
+                  page("PAGE_223", 0xC000, 0xDFFF) == 223 &&
+                  z88dk_section_space("code_compiler", 0x8000, no_head).kind == Z88dkSpace::Kind::BindAtLoad);
+    }
+
+    {
+        // GH #345: newlib's CRT_ORG_PAGE_n carries the page for __banked, so a runnable
+        // build's __PAGE_n_head is 24-bit ($14C000); design 9.4 rule 1 reads its low 16 bits.
+        SourceMap ms;
+        SourceMap mk;
+        const auto rs = load(ms, master / "sdcc-banked-run" / "prog.map");
+        const auto rk = load(mk, v24 / "sccz80-banked-run" / "prog.map");
+        SourceMap over;
+        const auto ro = load(over, synth("z29.map",
+            rec("__PAGE_20_head", 0x100C000, "", "", "", "const") +
+            rec("__C_LINE_3_a_2ec", 0x14C000, "a_c", "PAGE_20", "a.c:3")));
+        check("Z88MAP-29", "a 24-bit __PAGE_20_head ($14C000, the runnable __banked builds) attaches: banked.c:8 is in page 20 at $C008 (master) and $C003 (v2.4); a head over 24 bits is still refused",
+              rs && rs.count == 35 && starts_are(ms.resolve("banked.c:8"), {{P20, 0xC008}}) &&
+                  is_at(ms.lookup(P20, 0xC000), "banked.c", 5) &&
+                  rk && starts_are(mk.resolve("banked.c:8"), {{P20, 0xC003}}) &&
+                  is_at(mk.lookup(P20, 0xC01B), "banked.c", 9) &&
+                  !ro && ro.error.find("has no __PAGE_20_head") != std::string::npos);
+    }
+
+    // ── Z88SYM-*: the symbol half of the same map, GH #375 stage 3 ──────────────
+    // Oracle: the fixtures' NEX placement (prog_PAGE_20.bin / prog_BANK_10.bin at NEX bank
+    // 10 +0 = page 20; prog_CODE.bin at bank 2 +0 = page 4), design 9.4 and #344 D8.
+    {
+        using Key = SymbolNameKey;
+        const auto key = [](const SymbolTable& t, const char* n) { return t.find_name(n); };
+        const auto is_key = [&](const SymbolTable& t, const char* n, uint16_t a,
+                                std::optional<FetchSource> sp, bool bind) {
+            return key(t, n) == std::optional<Key>(Key{a, sp, bind});
+        };
+        const auto name_is = [](const std::optional<std::string>& got, const char* want) {
+            return got && *got == want;
+        };
+        const auto load_sym = [](SymbolTable& t, const fs::path& map) {
+            return t.load_z88dk_map(map.string());
+        };
+
+        {   // Z88SYM-01 / 02
+            SymbolTable a, b, c;
+            const int na = load_sym(a, v24 / "sccz80-page20" / "prog.map");
+            const int nb = load_sym(b, master / "sdcc-banked" / "prog.map");
+            check("Z88SYM-01", "rule 1 through the symbol loader: _banked_add of a PAGE_20 section is a label of page 20 "
+                               "(sccz80 on 2.4, sdcc on master), shown as banked_add in page 20 only",
+                  na == 10 && nb == 9 && is_key(a, "_banked_add", 0xC000, P20, false) &&
+                      is_key(b, "_banked_add", 0xC000, P20, false) &&
+                      name_is(a.lookup(P20, 0xC000), "banked_add") && !a.lookup(P21, 0xC000) &&
+                      !a.lookup(MemSpace::cpu(), 0xC000) && name_is(b.lookup(P20, 0xC000), "banked_add") &&
+                      !b.lookup(P21, 0xC000));
+            const int nc = load_sym(c, v24 / "sccz80-bank10" / "prog.map");
+            check("Z88SYM-02", "rule 2: _banked_add of a BANK_10 section is a label of page 20 at $C000",
+                  nc == 10 && is_key(c, "_banked_add", 0xC000, P20, false) && !c.lookup(P21, 0xC000));
+        }
+        {   // Z88SYM-03
+            SymbolTable a, b;
+            const int na = load_sym(a, v24 / "classic-bank10" / "prog.map");
+            const int nb = load_sym(b, master / "classic-bank10" / "prog.map");
+            check("Z88SYM-03", "a classic 24-bit value in a numbered section ($AC000, $14C000) is a label of its page "
+                               "(6 fixture-module symbols + 16 of the classic CRT kept by KEEP_CRT, GH #348): "
+                               "the bits above 15 are not read; the 24-bit constant stays no name",
+                  na == 22 && nb == 22 && is_key(a, "_banked_add", 0xC000, P20, false) &&
+                      is_key(b, "_banked_add", 0xC000, P20, false) && !key(a, "__BANK_10_head") &&
+                      !key(b, "__BANK_10_head"));
+        }
+        {   // Z88SYM-04
+            SymbolTable t;
+            load_sym(t, v24 / "sccz80-debug" / "prog.map");
+            const bool unbound = t.symbols().find(0x8C92)->second.bind_at_load &&
+                                 !t.symbols().find(0x8C92)->second.space &&
+                                 name_is(t.lookup(MemSpace::cpu(), 0x8C92), "main");
+            t.bind(nex_space);
+            const bool in4 = name_is(t.lookup(P4, 0x8C92), "main") && !t.lookup(MemSpace::cpu(), 0x8C92) &&
+                             !t.lookup(MemSpace::page(40), 0x8C92) && is_key(t, "_main", 0x8C92, P4, true);
+            t.bind([](uint16_t) { return MemSpace::page(40); });
+            const bool in40 = is_key(t, "_main", 0x8C92, MemSpace::page(40), true);
+            t.bind({});
+            const bool unbound_again = is_key(t, "_main", 0x8C92, std::nullopt, true);
+            SymbolTable p;
+            load_sym(p, v24 / "sccz80-page20" / "prog.map");
+            p.bind(nex_space);
+            check("Z88SYM-04", "rule 4: a symbol of a section naming no page is stored unbound and flagged; bind() gives it "
+                               "the RAM page mapped at its address and touches no paged label",
+                  unbound && in4 && in40 && unbound_again && is_key(p, "_main", 0x8C62, P4, true) &&
+                      is_key(p, "_banked_add", 0xC000, P20, false) && is_key(p, "_result", 0x8E82, P4, true));
+        }
+        {   // Z88SYM-05
+            SymbolTable t;
+            load_sym(t, master / "sdcc-banked" / "prog.map");
+            t.bind(nex_space);
+            const bool rom = name_is(t.lookup(MemSpace::cpu(), 0x0000), "zxn") && !key(t, "zxn")->space;
+            SymbolTable lo;
+            lo.load_z88dk_map(synth("z5.map", rec("_low", 0x2000, "m", "code_user", "m.asm:1")).string());
+            lo.bind([](uint16_t) { return MemSpace::page(30); });
+            const bool ram = is_key(lo, "_low", 0x2000, MemSpace::page(30), true);
+            lo.bind([](uint16_t) { return MemSpace::divmmc_ram(3); });
+            check("Z88SYM-05", "a rule-4 symbol whose address is not in a RAM page (ROM, DivMMC) stays unpaged",
+                  rom && ram && is_key(lo, "_low", 0x2000, std::nullopt, true));
+        }
+        {   // Z88SYM-06
+            SymbolTable t;
+            const int n = t.load_z88dk_map(synth("z6.map",
+                rec("_d", 0x2100, "m", "DIV_3", "m.asm:1") +
+                rec("_dbig", 0x32100, "m", "DIV_3", "m.asm:1") +
+                rec("_nohead", 0xC000, "m", "PAGE_16", "m.asm:1") +
+                rec("_oor", 0xD000, "m", "BANK_200", "m.asm:1") +
+                rec("_big", 0x1C000, "m", "code_compiler", "m.asm:1") +
+                rec("_huge", 0x1000000, "m", "BANK_10", "m.asm:1") +
+                rec("_ok", 0xC010, "m", "BANK_10", "m.asm:1")).string());
+            check("Z88SYM-06", "what the symbol half does with an Unpaged or Refused result: DIV, a head-less PAGE and an "
+                               "out-of-range number stay unpaged (16-bit values), the rest are skipped",
+                  n == 4 && is_key(t, "_d", 0x2100, std::nullopt, false) && !key(t, "_dbig") &&
+                      is_key(t, "_nohead", 0xC000, std::nullopt, false) &&
+                      is_key(t, "_oor", 0xD000, std::nullopt, false) && !key(t, "_big") && !key(t, "_huge") &&
+                      is_key(t, "_ok", 0xC010, P20, false));
+        }
+        {   // Z88SYM-07
+            const fs::path m = synth("z7.map",
+                rec("__banked_init", 0xC010, "m", "PAGE_16", "m.asm:1") +
+                rec("__PAGE_16_head", 0xC000, "", "", "", "const") +
+                rec("_late", 0xEEE0, "m", "PAGE_16", "m.asm:2"));
+            SymbolTable a, b, c;
+            a.load_z88dk_map(m.string());
+            b.load_z88dk_or_sjasmplus(m.string());
+            c.load_z88dk_or_sjasmplus((v24 / "sccz80-page20" / "prog.map").string());
+            check("Z88SYM-07", "the symbol loader reads the file in two passes (a page head after its symbols counts) and --map's "
+                               "loader does the same: $EEE0 of PAGE_16 at $C000 is page 17",
+                  is_key(a, "__banked_init", 0xC010, MemSpace::page(16), false) &&
+                      is_key(a, "_late", 0xEEE0, MemSpace::page(17), false) && a.symbols() == b.symbols() &&
+                      is_key(b, "_late", 0xEEE0, MemSpace::page(17), false) &&
+                      is_key(c, "_banked_add", 0xC000, P20, false));
+        }
+        {   // Z88SYM-08
+            SymbolTable a, b, c;
+            const int na = load_sym(a, master / "sdcc-banked-run" / "prog.map");
+            const int nb = load_sym(b, v24 / "sccz80-banked-run" / "prog.map");
+            const int nc = c.load_z88dk_map(synth("z8.map",
+                rec("__PAGE_21_head", 0x14E000, "", "", "", "const") +
+                rec("_b21", 0x14E000, "b_c", "PAGE_21", "b.c:3") +
+                rec("__PAGE_30_head", 0x100C000, "", "", "", "const") +
+                rec("_over", 0xC000, "o_c", "PAGE_30", "o.c:3")).string());
+            check("Z88SYM-08", "a 24-bit __PAGE_n_head ($14C000, the runnable __banked builds) places the symbols by its low "
+                               "16 bits; the 24-bit constant is no name; a head past 24 bits is no head",
+                  na == 9 && nb == 11 && is_key(a, "_banked_add", 0xC000, P20, false) &&
+                      is_key(b, "_banked_add", 0xC000, P20, false) && name_is(a.lookup(P20, 0xC000), "banked_add") &&
+                      !a.lookup(P21, 0xC000) && !a.lookup(MemSpace::cpu(), 0xC000) && !key(a, "__PAGE_20_head") &&
+                      nc == 2 && is_key(c, "_b21", 0xE000, MemSpace::page(21), false) &&
+                      is_key(c, "_over", 0xC000, std::nullopt, false));
+        }
+        {   // Z88SYM-09
+            // z80asm writes a symbol of its default section with an EMPTY section field.
+            SymbolTable t;
+            const int n = t.load_z88dk_map(synth("z9.map",
+                "start                           = $8000 ; addr, local, , p, , p.asm:2\n").string());
+            const bool unbound = n == 1 && is_key(t, "start", 0x8000, std::nullopt, true) &&
+                                 name_is(t.lookup(MemSpace::cpu(), 0x8000), "start");
+            t.bind(nex_space);
+            check("Z88SYM-09", "for the symbol half a symbol with an empty section (z80asm's default section) is rule 4: "
+                               "flagged and unbound, then in the RAM page mapped at its address, and in no other page",
+                  unbound && is_key(t, "start", 0x8000, P4, true) && name_is(t.lookup(P4, 0x8000), "start") &&
+                      !t.lookup(MemSpace::page(40), 0x8000) && !t.lookup(MemSpace::cpu(), 0x8000));
+        }
+    }
+
+    // ── Z88CN-*: C names for z88dk C symbols, GH #424 stage 1 (design 10.6) ────
+    // Oracle: zcc heads each file with `MODULE <file, non-alnum -> _>` (zcc.c) and its
+    // compilers write every C identifier with a leading `_` (sccz80 Z80ASM_PREFIX); the
+    // fixture maps' own __CDBINFO__ records name the C identifiers; the issue text ("that
+    // symbol wins") for the ambiguity rows, written in the real map line format.
+    {
+        const auto at = [&](const SymbolTable& t, const char* n) { return t.find_name(n); };
+        const auto shown = [](const std::optional<std::string>& got, const char* want) {
+            return got && *got == want;
+        };
+        const auto load_c = [](SymbolTable& t, const fs::path& map) {
+            return t.load_z88dk_map(map.string());
+        };
+        // The C identifiers the map's own debug records declare: global and file-scope variables and
+        // functions (`S:G$x`, `S:Ffile$x`, `F:G$x`, `F:Ffile$x`), their names un-escaped (`_xx` is a hex byte).
+        const auto cdb_names = [](const fs::path& map) {
+            std::set<std::string> names;
+            std::ifstream in(map);
+            std::string line;
+            while (std::getline(in, line)) {
+                if (line.compare(0, 11, "__CDBINFO__") != 0) continue;
+                std::string raw, dec;
+                for (size_t i = 11; i < line.size() && line[i] != ' '; ++i) raw += line[i];
+                for (size_t i = 0; i < raw.size(); ++i) {
+                    if (raw[i] == '_' && i + 2 < raw.size() + 0 && std::isxdigit(static_cast<unsigned char>(raw[i + 1])) &&
+                        std::isxdigit(static_cast<unsigned char>(raw[i + 2]))) {
+                        dec += static_cast<char>(std::stoi(raw.substr(i + 1, 2), nullptr, 16));
+                        i += 2;
+                    } else {
+                        dec += raw[i];
+                    }
+                }
+                if (dec.size() < 4 || (dec[0] != 'S' && dec[0] != 'F') || dec[1] != ':') continue;
+                const size_t kind = dec[2] == 'G' ? 1 : dec[2] == 'F' ? 2 : 0;   // `L` records are locals
+                if (!kind) continue;
+                const size_t d1 = dec.find('$');
+                const size_t d2 = d1 == std::string::npos ? d1 : dec.find('$', d1 + 1);
+                if (d2 != std::string::npos) names.insert(dec.substr(d1 + 1, d2 - d1 - 1));
+            }
+            return names;
+        };
+        const fs::path sc_map = v24 / "sccz80-debug" / "prog.map";
+
+        {   // Z88CN-01
+            SymbolTable t;
+            load_c(t, sc_map);
+            struct Sym { const char* c; const char* a; uint16_t addr; };
+            const Sym syms[] = {{"counter", "_counter", 0x8F59}, {"main", "_main", 0x8C92},
+                                {"square", "_square", 0x8C78}, {"table", "_table", 0x8F5A},
+                                {"util_twice", "_util_twice", 0x8D35}};
+            const auto all_same = [&](const SymbolTable& tt) {
+                for (const Sym& y : syms) {
+                    const auto k = at(tt, y.a);
+                    if (!k || k->addr != y.addr) return false;
+                    if (!(at(tt, y.c) == k)) return false;
+                    if (!(tt.resolve_key(y.c) == k) || !(tt.resolve_key(std::string("@") + y.c) == k)) return false;
+                    if (tt.resolve(y.c) != std::optional<uint16_t>(y.addr)) return false;
+                }
+                return true;
+            };
+            const bool unbound = all_same(t);
+            t.bind(nex_space);
+            const bool bound = all_same(t) && at(t, "counter") == std::optional<SymbolNameKey>(SymbolNameKey{0x8F59, P4, true});
+            t.bind({});
+            const bool unbound_again = all_same(t);
+            const std::set<std::string> cdb = cdb_names(sc_map);
+            const std::set<std::string> want = {"counter", "main", "square", "table", "util_twice"};
+            check("Z88CN-01", "a C symbol (module main_c / util_c) answers to its C name with the very key of its assembler "
+                              "name, unbound, bound to page 4 and unbound again; the C names are the map's own __CDBINFO__ ones",
+                  unbound && bound && unbound_again && cdb == want);
+        }
+        {   // Z88CN-02
+            SymbolTable t;
+            load_c(t, sc_map);
+            const auto names_ok = [&](const SymbolTable& tt, const MemSpace& sp) {
+                return shown(tt.lookup(sp, 0x8F59), "counter") && shown(tt.lookup(sp, 0x8F5A), "table") &&
+                       shown(tt.lookup(sp, 0x8C92), "main") && shown(tt.lookup(sp, 0x8C78), "square") &&
+                       shown(tt.lookup(sp, 0x8D35), "util_twice");
+            };
+            const bool unpaged = names_ok(t, MemSpace::cpu());
+            t.bind(nex_space);
+            const auto near = t.nearest(0x8F5B, nex_space);
+            check("Z88CN-02", "views show the C name: lookup() on the unpaged branch (before bind) and on the paged one "
+                              "(page 4, after), and nearest() uses the same",
+                  unpaged && names_ok(t, P4) && near && near->first == 0x8F5A && near->second == "table");
+        }
+        {   // Z88CN-03
+            SymbolTable t;
+            load_c(t, sc_map);
+            SymbolTable s;
+            const int n = s.load_z88dk_map(synth("cn3.map",
+                "_main                           = $8000 ; addr, public\n" +
+                rec("__xinit_c", 0x8100, "main_c", "code_compiler", "m.c:1") +
+                rec("_k", 0x8200, "main_c", "code_compiler", "m.c:2", "const") +
+                rec("_y", 0x8300, "y_c_asm", "code_compiler", "y.asm:1")).string());
+            check("Z88CN-03", "not C: an asm module's _asm_bump, a main_c symbol with no _ (i_2), a module-less _main, __x, "
+                              "a _k constant and a module that only contains _c keep their names and their C name is unresolved",
+                  shown(t.lookup(MemSpace::cpu(), 0x8D65), "_asm_bump") && !at(t, "asm_bump") &&
+                      shown(t.lookup(MemSpace::cpu(), 0x8CA6), "i_2") && at(t, "i_2") &&
+                      n == 3 && shown(s.lookup(MemSpace::cpu(), 0x8000), "_main") && !at(s, "main") &&
+                      shown(s.lookup(MemSpace::cpu(), 0x8100), "__xinit_c") && !at(s, "_xinit_c") &&
+                      at(s, "_k") && !s.lookup(MemSpace::cpu(), 0x8200) && !at(s, "k") &&
+                      shown(s.lookup(MemSpace::cpu(), 0x8300), "_y") && !at(s, "y"));
+        }
+        {   // Z88CN-04
+            struct Prog { const fs::path map; uint16_t counter; };
+            const Prog progs[] = {{v24 / "sdcc-SO0" / "prog.map", 0x8ED5}, {v24 / "sdcc-SO2" / "prog.map", 0x8ECD},
+                                  {master / "sccz80-debug" / "prog.map", 0x8F59},
+                                  {master / "sdcc-debug" / "prog.map", 0x8EBE},
+                                  {master / "80cc-debug" / "prog.map", 0x8EFB}};
+            bool all = true;
+            for (const Prog& p : progs) {
+                SymbolTable t;
+                load_c(t, p.map);
+                t.bind(nex_space);
+                all = all && t.resolve("counter") == std::optional<uint16_t>(p.counter) &&
+                      t.resolve("_counter") == std::optional<uint16_t>(p.counter) &&
+                      shown(t.lookup(P4, p.counter), "counter");
+            }
+            SymbolTable sub;
+            load_c(sub, v24 / "sccz80-subdir" / "prog.map");
+            check("Z88CN-04", "every compiler and install writes the same _name in a <file>_c module: counter resolves and is shown "
+                              "on sdcc-SO0, sdcc-SO2 and master sccz80, sdcc and 80cc; game/util.c (module game_util_c) is C too",
+                  all && sub.resolve("util_twice") == std::optional<uint16_t>(0x8D35));
+        }
+        {   // Z88CN-05
+            const auto banked = [&](const fs::path& map) {
+                SymbolTable t;
+                load_c(t, map);
+                const auto k = at(t, "banked_add");
+                return k && k->addr == 0xC000 && k->space == std::optional<FetchSource>(P20) && !k->bind_at_load &&
+                       k == at(t, "_banked_add") && shown(t.lookup(P20, 0xC000), "banked_add") &&
+                       !t.lookup(P21, 0xC000) && !t.lookup(MemSpace::cpu(), 0xC000);
+            };
+            SymbolTable far;
+            far.load_z88dk_map(synth("cn5.map", rec("_far", 0x1C000, "m_c", "code_compiler", "m.c:1")).string());
+            check("Z88CN-05", "a banked C function is C too, in its page only (v2.4 sccz80-page20, master sdcc-banked, both "
+                              "classic-bank10 with their 24-bit values); a refused symbol leaves its C name unresolved",
+                  banked(v24 / "sccz80-page20" / "prog.map") && banked(master / "sdcc-banked" / "prog.map") &&
+                      banked(v24 / "classic-bank10" / "prog.map") && banked(master / "classic-bank10" / "prog.map") &&
+                      !at(far, "_far") && !at(far, "far"));
+        }
+        {   // Z88CN-06
+            const std::string c_line = rec("_counter", 0x9000, "main_c", "code_compiler", "m.c:1");
+            const std::string a_line = rec("counter", 0x9100, "asmfn_asm", "code_compiler", "a.asm:1");
+            bool a_ok = true;
+            for (int order = 0; order < 2; ++order) {
+                SymbolTable t;
+                t.load_z88dk_map(synth("cn6a.map", order ? a_line + c_line : c_line + a_line).string());
+                a_ok = a_ok && t.resolve("counter") == std::optional<uint16_t>(0x9100) &&
+                       t.resolve("_counter") == std::optional<uint16_t>(0x9000) &&
+                       shown(t.lookup(MemSpace::cpu(), 0x9000), "_counter") &&
+                       shown(t.lookup(MemSpace::cpu(), 0x9100), "counter") && t.shown_name("_counter") == "_counter";
+            }
+            bool b_ok = true;
+            const std::string s_line = rec("_size", 0x9200, "main_c", "code_compiler", "m.c:2");
+            const std::string k_line = rec("size", 0x10, "", "", "", "const");
+            for (int order = 0; order < 2; ++order) {
+                SymbolTable t;
+                t.load_z88dk_map(synth("cn6b.map", order ? k_line + s_line : s_line + k_line).string());
+                b_ok = b_ok && t.resolve("size") == std::optional<uint16_t>(0x10) &&
+                       shown(t.lookup(MemSpace::cpu(), 0x9200), "_size") && t.resolve("_size") == std::optional<uint16_t>(0x9200);
+            }
+            check("Z88CN-06", "an exact name wins in either file order: a real `counter` label, or a `size` constant, "
+                              "beats the C name of _counter / _size, which is then shown as written",
+                  a_ok && b_ok);
+        }
+        {   // Z88CN-07
+            SymbolTable b;
+            load_c(b, sc_map);
+            SymbolTable a1;
+            a1.add_label("counter", 0x9100, std::nullopt);
+            a1.merge(b);
+            SymbolTable a2;
+            a2.add_label("counter", 0x9100, std::nullopt);
+            SymbolTable b2 = b;
+            b2.merge(a2);
+            SymbolTable e;
+            e.merge(b);
+            SymbolTable a3;
+            a3.add_label("_counter", 0x9500, std::nullopt);
+            a3.merge(b);
+            check("Z88CN-07", "merge(): a real `counter` wins whichever side holds it and the C one is shown as _counter; "
+                              "into an empty table the C names survive; an asm `_counter` already there stays `_counter` and the C one keeps `counter`",
+                  a1.resolve("counter") == std::optional<uint16_t>(0x9100) && shown(a1.lookup(MemSpace::cpu(), 0x8F59), "_counter") &&
+                      b2.resolve("counter") == std::optional<uint16_t>(0x9100) &&
+                      shown(b2.lookup(MemSpace::cpu(), 0x8F59), "_counter") &&
+                      e.resolve("counter") == std::optional<uint16_t>(0x8F59) && shown(e.lookup(MemSpace::cpu(), 0x8F59), "counter") &&
+                      a3.resolve("counter") == std::optional<uint16_t>(0x8F59) &&
+                      shown(a3.lookup(MemSpace::cpu(), 0x8F59), "counter") &&
+                      shown(a3.lookup(MemSpace::cpu(), 0x9500), "_counter"));
+        }
+        {   // Z88CN-08
+            SymbolTable t;
+            load_c(t, sc_map);
+            t.load_z88dk_map(synth("cn8.map", rec("_counter", 0x9000, "asmfn_asm", "code_user", "a.asm:1")).string());
+            const bool reloaded = !at(t, "counter") && shown(t.lookup(MemSpace::cpu(), 0x9000), "_counter");
+            SymbolTable u;
+            load_c(u, sc_map);
+            u.load_sjasmplus_equ((fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sym").string());
+            SymbolTable v;
+            v.load_z88dk_or_sjasmplus(sc_map.string());
+            check("Z88CN-08", "a reload replaces the C names with the new file's (an asm-only map has none), a sjasmplus file "
+                              "loaded after keeps none of them, and --map's loader gives them as the .map loader does",
+                  reloaded && !at(u, "_counter") && u.resolve("counter") == std::optional<uint16_t>(6) &&
+                      v.resolve("counter") == std::optional<uint16_t>(0x8F59) &&
+                      shown(v.lookup(MemSpace::cpu(), 0x8F59), "counter"));
+        }
+        {   // Z88CN-09
+            SymbolTable t;
+            load_c(t, sc_map);
+            check("Z88CN-09", "shown_name(): a C symbol's assembler name gives its C name; its C name, an asm label, a "
+                              "double-underscore name and an unknown one come back as given",
+                  t.shown_name("_counter") == "counter" && t.shown_name("counter") == "counter" &&
+                      t.shown_name("_asm_bump") == "_asm_bump" && t.shown_name("nope") == "nope" &&
+                      t.shown_name("__xinit_c") == "__xinit_c");
+        }
+        {   // Z88CN-10
+            std::vector<fs::path> maps;
+            for (const auto& root : {v24, master})
+                for (const auto& d : fs::directory_iterator(root))
+                    if (fs::exists(d.path() / "prog.map")) maps.push_back(d.path() / "prog.map");
+            maps.push_back(fs::path(JNEXT_ZDEBUGMAP_DIR) / "debug.map");
+            maps.push_back(kNoDebugMap);
+            bool all = !maps.empty();
+            bool each_differs = true;
+            for (const fs::path& map : maps) {
+                SymbolTable t;
+                load_c(t, map);
+                t.bind(nex_space);
+                bool differs = false;
+                for (const auto& [addr, label] : t.symbols()) {
+                    const FetchSource sp = label.space ? *label.space : MemSpace::cpu();
+                    const auto name = t.lookup(sp, addr);
+                    if (!name) { all = false; continue; }
+                    // The label lookup() answers for: the shown name resolves to the same key as its own name.
+                    const auto answered = t.lookup_assembler(sp, addr);
+                    if (!answered) { all = false; continue; }
+                    // A shown C name resolves to the very symbol it labels (address and memory).
+                    if (*name != *answered) {
+                        const auto k = t.find_name(*name);
+                        if (!k || k->addr != addr || !(k->space == label.space)) all = false;
+                    } else if (!t.find_name(*name)) {
+                        all = false;
+                    }
+                    if (*name != *answered) differs = true;
+                }
+                each_differs = each_differs && differs;
+            }
+            SymbolTable inc;
+            load_c(inc, master / "sdcc-debug" / "prog.map");
+            inc.bind(nex_space);
+            // Two C modules each have a local _util_inc: `util_inc` is the first one's, which shows it; the
+            // second shows its assembler name, so a shown C name always resolves to its own symbol.
+            const auto first_inc = inc.find_name("util_inc");
+            int shown_inc = 0, shown_asm = 0;
+            for (const auto& [addr, label] : inc.symbols()) {
+                if (label.name != "_util_inc") continue;
+                if (shown(inc.lookup(P4, addr), "util_inc") && first_inc && first_inc->addr == addr) ++shown_inc;
+                if (shown(inc.lookup(P4, addr), "_util_inc") && first_inc && first_inc->addr != addr) ++shown_asm;
+            }
+            check("Z88CN-10", "over every committed z88dk map, after bind: the shown name of each label resolves to the "
+                              "symbol the label's own name does, and each map shows at least one C name; of the two _util_inc "
+                              "labels of sdcc-debug the first shows util_inc (which resolves to it), the second _util_inc",
+                  all && each_differs && shown_inc == 1 && shown_asm == 1 &&
+                      inc.find_name("util_inc") == inc.find_name("_util_inc"));
+        }
+        {   // Z88CN-11
+            SymbolTable t;
+            load_c(t, sc_map);
+            t.bind(nex_space);
+            const auto aname = disasm_text::symbol_namer(&t, nex_space, true);
+            const auto cname = disasm_text::symbol_namer(&t, nex_space);
+            check("Z88CN-11", "lookup_assembler() keeps the assembler name of a C symbol (and of an asm label); the namer "
+                              "built with assembler_names asks it, the default namer gives the C name",
+                  shown(t.lookup_assembler(P4, 0x8F59), "_counter") && shown(t.lookup(P4, 0x8F59), "counter") &&
+                      shown(t.lookup_assembler(P4, 0x8D65), "_asm_bump") && aname(0x8F59) == std::optional<std::string>("_counter") &&
+                      cname(0x8F59) == std::optional<std::string>("counter"));
+        }
+        {   // Z88CN-12 / 13 / 14: the C-name rule is per SYMBOL, not per assembler name (GH #424 round 1b)
+            const std::string c_line = rec("_dup", 0x9400, "main_c", "code_compiler", "m.c:3");
+            const std::string a_line = rec("_dup", 0x9300, "x_asm", "code_compiler", "x.asm:1");
+            SymbolTable ca;   // C module first, asm second
+            ca.load_z88dk_map(synth("cn12.map", c_line + a_line).string());
+            check("Z88CN-12", "a C module's _dup then an asm module's _dup: `dup` resolves to the C one ($9400), which "
+                              "shows dup; the asm one keeps showing _dup",
+                  ca.resolve("dup") == std::optional<uint16_t>(0x9400) &&
+                      shown(ca.lookup(MemSpace::cpu(), 0x9400), "dup") && shown(ca.lookup(MemSpace::cpu(), 0x9300), "_dup") &&
+                      shown(ca.lookup_assembler(MemSpace::cpu(), 0x9400), "_dup"));
+            SymbolTable ac;   // asm module first, C second
+            ac.load_z88dk_map(synth("cn13.map", a_line + c_line).string());
+            check("Z88CN-13", "an asm module's _dup then a C module's _dup: `dup` still resolves to the C one ($9400) "
+                              "and shows dup, the asm one keeps showing _dup; `_dup` resolves to the first (asm)",
+                  ac.resolve("dup") == std::optional<uint16_t>(0x9400) &&
+                      shown(ac.lookup(MemSpace::cpu(), 0x9400), "dup") && shown(ac.lookup(MemSpace::cpu(), 0x9300), "_dup") &&
+                      ac.resolve("_dup") == std::optional<uint16_t>(0x9300) && ac.shown_name("dup") == "dup");
+            SymbolTable cc;   // two C modules, each a local _inc at its own address
+            cc.load_z88dk_map(synth("cn14.map",
+                rec("_inc", 0x9500, "a_c", "code_compiler", "a.c:1") +
+                rec("_inc", 0x9600, "b_c", "code_compiler", "b.c:1")).string());
+            check("Z88CN-14", "two C modules with the same local name: `inc` resolves to the first ($9500) and that one "
+                              "shows inc; the second shows _inc, so no shown C name resolves to another symbol",
+                  cc.resolve("inc") == std::optional<uint16_t>(0x9500) &&
+                      shown(cc.lookup(MemSpace::cpu(), 0x9500), "inc") && shown(cc.lookup(MemSpace::cpu(), 0x9600), "_inc"));
+        }
+        {   // Z88CN-15: the identity of a C symbol includes its memory (review 1, F1)
+            // Two banked C files each with a static _helper at $C000, one in PAGE_20, one in PAGE_21.
+            SymbolTable bk;
+            bk.load_z88dk_map(synth("cn15.map",
+                rec("__PAGE_20_head", 0x14C000, "", "", "", "const") +
+                rec("__PAGE_21_head", 0x15C000, "", "", "", "const") +
+                rec("_helper", 0x14C000, "bank20_c", "PAGE_20", "bank20.c:3") +
+                rec("_helper", 0x15C000, "bank21_c", "PAGE_21", "bank21.c:3")).string());
+            const auto k = bk.find_name("helper");
+            check("Z88CN-15", "two banked C files with a static _helper at $C000, in PAGE_20 and PAGE_21: `helper` resolves "
+                              "to page 20; page 20 shows helper, page 21 shows _helper (a shown C name never names another page)",
+                  k && k->addr == 0xC000 && k->space == std::optional<FetchSource>(P20) &&
+                      shown(bk.lookup(P20, 0xC000), "helper") && shown(bk.lookup(P21, 0xC000), "_helper") &&
+                      bk.shown_name("helper") == "helper");
+        }
+        {   // Z88CN-16: a C symbol whose label is not stored still answers to its C name (review 1, F2)
+            SymbolTable two;
+            two.load_z88dk_map(synth("cn16.map",
+                rec("_first", 0x9000, "main_c", "code_compiler", "m.c:1") +
+                rec("_second", 0x9000, "main_c", "code_compiler", "m.c:1")).string());
+            check("Z88CN-16", "two C symbols at one address: first, second, _first and _second all resolve to it, and the view shows the first, first",
+                  two.resolve("first") == std::optional<uint16_t>(0x9000) && two.resolve("second") == std::optional<uint16_t>(0x9000) &&
+                      two.resolve("_first") == std::optional<uint16_t>(0x9000) && two.resolve("_second") == std::optional<uint16_t>(0x9000) &&
+                      shown(two.lookup(MemSpace::cpu(), 0x9000), "first"));
+        }
+    }
+
+    // ── Z88MAP-30 (GH #348): line 0 is z80asm's file-entry marker, no code ──
+    {
+        bool ok = true;
+        const struct { fs::path map; uint16_t at; uint16_t zero; } cases[] = {
+            {v24 / "sccz80-incmid" / "prog.map", 0x8C6E, 0x8C76},
+            {master / "sccz80-incmid" / "prog.map", 0x8C6E, 0x8C76},
+            {master / "80cc-incmid" / "prog.map", 0x8C65, 0x8C72},
+        };
+        for (const auto& c : cases) {
+            SourceMap m;
+            const auto r = load(m, c.map);
+            bool zero_line = false;
+            for (const SourceLocation* l : m.lookup_all(P4, c.zero)) zero_line = zero_line || l->line == 0;
+            ok = ok && r && r.count > 0 && r.error.empty() && is_at(m.lookup(P4, c.at), "incmid.c", 3) &&
+                 m.lookup(P4, c.zero) && !zero_line;
+        }
+        {   // a line-0 record alone at its address: no range of line 0 is made from it
+            SourceMap m;
+            const auto r = load(m, synth("z30.map",
+                rec("__C_LINE_0_a_2eh", 0x9000, "a_c", "code_compiler", "a.h::f::0::1:0") +
+                rec("__C_LINE_3_a_2ec", 0x9004, "a_c", "code_compiler", "a.c::f::0::1:3")));
+            ok = ok && r && r.count == 1 && !m.lookup(P4, 0x9000) && is_at(m.lookup(P4, 0x9004), "a.c", 3);
+        }
+        {   // an empty line number is not line 0: it is refused, naming the map line
+            SourceMap m;
+            const auto r = load(m, synth("z30b.map", rec("__C_LINE_3_a_2ec", 0x9000, "a_c", "code_compiler", "main.c:")));
+            ok = ok && !r && r.error.find("line 1") != std::string::npos;
+        }
+        check("Z88MAP-30", "a record of line 0 in a code section (sccz80 and 80cc write one for an #include after a function) is no code: the map attaches, incmid.c:3 is where its record puts it, and no location at the line-0 record's address has line 0",
+              ok);
+    }
+
+    // ── Z88DOT-*: z88dk dot commands (GH #351, design 9.4 rule 5) ───────────────
+    // Oracle: the committed dot / dotx / dotn fixtures (what zcc +zxn -subtype=dot|dotx|dotn
+    // produced) and NextZXOS's measured behaviour (the README, "dot / dotx / dotn"): the
+    // command runs from DivMMC RAM bank 2 at $2000, so its CODE group is DivMmcRam{2} whatever
+    // `space_of` says is mapped at $2000 when the map is attached (the ROM, here).
+    {
+        const MemSpace D2 = MemSpace::divmmc_ram(2);
+        // The ROM at $0000-$3FFF, as NextZXOS's prompt leaves it; the main-memory pages as the NEX loader.
+        const SymbolSpaceOf prompt = nex_space;
+        // All the dot.c lines of `m` (1..22) that resolve, each with its start spaces.
+        const auto only_in = [](const SourceMap& m, const MemSpace& want) {
+            bool any = false;
+            for (int line = 1; line <= 22; ++line)
+                for (const SourceAddress& a : m.resolve("dot.c:" + std::to_string(line)).starts) {
+                    any = true;
+                    if (!(a.space == want)) return false;
+                }
+            return any;
+        };
+        const auto text_of = [](const fs::path& p) {
+            std::ifstream in(p, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        // `text` without the lines that start with `name`, plus `extra`.
+        const auto edited = [](const std::string& text, const std::string& name, const std::string& extra) {
+            std::string out;
+            size_t at = 0;
+            while (at < text.size()) {
+                size_t nl = text.find('\n', at);
+                if (nl == std::string::npos) nl = text.size();
+                const std::string line = text.substr(at, nl - at);
+                if (line.compare(0, name.size(), name) != 0 ||
+                    (line.size() > name.size() && line[name.size()] != ' ' && line[name.size()] != '='))
+                    out += line + "\n";
+                at = nl + 1;
+            }
+            return out + extra;
+        };
+
+        {   // Z88DOT-01
+            SourceMap m;
+            const auto r = load(m, v24 / "sccz80-dot" / "prog.map", prompt);
+            check("Z88DOT-01", "a 2.4 sccz80 dot command's map attaches with the ROM mapped at $2000: every dot.c line is in DivMMC RAM bank 2, "
+                               "dot.c:14 starts at $2D62 there, and the same address in ROM 0 or a RAM page names nothing (it is not the map's memory)",
+                  r && r.count > 0 && m.dot() && only_in(m, D2) && starts_are(m.resolve("dot.c:14"), {{D2, 0x2D62}}) &&
+                      is_at(m.lookup(D2, 0x2D62), "dot.c", 14) && !m.lookup(MemSpace::rom(0), 0x2D62) &&
+                      !m.lookup(MemSpace::page(4), 0x2D62) && !m.lookup(MemSpace::page(10), 0x2D62) &&
+                      !m.lookup(MemSpace::cpu(), 0x2D62));
+        }
+        {   // Z88DOT-02
+            SourceMap sc, sd, cc;
+            const auto rs = load(sc, master / "sccz80-dot" / "prog.map", prompt);
+            const auto rd = load(sd, master / "sdcc-dot" / "prog.map", prompt);
+            const auto rc = load(cc, master / "80cc-dot" / "prog.map", prompt);
+            check("Z88DOT-02", "the master sccz80, sdcc (TAB form) and 80cc dot maps: every dot.c line in DivMMC RAM bank 2; "
+                               "sccz80 dot.c:17 at $2D92, sdcc dot.c:14 (owner of $2D43 with line 11) and 80cc dot.c:14 at $2D64",
+                  rs && rd && rc && sc.dot() && sd.dot() && cc.dot() && only_in(sc, D2) && only_in(sd, D2) && only_in(cc, D2) &&
+                      starts_are(sc.resolve("dot.c:17"), {{D2, 0x2D92}}) &&
+                      is_at(sd.lookup(D2, 0x2D43), "dot.c", 14) && starts_are(sd.resolve("dot.c:14"), {{D2, 0x2D43}}) &&
+                      starts_are(cc.resolve("dot.c:14"), {{D2, 0x2D64}}) && !sc.lookup(MemSpace::rom(0), 0x2D92));
+        }
+        {   // Z88DOT-03
+            SourceMap m;
+            const auto r = load(m, v24 / "sccz80-dotx" / "prog.map", prompt);
+            // crt0's lines are in the CODE group at $2000-$267C; dot.c's are `code_compiler` of MAIN at $87xx.
+            const auto main_lines = m.resolve("dot.c:14").starts;
+            bool crt_in_div = false, crt_elsewhere = false;
+            for (int page = 0; page < 224; ++page)
+                crt_elsewhere = crt_elsewhere || m.lookup(MemSpace::page(static_cast<uint16_t>(page)), 0x2010) != nullptr;
+            crt_in_div = m.lookup(D2, 0x2010) != nullptr || m.lookup(D2, 0x2000) != nullptr;
+            check("Z88DOT-03", "a 2.4 sccz80 dotx: its crt lines ($2000-$267C, the CODE group) are DivMMC RAM bank 2; dot.c:14 (code_compiler in MAIN, $87EB) takes the space "
+                               "the MMU maps ($8000-$9FFF is page 4 here), not the DivMMC bank",
+                  r && m.dot() && crt_in_div && !crt_elsewhere && main_lines.size() == 1 && main_lines[0].space == P4 &&
+                      main_lines[0].address >= 0x8000 && main_lines[0].address < 0xA000 &&
+                      is_at(m.lookup(P4, main_lines[0].address), "dot.c", 14) && !m.lookup(D2, main_lines[0].address));
+        }
+        {   // Z88DOT-04
+            const fs::path dotn = kFixtures / "v2.4-dotn" / "sccz80" / "prog.map";
+            SourceMap m;
+            const auto r = load(m, dotn, prompt);
+            SymbolTable st;
+            const int n = st.load_z88dk_map(dotn.string());
+            st.bind(prompt);
+            bool all_in_div = n > 0 && !st.symbols().empty();
+            for (const auto& [addr, label] : st.symbols())
+                all_in_div = all_in_div && label.space && *label.space == D2 && addr >= 0x2000 && addr < 0x4000;
+            check("Z88DOT-04", "a 2.4 sccz80 dotn: the source half is refused (count -1, the store untouched) saying NextZXOS allocates its pages when it runs; "
+                               "the symbol half keeps only the DOT part ($2000-$3FFF, DivMMC RAM bank 2) and skips the main-bank symbols (_main, _add3)",
+                  !r && r.count == -1 && m.empty() && !m.dot() && r.error.find("NextZXOS allocates") != std::string::npos &&
+                      r.error.find("dotx") != std::string::npos && all_in_div && !st.find_name("_main") && !st.find_name("_add3"));
+        }
+        {   // Z88DOT-05
+            const std::string base = text_of(v24 / "sccz80-dot" / "prog.map");
+            fs::copy_file(v24 / "sccz80-dot" / "prog_CODE.bin", dir / "z05_CODE.bin", fs::copy_options::overwrite_existing);
+            SourceMap no_offset, other_offset, moved_head, same;
+            const auto a = load(no_offset, synth("z05a.map", edited(base, "startupoffset", "")), prompt);
+            const auto b = load(other_offset, synth("z05b.map", edited(base, "startupoffset", "startupoffset = $0400 ; const, local, , zxn_crt_asm_m4, , x:9\n")), prompt);
+            const auto c = load(moved_head, synth("z05c.map", edited(base, "__CODE_head", "__CODE_head = $2100 ; const, public, def, , ,\n")), prompt);
+            const auto d = load(same, synth("z05d.map", base), prompt);
+            check("Z88DOT-05", "a dot command is told by the map, not the address: the same map without `startupoffset`, or with $0400, is refused as today "
+                               "(its $2D4C is not in a RAM page); with $0100 and `__CODE_head` $2100 it is refused saying CODE must start at $2000; unchanged it loads",
+                  !a && a.error.find("not in a RAM page") != std::string::npos && !b && b.error.find("not in a RAM page") != std::string::npos &&
+                      !c && c.error.find("$2000") != std::string::npos && !no_offset.dot() && d && same.dot());
+        }
+        {   // Z88DOT-06
+            SymbolTable st;
+            const int n = st.load_z88dk_map((v24 / "sccz80-dot" / "prog.map").string());
+            check("Z88DOT-06", "the symbol half of a dot command's map: _main ($2D5F) and _add3 ($2D4C) are labels of DivMMC RAM bank 2, shown as main and add3 there; "
+                               "ROM 0 and a RAM page show nothing at $2D5F, and the name does not wait for bind()",
+                  n > 0 && st.find_name("_main") == std::optional<SymbolNameKey>(SymbolNameKey{0x2D5F, std::optional<FetchSource>(D2), false}) &&
+                      st.find_name("_add3") == std::optional<SymbolNameKey>(SymbolNameKey{0x2D4C, std::optional<FetchSource>(D2), false}) &&
+                      st.lookup(D2, 0x2D5F) == std::optional<std::string>("main") &&
+                      !st.lookup(MemSpace::rom(0), 0x2D5F) && !st.lookup(MemSpace::page(4), 0x2D5F) && !st.lookup(MemSpace::cpu(), 0x2D5F));
+        }
+        {   // Z88DOT-07
+            SourceMap m, x;
+            load(m, v24 / "sccz80-dot" / "prog.map", prompt);
+            load(x, v24 / "sccz80-dotx" / "prog.map", prompt);
+            const auto code = [](const fs::path& f) {
+                std::ifstream in(f, std::ios::binary);
+                return std::vector<uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            };
+            const auto dot_bin = code(v24 / "sccz80-dot" / "prog_CODE.bin");
+            const auto x_code = code(v24 / "sccz80-dotx" / "prog_CODE.bin");
+            const auto x_main = code(v24 / "sccz80-dotx" / "prog_MAIN.bin");
+            // Memory as NextZXOS leaves it: CODE at $2000 of bank 2, MAIN at $8000 of page 4.
+            const auto reader = [&](const std::vector<uint8_t>& c, const std::vector<uint8_t>& mn) {
+                return [&c, &mn](FetchSource sp, uint16_t a) -> std::optional<uint8_t> {
+                    if (sp.kind == MemSpace::Kind::DivMmcRam && sp.index == 2 && a >= 0x2000 && a - 0x2000u < c.size() && a < 0x4000)
+                        return c[a - 0x2000u];
+                    if (sp == P4 && a >= 0x8000 && a - 0x8000u < mn.size()) return mn[a - 0x8000u];
+                    return std::nullopt;
+                };
+            };
+            const auto spans = m.verify_spans();
+            const auto xspans = x.verify_spans();
+            bool dot_units_ok = !spans.empty(), x_units_ok = false, x_div = false, x_p4 = false;
+            for (const auto& sp : spans) dot_units_ok = dot_units_ok && sp.unit == D2 && sp.space == D2;
+            for (const auto& sp : xspans) {
+                x_div = x_div || (sp.unit == D2 && sp.space == D2);
+                x_p4 = x_p4 || (sp.unit == P4 && sp.space == P4);
+                x_units_ok = true;
+            }
+            const auto dummy = [](uint16_t) { return uint8_t(0); };
+            std::vector<uint8_t> bad = dot_bin;
+            for (const auto& sp : spans) { bad[sp.lo - 0x2000u] ^= 0xFF; break; }
+            const auto good_dot = m.verify_unit(D2, dummy, reader(dot_bin, x_main));
+            const auto bad_dot = m.verify_unit(D2, dummy, reader(bad, x_main));
+            const auto good_x2 = x.verify_unit(D2, dummy, reader(x_code, x_main));
+            const auto good_x4 = x.verify_unit(P4, dummy, reader(x_code, x_main));
+            std::vector<uint8_t> bad_main = x_main;
+            for (const auto& sp : xspans) if (sp.unit == P4) { bad_main[sp.lo - 0x8000u] ^= 0xFF; break; }
+            const auto bad_x4 = x.verify_unit(P4, dummy, reader(x_code, bad_main));
+            check("Z88DOT-07", "the identity of a dot command: one unit, DivMMC RAM bank 2, whose bytes are prog_CODE.bin at addr - $2000; a dotx has two units "
+                               "(bank 2 from prog_CODE.bin, page 4 from prog_MAIN.bin at addr - $8000), each judged against its own memory",
+                  m.has_identity() && dot_units_ok && x_units_ok && x_div && x_p4 && good_dot == std::optional<bool>(true) &&
+                      bad_dot == std::optional<bool>(false) && good_x2 == std::optional<bool>(true) &&
+                      good_x4 == std::optional<bool>(true) && bad_x4 == std::optional<bool>(false));
+        }
+        {   // Z88DOT-08 (GH #348): the listing route, the third consumer of the section rules
+            SourceMap m;
+            const auto r = load_z88dk_source_map(m, (v24 / "sdcc-dot" / "prog.map").string(), prompt, Z88dkListings::Beside);
+            check("Z88DOT-08", "a 2.4 sdcc dot command has no C line in its map (-SO2 --c-code-in-asm): the dot.c lines come from dot.c.lis and are in DivMMC RAM bank 2",
+                  r && r.listings > 0 && m.dot() && only_in(m, D2) && !m.resolve("dot.c:14").starts.empty());
+        }
+        {   // Z88DOT-09 (review R4): the dotn refusal, pure
+            const std::function<std::optional<uint16_t>(int)> head_c000 = [](int) { return std::optional<uint16_t>(0xC000); };
+            const Z88dkDot dn{Z88dkDot::Variant::Dotn}, dd{Z88dkDot::Variant::Dot}, dx{Z88dkDot::Variant::Dotx};
+            const auto page_n = z88dk_section_space("PAGE_20", 0xC010, head_c000, &dn);
+            const auto div_n  = z88dk_section_space("DIV_3", 0x2010, head_c000, &dn);
+            const auto cdiv_n = z88dk_section_space("CODE_DIV_3", 0x2010, head_c000, &dn);
+            const auto main_n = z88dk_section_space("code_compiler", 0x87D5, head_c000, &dn);
+            const auto dot_n  = z88dk_section_space("code_compiler", 0x2D5F, head_c000, &dn);
+            bool same = true;
+            for (const Z88dkDot* v : {&dd, &dx}) {
+                const auto pg  = z88dk_section_space("PAGE_20", 0xC010, head_c000, v);
+                const auto dv  = z88dk_section_space("DIV_3", 0x2010, head_c000, v);
+                const auto mn  = z88dk_section_space("code_compiler", 0x87D5, head_c000, v);
+                same = same && pg.kind == Z88dkSpace::Kind::Paged && pg.space == P20 && pg.addr16 == 0xC010 &&
+                       dv.kind == Z88dkSpace::Kind::Unpaged && mn.kind == Z88dkSpace::Kind::BindAtLoad && mn.addr16 == 0x87D5;
+            }
+            check("Z88DOT-09", "section_space with a dotn context: PAGE_20, DIV_3, CODE_DIV_3 and an unnumbered section outside $2000-$3FFF are Refused saying NextZXOS "
+                               "allocates those pages; its $2000-$3FFF code is DivMmcRam{2}; with a dot or dotx context the same PAGE_20 stays page 20, DIV_3 Unpaged and the "
+                               "main part rule 4",
+                  page_n.kind == Z88dkSpace::Kind::Refused && div_n.kind == Z88dkSpace::Kind::Refused &&
+                      cdiv_n.kind == Z88dkSpace::Kind::Refused && main_n.kind == Z88dkSpace::Kind::Refused &&
+                      page_n.why.find("NextZXOS allocates") != std::string::npos && div_n.why.find("NextZXOS allocates") != std::string::npos &&
+                      dot_n.kind == Z88dkSpace::Kind::Paged && dot_n.space == MemSpace::divmmc_ram(kNextZxosDotBank) && same);
+        }
+        {   // Z88DOT-10 (review R3): the module-symbol bound of an extent, inside DivMMC bank 2
+            // dutil.c:7 is the last line of the map; with no `__code_compiler_tail`, a library
+            // symbol of another module at $2DD1 is the only thing that ends its range there.
+            const std::string base = text_of(v24 / "sccz80-dot" / "prog.map");
+            SourceMap m;
+            const auto r = load(m, synth("z10.map", edited(base, "__code_compiler_tail",
+                "l_rev_lib = $2DD1 ; addr, public, , l_rev_lib_asm, code_l, l_rev.asm:1\n")), prompt);
+            SourceMap plain;
+            const auto rp = load(plain, synth("z10b.map", edited(base, "__code_compiler_tail", "")), prompt);
+            check("Z88DOT-10", "an addr symbol of another module bounds a dot command's line range in DivMMC bank 2: dutil.c:7 ($2DC8) ends at the module's symbol at $2DD1, "
+                               "and without that symbol it runs on (to the 1 KB cap)",
+                  r && rp && is_at(m.lookup(D2, 0x2DD0), "dutil.c", 7) && !m.lookup(D2, 0x2DD1) &&
+                      is_at(plain.lookup(D2, 0x2DD1), "dutil.c", 7));
+        }
+    }
+
+
+
+    {
+        // The BOM (owner decision 2026-11-01, GH #427): the symbol loaders skip one at the very
+        // start of the file, as the SLD loader does, so the first symbol is not renamed by it.
+        const std::string bom = "\xEF\xBB\xBF";
+        const auto slurp = [](const fs::path& f) {
+            std::ifstream in(f, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        const fs::path equ = fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sym";
+        const std::string equ_body = slurp(equ);
+        const std::string head = "first: EQU 0x00009000\n";
+        const fs::path equ_bom = synth("bom.sym", bom + head + equ_body);
+        const fs::path equ_head = synth("head.sym", head + equ_body);
+        SymbolTable plain_equ, a, b;
+        const int pe = plain_equ.load_sjasmplus_equ(equ_head.string());
+        const int ea = a.load_sjasmplus_equ(equ_bom.string());
+        const int eb = b.load_z88dk_or_sjasmplus(equ_bom.string());
+        check("MAPBOM-01", "a BOM before a sjasmplus EQU file is skipped by load_sjasmplus_equ() and "
+                           "load_z88dk_or_sjasmplus(): same count, and the first line's symbol keeps its name",
+              pe > 0 && ea == pe && eb == pe && plain_equ.lookup_name("first") == 0x9000 &&
+                  a.lookup_name("first") == 0x9000 && b.lookup_name("first") == 0x9000 &&
+                  a.lookup_name("main") == 0x8000 && b.lookup_name("main") == 0x8000);
+        const fs::path prog = v24 / "sccz80-debug" / "prog.map";
+        const std::string first = "_first = $9000 ; addr, public, , m, code_compiler, x.c:1\n";
+        const fs::path map_bom = synth("bom.map", bom + first + slurp(prog));
+        SymbolTable c, d;
+        const int ca = c.load_z88dk_map(map_bom.string());
+        const int cb = d.load_z88dk_or_sjasmplus(map_bom.string());
+        // The source adapter: the BOM sits on a line record, which it would otherwise not recognise.
+        const std::string recs = rec("__C_LINE_3_a_2ec", 0x9000, "a_c", "code_compiler", "a.c::f::0::1:3") +
+                                 rec("__C_LINE_4_a_2ec", 0x9004, "a_c", "code_compiler", "a.c::f::0::1:4");
+        SourceMap sm, smp;
+        const auto rb = load(sm, synth("bomrec.map", bom + recs));
+        const auto rp = load(smp, synth("plainrec.map", recs));
+        check("MAPBOM-02", "a BOM before a z88dk map is skipped by load_z88dk_map(), "
+                           "load_z88dk_or_sjasmplus() and the source adapter: the first line's symbol keeps "
+                           "its name, and the source half loads what the plain map does",
+              ca == 20 && cb == 20 && c.lookup_name("_first") == 0x9000 && d.lookup_name("_first") == 0x9000 &&
+                  c.lookup_name("_main") == 0x8C92 && rb && rp && rp.count == 2 && rb.count == rp.count && sm.size() == smp.size() &&
+                  is_at(sm.lookup(P4, 0x9000), "a.c", 3));
+        SymbolTable two;
+        const fs::path map_two = synth("bom2.map", bom + bom + first + slurp(prog));
+        const int n2 = two.load_z88dk_map(map_two.string());
+        check("MAPBOM-03", "only the very first BOM is skipped: with two, the second stays in the first "
+                           "line's symbol name, so \"_first\" is not found",
+              n2 >= 19 && !two.lookup_name("_first") && two.lookup_name("_main") == 0x8C92);
+    }
+
+
+    {
+        // GH #427 stage 2b round 2: the --map loader skips one BOM, not several; the Simple and
+        // NextBuild formats skip the one.
+        const std::string bom = "\xEF\xBB\xBF";
+        const std::string first = "_first = $9000 ; addr, public, , m, code_compiler, x.c:1\n";
+        SymbolTable one, two, equ_one, equ_two;
+        const int n1 = one.load_z88dk_or_sjasmplus(synth("one.map", bom + first).string());
+        const int n2 = two.load_z88dk_or_sjasmplus(synth("two.map", bom + bom + first).string());
+        const int e1 = equ_one.load_z88dk_or_sjasmplus(synth("one.sym", bom + "first: EQU 0x00009000\n").string());
+        const int e2 = equ_two.load_z88dk_or_sjasmplus(synth("two.sym", bom + bom + "first: EQU 0x00009000\n").string());
+        check("MAPBOM-04", "load_z88dk_or_sjasmplus() skips only the very first BOM, for a z88dk map and for "
+                           "an EQU file: with one BOM the first symbol resolves, with two it does not",
+              n1 == 1 && one.lookup_name("_first") == 0x9000 && n2 >= 0 && !two.lookup_name("_first") &&
+                  e1 == 1 && equ_one.lookup_name("first") == 0x9000 && e2 <= 1 && !equ_two.lookup_name("first"));
+        SymbolTable simple;
+        const int ns = simple.load_simple_map(synth("bom.simple", bom + "alpha = $9000\nbeta = $9100\n").string());
+        check("MAPBOM-05", "load_simple_map() skips a UTF-8 BOM: the first line's symbol keeps its name",
+              ns == 2 && simple.lookup_name("alpha") == 0x9000 && simple.lookup_name("beta") == 0x9100);
+        SymbolTable nb;
+        const int nn = nb.load_nextbuild_memory(synth("bom.mem", bom + "ACB5: ._FillScreen\n7335: ._Other\n").string());
+        check("MAPBOM-06", "load_nextbuild_memory() skips a UTF-8 BOM: the first line's label is not dropped",
+              nn == 2 && nb.lookup(jnext::dbg::MemSpace::cpu(), 0xACB5) == std::optional<std::string>("FillScreen"));
+    }
+
+    fs::remove_all(dir);
+
+    std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
+                g_total, g_pass, g_fail, 0);
+    return g_fail == 0 ? 0 : 1;
+}

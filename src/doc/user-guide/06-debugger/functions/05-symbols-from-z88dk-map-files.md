@@ -1,5 +1,7 @@
 # Symbols from MAP files
 
+(Names you add yourself are a separate layer and win over these: [Your own labels and comments](16-user-labels-and-comments.md).)
+
 Load a symbol table with **Map ▸ Load MAP File**, which offers three formats:
 
 - **Z88DK Format…** — the `.map` file `zcc` writes next to your binary.
@@ -9,9 +11,23 @@ Load a symbol table with **Map ▸ Load MAP File**, which offers three formats:
   never name an address in the views below. A name the file defines twice
   takes its first definition; a name that is both an address and a constant
   is the address.
+  A symbol of a banked section (`BANK_n`, `PAGE_n`, and classic z88dk's
+  `$AC000` form) names its address only while that page is mapped there; the
+  other symbols are tied to the page mapped at their address when the map or
+  the program is loaded.
   A map built with `zcc -debug` is accepted: its per-line markers
   (`__C_LINE_…`, `__ASM_LINE_…`) and C debug records (`__CDBINFO__…`) are
   not symbols and are ignored, so the function labels keep their addresses.
+  **C names:** a C global or function (`int counter;` is `_counter` in the
+  map, because the compiler prefixes every C name with `_`) also answers to its
+  C name wherever you type an address or symbol (`counter`, `@counter`), and
+  every view shows it as `counter`. Only the symbols of a C module count (the
+  map's module column ends in `_c`, as `main_c` for `main.c`): assembler labels
+  keep their names, `_asm_bump` of an `.asm` file included, and so do names
+  that start with two underscores. A real `counter` in the table wins: the C
+  one is then shown as `_counter`. If two C files each have a static `inc`, `inc` is the first one's and the
+  second is shown as `_inc`. The disassembly *copy* writes the assembler
+  name (`LD HL,_counter`), so the pasted text still assembles.
 - **Simple Format (48K ROM)…** — plain `NAME = $ADDR` lines, one per line,
   `;` for comments.
 - **sjasmplus Format (--sym, --exp)…** — the symbol file sjasmplus writes with
@@ -31,6 +47,12 @@ Load a symbol table with **Map ▸ Load MAP File**, which offers three formats:
   different banks the first names the address, and both resolve by name. A
   Windows file, with CRLF line ends, loads as it is.
 
+A file that is over 64 MiB, or is not a regular file (a named pipe, say), is
+refused, and the box says why. A z88dk `.map` that sits beside a program you load
+(`<name>.map` next to a `.nex`, `.tap` or `.sna`) is loaded for you, with the
+program's source lines: see
+[Loading a source map](../source-debugger/05-loading-a-source-map.md).
+
 Once loaded, symbols appear wherever an address is shown and a name is known:
 the disassembly replaces a matching 16-bit immediate with the symbol name, the
 Call Stack names call targets, the Breakpoints panel gains a Symbol column, and
@@ -44,9 +66,12 @@ or `--exp` file. It tells them apart by the file's first line, not by its name
 (z88dk's assembler also writes a `.sym`, in the map format). A file sjasmplus
 wrote starts with a symbol line; one edited to start with a comment is read as
 a z88dk map, so load it with **Map ▸ Load MAP File** instead. A script names a
-symbol as `@name`, an sjasmplus label with its dots as `@main.loop`: see
+symbol as `@name`, an sjasmplus label with its dots as `@main.loop`. A z88dk
+map read before `--load` takes its page-bound symbols again at the program
+load: see
 [Symbols](../scripting/04-reading-the-machine.md#symbols-name).
 
 NextBuild / Boriel ZX Basic programs come with a `Memory.txt` instead, which
 JNEXT loads by itself when the program is loaded: see
-[Source-level debugging](14-source-level-debugging.md).
+[Loading a source map](../source-debugger/05-loading-a-source-map.md). So do the labels of an
+sjasmplus SLD source map, which come with it.

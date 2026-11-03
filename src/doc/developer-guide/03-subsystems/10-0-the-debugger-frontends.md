@@ -105,6 +105,7 @@ a write.
 | `step_into` | ✓ | — | ✓ | ✓ | — | — |
 | `step_over`, `step_out` | ✓ | — (transients + `run`) | — (`run_to`) | — (`run_to`) | — | — |
 | `run_to` | ✓ | — | ✓ | ✓ | — | — |
+| `run_to_source_line` | ✓ | — | — | — | — | — |
 | `run_to_end_of_frame`, `run_to_end_of_scanline` | ✓ | — | — | — | — | — |
 | `step_back`, `rewind_to_frame`, rewind buffer | ✓ | — | — | — | — | — |
 | `reset` | — | — | ✓ | ✓ | — | — |
@@ -128,6 +129,7 @@ a write.
 | input injection | — | — | — | NMI | keys, joystick | — |
 | `subscribe` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `subscriptions` listing | ✓ | — | ✓ | ✓ | — | — |
+| source-line breakpoints (`subscribe_source_line`, group verbs) | ✓ | — | — | — | — | — |
 | master switch | ✓ | — | — | — | — | — |
 | magic breakpoint switch | r w (the main window's Debug ▸ Magic Breakpoint) | — | — | — | — | — |
 | `probe_execute` | — | — | — | ✓ | — | — |

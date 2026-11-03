@@ -110,7 +110,10 @@ nav:
           - Debugging with z88dk-gdb: 06-debugger/functions/11-debugging-with-z88dk-gdb.md
           - Remote debugging over ZRCP: 06-debugger/functions/12-remote-debugging-over-zrcp.md
           - Debugger scripts: 06-debugger/functions/13-debugger-scripts.md
-          - Source-level debugging: 06-debugger/functions/14-source-level-debugging.md
+          - Source-level debugging (see The Source Debugger): 06-debugger/functions/14-source-level-debugging.md
+          - Memory coverage: 06-debugger/functions/15-memory-coverage.md
+          - Your own labels and comments: 06-debugger/functions/16-user-labels-and-comments.md
+          - Disassemblies in skoolkit and Ghidra: 06-debugger/functions/17-skoolkit-and-ghidra.md
       - Scripting:
           - 06-debugger/scripting/index.md
           - Your first script: 06-debugger/scripting/01-your-first-script.md
@@ -126,6 +129,18 @@ nav:
           - Catching memory-corruption bugs: 06-debugger/scripting/11-catching-memory-corruption-bugs.md
           - The demo scripts: 06-debugger/scripting/12-the-demo-scripts.md
           - Quick reference: 06-debugger/scripting/13-quick-reference.md
+      - The Source Debugger:
+          - 06-debugger/source-debugger/index.md
+          - A first session: 06-debugger/source-debugger/01-a-first-session.md
+          - Building programs with z88dk: 06-debugger/source-debugger/02-building-with-z88dk.md
+          - Dot commands: 06-debugger/source-debugger/03-dot-commands.md
+          - sjasmplus and Boriel ZX Basic: 06-debugger/source-debugger/04-sjasmplus-and-boriel.md
+          - Loading a source map, and finding the files: 06-debugger/source-debugger/05-loading-a-source-map.md
+          - Breakpoints, steps and running to a line: 06-debugger/source-debugger/06-breakpoints-and-steps.md
+          - Banked code, and which memory a line is in: 06-debugger/source-debugger/07-banked-code.md
+          - 'In the Source tab: names, watches, coverage and colours': 06-debugger/source-debugger/08-around-the-source.md
+          - Scripts and remote debuggers: 06-debugger/source-debugger/09-scripts-and-remote-debuggers.md
+          - Limits and troubleshooting: 06-debugger/source-debugger/10-limits-and-troubleshooting.md
   - 7. Automation and CI:
       - 07-automation-and-ci/index.md
       - 7.1 Headless mode: 07-automation-and-ci/01-headless-mode.md

@@ -37,6 +37,15 @@ client (gdb-rsp-frontend.md §12.5):
   running machine first and drop any owed reply, which would otherwise arrive
   where the client expects this packet's.
 
+## Naming the memory in `monitor`
+
+`monitor mmu` ends each slot line with `space_tag(SlotInfo::now)` (what the slot reads
+now, overlays included) and, on a Next-layout machine (`ZXN_ISSUE2`), the
+`physical_text()` of the slot's first byte, unless that equals the tag (`FLOAT`). Other machines
+print the tag alone. `monitor sym ADDR` prints the tag of `source_page(addr)`, the memory the
+lookup used; `monitor sym NAME` appends the label's own tag only when the label is paged.
+The text is `debug/long_address.h`'s, never composed here.
+
 ## Memory, registers, breakpoints
 
 `m`/`M`/`X` are the 64 KB CPU view. A write reports `E01` unless every byte
@@ -48,6 +57,13 @@ unchanged PC would clear a HALT. `Z0`/`Z1` are one `Execute` subscription each,
 `Z2`/`Z3`/`Z4` one `Mem` subscription (write, read, either), all owned by the
 client and removed by its detach (`D`, `k` or a dropped socket), so a crashed
 client can never leave a stopping breakpoint behind.
+
+`monitor src [ADDR]` (GH #346) answers `$ADDR file:line MEM` from
+`source_location()` and `source_page()`: the primary location only, in the memory
+mapped at ADDR now, `unmapped` when no record covers it. ADDR is a number, a
+symbol (through `symbols().find_name()`; a paged symbol answers in its OWN
+memory, `source_location(space, addr)`, as `monitor sym` does, GH #349) or the PC. The memory spelling is the one of
+`monitor mmu`/GH #360 (`P04`, `ROM0`, `BOOT`).
 
 ## Tests
 

@@ -197,13 +197,13 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        kloc-count kloc-count-detailed regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
-       docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
+       docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
        docs-schema schema-check snapshot-zip-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb
+       package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -550,8 +550,24 @@ z88dk-gdb:
 	@# in seconds into ~/.cache/jnext/tools (test/provision-z88dk-gdb.sh).
 	bash test/provision-z88dk-gdb.sh
 
+# Provide the skoolkit 10.1 tools for skoolkit-foreign-func: a sha256-pinned PyPI sdist in the user cache
+skoolkit:
+	@# GH #389: the skoolkit control-file export is proved by running skoolkit
+	@# itself (sna2skool.py, skool2asm.py), which Fedora does not package. A SKIP
+	@# fails the run, so the suite provisions it like z88dk-gdb: no-op once cached,
+	@# else a 1.3 MB download into ~/.cache/jnext/tools (test/provision-skoolkit.sh).
+	bash test/provision-skoolkit.sh
+
+# Provide Ghidra 12.2 (+ Jython extension) for ghidra-foreign-func: a sha256-pinned zip in the user cache
+ghidra:
+	@# GH #389: the Ghidra symbol export is proved by running Ghidra's own
+	@# ImportSymbolsScript.py headless. Not packaged by Fedora; a 570 MB download
+	@# once per machine into ~/.cache/jnext/tools (test/provision-ghidra.sh), and a
+	@# JDK 25 (java-25-openjdk-devel) to run it, which the row checks.
+	bash test/provision-ghidra.sh
+
 # Run the full regression test suite (screenshot + functional tests)
-regression: lint-makefile-help lint-thread-detach lint-ascii-text regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check z88dk-gdb
+regression: lint-makefile-help lint-thread-detach lint-ascii-text regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check z88dk-gdb skoolkit ghidra
 	@# Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
 	@# `make clean` deletes it. It used to vanish from the suite with no row printed.
 	@# gui-release is a REAL prerequisite, not a convenience: regression.sh runs
@@ -576,7 +592,7 @@ regression: lint-makefile-help lint-thread-detach lint-ascii-text regression-doc
 	JNEXT_REGRESSION_STAMP=1 bash test/00regression/regression.sh
 
 # Run named regression rows (ROWS="a-func b-func") on the non-PGO Release build; ROWS_PGO=1 for the PGO one
-regression-rows: unit-test-build $(ROWS_BUILD) sdl-release z88dk-gdb
+regression-rows: unit-test-build $(ROWS_BUILD) sdl-release z88dk-gdb skoolkit ghidra
 	@# GH #295: the targeted run a reviewer, a mutation or a diagnosis uses
 	@# instead of a full one. The three prerequisites are the binaries rows
 	@# execute (the Qt jnext, build/sdl-release/jnext for sdl-keypress-func,
@@ -596,7 +612,7 @@ regression-rows: unit-test-build $(ROWS_BUILD) sdl-release z88dk-gdb
 	JNEXT=$(CURDIR)/build/$(ROWS_BUILD)/jnext bash test/00regression/regression.sh $(ROWS)
 
 # Re-run SOLO the rows a full run failed on a loaded host; stamp the run if all pass
-regression-confirm: unit-test-build gui-release sdl-release z88dk-gdb
+regression-confirm: unit-test-build gui-release sdl-release z88dk-gdb skoolkit ghidra
 	@# GH #295, the owner's rule: a timing row that fails under load and passes
 	@# SOLO counts as a pass. A full `make regression` whose only FAILs were
 	@# functional rows failing at a 1-minute load >= nproc records them as
@@ -1259,6 +1275,7 @@ docs-check:
 	 $(MAKE) --no-print-directory docs-man-check || rc=1; \
 	 $(MAKE) --no-print-directory docs-userguide-check || rc=1; \
 	 $(MAKE) --no-print-directory docs-devguide-check || rc=1; \
+	 $(MAKE) --no-print-directory docs-devguide-cites-check || rc=1; \
 	 exit $$rc
 
 # Fail if the man page, USAGE.md or the guide's option page are stale
@@ -1342,7 +1359,7 @@ docs-userguide:
 	@printf "$(BADGE_PASS) OK $(RESET) user guide rendered to doc/user-guide\n"
 	@printf "        it is committed: commit the regenerated files alongside your change\n"
 
-# Regenerate the user guide's 14 Qt screenshots from the running product
+# Regenerate the user guide's 20 Qt screenshots from the running product
 docs-screenshots: unit-test-build
 	@# WHAT THIS IS FOR. src/doc/user-guide/img/debugger-*.png are pictures of
 	@# the debugger, and docs-check cannot see inside a PNG — it proves the
@@ -1467,6 +1484,13 @@ docs-devguide: docs-devguide-diagrams
 	@$(DEVGUIDE_FINGERPRINT) > $(DEVGUIDE_RENDERER)
 	@printf "$(BADGE_PASS) OK $(RESET) developer guide rendered to $(DEVGUIDE_OUT)\n"
 	@printf "        it is committed: commit the regenerated files alongside your change\n"
+
+# Fail if a developer-guide file:line cite does not hold the symbol it names (GH #430)
+docs-devguide-cites-check:
+	@# Not a freshness check: no renderer is involved, so it has no version-gap
+	@# case. perl is already a hard prerequisite of unit-test. The rules and the
+	@# declared out-of-scope sources are in the script's header.
+	@perl test/lint-devguide-cites.pl
 
 # Fail if the committed developer guide (or its SVGs) is stale vs its sources
 docs-devguide-check:

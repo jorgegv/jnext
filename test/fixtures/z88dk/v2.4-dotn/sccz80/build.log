@@ -1,0 +1,13 @@
+# z88dk 4d530b6eb779ad0f2a1d13c0bb670cf717477501 (v2.4-dotn)
++ zcc +zxn -clib=new -debug -m --list -subtype=dotn -o prog -create-app dot.c dutil.c
+Notice: Main binary occupies [32768,35674]
+Notice: Space to end of dot is 5435 bytes
+Notice: Main bank allocation mask is 0xf0
+Notice: Main bank load mask is 0x10
+Page 0, main bank allocate
+Page 1, main bank allocate
+Page 4, main bank allocate and load
+Page 5, main bank allocate
+dotn_last_page = 223
+dotn_num_extra = 0
+rc=0

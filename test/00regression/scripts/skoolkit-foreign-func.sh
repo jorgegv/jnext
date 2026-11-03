@@ -1,0 +1,279 @@
+#!/usr/bin/env bash
+# One functional test of the regression suite. Sourced by regression.sh (the
+# driver); also directly executable -- the lib then self-initializes and
+# standalone_summary prints the totals.
+# shellcheck source=test/00regression/test-functions.inc
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
+
+# skoolkit-foreign-func (GH #389, E23-26): jnext's skoolkit control files are read by
+# SKOOLKIT 10.1 itself -- sna2skool.py and skool2asm.py, provisioned by
+# test/provision-skoolkit.sh (`make skoolkit`, which `make regression` runs) -- and what
+# they make of the files is checked by skoolkit-check.py, never by a reader of ours. A
+# control file jnext's own importer accepts can still be wrong for skoolkit (the grammar
+# is its, and a bad line is only a WARNING there); this row is the proof it is not.
+#
+# A1  --machine 48k, an sjasmplus --sym of ROM and sysvar labels (unpaged: three at executed
+#     instruction starts, four that sna2skool drops unless the export splits at them), --coverage, a snapshot at frame 100, --export-skoolkit D.
+#     `sna2skool.py -H -c D snap.sna` exits 0 with nothing on stderr but "Using control
+#     files"; every `@ $A label=N` of D is `@label=N` right before the line at $A; the
+#     block letter of every run start matches; `skool2asm.py -H` exits 0 and emits `N:`.
+# A2  --machine next --load dsl_demo.nex --map dsl_demo.map --coverage (z88dk labels bound
+#     to the page at $8000; the program has 11 `ED 91` NEXTREGs): `sna2skool.py -H -o 0x8000
+#     D/8000-P04.bin` picks D/8000-P04.ctl and ONLY it (no -c), warns of nothing, every label
+#     lands, and the Z80N NEXTREGs are kept whole as `DEFB $ED,$91,$xx,$yy` (skoolkit is Z80
+#     only: unsplit, they would be cut to `DEFB $ED,$91`).
+# B4  skool2ctl.py -k -h turns A2-style output back into a control file; --import-skoolkit reads it in a
+#     fresh run and that run's export has the same labels and comments (GH #389 stage B).
+# A5  (GH #349) z88dk module-local labels repeat (`end_x` at $80CA and $8103 in two routines): the map
+#     gets both, the export writes the name ONCE (the lowest address) and says so, skool2asm.py -H
+#     accepts the skool file (it refuses `Duplicate label`), `--import-skoolkit` reads the control file
+#     back (it refuses a name at two addresses), and skool2ctl.py -k -h of the skool file imports too.
+# A4  the same imports through the Qt and SDL owners and a failing import of each kind in each (stage B review 1).
+# A3  the Qt (offscreen) and SDL (dummy driver) loop owners write the same directory as the
+#     headless one, byte for byte (a frontend whose exit forgot the export wrote nothing).
+if want skoolkit-foreign-func; then
+    begin_func skoolkit-foreign-func
+
+    sf_dir="$TMP_DIR/skoolkit-foreign"
+    rm -rf "$sf_dir"; mkdir -p "$sf_dir"
+    sf_faults=()
+    sf_root=$(bash "$PROJECT_DIR/test/provision-skoolkit.sh" --print-path) || sf_root=""
+    sf_check="$PROJECT_DIR/test/00regression/skoolkit-check.py"
+    sf_nex="$PROJECT_DIR/test/00regression/nex/dsl_demo.nex"
+    sf_map="$PROJECT_DIR/test/00regression/nex/dsl_demo.map"
+
+    # sf_py <script> <args...>: a skoolkit tool, with an environment of our own (the output
+    # is parsed, so LANG=C and nothing inherited).
+    sf_py() {
+        env -i PATH="$PATH" LANG=C LC_ALL=C timeout --foreground --kill-after=5s 60s python3 "$@"
+    }
+    sf_jnext() {   # sf_jnext <binary> <qt|plain> <log> <jnext args...>
+        local bin=$1 fe=$2 log=$3; shift 3
+        if [[ $fe == qt ]]; then
+            QT_QPA_PLATFORM=offscreen timeout --foreground --kill-after=5s 90s "$bin" --silent \
+                "${SD_CARD_ARGS[@]}" "$@" >"$log" 2>&1 || true
+        elif [[ $fe == sdl ]]; then
+            env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+                timeout --foreground --kill-after=5s 90s "$bin" --silent \
+                "${SD_CARD_ARGS[@]}" "$@" >"$log" 2>&1 || true
+        else
+            timeout --foreground --kill-after=5s 90s "$bin" --headless \
+                "${SD_CARD_ARGS[@]}" "$@" >"$log" 2>&1 || true
+        fi
+    }
+
+    sf_jnext_rc() {   # as sf_jnext, returning the exit status of jnext
+        local bin=$1 fe=$2 log=$3; shift 3
+        if [[ $fe == qt ]]; then
+            QT_QPA_PLATFORM=offscreen timeout --foreground --kill-after=5s 90s "$bin" --silent \
+                "${SD_CARD_ARGS[@]}" "$@" >"$log" 2>&1
+        elif [[ $fe == sdl ]]; then
+            env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+                timeout --foreground --kill-after=5s 90s "$bin" --silent \
+                "${SD_CARD_ARGS[@]}" "$@" >"$log" 2>&1
+        else
+            timeout --foreground --kill-after=5s 90s "$bin" --headless \
+                "${SD_CARD_ARGS[@]}" "$@" >"$log" 2>&1
+        fi
+    }
+
+    if [[ -z "$sf_root" || ! -f "$sf_root/sna2skool.py" ]]; then
+        fail_row " (skoolkit is not provisioned: run 'make skoolkit' ('make regression' does)); a missing reader is a FAIL, not a SKIP)"
+    elif [[ ! -x "$JNEXT_SDL" ]]; then
+        fail_row " (SDL-only binary not built: $JNEXT_SDL; run 'make sdl-release')"
+    else
+        # ---- A1: a 48K snapshot with several control files combined by -c DIR
+        # Three labels at instruction starts the run executes, and four that sna2skool would
+        # silently drop unless the export splits at them (GH #389 review 1): inside an executed
+        # instruction ($0004, inside LD DE,$FFFF at $0002 in jnext's ROM; a .sna holds no ROM, so
+        # sna2skool sees zero bytes there: A1 proves the directive lands, SKCTL-08d the split), inside a data run off a DEFB line start
+        # ($5C3A, the system variable ERR_NR), and in ROM the run did not execute ($0205 key_table
+        # and $04C2 sa_bytes).
+        printf '%s\n' "rom_start: EQU 0x00000000" "rst38: EQU 0x00000038" "key_scan: EQU 0x0000028E" \
+            "mid_insn: EQU 0x00000004" "err_nr: EQU 0x00005C3A" "key_table: EQU 0x00000205" \
+            "sa_bytes: EQU 0x000004C2" >"$sf_dir/a1.sym"
+        sf_jnext "$JNEXT" plain "$sf_dir/a1.log" --machine 48k --map "$sf_dir/a1.sym" --coverage \
+            --delayed-snapshot "$sf_dir/a1.sna" --delayed-snapshot-frames 100 \
+            --export-skoolkit "$sf_dir/D1" --delayed-automatic-exit-frames 100
+        if ! grep -qE -- "--export-skoolkit .*: [0-9]+ files, 7 labels" "$sf_dir/a1.log"; then
+            sf_faults+=("A1: jnext did not log the export")
+        elif [[ ! -s "$sf_dir/a1.sna" ]]; then
+            sf_faults+=("A1: no snapshot")
+        else
+            rc=0
+            sf_py "$sf_root/sna2skool.py" -H -c "$sf_dir/D1" "$sf_dir/a1.sna" \
+                >"$sf_dir/a1.skool" 2>"$sf_dir/a1.err" || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("A1: sna2skool exit $rc")
+            if grep -qvE '^Using control files: ' "$sf_dir/a1.err"; then
+                sf_faults+=("A1: sna2skool said more than 'Using control files': $(head -n 2 "$sf_dir/a1.err" | tr '\n' ' ' || true)")
+            fi
+            if out=$(sf_py "$sf_check" labels "$sf_dir/a1.skool" "$sf_dir"/D1/*.ctl 2>&1); then :; else
+                sf_faults+=("A1: $out")
+            fi
+            rc=0
+            sf_py "$sf_root/skool2asm.py" -H "$sf_dir/a1.skool" >"$sf_dir/a1.asm" 2>"$sf_dir/a1.asmerr" || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("A1: skool2asm exit $rc")
+            if out=$(sf_py "$sf_check" asm "$sf_dir/a1.asm" "$sf_dir"/D1/*.ctl 2>&1); then :; else
+                sf_faults+=("A1: $out")
+            fi
+        fi
+
+        # ---- A2: a Next program, one control file picked up by default from its .bin
+        sf_jnext "$JNEXT" plain "$sf_dir/a2.log" --machine next --load "$sf_nex" --map "$sf_map" --coverage \
+            --export-skoolkit "$sf_dir/D2" --delayed-automatic-exit-frames 100
+        if [[ ! -f "$sf_dir/D2/8000-P04.ctl" || ! -f "$sf_dir/D2/8000-P04.bin" ]]; then
+            sf_faults+=("A2: no 8000-P04.ctl/.bin: $(ls "$sf_dir/D2" 2>&1 | tr '\n' ' ' || true)")
+        else
+            rc=0
+            sf_py "$sf_root/sna2skool.py" -H -o 0x8000 "$sf_dir/D2/8000-P04.bin" \
+                >"$sf_dir/a2.skool" 2>"$sf_dir/a2.err" || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("A2: sna2skool exit $rc")
+            if [[ $(cat "$sf_dir/a2.err") != "Using control file: $sf_dir/D2/8000-P04.ctl" ]]; then
+                sf_faults+=("A2: sna2skool did not pick exactly D2/8000-P04.ctl without warnings: $(head -n 3 "$sf_dir/a2.err" | tr '\n' ' ' || true)")
+            fi
+            if out=$(sf_py "$sf_check" labels "$sf_dir/a2.skool" "$sf_dir/D2/8000-P04.ctl" 2>&1); then :; else
+                sf_faults+=("A2: $out")
+            fi
+            if out=$(sf_py "$sf_check" z80n "$sf_dir/a2.skool" 11 2>&1); then :; else
+                sf_faults+=("A2: $out")
+            fi
+        fi
+
+        # ---- B4: skoolkit's own writer's output is imported (GH #389 stage B). Run 1 exports labels and
+        # two user comments; sna2skool turns them into a skool file; skool2ctl.py -k -h (skoolkit's own
+        # control-file writer) turns that back into a control file, with its titles and descriptions;
+        # --import-skoolkit reads it in a fresh run, untagged (placed by the mapping, page 4 at $8000);
+        # that run's export has the same labels and the same comments as run 1's.
+        printf '%s\n' "jnext-annotations 1" 'comment P04 $80C4 Program entry\nsecond line' \
+            'comment P04 $8138 Wait for the frame' >"$sf_dir/b4.jdp"
+        sf_jnext "$JNEXT" plain "$sf_dir/b4a.log" --machine next --load "$sf_nex" --map "$sf_map" --coverage \
+            --annotations "$sf_dir/b4.jdp" --export-skoolkit "$sf_dir/D4" --delayed-automatic-exit-frames 100
+        if [[ ! -f "$sf_dir/D4/8000-P04.bin" ]]; then
+            sf_faults+=("B4: no D4/8000-P04.bin: $(ls "$sf_dir/D4" 2>&1 | tr '\n' ' ' || true)")
+        else
+            rc=0
+            sf_py "$sf_root/sna2skool.py" -H -o 0x8000 "$sf_dir/D4/8000-P04.bin" >"$sf_dir/b4.skool" 2>"$sf_dir/b4.err" || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("B4: sna2skool exit $rc")
+            if out=$(sf_py "$sf_check" comments "$sf_dir/b4.skool" 2 2>&1); then :; else sf_faults+=("B4: $out"); fi
+            rc=0
+            sf_py "$sf_root/skool2ctl.py" -k -h "$sf_dir/b4.skool" >"$sf_dir/b4.ctl" 2>"$sf_dir/b4ctl.err" || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("B4: skool2ctl exit $rc")
+            sf_jnext "$JNEXT" plain "$sf_dir/b4b.log" --machine next --load "$sf_nex" --coverage \
+                --import-skoolkit "$sf_dir/b4.ctl" --export-skoolkit "$sf_dir/D5" --delayed-automatic-exit-frames 100
+            if ! grep -qE -- "--import-skoolkit: 1 file, [0-9]+ labels, [1-9][0-9]* comments" "$sf_dir/b4b.log"; then
+                sf_faults+=("B4: jnext did not import skool2ctl's file: $(grep -h -- '--import-skoolkit' "$sf_dir/b4b.log" | head -n 2 | tr '\n' ' ' || true)")
+            elif [[ ! -f "$sf_dir/D5/8000-P04.ctl" ]]; then
+                sf_faults+=("B4: the second run exported no 8000-P04.ctl")
+            elif out=$(sf_py "$sf_check" compare "$sf_dir/D4/8000-P04.ctl" "$sf_dir/D5/8000-P04.ctl" 2>&1); then :; else
+                sf_faults+=("B4: $out")
+            fi
+        fi
+
+        # ---- A5: a name at two addresses (GH #349). The dsl_demo map plus two module-local labels of one name,
+        # as the library routines asm_zx_cls_wc_attr and asm_zx_cls_wc_pix give end_x in a newlib program.
+        cp "$sf_map" "$sf_dir/a5.map"
+        printf '%s\n' "end_x                           = \$80CA ; addr, local, , asm_zx_cls_wc_attr, code_user, dsl_demo.asm:90" \
+            "end_x                           = \$8103 ; addr, local, , asm_zx_cls_wc_pix, code_user, dsl_demo.asm:120" >>"$sf_dir/a5.map"
+        sf_jnext "$JNEXT" plain "$sf_dir/a5.log" --machine next --load "$sf_nex" --map "$sf_dir/a5.map" --coverage \
+            --export-skoolkit "$sf_dir/D6" --delayed-automatic-exit-frames 100
+        if [[ ! -f "$sf_dir/D6/8000-P04.ctl" || ! -f "$sf_dir/D6/8000-P04.bin" ]]; then
+            sf_faults+=("A5: no D6/8000-P04.ctl/.bin: $(ls "$sf_dir/D6" 2>&1 | tr '\n' ' ' || true)")
+        else
+            [[ $(grep -c 'label=end_x$' "$sf_dir/D6/8000-P04.ctl" || true) -eq 1 && \
+               $(grep -c '^@ \$80CA label=end_x$' "$sf_dir/D6/8000-P04.ctl" || true) -eq 1 ]] ||
+                sf_faults+=("A5: the control file does not hold end_x exactly once, at \$80CA")
+            grep -q "label 'end_x' at P04:\$8103 skipped: the name is already used at P04:\$80CA" "$sf_dir/a5.log" ||
+                sf_faults+=("A5: jnext did not report the skipped duplicate: $(grep -h 'end_x' "$sf_dir/a5.log" | head -n 2 | tr '\n' ' ' || true)")
+            rc=0
+            sf_py "$sf_root/sna2skool.py" -H -o 0x8000 "$sf_dir/D6/8000-P04.bin" >"$sf_dir/a5.skool" 2>"$sf_dir/a5.err" || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("A5: sna2skool exit $rc")
+            rc=0
+            sf_py "$sf_root/skool2asm.py" -H "$sf_dir/a5.skool" >"$sf_dir/a5.asm" 2>"$sf_dir/a5.asmerr" || rc=$?
+            if [[ $rc -ne 0 ]] || grep -q 'Duplicate label' "$sf_dir/a5.asmerr"; then
+                sf_faults+=("A5: skool2asm exit $rc: $(head -n 2 "$sf_dir/a5.asmerr" | tr '\n' ' ' || true)")
+            fi
+            grep -q 'end_x' "$sf_dir/a5.asm" || sf_faults+=("A5: skool2asm's output lacks end_x")
+            # Our importer reads the file the exporter wrote ...
+            rc=0
+            sf_jnext_rc "$JNEXT" plain "$sf_dir/a5i.log" --machine next --load "$sf_nex" --coverage \
+                --import-skoolkit "$sf_dir/D6/8000-P04.ctl" --delayed-automatic-exit-frames 20 || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("A5: --import-skoolkit of the export exit $rc: $(grep -h -- '--import-skoolkit' "$sf_dir/a5i.log" | head -n 1 || true)")
+            # ... and skool2ctl.py -k -h's file made from the skool file.
+            rc=0
+            sf_py "$sf_root/skool2ctl.py" -k -h "$sf_dir/a5.skool" >"$sf_dir/a5.ctl" 2>"$sf_dir/a5ctl.err" || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("A5: skool2ctl exit $rc")
+            rc=0
+            sf_jnext_rc "$JNEXT" plain "$sf_dir/a5j.log" --machine next --load "$sf_nex" --coverage \
+                --import-skoolkit "$sf_dir/a5.ctl" --delayed-automatic-exit-frames 20 || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("A5: --import-skoolkit of skool2ctl's file exit $rc: $(grep -h -- '--import-skoolkit' "$sf_dir/a5j.log" | head -n 1 || true)")
+        fi
+
+        # ---- A4: the three loop owners import (GH #389 stage B review 1): the same --import-skoolkit and
+        # --import-ghidra files, then an export, and the exports are the same; a failing import of each
+        # kind exits non-zero in each owner (dropping the option lists from ScriptHostOptions in an owner
+        # would import nothing there).
+        printf '%s\n' "# jnext space P04" 'c $8000' '@ $8000 label=imp_sk' 'B $8000 imported note' >"$sf_dir/a4.ctl"
+        printf '%s\n' "imp_gh P04:0x8010 l" >"$sf_dir/a4.txt"
+        printf '%s\n' "# jnext space P04" 'c $ZZZZ' >"$sf_dir/a4bad.ctl"
+        printf '%s\n' "x ram:0x8000 l" >"$sf_dir/a4bad.txt"
+        for fe in plain qt sdl; do
+            bin=$JNEXT; [[ $fe == sdl ]] && bin=$JNEXT_SDL
+            sf_jnext "$bin" "$fe" "$sf_dir/a4-$fe.log" --machine 48k --coverage --import-skoolkit "$sf_dir/a4.ctl" \
+                --import-ghidra "$sf_dir/a4.txt" --export-skoolkit "$sf_dir/D4-$fe" --export-ghidra "$sf_dir/G4-$fe" \
+                --delayed-automatic-exit-frames 20
+            if ! grep -qE -- "--import-skoolkit: 1 file, 1 label, 1 comment" "$sf_dir/a4-$fe.log" ||
+               ! grep -qE -- "--import-ghidra: 1 file, 1 label, 0 comments" "$sf_dir/a4-$fe.log"; then
+                sf_faults+=("A4: $fe did not log both imports")
+            fi
+            grep -q "label=imp_sk" "$sf_dir/D4-$fe/8000-P04.ctl" 2>/dev/null || sf_faults+=("A4: $fe's export lacks the imported skoolkit label")
+            grep -q "imported note" "$sf_dir/D4-$fe/8000-P04.ctl" 2>/dev/null || sf_faults+=("A4: $fe's export lacks the imported comment")
+            grep -q "imp_gh P04:0x8010 l" "$sf_dir/G4-$fe/P04.ghidra.txt" 2>/dev/null || sf_faults+=("A4: $fe's Ghidra export lacks the imported label")
+            for kind in skoolkit ghidra; do
+                badf="$sf_dir/a4bad.ctl"; [[ $kind == ghidra ]] && badf="$sf_dir/a4bad.txt"
+                rc=0
+                sf_jnext_rc "$bin" "$fe" "$sf_dir/a4-bad-$kind-$fe.log" --machine 48k --import-"$kind" "$badf" \
+                    --delayed-automatic-exit-frames 5 || rc=$?
+                [[ $rc -ne 0 ]] || sf_faults+=("A4: $fe exited 0 with a failing --import-$kind")
+                grep -q -- "--import-$kind .*line [0-9]*:" "$sf_dir/a4-bad-$kind-$fe.log" || sf_faults+=("A4: $fe did not name the line of the failing --import-$kind")
+            done
+        done
+        for fe in qt sdl; do
+            if ! diff -r "$sf_dir/D4-plain" "$sf_dir/D4-$fe" >"$sf_dir/a4-$fe.diff" 2>&1 || ! diff -r "$sf_dir/G4-plain" "$sf_dir/G4-$fe" >>"$sf_dir/a4-$fe.diff" 2>&1; then
+                sf_faults+=("A4: $fe's exports after the imports differ from the headless ones: $(head -n 2 "$sf_dir/a4-$fe.diff" | tr '\n' ' ' || true)")
+            fi
+        done
+
+        # ---- A3: the three loop owners write the same files
+        printf '%s\n' "rom_start: EQU 0x00000000" "rst38: EQU 0x00000038" >"$sf_dir/a3.sym"
+        for fe in plain qt sdl; do
+            bin=$JNEXT; [[ $fe == sdl ]] && bin=$JNEXT_SDL
+            sf_jnext "$bin" "$fe" "$sf_dir/a3-$fe.log" --machine 48k --map "$sf_dir/a3.sym" --coverage \
+                --export-skoolkit "$sf_dir/D3-$fe" --delayed-automatic-exit-frames 20
+            [[ -f "$sf_dir/D3-$fe/0000-0CPU.ctl" ]] || sf_faults+=("A3: $fe wrote no export")
+        done
+        # ...and a failing export fails the run in each (a regular file where DIR should be).
+        : >"$sf_dir/not-a-dir"
+        for fe in plain qt sdl; do
+            bin=$JNEXT; [[ $fe == sdl ]] && bin=$JNEXT_SDL
+            rc=0
+            sf_jnext_rc "$bin" "$fe" "$sf_dir/a3-bad-$fe.log" --machine 48k --coverage \
+                --export-ghidra "$sf_dir/not-a-dir" --delayed-automatic-exit-frames 5 || rc=$?
+            [[ $rc -ne 0 ]] || sf_faults+=("A3: $fe exited 0 with a failing --export-ghidra")
+            grep -qF "$sf_dir/not-a-dir" "$sf_dir/a3-bad-$fe.log" || sf_faults+=("A3: $fe did not name the failing path")
+        done
+        for fe in qt sdl; do
+            if ! diff -r "$sf_dir/D3-plain" "$sf_dir/D3-$fe" >"$sf_dir/a3-$fe.diff" 2>&1; then
+                sf_faults+=("A3: $fe's export differs from the headless one: $(head -n 2 "$sf_dir/a3-$fe.diff" | tr '\n' ' ' || true)")
+            fi
+        done
+    fi
+
+    if [[ ${#sf_faults[@]} -gt 0 ]]; then
+        fail_row " ($(IFS=';'; echo "${sf_faults[*]}"))"
+    else
+        pass_row " (skoolkit 10.1 reads the exports: a 48K snapshot with -c DIR, a Next page by default pickup with Z80N kept whole, and the Qt and SDL owners write the same files)"
+    fi
+fi
+
+[[ "${BASH_SOURCE[0]}" != "$0" ]] || standalone_summary

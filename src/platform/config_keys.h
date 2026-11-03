@@ -34,6 +34,7 @@ enum class Type : uint8_t {
     Text,         // verbatim
     TrimmedText,  // surrounding whitespace removed, as load() does
     Path,         // verbatim
+    PathList,     // directories separated by source_search::kListSeparator; no empty entry; empty = the empty list
     HostList,     // comma-separated host names; empty = the empty list
     DeviceId,     // a controller id (input/joy_source.h); empty = Automatic
     Keep,         // 1..1000000 or `unlimited`
@@ -70,6 +71,7 @@ enum class KeyId : uint8_t {
     PathsLastLoadDir,
     PathsSdCardPath,
     PathsScreenshotDir,
+    PathsSourceDirs,
     RecentFiles,
     ScreenshotQuickDir,
     ScreenshotQuickFormat,
@@ -82,6 +84,7 @@ enum class KeyId : uint8_t {
     InputJoy2DeviceName,
     InputMouseRelease,
     DebuggerKey,            // the family `debugger_keys.<action id>`
+    SourceColourScheme,
     EspEnabled,
     EspAllowedHosts,
     NextpiEnabled,
@@ -92,6 +95,7 @@ enum class KeyId : uint8_t {
     NextpiQemuArgs,
     ConfigVersion,
     DebuggerAttached,
+    DebuggerPhysicalAddresses,
     DebuggerSize,
     DebuggerPosition,
     Count
@@ -176,6 +180,9 @@ inline constexpr Key KEYS[] = {
     { KeyId::PathsScreenshotDir, "paths", "screenshot_dir", Type::Path, 0, 0,
       "PATH", nullptr, QT, false, Owner::AppConfig, nullptr,
       "Directory the Save Screenshot dialog opens in" },
+    { KeyId::PathsSourceDirs, "paths", "source_dirs", Type::PathList, 0, 0,
+      "DIRS", "--source-dir", QT, true, Owner::AppConfig, nullptr,
+      "Source search path of the debugger's Source tab: directories separated by ':' (';' on Windows)" },
     { KeyId::RecentFiles, "recent", "files", Type::Text, 0, 0,
       "", nullptr, QT, false, Owner::AppConfig,
       "it is File > Recent Files, a history the program keeps", "Recent files" },
@@ -213,7 +220,12 @@ inline constexpr Key KEYS[] = {
       "COMBO", nullptr, QT, true, Owner::AppConfig, nullptr,
       "Key combination of a debugger action (run, pause, step_into, step_over, step_out, "
       "step_back, frame_back, run_to_cursor, run_to_eof, run_to_eosl, trace_toggle, "
-      "trace_export); none = unbound" },
+      "trace_export, source_step_into, source_step_over, source_step_out, source_step_back, "
+      "source_reverse_continue); none = unbound" },
+    { KeyId::SourceColourScheme, "source", "colour_scheme", Type::Word, 0, 0,
+      "auto|light|dark|borland", nullptr, QT, true, Owner::AppConfig, nullptr,
+      "Colour scheme of the debugger's Source tab: auto (light or dark, after the application), "
+      "light, dark or borland (Borland C++ 3.1)" },
     { KeyId::EspEnabled, "esp", "enabled", Type::Bool, 0, 0,
       "true|false", "--esp", QT | SDL | HEADLESS, false, Owner::AppConfig, nullptr,
       "Emulated ESP-01 WiFi module" },
@@ -244,6 +256,9 @@ inline constexpr Key KEYS[] = {
     { KeyId::DebuggerAttached, "debugger", "attached", Type::Bool, 0, 0,
       "true|false", nullptr, QT, true, Owner::DebuggerWindow, nullptr,
       "Debugger window attached to the emulator window" },
+    { KeyId::DebuggerPhysicalAddresses, "debugger", "physical_addresses", Type::Bool, 0, 0,
+      "true|false", nullptr, QT, true, Owner::DebuggerWindow, nullptr,
+      "Debugger shows physical memory addresses instead of page and ROM names" },
     { KeyId::DebuggerSize, "debugger", "size", Type::Text, 0, 0,
       "", nullptr, QT, true, Owner::DebuggerWindow,
       "it is the remembered window geometry; no control sets it", "Debugger window size" },
@@ -314,5 +329,10 @@ bool parse_assignment(const char* arg, Assignment& out, std::string& why);
 /// Preferences "CRT effect" pop-up; the caller maps the effect word to the three
 /// values (cli::parse_crt_effect).
 void append_crt_effect(std::vector<Assignment>& out, bool filter, bool shader, int style);
+
+/// `--source-dir DIR` as a step of the one-string list `canon` (paths.source_dirs):
+/// appends `dir` after the entries already there. Refuses an empty `dir` and one
+/// holding the list separator (which would be read as two), with `why` naming the flag.
+bool append_list_entry(std::string& canon, const char* dir, std::string& why);
 
 } // namespace config_keys

@@ -1,12 +1,16 @@
 #include "debug/source_map.h"
+#include <limits>
 
 #include "core/sha256.h"
-#include "debug/ram_page.h"
 
 #include <algorithm>
 #include <charconv>
+#include <tuple>
 
 namespace {
+
+using jnext::dbg::FetchSource;
+using jnext::dbg::MemSpace;
 
 std::string normalized_file(std::string file)
 {
@@ -16,10 +20,17 @@ std::string normalized_file(std::string file)
     return file;
 }
 
-std::string basename(const std::string& file)
+uint32_t space_key(FetchSource s)
 {
-    const size_t slash = file.find_last_of('/');
-    return slash == std::string::npos ? file : file.substr(slash + 1);
+    // Cpu compares equal whatever its index.
+    const uint32_t index = s.kind == MemSpace::Kind::Cpu ? 0u : s.index;
+    return (static_cast<uint32_t>(s.kind) << 16) | index;
+}
+
+FetchSource key_space(uint32_t key)
+{
+    return FetchSource{static_cast<MemSpace::Kind>(key >> 16),
+                       static_cast<uint16_t>(key & 0xFFFF)};
 }
 
 std::optional<int> decimal(std::string_view text)
@@ -34,99 +45,302 @@ std::optional<int> decimal(std::string_view text)
 
 } // namespace
 
-void SourceMap::replace(std::vector<SourceLocation> locations,
+void SourceMap::replace(std::vector<SourceRange> ranges,
+                        std::vector<SourceAlias> aliases,
                         std::optional<SourceProgramIdentity> identity,
-                        std::string loaded_file)
+                        std::string loaded_file,
+                        std::string format,
+                        std::map<std::string, SourceText> texts,
+                        bool dot)
 {
-    std::map<uint32_t, SourceLocation> by_address;
-    std::map<FileLine, std::vector<SourceAddress>> by_line;
-    for (auto& location : locations) {
-        location.file = normalized_file(std::move(location.file));
-        SourceAddress address{location.page, location.address};
-
-        // Later records win at a duplicate execution address. SLD uses this
-        // for statement markers that replace a zero-width function marker.
-        by_address[address_key(location.page, location.address)] = location;
-        auto& line_addresses = by_line[{location.file, location.line}];
-        const auto duplicate = std::find_if(
-            line_addresses.begin(), line_addresses.end(),
-            [&](const SourceAddress& candidate) {
-                return candidate.page == address.page
-                       && candidate.address == address.address;
-            });
-        if (duplicate == line_addresses.end())
-            line_addresses.push_back(address);
+    SourceMap next;
+    std::map<std::tuple<std::string, int, int>, size_t> location_ids;
+    for (auto& r : ranges) {
+        r.location.file = normalized_file(std::move(r.location.file));
+        const auto key = std::make_tuple(r.location.file, r.location.line, r.location.column);
+        auto [it, added] = location_ids.try_emplace(key, next.locations_.size());
+        if (added) next.locations_.push_back(r.location);
+        next.files_.insert(r.location.file);
+        const uint32_t hi = std::max<uint32_t>(r.hi_excl, r.lo);
+        next.ranges_.push_back({space_key(r.space), r.lo, std::min<uint32_t>(hi, 0x10000),
+                                it->second});
     }
 
-    by_address_ = std::move(by_address);
-    by_line_ = std::move(by_line);
-    identity_ = std::move(identity);
-    loaded_file_ = std::move(loaded_file);
+    // Line index: non-zero-width ranges, in emission order.
+    for (size_t i = 0; i < next.ranges_.size(); ++i) {
+        const Range& r = next.ranges_[i];
+        if (r.hi == r.lo) continue;
+        const SourceLocation& l = next.locations_[r.location];
+        next.by_line_[{l.file, l.line}].push_back(i);
+    }
+    for (auto& a : aliases) {
+        if (a.range >= next.ranges_.size()) continue;
+        a.file = normalized_file(std::move(a.file));
+        next.files_.insert(a.file);
+        next.aliases_[{a.file, a.line}] = a.range;
+    }
+
+    // Address index: elementary segments between all range boundaries.
+    std::vector<uint64_t> bounds;
+    for (const Range& r : next.ranges_) {
+        if (r.hi == r.lo) continue;
+        bounds.push_back((static_cast<uint64_t>(r.space_key) << 20) | r.lo);
+        bounds.push_back((static_cast<uint64_t>(r.space_key) << 20) | r.hi);
+    }
+    std::sort(bounds.begin(), bounds.end());
+    bounds.erase(std::unique(bounds.begin(), bounds.end()), bounds.end());
+    // lists[i] covers [bounds[i], bounds[i+1]) when both are in one space.
+    std::vector<std::vector<size_t>> lists(bounds.size());
+    for (size_t i = 0; i < next.ranges_.size(); ++i) {
+        const Range& r = next.ranges_[i];
+        if (r.hi == r.lo) continue;
+        const uint64_t base = static_cast<uint64_t>(r.space_key) << 20;
+        const uint64_t hi = base | r.hi;
+        size_t s = std::lower_bound(bounds.begin(), bounds.end(), base | r.lo) - bounds.begin();
+        for (; s < bounds.size() && bounds[s] < hi; ++s) lists[s].push_back(i);
+    }
+    auto primary_first = [&next](size_t a, size_t b) {
+        const Range& x = next.ranges_[a];
+        const Range& y = next.ranges_[b];
+        const uint32_t lx = x.hi - x.lo;
+        const uint32_t ly = y.hi - y.lo;
+        return lx != ly ? lx < ly : a > b;   // shorter, then later-emitted
+    };
+    for (size_t s = 0; s < bounds.size(); ++s) {
+        if (lists[s].empty()) continue;
+        std::sort(lists[s].begin(), lists[s].end(), primary_first);
+        Segment seg;
+        seg.start = bounds[s];
+        seg.end = static_cast<uint32_t>(bounds[s + 1] & 0xFFFFF);
+        seg.first = next.cover_.size();
+        seg.count = lists[s].size();
+        next.cover_.insert(next.cover_.end(), lists[s].begin(), lists[s].end());
+        next.segments_.push_back(seg);
+    }
+
+    next.identity_ = std::move(identity);
+    next.loaded_file_ = std::move(loaded_file);
+    next.format_ = std::move(format);
+    next.dot_ = dot;
+    for (auto& [file, text] : texts) next.texts_.emplace(normalized_file(file), std::move(text));
+    *this = std::move(next);
 }
 
-std::optional<SourceLocation> SourceMap::lookup(uint8_t page, uint16_t address) const
+const SourceText* SourceMap::embedded_text(std::string_view file) const
 {
-    // NOT_RAM_PAGE: code a ROM slot or an overlay supplied. No page-qualified
-    // record describes it, whatever its page number; an unqualified one may.
-    if (page == NOT_RAM_PAGE) {
-        const auto logical = by_address_.find(address_key(std::nullopt, address));
-        return logical == by_address_.end()
-            ? std::nullopt : std::optional<SourceLocation>(logical->second);
-    }
-    if (const auto exact = by_address_.find(address_key(page, address));
-        exact != by_address_.end()) {
-        return exact->second;
-    }
-    const auto logical = by_address_.find(address_key(std::nullopt, address));
-    return logical == by_address_.end()
-        ? std::nullopt : std::optional<SourceLocation>(logical->second);
+    const auto it = texts_.find(std::string(file));
+    return it == texts_.end() ? nullptr : &it->second;
 }
 
-std::vector<SourceAddress> SourceMap::addresses(const std::string& file, int line) const
+const SourceMap::Segment* SourceMap::segment_at(FetchSource space, uint16_t address) const
 {
-    const std::string normalized = normalized_file(file);
-    if (const auto exact = by_line_.find({normalized, line}); exact != by_line_.end())
-        return exact->second;
-
-    std::vector<SourceAddress> result;
-    bool matched = false;
-    for (const auto& [key, values] : by_line_) {
-        if (key.second != line || basename(key.first) != normalized) continue;
-        if (matched) return {};
-        result = values;
-        matched = true;
-    }
-    return result;
+    const uint64_t key = (static_cast<uint64_t>(space_key(space)) << 20) | address;
+    auto it = std::upper_bound(segments_.begin(), segments_.end(), key,
+                               [](uint64_t k, const Segment& s) { return k < s.start; });
+    if (it == segments_.begin()) return nullptr;
+    --it;
+    if ((it->start >> 20) != (key >> 20) || address >= it->end) return nullptr;
+    return &*it;
 }
 
-std::optional<SourceAddress> SourceMap::resolve(std::string_view expression) const
+const SourceLocation* SourceMap::lookup(FetchSource space, uint16_t address) const
+{
+    const Segment* seg = segment_at(space, address);
+    return seg ? &locations_[ranges_[cover_[seg->first]].location] : nullptr;
+}
+
+std::vector<const SourceLocation*> SourceMap::lookup_all(FetchSource space,
+                                                         uint16_t address) const
+{
+    std::vector<const SourceLocation*> all;
+    if (const Segment* seg = segment_at(space, address)) {
+        for (size_t i = 0; i < seg->count; ++i)
+            all.push_back(&locations_[ranges_[cover_[seg->first + i]].location]);
+    }
+    return all;
+}
+
+std::vector<SourceMap::FileRange> SourceMap::file_ranges(const std::string& file) const
+{
+    std::vector<FileRange> out;
+    for (auto it = by_line_.lower_bound(FileLine{file, std::numeric_limits<int>::min()});
+         it != by_line_.end() && it->first.first == file; ++it) {
+        for (const size_t i : it->second) {
+            const Range& r = ranges_[i];
+            out.push_back({it->first.second, key_space(r.space_key),
+                           static_cast<uint16_t>(r.lo), r.hi});
+        }
+    }
+    return out;
+}
+
+SourceResolution SourceMap::resolve(std::string_view expression) const
 {
     const size_t colon = expression.find_last_of(':');
-    if (colon == std::string_view::npos) return std::nullopt;
-    const std::string file(expression.substr(0, colon));
+    if (colon == std::string_view::npos) return {};
+    const std::string query = normalized_file(std::string(expression.substr(0, colon)));
     const auto line = decimal(expression.substr(colon + 1));
-    if (file.empty() || !line || *line < 1) return std::nullopt;
-    const auto candidates = addresses(file, *line);
-    return candidates.empty() ? std::nullopt
-                              : std::optional<SourceAddress>(candidates.front());
+    if (query.empty() || !line || *line < 1) return {};
+
+    // File: exact, else the unique file ending in "/" + query.
+    const std::string* file = nullptr;
+    if (const auto exact = files_.find(query); exact != files_.end()) {
+        file = &*exact;
+    } else {
+        const std::string tail = "/" + query;
+        for (const std::string& f : files_) {
+            if (f.size() <= tail.size()
+                || f.compare(f.size() - tail.size(), tail.size(), tail) != 0)
+                continue;
+            if (file) return {};   // ambiguous
+            file = &f;
+        }
+    }
+    if (!file) return {};
+
+    SourceResolution out;
+    const FileLine fl{*file, *line};
+    if (const auto it = by_line_.find(fl); it != by_line_.end()) {
+        for (const size_t i : it->second) {
+            const Range& r = ranges_[i];
+            const bool continuation = std::any_of(
+                it->second.begin(), it->second.end(), [&](size_t j) {
+                    return ranges_[j].space_key == r.space_key && ranges_[j].hi == r.lo;
+                });
+            if (!continuation)
+                out.starts.push_back({key_space(r.space_key), static_cast<uint16_t>(r.lo)});
+        }
+        std::sort(out.starts.begin(), out.starts.end(),
+                  [](const SourceAddress& a, const SourceAddress& b) {
+                      return std::make_tuple(space_key(a.space), a.address)
+                           < std::make_tuple(space_key(b.space), b.address);
+                  });
+        out.starts.erase(std::unique(out.starts.begin(), out.starts.end(),
+                             [](const SourceAddress& a, const SourceAddress& b) {
+                                 return space_key(a.space) == space_key(b.space)
+                                     && a.address == b.address;
+                             }),
+                         out.starts.end());
+    }
+    if (out.starts.empty()) {
+        if (const auto al = aliases_.find(fl); al != aliases_.end()) {
+            const Range& r = ranges_[al->second];
+            out.starts.push_back({key_space(r.space_key), static_cast<uint16_t>(r.lo)});
+        } else {
+            out.error = "no code at " + std::string(expression);
+        }
+    }
+    return out;
+}
+
+namespace {
+
+// The SHA-256 of an SLD identity against logical memory.
+bool sha_matches(const SourceProgramIdentity& id, const std::function<uint8_t(uint16_t)>& read)
+{
+    if (id.size > 0x10000u - id.org) return false;
+    std::vector<uint8_t> bytes(id.size);
+    for (uint32_t i = 0; i < id.size; ++i)
+        bytes[i] = read(static_cast<uint16_t>(id.org + i));
+    const std::string actual = sdcard::sha256_hex(bytes);
+    return !actual.empty() && actual == id.sha256;
+}
+
+bool check_matches(const SourceByteCheck& check, const SourceMap::SpaceReader& read_space)
+{
+    if (!read_space || check.bytes.size() > 0x10000u - check.lo) return false;
+    for (size_t i = 0; i < check.bytes.size(); ++i) {
+        const auto actual = read_space(check.space, static_cast<uint16_t>(check.lo + i));
+        if (!actual || *actual != check.bytes[i]) return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool SourceMap::has_identity() const
+{
+    return identity_ && (!identity_->sha256.empty() || !identity_->bytes.empty());
 }
 
 std::optional<bool> SourceMap::verify_program(
-    const std::function<uint8_t(uint16_t)>& read) const
+    const std::function<uint8_t(uint16_t)>& read,
+    const SpaceReader& read_space) const
 {
-    if (!identity_) return std::nullopt;
-    if (identity_->size > 0x10000u - identity_->org) return false;
-    std::vector<uint8_t> bytes(identity_->size);
-    for (uint32_t i = 0; i < identity_->size; ++i)
-        bytes[i] = read(static_cast<uint16_t>(identity_->org + i));
-    const std::string actual = sdcard::sha256_hex(bytes);
-    return !actual.empty() && actual == identity_->sha256;
+    if (!has_identity()) return std::nullopt;
+    if (!identity_->sha256.empty() && !sha_matches(*identity_, read)) return false;
+    for (const SourceByteCheck& check : identity_->bytes)
+        if (!check_matches(check, read_space)) return false;
+    return true;
+}
+
+std::optional<bool> SourceMap::verify_unit(
+    FetchSource unit,
+    const std::function<uint8_t(uint16_t)>& read,
+    const SpaceReader& read_space) const
+{
+    if (!has_identity()) return std::nullopt;
+    if (unit.kind == MemSpace::Kind::Cpu) {
+        if (identity_->sha256.empty()) return std::nullopt;
+        return sha_matches(*identity_, read);
+    }
+    bool any = false;
+    for (const SourceByteCheck& check : identity_->bytes) {
+        if (space_key(check.space) != space_key(unit)) continue;
+        any = true;
+        if (!check_matches(check, read_space)) return false;
+    }
+    if (!any) return std::nullopt;
+    return true;
+}
+
+std::vector<SourceMap::VerifySpan> SourceMap::verify_spans() const
+{
+    std::vector<VerifySpan> out;
+    if (!has_identity()) return out;
+    const FetchSource cpu = MemSpace::cpu();
+    for (const SourceByteCheck& check : identity_->bytes) {
+        if (check.bytes.empty()) continue;
+        out.push_back({check.space, check.lo,
+                       std::min<uint32_t>(check.lo + static_cast<uint32_t>(check.bytes.size()),
+                                          0x10000u),
+                       check.space});
+    }
+    if (!identity_->sha256.empty()) {
+        for (const Range& r : ranges_) {
+            if (r.hi == r.lo) continue;
+            out.push_back({key_space(r.space_key), static_cast<uint16_t>(r.lo), r.hi, cpu});
+        }
+    }
+    std::sort(out.begin(), out.end(), [](const VerifySpan& a, const VerifySpan& b) {
+        return std::make_tuple(space_key(a.unit), space_key(a.space), a.lo) <
+               std::make_tuple(space_key(b.unit), space_key(b.space), b.lo);
+    });
+    std::vector<VerifySpan> merged;
+    for (const VerifySpan& v : out) {
+        if (!merged.empty() && space_key(merged.back().unit) == space_key(v.unit) &&
+            space_key(merged.back().space) == space_key(v.space) &&
+            v.lo <= merged.back().hi_excl) {
+            merged.back().hi_excl = std::max(merged.back().hi_excl, v.hi_excl);
+        } else {
+            merged.push_back(v);
+        }
+    }
+    return merged;
 }
 
 void SourceMap::clear()
 {
-    by_address_.clear();
+    locations_.clear();
+    ranges_.clear();
+    segments_.clear();
+    cover_.clear();
     by_line_.clear();
+    aliases_.clear();
+    files_.clear();
     loaded_file_.clear();
+    format_ = "SLD";
+    dot_ = false;
+    texts_.clear();
     identity_.reset();
 }

@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "core/log.h"
+#include "debug/long_address.h"
 #include "remote/gdb/target_desc.h"
 
 namespace jnext {
@@ -825,6 +826,7 @@ void GdbServer::pkt_monitor(const std::string& body) {
     else if (verb == "in")      ok = monitor_in(args);
     else if (verb == "out")     ok = monitor_out(args);
     else if (verb == "sym")     ok = monitor_sym(args);
+    else if (verb == "src")     ok = monitor_src(args);
     else if (verb == "time")    ok = monitor_time(args);
     else if (verb == "reset")   ok = monitor_reset(args);
     else if (verb == "bp")      ok = monitor_bp(args);
@@ -841,13 +843,14 @@ void GdbServer::monitor_help() {
         "jnext monitor commands (numbers: 0x.., $.. or decimal):",
         "  regs                       I R IFF1 IFF2 IM HALT MEMPTR and the pairs",
         "  set i|r|iff1|iff2|im VAL   write one of those",
-        "  mmu                        the eight slots and the paging ports",
+        "  mmu                        the eight slots, the memory each reads now, and the paging ports",
         "  mmu SLOT PAGE              map NR page PAGE at SLOT (as NEXTREG 0x50+SLOT)",
         "  nextreg [REG [VAL]]        all NextREGs, one, or write one",
         "  page N OFF [LEN]           hex dump of physical 8K page N",
         "  in PORT                    read a port - PERTURBING: runs its read side effects",
         "  out PORT VAL               write a port - PERTURBING, as a guest OUT",
         "  sym NAME|ADDR              a symbol's address, or the symbol at/below ADDR",
+        "  src [ADDR]                 the source line of ADDR (default PC) and its memory",
         "  time                       frame, cycle, T-states, raster position",
         "  reset [soft|hard]          reset the machine; it stays stopped",
         "  bp                         every breakpoint and watchpoint, with its owner",
@@ -890,10 +893,20 @@ bool GdbServer::monitor_set(const std::vector<std::string>& args) {
 bool GdbServer::monitor_mmu(const std::vector<std::string>& args) {
     if (args.empty()) {
         const auto slots = dbg_.mmu_slots();
-        for (std::size_t s = 0; s < slots.size(); ++s)
-            monitor_line(strf("slot %u: page %02X (effective %02X)%s", static_cast<unsigned>(s),
+        const bool next  = dbg_.machine().type == MachineType::ZXN_ISSUE2;
+        for (std::size_t s = 0; s < slots.size(); ++s) {
+            // The memory a read of the slot reaches now (GH #360): its tag, and on the
+            // Next the SRAM / block-RAM address of the slot's first byte.
+            std::string mem = jnext::dbg::space_tag(slots[s].now);
+            if (next) {
+                const std::string phys =
+                    jnext::dbg::physical_text(slots[s].now, static_cast<std::uint16_t>(s << 13));
+                if (phys != mem) mem += " " + phys;
+            }
+            monitor_line(strf("slot %u: page %02X (effective %02X)%s  %s", static_cast<unsigned>(s),
                               slots[s].nr_page, slots[s].effective_page,
-                              slots[s].is_rom ? " ROM" : ""));
+                              slots[s].is_rom ? " ROM" : "", mem.c_str()));
+        }
         const auto p = dbg_.paging_ports();
         monitor_line(strf("7FFD=%02X 1FFD=%02X DFFD=%02X", p.port_7ffd, p.port_1ffd, p.port_dffd));
         return true;
@@ -985,21 +998,65 @@ bool GdbServer::monitor_sym(const std::vector<std::string>& args) {
     std::uint32_t addr = 0;
     if (parse_number(args[0], addr)) {
         if (addr > 0xFFFF) return false;
-        const auto& table = dbg_.symbols().symbols();
-        auto        it    = table.upper_bound(static_cast<std::uint16_t>(addr));
-        if (it == table.begin()) {
+        // The nearest label at or below, among those that name their address in
+        // the memory mapped there now (a paged label is not seen elsewhere).
+        const auto near = dbg_.symbols().nearest(
+            static_cast<std::uint16_t>(addr),
+            [this](std::uint16_t a) { return dbg_.source_page(a); });
+        if (!near) {
             monitor_line(strf("no symbol at or below $%04X", addr));
             return true;
         }
-        --it;
-        const std::uint32_t delta = addr - it->first;
-        monitor_line(delta == 0 ? strf("$%04X = ", addr) + it->second
-                                : strf("$%04X = ", addr) + it->second + strf("+%u", delta));
+        const std::uint32_t delta = addr - near->first;
+        // The tag of the memory the lookup used (GH #360).
+        const std::string head =
+            strf("$%04X ", addr) +
+            jnext::dbg::space_tag(dbg_.source_page(static_cast<std::uint16_t>(addr))) + " = ";
+        monitor_line(delta == 0 ? head + near->second
+                                : head + near->second + strf("+%u", delta));
         return true;
     }
-    const auto a = dbg_.lookup_name(args[0]);
-    if (!a) monitor_line("no symbol " + printable(args[0], 64));
-    else    monitor_line(args[0] + strf(" = $%04X", *a));
+    const auto a = dbg_.symbols().find_name(args[0]);
+    if (!a) {
+        monitor_line("no symbol " + printable(args[0], 64));
+    } else {
+        std::string line = args[0] + strf(" = $%04X", a->addr);
+        if (a->space) line += " " + jnext::dbg::space_tag(*a->space);
+        monitor_line(line);
+    }
+    return true;
+}
+
+// CAP-SRC (GH #346) - the source line jnext's own map gives an address, in the
+// memory mapped there now: `$8CB8 main.c:19 P04`, or `$8CB8 unmapped P28`.
+// ADDR is a number, a symbol name (a leading `@` allowed) or, absent, the PC.
+bool GdbServer::monitor_src(const std::vector<std::string>& args) {
+    if (args.size() > 1) return false;
+    std::uint32_t addr = dbg_.registers().PC;
+    // A paged symbol answers in its own memory (as `monitor sym` does), not in what is mapped now.
+    std::optional<jnext::dbg::MemSpace> own;
+    if (!args.empty()) {
+        if (parse_number(args[0], addr)) {
+            if (addr > 0xFFFF) return false;
+        } else {
+            const std::string name = args[0][0] == '@' ? args[0].substr(1) : args[0];
+            const auto a = dbg_.symbols().find_name(name);
+            if (!a) {
+                monitor_line("no symbol " + printable(args[0], 64));
+                return true;
+            }
+            addr = a->addr;
+            own = a->space;
+        }
+    }
+    const std::uint16_t a16 = static_cast<std::uint16_t>(addr);
+    const jnext::dbg::MemSpace space = own ? *own : dbg_.source_page(a16);
+    const std::string   mem = jnext::dbg::space_tag(space);
+    const auto*         loc = own ? dbg_.source_location(space, a16) : dbg_.source_location(a16);
+    const std::string   head = strf("$%04X ", addr);
+    if (!loc) monitor_line(head + "unmapped " + mem);
+    else      monitor_line(head + printable(loc->file, 200) + ":" + std::to_string(loc->line) +
+                           " " + mem);
     return true;
 }
 

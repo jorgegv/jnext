@@ -1,0 +1,10 @@
+# z88dk 4d530b6eb779ad0f2a1d13c0bb670cf717477501 (v2.4)
++ zcc +zxn -clib=sdcc_iy -debug -m --list -subtype=nex -o prog -create-app main.c util.c asmfn.asm
+main.c:28: warning 126: unreachable code
+main.c:224: error: syntax error
+  ^---- defc Gcounter0_00==.
+      ^---- defc Gcounter0_00=.
+main.c:227: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXXtable0_00==.
+      ^---- defc F_tmp_tmpXXXXXXXXtable0_00=.
+rc=1

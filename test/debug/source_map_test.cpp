@@ -2,9 +2,18 @@
 // behind source-level debugging (doc/design/SOURCE-LEVEL-DEBUGGING.md):
 //
 //   SRCMAP-*   SourceMap: page-aware lookup, file:line resolution, identity
+//   SRCRNG-*   SourceMap ranges: address ranges, overlap, line entries, "no code at"
 //   SLD-*      the sjasmplus SLD v1 adapter, its validation and sidecar search
 //   NBSYM-*    the NextBuild / Boriel ZX Basic Memory.txt adapter and
 //              SymbolTable::resolve() for address fields
+//   SYMPG-*    SymbolTable keyed by (memory, address): paged and unpaged
+//              labels, name-only values, nearest(), resolve_key() (GH #375)
+//   SLDL-*     the SLD `L` records into a SymbolTable (GH #375)
+//   Z88FIX-*   the committed z88dk ground-truth fixtures match their manifest
+//   UANN-*     the user's labels and comments store (GH #387)
+//   JDP-*      the .jdp annotations project file: the bytes of design 10.5 (GH #387)
+//   SRCPATH-*  where the Source tab finds the file a record names: the map's
+//              directory first, then the search path (GH #420)
 //
 // Pure: no machine. The looping-link row (SLD-18) needs a symlink, so it is in
 // source_debug_posix_test. Run: ./build/test/source_map_test
@@ -12,17 +21,43 @@
 #include "debug/sld_loader.h"
 #include "debug/source_file.h"
 #include "debug/source_map.h"
+#include "debug/source_search.h"
+#include "debug/z88dk_source_map.h"
+#include "core/sha256.h"
 #include "debug/symbol_table.h"
+#include "debug/annotations_file.h"
+#include "debug/user_annotations.h"
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <new>
+#include <set>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <set>
+#include <sstream>
 #include <string>
+#include <type_traits>
 #include <unistd.h>
 #include "../row_id.h"
 
 namespace fs = std::filesystem;
+using jnext::dbg::MemSpace;
+
+// Counts every allocation, so SRCRNG-09 can prove lookup() makes none.
+static long g_allocations = 0;
+void* operator new(std::size_t n) {
+    ++g_allocations;
+    if (void* p = std::malloc(n ? n : 1)) return p;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t n) { return operator new(n); }
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete[](void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 
 static int g_total = 0;
 static int g_pass  = 0;
@@ -56,6 +91,50 @@ int main() {
     // worktrees share the temp directory.
     const fs::path dir = fs::temp_directory_path() /
                          ("jnext-source-map-" + std::to_string(::getpid()));
+    // Z88FIX-01..02 (GH #343): test/fixtures/z88dk holds what the two z88dk installs
+    // produced; MANIFEST.sha256 (sha256sum format) is written by generate.sh from that
+    // real output and is the oracle for the committed bytes.
+    {
+        const fs::path root = JNEXT_Z88DK_FIXTURE_DIR;
+        std::set<std::string> listed;
+        std::string bad01;
+        std::ifstream mf(root / "MANIFEST.sha256", std::ios::binary);
+        std::string line;
+        while (std::getline(mf, line)) {
+            bool ok = line.size() > 66 && line[64] == ' ' && line[65] == ' ';
+            for (int i = 0; ok && i < 64; ++i)
+                ok = (line[i] >= '0' && line[i] <= '9') || (line[i] >= 'a' && line[i] <= 'f');
+            if (!ok) { if (bad01.empty()) bad01 = "malformed line: " + line; continue; }
+            const std::string rel = line.substr(66);
+            listed.insert(rel);
+            if (sdcard::sha256_file((root / rel).string()) != line.substr(0, 64) && bad01.empty())
+                bad01 = "hash mismatch or missing file: " + rel;
+        }
+        if (listed.empty() && bad01.empty()) bad01 = "empty or unreadable manifest";
+        if (!bad01.empty()) std::printf("  Z88FIX-01: %s\n", bad01.c_str());
+        check("Z88FIX-01", "every MANIFEST.sha256 entry names an existing fixture file whose "
+                           "SHA-256 equals the entry",
+              bad01.empty());
+
+        std::set<std::string> present;
+        std::error_code ec;
+        for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+            if (!it->is_regular_file()) continue;
+            const std::string rel = it->path().lexically_relative(root).generic_string();
+            if (rel != "README.md" && rel != "MANIFEST.sha256") present.insert(rel);
+        }
+        std::string bad02;
+        if (ec || present.empty()) bad02 = "fixture directory unreadable or empty";
+        for (const auto& r : present)
+            if (bad02.empty() && !listed.count(r)) bad02 = "file not in the manifest: " + r;
+        for (const auto& r : listed)
+            if (bad02.empty() && !present.count(r)) bad02 = "manifest entry without a file: " + r;
+        if (!bad02.empty()) std::printf("  Z88FIX-02: %s\n", bad02.c_str());
+        check("Z88FIX-02", "MANIFEST.sha256 lists exactly the files under test/fixtures/z88dk "
+                           "except README.md and MANIFEST.sha256",
+              bad02.empty());
+    }
+
     fs::remove_all(dir);
     fs::create_directories(dir);
 
@@ -78,8 +157,8 @@ int main() {
     SourceMap map;
     const SourceMapLoadResult loaded = load_sld(map, sld.string());
     check("SLD-01", "an SLD with five trace records loads five", loaded.count == 5);
-    check("SLD-02", "label (L) records are not source traces; a duplicate address "
-                    "keeps one record", map.size() == 4);
+    check("SLD-02", "label (L) records are not source traces; both records at one "
+                    "address are kept", map.size() == 5);
     check("SLD-03", "the map remembers the file it came from",
           map.loaded_file() == sld.string());
 
@@ -92,50 +171,48 @@ int main() {
     check("SRCMAP-02", "binary identity reports different bytes as a mismatch",
           mismatch && !*mismatch);
 
-    const auto at4 = map.lookup(4, 0x8016);
+    const auto at4 = map.lookup(MemSpace::page(4), 0x8016);
     check("SRCMAP-03", "lookup on the record's page finds its file and line",
           at4 && at4->file == "main.bas" && at4->line == 6);
-    const auto at5 = map.lookup(5, 0x8016);
+    const auto at5 = map.lookup(MemSpace::page(5), 0x8016);
     check("SRCMAP-04", "the same logical address on another page is that page's record",
           at5 && at5->line == 9);
     check("SRCMAP-05", "an address on a page with no record has no source",
-          !map.lookup(6, 0x8016));
-    const auto dup = map.lookup(4, 0x801B);
+          !map.lookup(MemSpace::page(6), 0x8016));
+    const auto dup = map.lookup(MemSpace::page(4), 0x801B);
     check("SRCMAP-06", "of two records at one address the later wins", dup && dup->line == 8);
-    const auto helper = map.lookup(4, 0x8039);
+    const auto helper = map.lookup(MemSpace::page(4), 0x8039);
     check("SRCMAP-07", "an included file keeps its path, and line:column parses",
           helper && helper->file == "include/helper.bas" && helper->line == 2 &&
               helper->column == 5);
 
-    const auto exact = map.resolve("include/helper.bas:2");
+    const auto exact = map.resolve("include/helper.bas:2").starts;
     check("SRCMAP-08", "file:line resolves to the line's address and page",
-          exact && exact->page && *exact->page == 4 && exact->address == 0x8039);
-    const auto base = map.resolve("helper.bas:2");
+          exact.size() == 1 && exact[0].space == MemSpace::page(4) &&
+              exact[0].address == 0x8039);
+    const auto base = map.resolve("helper.bas:2").starts;
     check("SRCMAP-09", "a unique basename resolves like the full path",
-          base && base->address == 0x8039);
+          base.size() == 1 && base[0].address == 0x8039);
     check("SRCMAP-10", "a line that is not a number does not resolve",
-          !map.resolve("helper.bas:x"));
-    check("SRCMAP-11", "a line with no code does not resolve", !map.resolve("main.bas:99"));
+          map.resolve("helper.bas:x").starts.empty());
+    check("SRCMAP-11", "a line with no code does not resolve",
+          map.resolve("main.bas:99").starts.empty());
 
-    SourceLocation a{"x.bas", 3, 0, std::nullopt, 0x8000};
-    SourceLocation b{"x.bas", 3, 0, uint8_t{4}, 0x9000};
-    SourceLocation c{"x.bas", 4, 0, std::nullopt, 0x8000};
+    SourceMap same;
+    same.replace({{MemSpace::page(0), 0x8000, 0x8001, {"x.bas", 3, 0}},
+                  {MemSpace::page(4), 0x9000, 0x9001, {"x.bas", 3, 0}},
+                  {MemSpace::page(0), 0xA000, 0xA001, {"x.bas", 4, 0}}},
+                 {}, std::nullopt, "mem");
+    const SourceLocation a = *same.lookup(MemSpace::page(0), 0x8000);
+    const SourceLocation b = *same.lookup(MemSpace::page(4), 0x9000);
+    const SourceLocation c = *same.lookup(MemSpace::page(0), 0xA000);
     check("SRCMAP-12", "same_position compares file, line and column, not address or page",
           SourceMap::same_position(a, b) && !SourceMap::same_position(a, c));
 
-    // Unqualified records are wildcards for every page.
     {
         SourceMap m;
-        // An SLD record always carries a page; a map built by another adapter
-        // may not. Replace directly to cover the wildcard rule.
-        m.replace({{"w.asm", 1, 0, std::nullopt, 0x8000}, {"w.asm", 3, 0, uint8_t{4}, 0x8000}},
+        m.replace({{MemSpace::page(4), 0x8000, 0x8001, {"w.asm", 3, 0}}}, {},
                   std::nullopt, "adapter");
-        const auto on4 = m.lookup(4, 0x8000);
-        const auto on9 = m.lookup(9, 0x8000);
-        check("SRCMAP-13", "a page-qualified record outranks an unqualified one on its page",
-              on4 && on4->line == 3);
-        check("SRCMAP-14", "an unqualified record answers on every other page",
-              on9 && on9->line == 1);
         check("SRCMAP-15", "no identity metadata: verify_program() has no answer",
               !m.verify_program([](uint16_t) { return uint8_t{0}; }).has_value());
     }
@@ -149,8 +226,10 @@ int main() {
             "two/helper.bas|2||0|4|32769|T|\n");
         SourceMap m;
         check("SLD-04", "two files with one basename load", load_sld(m, amb.string()).count == 2);
-        check("SRCMAP-16", "an ambiguous basename does not resolve", !m.resolve("helper.bas:2"));
-        check("SRCMAP-17", "the full path still resolves", m.resolve("one/helper.bas:2").has_value());
+        check("SRCMAP-16", "an ambiguous basename does not resolve",
+              m.resolve("helper.bas:2").starts.empty());
+        check("SRCMAP-17", "the full path still resolves",
+              !m.resolve("one/helper.bas:2").starts.empty());
     }
 
     // Validation, and a failed load leaves the live map alone.
@@ -203,7 +282,7 @@ int main() {
                   r.count == -1 && r.error.find("invalid SHA-256") != std::string::npos);
         }
         check("SLD-13", "a refused load leaves the live map in place",
-              kept.size() == 4 && kept.lookup(4, 0x8016).has_value());
+              kept.size() == 5 && kept.lookup(MemSpace::page(4), 0x8016) != nullptr);
     }
 
     // CRLF line ends (an SLD edited or produced on Windows).
@@ -215,7 +294,7 @@ int main() {
             "c.bas|4||0|4|32768|T|\r\n");
         SourceMap m;
         const auto r = load_sld(m, crlf.string());
-        const auto at = m.lookup(4, 0x8000);
+        const auto at = m.lookup(MemSpace::page(4), 0x8000);
         check("SLD-14", "CRLF line ends load", r.count == 1 && at && at->line == 4);
     }
 
@@ -299,6 +378,201 @@ int main() {
               at_cap && over.find(std::to_string(big)) != std::string::npos);
     }
 
+    // ── Ranges (GH #338, design 5.1 / 9.1) ──────────────────────────────
+    // Oracle: the SLD records each row writes (sjasmplus emits one T record per
+    // instruction) and the design's range semantics. No VHDL counterpart.
+    {
+        auto rec = [](const char* file, const char* pos, int page, unsigned addr) {
+            return std::string(file) + "|" + pos + "||0|" + std::to_string(page) + "|" +
+                   std::to_string(addr) + "|T|\n";
+        };
+        auto load = [&](SourceMap& m, const char* name, const std::string& first_file,
+                        const std::string& records) {
+            const fs::path p = dir / name;
+            write_text(p, std::string("|SLD.data.version|1\n") + first_file + "|1||0" +
+                              kNextDevice + records);
+            return load_sld(m, p.string()).count;
+        };
+        const MemSpace p4 = MemSpace::page(4);
+        auto is = [](const SourceLocation* l, const char* file, int line) {
+            return l && l->file == file && l->line == line;
+        };
+
+        {
+            SourceMap m;
+            load(m, "rng1.sld", "x.asm", rec("x.asm", "1", 4, 0x8000) + rec("x.asm", "2", 4, 0x8003));
+            check("SRCRNG-01", "an address inside a record's range, not only its first byte, "
+                               "has the record's location; below the first record, none",
+                  is(m.lookup(p4, 0x8001), "x.asm", 1) && is(m.lookup(p4, 0x8002), "x.asm", 1) &&
+                      !m.lookup(p4, 0x7FFF));
+            check("SRCRNG-02", "a record ends where the next one starts: the next address "
+                               "has one location, not two",
+                  is(m.lookup(p4, 0x8003), "x.asm", 2) && m.lookup_all(p4, 0x8003).size() == 1);
+        }
+        {
+            SourceMap m;
+            load(m, "rng3.sld", "x.asm", rec("x.asm", "1", 4, 0x9FFE) + rec("x.asm", "2", 4, 0xA002));
+            check("SRCRNG-03", "an SLD record ends at its 8K page end: $A000-$A001 are no "
+                               "statement, $A002 is the next",
+                  is(m.lookup(p4, 0x9FFF), "x.asm", 1) && !m.lookup(p4, 0xA000) &&
+                      !m.lookup(p4, 0xA001) && is(m.lookup(p4, 0xA002), "x.asm", 2));
+        }
+        {
+            SourceMap m;
+            m.replace({{p4, 0x8004, 0x8008, {"a.c", 7, 0}}, {p4, 0x8000, 0x8010, {"a.c", 3, 0}}},
+                      {}, std::nullopt, "mem");
+            const auto all = m.lookup_all(p4, 0x8005);
+            check("SRCRNG-04", "of overlapping ranges the shortest is primary, even when a "
+                               "longer one was emitted later; lookup_all lists both",
+                  is(m.lookup(p4, 0x8005), "a.c", 7) && all.size() == 2 &&
+                      is(all[0], "a.c", 7) && is(all[1], "a.c", 3) &&
+                      is(m.lookup(p4, 0x8002), "a.c", 3));
+        }
+        {
+            SourceMap m;
+            m.replace({{p4, 0x8C95, 0x8C9A, {"main.c", 17, 0}}, {p4, 0x8C95, 0x8C9A, {"main.c", 16, 0}}},
+                      {}, std::nullopt, "mem");
+            const auto all = m.lookup_all(p4, 0x8C95);
+            check("SRCRNG-05", "of equal ranges the later-emitted is primary, not the higher line",
+                  is(m.lookup(p4, 0x8C95), "main.c", 16) && all.size() == 2 &&
+                      is(all[0], "main.c", 16) && is(all[1], "main.c", 17));
+        }
+        {
+            SourceMap m;
+            load(m, "rng6.sld", "a.asm",
+                 rec("a.asm", "10", 4, 0x8000) + rec("a.asm", "11", 4, 0x8003) +
+                 rec("a.asm", "10", 4, 0x9000) + rec("a.asm", "12", 4, 0x9002) +
+                 rec("a.asm", "10", 20, 0xC000));
+            const auto st = m.resolve("a.asm:10").starts;
+            check("SRCRNG-06", "a line compiled to several places resolves to every one, "
+                               "sorted by space then address",
+                  st.size() == 3 && st[0].space == p4 && st[0].address == 0x8000 &&
+                      st[1].space == p4 && st[1].address == 0x9000 &&
+                      st[2].space == MemSpace::page(20) && st[2].address == 0xC000);
+        }
+        {
+            SourceMap m;
+            m.replace({{p4, 0x8C92, 0x8C92, {"main.c", 14, 0}},
+                       {p4, 0x8C92, 0x8C95, {"main.c", 15, 0}},
+                       {p4, 0x8C95, 0x8C95, {"main.c", 16, 0}},
+                       {p4, 0x8C95, 0x8C9A, {"main.c", 17, 0}}},
+                      {{"main.c", 16, 3}}, std::nullopt, "mem");
+            const auto r16 = m.resolve("main.c:16");
+            const auto r14 = m.resolve("main.c:14");
+            const auto all = m.lookup_all(p4, 0x8C95);
+            check("SRCRNG-07", "a zero-width line resolves through its alias; one with none "
+                               "is refused as \"no code at\"; a zero-width range covers nothing",
+                  r16.starts.size() == 1 && r16.starts[0].space == p4 &&
+                      r16.starts[0].address == 0x8C95 && r14.starts.empty() &&
+                      r14.error == "no code at main.c:14" && all.size() == 1 &&
+                      is(all[0], "main.c", 17));
+        }
+        {
+            SourceMap m;
+            load(m, "rng8.sld", "x.asm",
+                 rec("x.asm", "5:3", 4, 0x8000) + rec("x.asm", "5:7", 4, 0x8001) +
+                 rec("x.asm", "5:3", 4, 0x8002));
+            const SourceLocation* a = m.lookup(p4, 0x8000);
+            const SourceLocation* b = m.lookup(p4, 0x8001);
+            const SourceLocation* c = m.lookup(p4, 0x8002);
+            check("SRCRNG-08", "positions on one line differ by column",
+                  a && b && c && a->line == 5 && b->line == 5 &&
+                      !SourceMap::same_position(*a, *b) && SourceMap::same_position(*a, *c));
+        }
+        {
+            SourceMap m;
+            load(m, "rng9.sld", "x.asm", rec("x.asm", "1", 4, 0x8000) + rec("x.asm", "2", 4, 0x8003));
+            const SourceLocation* first = m.lookup(p4, 0x8001);
+            const bool same = first && first == m.lookup(p4, 0x8001) && first == m.lookup(p4, 0x8002) &&
+                              first == m.lookup_all(p4, 0x8001)[0];
+            const long before = g_allocations;
+            long hits = 0;
+            for (int i = 0; i < 1000; ++i)
+                hits += m.lookup(p4, static_cast<uint16_t>(0x8000 + (i & 3))) != nullptr;
+            const long made = g_allocations - before;
+            static_assert(std::is_same_v<decltype(m.lookup(p4, 0)), const SourceLocation*>,
+                          "lookup() returns the stored location by pointer");
+            check("SRCRNG-09", "lookup() returns the one stored location, without copying "
+                               "or allocating",
+                  same && hits == 1000 && made == 0);
+        }
+        {
+            SourceMap m;
+            load(m, "rng10.sld", "src/game/main.asm",
+                 rec("src/game/main.asm", "1", 4, 0x8000) + rec("lib/util.asm", "1", 4, 0x8010));
+            const auto a = m.resolve("main.asm:1").starts;
+            const auto b = m.resolve("game/main.asm:1").starts;
+            const auto c = m.resolve("src/game/main.asm:1").starts;
+            const SourceResolution d = m.resolve("ain.asm:1");
+            const SourceResolution e = m.resolve("me/main.asm:1");
+            check("SRCRNG-10", "a path matches by whole trailing components, never by "
+                               "characters, and a refusal says nothing",
+                  a.size() == 1 && b.size() == 1 && c.size() == 1 && a[0].address == 0x8000 &&
+                      b[0].address == 0x8000 && c[0].address == 0x8000 && d.starts.empty() &&
+                      d.error.empty() && e.starts.empty() && e.error.empty());
+        }
+        {
+            SourceMap m;
+            load(m, "rng11.sld", "x.asm",
+                 rec("x.asm", "5:1", 4, 0x8000) + rec("x.asm", "5:13", 4, 0x8002) +
+                 rec("x.asm", "7", 4, 0x8004) + rec("x.asm", "7", 4, 0x8005) +
+                 rec("x.asm", "8", 4, 0x8006));
+            const auto l5 = m.resolve("x.asm:5").starts;
+            const auto l7 = m.resolve("x.asm:7").starts;
+            check("SRCRNG-11", "a line's several instructions are one start: a range "
+                               "that continues another of the same line is not an entry",
+                  l5.size() == 1 && l5[0].address == 0x8000 && l7.size() == 1 &&
+                      l7[0].address == 0x8004);
+        }
+        {
+            SourceMap m;
+            load(m, "rng12.sld", "x.asm", rec("x.asm", "1", 4, 0x8000));
+            check("SRCRNG-12", "a record names its memory space: no other space, and no "
+                               "other page, answers for it",
+                  m.lookup(MemSpace::page(4), 0x8000) &&
+                      !m.lookup(MemSpace::divmmc_ram(4), 0x8000) &&
+                      !m.lookup(MemSpace::layer2(4), 0x8000) &&
+                      !m.lookup(MemSpace::config(4), 0x8000) &&
+                      !m.lookup(MemSpace::page(5), 0x8000) &&
+                      !m.lookup(MemSpace::cpu(), 0x8000));
+        }
+        {
+            // One copy ends exactly where the copy in another page starts: the
+            // second is not a continuation of the first.
+            SourceMap m;
+            load(m, "rng13.sld", "lib.asm",
+                 rec("lib.asm", "10", 4, 0x8000) + rec("other.asm", "1", 4, 0x8003) +
+                 rec("lib.asm", "10", 5, 0x8003));
+            const auto st = m.resolve("lib.asm:10").starts;
+            check("SRCRNG-13", "copies of a line in two pages, one ending where the other "
+                               "starts, are two starts",
+                  st.size() == 2 && st[0].space == p4 && st[0].address == 0x8000 &&
+                      st[1].space == MemSpace::page(5) && st[1].address == 0x8003);
+        }
+        {
+            // Records written out of order, one of them twice.
+            SourceMap m;
+            load(m, "rng14.sld", "a.asm",
+                 rec("a.asm", "10", 20, 0xC000) + rec("a.asm", "10", 4, 0x9000) +
+                 rec("a.asm", "10", 4, 0x8000) + rec("b.asm", "1", 4, 0x8003) +
+                 rec("a.asm", "10", 4, 0x8000));
+            const auto st = m.resolve("a.asm:10").starts;
+            check("SRCRNG-14", "starts come back sorted by space then address, each once, "
+                               "whatever order the records were written in",
+                  st.size() == 3 && st[0].space == p4 && st[0].address == 0x8000 &&
+                      st[1].space == p4 && st[1].address == 0x9000 &&
+                      st[2].space == MemSpace::page(20) && st[2].address == 0xC000);
+        }
+        {
+            SourceMap m;
+            load(m, "rng15.sld", "x.asm", rec("x.asm", "1", 4, 0x8000));
+            check("SRCRNG-15", "the last record of a page ends at that page's 8K end, not "
+                               "at the end of the address space",
+                  is(m.lookup(p4, 0x9FFF), "x.asm", 1) && !m.lookup(p4, 0xA000) &&
+                      !m.lookup(p4, 0xFFFF));
+        }
+    }
+
     // ── NextBuild Memory.txt ────────────────────────────────────────────
     {
         const fs::path mem = dir / "sample.Memory.txt";
@@ -315,11 +589,11 @@ int main() {
         check("NBSYM-01", "five labels load; out-of-range, non-hex and malformed lines do not",
               st.load_nextbuild_memory(mem.string()) == 5);
         check("NBSYM-02", "one name per address: the first label there",
-              st.size() == 4 && st.lookup(0xACB5) == std::optional<std::string>("FillScreen"));
+              st.size() == 4 && st.lookup(jnext::dbg::MemSpace::cpu(), 0xACB5) == std::optional<std::string>("FillScreen"));
         check("NBSYM-03", "a Boriel user label shows without '.' and the compiler's '_'",
-              st.lookup(0x7335) == std::optional<std::string>("factoryFxDirty"));
+              st.lookup(jnext::dbg::MemSpace::cpu(), 0x7335) == std::optional<std::string>("factoryFxDirty"));
         check("NBSYM-04", "a runtime label keeps its double underscore",
-              st.lookup(0x7320) == std::optional<std::string>("core.__START_PROGRAM"));
+              st.lookup(jnext::dbg::MemSpace::cpu(), 0x7320) == std::optional<std::string>("core.__START_PROGRAM"));
         check("NBSYM-05", "the shown name, the raw label and the label without '.' all "
                           "resolve by name",
               st.lookup_name("FillScreen") == 0xACB5 && st.lookup_name("._FillScreen") == 0xACB5 &&
@@ -327,7 +601,7 @@ int main() {
         check("NBSYM-06", "a second label at an address still resolves by name",
               st.lookup_name("core.alias_at_same_address") == 0xACB5);
         check("NBSYM-07", "a CRLF line loads",
-              st.lookup(0xC735) == std::optional<std::string>("RespawnPlayer"));
+              st.lookup(jnext::dbg::MemSpace::cpu(), 0xC735) == std::optional<std::string>("RespawnPlayer"));
         std::string why08;
         check("NBSYM-08", "an unreadable file is -1, and the reason is \"could not open "
                           "Memory.txt file\"",
@@ -353,6 +627,853 @@ int main() {
                           "never the number",
               !hexy.resolve("@4000") && !hexy.resolve("@") &&
                   st.resolve("@ RespawnPlayer") == 0xC735);
+    }
+
+    // ── SymbolTable keyed by (memory, address) — GH #375 ────────────────
+    // Oracle: design 10.1 (SOURCE-LEVEL-DEBUGGING.md): a paged label names its
+    // address in its own space only; an unpaged one in every space.
+    {
+        const MemSpace p20 = MemSpace::page(20), p30 = MemSpace::page(30);
+        const auto name = [](const char* n) { return std::optional<std::string>(n); };
+        {
+            SymbolTable t;
+            t.add_label("banked", 0xC000, p20);
+            t.add_label("other_bank", 0xC000, p30);
+            check("SYMPG-01", "a paged label names its address only in its own space",
+                  t.lookup(p20, 0xC000) == name("banked") && t.lookup(p30, 0xC000) == name("other_bank") &&
+                      !t.lookup(MemSpace::page(21), 0xC000) && !t.lookup(MemSpace::rom(0), 0xC000) &&
+                      !t.lookup(MemSpace::cpu(), 0xC000) && !t.lookup(p20, 0xC001));
+        }
+        {
+            SymbolTable t;
+            t.add_label("scr", 0x4000, std::nullopt);
+            check("SYMPG-02", "an unpaged label names its address in every space",
+                  t.lookup(MemSpace::page(4), 0x4000) == name("scr") &&
+                      t.lookup(MemSpace::rom(0), 0x4000) == name("scr") &&
+                      t.lookup(MemSpace::cpu(), 0x4000) == name("scr") && !t.lookup(p20, 0x4001));
+        }
+        {
+            SymbolTable t;
+            t.add_label("any", 0xC000, std::nullopt);
+            t.add_label("banked", 0xC000, p20);
+            check("SYMPG-03", "at one address a paged label wins in its space, the unpaged one answers elsewhere",
+                  t.lookup(p20, 0xC000) == name("banked") &&
+                      t.lookup(MemSpace::page(21), 0xC000) == name("any") &&
+                      t.lookup(MemSpace::cpu(), 0xC000) == name("any"));
+        }
+        {
+            SymbolTable t;
+            const bool first = t.add_label("pos", 0x8014, MemSpace::page(4));
+            const bool second = t.add_label("pos.x", 0x8014, MemSpace::page(4));
+            check("SYMPG-04", "first wins per key and per name: pos names (Page 4, $8014), pos.x still resolves there",
+                  first && !second && t.lookup(MemSpace::page(4), 0x8014) == name("pos") &&
+                      t.find_name("pos.x") == std::optional<SymbolNameKey>(SymbolNameKey{0x8014, MemSpace::page(4)}) &&
+                      t.add_label("pos", 0x9000, MemSpace::page(4)) && t.find_name("pos")->addr == 0x8014);
+        }
+        {
+            SymbolTable t;
+            t.add_value("point.y", 1);
+            check("SYMPG-05", "a name-only value resolves by name and names no address",
+                  t.lookup_name("point.y") == std::optional<uint16_t>(1) && !t.find_name("point.y")->space &&
+                      !t.lookup(MemSpace::cpu(), 1) && !t.lookup(MemSpace::page(4), 1) && t.size() == 0 && t.empty() &&
+                      t.symbols().empty());
+        }
+        {
+            SymbolTable t;
+            t.add_label("banked", 0xC000, p20);
+            t.add_label("scr", 0x4000, std::nullopt);
+            t.add_label("$zz", 0x1111, std::nullopt);
+            t.add_label("0xzz", 0x2222, std::nullopt);
+            const auto key = std::optional<SymbolNameKey>(SymbolNameKey{0xC000, p20});
+            check("SYMPG-06", "find_name and resolve_key give the space; a number or unpaged name has none; resolve is the address",
+                  t.find_name("banked") == key && t.resolve_key("@banked") == key && t.resolve_key("banked") == key &&
+                      t.resolve_key("C000") == std::optional<SymbolNameKey>(SymbolNameKey{0xC000, std::nullopt}) &&
+                      t.resolve_key("scr") == std::optional<SymbolNameKey>(SymbolNameKey{0x4000, std::nullopt}) &&
+                      !t.resolve_key("nope") && !t.resolve_key("$zz") && !t.resolve_key("0xzz") &&
+                      t.resolve("banked") == std::optional<uint16_t>(0xC000));
+        }
+        {
+            SymbolTable t;
+            t.add_label("a", 0x8000, std::nullopt);
+            t.add_label("banked", 0xC000, p20);
+            t.add_label("other_bank", 0xC000, p30);
+            const auto in20 = [](uint16_t a) { return a >= 0xC000 ? MemSpace::page(20) : MemSpace::page(4); };
+            const auto in30 = [](uint16_t a) { return a >= 0xC000 ? MemSpace::page(30) : MemSpace::page(4); };
+            const auto in21 = [](uint16_t a) { return a >= 0xC000 ? MemSpace::page(21) : MemSpace::page(4); };
+            using Near = std::optional<std::pair<uint16_t, std::string>>;
+            check("SYMPG-07", "nearest() skips paged labels that are not mapped, and gives the base of name+offset",
+                  t.nearest(0xC004, in20) == Near(std::make_pair<uint16_t, std::string>(0xC000, "banked")) &&
+                      t.nearest(0xC004, in30) == Near(std::make_pair<uint16_t, std::string>(0xC000, "other_bank")) &&
+                      t.nearest(0xC004, in21) == Near(std::make_pair<uint16_t, std::string>(0x8000, "a")) &&
+                      t.nearest(0xC004, nullptr) == Near(std::make_pair<uint16_t, std::string>(0x8000, "a")) &&
+                      !t.nearest(0x7FFF, in20));
+        }
+        {
+            SymbolTable t;
+            t.add_label("a", 0x8000, std::nullopt);
+            t.add_label("banked", 0xC000, p20);
+            t.add_label("other_bank", 0xC000, p30);
+            check("SYMPG-08", "symbols() lists every label (two at $C000); size() counts the keys",
+                  t.symbols().count(0xC000) == 2 && t.symbols().size() == 3 && t.size() == 3);
+        }
+        {
+            SymbolTable t;
+            t.add_label("p", 0xC000, p20);
+            t.add_label("u", 0xC000, std::nullopt);   // added AFTER the paged one
+            const auto in20 = [](uint16_t) { return MemSpace::page(20); };
+            check("SYMPG-10", "nearest() gives the name lookup() gives: the paged label in its space, even when an "
+                              "unpaged one was added later at the same address",
+                  t.nearest(0xC004, in20) == std::optional<std::pair<uint16_t, std::string>>(
+                                                 std::make_pair<uint16_t, std::string>(0xC000, "p")) &&
+                      t.lookup(p20, 0xC000) == name("p"));
+        }
+        {
+            SymbolTable t;
+            t.add_value("v", 1);
+            t.add_value("v", 2);
+            check("SYMPG-11", "the first value of a name wins", t.lookup_name("v") == std::optional<uint16_t>(1));
+        }
+        {
+            // merge(): a Memory.txt table first, the SLD's labels after it; first wins across tables.
+            const fs::path mem = dir / "sympg12.Memory.txt";
+            write_text(mem, "8000: ._Main\n4000: ._Scr\nC000: .banked\n");
+            SymbolTable a;
+            a.load_nextbuild_memory(mem.string());
+            SymbolTable b;
+            SourceMap sm;
+            load_sld(sm, JNEXT_SJASMEQU_DIR "/equlabels.sld", &b);
+            a.merge(b);
+            SymbolTable c;
+            c.merge(b);
+            using Key = SymbolNameKey;
+            check("SYMPG-12", "merge() adds a table's entries after this one's, first wins per key, name and value, "
+                              "and takes an empty loaded_file",
+                  a.lookup(MemSpace::page(4), 0x8000) == name("main") && a.lookup(MemSpace::cpu(), 0x8000) == name("Main") &&
+                      a.symbols().count(0x4000) == 1 && a.lookup(MemSpace::cpu(), 0x4000) == name("Scr") &&
+                      a.find_name("SCREEN") == std::optional<Key>(Key{0x4000, std::nullopt}) &&
+                      a.find_name("banked") == std::optional<Key>(Key{0xC000, std::nullopt}) &&
+                      a.lookup(p20, 0xC000) == name("banked") && a.find_name("_Main") &&
+                      a.find_name("_Main")->addr == 0x8000 &&
+                      a.find_name("pos.x") == std::optional<Key>(Key{0x8014, MemSpace::page(4)}) &&
+                      a.lookup_name("point.y") == std::optional<uint16_t>(1) && a.loaded_file() == mem.string() &&
+                      c.loaded_file() == b.loaded_file() && !c.loaded_file().empty() && c.size() == 11);
+        }
+        {
+            SymbolTable t;
+            t.add_label("banked", 0xC000, p20);
+            t.add_value("sz", 5);
+            const SymbolTable copy = t;
+            SymbolTable cleared = t;
+            cleared.clear();
+            check("SYMPG-09", "a copy equals the original; clear() empties labels, names and values",
+                  copy.symbols() == t.symbols() && copy.lookup_name("sz") == std::optional<uint16_t>(5) &&
+                      copy.lookup(p20, 0xC000) == name("banked") && cleared.empty() &&
+                      !cleared.lookup_name("banked") && !cleared.lookup_name("sz"));
+        }
+        {
+            // GH #375 stage 3: bind() gives a rule-4 (bind_at_load) label, and name, the RAM
+            // page the MMU maps at its address; nothing else, and nothing that is not RAM.
+            using Key = SymbolNameKey;
+            const auto fixed = [](uint16_t a) {
+                return a >> 13 == 4 ? MemSpace::page(4) : a >> 13 == 2 ? MemSpace::page(10)
+                                                        : MemSpace::page(0);
+            };
+            SymbolTable t;
+            t.add_label("r4", 0x8000, std::nullopt, true);
+            t.add_label("fixed", 0xC000, MemSpace::page(20));
+            t.add_label("plain", 0x4000, std::nullopt);
+            const bool before = t.lookup(MemSpace::cpu(), 0x8000) == name("r4") &&
+                                t.find_name("r4") == std::optional<Key>(Key{0x8000, std::nullopt, true}) &&
+                                t.symbols().find(0x8000)->second.bind_at_load;
+            t.bind(fixed);
+            const bool in4 = t.lookup(MemSpace::page(4), 0x8000) == name("r4") &&
+                             !t.lookup(MemSpace::cpu(), 0x8000) && !t.lookup(MemSpace::page(5), 0x8000) &&
+                             t.find_name("r4")->space == std::optional<jnext::dbg::FetchSource>(MemSpace::page(4)) &&
+                             t.lookup(MemSpace::page(20), 0xC000) == name("fixed") &&
+                             !t.lookup(MemSpace::page(0), 0xC000) &&
+                             t.lookup(MemSpace::page(77), 0x4000) == name("plain");
+            t.bind([](uint16_t) { return MemSpace::page(40); });
+            const bool in40 = t.find_name("r4")->space == std::optional<jnext::dbg::FetchSource>(MemSpace::page(40));
+            t.bind([](uint16_t) { return MemSpace::rom(0); });
+            const bool in_rom = t.lookup(MemSpace::cpu(), 0x8000) == name("r4") && !t.find_name("r4")->space;
+            t.bind(fixed);
+            t.bind({});
+            const bool unbound = t.lookup(MemSpace::cpu(), 0x8000) == name("r4") && !t.find_name("r4")->space;
+            check("SYMPG-13", "bind() binds only the bind_at_load labels and names, to a RAM page only; a non-RAM "
+                              "memory or an empty function leaves them unpaged",
+                  before && in4 && in40 && in_rom && unbound);
+        }
+    }
+
+    // ── SLD `L` records into a SymbolTable — GH #375 ────────────────────
+    // equlabels.sld is what sjasmplus v1.23.1 writes for equlabels.asm (README
+    // in the fixture directory); its `--sym` of the same source is the oracle
+    // for the names and values.
+    {
+        const std::string fixture = JNEXT_SJASMEQU_DIR "/equlabels.sld";
+        const MemSpace p4 = MemSpace::page(4);
+        const auto name = [](const char* n) { return std::optional<std::string>(n); };
+        SourceMap map;
+        SymbolTable labels;
+        const SourceMapLoadResult r = load_sld(map, fixture, &labels);
+        check("SLDL-01", "equlabels.sld loads 18 traces and 12 labels (19 L records: 3 name-only, 4 skipped) "
+                         "naming 11 keys",
+              r.count == 18 && r.labels == 12 && labels.size() == 11 && labels.loaded_file().size() > 0);
+
+        std::map<std::string, uint16_t> sym;
+        {
+            std::ifstream in(JNEXT_SJASMEQU_DIR "/equlabels.sym");
+            std::string line;
+            while (std::getline(in, line)) {
+                const auto at = line.find(": EQU 0x");
+                if (at != std::string::npos)
+                    sym[line.substr(0, at)] = static_cast<uint16_t>(std::stoul(line.substr(at + 8), nullptr, 16));
+            }
+        }
+        static const char* const kFromSld[] = {
+            "SCREEN", "SCRSIZE", "TOPADDR", "main", "main.loop", "pos", "pos.x", "pos.y",
+            "gfx.draw", "gfx.draw.loop", "banked", "other_bank", "point", "point.x", "point.y"};
+        std::string bad;
+        std::set<std::string> from_sld;
+        for (const char* n : kFromSld) {
+            from_sld.insert(n);
+            const auto v = labels.lookup_name(n);
+            if (!v || !sym.count(n) || sym[n] != *v) bad += std::string(n) + " ";
+        }
+        std::set<std::string> absent;
+        for (const auto& [n, v] : sym)
+            if (!from_sld.count(n)) absent.insert(n);
+        check("SLDL-02", "every name the SLD gives is in sjasmplus's own --sym with the same value; "
+                         "the only --sym names it lacks are NEG, PASTTOP and counter",
+              bad.empty() && sym.size() == 18 && absent == std::set<std::string>({"NEG", "PASTTOP", "counter"}));
+        check("SLDL-03", "page -1 values past 16 bits (PASTTOP) or negative (NEG) are skipped, not truncated",
+              !labels.lookup_name("PASTTOP") && !labels.lookup_name("NEG") &&
+                  !labels.lookup(MemSpace::cpu(), 0x0000) &&
+                  labels.lookup(MemSpace::cpu(), 0xFFFF) == name("TOPADDR"));
+        check("SLDL-04", "module markers name nothing; gfx.draw.loop is Page 4 $8018",
+              !labels.find_name("gfx") && !labels.find_name("gfx.") && !labels.find_name("") &&
+                  labels.find_name("gfx.draw.loop") == std::optional<SymbolNameKey>(SymbolNameKey{0x8018, p4}));
+        check("SLDL-05", "+struct_def is name-only: point.y is 1 and no address in any space is named by it",
+              labels.lookup_name("point.y") == std::optional<uint16_t>(1) && !labels.find_name("point.y")->space &&
+                  !labels.lookup(p4, 0x0001) && !labels.lookup(MemSpace::cpu(), 0x0002) &&
+                  !labels.lookup(p4, 0x0000));
+        check("SLDL-09", "a page -1 label in range stays unpaged: SCREEN names $4000 in any space",
+              labels.lookup(MemSpace::page(10), 0x4000) == name("SCREEN") &&
+                  labels.lookup(MemSpace::page(40), 0x4000) == name("SCREEN") &&
+                  labels.lookup(MemSpace::cpu(), 0x4000) == name("SCREEN") &&
+                  labels.lookup(MemSpace::page(20), 0xC000) == name("banked") &&
+                  labels.lookup(MemSpace::page(30), 0xC000) == name("other_bank"));
+
+        // Synthetic SLDs: header, device, one T (so the source half loads) and the records under test.
+        const std::string z =
+            "x.asm|1||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+            "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n";
+        const std::string t = "x.asm|2||0|4|32768|T|\n";
+        const auto sld = [&](const char* file, const std::string& body) {
+            const fs::path f = dir / file;
+            write_text(f, "|SLD.data.version|1\n" + body);
+            return f.string();
+        };
+        {
+            SourceMap m;
+            SymbolTable l;
+            const auto rr = load_sld(m, sld("fd.sld", z + t + "x.asm|3||0|4|32768|F|,main,\nx.asm|3||0|-1|16384|D|,SCREEN,\n"), &l);
+            check("SLDL-06", "F and D records are not read: an SLD with only those has no labels",
+                  rr.count == 1 && rr.labels == 0 && l.empty() && !l.find_name("main") && !l.find_name("SCREEN"));
+        }
+        {
+            SourceMap m;
+            SymbolTable l;
+            const auto rr = load_sld(m, sld("badpage.sld",
+                                            z + t + "x.asm|3||0|224|32768|L|,high,\nx.asm|3||0|4|32768|L|,ok,\n"
+                                                    "x.asm|3||0|4|65536|L|,wide,\n"), &l);
+            check("SLDL-07", "an L record whose page the device lacks (or whose value is past 16 bits) is skipped; "
+                             "the rest and the source half load",
+                  rr.count == 1 && rr.labels == 1 && !l.find_name("high") && !l.find_name("wide") &&
+                      l.lookup(p4, 0x8000) == name("ok"));
+        }
+        {
+            // sjasmplus v1.23.1 (46aae3fa7) on sizeof.asm: `msg` is used in SIZEOF(), so its record
+            // carries +sizeof - and still the label's own address.
+            SourceMap m;
+            SymbolTable l;
+            const auto rr = load_sld(m, JNEXT_SJASMEQU_DIR "/sizeof.sld", &l);
+            std::map<std::string, uint16_t> sym;
+            std::ifstream in(JNEXT_SJASMEQU_DIR "/sizeof.sym");
+            std::string line;
+            while (std::getline(in, line)) {
+                const auto at = line.find(": EQU 0x");
+                if (at != std::string::npos)
+                    sym[line.substr(0, at)] = static_cast<uint16_t>(std::stoul(line.substr(at + 8), nullptr, 16));
+            }
+            check("SLDL-10", "a +sizeof record is an ordinary label: msg names its Page 4 address, with the value "
+                             "sjasmplus's own --sym gives",
+                  rr.labels == 2 && sym.size() == 2 && sym["msg"] == 0x8004 &&
+                      l.lookup(p4, 0x8004) == name("msg") &&
+                      l.find_name("msg") == std::optional<SymbolNameKey>(SymbolNameKey{0x8004, p4}));
+        }
+        {
+            SourceMap m;
+            SymbolTable l;
+            l.add_label("old", 0x1234, std::nullopt);
+            l.add_value("oldv", 7);
+            load_sld(m, sld("clr.sld", z + t + "x.asm|3||0|4|32768|L|,new,\n"), &l);
+            check("SLDL-11", "a load replaces the label table: what it held before is gone",
+                  !l.find_name("old") && !l.find_name("oldv") && !l.lookup(MemSpace::cpu(), 0x1234) &&
+                      l.lookup(p4, 0x8000) == name("new") && l.size() == 1);
+        }
+        {
+            // Each source-half problem refuses the source half only: count -1, an error naming it, labels loaded.
+            const std::string lab = "x.asm|9||0|-1|16384|L|,scr,\n";
+            const std::string bodies[] = {
+                z + t + "x.asm|3||0|4|32768|T\n" + lab,                       // a record of 7 fields
+                "x.asm|2||0|4|32768|T|\n" + z + lab,                          // a trace before the device
+                z + "|3||0|4|32768|T|\n" + lab,                               // a trace with no file
+                z + lab,                                                      // no trace at all
+            };
+            bool all = true;
+            int n = 0;
+            for (const std::string& body : bodies) {
+                SourceMap m;
+                SymbolTable l;
+                const auto rr = load_sld(m, sld(("src" + std::to_string(n++) + ".sld").c_str(), body), &l);
+                const bool ok = rr.count == -1 && !rr.error.empty() && rr.labels == 1 &&
+                                l.lookup(MemSpace::cpu(), 0x4000) == name("scr") && m.empty();
+                all = all && ok;
+            }
+            check("SLDL-12", "a malformed record, a trace before the device, a trace with no file and no trace "
+                             "at all each refuse the source half only: the labels still load",
+                  all);
+        }
+        {
+            SourceMap m;
+            SymbolTable l;
+            const auto rr = load_sld(m, sld("badt.sld", z + "x.asm|2||0|999|32768|T|\nx.asm|3||0|4|32768|L|,ok,\n"), &l);
+            SymbolTable untouched;
+            untouched.add_label("keep", 0x1234, std::nullopt);
+            SourceMap m2;
+            const fs::path nohdr = dir / "nohdr.sld";
+            write_text(nohdr, z + t + "x.asm|3||0|4|32768|L|,ok,\n");
+            const auto r2 = load_sld(m2, nohdr.string(), &untouched);
+            check("SLDL-08", "a bad trace refuses the source half and the labels still load; a missing header "
+                             "refuses both and leaves the table untouched",
+                  !rr && rr.count == -1 && !rr.error.empty() && rr.labels == 1 && l.lookup(p4, 0x8000) == name("ok") &&
+                      m.empty() && !r2 && r2.labels == -1 && untouched.size() == 1 &&
+                      untouched.lookup(MemSpace::cpu(), 0x1234) == name("keep"));
+        }
+    }
+
+    // ── SRCPATH-01..13 (GH #420): source_search::resolve / root_for ──────
+    // The oracles are the issue (the map's directory and its parents first, the search
+    // path after), the committed z88dk fixture's recorded names, and the z88dk builds
+    // GH #420 inspected (toolchain files absolute, user files relative). Every file is
+    // made under its own subdirectory of `dir`; names are unlike anything in /tmp, since
+    // the map-directory rule walks up to the root.
+    {
+        const fs::path sp = dir / "srcpath";
+        auto mk = [](const fs::path& p) {
+            fs::create_directories(p.parent_path());
+            write_text(p, "x\n");
+            return p;
+        };
+        auto same = [](const std::string& got, const fs::path& want) {
+            std::error_code ec;
+            return !got.empty() && fs::equivalent(got, want, ec);
+        };
+        auto S = [](const fs::path& p) { return p.string(); };
+        using source_search::resolve;
+        using source_search::root_for;
+
+        {
+            const fs::path a = mk(sp / "a1/game/sp_util.c");
+            mk(sp / "d1/game/sp_util.c");
+            check("SRCPATH-01", "an absolute recorded name that exists is returned, although a search "
+                                "directory holds a file with the same trailing components",
+                  same(resolve(S(a), "", {S(sp / "d1")}), a));
+        }
+        {
+            const fs::path near = mk(sp / "b2/build/sp_main.c");
+            mk(sp / "b2/dirs/sp_main.c");
+            check("SRCPATH-02", "a file beside the map wins over a search directory holding it",
+                  same(resolve("sp_main.c", S(sp / "b2/build/prog.map"), {S(sp / "b2/dirs")}), near));
+        }
+        {
+            const fs::path up = mk(sp / "b3/sp_main.c");
+            mk(sp / "b3/dirs/sp_main.c");
+            check("SRCPATH-03", "a file in the map's grandparent wins over a search directory holding it",
+                  same(resolve("sp_main.c", S(sp / "b3/x/y/prog.map"), {S(sp / "b3/dirs")}), up));
+        }
+        {
+            const fs::path t = sp / "b4";
+            const fs::path file = mk(t / "src/sp_main.c");
+            const std::string map = S(t / "v2.4/sccz80-debug/prog.map");
+            check("SRCPATH-04", "the committed fixture's layout (build directory beside src/): found "
+                                "through the search path, not found without it",
+                  same(resolve("sp_main.c", map, {S(t / "src")}), file) &&
+                      resolve("sp_main.c", map, {}).empty());
+        }
+        {
+            const fs::path a = mk(sp / "b5/a/sp_main.c");
+            mk(sp / "b5/b/sp_main.c");
+            check("SRCPATH-05", "two search directories holding the file: the first one given",
+                  same(resolve("sp_main.c", "", {S(sp / "b5/a"), S(sp / "b5/b")}), a));
+        }
+        {
+            mk(sp / "b6/a/sp_util.c");
+            const fs::path deep = mk(sp / "b6/b/game/sp_util.c");
+            check("SRCPATH-06", "the longest matching trailing part beats the directory order: "
+                                "game/sp_util.c is B's game/sp_util.c, not A's sp_util.c",
+                  same(resolve("game/sp_util.c", "", {S(sp / "b6/a"), S(sp / "b6/b")}), deep));
+        }
+        std::string crt_name;
+        {
+            // The name the committed fixture map records for the NEX entry ($8000).
+            auto nex_space = [](uint16_t address) {
+                static const int kPage[8] = {-1, -1, 10, 11, 4, 5, 0, 1};
+                const int slot = address >> 13;
+                return slot < 2 ? MemSpace::rom(0) : MemSpace::page(static_cast<uint16_t>(kPage[slot]));
+            };
+            SourceMap m;
+            const auto rr = load_z88dk_source_map(
+                m, S(fs::path(JNEXT_Z88DK_FIXTURE_DIR) / "v2.4/sccz80-debug/prog.map"), nex_space);
+            const SourceLocation* loc = rr.count > 0 ? m.lookup(MemSpace::page(4), 0x8000) : nullptr;
+            if (loc) crt_name = loc->file;
+            const fs::path rel = "libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4";
+            const fs::path r1 = mk(sp / "b7/inst" / rel);
+            const fs::path r2 = mk(sp / "b7/inst2/z88dk" / rel);   // the normalised name spelt in full
+            check("SRCPATH-07", "the fixture's recorded CRT name (z88dk/lib/config/../..//libsrc/...) is found "
+                                "under an install root holding libsrc/..., and under one holding z88dk/libsrc/... "
+                                "(the name is normalised first)",
+                  loc && crt_name.find("zxn_crt.asm.m4") != std::string::npos &&
+                      same(resolve(crt_name, "", {S(sp / "b7/inst")}), r1) &&
+                      same(resolve(crt_name, "", {S(sp / "b7/inst2")}), r2) &&
+                      resolve(crt_name, "", {}).empty());
+        }
+        {
+            const fs::path rel = "libsrc/_DEVELOPMENT/target/clib_variables.inc";
+            const fs::path f = mk(sp / "b8/inst" / rel);
+            check("SRCPATH-08", "an absolute name from another machine (/opt/z88dk/libsrc/...), absent here, "
+                                "is found under a search directory holding the same libsrc/... tail",
+                  same(resolve("/opt/z88dk/" + rel.generic_string(), "", {S(sp / "b8/inst")}), f));
+        }
+        {
+            mk(sp / "b9/secret/sp_x.c");   // D/../secret/sp_x.c, which a search must not reach
+            const fs::path d = sp / "b9/d";
+            fs::create_directories(d);
+            const bool escaped = !resolve("../secret/sp_x.c", "", {S(d)}).empty();
+            const fs::path inside = mk(d / "secret/sp_x.c");
+            check("SRCPATH-09", "leading .. components never leave a search directory: ../secret/sp_x.c "
+                                "is not found above it, and is found as secret/sp_x.c below it",
+                  !escaped && same(resolve("../secret/sp_x.c", "", {S(d)}), inside));
+        }
+        {
+            const fs::path d = sp / "b10";
+            fs::create_directories(d / "sp_adir.c");
+            check("SRCPATH-10", "nothing anywhere gives an empty answer, and a directory named like the "
+                                "file is not the file",
+                  resolve("sp_nowhere.c", S(sp / "b10/v/prog.map"), {S(d)}).empty() &&
+                      resolve("sp_adir.c", "", {S(d)}).empty() && resolve("", "", {S(d)}).empty());
+        }
+        {
+            const fs::path f = mk(sp / "b11/inst/libsrc/sp_x.asm");
+            check("SRCPATH-11", "a Windows-spelt absolute name (C:/z88dk/libsrc/sp_x.asm), as the store holds "
+                                "it, is found under a search directory on every OS",
+                  same(resolve("C:/z88dk/libsrc/sp_x.asm", "", {S(sp / "b11/inst")}), f));
+        }
+        {
+            const fs::path rel = "libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4";
+            const fs::path inst = sp / "b12/inst";
+            const fs::path crt = mk(inst / rel);
+            const fs::path util = mk(sp / "b12/p/game/sp_util.c");
+            const fs::path top = mk(sp / "b12/p/src/sp_main.c");
+            mk(sp / "b12/sp_main.cpp");
+            const std::string r_crt = root_for(crt_name, S(crt));
+            const std::string r_util = root_for("game/sp_util.c", S(util));
+            const std::string r_top = root_for("sp_main.c", S(top));
+            check("SRCPATH-12", "root_for gives the directory that makes resolve() find the picked file: the "
+                                "install root for the CRT, the project root for game/sp_util.c, src/ for a bare "
+                                "name; a different file name gives none",
+                  same(r_crt, inst) && same(r_util, sp / "b12/p") && same(r_top, sp / "b12/p/src") &&
+                      root_for("sp_main.c", S(sp / "b12/sp_main.cpp")).empty() &&
+                      same(resolve(crt_name, "", {r_crt}), crt) &&
+                      same(resolve("game/sp_util.c", "", {r_util}), util) &&
+                      same(resolve("sp_main.c", "", {r_top}), top));
+        }
+        {
+            const std::string sep(1, source_search::kListSeparator);
+            const std::vector<std::string> dirs = {"/a b", "rel/dir", "/c,d"};
+            const std::string joined = source_search::join_list(dirs);
+            check("SRCPATH-13", "join_list / split_list round-trip with the platform separator; empty text "
+                                "is the empty list and empty entries are dropped",
+                  joined == "/a b" + sep + "rel/dir" + sep + "/c,d" &&
+                      source_search::split_list(joined) == dirs &&
+                      source_search::split_list("").empty() &&
+                      source_search::split_list(sep + "a" + sep + sep + "b" + sep) ==
+                          std::vector<std::string>({"a", "b"}));
+        }
+    }
+
+    // ── SRCTXT-01 (GH #348): the text of a source file the toolchain did not keep ──
+    {
+        SourceMap m;
+        std::map<std::string, SourceText> texts;
+        texts[".\\x\\y.m4"] = SourceText{"prog.lis", {"one", "two", ""}};
+        m.replace({}, {}, std::nullopt, "t.map", "z88dk", std::move(texts));
+        const SourceText* t = m.embedded_text("x/y.m4");
+        const bool kept = t && t->origin == "prog.lis" && t->lines.size() == 3 && t->lines[1] == "two";
+        const bool exact = !m.embedded_text("y.m4") && !m.embedded_text("x/z.m4") && !m.embedded_text("");
+        SourceMap again = m;
+        again.replace({}, {}, std::nullopt, "u.map", "z88dk");
+        const bool replaced = !again.embedded_text("x/y.m4");
+        SourceMap cleared = m;
+        cleared.clear();
+        check("SRCTXT-01", "replace() keeps the embedded texts under their normalised names, embedded_text() "
+                           "matches the exact name only, and clear() and a later replace() without texts drop them",
+              kept && exact && replaced && !cleared.embedded_text("x/y.m4"));
+    }
+
+    // ── GH #387 (E23-24): the user's labels and comments, and the .jdp project file ──
+    // Oracle: design 10.1-10.5 and 6.8 (the stores have no VHDL counterpart, design 13); the
+    // project file has no foreign reader, so its rows assert the bytes of 10.5, literally.
+    {
+        using jnext::dbg::AnnotationKey;
+        using jnext::dbg::UserAnnotations;
+        const MemSpace P04 = MemSpace::page(4), P10 = MemSpace::page(0x10), P11 = MemSpace::page(0x11);
+        {
+            UserAnnotations u;
+            const std::string e = u.set_label(P10, 0xC000, "banked");
+            const auto k = u.find_name("banked");
+            check("UANN-01", "a label is set at (P10, $C000): find() gives it, find_name() resolves it to that key, "
+                             "one entry",
+                  e.empty() && u.find(P10, 0xC000) && u.find(P10, 0xC000)->label == "banked" && k &&
+                      k->space == P10 && k->addr == 0xC000 && u.entries().size() == 1);
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P10, 0xC000, "banked");
+            const std::string e = u.set_label(P10, 0xC000, "bank2");
+            check("UANN-02", "a rename at the same key: the old name stops resolving, the new one resolves, "
+                             "one label",
+                  e.empty() && !u.find_name("banked") && u.find_name("bank2") && u.label_count() == 1);
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P10, 0xC000, "banked");
+            const UserAnnotations before = u;
+            const std::string e = u.set_label(P11, 0xC000, "banked");
+            check("UANN-03", "a name already used at another key is refused, naming that key, and the store is "
+                             "unchanged",
+                  e == "'banked' already names $C000 P10" && u == before);
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P10, 0xC000, "banked");
+            const UserAnnotations before = u;
+            check("UANN-04", "the same name again at the same key is accepted and changes nothing",
+                  u.set_label(P10, 0xC000, "banked").empty() && u == before);
+        }
+        {
+            UserAnnotations u;
+            bool ok = true;
+            for (const char* n : {"a", "_x", "main.loop", "L1_2", "gfx.draw.loop"})
+                ok = ok && UserAnnotations::valid_label_name(n) && u.set_label(P04, 0x8000, n).empty();
+            const UserAnnotations before = u;
+            bool refused = true;
+            for (const char* n : {"", "1abc", "a b", "a..b", "a.", ".a", "a-b", "a$", "\xC3\xA9", "a.1"}) {
+                refused = refused && !UserAnnotations::valid_label_name(n) &&
+                          !u.set_label(P04, 0x8001, n).empty() && u == before;
+            }
+            check("UANN-05", "the label grammar (the DSL's @name): a, _x, main.loop, L1_2 accepted; empty, 1abc, "
+                             "'a b', a..b, 'a.', .a, a-b, a$, a non-ASCII letter and a.1 refused, each leaving "
+                             "the store unchanged",
+                  ok && refused);
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P04, 0x8000, "x");
+            const UserAnnotations before = u;
+            check("UANN-06", "the CPU view names no memory: a label or a comment there is refused",
+                  !u.set_label(MemSpace::cpu(), 0x8000, "y").empty() &&
+                      !u.set_comment(MemSpace::cpu(), 0x8000, "c").empty() && u == before);
+        }
+        {
+            UserAnnotations u;
+            const bool none = !u.remove_label(P04, 0x8000);
+            u.set_label(P04, 0x9000, "solo");
+            const bool solo = u.remove_label(P04, 0x9000) && u.entries().empty();   // no comment: no entry left
+            u.set_label(P04, 0x8000, "x");
+            u.set_comment(P04, 0x8000, "c");
+            const bool removed = u.remove_label(P04, 0x8000);
+            const bool kept = u.find(P04, 0x8000) && u.find(P04, 0x8000)->label.empty() &&
+                              u.find(P04, 0x8000)->comment == "c" && !u.find_name("x");
+            u.set_comment(P04, 0x8000, "");
+            check("UANN-07", "remove_label is false where there is none; removing a lone label leaves no entry; "
+                             "with a comment present the entry keeps the comment, and clearing it then leaves none",
+                  none && solo && removed && kept && u.entries().empty());
+        }
+        {
+            UserAnnotations u;
+            u.set_comment(P04, 0x8000, "a\r\nb\rc");
+            const bool crlf = u.find(P04, 0x8000) && u.find(P04, 0x8000)->comment == "a\nb\nc";
+            u.set_comment(P04, 0x8001, "\t  x  \xC3\xA9");
+            const bool exact = u.find(P04, 0x8001) && u.find(P04, 0x8001)->comment == "\t  x  \xC3\xA9";
+            u.set_comment(P04, 0x8000, "");
+            check("UANN-08", "a comment's CRLF and lone CR become LF, anything else is kept byte for byte, and "
+                             "empty text removes it (no entry with an empty comment is left)",
+                  crlf && exact && !u.find(P04, 0x8000) && u.comment_count() == 1);
+        }
+        {
+            UserAnnotations u;
+            const UserAnnotations before = u;
+            check("UANN-09", "a comment that is not valid UTF-8 (a lone or truncated lead byte, 0xFF, overlong forms, a "
+                             "surrogate, past U+10FFFF) is refused and the store is unchanged",
+                  !u.set_comment(P04, 0x8000, "\xC3").empty() && !u.set_comment(P04, 0x8000, "\xFF").empty() &&
+                      !u.set_comment(P04, 0x8000, "\xC0\x80").empty() &&
+                      !u.set_comment(P04, 0x8000, "\xED\xA0\x80").empty() &&
+                      !u.set_comment(P04, 0x8000, "\xE0\x80\x80").empty() &&
+                      !u.set_comment(P04, 0x8000, "\xF4\x90\x80\x80").empty() &&
+                      !u.set_comment(P04, 0x8000, "ab\xC3").empty() && u == before &&
+                      u.set_comment(P04, 0x8000, "\xF0\x9F\x98\x80").empty());
+        }
+        {
+            UserAnnotations u;
+            u.set_label(MemSpace::divmmc_ram(3), 0x2000, "d");
+            u.set_label(MemSpace::rom(0), 0x0010, "r");
+            u.set_label(P10, 0x0000, "c");
+            u.set_label(P04, 0xC000, "b");
+            u.set_label(P04, 0x8000, "a");
+            std::string order;
+            for (const auto& e : u.entries()) order += e.second.label;
+            check("UANN-10", "entries() come in file order: kind, then index, then address (Page < Rom < "
+                             "DivMmcRam)",
+                  order == "abcrd");
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P04, 0x8000, "keep");
+            u.set_comment(P04, 0x8000, "note");
+            const bool both = u.label_count() == 1 && u.comment_count() == 1;
+            u.set_comment(P04, 0x8000, "");
+            check("UANN-12", "clearing the comment of a key that has a label keeps the label (find, find_name, one "
+                             "label, no comment)",
+                  both && u.find(P04, 0x8000) && u.find(P04, 0x8000)->label == "keep" &&
+                      u.find(P04, 0x8000)->comment.empty() && u.find_name("keep") && u.label_count() == 1 &&
+                      u.comment_count() == 0);
+        }
+        {
+            struct Edge { MemSpace last_ok; MemSpace first_bad; };
+            const Edge edges[] = {
+                {MemSpace::page(0xDF), MemSpace::page(0xE0)},     {MemSpace::page(0xDF), MemSpace::page(0x100)},
+                {MemSpace::rom(3), MemSpace::rom(4)},             {MemSpace::alt_rom(1), MemSpace::alt_rom(2)},
+                {MemSpace::divmmc_ram(15), MemSpace::divmmc_ram(16)},
+                {MemSpace::layer2(0xDF), MemSpace::layer2(0xE0)}, {MemSpace::config(0xFF), MemSpace::config(0x100)},
+                {MemSpace::boot_rom(), MemSpace{MemSpace::Kind::BootRom, 1}},
+                {MemSpace::floating(), MemSpace{MemSpace::Kind::Floating, 2}},
+            };
+            std::string bad;
+            for (const Edge& e : edges) {
+                UserAnnotations u;
+                u.set_label(P04, 0x1000, "keep");
+                const UserAnnotations before = u;
+                if (u.set_label(e.first_bad, 0x8000, "x").empty()) bad += " label-accepted";
+                if (u.set_comment(e.first_bad, 0x8000, "c").empty()) bad += " comment-accepted";
+                if (u != before) bad += " changed";
+                if (!u.set_label(e.last_ok, 0x8000, "ok").empty()) bad += " last-refused";
+                if (!u.set_comment(e.last_ok, 0x8001, "c").empty()) bad += " last-comment-refused";
+            }
+            check("UANN-13", "the store refuses a memory the project file cannot name (the first out-of-range index "
+                             "of a page, ROM, alt ROM, DivMMC RAM bank, Layer 2 page and config bank, an index on a "
+                             "single-image memory), unchanged, and accepts the last in-range one",
+                  bad.empty());
+            if (!bad.empty()) std::printf("    UANN-13:%s\n", bad.c_str());
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P10, 0xC000, "x");
+            u.set_label(P11, 0xC000, "y");
+            check("UANN-11", "two memories at one address are two entries",
+                  u.entries().size() == 2 && u.find(P11, 0xC000) && u.find(P11, 0xC000)->label == "y" &&
+                      u.find(P10, 0xC000)->label == "x");
+        }
+    }
+    {
+        using jnext::dbg::UserAnnotations;
+        using jnext::dbg::read_annotations;
+        using jnext::dbg::write_annotations;
+        const MemSpace P04 = MemSpace::page(4);
+        const auto bytes = [](const UserAnnotations& u) {
+            std::ostringstream o;
+            write_annotations(o, u);
+            return o.str();
+        };
+        // false and the reason, or true; `out` is what read_annotations left.
+        const auto parse = [](const std::string& text, UserAnnotations& out, std::string& why) {
+            std::istringstream in(text);
+            return read_annotations(in, out, why);
+        };
+        UserAnnotations t;   // JDP-01's store, inserted in a shuffled order
+        t.set_comment(MemSpace::divmmc_ram(3), 0x2000, "x");
+        t.set_label(MemSpace::rom(0), 0x0010, "rst_print");
+        t.set_comment(P04, 0x8000, "Entry\npoint \\ here");
+        t.set_label(P04, 0x8000, "Start");
+        const std::string canon =
+            "jnext-annotations 1\n"
+            "label P04 $8000 Start\n"
+            "comment P04 $8000 Entry\\npoint \\\\ here\n"
+            "label ROM0 $0010 rst_print\n"
+            "comment DIVRAM3 $2000 x\n";
+        check("JDP-01", "the writer's bytes are design 10.5's: header, the label record before the comment "
+                        "record of a key, sorted by memory kind then index then address, $ + four upper-case "
+                        "hex digits, \\\\ and \\n escapes",
+              bytes(t) == canon);
+        check("JDP-02", "an empty store writes exactly the header line", bytes(UserAnnotations{}) == "jnext-annotations 1\n");
+        {
+            UserAnnotations all;
+            const MemSpace spaces[] = {MemSpace::page(0x10), MemSpace::rom(1), MemSpace::boot_rom(),
+                                       MemSpace::multiface_rom(), MemSpace::multiface_ram(),
+                                       MemSpace::divmmc_rom(), MemSpace::divmmc_ram(3), MemSpace::alt_rom(1),
+                                       MemSpace::layer2(0x20), MemSpace::config(2), MemSpace::floating()};
+            int i = 0;
+            for (const MemSpace& s : spaces) {
+                all.set_label(s, static_cast<uint16_t>(0x100 * i), "n" + std::to_string(i));
+                if (i % 2 == 0) all.set_comment(s, static_cast<uint16_t>(0x100 * i), "l1\nl2 \\ \xC3\xA9");
+                ++i;
+            }
+            UserAnnotations back, back2;
+            std::string why;
+            const bool r1 = parse(bytes(all), back, why);
+            const bool r2 = parse(canon, back2, why);
+            check("JDP-03", "write then read gives the same store for one entry of every memory kind but Cpu "
+                            "(multi-line, backslash and UTF-8 comments); read then write reproduces JDP-01's file",
+                  r1 && back == all && back.entries().size() == 11 && r2 && back2 == t && bytes(back2) == canon);
+        }
+        {
+            UserAnnotations want;
+            want.set_label(P04, 0xC0AF, "Start");
+            want.set_comment(P04, 0xC0AF, "Entry\npoint");
+            UserAnnotations got;
+            std::string why;
+            const bool ok = parse("\xEF\xBB\xBF# lead\r\n\r\n \t \r\njnext-annotations 1\r\n# mid\r\n"
+                                  "label p04 $c0aF Start\r\ncomment p04 $c0aF Entry\\npoint\r\n# end",
+                                  got, why);
+            check("JDP-04", "the reader accepts what the writer does not write: a BOM, # lines before and "
+                            "after the header, blank and tab-only lines, CRLF, a lower-case memory tag and hex",
+                  ok && got == want);
+        }
+        {
+            const auto why_of = [&](const std::string& text) {
+                UserAnnotations u;
+                std::string why;
+                return parse(text, u, why) ? std::string("accepted") : why;
+            };
+            check("JDP-05", "a file without the exact header is refused naming line N: no header, version 2, a "
+                            "bare name, a leading-zero version, an empty file, a header after a record",
+                  why_of("label P04 $8000 x\n") == "line 1: not a jnext annotations file" &&
+                      why_of("jnext-annotations 2\n") == "line 1: version 2: this jnext reads version 1" &&
+                      why_of("jnext-annotations\n") == "line 1: not a jnext annotations file" &&
+                      why_of("jnext-annotations 01\n") == "line 1: not a jnext annotations file" &&
+                      why_of("") == "line 1: not a jnext annotations file" &&
+                      why_of("# c\n\njnext-annotations 1\nlabel P04 $8000 a\njnext-annotations 1\n") ==
+                          "line 5: unknown record 'jnext-annotations'");
+        }
+        {
+            struct Bad { const char* line; const char* why; };
+            const Bad bad[] = {
+                {"note P04 $8000 x", "unknown record 'note'"},
+                {"label P04X $8000 x", "unknown memory 'P04X'"},
+                {"label PE0 $8000 x", "unknown memory 'PE0'"},
+                {"label Q1 $8000 x", "unknown memory 'Q1'"},
+                {"label CPU $8000 x", "memory CPU: a user entry names a memory"},
+                {"label P04 $800 x", "bad address '$800' (want $ and 4 hex digits)"},
+                {"label P04 $80000 x", "bad address '$80000' (want $ and 4 hex digits)"},
+                {"label P04 8000 x", "bad address '8000' (want $ and 4 hex digits)"},
+                {"label P04 $80G0 x", "bad address '$80G0' (want $ and 4 hex digits)"},
+                {"label  P04 $8000 x", "unknown memory ''"},
+                {"label P04  $8000 x", "bad address '' (want $ and 4 hex digits)"},
+                {"label P04 $8000  x", "a label record has exactly <SPACE> $<ADDR> <NAME>"},
+                {"label P04 $8000 1abc", "'1abc' is not a label name"},
+                {"label P04 $8000 a b", "a label record has exactly <SPACE> $<ADDR> <NAME>"},
+                {"label P04 $8000", "a record is label <SPACE> $<ADDR> <NAME>"},
+                {"comment P04 $8000", "a record is comment <SPACE> $<ADDR> <TEXT>"},
+                {"comment P04 $8000 ", "a comment record needs its text"},
+                {"comment P04 $8000 a\\tb", "unknown escape '\\t' in the text"},
+                {"comment P04 $8000 abc\\", "the text ends in a lone backslash"},
+                {"comment P04 $8000 a\rb", "a carriage return inside the text"},
+                {"comment P04 $8000 \xC3", "the comment is not valid UTF-8"},
+                {"\xEF\xBB\xBF" "label P04 $8000 x", "unknown record '\xEF\xBB\xBF" "label'"},
+            };
+            bool all = true;
+            std::string first_bad;
+            for (const Bad& b : bad) {
+                UserAnnotations u;
+                u.set_label(P04, 0x1234, "keep");
+                const UserAnnotations before = u;
+                std::string why;
+                const bool ok = parse(std::string("jnext-annotations 1\n") + b.line + "\n", u, why);
+                if (ok || why != std::string("line 2: ") + b.why || u != before) {
+                    all = false;
+                    if (first_bad.empty()) first_bad = std::string(b.line) + " -> " + why;
+                }
+            }
+            const auto why_of = [&](const std::string& body) {
+                UserAnnotations u;
+                std::string why;
+                return parse("jnext-annotations 1\n" + body, u, why) ? std::string("accepted") : why;
+            };
+            const bool dup =
+                why_of("label P04 $8000 a\nlabel P04 $8000 b\n") ==
+                    "line 3: a second label for the same address and memory" &&
+                why_of("comment P04 $8000 a\ncomment P04 $8000 b\n") ==
+                    "line 3: a second comment for the same address and memory" &&
+                why_of("label P04 $8000 a\nlabel P04 $8001 a\n") == "line 3: 'a' already names $8000 P04";
+            check("JDP-06", "each malformed record is refused naming line N and the reason, the store untouched: "
+                            "unknown kind, tags P04X PE0 Q1 CPU, addresses $800 $80000 8000 $80G0, doubled "
+                            "spaces, a bad name, a fifth field, a missing or empty text, a \\t escape, a final "
+                            "backslash, a CR inside, invalid UTF-8, a second label or comment for a key, one "
+                            "name at two keys",
+                  all && dup);
+            if (!all) std::printf("    first bad: %s\n", first_bad.c_str());
+        }
+        {
+            // every key the store accepts, at both ends of its range, survives write then read
+            UserAnnotations all;
+            const MemSpace ends[] = {MemSpace::page(0), MemSpace::page(0xDF), MemSpace::rom(0), MemSpace::rom(3),
+                                     MemSpace::alt_rom(0), MemSpace::alt_rom(1), MemSpace::divmmc_ram(0),
+                                     MemSpace::divmmc_ram(15), MemSpace::layer2(0), MemSpace::layer2(0xDF),
+                                     MemSpace::config(0), MemSpace::config(0xFF)};
+            int i = 0;
+            bool accepted = true;
+            for (const MemSpace& s : ends) {
+                accepted = accepted && all.set_label(s, 0x4000, "e" + std::to_string(i)).empty() &&
+                           all.set_comment(s, 0x4000, "c").empty();
+                ++i;
+            }
+            UserAnnotations back;
+            std::string why;
+            const bool ok = parse(bytes(all), back, why);
+            check("JDP-09", "every key the store accepts, at both ends of each memory's range, is written and read "
+                            "back identically (Save never writes a file Load refuses)",
+                  accepted && ok && back == all && back.entries().size() == 12);
+        }
+        {
+            UserAnnotations u;
+            u.set_label(MemSpace::page(0x1E), 0xABCD, "hi");
+            u.set_comment(MemSpace::page(0x1E), 0xABCD, "c");
+            check("JDP-08", "the writer spells the address in upper-case hex: $ABCD, in the memory's tag P1E",
+                  bytes(u) == "jnext-annotations 1\nlabel P1E $ABCD hi\ncomment P1E $ABCD c\n");
+        }
+        {
+            UserAnnotations out;
+            out.set_label(P04, 0x1234, "keep");
+            out.set_comment(P04, 0x1234, "kept");
+            const UserAnnotations before = out;
+            std::string why;
+            const bool ok = parse("jnext-annotations 1\nlabel P04 $8000 a\ncomment P04 $8000 b\nlabel P04 $8001 !\n",
+                                  out, why);
+            check("JDP-07", "the read is transactional: a file valid up to a bad last line leaves a non-empty "
+                            "store as it was",
+                  !ok && why == "line 4: '!' is not a label name" && out == before);
+        }
     }
 
     fs::remove_all(dir);

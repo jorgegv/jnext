@@ -64,11 +64,34 @@ client that created it may change or remove.
 | `MemSpace::page(p)` | the physical 8 KB page `p`, numbered as NR 0x50-0x57 numbers it (0..223), regardless of any overlay. 0xFE and 0xFF, the ROM sentinels, answer `InvalidPage` |
 | `MemSpace::rom(i)` | the 16 KB ROM image `i` (0..3), read-only |
 
+`MemSpace` is also the answer to *what supplied this byte*: the read arbiter
+(`Mmu::route()`) names its source with the same type, so it carries nine more
+kinds that only the arbiter produces: `boot_rom()`, `multiface_rom()`,
+`multiface_ram()`, `divmmc_rom()`, `divmmc_ram(bank)`, `alt_rom(i)`,
+`layer2(page)`, `config(bank)` and `floating()` (nothing answers). `peek` and
+`poke` of one of them answer `Unsupported` and write nothing, until a consumer
+adds the access with its own rows. The type lives in `debug/mem_space.h`
+(standard headers only, so the core's `memory/mmu.h` can return it), and
+`FetchSource` is its name in the role of an opcode fetch's source.
+
 A client never composes a space from a slot's page number. On the Next a ROM
 slot's `effective_page` is an un-shifted SRAM page index, outside `page()`'s
 numbering. So `mmu_slots()` returns each slot's complete backing store as
 `SlotInfo::space` plus `SlotInfo::space_offset`. `rom_select()` names the image
 legacy paging selects, even while RAM is paged at 0x0000.
+
+`space` is the slot's OWN source. `SlotInfo::now` is what a read of the slot
+reaches right now, overlays included (DivMMC, Multiface, Layer 2, alt ROM,
+config mode, boot ROM): `Mmu::route(slot << 13).space`, the live data route of
+the slot's first byte. One value per slot is complete, because every arm of the
+VHDL arbiter switches on `cpu_a(15:13)` boundaries or coarser. It is the DATA
+view: the instruction at the PC may come from elsewhere, which is what
+`source_page(pc)` answers.
+
+The spelling of a space for a human or a file (the tags `P0E`, `ROM1`, `DIVRAM3`..., the physical
+text and the `AddressStyle`) is `debug/long_address.h`. The tags are a stable format; they are described
+in [7.1](../07-source-level-debugging/01-which-memory.md), with the slot that holds a page >= `0xE0`
+and reads nothing.
 
 ## The capability families
 
@@ -83,7 +106,7 @@ the design documents refer to it.
 | `run(by)` | resume. Still `Ok` on a running machine. Subject to the corruption gate |
 | `step_into(by)` | one instruction, **synchronously**, frame-loop aware: a step at a `HALT` runs the halt out |
 | `step_over(by)`, `step_out(by)` | **asynchronous**: the stop arrives later as a `Paused` push |
-| `run_to(by, addr)`, `run_to_cycle(by, c)`, `run_to_frame(by, f)`, `run_to_end_of_frame(by)`, `run_to_end_of_scanline(by)` | resume until a target |
+| `run_to(by, addr)`, `run_to_source_line(by, "file:line")`, `run_to_cycle(by, c)`, `run_to_frame(by, f)`, `run_to_end_of_frame(by)`, `run_to_end_of_scanline(by)` | resume until a target. `run_to_source_line` arms a transient `Execute` group at every start of the line (each tied to its memory, `subscribe_source_line`); the first one reached stops the machine and the stop reads `RunTo` with that address. It is refused, the machine untouched, for a line with no code. A run-to issued while the machine RUNS first drops the caller's own transient targets (a second Run to Here replaces the first), never another client's |
 | `step_back(by, n)`, `rewind_to_frame(by, f)` | rewind, synchronously. A benign refusal is `RefusedRzx` or `RefusedUnavailable` (no ring or an empty one, a frame outside it or not recorded, the trace off or empty, or a step back that would replay across a debugger change), and logs its reason |
 | `resume_blocked_by_corruption()`, `acknowledge_corruption(gen)` | the CTL-11 gate after a failed restore |
 | `reset(by, Soft \| Hard)` | `Soft` is `Emulator::soft_reset()`. `Hard` is the reconstruct contract of [3.9.3](09-3-sessions-the-pump-and-reconstruct.md) |
@@ -116,7 +139,7 @@ and follow the contract of [3.9.2](09-2-event-delivery-and-mutation.md).
 | video | `framebuffer()`, `render_layer(layer, vc, dst, stride)`, `palette(id)`, `active_ula_palette_bank()`, `ula_screen_regs()`, `clip_window(layer)` | `set_palette(...)`, `set_border(by, colour)` |
 | disassembly | `disassemble(addr, n, symbols)`, `instruction_length(addr)`, `is_call_like(addr)` | — |
 | call stack and trace | `call_stack()`, `trace_entries()`, `trace_export(path)` | `set_call_stack_enabled`, `set_trace_enabled`, `trace_clear`, `trace_resize` |
-| coverage | `coverage()`, `coverage_enabled()` | `coverage_enable`, `coverage_clear` |
+| coverage | `coverage()`, `coverage_enabled()`; INS-21: `mem_coverage_enabled()`, `mem_coverage(space, addr, n, out)`, `mem_coverage_fetch(addr)`, `mem_coverage_spaces()`, `executed_source_lines(file)` | `coverage_enable`, `coverage_clear`; INS-21: `mem_coverage_enable`, `mem_coverage_clear` |
 | input | `input_state()` | see input injection below |
 | the event model | `subscriptions(include_transient)`, `events_fired_since(seq)` | see [3.9.2](09-2-event-delivery-and-mutation.md) |
 
@@ -157,6 +180,8 @@ compares the whole serialised machine state around each view.
 |---|---|
 | `subscribe(by, Subscription)` | register a subscription owned by `by`; returns its `EventId` |
 | `unsubscribe(by, id)`, `set_enabled(by, id, on)` | owner only |
+| `subscribe_source_line(by, "file:line", like)` | a source breakpoint: resolves the line in the live source map and subscribes one `Execute` per start, each a copy of `like` with `lo = hi = start.address` and `space = start.space`, all under one new `GroupId`. All or nothing; refused with no map, no code at the line, or a `like` that is not `Execute` |
+| `unsubscribe_group(by, group)`, `set_group_enabled(by, group, on)` | every member of a source breakpoint; owner only. `SubscriptionInfo::group` says which group a listed subscription belongs to (`GROUP_NONE` for a plain one) |
 | `master_enabled()`, `set_master_enabled(on)` | suspend every non-transient subscription without touching its own flag |
 | `client_enabled(cid)`, `set_client_enabled(cid, on)` | the per-client switch |
 | `probe_execute(pc)` | the ids of every live `Execute` subscription that would fire at `pc`, with its condition evaluated. A pure query, for step loops |
@@ -249,110 +274,74 @@ incident is reported on its own.
 
 ### Symbols — CAP-SYM
 
-There is one symbol table, and the backend owns it. `load_map(path, format)`
-reads a z88dk map (`MapFormat::Z88dk`), a plain `SYMBOL = $ADDR` list
-(`MapFormat::Simple`) or an sjasmplus `--sym` / `--exp` file
-(`MapFormat::SjasmplusEqu`); `clear_symbols`, `lookup(addr)`, `lookup_name(name)` and
-`symbols()` read it. The Qt panels, the DSL's `@name`, the GDB server's
-`monitor sym` and `--map` all read this table, so a symbol loaded by one client
-shows in every other. A z88dk map's `; const` lines go into a separate
-name-only table: `lookup_name()` resolves them, and `lookup(addr)` never names an
-address after a constant.
-The `-debug` records (names starting `__C_LINE_`, `__ASM_LINE_` or `__CDBINFO__`)
-are dropped by the loader, so they never name an address or resolve by name.
-`MapFormat::NextBuild` reads a NextBuild / Boriel ZX Basic `Memory.txt` (`8000: ._Main`): the shown name drops the `.` and the
-compiler's `_`, and the raw label resolves by name too. `SymbolTable::resolve()`
-turns an address field's text into an address: hex first (`4000`, `$4000`,
-`0x4000`), else a symbol; `@name` always means the symbol.
+There is one symbol table, and the backend owns it; the Qt panels, the DSL's `@name`, the GDB
+server's `monitor sym` and `--map` all read it, so a symbol loaded by one client shows in every other.
 
-`MapFormat::SjasmplusEqu` (GH #390) reads the lines `NAME: EQU 0x0000ABCD` that
-sjasmplus's `WriteLabelEquValue()` writes to `--sym` and `--exp`, with the CR its
-Windows build adds. The `--sym` of sjasmplus 1.17.0 and earlier
-(`CLabelTable::DumpSymbols()`) wrote the keyword in lower case,
-`NAME: equ 0x0000ABCD`, and the loader takes both spellings, exactly. The file
-has no type and no page, so every entry is a label, an `EQU` size or a struct
-field offset included. A value past 0xFFFF, or negative (written 0x80000000 and
-up), does not fit the 16-bit table and is skipped; the first line at an address
-wins, and, apart, the first for a name. `parse_equ_line()` in `symbol_table.cpp`
-is the one definition of such a line.
-`MapFormat::Z88dkOrSjasmplus` is how `--map` picks between this loader and the
-z88dk one: `SymbolTable::load_z88dk_or_sjasmplus()` reads the file once, into
-memory, and its first line (an EQU line or not) decides. By contents, because
-sjasmplus names its files freely and z88dk's assembler writes a `.sym` of its
-own, in the map format; and in one read, because `--map <(cmd)` is a pipe, which
-a second open would find drained (rows SYM-19 to SYM-32, SCRIPT-HOST-MAP-*, and
-the functional row `script-map-pipe-func`).
+| Verb | Does |
+|---|---|
+| `load_map(path, format, why)` | loads a symbol file into the table: `MapFormat::Z88dk`, `Simple` (`SYMBOL = $ADDR`), `NextBuild` (`Memory.txt`), `SjasmplusEqu` (`--sym` / `--exp`), or `Z88dkOrSjasmplus` (`--map`: the first line decides, one read, a pipe works). Returns the symbol count, or `RefusedUnavailable` (value 0) with the table and its owner untouched when refused; `why` says why a file was refused; for a file that cannot be opened it stays empty, except `NextBuild`, which says "could not open Memory.txt file" ([7.3](../07-source-level-debugging/03-loaders.md)) |
+| `clear_symbols()` | forgets them all |
+| `lookup(addr)` | the name of `addr` in the memory mapped there now (`source_page(addr)`); a label is paged or unpaged |
+| `lookup_name(name)` | the address of a name; a name-only value (a size, a section bound) resolves here and never names an address |
+| `symbols()` | the table itself, for `disasm_text::apply_symbols()` and for `SymbolTable::resolve()`, which turns an address field's text into an address (hex first, else a symbol; `@name` is always the symbol) |
+
+How the table is keyed, bound and merged, and what each format puts in it, is
+[7.4](../07-source-level-debugging/04-formats.md) ("The symbol table the formats fill"); the z88dk
+placement rules and C names are [7.4.3](../07-source-level-debugging/04-3-z88dk-map.md); the three
+other loaders are 7.4.1, 7.4.2 and 7.4.5.
+
+### User labels and comments — CAP-ANN
+
+A second layer beside the toolchain's symbols: the user's labels and comments (GH #387), keyed by memory and
+address. `symbols()`, `lookup()` and `lookup_name()` return the composition of the two layers, the user's first,
+so no consumer merges them. The store has no lifetime: loads, resets, state loads and rewinds leave it alone, and
+it is not in `.jns`.
+
+| Verb | Does |
+|---|---|
+| `set_user_label(space, addr, name, why)` | names `addr` in `space` (a rename when the key has a label); `Unsupported` with `why` for the Cpu space, a memory the file cannot name, a bad name, a name in use, or a name the loaded symbols give another address or memory |
+| `remove_user_label(space, addr)` | removes the user's label; `RefusedUnavailable` when there is none (the toolchain's is untouched) |
+| `set_user_comment(space, addr, text, why)` | sets the comment; empty text removes it; CRLF and CR become LF; `Unsupported` for the Cpu space, a memory the file cannot name, or text that is not UTF-8 |
+| `annotations()`, `annotations_revision()` | the store, and a counter that rises with each successful change |
+| `load_annotations(path, why)`, `save_annotations(path, why)` | the `.jdp` file: a load replaces the whole store or leaves it as it was (`Unsupported`, `line N: ...`; `RefusedUnavailable` for a file that cannot be read); a save writes `PATH.part` and renames it, and is `RefusedUnavailable` when it cannot write |
+| `replace_annotations(a)` | replaces the whole store (what an import builds offline) |
+| `toolchain_symbols()` | the loaded layer alone (the Load MAP messages count this) |
+
+The verbs touch no machine state (allowed while running) and each success bumps `state_revision()`. The file,
+the composed reader, where it is recomposed and why the attachment cache holds the toolchain layer only are
+[7.4.6](../07-source-level-debugging/04-6-user-annotations.md).
 
 ### Source maps — CAP-SRC
 
-The backend also owns one `SourceMap` (`src/debug/source_map.*`): records of
-(RAM page, logical address) → file, line, column, filled by a format adapter —
-`load_sld()` in `src/debug/sld_loader.*` reads sjasmplus SLD v1 — and replaced
-only by a complete, successful load. Matching uses one identity everywhere:
-`source_page(addr)` is the MMU's page when RAM supplies the opcode fetch at
-`addr`, else `NOT_RAM_PAGE` (`debug/ram_page.h`), decided by
-`Emulator::fetch_not_mmu_ram()`: a side-effect-free prediction of that M1,
-including what the M1 itself switches (DivMMC's instant entry points and the
-hold from the previous M1 via `DivMmc::active_on_m1()`, the Multiface at
-0x0066), then `Mmu::read_not_mmu_ram(addr, divmmc, multiface)` for the rest
-(ROM slot, boot ROM, Layer 2 read mapping, alt-ROM, config mode). `SourceMap::lookup(NOT_RAM_PAGE, addr)` matches
-only an unqualified record. The trace records the same flag beside each entry
-(`TraceLog::fetch_not_mmu_ram()`; `TraceEntry` itself stays 56 bytes), call
-frames record each side's identity, and an `Execute` filter with
-`page_ram_only` matches only a fetch from that RAM page (`Event::fetch_not_ram`);
-without it the page qualifier compares numbers alone, as DZRP and the DSL use it.
-An SLD may carry a SHA-256 of the program's bytes (`||program.*` comment
-records); `load_source_map(path, accept_mismatch)` checks it against memory and
-stores the path absolute.
+The backend also owns one `SourceMap` (`src/debug/source_map.*`), keyed by the `FetchSource` that
+supplies the code, filled by a format adapter and replaced only by a complete, successful load.
 
-`load_program_sidecars(path)` attaches `<stem>.Memory.txt` (or `Memory.txt`,
-beside a `.nex`) and `<stem>.sld` / `<stem>.sld.txt`, searching with the
-non-throwing filesystem calls; only a regular file counts (a FIFO would block the
-load), and one that cannot be read is reported. Both loaders refuse a file that is
-not regular, or is over 64 MiB, before opening it (`debug/source_file.h`). Every frontend calls it after a successful `--load` or File ▸
-Open, and `load()` calls it for a remote client; a tape program gets no
-automatic map. Ownership is explicit (`Impl::StoreOwner`: None, Sidecar, User)
-and changes only on a successful load: a sidecar never touches the user's
-store, and a previous program's sidecar data is replaced or cleared — also when
-the new sidecar cannot be read. The attach records the clock
-(`Impl::sidecar_attach_cycle`). The machine-replaced hook
-(`Impl::machine_replaced()`, which the cold-boot re-application runs too, since
-a rebuilt machine has no hook while it initialises) drops the sidecar-owned
-stores at once for a reset, a cold boot or any state that does not come from the
-rewind ring (`DebugState::restoring_from_rewind()` is false): another program
-may be in the machine, whatever its clock says. `RewindBuffer::restore_nearest()`
-sets that flag around its `load_state()`; such a restore stays in this program's
-history, so it only raises `sidecar_recheck`, and `recheck_sidecars()` — run by
-`pump()` and by every reader of the stores — drops the stores when the clock is
-now before the attach point. A program the guest loads for itself (the NextZXOS
-browser, `LOAD ""`) is invisible to the backend, so its predecessor's sidecars
-stay until a reset or a load. The user's stores are never touched by any of this.
+| Verb | Does |
+|---|---|
+| `load_source_map(path, accept_identity_mismatch, verify_at_first_execution, dot_only)` | the hand load: an sjasmplus SLD or a z88dk `-debug` map, told by content. Refused with the store untouched on a parse error, a mismatch (unless accepted), or (with `dot_only`) a map that is not a dot command's. Returns a `SourceMapLoad` (`count`, `labels`, `listings`, `identity`, `identity_note`, `listing_note`, `pending`, `not_dot`, `error`) |
+| `clear_source_map()` | forgets the user's map |
+| `source_map()` | the store: `lookup()`, `lookup_all()`, `resolve("file:line")`, `file_ranges()`, `embedded_text()`; empty while the user's map is stale |
+| `source_map_status()` | None, Attached or Stale, with the file, the reason, and the `pending` and `dot` flags |
+| `source_location(addr)`, `source_location()` | the primary position of `addr` (or of the PC) as it is mapped NOW: a pointer into the store, valid until the next load or clear, so copy what you keep |
+| `source_page(addr)` | what an instruction fetch at `addr` would be supplied from now (`Emulator::predict_fetch()`); the identity every lookup uses |
+| `effective_page(addr)` | the physical 8K page the MMU maps behind a logical address |
+| `load_program_sidecars(path)` | attaches `<stem>.Memory.txt`, `<stem>.sld` and `<stem>.map` of a program just loaded; returns a `SidecarLoad` (`symbols`, `sources`, `symbols_unreadable`, `sources_pending`, `problem`) |
+| `subscribe_source_line(by, "file:line", like)` | a source breakpoint: a group of `Execute` subscriptions, one per start of the line, each with the `space` it was compiled for (CAP-EVT, above) |
+| `run_to_source_line(by, "file:line")` | resume until any start of the line is reached (every start is armed; the first one reached stops the machine) (CAP-CTL, above) |
+| `source_step(by, kind)` | steps by statement: `Into`, `Over`, `Out`, `Back`, `ReverseContinue`; limits `SOURCE_STEP_LIMIT` and `SOURCE_STEP_FRAME_LIMIT` |
+| `executed_source_lines(file)` | the lines of a file any of whose ranges the guest executed (the coverage section, below) |
 
-`SidecarLoad::problem` is the one-line account of what was found and refused:
-`NextBuild symbols '<file>' rejected: <reason>` and/or `source map '<file>'
-rejected: <reason>` (the file found, not the program), the two joined by `"; "`,
-empty when nothing was refused. `load_program_sidecars()` fills it and also logs
-each refusal. The frontends show it: the headless loop at warn
-(`--load: <problem>`), the SDL loop likewise (`load: <problem>`), and the Qt
-`DebuggerManager::report_sidecars()` in the
-log, in the main window's status bar for ten seconds and in the Source tab in
-place of "No source map loaded" (kept in `sidecar_problem_`, so a window built
-later shows it too, and replaced by the next load's result, empty when clean).
-A remote `load()` fills it and nobody reads it yet.
+Where the mechanism lives, in [chapter 7](../07-source-level-debugging/index.md):
 
-`source_step(by, kind)` steps by statement. `Into`, `Over` and `Out` run
-`Emulator::debugger_step()` in a loop, as many Steps, until the mapped position
-changes (and, for Over / Out, the call-stack depth allows). `debugger_step()`
-delivers no `Execute` event, so between instructions the loop gives each next PC
-`run_frame()`'s delivery itself — `DebugState::should_break()`, then
-`run_execute_gate()` under a `GuestExecutionScope` — so handlers run and a
-`Stop` records its hit and `once`; a handler that moves the PC makes the loop
-re-evaluate the boundary at the new PC without a second delivery. It also stops on any latched event stop, at a
-HALT with IFF1 clear, after `SOURCE_STEP_LIMIT` instructions or after
-`SOURCE_STEP_FRAME_LIMIT` frames. `Back` and `ReverseContinue` search the trace
-for entries before the current cycle (a Frame Back leaves newer ones), derive
-each entry's identity from `mmu[]`, `rom_slots` and the overlay flag, and hand
-the count to `step_back()`, so they inherit its refusals.
+| Subject | Page |
+|---|---|
+| What `source_page()` predicts, what the machine records (`Mmu::last_m1()`, `TraceEntry::fetch_space()`, `CallFrame`), `EventFilter::space` and the legacy `page` | [7.1](../07-source-level-debugging/01-which-memory.md) |
+| Ranges, the primary, `lookup_all()`, `resolve()`, aliases, embedded texts, the program identity and `verify_program()` | [7.2](../07-source-level-debugging/02-the-source-map.md) |
+| The adapter contract, content dispatch, `--source-map`, the sidecar search and precedence, ownership, `SidecarLoad::problem` | [7.3](../07-source-level-debugging/03-loaders.md) |
+| Each file format and its producer | [7.4](../07-source-level-debugging/04-formats.md) |
+| `subscribe_source_line()`, `run_to_source_line()`, `source_step()`, Back and Reverse Continue, the call stack's frame rule | [7.5](../07-source-level-debugging/05-breakpoints-steps-history.md) |
+| The load generation, resets, snapshots, rewind, tapes, dot commands | [7.6](../07-source-level-debugging/06-lifetime.md) |
+| Which frontend reads what, the Source tab | [7.7](../07-source-level-debugging/07-frontends.md) |
 
 ### Coverage and the trace
 
@@ -361,10 +350,50 @@ INS-20 coverage is recorded in `step_one_instruction()`, the one body that
 and only for a slot that fetched the opcode at PC. An NMI or INT acknowledge
 does not run it. Switched off it costs one pointer test per instruction.
 
+**INS-21, memory coverage by execute, read and write** (GH #388, CAP-INS-21) is
+the physical-memory counterpart, with a separate switch: INS-20 holds 16-bit
+logical PCs (ZRCP `cpu-code-coverage` returns them, and the logical address a page
+ran at cannot be rebuilt from a physical byte), INS-21 holds one byte of flags
+(`dbg::COVERAGE_EXEC | COVERAGE_READ | COVERAGE_WRITE`) per byte of every
+`MemSpace`, in lazily allocated 8 KB chunks (`dbg::MemCoverage`,
+`debug/mem_coverage.h`; a 16 KB store, `Rom`, `AltRom` or `Config`, is two chunks).
+`Mmu` writes it from the one arbiter (see [3.2](02-memory.md)): X is the first
+opcode byte of an executed instruction (`read_m1()`; a prefix's inner M1 is no
+mark), R every other read including the DMA's, W a write that landed, each at the
+space and offset the route names and only for guest accesses (inside
+`GuestExecutionScope`, not `InspectionScope`: exactly what a watchpoint can see, so
+`peek`/`poke`, the trace's captures and loaders mark nothing). The set and its
+switch are backend state, published to `DebugState::mem_coverage_sink()` by
+`Impl::publish_mem_coverage()` and retired by `~Debugger()` like INS-20's, and
+re-published at the one re-application, so a rewind, reset, state load or cold boot
+keeps the bits; a rewind's replay sets the same bits again, so nothing is counted
+twice. Off clears; `mem_coverage_clear()` empties and recording goes on.
+`mem_coverage(space, addr, n, out)` addresses like `peek()` (`Cpu` through the live
+data route, any other space by offset in its store);
+`mem_coverage_fetch(addr)` is the byte an M1 at `addr` would fetch now
+(`source_page(addr)` plus `space_offset()`), which is what the Disassembly paints;
+`mem_coverage_spaces()` lists the marked spaces sorted by (kind, index), for an
+exporter to walk. `executed_source_lines(file)` is the Source tab's: the lines of a
+file any of whose ranges (`SourceMap::file_ranges()`) holds an X byte. The
+front-ends add `--coverage` (`EmulatorConfig::coverage`, applied by the three loop
+owners through `apply_startup_coverage()`) and the Qt window's **Debug ▸ Coverage**.
+There is no DZRP, ZRCP, GDB or DSL verb.
+
 Each trace entry carries the registers (including I, R, IM, IFF1 and IFF2), the
 word at SP read with `peek()`, the eight MMU pages and `rom_slots`, a bit per
-slot that held ROM. `trace_export()` writes all of them; the ROM mask is the
-`ROM=` column after the pages.
+slot that held ROM, and the identity of the memory its instruction was fetched
+from (`fetch_kind`, `fetch_index`). `trace_export()` writes all of them; the ROM
+mask is the `ROM=` column after the pages and the identity the `FETCH=<tag>`
+column after it (`space_tag()` of `fetch_space()`, never the GUI's address style).
+
+### Reverse-engineering exports — CAP-REX
+
+`export_skoolkit(dir, report, why)` and `export_ghidra(dir, report, why)` (GH #389) write the
+labels the disassembly shows, and for skoolkit the `mem_coverage()` code/data map, into a
+directory, as skoolkit control files and Ghidra symbol files. They are reads (`peek()`, coverage
+and the symbol table are side-effect free): no machine state changes, and they are allowed while
+the machine runs. `ReReport` carries the counts and notes. The formats, the writers, the directory
+rules and the foreign-reader tests are in [7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md).
 
 ### Session — CAP-SES
 
@@ -393,6 +422,7 @@ internals directly, through the pointers the constructor publishes into
 | `debugger_reconstruct.cpp` | the loop driver, `reset(Hard)`, `load()`, the cold-boot notifications and the reconstruct contract |
 | `debugger_capture.cpp` | screenshots, bookmarks, `save_snapshot` |
 | `debugger_source.cpp` | CAP-SRC: the source map, program sidecars, `source_step()` |
+| `debugger_reinterop.cpp` | CAP-REX: `export_skoolkit()` and `export_ghidra()`; the writers are `skoolkit_ctl.*` and `ghidra_symbols.*` ([7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md)) |
 | `debugger_render.cpp` | `render_layer()` |
 | `event_table.*` | `EventTable`: subscriptions, cheap filters, the latch ring, the delivery history |
 | `inspect.cpp`, `result.cpp` | the free functions of `inspect.h` (`key_name_to_matrix()`, `rrrgggbb_to_argb()`, `rgb333_to_argb()`) and `result_name()` |

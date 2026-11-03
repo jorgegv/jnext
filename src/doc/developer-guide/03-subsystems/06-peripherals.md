@@ -111,6 +111,13 @@ still clear — which is precisely what esxdos's IM1 handler relies on during
 early boot, long before firmware sets that bit. Only the **automap** path needs
 both (`zxnext.vhd:4112`), so `is_active()` checks `port_io_enable_` alone.
 
+`is_active()` is the overlay for the opcode fetch: `held OR instant_on`.
+`is_active_after_fetch()` is the overlay for every later cycle of the same
+instruction: the `hold` the fetch loaded (`divmmc.vhd:128-143`). They differ
+exactly at a delayed-on entry (the operands are already the DivMMC's) and in the
+unmap window (the operands are already RAM's). `is_nmi_hold()` follows the second:
+it is sampled after the instruction (`automap_hold_ OR button_nmi`).
+
 The trigger addresses are **not hard-coded**: NR `0xB8`-`0xBB` select which RST
 vectors and tape traps map, whether each is instant or delayed, and whether the
 `0x3D00` wildcard and the `0x1FF8`-`0x1FFF` unmap window are live.
@@ -208,7 +215,7 @@ into its own RX, which matters more than it sounds; see the replay gate below.
 stand-ins for the far end of a home-made DB9 serial cable in a joystick socket —
 the rig dezogif and DeZog use to debug a running Next. The bytes do not go
 through either UART header; they go through the NR 0x0B I/O-mode multiplexer
-(`zxnext.vhd:3340-3341`, `:3526-3538`), which the *guest* controls at run time.
+(`zxnext.vhd:3340-3341`, `zxnext.vhd:3526-3538`), which the *guest* controls at run time.
 
 That is why neither of them is a `UartDevice`. A `UartDevice` is soldered to one
 channel's wire, and this cable has no channel of its own: NR 0x0B bit 0 chooses
@@ -230,7 +237,7 @@ Receive is connector-selected (`zxnext.vhd:3538`). Transmit is not: the transmit
 bit leaves the core as the single output `o_JOY_IO_MODE_PIN_7`
 (`zxnext.vhd:1593`), and the board drives it onto whichever socket `joysel`
 currently points at — which, in io mode, free-runs at 7 MHz
-(`md6_joystick_connector_x2.vhd:109,117`) while one bit at 115200 lasts 243
+(`md6_joystick_connector_x2.vhd:109`, `md6_joystick_connector_x2.vhd:117`) while one bit at 115200 lasts 243
 CLK_28 ticks. Both sockets therefore see it. Copying the receive gate onto the
 transmit path is the obvious-looking symmetry and it is wrong.
 

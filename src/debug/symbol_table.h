@@ -3,12 +3,48 @@
 #include <cstddef>
 #include <cstdint>
 #include <iosfwd>
+#include <functional>
 #include <string>
 #include <map>
 #include <optional>
 #include <string_view>
+#include <utility>
 
-/// Symbol table loaded from a MAP file (e.g. Z88DK linker output).
+#include "debug/mem_space.h"
+
+/// WHICH memory supplies an address NOW: what `Debugger::source_page()` answers.
+using SymbolSpaceOf = std::function<jnext::dbg::FetchSource(uint16_t)>;
+
+/// One named address. A PAGED label (`space` set) names its address only while
+/// that memory supplies it (a sjasmplus SLD label assembled for page 20); an
+/// UNPAGED one (`space` nullopt) names it in every memory (GH #375).
+/// `bind_at_load` marks a z88dk symbol of a section that names no page (design
+/// 9.4 rule 4): its memory is the RAM page mapped at its address when the table
+/// is bound (`SymbolTable::bind()`); unbound, it is unpaged.
+struct SymbolLabel {
+    std::string name;
+    std::optional<jnext::dbg::FetchSource> space;
+    bool bind_at_load = false;
+    /// A z88dk C symbol (design 10.6): `name` is `_x` and the label also has the C name `x`.
+    bool c_symbol = false;
+    bool operator==(const SymbolLabel& o) const
+    { return name == o.name && space == o.space && bind_at_load == o.bind_at_load &&
+             c_symbol == o.c_symbol; }
+};
+
+/// The address a name resolves to, and the memory it was assembled for (nullopt:
+/// any).
+struct SymbolNameKey {
+    uint16_t addr = 0;
+    std::optional<jnext::dbg::FetchSource> space;
+    bool bind_at_load = false;   // as SymbolLabel::bind_at_load
+    bool operator==(const SymbolNameKey& o) const
+    { return addr == o.addr && space == o.space && bind_at_load == o.bind_at_load; }
+};
+
+/// Symbol table loaded from a MAP file (e.g. Z88DK linker output), a
+/// Memory.txt, an sjasmplus --sym/--exp file or the labels of an SLD.
+/// Labels are keyed by (memory, address); there is no address-only lookup.
 /// Pure C++ — no GUI dependency.
 class SymbolTable {
 public:
@@ -21,13 +57,31 @@ public:
     /// The `-debug` records (names starting `__C_LINE_`, `__ASM_LINE_` or
     /// `__CDBINFO__`) are skipped entirely: they are not symbols, and would
     /// otherwise name the function labels' addresses (GH #352).
-    /// Returns the number of "; addr" symbols loaded, or -1 on error.
-    int load_z88dk_map(const std::string& path);
+    /// Each "; addr" symbol takes its page from its section, by
+    /// `z88dk_section_space()` (design 9.4): a `BANK_n` / `PAGE_n` symbol is a
+    /// paged label, 24-bit classic values included (the page head comes from
+    /// `z88dk_page_head()`, whatever the order of the file); a symbol of a section
+    /// that names no page is `bind_at_load`, unpaged until `bind()`; in a z88dk
+    /// dot command's map (`z88dk_dot_command()`) the symbols of $2000-$3FFF are
+    /// labels of `DivMmcRam{kNextZxosDotBank}` and a dotn's main bank is skipped; a
+    /// DivMMC section, a head-less PAGE section or a number out of range is unpaged
+    /// (when the value fits 16 bits); a 24-bit value in a section that names no
+    /// page, or past 24 bits, is skipped.
+    /// A "; addr" symbol named `_` + a non-`_` character, of a module ending `_c`
+    /// (zcc's MODULE for a `.c` file), is a C symbol and also answers to and is
+    /// shown as its C name (design 10.6); constants, `__x`, module-less lines and
+    /// asm modules are not.
+    /// Returns the number of "; addr" symbols loaded, or -1 on error. A file that
+    /// is not a regular file or is over the size cap is refused before it is
+    /// opened, the table untouched, and `why`, when given, says so; a file that
+    /// simply cannot be opened leaves `why` empty.
+    int load_z88dk_map(const std::string& path, std::string* why = nullptr);
 
     /// Load symbols from a simple map file (SYMBOL = $ADDR format).
     /// Lines starting with ';' are comments. No metadata filtering.
-    /// Returns number of symbols loaded, or -1 on error.
-    int load_simple_map(const std::string& path);
+    /// Returns number of symbols loaded, or -1 on error; `why` as for
+    /// `load_z88dk_map()`.
+    int load_simple_map(const std::string& path, std::string* why = nullptr);
 
     /// Load symbols from a NextBuild / Boriel ZX Basic `Memory.txt` (lines of
     /// the form `8000: ._Main`, hexadecimal address then label). The label is
@@ -50,7 +104,9 @@ public:
     /// wins for an address and, apart, for a name; the count is the entries
     /// accepted, duplicates included. Returns it, or -1 if the file cannot be
     /// opened (then the table is untouched).
-    int load_sjasmplus_equ(const std::string& path);
+    /// A file that is not a regular file, or is over the size cap, is refused
+    /// before it is opened (the table untouched) and `why`, when given, says so.
+    int load_sjasmplus_equ(const std::string& path, std::string* why = nullptr);
 
     /// Load a z88dk `.map` or an sjasmplus `--sym` / `--exp` file, whichever it
     /// is, told by the file's FIRST line: an sjasmplus EQU line (whatever its
@@ -63,7 +119,9 @@ public:
     /// time, and a first look that read the first line would take what it
     /// buffered with it. The result is that of the loader it picks, -1
     /// included (the file cannot be opened; the table is then untouched).
-    int load_z88dk_or_sjasmplus(const std::string& path);
+    /// The read is bounded at `SOURCE_FILE_MAX_BYTES` of what actually arrives,
+    /// so a pipe is capped too: over it, -1 with `why` set, the table untouched.
+    int load_z88dk_or_sjasmplus(const std::string& path, std::string* why = nullptr);
 
     /// Resolve the text of an address field: a hexadecimal address first
     /// (`4000`, `$4000`, `0x4000`), else a loaded symbol name. A typed `FE`
@@ -71,24 +129,88 @@ public:
     /// `@name` always means the symbol, so that variable is still reachable.
     std::optional<uint16_t> resolve(std::string_view text) const;
 
-    /// Look up a symbol name by its address. Returns nullopt if not found.
-    std::optional<std::string> lookup(uint16_t addr) const;
+    /// Resolve like `resolve()`, keeping the memory a symbol name was assembled
+    /// for. A number, and an unpaged name, carry no memory.
+    std::optional<SymbolNameKey> resolve_key(std::string_view text) const;
 
-    /// Look up an address by symbol name — an "; addr" symbol first, else a
-    /// Z88DK "; const" one. Returns nullopt if not found.
+    /// Add a label. A paged label (`space` set) keys on (space, addr), an
+    /// unpaged one on addr; the first label of a key wins and, apart, the
+    /// first of a name. Returns whether the key was free (the entry stored).
+    /// A `bind_at_load` label is added unbound (`space` nullopt); `bind()` gives
+    /// it its memory.
+    /// `c_symbol` marks a z88dk C symbol (design 10.6): its C name (`name` without the
+    /// first `_`) then resolves to this label's key, the first C symbol of a C name winning.
+    bool add_label(const std::string& name, uint16_t addr,
+                   std::optional<jnext::dbg::FetchSource> space,
+                   bool bind_at_load = false, bool c_symbol = false);
+
+    /// Give every `bind_at_load` label, and name, the memory `space_of(addr)`
+    /// says supplies its address, when that is a RAM page; any other memory
+    /// (ROM, DivMMC, ...) leaves the symbol unpaged (rule 4 is "the RAM page the
+    /// MMU maps": the symbol half's lenient form of the source half's refusal,
+    /// #344 D8). An empty `space_of` unbinds them all. Nothing else changes, and
+    /// no label is merged on a key collision.
+    void bind(const SymbolSpaceOf& space_of);
+
+    /// Add a NAME-ONLY value (a size, an offset, a section bound): `find_name()`
+    /// resolves it, no address is ever named by it. The first of a name wins.
+    void add_value(const std::string& name, uint16_t value);
+
+    /// Record the file the table was loaded from (a loader that fills the table
+    /// through `add_label()`).
+    void set_loaded_file(std::string path) { loaded_file_ = std::move(path); }
+
+    /// Add another table's entries after this one's: its labels whose key (memory,
+    /// address) is still free, its names (labels' and aliases') not yet taken, its
+    /// name-only values not yet taken. First wins throughout, as within one table.
+    /// An empty `loaded_file()` takes the other's.
+    void merge(const SymbolTable& other);
+
+    /// The name of `addr` in the memory `space`: the paged label with exactly
+    /// that key, else the unpaged label at `addr`. `MemSpace::cpu()` is "no
+    /// memory known": it reaches unpaged labels only.
+    /// A z88dk C symbol (design 10.6) is named by its C name (`counter` for
+    /// `_counter`, `shown_name()`); every other label by its own name.
+    std::optional<std::string> lookup(jnext::dbg::FetchSource space, uint16_t addr) const;
+
+    /// `lookup()` with the label's own (assembler) name, a C symbol's `_counter`
+    /// included: for text that must assemble, such as the Disassembly copy.
+    std::optional<std::string> lookup_assembler(jnext::dbg::FetchSource space,
+                                                uint16_t addr) const;
+
+    /// The name views show for the symbol `name` (an assembler or a C name) resolves to:
+    /// its C name when it is a z88dk C symbol that owns that C name (nothing else holds
+    /// the C name, and no earlier C symbol has it); else the label's own name; an
+    /// unknown `name` comes back unchanged. So a shown C name resolves to its own symbol.
+    std::string shown_name(const std::string& name) const;
+
+    /// The visible label with the greatest address <= `addr` (address and name):
+    /// an unpaged one, or a paged one whose space is what `space_of` says
+    /// supplies its address.
+    std::optional<std::pair<uint16_t, std::string>>
+    nearest(uint16_t addr, const SymbolSpaceOf& space_of) const;
+
+    /// The address, and memory, of a name — a label first, else a name-only
+    /// value (no memory), else the C name of a z88dk C symbol (`counter` for
+    /// `_counter`; an exact name always wins). Returns nullopt if not found.
+    std::optional<SymbolNameKey> find_name(const std::string& name) const;
+
+    /// Look up an address by symbol name (`find_name()`'s address).
     std::optional<uint16_t> lookup_name(const std::string& name) const;
 
-    /// Get all symbols (address -> name).
-    const std::map<uint16_t, std::string>& symbols() const { return addr_to_name_; }
+    /// Every label as the file spells it (`_counter`, not its shown C name), by
+    /// address (equal addresses in the order they were added).
+    const std::multimap<uint16_t, SymbolLabel>& symbols() const { return labels_; }
 
     /// Clear all loaded symbols.
     void clear();
 
     /// Returns true if no symbols are loaded.
-    bool empty() const { return addr_to_name_.empty(); }
+    bool empty() const { return labels_.empty(); }
 
-    /// Number of symbols loaded.
-    size_t size() const { return addr_to_name_.size(); }
+    /// Number of labels loaded: distinct (memory, address) keys. A `bind()` can
+    /// make two labels share a key (a bound rule-4 label and a paged one).
+    size_t size() const { return labels_.size(); }
 
     /// Get the loaded file path (empty if none loaded).
     const std::string& loaded_file() const { return loaded_file_; }
@@ -100,9 +222,24 @@ private:
     int read_z88dk_map(std::istream& file);
     int read_sjasmplus_equ(std::istream& file);
 
-    std::map<uint16_t, std::string> addr_to_name_;
-    std::map<std::string, uint16_t> name_to_addr_;
-    /// Z88DK "; const" values, consulted by `lookup_name()` only.
+    /// Name `name` (first wins) without storing a label: the aliases a
+    /// Memory.txt label also answers to.
+    void add_name(const std::string& name, uint16_t addr,
+                  std::optional<jnext::dbg::FetchSource> space, bool bind_at_load = false);
+
+    /// The label `lookup()` names: the paged one with exactly that key, else the
+    /// unpaged one.
+    const SymbolLabel* find_label(jnext::dbg::FetchSource space, uint16_t addr) const;
+
+    std::multimap<uint16_t, SymbolLabel> labels_;
+    std::map<std::string, SymbolNameKey> name_to_key_;
+    /// Name-only values, consulted by `find_name()` after the labels.
     std::map<std::string, uint16_t> const_by_name_;
+    /// C name (`counter`) to the key of the z88dk C SYMBOL that has it (design 10.6; the
+    /// first one wins): `find_name()` falls back to it after every exact name. Per symbol,
+    /// not per assembler name, so an asm `_dup` and a C `_dup` stay two symbols.
+    std::map<std::string, SymbolNameKey> c_name_to_key_;
+    /// The name `lookup()` shows for `label` at `addr`.
+    std::string shown_label(const SymbolLabel& label, uint16_t addr) const;
     std::string loaded_file_;
 };

@@ -49,6 +49,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/coverage_colors.h"   // GH #388
 #include "debugger/memory_panel.h"
 #include "debugger/mmu_panel.h"
 #include "debugger/video_panel.h"
@@ -104,6 +105,7 @@
 #include <string>
 #include <vector>
 #include "../row_id.h"
+#include "dark_test_palette.h"
 
 namespace {
 
@@ -1878,6 +1880,337 @@ static void test_disasm_latch() {
 }
 
 // ===========================================================================
+// QCOV -- GH #388 (E23-25): memory coverage in the Disassembly and Memory panels.
+//
+// Oracle: the owner's design (doc/design/SOURCE-LEVEL-DEBUGGING.md 11.1, the
+// issue): a Disassembly line whose first opcode byte ran has a green bar in the
+// margin; the Memory panel underlines each covered byte with X | R | W in thirds
+// of its cell (green, blue, orange-red); nothing is drawn while coverage is off;
+// the colours come through palette_tint, so a dark palette gets readable ones.
+// The panels are rendered into a QImage and the exact colours looked for, as the
+// QDARK rows do.
+// ===========================================================================
+namespace {
+
+struct CovProbe {
+    int x0, x1;                  // the cell
+    int y0, y1;                  // the rows to look in
+};
+
+// Which of the three coverage colours appear in the rectangle (bit 1 X, 2 R, 4 W).
+int cov_colours_in(const QImage& img, const CovProbe& r, const QPalette& pal) {
+    int mask = 0;
+    const QRgb x = coverage_colors::exec(pal).rgb(), rd = coverage_colors::read(pal).rgb(),
+               w = coverage_colors::write(pal).rgb();
+    for (int y = std::max(0, r.y0); y < std::min(img.height(), r.y1); ++y)
+        for (int xx = std::max(0, r.x0); xx < std::min(img.width(), r.x1); ++xx) {
+            const QRgb c = img.pixel(xx, y);
+            if (c == x) mask |= 1;
+            else if (c == rd) mask |= 2;
+            else if (c == w) mask |= 4;
+        }
+    return mask;
+}
+
+// The legend label's X, R and W spans carry exactly the panel palette's X, R, W colours.
+bool legend_matches(MemoryPanel& m, const QPalette& pal) {
+    for (QLabel* l : m.findChildren<QLabel*>()) {
+        if (!l->text().contains("Coverage:") || !l->isVisibleTo(&m)) continue;
+        const QString t = l->text();
+        auto has = [&](const QColor& c, const char* letter) {
+            return t.contains(QString("color:%1\">%2<").arg(palette_tint::css(c), letter));
+        };
+        return has(coverage_colors::exec(pal), "X") && has(coverage_colors::read(pal), "R") &&
+               has(coverage_colors::write(pal), "W");
+    }
+    return false;
+}
+
+// Runs of rows at pixel column `x` whose colour is `want`: (first row, length).
+std::vector<std::pair<int, int>> bar_runs(const QImage& img, int x, QRgb want) {
+    std::vector<std::pair<int, int>> runs;
+    for (int y = 0; y < img.height(); ++y) {
+        if (img.pixel(x, y) != want) continue;
+        if (!runs.empty() && runs.back().first + runs.back().second == y) ++runs.back().second;
+        else runs.push_back({y, 1});
+    }
+    return runs;
+}
+
+}  // namespace
+
+static void test_coverage_panels() {
+    set_group("QCOV");
+
+    auto image_of = [](QWidget* w) {
+        QImage img(w->size(), QImage::Format_ARGB32);
+        img.fill(Qt::black);
+        w->render(&img);
+        return img;
+    };
+    // GUTTER_WIDTH is private: the bar sits one pixel past the gutter separator,
+    // which is the panel's first pixel column with the separator's colour.
+    auto gutter_x = [](const QImage& img, const QPalette& p) {
+        const QRgb sep = palette_tint::surface(p, QColor(200, 200, 200)).rgb();
+        for (int x = 1; x < 60; ++x)
+            if (img.pixel(x, 60) == sep && img.pixel(x, 61) == sep) return x;
+        return -1;
+    };
+
+    Emulator emu;
+    const bool built = build(emu, MachineType::ZX48K);
+    // 8000 LD A,(9000) / 8003 LD (9001),A / 8006 NOP / 8007 NOP
+    poke(emu, 0x8000, {0x3A, 0x00, 0x90, 0x32, 0x01, 0x90, 0x00, 0x00});
+    Z80Registers r0 = emu.cpu().get_registers();
+    r0.PC = 0x8000; r0.SP = 0xFF00; r0.IFF1 = r0.IFF2 = 0;
+    emu.cpu().set_registers(r0);
+    jnext::dbg::Debugger dbg(emu);
+    DisasmPanel dis(&dbg);
+    dis.resize(700, 400);
+    dis.set_paused(true);
+    dis.activate_follow_pc();
+    dis.refresh();
+    MemoryPanel mem(&dbg);
+    mem.resize(700, 600);
+    mem.refresh();
+    const QPalette pal = QApplication::palette();
+    const QImage dis_never = image_of(&dis), mem_never = image_of(&mem);
+
+    dbg.mem_coverage_enable(true);
+    for (int i = 0; i < 3; ++i) emu.execute_single_instruction();       // LD, LD, NOP
+    // The Disassembly follows the PC again from 8000: four lines, the first three ran.
+    emu.cpu().set_registers([&] { Z80Registers r = emu.cpu().get_registers(); r.PC = 0x8000; return r; }());
+    dis.activate_follow_pc();
+    dis.refresh();
+    mem.refresh();
+    const QImage dis_on = image_of(&dis);
+    const int gx = gutter_x(dis_on, pal);
+
+    {   // QCOV-02 (a): the bar is on the executed lines and not on the others
+        const auto runs = gx > 0 ? bar_runs(dis_on, gx + 2, coverage_colors::exec(pal).rgb())
+                                 : std::vector<std::pair<int, int>>{};
+        bool geometry = runs.size() == 3;
+        for (size_t i = 0; geometry && i < runs.size(); ++i)
+            geometry = runs[i].second == 16 && (i == 0 || runs[i].first - runs[i - 1].first == 18);
+        // (b) the fetch view: a DivMMC automap at RST 8 -- the line at 0x0008 has X in the
+        //     DivMMC ROM (it ran there), and nothing in the ROM / RAM page the data view names.
+        Emulator nx;
+        bool nx_ok = build(nx, MachineType::ZXN_ISSUE2);
+        nx.mmu().set_boot_rom_enabled(false);
+        nx.mmu().set_config_mode(false);
+        nx.nextreg().write(0x50, 10);
+        nx.nextreg().write(0x0A, 0x10);
+        nx.nextreg().write(0xB8, 0x02); nx.nextreg().write(0xB9, 0x02); nx.nextreg().write(0xBA, 0x02);
+        nx.divmmc().set_port_io_enable(true);
+        nx.divmmc().rom_data()[8] = 0x00;
+        nx.mmu().write(0x0008, 0x00);
+        nx.mmu().write(0x8000, 0xCF);                      // RST $08
+        Z80Registers nr = nx.cpu().get_registers();
+        nr.PC = 0x8000; nr.SP = 0xFF00; nr.IFF1 = nr.IFF2 = 0;
+        nx.cpu().set_registers(nr);
+        jnext::dbg::Debugger ndbg(nx);
+        ndbg.mem_coverage_enable(true);
+        nx.execute_single_instruction();                   // RST 8
+        nx.execute_single_instruction();                   // the NOP at 0x0008, from the DivMMC ROM
+        nx.divmmc().on_retn();                             // out of the DivMMC again
+        nx.divmmc().on_retn_instruction_complete();
+        Z80Registers pc8 = nx.cpu().get_registers();
+        pc8.PC = 0x0008;
+        nx.cpu().set_registers(pc8);
+        DisasmPanel ndis(&ndbg);
+        ndis.resize(700, 400);
+        ndis.set_paused(true);
+        ndis.activate_follow_pc();
+        ndis.refresh();
+        const QImage nimg = image_of(&ndis);
+        const int ngx = gutter_x(nimg, pal);
+        const auto nruns = ngx > 0 ? bar_runs(nimg, ngx + 2, coverage_colors::exec(pal).rgb())
+                                   : std::vector<std::pair<int, int>>{};
+        const bool follows_fetch = nx_ok && nruns.size() == 1 && nruns[0].second == 16 &&
+                                   (ndbg.mem_coverage_fetch(0x0008) & jnext::dbg::COVERAGE_EXEC);
+        uint8_t data_view = 0xEE;
+        ndbg.mem_coverage(jnext::dbg::MemSpace::cpu(), 0x0008, 1, &data_view);
+        check("QCOV-02",
+              "Disassembly: with coverage on, each line whose first opcode byte ran has a 16-px green bar "
+              "just right of the gutter (three of the four lines here) and the others have none; after a "
+              "DivMMC automap at RST 8 the 0x0008 line has the bar, from the DivMMC ROM's X, while the "
+              "data view of 0x0008 has no mark",
+              built && gx > 0 && geometry && follows_fetch && data_view == 0,
+              fmt("gutter=%d runs=%zu follows_fetch=%d nruns=%zu data=%u", gx, runs.size(),
+                  int(follows_fetch), nruns.size(), unsigned(data_view)));
+    }
+
+    {   // QCOV-03: the Memory panel's X | R | W underline, per byte, per view
+        auto cell_marks = [&](MemoryPanel& m, const QString& label, int col, const QImage& img) {
+            const DumpRow row = dump_row(painted(&m), label);
+            if (!row.found) return -1;
+            // locate the byte's text item to get its x
+            const auto items = painted(&m);
+            double x = -1;
+            for (size_t i = 0; i < items.size(); ++i)
+                if (items[i].text == label && i + 17 < items.size()) { x = items[i + 1 + col].pos.x(); break; }
+            const QFontMetrics fm(QFont("Monospace", 10));
+            const int cw = fm.horizontalAdvance('0') * 2;
+            return cov_colours_in(img, {int(x), int(x) + cw, int(row.baseline_y), int(row.baseline_y) + 14}, pal);
+        };
+        go_to(&mem, "8000");
+        const QImage img = image_of(&mem);
+        const bool x_cols = cell_marks(mem, "$8000", 0, img) == 1 && cell_marks(mem, "$8000", 3, img) == 1 &&
+                            cell_marks(mem, "$8000", 6, img) == 1;
+        const bool r_cols = cell_marks(mem, "$8000", 1, img) == 2 && cell_marks(mem, "$8000", 2, img) == 2 &&
+                            cell_marks(mem, "$8000", 4, img) == 2 && cell_marks(mem, "$8000", 5, img) == 2;
+        const bool clear_cols = cell_marks(mem, "$8000", 7, img) == 0 && cell_marks(mem, "$8000", 8, img) == 0;
+        go_to(&mem, "9000");
+        const QImage img9 = image_of(&mem);
+        const bool data = cell_marks(mem, "$9000", 0, img9) == 2 && cell_marks(mem, "$9000", 1, img9) == 4;
+        // A byte that is both executed and read shows both segments: 0x9000 executed too.
+        emu.cpu().set_registers([&] { Z80Registers r = emu.cpu().get_registers(); r.PC = 0x9000; return r; }());
+        poke(emu, 0x9000, {0x00});
+        emu.execute_single_instruction();
+        mem.refresh();
+        const QImage imgb = image_of(&mem);
+        const bool both = cell_marks(mem, "$9000", 0, imgb) == 3;   // X and R
+        // The Page view of another page shows none; the Slot view uses the slot's space.
+        select_view(&mem, 1 + 4);                                     // Slot 4: 0x8000 -> Page{4}
+        go_to(&mem, "0000");
+        const QImage slot_img = image_of(&mem);
+        const bool slot_ok = cell_marks(mem, "$0000", 0, slot_img) == 1 && cell_marks(mem, "$0000", 1, slot_img) == 2;
+        select_view(&mem, 1 + 7);                                     // Slot 7: not touched
+        go_to(&mem, "0000");
+        const QImage slot7 = image_of(&mem);
+        const bool slot7_clear = cell_marks(mem, "$0000", 0, slot7) == 0 && cell_marks(mem, "$0000", 1, slot7) == 0;
+        select_page_view(&mem, "20");                                 // Page 0x20: not touched
+        go_to(&mem, "0000");
+        const QImage pg = image_of(&mem);
+        const bool page_clear = cell_marks(mem, "$0000", 0, pg) == 0 && cell_marks(mem, "$0000", 1, pg) == 0;
+        mem.refresh();
+        const bool legend_light = legend_matches(mem, pal);
+        check("QCOV-03",
+              "Memory panel, coverage on: the CPU view underlines the executed bytes in X (green), the "
+              "operand and data reads in R (blue), the landed write in W (orange-red), a byte both executed "
+              "and read in both, and leaves the others plain; the Slot view reads the slot's space (same "
+              "marks), another slot and another Page show none; the legend names X, R and W in the same colours",
+              x_cols && r_cols && clear_cols && data && both && slot_ok && slot7_clear && page_clear && legend_light,
+              fmt("x=%d r=%d clear=%d data=%d both=%d slot=%d slot7=%d page=%d", x_cols, r_cols, clear_cols,
+                  data, both, slot_ok, slot7_clear, page_clear));
+    }
+
+    {   // QCOV-04: switched off (the set cleared), both panels are what they were never enabled
+        dbg.mem_coverage_enable(false);
+        emu.cpu().set_registers(r0);
+        poke(emu, 0x9000, {0x00, 0x00});
+        select_view(&mem, 0);
+        go_to(&mem, "0000");
+        mem.refresh();
+        dis.activate_follow_pc();
+        dis.refresh();
+        // never-enabled reference, same state
+        Emulator e2;
+        build(e2, MachineType::ZX48K);
+        poke(e2, 0x8000, {0x3A, 0x00, 0x90, 0x32, 0x01, 0x90, 0x00, 0x00});
+        poke(e2, 0x9000, {0x00, 0x00});
+        e2.cpu().set_registers(r0);
+        jnext::dbg::Debugger d2(e2);
+        DisasmPanel dis2(&d2);
+        dis2.resize(700, 400); dis2.set_paused(true); dis2.activate_follow_pc(); dis2.refresh();
+        MemoryPanel mem2(&d2);
+        mem2.resize(700, 600); mem2.refresh();
+        go_to(&mem2, "0000");
+        const bool dis_same = image_of(&dis) == image_of(&dis2) && image_of(&dis) == dis_never;
+        const bool mem_same = image_of(&mem) == image_of(&mem2);
+        QLabel* legend = nullptr;
+        for (QLabel* l : mem.findChildren<QLabel*>())
+            if (l->text().contains("Coverage:")) legend = l;
+        check("QCOV-04",
+              "with coverage off (switched off after a run) the Disassembly and Memory panels are pixel-"
+              "identical to a backend that never enabled it, and the legend is hidden",
+              built && dis_same && mem_same && (!legend || !legend->isVisible()),
+              fmt("dis=%d mem=%d legend=%d", dis_same, mem_same, int(legend && legend->isVisible())));
+        (void)mem_never;
+    }
+
+    {   // QCOV-05: on a dark palette the three marks are drawn in readable colours
+        dbg.mem_coverage_enable(true);
+        emu.cpu().set_registers(r0);
+        for (int i = 0; i < 3; ++i) emu.execute_single_instruction();
+        emu.cpu().set_registers(r0);
+        QApplication::setPalette(dark_test_palette());
+        for (int i = 0; i < 3; ++i) QApplication::processEvents();
+        const QPalette dpal = QApplication::palette();
+        dis.activate_follow_pc();
+        dis.refresh();
+        select_view(&mem, 0);
+        go_to(&mem, "8000");
+        mem.refresh();
+        const QImage dimg = image_of(&dis), mimg = image_of(&mem);
+        const int dgx = gutter_x(dimg, dpal);
+        const QColor ex = coverage_colors::exec(dpal), rd = coverage_colors::read(dpal),
+                     wr = coverage_colors::write(dpal);
+        const int base = dpal.color(QPalette::Base).lightness();
+        const bool bar = dgx > 0 && !bar_runs(dimg, dgx + 2, ex.rgb()).empty();
+        const DumpRow row = dump_row(painted(&mem), "$8000");
+        const int found = row.found ? cov_colours_in(mimg, {0, mimg.width(), int(row.baseline_y),
+                                                           int(row.baseline_y) + 14}, dpal) : -1;
+        go_to(&mem, "9000");
+        mem.refresh();
+        const DumpRow row9 = dump_row(painted(&mem), "$9000");
+        const int found9 = row9.found ? cov_colours_in(image_of(&mem), {0, mimg.width(), int(row9.baseline_y),
+                                                                        int(row9.baseline_y) + 14}, dpal) : -1;
+        const bool legend_dark = legend_matches(mem, dpal);
+        const bool contrast = std::abs(ex.lightness() - base) >= 60 && std::abs(rd.lightness() - base) >= 60 &&
+                              std::abs(wr.lightness() - base) >= 60;
+        const bool differs = ex != coverage_colors::exec(pal) && rd != coverage_colors::read(pal);
+        QApplication::setPalette(pal);
+        for (int i = 0; i < 3; ++i) QApplication::processEvents();
+        check("QCOV-05",
+              "on a dark palette the Disassembly bar and the Memory underline are drawn in the palette-"
+              "adapted X, R and W colours, each at least 60 lightness steps from the panel's Base, and "
+              "they differ from the light-palette colours",
+              bar && (found & 1) && (found & 2) && (found9 & 4) && contrast && differs && legend_dark,
+              fmt("bar=%d found=%d found9=%d contrast=%d differs=%d ex=%s rd=%s wr=%s base=%d", bar, found,
+                  found9, contrast, differs, s(ex.name()).c_str(), s(rd.name()).c_str(), s(wr.name()).c_str(), base));
+    }
+
+    {   // QCOV-08: a mark on the SELECTED cell (a fixed blue fill) stays legible: it has a white backing
+        // around it, in the light and in the dark palette, and it is still drawn in its own colour.
+        auto selected_mark = [&](const QPalette& p, int col, QRgb want, const char* shot) {
+            QApplication::setPalette(p);
+            for (int i = 0; i < 3; ++i) QApplication::processEvents();
+            const QPalette cur = QApplication::palette();
+            select_view(&mem, 0);
+            go_to(&mem, QString("%1").arg(0x8000 + col, 4, 16, QChar('0')));   // selects that byte
+            mem.refresh();
+            const QImage img = image_of(&mem);
+            (void)shot;
+            const auto items = painted(&mem);
+            const DumpRow row = dump_row(items, "$8000");
+            double x = -1;
+            for (size_t i = 0; i < items.size(); ++i)
+                if (items[i].text == "$8000" && i + 17 < items.size()) { x = items[i + 1 + col].pos.x(); break; }
+            if (!row.found || x < 0) return false;
+            (void)cur;
+            int top = -1, xs = -1;
+            for (int y = int(row.baseline_y); y < int(row.baseline_y) + 14 && top < 0; ++y)
+                for (int xx = int(x); xx < int(x) + 8; ++xx)
+                    if (img.pixel(xx, y) == want) { top = y; xs = xx; break; }
+            const QRgb white = QColor(Qt::white).rgb();
+            return top > 0 && img.pixel(xs, top - 1) == white && img.pixel(xs, top + 2) == white;
+        };
+        const QPalette lp = pal, dp = dark_test_palette();
+        const bool light_r = selected_mark(lp, 1, coverage_colors::read(lp).rgb(), "selected-R-light");
+        const bool light_x = selected_mark(lp, 0, coverage_colors::exec(lp).rgb(), "selected-X-light");
+        const bool dark_r = selected_mark(dp, 1, coverage_colors::read(dp).rgb(), "selected-R-dark");
+        QApplication::setPalette(pal);
+        for (int i = 0; i < 3; ++i) QApplication::processEvents();
+        check("QCOV-08",
+              "a coverage mark on the selected Memory cell keeps its own colour and has a white backing above and below it, "
+              "so the blue R (and X) stay legible on the blue selection fill, in the light and the dark palette",
+              light_r && light_x && dark_r,
+              fmt("light R=%d X=%d dark R=%d", light_r, light_x, dark_r));
+    }
+}
+
+// ===========================================================================
 // QWIN — GH #278 WP4a/b review round 1: the REAL window hands the backend to
 // its MMU, Sprites and Copper panels. Their QPN rows build each panel directly,
 // so a DebuggerWindow::create_panels() that handed one of them nullptr — a
@@ -1944,17 +2277,6 @@ static void test_window_wiring() {
 // Oracle: the GH #363 owner report (unreadable tables in dark mode) and the
 // rule that a background under light text is dark (lightness < 100).
 // ===========================================================================
-static QPalette dark_test_palette() {
-    QPalette p;   // Fusion's dark roles that the panels read
-    for (auto g : {QPalette::Active, QPalette::Inactive}) {
-        p.setColor(g, QPalette::Window, QColor(0x32, 0x32, 0x32));
-        p.setColor(g, QPalette::WindowText, QColor(0xF0, 0xF0, 0xF0));
-        p.setColor(g, QPalette::Base, QColor(0x24, 0x24, 0x24));
-        p.setColor(g, QPalette::Text, QColor(0xF0, 0xF0, 0xF0));
-    }
-    return p;
-}
-
 static void test_dark_palette() {
     set_group("QDARK");
 
@@ -2270,18 +2592,17 @@ static void test_memory_panel() {
         const QString s7 = combo ? combo->itemText(8) : QString();
         const QString s2 = combo ? combo->itemText(3) : QString();
         const QString s0 = combo ? combo->itemText(1) : QString();
-        const QString want_s0 = QString::asprintf("Slot 0 (page %02X)",
-                                                  emu.mmu().get_effective_page(0));
+        const QString want_s0 = QStringLiteral("Slot 0 (ROM0)");   // GH #360: the slot's space, not page 00
         // GH #278 WP8 (owner decision Q7) added the tenth item, "Page...": any
         // physical page through the selector (QMP-07). The count was 9.
         const bool ok = combo && combo->count() == 10 && combo->itemText(0) == "CPU View" &&
                         combo->itemText(9) == "Page..." &&
                         emu.mmu().get_effective_page(0) != 0xFF &&
                         s0 == want_s0 &&
-                        s6_before == "Slot 6 (page 00)" &&
-                        s6 == "Slot 6 (page 06)" &&
-                        s7 == "Slot 7 (page 07)" &&
-                        s2 == "Slot 2 (page 0A)";
+                        s6_before == "Slot 6 (P00)" &&
+                        s6 == "Slot 6 (P06)" &&
+                        s7 == "Slot 7 (P07)" &&
+                        s2 == "Slot 2 (P0A)";
         check("QMP-03",
               "the selector offers CPU View + Slot 0..7, each naming the page in "
               "effect (the ROM slot's too), and follows a bank switch on refresh — "
@@ -3146,6 +3467,460 @@ static void test_script_panel() {
     }
 }
 
+
+// ===========================================================================
+// QLADDR -- GH #360 (E23-22): which memory backs an address, in every view. The
+// spellings are the formatter's (debug/long_address.h); the expectations are the
+// VHDL's layout (zxnext.vhd:2964 page + 0x20, :6558-6578 the bank-5 BRAM,
+// divmmc.vhd:94-96, :1856 the boot ROM) -- the same oracle as LADDR-04..16.
+// ===========================================================================
+/// The painted text item right after the first item equal to `label`, `skip` items on.
+static QString after_label(const std::vector<PaintedText>& items, const QString& label, int skip = 1) {
+    for (size_t i = 0; i < items.size(); ++i)
+        if (items[i].text == label && i + skip < items.size()) return items[i + skip].text;
+    return QStringLiteral("<no item>");
+}
+static double x_of(const std::vector<PaintedText>& items, const QString& text) {
+    for (const auto& it : items)
+        if (it.text == text) return it.pos.x();
+    return -1;
+}
+static QTableWidget* table_of(QWidget* w) { return w->findChild<QTableWidget*>(); }
+
+static void test_long_address() {
+    set_group("QLADDR");
+    using jnext::dbg::AddressStyle;
+
+    // A Next at a DivMMC instant entry (the source_debug_test fixture): PC = $0000, the M1
+    // there is DivMMC's (divmmc.vhd:147), while a READ of $0000 is still RAM page 10.
+    auto instant = [](Emulator& emu) {
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.nextreg().write(0x50, 10);
+        emu.nextreg().write(0x0A, 0x10);   // automap enable
+        emu.nextreg().write(0xB8, 0x01);
+        emu.nextreg().write(0xB9, 0x01);
+        emu.nextreg().write(0xBA, 0x01);   // instant entry at $0000
+        emu.divmmc().rom_data()[0] = 0x3C;  // INC A
+        emu.divmmc().rom_data()[1] = 0xC9;
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x0000;
+        emu.cpu().set_registers(r);
+        return built;
+    };
+
+    {   // QLADDR-01
+        Emulator emu;
+        const bool built = instant(emu);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        dis.activate_follow_pc();
+        dis.refresh();
+        const auto pc_items = painted(&dis);
+        const QString pc_mem = after_label(pc_items, "$0000"), pc_bytes = after_label(pc_items, "$0000", 2),
+                      pc_mn = after_label(pc_items, "$0000", 3);
+        poke(emu, 0x8000, {0x00});
+        view_disasm_at(&dis, 0x8000);
+        const auto hi_items = painted(&dis);
+        const QString hi_mem = after_label(hi_items, "$8000");
+        // The same $0000 line when it is NOT the PC: its bytes are the data view's (RAM page 10),
+        // though the prediction for a fetch there is still DivMMC's.
+        Z80Registers r8 = emu.cpu().get_registers();
+        r8.PC = 0x8000;
+        emu.cpu().set_registers(r8);
+        view_disasm_at(&dis, 0x0000);
+        dis.refresh();
+        const auto lo_items = painted(&dis);
+        const QString lo_mem = after_label(lo_items, "$0000"), lo_bytes = after_label(lo_items, "$0000", 2);
+        check("QLADDR-01",
+              "Disassembly: the PC line at a DivMMC instant entry paints $0000, DIVROM (the fetch "
+              "prediction), 3C and INC A; a line at $8000 paints P04, slot 4's page (the data view); the "
+              "same $0000 line with the PC elsewhere paints P0A and the data view's byte",
+              built && dbg.source_page(0x0000) == jnext::dbg::MemSpace::divmmc_rom() && pc_mem == "DIVROM" &&
+                  pc_bytes == "3C" && pc_mn == "INC A" && hi_mem == "P04" && lo_mem == "P0A" && lo_bytes == "00",
+              s(pc_mem) + "|" + s(pc_bytes) + "|" + s(pc_mn) + "|" + s(hi_mem) + "|" + s(lo_mem) + "|" + s(lo_bytes));
+    }
+
+    {   // QLADDR-02
+        Emulator emu;
+        const bool built = instant(emu);
+        emu.nextreg().write(0x56, 0x0E);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        dis.activate_follow_pc();
+        dis.refresh();
+        const auto friendly = painted(&dis);
+        dis.set_address_style(AddressStyle::Physical);
+        dis.refresh();
+        const auto phys = painted(&dis);
+        const QString pc_phys = after_label(phys, "$0000");
+        view_disasm_at(&dis, 0xC000);
+        const QString c000 = after_label(painted(&dis), "$C000");
+        // The mnemonic column sits ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH (48 + 96 + 100) right of the
+        // address; the friendly and the physical paint put it at the same x.
+        const double ax = x_of(friendly, "$0000"), mx = x_of(friendly, "INC A");
+        const bool moved = mx - ax == 48 + 96 + 100 && x_of(phys, "INC A") == mx && x_of(phys, "$0000") == ax;
+        const bool fits = QFontMetrics(QFont("Monospace", 10)).horizontalAdvance("BRAM7+$1FFF") <= 96;
+        check("QLADDR-02",
+              "Physical style: the PC line reads $010000 (DivMMC ROM), a $C000 line over page 0x0E "
+              "reads BRAM7+$0000; the mnemonic column is MEM_WIDTH further right and the same in "
+              "both styles; the widest text fits the column",
+              built && pc_phys == "$010000" && c000 == "BRAM7+$0000" && moved && fits,
+              s(pc_phys) + "|" + s(c000) + fmt(" ax=%.0f mx=%.0f", ax, mx));
+    }
+
+    {   // QLADDR-03
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        jnext::dbg::Debugger dbg(emu);
+        emu.port().out(0x00E3, 0x85);   // conmem, bank 5
+        MmuPanel panel(&dbg);
+        panel.refresh();
+        auto mem = [&](int sl) { return text_of(grid_value(&panel, "Memory", sl + 1, 0)); };
+        auto page = [&](int sl) { return text_of(grid_value(&panel, "Page", sl + 1, 0)); };
+        auto type = [&](int sl) { return text_of(grid_value(&panel, "Type", sl + 1, 0)); };
+        const bool friendly = mem(0) == "DIVROM" && mem(1) == "DIVRAM5" && mem(2) == "P0A";
+        // The Page and Type columns are the slots' own, overlay or not.
+        const bool own = page(2) == "0A" && type(2) == "B5" && type(0) == "ROM";
+        panel.set_address_style(AddressStyle::Physical);
+        panel.refresh();
+        const bool phys = mem(0) == "$010000" && mem(1) == "$02A000" && mem(2) == "BRAM5+$0000";
+        check("QLADDR-03",
+              "MMU panel: a Memory column naming what each slot reads now: DivMMC conmem bank 5 gives "
+              "DIVROM, DIVRAM5 for slots 0/1 and P0A for slot 2 (physical $010000, $02A000, BRAM5+$0000); "
+              "the Page and Type columns are unchanged",
+              built && friendly && own && phys,
+              s(mem(0)) + "|" + s(mem(1)) + "|" + s(mem(2)) + "|" + s(page(2)) + "|" + s(type(2)));
+    }
+
+    {   // QLADDR-04
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        jnext::dbg::Debugger dbg(emu);
+        MemoryPanel mem(&dbg);
+        mem.resize(760, 600);
+        mem.refresh();
+        // The tag is the item right after the row's "|...|" ASCII item (label + 18).
+        const QString rom0 = after_label(painted(&mem), "$0010", 18);
+        emu.port().out(0x00E3, 0x80);   // conmem
+        mem.refresh();
+        const QString div = after_label(painted(&mem), "$0010", 18);
+        // The selector names the slot's OWN memory, overlay or not (plan F4).
+        auto* combo = mem.findChild<QComboBox*>();
+        const QString sel_conmem = combo ? combo->itemText(1) : QString();
+        // The Slot 0 view shows the slot's own space, the ROM, with DivMMC still over the CPU view.
+        select_view(&mem, 1);   // Slot 0
+        mem.refresh();
+        const QString slot0 = after_label(painted(&mem), "$0010", 18);
+        select_view(&mem, 0);   // CPU View
+        emu.port().out(0x00E3, 0x00);
+        go_to(&mem, "4000");
+        const auto items = painted(&mem);
+        const QString p0a = after_label(items, "$4000", 18);
+        mem.set_address_style(AddressStyle::Physical);
+        mem.refresh();
+        const QString bram = after_label(painted(&mem), "$4000", 18);
+        const QString sel = combo ? combo->itemText(1) : QString();
+        check("QLADDR-04",
+              "Memory panel: every row ends with the memory tag after the ASCII item: CPU view $0010 "
+              "ROM0 without DivMMC and DIVROM under conmem, $4000 P0A (BRAM5+$0000 physical); the Slot 0 "
+              "view ROM0 even under conmem and its selector reads Slot 0 (ROM0), also under conmem",
+              built && rom0 == "ROM0" && div == "DIVROM" && p0a == "P0A" && bram == "BRAM5+$0000" &&
+                  slot0 == "ROM0" && sel == "Slot 0 (ROM0)" && sel_conmem == "Slot 0 (ROM0)",
+              s(rom0) + "|" + s(div) + "|" + s(p0a) + "|" + s(bram) + "|" + s(slot0) + "|" + s(sel));
+    }
+
+    {   // QLADDR-05
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.nextreg().write(0x56, 0x00);
+        jnext::dbg::Debugger dbg(emu);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
+        wp.add_watch(0xC000, "w", 0);
+        wp.refresh();
+        const QString before = wcell(&wp, 0, 4);
+        emu.nextreg().write(0x56, 0x14);
+        wp.refresh();
+        const QString after = wcell(&wp, 0, 4);
+        wp.set_address_style(AddressStyle::Physical);
+        wp.refresh();
+        const QString phys = wcell(&wp, 0, 4);
+        check("QLADDR-05",
+              "Watches: a Memory column live to the slot's page: a watch at $C000 shows P00, and P14 after "
+              "NR 0x56 = 0x14 and a refresh ($068000 in the physical style); the Address cell still reads $C000",
+              built && before == "P00" && after == "P14" && phys == "$068000" && wcell(&wp, 0, 0) == "$C000",
+              s(before) + "|" + s(after) + "|" + s(phys) + "|" + s(wcell(&wp, 0, 0)));
+    }
+
+    {   // QLADDR-06
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        Z80Registers r = emu.cpu().get_registers();
+        r.SP = 0xFF00;
+        emu.cpu().set_registers(r);
+        jnext::dbg::Debugger dbg(emu);
+        StackPanel panel(&dbg);
+        panel.set_paused(true);
+        panel.refresh();
+        QTableWidget* t = table_of(&panel);
+        const QString friendly = t && t->item(0, 4) ? t->item(0, 4)->text() : QString("<none>");
+        panel.set_address_style(AddressStyle::Physical);
+        panel.refresh();
+        const QString phys = t && t->item(0, 4) ? t->item(0, 4)->text() : QString("<none>");
+        check("QLADDR-06",
+              "Stack: SP $FF00 rows show Memory P01 (slot 7's page), physical $043F00",
+              built && t && t->columnCount() == 5 && friendly == "P01" && phys == "$043F00",
+              s(friendly) + "|" + s(phys));
+    }
+
+    {   // QLADDR-07
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        dis.set_address_style(AddressStyle::Physical);
+        dis.activate_follow_pc();
+        dis.refresh();
+        MmuPanel mmu(&dbg);
+        mmu.set_address_style(AddressStyle::Physical);
+        mmu.refresh();
+        const QString d = after_label(painted(&dis), "$0000");
+        const QString m = text_of(grid_value(&mmu, "Memory", 5, 0));
+        check("QLADDR-07",
+              "A 48K machine has no Next memory layout: the physical style shows the friendly tags "
+              "(Disassembly ROM0 at $0000, MMU slot 4 P04)",
+              built && d == "ROM0" && m == "P04", s(d) + "|" + s(m));
+    }
+
+    {   // QLADDR-12: the physical text carries the offset inside the slot, not only the slot's base
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.nextreg().write(0x56, 0x14);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        dis.set_address_style(AddressStyle::Physical);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        const QString d = after_label(painted(&dis), "$8003");
+        MemoryPanel mem(&dbg);
+        mem.resize(760, 600);
+        mem.set_address_style(AddressStyle::Physical);
+        go_to(&mem, "4010");
+        const QString m = after_label(painted(&mem), "$4010", 18);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
+        wp.set_address_style(AddressStyle::Physical);
+        wp.add_watch(0xC123, "w", 0);
+        wp.refresh();
+        MmuPanel mmu(&dbg);
+        mmu.set_address_style(AddressStyle::Physical);
+        mmu.refresh();
+        const QString rom1 = text_of(grid_value(&mmu, "Memory", 2, 0));
+        check("QLADDR-12",
+              "Physical style at addresses that are not slot-aligned: a Disassembly line $8003 in page 4 "
+              "reads $048003, a Memory row $4010 in the bank-5 BRAM BRAM5+$0010, a watch at $C123 in page "
+              "0x14 $068123, and the MMU panel's ROM slot 1 $002000 (the ROM's second 8K)",
+              built && d == "$048003" && m == "BRAM5+$0010" && wcell(&wp, 0, 4) == "$068123" &&
+                  rom1 == "$002000",
+              s(d) + "|" + s(m) + "|" + s(wcell(&wp, 0, 4)) + "|" + s(rom1));
+    }
+
+    {   // QLADDR-13: the Memory panel's Slot and Page views
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.nextreg().write(0x52, 0xE5);   // slot 2 reads nothing (zxnext.vhd:3061)
+        emu.nextreg().write(0x56, 0x14);
+        jnext::dbg::Debugger dbg(emu);
+        MemoryPanel mem(&dbg);
+        mem.resize(760, 600);
+        mem.refresh();
+        auto* combo = mem.findChild<QComboBox*>();
+        const QString sel2 = combo ? combo->itemText(3) : QString();
+        select_view(&mem, 3);
+        mem.refresh();
+        const QString float_tag = after_label(painted(&mem), "$0010", 18);
+        select_view(&mem, 2);   // Slot 1: the ROM's second 8K
+        mem.set_address_style(AddressStyle::Physical);
+        mem.refresh();
+        const QString slot1_phys = after_label(painted(&mem), "$0010", 18);
+        mem.set_address_style(AddressStyle::Friendly);
+        select_page_view(&mem, "14");
+        mem.refresh();
+        const QString page_tag = after_label(painted(&mem), "$0010", 18);
+        check("QLADDR-13",
+              "Memory panel: a slot paged to NR 0xE5 is Slot 2 (FLOAT) in the selector and tags FLOAT in "
+              "its Slot view (never PE5); the Slot 1 view in the physical style reads $002010 (the ROM's "
+              "second 8K); the Page view of page 0x14 tags P14",
+              built && sel2 == "Slot 2 (FLOAT)" && float_tag == "FLOAT" && slot1_phys == "$002010" &&
+                  page_tag == "P14",
+              s(sel2) + "|" + s(float_tag) + "|" + s(slot1_phys) + "|" + s(page_tag));
+    }
+
+    {   // QLADDR-14: each Stack row names the slot of its OWN address
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.nextreg().write(0x55, 0x0D);
+        emu.nextreg().write(0x56, 0x14);
+        Z80Registers r = emu.cpu().get_registers();
+        r.SP = 0xBFF8;
+        emu.cpu().set_registers(r);
+        jnext::dbg::Debugger dbg(emu);
+        StackPanel panel(&dbg);
+        panel.set_paused(true);
+        panel.refresh();
+        QTableWidget* t = table_of(&panel);
+        auto cellt = [&](int r2) { return t && t->item(r2, 4) ? t->item(r2, 4)->text() : QString("<none>"); };
+        check("QLADDR-14",
+              "Stack: SP $BFF8 rows cross slots 5 and 6: BFF8..BFFE read P0D, C000 onwards P14",
+              built && cellt(0) == "P0D" && cellt(3) == "P0D" && cellt(4) == "P14" && cellt(5) == "P14",
+              s(cellt(0)) + "|" + s(cellt(3)) + "|" + s(cellt(4)) + "|" + s(cellt(5)));
+    }
+}
+
+// ===========================================================================
+// QANN -- GH #387 (E23-24): the user's labels and comments in the Disassembly.
+//
+// Oracle: the owner's plan (doc/design/SOURCE-LEVEL-DEBUGGING.md 10.1-10.3, 10.5, the issue): a user
+// label names its address only in its own memory; the Label column is present while the symbol table
+// holds a label and the layout is today's without one; the first line of a comment follows the
+// mnemonic; the copy formats are unchanged. Which page supplies $C000 is NR 0x56 (Mmu::route(),
+// design 4.1, 4.2).
+// ===========================================================================
+static void test_annotations() {
+    set_group("QANN");
+    using jnext::dbg::MemSpace;
+    const MemSpace P10 = MemSpace::page(0x10);
+    // x of the first painted text that starts with `what` after `label`'s own text on the same row.
+    const auto x_of = [](const std::vector<PaintedText>& items, const QString& what) {
+        for (const PaintedText& t : items) if (t.text == what) return t.pos.x();
+        return -1.0;
+    };
+    {   // QANN-01 and QANN-02
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.nextreg().write(0x56, 0x10);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.set_symbol_table(&dbg.symbols());
+        dis.set_annotation_backend(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0xC000);
+        dis.refresh();
+        const bool bare_cols = !dis.label_column_shown() && dis.mnemonic_x() == 20 + 4 + 48 + 96 + 100;
+        const auto bare = painted(&dis);
+        const double bare_mn = x_of(bare, QStringLiteral("NOP"));
+        dbg.set_user_label(P10, 0xC000, "banked");
+        dis.refresh();
+        const auto lab = painted(&dis);
+        const bool shown = dis.label_column_shown() && dis.line_label(0) == "banked" &&
+                           x_of(lab, QStringLiteral("banked")) == 20 + 4 + 48 + 96 + 100 &&
+                           x_of(lab, QStringLiteral("Label")) == 20 + 4 + 48 + 96 + 100 &&
+                           x_of(lab, QStringLiteral("NOP")) == dis.mnemonic_x() && dis.mnemonic_x() > 20 + 4 + 48 + 96 + 100;
+        check("QANN-01", "no label in the table: no Label column and the mnemonic at the old x (268); one label: the "
+                         "column (header and 'banked' at the old mnemonic x) is there and the mnemonic moved right",
+              built && bare_cols && bare_mn == 20 + 4 + 48 + 96 + 100 && shown,
+              fmt("bare %d mn %.0f; shown %d mn_x %d", bare_cols, bare_mn, shown, dis.mnemonic_x()));
+        const std::string at10 = s(dis.line_label(0));
+        emu.nextreg().write(0x56, 0x11);
+        dis.refresh();
+        const std::string at11 = s(dis.line_label(0));
+        emu.nextreg().write(0x56, 0x10);
+        dis.refresh();
+        check("QANN-02", "the Label column shows 'banked' at $C000 with page 0x10 mapped in slot 6 and nothing with 0x11",
+              built && at10 == "banked" && at11.empty() && s(dis.line_label(0)) == "banked", at10 + "|" + at11);
+
+        // QANN-03: the comment after the mnemonic
+        dbg.set_user_comment(P10, 0xC000, "two\nlines");
+        dis.refresh();
+        const std::string c10 = s(dis.line_comment(0));
+        bool painted_c = false;
+        for (const PaintedText& t : painted(&dis)) if (t.text == QStringLiteral("; two ...")) painted_c = true;
+        emu.nextreg().write(0x56, 0x11);
+        dis.refresh();
+        const std::string c11 = s(dis.line_comment(0));
+        emu.nextreg().write(0x56, 0x10);
+        dbg.set_user_comment(P10, 0xC000, "one");
+        dis.refresh();
+        const std::string one = s(dis.line_comment(0));
+        check("QANN-03", "the comment 'two\\nlines' at (P10, $C000) shows as '; two ...' after the mnemonic (painted), "
+                         "'; one' for a single line, and not at all with page 0x11 mapped",
+              c10 == "; two ..." && painted_c && c11.empty() && one == "; one", c10 + "|" + c11 + "|" + one);
+    }
+    {   // QANN-15: the Label column holds 16 characters; a longer name is cut to 13 plus "..."
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.nextreg().write(0x56, 0x10);
+        jnext::dbg::Debugger dbg(emu);
+        dbg.set_user_label(P10, 0xC000, "abcdefghijklmnopqrst");   // 20 characters
+        dbg.set_user_label(P10, 0xC001, "abcdefghijklmnop");       // exactly 16: kept whole
+        DisasmPanel dis(&dbg);
+        dis.set_symbol_table(&dbg.symbols());
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0xC000);
+        dis.refresh();
+        const std::string long_name = s(dis.line_label(0)), exact = s(dis.line_label(1));
+        check("QANN-15", "a 20-character label shows as its first 13 characters and '...' (16 in all); a 16-character one "
+                         "is shown whole",
+              built && long_name == "abcdefghijklm..." && exact == "abcdefghijklmnop", long_name + "|" + exact);
+    }
+    {   // QANN-04 and QANN-06: operands, the copy, the address field
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.nextreg().write(0x56, 0x10);
+        poke(emu, 0x8000, {0xC3, 0x00, 0xC0});   // JP $C000
+        jnext::dbg::Debugger dbg(emu);
+        dbg.set_user_label(P10, 0xC000, "banked");
+        dbg.set_user_comment(P10, 0xC000, "note");
+        DisasmPanel dis(&dbg);
+        dis.set_symbol_table(&dbg.symbols());
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        bool jp = false;
+        for (const PaintedText& t : painted(&dis)) if (t.text == QStringLiteral("JP banked")) jp = true;
+        dis.select_all_visible();
+        const QString asm_text = dis.selection_text(disasm_text::CopyFormat::AsmOnly);
+        const QString addr_text = dis.selection_text(disasm_text::CopyFormat::WithAddresses);
+        dis.clear_selection();
+        check("QANN-04", "a JP $C000 paints and copies as 'JP banked' (page 0x10 mapped); the copies carry no label "
+                         "or comment line (formats unchanged)",
+              built && jp && asm_text.contains("JP banked") && !asm_text.contains("note") && !asm_text.contains("banked:") &&
+                  addr_text.contains("JP banked") && !addr_text.contains("note"),
+              s(asm_text));
+        // the address field takes the name
+        auto* edit = dis.findChild<QLineEdit*>();
+        if (edit) {
+            edit->setText("banked");
+            QMetaObject::invokeMethod(edit, "returnPressed");
+        }
+        QApplication::processEvents();
+        bool at_c000 = false;
+        for (const PaintedText& t : painted(&dis)) if (t.text == QStringLiteral("$C000")) at_c000 = true;
+        check("QANN-06", "the Disassembly address field takes the user's label ('banked' goes to $C000), as the backend "
+                         "resolves it for every other address field",
+              edit && at_c000 && dbg.symbols().resolve("banked") == std::optional<uint16_t>(0xC000) &&
+                  dbg.lookup_name("banked") == std::optional<uint16_t>(0xC000));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg;
@@ -3172,7 +3947,10 @@ int main(int argc, char** argv) {
     test_dark_palette();
     test_memory_panel();
     test_disasm_latch();
+    test_coverage_panels();
     test_script_panel();
+    test_long_address();
+    test_annotations();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

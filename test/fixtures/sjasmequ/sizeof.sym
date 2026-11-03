@@ -1,0 +1,2 @@
+msg: EQU 0x00008004
+start: EQU 0x00008000

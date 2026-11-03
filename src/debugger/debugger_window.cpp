@@ -126,7 +126,8 @@ int title_bar_height(const QWidget* w) {
 } // namespace
 
 DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
-                               std::optional<bool> attach_override)
+                               std::optional<bool> attach_override,
+                               std::optional<bool> physical_override)
     : QMainWindow(parent)
     , dbg_(dbg)
 {
@@ -179,6 +180,12 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
 
     attach_saved_   = settings.value(config_key(config_keys::KeyId::DebuggerAttached), true).toBool();
     attach_enabled_ = attach_override.value_or(attach_saved_);
+
+
+    physical_saved_ = settings.value(config_key(config_keys::KeyId::DebuggerPhysicalAddresses), false).toBool();
+    address_style_  = physical_override.value_or(physical_saved_) ? jnext::dbg::AddressStyle::Physical
+                                                                  : jnext::dbg::AddressStyle::Friendly;
+    apply_address_style();
 
     if (!attach_enabled_ || !attach_supported_) {
         // Detached (by choice or by platform): honour the saved position so a
@@ -240,6 +247,9 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
         connect(source_panel_, &SourcePanel::load_symbols_requested,
                 mgr, &DebuggerManager::on_load_nextbuild_memory);
     }
+
+    // GH #360: the GUI's breakpoint model exists from here on.
+    apply_address_style();
 
     // Create the menu bar with debug actions.
     create_menus();
@@ -390,6 +400,11 @@ void DebuggerWindow::apply_keymap() {
     bind(run_to_eosl_action_,   Action::RunToEosl);
     bind(trace_enable_action_,  Action::TraceToggle);
     bind(trace_export_action_,  Action::TraceExport);
+    bind(source_into_action_,    Action::SourceStepInto);
+    bind(source_over_action_,    Action::SourceStepOver);
+    bind(source_out_action_,     Action::SourceStepOut);
+    bind(source_back_action_,    Action::SourceStepBack);
+    bind(source_reverse_action_, Action::SourceReverseContinue);
 
     // The captions. "F5: Continue" is "<key>: <name>" with the key dropped
     // when the action is unbound — so the default keymap reproduces exactly
@@ -455,6 +470,31 @@ void DebuggerWindow::changeEvent(QEvent* event) {
     }
 }
 
+bool DebuggerWindow::fit_known_size_(const QSize& s) const {
+    return s == fit_prev_size_ || std::find(fit_sizes_.begin(), fit_sizes_.end(), s) != fit_sizes_.end();
+}
+
+// The fit's explicit end: from now on every size is the user's.
+void DebuggerWindow::end_fit_() {
+    fit_over_ = true;
+    fit_sizes_.clear();
+    fit_prev_size_ = QSize();
+    fit_set_size_ = QSize();
+}
+
+void DebuggerWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    // While the opening fit runs (see fit_sizes_), a resize to a size the fit knows but did not just ask
+    // for is the window manager's late answer: a pass is queued, which asks the current request again
+    // and measures again (bounded). Any other size is the user's; the pass ends the fit on it.
+    if (fit_over_ || !size_is_default_ || !fit_set_size_.isValid())
+        return;
+    if (size() != fit_set_size_ && fit_known_size_(size()) && fit_echoes_ < kMaxFitEchoes) {
+        ++fit_echoes_;
+        QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+    }
+}
+
 void DebuggerWindow::grow_default_size_to_natural() {
     // GH #114: a window opening at its DEFAULT size still opens at the size
     // where nothing has to scroll, whenever the screen has room for it. That
@@ -477,24 +517,93 @@ void DebuggerWindow::grow_default_size_to_natural() {
     if (!size_is_default_ || !scroll)
         return;
 
-    const int hidden_w = scroll->horizontalScrollBar()->maximum();
-    const int hidden_h = scroll->verticalScrollBar()->maximum();
-    if (hidden_w <= 0 && hidden_h <= 0)
-        return;   // nothing is out of view; the window is already big enough
+    if (fit_over_)
+        return;
+    // The fit ends kFitGraceMs after its last pass started (every pass restarts the wait).
+    const unsigned generation = ++fit_generation_;
+    QTimer::singleShot(kFitGraceMs, this, [this, generation]() {
+        if (generation == fit_generation_) end_fit_();
+    });
+    if (fit_set_size_.isValid() && size() != fit_set_size_) {
+        if (fit_known_size_(size()) && fit_echoes_ < kMaxFitEchoes) {
+            // The manager's late answer to an earlier request: ask again, then measure again.
+            ++fit_echoes_;
+            resize(fit_set_size_);
+            QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+            return;
+        }
+        // Not a size of the fit's own: the user's. The fit is over, their size stands.
+        end_fit_();
+        return;
+    }
 
+    const int scroll_w = scroll->horizontalScrollBar()->maximum();
+    const int hidden_h = scroll->verticalScrollBar()->maximum();
+
+    // GH #360: nothing scrolling sideways does not mean the left column of tabs is wide enough: it
+    // only has to fit its panels' MINIMUMS to avoid a scrollbar, yet the Video panel asks for more
+    // (its sizeHint) and is clipped at 1170 px. Measure what its pages lack and widen the window.
+    // The share of a widening the splitter gives that column is MEASURED, from what the previous
+    // width pass gained (the stretch factors, set in create_panels(), are only the first guess), so
+    // this converges on its own bound whatever the style, font or DPI.
+    int add_w = scroll_w;
+    int lacking = 0;
+    if (tab_widget_ && top_splitter_ && initial_fit_width_passes_ < kMaxWidthFitPasses) {
+        for (int i = 0; i < tab_widget_->count(); ++i) {
+            QWidget* page = tab_widget_->widget(i);
+            lacking = std::max(lacking, page->sizeHint().width() - page->width());
+        }
+        if (lacking > 0) {
+            const int left  = top_splitter_->widget(0)->sizePolicy().horizontalStretch();
+            const int right = top_splitter_->widget(1)->sizePolicy().horizontalStretch();
+            double share = (left + right) > 0 ? double(left) / (left + right) : 1.0;
+            if (fit_last_add_ > 0 && fit_last_lacking_ > lacking)
+                share = double(fit_last_lacking_ - lacking) / fit_last_add_;
+            share = std::min(1.0, std::max(0.2, share));
+            add_w = std::max(add_w, static_cast<int>(std::ceil(lacking / share)));
+        }
+    }
+
+    if (add_w <= 0 && hidden_h <= 0)
+        return;   // nothing is out of view and the left column has its width: leave the window alone
+
+    // The FRAME must fit the screen: the side borders come off the width as the title bar comes off the height.
+    const int deco_w = std::max(0, frameGeometry().width() - width());
+    // The height decoration is what the window manager really added now that the window is mapped; the
+    // style's title bar height is only the estimate for before that (it is smaller than some managers').
+    const int real_deco_h = frameGeometry().height() - height();
+    const int deco_h = real_deco_h > 0 ? real_deco_h : title_bar_height(this);
     const jnext::WindowSize fit = jnext::clamp_window_size_to_screen(
-        width() + hidden_w, height() + hidden_h,
-        work_area_of(this), title_bar_height(this));
+        width() + add_w, height() + hidden_h,
+        work_area_of(this), deco_h, deco_w);
     if (fit.w == width() && fit.h == height())
-        return;   // the screen has no more room to give
+        return;   // nothing to grow, or the screen has no more room to give
+    const int old_w = width();
+    fit_prev_size_ = size();
+    fit_set_size_ = QSize(fit.w, fit.h);
+    fit_sizes_.push_back(fit_prev_size_);
+    fit_sizes_.push_back(fit_set_size_);
     resize(fit.w, fit.h);
+
+    const bool width_pass = lacking > 0 && add_w > scroll_w;
+    if (width_pass) {
+        ++initial_fit_width_passes_;
+        fit_last_add_ = fit.w - old_w;
+        fit_last_lacking_ = lacking;
+    } else {
+        fit_last_add_ = 0;
+    }
 
     // A panel's minimum can itself change as the window grows (a wider panel
     // may need more height), so one pass lands close but not always exactly.
     // Repeat while it keeps helping, with a hard bound: each pass either grows
     // the window or returns above, so this terminates on its own — the bound is
-    // there so a pathological layout cannot ping-pong forever.
-    if (++initial_fit_passes_ < kMaxInitialFitPasses)
+    // there so a pathological layout cannot ping-pong forever. The scroll-range
+    // passes (GH #114) and the width passes (GH #360) have a bound each.
+    const bool scroll_pass = scroll_w > 0 || hidden_h > 0;
+    if (scroll_pass) ++initial_fit_passes_;
+    if ((scroll_pass && initial_fit_passes_ < kMaxInitialFitPasses) ||
+        (width_pass && initial_fit_width_passes_ < kMaxWidthFitPasses))
         QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
 }
 
@@ -564,9 +673,45 @@ void DebuggerWindow::create_menus() {
     // window-wide shortcut context without putting it in the menu tree.
     run_to_cursor_action_ = new QAction(tr("Run to Cursor"), this);
     connect(run_to_cursor_action_, &QAction::triggered, this, [this]() {
-        if (disasm_panel_) disasm_panel_->run_to_selected();
+        // GH #423 - with the focus in the Source tab the cursor is its line.
+        if (source_panel_ && source_panel_->has_text_focus()) source_panel_->run_to_cursor();
+        else if (disasm_panel_) disasm_panel_->run_to_selected();
     });
     addAction(run_to_cursor_action_);
+
+    debug_menu->addSeparator();
+
+    // GH #337 - Source submenu. Mnemonic E: S/o/u/r/c of "Source" are all taken
+    // in this popup (Single Step, Step Over, Step Out, Rewind, Continue). In the
+    // Source popup I/O/U/B/R/M/S are distinct. Each item requests the SAME
+    // DebuggerManager slot as its Source-tab button; the enabled state comes
+    // from SourcePanel::update_buttons() through steps_available().
+    QMenu* source_menu = debug_menu->addMenu(tr("Sourc&e"));
+    auto source_item = [this, source_menu](const QString& text, auto slot) {
+        QAction* a = source_menu->addAction(text);
+        connect(a, &QAction::triggered, debugger_mgr_, slot);
+        return a;
+    };
+    source_into_action_ = source_item(tr("Step &Into"), &DebuggerManager::on_source_step_into);
+    source_over_action_ = source_item(tr("Step &Over"), &DebuggerManager::on_source_step_over);
+    source_out_action_  = source_item(tr("Step O&ut"),  &DebuggerManager::on_source_step_out);
+    source_back_action_ = source_item(tr("Step &Back"), &DebuggerManager::on_source_step_back);
+    source_reverse_action_ = source_item(tr("&Reverse Continue"),
+                                         &DebuggerManager::on_source_reverse_continue);
+    source_menu->addSeparator();
+    source_item(tr("Load Source &Map..."), &DebuggerManager::on_load_sld);
+    source_item(tr("Load &Symbols (Memory.txt)..."), &DebuggerManager::on_load_nextbuild_memory);
+    if (source_panel_) {
+        connect(source_panel_, &SourcePanel::steps_available, this,
+                [this](bool forward, bool backward) {
+            source_into_action_->setEnabled(forward);
+            source_over_action_->setEnabled(forward);
+            source_out_action_->setEnabled(forward);
+            source_back_action_->setEnabled(backward);
+            source_reverse_action_->setEnabled(backward);
+        });
+        source_panel_->update_buttons(dbg_.state().paused);
+    }
 
     debug_menu->addSeparator();
 
@@ -593,6 +738,37 @@ void DebuggerWindow::create_menus() {
     trace_export_action_ = trace_menu->addAction(tr("E&xport Trace..."));
     connect(trace_export_action_, &QAction::triggered, this, [this]() {
         export_trace();
+    });
+
+    // Coverage submenu (GH #388): memory coverage by execute, read and write.
+    // "V": C, E, O and the rest of the Debug menu's mnemonics are taken (#124).
+    QMenu* coverage_menu = debug_menu->addMenu(tr("Co&verage"));
+
+    coverage_enable_action_ = coverage_menu->addAction(tr("&Enable Coverage"));
+    coverage_enable_action_->setCheckable(true);
+    connect(coverage_enable_action_, &QAction::triggered, this, [this](bool checked) {
+        dbg_.mem_coverage_enable(checked);   // INS-21: off clears
+        refresh_panels();
+    });
+
+    QAction* clear_coverage = coverage_menu->addAction(tr("&Clear Coverage"));
+    connect(clear_coverage, &QAction::triggered, this, [this]() {
+        dbg_.mem_coverage_clear();           // INS-21
+        refresh_panels();
+    });
+    sync_coverage_action();                  // a backend already recording (--coverage)
+
+    // GH #360: Physical Addresses (A is free in the Debug popup; DACC-05 pins the count).
+    physical_action_ = debug_menu->addAction(tr("Physical &Addresses"));
+    physical_action_->setCheckable(true);
+    physical_action_->setChecked(address_style_ == jnext::dbg::AddressStyle::Physical);
+    connect(physical_action_, &QAction::triggered, this, [this](bool checked) {
+        // The toggle IS a change of the saved setting, written at once (as Attach is).
+        physical_saved_ = checked;
+        QDir().mkpath(jnext_config_dir());
+        QSettings settings(debugger_config_path(), QSettings::IniFormat);
+        settings.setValue(config_key(config_keys::KeyId::DebuggerPhysicalAddresses), checked);
+        set_address_style(checked ? jnext::dbg::AddressStyle::Physical : jnext::dbg::AddressStyle::Friendly);
     });
 
     // Rewind submenu
@@ -707,6 +883,29 @@ void DebuggerWindow::create_menus() {
     QAction* sjasmplus_action = load_map_menu->addAction(tr("s&jasmplus Format (--sym, --exp)..."));
     connect(sjasmplus_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_sjasmplus);
 
+    // GH #387: the user's labels and comments (the .jdp project file). O, S and A are free in this popup.
+    map_menu->addSeparator();
+    QAction* open_ann = map_menu->addAction(tr("&Open Annotations..."));
+    connect(open_ann, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_open_annotations);
+    QAction* save_ann = map_menu->addAction(tr("&Save Annotations"));
+    connect(save_ann, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_save_annotations);
+    QAction* save_ann_as = map_menu->addAction(tr("Save Annotations &As..."));
+    connect(save_ann_as, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_save_annotations_as);
+
+    // GH #389: skoolkit and Ghidra files, in and out. I and E are free in this popup; S and G are unique in each
+    // submenu. Import reads into the same store the annotation entries above save; Export writes a directory.
+    map_menu->addSeparator();
+    QMenu* import_menu = map_menu->addMenu(tr("&Import"));
+    QAction* import_sk = import_menu->addAction(tr("&skoolkit Control Files..."));
+    connect(import_sk, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_import_skoolkit);
+    QAction* import_gh = import_menu->addAction(tr("&Ghidra Symbols..."));
+    connect(import_gh, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_import_ghidra);
+    QMenu* export_menu = map_menu->addMenu(tr("&Export"));
+    QAction* export_sk = export_menu->addAction(tr("&skoolkit Control Files..."));
+    connect(export_sk, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_export_skoolkit);
+    QAction* export_gh = export_menu->addAction(tr("&Ghidra Symbols..."));
+    connect(export_gh, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_export_ghidra);
+
     // --- Breakpoints menu ---
     QMenu* bp_menu = bar->addMenu(tr("&Breakpoints"));
 
@@ -799,7 +998,7 @@ void DebuggerWindow::update_actions(bool is_paused) {
     const bool can_step_back = can_rewind && dbg->trace_enabled();
     if (step_back_action_) step_back_action_->setEnabled(can_step_back);
     if (rewind_jump_btn_)  rewind_jump_btn_->setEnabled(can_rewind);
-    // Only the Source tab's buttons: its text is refreshed once per pause, by
+    // The Source tab's buttons and the Debug > Source actions: its text is refreshed once per pause, by
     // refresh_panels(), which also runs this.
     if (source_panel_)     source_panel_->update_buttons(is_paused);
 }
@@ -855,6 +1054,7 @@ void DebuggerWindow::save_geometry() {
     // GH #417: the saved value, not this run's: a closed window must not write a
     // command-line override into the file.
     settings.setValue(config_key(config_keys::KeyId::DebuggerAttached), attach_saved_);
+    settings.setValue(config_key(config_keys::KeyId::DebuggerPhysicalAddresses), physical_saved_);   // GH #360
 
     // Issue #39: only a DETACHED window owns its position. An attached one
     // derives it from the emulator window, so saving it would pin a stale
@@ -1281,6 +1481,23 @@ void DebuggerWindow::create_panels() {
     // mutation route) knowing the other exists. The two hand-wired directions
     // this replaced had each shipped broken once.
 
+    // GH #423 - the Source tab's "Show in Disassembly".
+    connect(source_panel_, &SourcePanel::show_address_requested, disasm_panel_,
+            &DisasmPanel::show_address);
+
+    // GH #347 - selection sync, both ways, and the Disassembly menu's Show in Source. The
+    // Disassembly tells the Source tab only of selections the user made; the Source tab tells it
+    // only of cursor moves, and asks it to scroll only for a move the user made there.
+    connect(disasm_panel_, &DisasmPanel::selection_changed, source_panel_, &SourcePanel::set_disasm_selection);
+    connect(source_panel_, &SourcePanel::source_lines_selected, disasm_panel_,
+            [this](const QString& file, int first, int last, bool reveal) {
+                disasm_panel_->set_source_lines(file.toStdString(), first, last, reveal);
+            });
+    connect(disasm_panel_, &DisasmPanel::show_source_requested, this, [this](uint16_t addr) {
+        source_panel_->show_address(addr);
+        tab_widget_->setCurrentWidget(source_panel_);
+    });
+
     mmu_panel_ = new MmuPanel(&dbg_);
 
     auto* cpu_box = make_group(tr("CPU Registers"), cpu_panel_);
@@ -1367,7 +1584,8 @@ void DebuggerWindow::activate_follow_pc() {
 }
 
 bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr,
-                                       uint16_t* page) {
+                                       jnext::dbg::MemSpace* space, QString* source_line) {
+    const bool page = space != nullptr;
     QDialog dlg(this);
     dlg.setWindowTitle(title);
     dlg.setMinimumWidth(400);
@@ -1398,23 +1616,32 @@ bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr,
         const std::string text = addr_edit->text().trimmed().toStdString();
         // CAP-SYM: hex ($ / 0x prefixes optional), else a loaded symbol name;
         // `@name` forces the symbol (OD-12).
-        if (const auto resolved = dbg_.symbols().resolve(text)) {
-            addr = *resolved;
-            if (page) *page = jnext::dbg::PAGE_ANY;
+        if (const auto resolved = dbg_.symbols().resolve_key(text)) {
+            addr = resolved->addr;
+            // A name keeps the memory it was assembled for (see the Breakpoints
+            // panel's Add dialog).
+            if (space) *space = resolved->space ? *resolved->space : jnext::dbg::MemSpace::cpu();
             return true;
         }
-        // CAP-SRC: a source line keeps the page its record names, as in the
-        // Breakpoints panel's Add dialog.
-        if (page) {
-            if (const auto src = dbg_.source_map().resolve(text)) {
-                addr = src->address;
-                *page = src->page ? *src->page : jnext::dbg::PAGE_ANY;
+        // CAP-SRC: a source line is one breakpoint armed at every place it
+        // compiled to, each tied to the memory that supplies it (one group), as
+        // in the Breakpoints panel's Add dialog.
+        QString reason;
+        if (space) {
+            const SourceResolution src = dbg_.source_map().resolve(text);
+            if (!src.starts.empty()) {
+                *space = jnext::dbg::MemSpace::cpu();
+                *source_line = QString::fromStdString(text);
                 return true;
+            } else if (!src.error.empty()) {
+                reason = QString::fromStdString(src.error);
             }
         }
-        error->setText((page ? tr("Not an address, symbol or source line: %1")
-                             : tr("Not an address or symbol: %1"))
-                           .arg(addr_edit->text().trimmed()));
+        if (reason.isEmpty())
+            reason = (page ? tr("Not an address, symbol or source line: %1")
+                           : tr("Not an address or symbol: %1"))
+                         .arg(addr_edit->text().trimmed());
+        error->setText(reason);
         error->show();
     }
     return false;
@@ -1443,13 +1670,47 @@ void DebuggerWindow::show_add_data_bp_dialog(int type) {
 // this site remembering to repaint it.
 void DebuggerWindow::show_add_exec_bp_dialog() {
     uint16_t addr = 0;
-    uint16_t page = jnext::dbg::PAGE_ANY;
-    if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr, &page)) return;
+    jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
+    QString source_line;
+    if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr, &space, &source_line)) return;
 
-    if (BreakpointModel* m = breakpoint_model()) m->add(BreakpointModel::Execute, addr, page);
+    if (BreakpointModel* m = breakpoint_model()) {
+        if (!source_line.isEmpty()) m->add_source_line(source_line);
+        else                        m->add(BreakpointModel::Execute, addr, space);
+    }
+}
+
+// GH #388 - the Enable Coverage check mirrors the backend, which may have been
+// switched on without this window (--coverage, or another client).
+void DebuggerWindow::sync_coverage_action() {
+    if (coverage_enable_action_)
+        coverage_enable_action_->setChecked(dbg_.mem_coverage_enabled());
+}
+
+void DebuggerWindow::set_address_style(jnext::dbg::AddressStyle style) {
+    address_style_ = style;
+    if (physical_action_) physical_action_->setChecked(style == jnext::dbg::AddressStyle::Physical);
+    apply_address_style();
+    refresh_panels();
+}
+
+// GH #360: one style, held here, handed to every panel that names a memory.
+void DebuggerWindow::apply_address_style() {
+    if (disasm_panel_) disasm_panel_->set_address_style(address_style_);
+    if (memory_panel_) memory_panel_->set_address_style(address_style_);
+    if (mmu_panel_) mmu_panel_->set_address_style(address_style_);
+    if (watch_panel_) watch_panel_->set_address_style(address_style_);
+    if (stack_panel_) stack_panel_->set_address_style(address_style_);
+    if (callstack_panel_) callstack_panel_->set_address_style(address_style_);
+    if (source_panel_) source_panel_->set_address_style(address_style_);
+    if (BreakpointModel* m = breakpoint_model()) m->set_address_style(address_style_);
 }
 
 void DebuggerWindow::refresh_panels() {
+    // GH #342: settle a pending landing first, so the panels that hold the
+    // symbol table by pointer read the processed state.
+    (void)dbg_.source_map_status();
+    sync_coverage_action();
     if (cpu_panel_) cpu_panel_->refresh();
     if (disasm_panel_) disasm_panel_->refresh();
     if (memory_panel_) memory_panel_->refresh();

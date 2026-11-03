@@ -1,0 +1,60 @@
+// Who reads the source-level stores: chapter 7.7.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/srcdbg-frontends.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// Top: the backend verbs every frontend goes through (the stores are never
+// touched directly). Below: one cluster per frontend, with what it reads and
+// what it adds. DZRP is the one frontend with no source surface: DeZog reads
+// the SLD or map itself.
+//
+// Palette: the page theme's pastel dark red family (see css/theme.css), as the
+// other figures. Light fills, dark labels, transparent canvas.
+digraph srcdbg_frontends {
+    bgcolor="transparent";
+    rankdir=TB;
+    fontname="Helvetica";
+    ranksep=0.5;
+    nodesep=0.25;
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.14,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5a3f43"];
+
+    verbs [label="Debugger facade (debug/debugger.h)\lsource_location()  source_map()  source_map_status()  source_page()\lsubscribe_source_line()  run_to_source_line()  source_step()\lload_source_map()  load_program_sidecars()  symbols()  lookup()\l", fillcolor="#e9d3d6"];
+
+    subgraph cluster_qt {
+        label="Qt debugger (src/debugger/)";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        q0 [label="Source tab (SourcePanel)\lPC line, gutter, context menu, highlighter,\lsteps, Load Source Map..., Locate File...\l"];
+        q1 [label="Disassembly, Call Stack, Breakpoints, MMU, Memory\lsymbol_namer(), caller_space, Row::group,\lthe long address (AddressStyle)\l"];
+        q2 [label="DebuggerManager\lsidecar report, source dirs,\lpaused stamp\l"];
+        q0 -> q1 [label=" selection sync", dir=both];
+        q2 -> q0;
+    }
+
+    subgraph cluster_remote {
+        label="remote and scripted";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        g0 [label="GDB RSP\lmonitor src, monitor sym, monitor mmu\l"];
+        z0 [label="ZRCP\lsmartload -> Debugger::load()\lget-memory-pages\l"];
+        d0 [label="DZRP\lno source call; bank+1 qualifier\l(DeZog reads the files itself)\l", fillcolor="#ffffff"];
+        s0 [label="Scripts (DSL)\lon execute FILE:LINE, --map\l"];
+    }
+
+    subgraph cluster_loop {
+        label="loop owners (headless, SDL, Qt)";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        l0 [label="--source-map\lemulator_attach_cli_source_map()\lemulator_poll_cli_source_map() per tick\ldot command / RZX: attached at start-up\l"];
+    }
+
+    verbs -> q0;
+    verbs -> q1;
+    verbs -> g0;
+    verbs -> z0;
+    verbs -> s0;
+    verbs -> l0;
+    verbs -> d0 [style=dashed, label=" no source verb"];
+}

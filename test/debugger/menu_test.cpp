@@ -107,17 +107,29 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/mmu_panel.h"
+#include "debugger/memory_panel.h"
 #include "gui/main_window.h"
+#include "gui/preferences_dialog.h"
+#include "debug/source_search.h"
+#include "debugger/source_highlighter.h"
+#include "debugger/source_panel.h"
 #include "input/emu_fnkeys.h"
 #include "memory/mmu.h"
 #include "platform/emulator_boot.h"
 
 #include <stdexcept>
+#include <array>
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
 #include <QContextMenuEvent>
 #include <QDialog>
+#include <QDialogButtonBox>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QSettings>
 #include <QImage>
 #include <QKeyEvent>
 #include <QLineEdit>
@@ -604,9 +616,12 @@ struct DebuggerFixture {
     DebuggerWindow*  dbg = nullptr;
     bool             ok  = false;
 
-    DebuggerFixture() {
+    // `coverage_on`: the backend is already recording when the window is built
+    // over it (--coverage, GH #388).
+    explicit DebuggerFixture(bool coverage_on = false) {
         if (!build_next_emulator(emu)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        if (coverage_on) backend->mem_coverage_enable(true);
         mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
@@ -1859,6 +1874,8 @@ static void test_breakpoint_owners()
         check("BPOW-03", "a master switch flipped outside the panel reaches its control", false, "fixture failed");
         check("BPOW-04", "another client's Execute breakpoint draws no gutter dot", false, "fixture failed");
         check("BPOW-05", "Edit on another client's row is refused", false, "fixture failed");
+        check("BPOW-06", "a second gutter click removes the GUI's own breakpoint and leaves the other "
+              "client's in the list", false, "fixture failed");
         return;
     }
     GuiBps bps{fx.mgr->breakpoints()};
@@ -1989,6 +2006,34 @@ static void test_breakpoint_owners()
                                       QStringLiteral("Execute $8003")},
               fmt("armed=%d red before=%d own added=%d red after=%d rows=[%s]", armed,
                   before.red, own_added, after.red,
+                  rows.join(QStringLiteral(", ")).toUtf8().constData()));
+        bps.clear_all_pc();
+    }
+    // BPOW-06 — a second gutter click removes the GUI's own breakpoint and ONLY that:
+    // the other client's stays (the user guide says so: "Whose breakpoints the
+    // gutters show and change").
+    {
+        DisasmPanel* disasm = fx.dbg->disasm_panel();
+        bps.clear_all_pc();
+        for (const auto& si : fx.backend->subscriptions(false))
+            fx.backend->unsubscribe(si.owner, si.id);
+        jnext::dbg::Subscription s;
+        s.kind = jnext::dbg::EventKind::Execute;
+        s.action = jnext::dbg::Action::Stop;
+        s.filter.lo = s.filter.hi = 0x8003;
+        fx.backend->subscribe(remote, s);
+        tick();
+        const bool armed = point_disasm_at(fx.emu, disasm, 0x8000);
+        gutter_click(disasm, 1);
+        const bool own_added = bps.pc_exists(0x8003);
+        gutter_click(disasm, 1);
+        const bool own_gone = !bps.pc_exists(0x8003);
+        const QStringList rows = panel_rows(fx.dbg);
+        check("BPOW-06", "a second gutter click removes the GUI's own breakpoint and leaves the other "
+              "client's in the list",
+              armed && own_added && own_gone &&
+                  rows == QStringList{QStringLiteral("Execute (client %1) $8003").arg(remote)},
+              fmt("armed=%d added=%d gone=%d rows=[%s]", armed, own_added, own_gone,
                   rows.join(QStringLiteral(", ")).toUtf8().constData()));
         bps.clear_all_pc();
     }
@@ -2644,6 +2689,579 @@ static void test_session_debug_keys()
     if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
 }
 
+// ── MWSRC: GH #420 - the Source tab's search path, from the file to the panel ─
+//
+// MainWindow keeps the list IN EFFECT (the command line's, else the saved one;
+// Preferences takes over) apart from app_config_, which is what jnext.conf holds. The
+// manager gets it when it is created and whenever apply_startup_config() runs; a
+// Locate File... Yes appends to the saved list only. Oracle: the contract (man page:
+// the command line is never written to jnext.conf; Preferences > Paths edits the saved
+// list), read back from the real manager, panel and file. No VHDL.
+static void test_source_dirs_wiring()
+{
+    set_group("MWSRC");
+    const QString sep(QLatin1Char(source_search::kListSeparator));
+    const QByteArray prev = qgetenv("JNEXT_CONFIG_DIR");
+    QTemporaryDir home;
+    const QString conf = home.path() + QStringLiteral("/jnext.conf");
+    auto write_saved = [&](const QString& value) {
+        QSettings raw(conf, QSettings::IniFormat);
+        raw.clear();
+        raw.setValue("paths/source_dirs", value);
+        raw.sync();
+    };
+    auto saved_text = [&]() {
+        QSettings f(conf, QSettings::IniFormat);
+        return f.value("paths/source_dirs").toString();
+    };
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+
+    // MWSRC-01 - the manager and the panel get the list, in either order.
+    {
+        write_saved(QString());
+        bool now = false, window = false, later = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                AppConfigData cfg = fx.win.app_config().data();
+                cfg.source_dirs = QStringList{QStringLiteral("/s/one"), QStringLiteral("/s/two")};
+                fx.win.apply_startup_config(cfg);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                now = mgr->source_dirs() == cfg.source_dirs;
+                mgr->set_enabled(true);
+                SourcePanel* sp = mgr->debugger_window_ptr() ? mgr->debugger_window_ptr()->source_panel() : nullptr;
+                window = sp && sp->search_dirs() == std::vector<std::string>({"/s/one", "/s/two"});
+                detail += "now=" + std::to_string(now) + " window=" + std::to_string(window);
+            }
+        }
+        {
+            Emulator emu;
+            if (build_next_emulator(emu)) {
+                jnext::dbg::Debugger backend(emu);
+                MainWindow win;
+                AppConfigData cfg = win.app_config().data();
+                cfg.source_dirs = QStringList{QStringLiteral("/s/late")};
+                win.apply_startup_config(cfg);   // before the manager exists
+                win.set_debugger(&backend);
+                win.set_emulator(&emu);
+                later = win.debugger_manager() && win.debugger_manager()->source_dirs() == cfg.source_dirs;
+                if (win.debugger_manager()) win.debugger_manager()->set_enabled(false, false);
+            }
+        }
+        check("MWSRC-01", "apply_startup_config() hands the search directories to the manager and the Source "
+                          "tab, and a manager created after the call gets them too",
+              now && window && later, detail + " later=" + std::to_string(later));
+    }
+
+    // MWSRC-02 / MWSRC-03 - a command-line list governs the run, not the file; a saved Locate adds to the file.
+    {
+        write_saved(QStringLiteral("/saved/one"));
+        bool cli_in_force = false, file_kept = false, loaded = false;
+        bool listed = false, once = false, still_cli = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                loaded = fx.win.app_config().data().source_dirs == QStringList{QStringLiteral("/saved/one")};
+                AppConfigData session = fx.win.app_config().data();
+                session.source_dirs = QStringList{QStringLiteral("/cli/one")};
+                fx.win.apply_startup_config(session);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                cli_in_force = mgr->source_dirs() == session.source_dirs;
+                fx.win.set_startup_load("/x/c.nex", "/x/c.nex");
+                fx.win.startup_rzx_started("/x/c.nex");         // an unrelated save of jnext.conf
+                file_kept = saved_text() == QLatin1String("/saved/one");
+                detail = "file=" + saved_text().toStdString();
+
+                emit mgr->source_dir_save_requested(QStringLiteral("/located/dir"));
+                emit mgr->source_dir_save_requested(QStringLiteral("/located/dir"));
+                listed = saved_text() == QStringLiteral("/saved/one") + sep + QStringLiteral("/located/dir");
+                once = fx.win.app_config().data().source_dirs.size() == 2;
+                still_cli = mgr->source_dirs() == session.source_dirs;
+                detail += " after=" + saved_text().toStdString();
+            }
+        }
+        check("MWSRC-02", "a command-line search path governs the run and an unrelated save of jnext.conf "
+                          "leaves paths/source_dirs as the file had it",
+              loaded && cli_in_force && file_kept, detail);
+        check("MWSRC-03", "a Yes to saving a located directory appends it to the saved list once, written to "
+                          "jnext.conf, and the command-line list stays in force",
+              listed && once && still_cli, detail);
+    }
+
+    // MWSRC-04 - Preferences > Paths edits the saved list and takes over from the command line.
+    {
+        write_saved(QStringLiteral("/saved/one") + sep + QStringLiteral("/saved/two"));
+        QString shown, after_add, saved;
+        bool took_over = false, found = false;
+        std::string detail;
+        QTemporaryDir picked;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                AppConfigData session = fx.win.app_config().data();
+                session.source_dirs = QStringList{QStringLiteral("/cli/one")};
+                fx.win.apply_startup_config(session);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                QAction* prefs = nullptr;
+                for (QAction* a : fx.win.findChildren<QAction*>())
+                    if (a->text().remove(QLatin1Char('&')).startsWith(QStringLiteral("Preferences"))) prefs = a;
+                QTimer::singleShot(0, &fx.win, [&]() {
+                    auto* dlg = qobject_cast<PreferencesDialog*>(QApplication::activeModalWidget());
+                    auto* edit = dlg ? dlg->findChild<QPlainTextEdit*>(QStringLiteral("sourceDirsEdit")) : nullptr;
+                    if (!edit) { if (dlg) dlg->reject(); return; }
+                    found = true;
+                    shown = edit->toPlainText();
+                    edit->setPlainText(QStringLiteral("/x/one\n\n  /y/two  \n/x/one"));
+                    QDialogButtonBox* box = dlg->findChild<QDialogButtonBox*>();
+                    box->button(QDialogButtonBox::Apply)->click();
+                    took_over = mgr->source_dirs() == QStringList({QStringLiteral("/x/one"), QStringLiteral("/y/two")});
+                    QTimer pick;
+                    QObject::connect(&pick, &QTimer::timeout, [&]() {
+                        auto* fd = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+                        if (!fd) return;
+                        fd->selectFile(picked.path());
+                        static_cast<QDialog*>(fd)->accept();   // QFileDialog::accept() is protected
+                    });
+                    pick.start(1);
+                    dlg->findChild<QPushButton*>(QStringLiteral("sourceDirsAddButton"))->click();
+                    pick.stop();
+                    after_add = edit->toPlainText();
+                    dlg->reject();
+                });
+                QTimer::singleShot(4000, &fx.win, []() {
+                    if (QWidget* w = QApplication::activeModalWidget()) w->close();
+                });
+                if (prefs) prefs->trigger();
+                saved = saved_text();
+                detail = "shown=" + shown.toStdString() + " after_add=" + after_add.toStdString() +
+                         " saved=" + saved.toStdString();
+            }
+        }
+        check("MWSRC-04", "Preferences > Paths shows the saved list one directory per line; Apply trims it, "
+                          "drops blank lines and duplicates, saves it and takes over from the command-line "
+                          "list; Add Directory... appends a line",
+              found && shown == QStringLiteral("/saved/one\n/saved/two") && took_over &&
+                  saved == QStringLiteral("/x/one") + sep + QStringLiteral("/y/two") &&
+                  after_add == QStringLiteral("/x/one\n\n  /y/two  \n/x/one\n") + picked.path(),
+              detail);
+    }
+    // MWSRC-05 - a directory holding the list separator is not saved (it would load back as two).
+    {
+        write_saved(QStringLiteral("/saved/one"));
+        const QString bad = QStringLiteral("/data/a") + sep + QStringLiteral("b");
+        QString warning;
+        bool refused = false, session_kept = false, plain_saved = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                QTimer dismiss;
+                QObject::connect(&dismiss, &QTimer::timeout, [&]() {
+                    auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                    if (!mb) return;
+                    warning = mb->text();
+                    mb->button(QMessageBox::Ok)->click();
+                });
+                dismiss.start(1);
+                mgr->on_source_dir_located(bad);
+                emit mgr->source_dir_save_requested(bad);
+                dismiss.stop();
+                refused = saved_text() == QLatin1String("/saved/one") &&
+                          fx.win.app_config().data().source_dirs == QStringList{QStringLiteral("/saved/one")};
+                session_kept = mgr->source_dirs().contains(bad);
+                emit mgr->source_dir_save_requested(QStringLiteral("/fine/dir"));
+                plain_saved = saved_text() == QStringLiteral("/saved/one") + sep + QStringLiteral("/fine/dir");
+                detail = "file=" + saved_text().toStdString() + " warning=" + warning.toStdString();
+            }
+        }
+        check("MWSRC-05", "a Yes to saving a located directory that contains the list separator is refused "
+                          "in a box and nothing is written, the directory stays searched for the session, "
+                          "and an ordinary directory is still saved",
+              refused && session_kept && plain_saved && warning.contains(bad), detail);
+    }
+
+    // MWSRC-06 - Preferences refuses the same directory and neither applies nor saves.
+    {
+        write_saved(QStringLiteral("/saved/one"));
+        const QString bad = QStringLiteral("/data/a") + sep + QStringLiteral("b");
+        QString warning;
+        bool found = false, nothing_applied = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                AppConfigData session = fx.win.app_config().data();
+                session.source_dirs = QStringList{QStringLiteral("/cli/one")};
+                fx.win.apply_startup_config(session);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                QAction* prefs = nullptr;
+                for (QAction* a : fx.win.findChildren<QAction*>())
+                    if (a->text().remove(QLatin1Char('&')).startsWith(QStringLiteral("Preferences"))) prefs = a;
+                QTimer::singleShot(0, &fx.win, [&]() {
+                    auto* dlg = qobject_cast<PreferencesDialog*>(QApplication::activeModalWidget());
+                    auto* edit = dlg ? dlg->findChild<QPlainTextEdit*>(QStringLiteral("sourceDirsEdit")) : nullptr;
+                    if (!edit) { if (dlg) dlg->reject(); return; }
+                    found = true;
+                    edit->setPlainText(QStringLiteral("/ok/dir\n") + bad);
+                    QTimer dismiss;
+                    QObject::connect(&dismiss, &QTimer::timeout, [&]() {
+                        auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                        if (!mb) return;
+                        warning = mb->text();
+                        mb->button(QMessageBox::Ok)->click();
+                    });
+                    dismiss.start(1);
+                    dlg->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+                    const bool apply_refused = !warning.isEmpty();
+                    warning.clear();
+                    dlg->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();   // OK too
+                    dismiss.stop();
+                    nothing_applied = apply_refused && !warning.isEmpty() && dlg->isVisible() &&
+                                      mgr->source_dirs() == session.source_dirs;
+                    dlg->reject();
+                });
+                QTimer::singleShot(4000, &fx.win, []() {
+                    if (QWidget* w = QApplication::activeModalWidget()) w->close();
+                });
+                if (prefs) prefs->trigger();
+                detail = "file=" + saved_text().toStdString() + " warning=" + warning.toStdString();
+            }
+        }
+        check("MWSRC-06", "Preferences > Paths refuses a directory that contains the list separator in a "
+                          "box: neither Apply nor OK pushes the list or writes jnext.conf, and OK leaves the dialog open",
+              found && nothing_applied && saved_text() == QLatin1String("/saved/one") && warning.contains(bad),
+              detail);
+    }
+
+    // GH #422 stage 2: the Source tab's colour scheme, from the file to the panel.
+    auto scheme_of = [](DebuggerManager* mgr) -> SourceScheme {
+        DebuggerWindow* dw = mgr ? mgr->debugger_window_ptr() : nullptr;
+        SourcePanel* sp = dw ? dw->source_panel() : nullptr;
+        auto* hl = sp ? sp->findChild<SourceHighlighter*>() : nullptr;
+        return hl ? hl->scheme() : static_cast<SourceScheme>(255);
+    };
+    auto write_scheme = [&](const QString& word) {
+        QSettings raw(conf, QSettings::IniFormat);
+        raw.clear();
+        raw.setValue("source/colour_scheme", word);
+        raw.sync();
+    };
+    auto saved_scheme = [&]() {
+        QSettings f(conf, QSettings::IniFormat);
+        return f.value("source/colour_scheme").toString();
+    };
+
+    // MWSRC-07 - the manager and the Source tab get the scheme, with the window before or after.
+    {
+        write_scheme(QString());
+        bool manager = false, window_after = false, live = false, later = false;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                AppConfigData cfg = fx.win.app_config().data();
+                cfg.source_scheme = SourceScheme::Borland;
+                fx.win.apply_startup_config(cfg);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                manager = mgr->source_scheme() == SourceScheme::Borland;
+                mgr->set_enabled(true);   // the window is created after the call
+                window_after = scheme_of(mgr) == SourceScheme::Borland;
+                cfg.source_scheme = SourceScheme::Dark;
+                fx.win.apply_startup_config(cfg);   // the window exists now
+                live = scheme_of(mgr) == SourceScheme::Dark;
+            }
+        }
+        {
+            Emulator emu;
+            if (build_next_emulator(emu)) {
+                jnext::dbg::Debugger backend(emu);
+                MainWindow win;
+                AppConfigData cfg = win.app_config().data();
+                cfg.source_scheme = SourceScheme::Light;
+                win.apply_startup_config(cfg);   // before the manager exists
+                win.set_debugger(&backend);
+                win.set_emulator(&emu);
+                later = win.debugger_manager() && win.debugger_manager()->source_scheme() == SourceScheme::Light;
+                if (win.debugger_manager()) win.debugger_manager()->set_enabled(false, false);
+            }
+        }
+        check("MWSRC-07", "apply_startup_config() hands the Source tab's colour scheme to the manager and to a "
+                          "debugger window created after the call or already open, and to a manager created later",
+              manager && window_after && live && later,
+              "manager=" + std::to_string(manager) + " after=" + std::to_string(window_after) +
+                  " live=" + std::to_string(live) + " later=" + std::to_string(later));
+    }
+
+    // MWSRC-08 - Preferences > Debugger: the combo lists the four schemes, shows the saved one, and OK applies and saves.
+    {
+        write_scheme(QStringLiteral("borland"));
+        bool found = false, items_ok = false, shown_ok = false, applied = false;
+        QString saved;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                mgr->set_enabled(true);
+                QAction* prefs = nullptr;
+                for (QAction* a : fx.win.findChildren<QAction*>())
+                    if (a->text().remove(QLatin1Char('&')).startsWith(QStringLiteral("Preferences"))) prefs = a;
+                QTimer::singleShot(0, &fx.win, [&]() {
+                    auto* dlg = qobject_cast<PreferencesDialog*>(QApplication::activeModalWidget());
+                    auto* combo = dlg ? dlg->findChild<QComboBox*>(QStringLiteral("sourceSchemeCombo")) : nullptr;
+                    if (!combo) { if (dlg) dlg->reject(); return; }
+                    found = true;
+                    items_ok = combo->count() == 4;
+                    for (int i = 0; i < 4 && items_ok; ++i) items_ok = combo->itemData(i).toInt() == i;
+                    shown_ok = combo->currentData().toInt() == static_cast<int>(SourceScheme::Borland);
+                    combo->setCurrentIndex(combo->findData(static_cast<int>(SourceScheme::Dark)));
+                    dlg->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+                });
+                QTimer::singleShot(4000, &fx.win, []() {
+                    if (QWidget* w = QApplication::activeModalWidget()) w->close();
+                });
+                if (prefs) prefs->trigger();
+                saved = saved_scheme();
+                DebuggerWindow* dw = mgr->debugger_window_ptr();
+                SourcePanel* sp = dw ? dw->source_panel() : nullptr;
+                auto* hl = sp ? sp->findChild<SourceHighlighter*>() : nullptr;
+                applied = hl && hl->scheme_in_force() == SourceScheme::Dark;
+                detail = "saved=" + saved.toStdString();
+            }
+        }
+        check("MWSRC-08", "Preferences > Debugger has a Source tab colours combo with Auto, Light, Dark and "
+                          "Borland in that order showing the saved one; Dark + OK writes source/colour_scheme=dark "
+                          "and the Source tab is Dark at once",
+              found && items_ok && shown_ok && saved == QLatin1String("dark") && applied, detail);
+    }
+
+    // MWSRC-09 - a command-line scheme is for the run only.
+    {
+        write_scheme(QStringLiteral("light"));
+        bool tab_borland = false, file_kept = false, combo_light = false, found = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                AppConfigData session = fx.win.app_config().data();
+                session.source_scheme = SourceScheme::Borland;   // as main.cpp builds it from --set source.colour_scheme=borland
+                fx.win.apply_startup_config(session);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                mgr->set_enabled(true);
+                tab_borland = scheme_of(mgr) == SourceScheme::Borland;
+                fx.win.set_startup_load("/x/c.nex", "/x/c.nex");
+                fx.win.startup_rzx_started("/x/c.nex");         // an unrelated save of jnext.conf
+                file_kept = saved_scheme() == QLatin1String("light");
+                QAction* prefs = nullptr;
+                for (QAction* a : fx.win.findChildren<QAction*>())
+                    if (a->text().remove(QLatin1Char('&')).startsWith(QStringLiteral("Preferences"))) prefs = a;
+                QTimer::singleShot(0, &fx.win, [&]() {
+                    auto* dlg = qobject_cast<PreferencesDialog*>(QApplication::activeModalWidget());
+                    auto* combo = dlg ? dlg->findChild<QComboBox*>(QStringLiteral("sourceSchemeCombo")) : nullptr;
+                    if (combo) {
+                        found = true;
+                        combo_light = combo->currentData().toInt() == static_cast<int>(SourceScheme::Light);
+                    }
+                    if (dlg) dlg->reject();
+                });
+                QTimer::singleShot(4000, &fx.win, []() {
+                    if (QWidget* w = QApplication::activeModalWidget()) w->close();
+                });
+                if (prefs) prefs->trigger();
+                detail = "file=" + saved_scheme().toStdString();
+            }
+        }
+        check("MWSRC-09", "a command-line colour scheme governs the run: the Source tab is Borland, an unrelated "
+                          "save leaves source/colour_scheme=light in jnext.conf, and Preferences shows Light",
+              tab_borland && file_kept && found && combo_light, detail);
+    }
+    if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
+}
+
+// ===========================================================================
+// QCOV -- GH #388 (E23-25): Debug > Coverage. Enable Coverage toggles the
+// backend's memory coverage and mirrors it (also for a window built over a
+// backend that --coverage already switched on); Clear Coverage empties every
+// map, recording goes on, and the panels refresh. Oracle: the owner's design
+// (doc/design/SOURCE-LEVEL-DEBUGGING.md 11.1) and Debug > Trace's pattern.
+// ===========================================================================
+static QAction* coverage_item(DebuggerFixture& fx, const QString& text)
+{
+    QAction* sub = item_named(menu_named(fx.dbg->menuBar(), QStringLiteral("Debug")),
+                              QStringLiteral("Coverage"));
+    return item_named(sub ? sub->menu() : nullptr, text);
+}
+
+static void test_coverage_menu()
+{
+    set_group("QCOV");
+    {
+        DebuggerFixture on(/*coverage_on=*/true);
+        DebuggerFixture off;
+        if (!on.ok || !off.ok) {
+            check("QCOV-01", "Debug > Coverage > Enable Coverage toggles and mirrors the backend",
+                  false, "fixture failed");
+            check("QCOV-07", "Debug > Coverage > Clear Coverage empties the maps and refreshes",
+                  false, "fixture failed");
+            return;
+        }
+        auto enable_of = [](DebuggerFixture& fx) { return coverage_item(fx, QStringLiteral("Enable Coverage")); };
+        auto clear_of  = [](DebuggerFixture& fx) { return coverage_item(fx, QStringLiteral("Clear Coverage")); };
+        QAction* en_on = enable_of(on);
+        QAction* en_off = enable_of(off);
+        // A window built over a recording backend shows it ticked; over a quiet one, not.
+        const bool mirrored = en_on && en_on->isCheckable() && en_on->isChecked() &&
+                              en_off && !en_off->isChecked() && on.backend->mem_coverage_enabled() &&
+                              !off.backend->mem_coverage_enabled();
+        if (en_off) { en_off->trigger(); QApplication::processEvents(); }
+        const bool turned_on = off.backend->mem_coverage_enabled() && en_off->isChecked() &&
+                               off.emu.debug_state().mem_coverage_sink() != nullptr;
+        if (en_off) { en_off->trigger(); QApplication::processEvents(); }
+        const bool turned_off = !off.backend->mem_coverage_enabled() && !en_off->isChecked() &&
+                                off.emu.debug_state().mem_coverage_sink() == nullptr;
+        if (en_on) { en_on->trigger(); QApplication::processEvents(); }
+        const bool untick_started = !on.backend->mem_coverage_enabled() && !en_on->isChecked();
+        check("QCOV-01",
+              "Debug > Coverage > Enable Coverage is checkable and mirrors the backend, including a window "
+              "built over a backend that was already recording (--coverage); ticking it switches the "
+              "backend on and unticking it off",
+              mirrored && turned_on && turned_off && untick_started,
+              fmt("mirrored=%d on=%d off=%d untick=%d", mirrored, turned_on, turned_off, untick_started));
+
+        // QCOV-07: Clear Coverage.
+        DebuggerFixture cl;
+        QAction* clear = cl.ok ? clear_of(cl) : nullptr;
+        QAction* enable = cl.ok ? enable_of(cl) : nullptr;
+        bool ok7 = false;
+        std::string why7 = "fixture";
+        if (clear && enable) {
+            cl.backend->mem_coverage_enable(true);           // behind the window's back: unticked
+            const bool unticked = !enable->isChecked();
+            cl.emu.mmu().write(0x8000, 0x00);
+            Z80Registers r = cl.emu.cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = r.IFF2 = 0;
+            cl.emu.cpu().set_registers(r);
+            cl.emu.execute_single_instruction();
+            const bool marked = !cl.backend->mem_coverage_spaces().empty();
+            clear->trigger();
+            QApplication::processEvents();
+            ok7 = unticked && marked && cl.backend->mem_coverage_spaces().empty() &&
+                  cl.backend->mem_coverage_enabled() && enable->isChecked();
+            why7 = fmt("unticked=%d marked=%d spaces=%zu enabled=%d ticked_after=%d", unticked, marked,
+                       cl.backend->mem_coverage_spaces().size(), cl.backend->mem_coverage_enabled(),
+                       enable->isChecked());
+            cl.emu.execute_single_instruction();             // recording goes on
+            ok7 = ok7 && !cl.backend->mem_coverage_spaces().empty();
+        }
+        check("QCOV-07",
+              "Debug > Coverage > Clear Coverage empties every map, recording goes on, and the panels refresh "
+              "(the Enable item, unticked behind the window's back, shows the backend again)",
+              ok7, why7);
+    }
+}
+
+// ===========================================================================
+// QLADDR-11 -- GH #360 (E23-22): Debug > Physical Addresses. A checkable item that
+// switches every view to the physical style (the Disassembly's Mem column shows the
+// SRAM address), writes debugger/physical_addresses at once, and a window built over
+// that file starts checked. Oracle: Debug > Coverage's pattern (QCOV-01) and the
+// owner's rule that a setting is reachable from the file (DWK-04).
+// ===========================================================================
+static void test_physical_menu()
+{
+    set_group("QLADDR");
+    const QByteArray prev = qgetenv("JNEXT_CONFIG_DIR");
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    const QString conf = home.path() + QStringLiteral("/jnext.conf");
+    const QString key = QStringLiteral("debugger/physical_addresses");
+    auto file_value = [&]() { QSettings s(conf, QSettings::IniFormat); return s.value(key).toString(); };
+    {
+        bool item_ok = false, started_off = false, switched = false, wrote = false, again = false;
+        std::string why = "fixture";
+        {
+            DebuggerFixture fx;
+            QAction* act = fx.ok ? item_named(menu_named(fx.dbg->menuBar(), QStringLiteral("Debug")),
+                                               QStringLiteral("Physical Addresses"))
+                                 : nullptr;
+            if (act) {
+                item_ok = act->isCheckable();
+                started_off = !act->isChecked() &&
+                              fx.dbg->address_style() == jnext::dbg::AddressStyle::Friendly;
+                // The panels repaint in the new style: the pixels of the Disassembly (Mem column), the
+                // Memory panel (the row tags) and the MMU panel (Memory column) all change.
+                auto look = [&]() {
+                    QApplication::processEvents();
+                    return std::array<QImage, 3>{fx.dbg->disasm_panel()->grab().toImage(),
+                                                   fx.dbg->memory_panel()->grab().toImage(),
+                                                   fx.dbg->findChild<MmuPanel*>()->grab().toImage()};
+                };
+                const auto before = look();
+                act->trigger();
+                const auto after = look();
+                switched = act->isChecked() && fx.dbg->address_style() == jnext::dbg::AddressStyle::Physical &&
+                           before[0] != after[0] && before[1] != after[1] && before[2] != after[2];
+                wrote = file_value() == QLatin1String("true");
+                why = fmt("item=%d off=%d switched=%d wrote='%s'", item_ok, started_off, switched,
+                          file_value().toStdString().c_str());
+            }
+        }
+        {
+            DebuggerFixture again_fx;   // a new window over the same file
+            QAction* act = again_fx.ok ? item_named(menu_named(again_fx.dbg->menuBar(), QStringLiteral("Debug")),
+                                                    QStringLiteral("Physical Addresses"))
+                                       : nullptr;
+            again = act && act->isChecked() &&
+                    again_fx.dbg->address_style() == jnext::dbg::AddressStyle::Physical;
+        }
+        check("QLADDR-11",
+              "Debug > Physical Addresses is checkable and starts unchecked; checking it switches the window to the "
+              "physical style and writes debugger/physical_addresses=true at once; a new window over the same file "
+              "starts checked",
+              item_ok && started_off && switched && wrote && again, why + fmt(" again=%d", again));
+    }
+    if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
+}
+
+// QLADDR-16 -- GH #360: MainWindow hands the `--set debugger.attached` and
+// `--set debugger.physical_addresses` overrides to the DebuggerManager, which
+// gives them to the window it creates. Mutating the hand-off (MainWindow keeps
+// the value and does not pass it on) leaves the window on the FILE's values.
+static void test_set_override_handoff()
+{
+    set_group("QLADDR");
+    const QByteArray prev = qgetenv("JNEXT_CONFIG_DIR");
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    {   // the file says the opposite of both overrides
+        QSettings raw(home.path() + QStringLiteral("/jnext.conf"), QSettings::IniFormat);
+        raw.setValue(QStringLiteral("debugger/attached"), true);
+        raw.setValue(QStringLiteral("debugger/physical_addresses"), false);
+        raw.sync();
+    }
+    bool ok = false, physical = false, detached = false;
+    {
+        MainWindowFixture fx;
+        if (fx.ok) {
+            fx.win.set_debugger_attach_override(false);
+            fx.win.set_debugger_physical_override(true);
+            fx.win.debugger_manager()->set_enabled(true);
+            DebuggerWindow* w = fx.win.debugger_manager()->debugger_window_ptr();
+            ok = w != nullptr;
+            physical = w && w->address_style() == jnext::dbg::AddressStyle::Physical;
+            detached = w && !w->attach_enabled();
+        }
+    }
+    check("QLADDR-16",
+          "MainWindow hands the --set debugger.physical_addresses and debugger.attached overrides to the "
+          "debugger manager: the window it creates opens in the physical style and detached, whatever the "
+          "file says",
+          ok && physical && detached, fmt("ok=%d physical=%d detached=%d", ok, physical, detached));
+    if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
+}
+
 int main(int argc, char** argv)
 {
     // Both windows own QWidgets, so a QApplication is required — but not a
@@ -2689,6 +3307,13 @@ int main(int argc, char** argv)
     std::printf("  Group: MWD            — done\n");
     test_session_debug_keys();
     std::printf("  Group: DWK            - done\n");
+    test_source_dirs_wiring();
+    std::printf("  Group: MWSRC          - done\n");
+    test_coverage_menu();
+    std::printf("  Group: QCOV           - done\n");
+    test_physical_menu();
+    test_set_override_handoff();
+    std::printf("  Group: QLADDR         - done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

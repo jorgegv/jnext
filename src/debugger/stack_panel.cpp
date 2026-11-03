@@ -1,6 +1,7 @@
 #include "debugger/stack_panel.h"
 #include "qt/palette_tint_qt.h"   // GH #363
 #include "debug/debugger.h"
+#include "debugger/memory_text.h"
 
 #include <QVBoxLayout>
 #include <QHeaderView>
@@ -20,9 +21,9 @@ void StackPanel::create_ui() {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
 
-    table_ = new QTableWidget(STACK_ROWS, 4, this);
+    table_ = new QTableWidget(STACK_ROWS, 5, this);
     table_->setFont(mono);
-    table_->setHorizontalHeaderLabels({"Address", "Word", "High Byte", "Low Byte"});
+    table_->setHorizontalHeaderLabels({"Address", "Word", "High Byte", "Low Byte", "Memory"});
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -36,10 +37,11 @@ void StackPanel::create_ui() {
     table_->setColumnWidth(1, 145);  // Word hex+dec
     table_->setColumnWidth(2, 95);   // High Byte
     table_->setColumnWidth(3, 95);   // Low Byte
+    table_->setColumnWidth(4, 100);  // Memory (GH #360), holds "BRAM7+$1FFF"
 
     // Pre-populate cells
     for (int r = 0; r < STACK_ROWS; ++r) {
-        for (int c = 0; c < 4; ++c) {
+        for (int c = 0; c < 5; ++c) {
             auto* item = new QTableWidgetItem("--");
             item->setTextAlignment(Qt::AlignCenter);
             table_->setItem(r, c, item);
@@ -58,6 +60,7 @@ void StackPanel::refresh() {
     if (!dbg_ || !paused_) return;
 
     uint16_t sp = dbg_->registers().SP;   // INS-01
+    const auto sinfo = dbg_->mmu_slots();   // GH #360: the memory each row's address reaches now
 
     // Display in ascending address order: SP at top (row 0), higher addresses below.
     for (int r = 0; r < STACK_ROWS; ++r) {
@@ -70,7 +73,8 @@ void StackPanel::refresh() {
             table_->item(r, 1)->setText("----");
             table_->item(r, 2)->setText("--");
             table_->item(r, 3)->setText("--");
-            for (int c = 0; c < 4; ++c)
+            table_->item(r, 4)->setText("--");
+            for (int c = 0; c < 5; ++c)
                 table_->item(r, c)->setBackground(palette_tint::surface(palette(), QColor(Qt::white)));
             continue;
         }
@@ -90,10 +94,12 @@ void StackPanel::refresh() {
         table_->item(r, 2)->setText(QString::asprintf("%02X (%3d)", hi, hi));
         table_->item(r, 3)->setText(QString::asprintf("%02X (%3d)", lo, lo));
 
+        table_->item(r, 4)->setText(memtext::text(dbg_, style_, memtext::now_of(sinfo, addr), addr));
+
         // Highlight SP row (top row = top of stack)
         bool is_sp = (offset == 0);
         QColor bg = palette_tint::surface(palette(), is_sp ? QColor(0xE0, 0xFF, 0xE0) : QColor(Qt::white));
-        for (int c = 0; c < 4; ++c) {
+        for (int c = 0; c < 5; ++c) {
             table_->item(r, c)->setBackground(bg);
         }
     }

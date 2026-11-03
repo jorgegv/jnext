@@ -56,7 +56,9 @@
 #include "core/log.h"
 #include "debug/debug_state.h"
 #include "debug/debugger.h"
+#include "debug/disasm.h"
 #include "debug/event_table.h"
+#include "debug/long_address.h"
 #include "peripheral/copper.h"
 #include "peripheral/nmi_source.h"
 #include "port/nextreg.h"
@@ -90,8 +92,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
+#include <map>
 #include <tuple>
 #include <memory>
+#include <set>
 #include <fstream>
 
 #include <cstdint>
@@ -4728,18 +4732,68 @@ static void q_wp3_trace_export_rows() {
         "  AF'=1111 BC'=2222 DE'=3333 HL'=4444"
         "  IX=5555 IY=6666 SP=FF00"
         "  (SP)=ABCD I=3F R=%02X IM1 IFF1=0 IFF2=1"
-        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=03  [SZ-H-P-C]  00",
+        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=03 FETCH=P04  [SZ-H-P-C]  00",
         static_cast<unsigned long long>(e.cycle), e.r,
         e.mmu[0], e.mmu[1], e.mmu[2], e.mmu[3], e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7]);
     // ROM= is a literal, not read back from the entry: a 48K maps ROM in
     // slots 0 and 1 only, so the mask is 03 — a column written from another
-    // field (or from the live mapping) shows up as a different line.
+    // field (or from the live mapping) shows up as a different line. FETCH=
+    // (GH #340) is a literal too: the NOP at $8000 came from RAM page 4.
     check("INS-13-14", "trace_export() writes every TraceEntry field — the word at SP, "
                        "I, R, IM, IFF1, IFF2, the eight MMU pages and the ROM-slot mask "
-                       "(ROM=03 on a 48K) included — in the documented column order",
+                       "(ROM=03 on a 48K) and the fetch identity (FETCH=P04) included, in the "
+                       "documented column order",
           rc == Result::Ok && e.sp_word == 0xABCD && e.i == 0x3F && e.rom_slots == 0x03 &&
               line == want,
           "got  '" + line + "'\nwant '" + want + "'");
+}
+
+/// TRACE-ID-01..03 (GH #340, E23-08) - the fetch identity lives IN the entry, so
+/// it follows the entry through a ring wrap, a resize and the no-wrap freeze.
+/// A record carries a provisional identity and the emulator patches the newest
+/// entry once the instruction has fetched (set_newest_fetch()).
+static void q_trace_fetch_identity_rows() {
+    auto rec = [](TraceLog& t, uint16_t pc, uint16_t page) {
+        TraceEntry e{};
+        e.pc = pc;
+        t.record(e);
+        t.set_newest_fetch(MemSpace::page(page));
+    };
+    {
+        TraceLog t(4);
+        t.set_enabled(true);
+        for (uint16_t k = 0; k < 6; ++k) rec(t, k, static_cast<uint16_t>(0x40 + k));
+        bool ok = t.size() == 4;
+        for (size_t i = 0; ok && i < 4; ++i)
+            ok = t.at(i).pc == 2 + i && t.at(i).fetch_space() == MemSpace::page(0x42 + i);
+        check("TRACE-ID-01", "six records patched into a ring of four: each surviving entry "
+                             "keeps its own identity across the wrap (the newest is found "
+                             "behind the write position, wrapped)",
+              ok, "size " + std::to_string(t.size()));
+    }
+    {
+        TraceLog t(4);
+        t.set_enabled(true);
+        t.resize(8);
+        for (uint16_t k = 0; k < 10; ++k) rec(t, k, static_cast<uint16_t>(0x40 + k));
+        bool ok = t.size() == 8;
+        for (size_t i = 0; ok && i < 8; ++i)
+            ok = t.at(i).pc == 2 + i && t.at(i).fetch_space() == MemSpace::page(0x42 + i);
+        check("TRACE-ID-02", "after resize(8) the patch lands on the newest entry of the NEW "
+                             "capacity: ten records leave entries 2..9, each with its own "
+                             "identity",
+              ok, "size " + std::to_string(t.size()));
+    }
+    {
+        TraceLog t(2);
+        t.set_enabled(true);
+        t.set_no_wrap(true);
+        for (uint16_t k = 0; k < 3; ++k) rec(t, k, static_cast<uint16_t>(0x40 + k));
+        check("TRACE-ID-03", "a frozen (no-wrap) ring drops the third record, and its patch "
+                             "writes nothing: the second entry keeps the second identity",
+              t.size() == 2 && t.at(1).pc == 1 && t.at(1).fetch_space() == MemSpace::page(0x41) &&
+                  t.at(0).fetch_space() == MemSpace::page(0x40));
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -5557,6 +5611,40 @@ struct RwmVerbCase {
     std::function<bool(B5VerbMachine&)>    stands;  // it is still there (nullptr: no check)
 };
 
+// GH #422 F1 - the disassembler names every Z80N ED opcode the VHDL decodes
+// (cpu/t80n_mcode.vhd, the ED page, lines 1644-2620) and nothing else: ED B6 is
+// LDIRSCALE, and ED C6 has no arm there (nor has ED FB), so both are data.
+static void dasm_z80n_rows() {
+    struct Row { uint8_t op; const char* text; int len; };
+    static const Row rows[] = {
+        {0x23, "SWAPNIB", 2}, {0x24, "MIRROR A", 2}, {0x27, "TEST $00", 3},
+        {0x28, "BSLA DE,B", 2}, {0x29, "BSRA DE,B", 2}, {0x2A, "BSRL DE,B", 2},
+        {0x2B, "BSRF DE,B", 2}, {0x2C, "BRLC DE,B", 2}, {0x30, "MUL D,E", 2},
+        {0x31, "ADD HL,A", 2}, {0x32, "ADD DE,A", 2}, {0x33, "ADD BC,A", 2},
+        {0x34, "ADD HL,$0000", 4}, {0x35, "ADD DE,$0000", 4}, {0x36, "ADD BC,$0000", 4},
+        {0x8A, "PUSH $0000", 4}, {0x90, "OUTINB", 2}, {0x91, "NEXTREG $00,$00", 4},
+        {0x92, "NEXTREG $00,A", 3}, {0x93, "PIXELDN", 2}, {0x94, "PIXELAD", 2},
+        {0x95, "SETAE", 2}, {0x98, "JP (C)", 2}, {0xA4, "LDIX", 2}, {0xA5, "LDWS", 2},
+        {0xAC, "LDDX", 2}, {0xB4, "LDIRX", 2}, {0xB6, "LDIRSCALE", 2}, {0xB7, "LDPIRX", 2},
+        {0xBC, "LDDRX", 2},
+        {0xC6, "DB $ED,$C6", 2}, {0xFB, "DB $ED,$FB", 2},
+    };
+    bool ok = true;
+    for (const Row& r : rows) {
+        const auto line = disasm_one(0x8000, [&](uint16_t a) -> uint8_t {
+            return a == 0x8000 ? 0xED : a == 0x8001 ? r.op : 0;
+        });
+        if (std::string(line.mnemonic) != r.text || line.byte_count != r.len) {
+            std::printf("  DASM-Z80N-01: ED %02X gives '%s' (%d bytes), want '%s' (%d)\n",
+                        r.op, line.mnemonic, line.byte_count, r.text, r.len);
+            ok = false;
+        }
+    }
+    check("DASM-Z80N-01", "the disassembler names every Z80N ED opcode the VHDL decodes "
+                          "(ED B6 is LDIRSCALE) and ED C6 and ED FB, which it does not, are data",
+          ok);
+}
+
 static void rwm_rows() {
     using jnext::dbg::PaletteId;
     using jnext::dbg::JoystickSide;
@@ -6373,6 +6461,938 @@ static void rwm_rows() {
     }
 }
 
+// ── GH #360 (E23-22): the long address ──────────────────────────────────────
+// The formatter is pure (LADDR-01..09, no machine); LADDR-10..16 pin SlotInfo::now
+// on a Next, the memory a read of each slot reaches NOW.
+static void ladd_formatter_rows() {
+    using jnext::dbg::AddressStyle;
+    using jnext::dbg::long_address;
+    using jnext::dbg::parse_space_tag;
+    using jnext::dbg::physical_text;
+    using jnext::dbg::space_tag;
+
+    {
+        // Design 4.1 kinds, 4.6 charset ([A-Z0-9] only); the spellings are the plan's D1.
+        const std::pair<MemSpace, const char*> want[] = {
+            {MemSpace::page(0x00), "P00"},      {MemSpace::page(0x0E), "P0E"},
+            {MemSpace::page(0xDF), "PDF"},      {MemSpace::rom(0), "ROM0"},
+            {MemSpace::rom(1), "ROM1"},         {MemSpace::rom(2), "ROM2"},
+            {MemSpace::rom(3), "ROM3"},         {MemSpace::boot_rom(), "BOOT"},
+            {MemSpace::multiface_rom(), "MFROM"}, {MemSpace::multiface_ram(), "MFRAM"},
+            {MemSpace::divmmc_rom(), "DIVROM"}, {MemSpace::divmmc_ram(0), "DIVRAM0"},
+            {MemSpace::divmmc_ram(3), "DIVRAM3"}, {MemSpace::divmmc_ram(15), "DIVRAM15"},
+            {MemSpace::alt_rom(0), "ALTROM0"},  {MemSpace::alt_rom(1), "ALTROM1"},
+            {MemSpace::layer2(0x12), "L2P12"},  {MemSpace::config(0x17), "CFG17"},
+            {MemSpace::floating(), "FLOAT"},    {MemSpace::cpu(), "CPU"},
+        };
+        bool ok = true;
+        std::string why;
+        for (const auto& [sp, tag] : want) {
+            const std::string got = space_tag(sp);
+            bool charset = !got.empty();
+            for (char c : got) charset = charset && ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'));
+            if (got != tag || !charset) { ok = false; why += " " + got + "!=" + tag; }
+        }
+        check("LADDR-01", "space_tag spells every kind: P00 P0E PDF ROM0..3 BOOT MFROM MFRAM "
+                          "DIVROM DIVRAM0/3/15 ALTROM0/1 L2P12 CFG17 FLOAT CPU, all [A-Z0-9]",
+              ok, why);
+    }
+    {
+        // Design 4.6: the parser is the inverse of the formatter, and no two values share a tag.
+        std::vector<MemSpace> all;
+        for (unsigned p = 0; p <= 0xDF; ++p) { all.push_back(MemSpace::page(p)); all.push_back(MemSpace::layer2(p)); }
+        for (unsigned i = 0; i <= 3; ++i) all.push_back(MemSpace::rom(i));
+        for (unsigned b = 0; b <= 15; ++b) all.push_back(MemSpace::divmmc_ram(b));
+        for (unsigned i = 0; i <= 1; ++i) all.push_back(MemSpace::alt_rom(i));
+        for (unsigned b = 0; b <= 0xFF; ++b) all.push_back(MemSpace::config(b));
+        all.push_back(MemSpace::boot_rom()); all.push_back(MemSpace::multiface_rom());
+        all.push_back(MemSpace::multiface_ram()); all.push_back(MemSpace::divmmc_rom());
+        all.push_back(MemSpace::floating()); all.push_back(MemSpace::cpu());
+        std::set<std::string> tags;
+        bool inverse = true;
+        std::string why;
+        for (const MemSpace& sp : all) {
+            const std::string t = space_tag(sp);
+            tags.insert(t);
+            const auto back = parse_space_tag(t);
+            if (!back || *back != sp) { inverse = false; why = t; }
+        }
+        check("LADDR-02", "parse_space_tag(space_tag(s)) == s for every value the type documents, "
+                          "and no two values share a tag",
+              inverse && tags.size() == all.size(), "tags=" + std::to_string(tags.size()) +
+                  " values=" + std::to_string(all.size()) + " first bad " + why);
+    }
+    {
+        // zxnext.vhd:2964/:3061 (>= 0xE0 is no page), divmmc.vhd:96 (a 4-bit bank).
+        const char* refused[] = {"", "P", "PE0", "P0E0", "P 0E", "P:0E", "ROM4", "ROM01",
+                                 "DIVRAM16", "DIVRAM03", "ALTROM2", "L2PE0", "CFG100", "BOOT0"};
+        std::string bad;
+        for (const char* r : refused) if (parse_space_tag(r)) bad += std::string(" ") + r;
+        const auto lo = parse_space_tag("p0e");
+        const auto dv = parse_space_tag("divrom");
+        check("LADDR-03", "parse_space_tag refuses \"\" P PE0 P0E0 \"P 0E\" P:0E ROM4 ROM01 "
+                          "DIVRAM16 DIVRAM03 ALTROM2 L2PE0 CFG100 BOOT0 and accepts any case",
+              bad.empty() && lo && *lo == MemSpace::page(0x0E) && dv && *dv == MemSpace::divmmc_rom(),
+              "accepted:" + bad);
+    }
+    {
+        // zxnext.vhd:2964 (MMU page + 0x20), :2927 (Spectrum RAM at 0x040000).
+        check("LADDR-04", "Page physical: P10 at $C000 is $060000, P04 at $8123 $048123, P00 at "
+                          "$C000 $040000, PDF at $FFFF $1FFFFF",
+              physical_text(MemSpace::page(0x10), 0xC000) == "$060000" &&
+                  physical_text(MemSpace::page(0x04), 0x8123) == "$048123" &&
+                  physical_text(MemSpace::page(0x00), 0xC000) == "$040000" &&
+                  physical_text(MemSpace::page(0xDF), 0xFFFF) == "$1FFFFF",
+              physical_text(MemSpace::page(0x10), 0xC000) + " " +
+                  physical_text(MemSpace::page(0x04), 0x8123) + " " +
+                  physical_text(MemSpace::page(0x00), 0xC000) + " " +
+                  physical_text(MemSpace::page(0xDF), 0xFFFF));
+    }
+    {
+        // zxnext.vhd:2961-2962, :6558-6578, :6667-6670 (bank 7's upper half, page 0x0F, is SRAM).
+        check("LADDR-05", "the block RAMs are not SRAM: P0A at $4000 BRAM5+$0000, P0B at $7FFF "
+                          "BRAM5+$3FFF, P0E at $C010 BRAM7+$0010, but P0F at $E000 is $05E000",
+              physical_text(MemSpace::page(0x0A), 0x4000) == "BRAM5+$0000" &&
+                  physical_text(MemSpace::page(0x0B), 0x7FFF) == "BRAM5+$3FFF" &&
+                  physical_text(MemSpace::page(0x0E), 0xC010) == "BRAM7+$0010" &&
+                  physical_text(MemSpace::page(0x0F), 0xE000) == "$05E000");
+    }
+    {
+        // zxnext.vhd:2971, :3100-3107: Layer 2 sees the SRAM copy, never the BRAMs.
+        check("LADDR-06", "Layer 2 is the SRAM copy: L2P0A at $0000 is $054000, L2P0E at $2010 "
+                          "$05C010, L2P12 at $0000 $064000",
+              physical_text(MemSpace::layer2(0x0A), 0x0000) == "$054000" &&
+                  physical_text(MemSpace::layer2(0x0E), 0x2010) == "$05C010" &&
+                  physical_text(MemSpace::layer2(0x12), 0x0000) == "$064000");
+    }
+    {
+        // zxnext.vhd:3052-3057 (ROM), :3116-3117 (alt ROM), :3044-3050 (config).
+        check("LADDR-07", "ROM images are 16 KB: ROM0 at $0000 $000000, ROM3 at $3FFF $00FFFF, "
+                          "ALTROM1 at $0001 $01C001, ALTROM0 at $2000 $01A000, CFG17 at $2000 "
+                          "$05E000, CFG05 at $0000 $014000",
+              physical_text(MemSpace::rom(0), 0x0000) == "$000000" &&
+                  physical_text(MemSpace::rom(3), 0x3FFF) == "$00FFFF" &&
+                  physical_text(MemSpace::alt_rom(1), 0x0001) == "$01C001" &&
+                  physical_text(MemSpace::alt_rom(0), 0x2000) == "$01A000" &&
+                  physical_text(MemSpace::config(0x17), 0x2000) == "$05E000" &&
+                  physical_text(MemSpace::config(0x05), 0x0000) == "$014000");
+    }
+    {
+        // zxnext.vhd:3084-3098 (DivMMC), :3029-3035 (Multiface), :3199-3204 (boot ROM).
+        check("LADDR-08", "DIVROM at $0008 $010008, DIVRAM3 at $0100 $026100, DIVRAM15 at $3FFF "
+                          "$03FFFF, MFROM at $0066 $014066, MFRAM at $2000 $016000, BOOT at "
+                          "$3008 BOOT+$1008, FLOAT",
+              physical_text(MemSpace::divmmc_rom(), 0x0008) == "$010008" &&
+                  physical_text(MemSpace::divmmc_ram(3), 0x0100) == "$026100" &&
+                  physical_text(MemSpace::divmmc_ram(15), 0x3FFF) == "$03FFFF" &&
+                  physical_text(MemSpace::multiface_rom(), 0x0066) == "$014066" &&
+                  physical_text(MemSpace::multiface_ram(), 0x2000) == "$016000" &&
+                  physical_text(MemSpace::boot_rom(), 0x3008) == "BOOT+$1008" &&
+                  physical_text(MemSpace::floating(), 0x1234) == "FLOAT");
+    }
+    {
+        check("LADDR-09", "long_address: Friendly \"$C000 P0E\", Physical \"$C000 BRAM7+$0000\", "
+                          "cpu() just \"$C000\" in both, and without the Next layout Physical "
+                          "reads as Friendly",
+              long_address(0xC000, MemSpace::page(0x0E), AddressStyle::Friendly, true) == "$C000 P0E" &&
+                  long_address(0xC000, MemSpace::page(0x0E), AddressStyle::Physical, true) ==
+                      "$C000 BRAM7+$0000" &&
+                  long_address(0xC000, MemSpace::cpu(), AddressStyle::Friendly, true) == "$C000" &&
+                  long_address(0xC000, MemSpace::cpu(), AddressStyle::Physical, true) == "$C000" &&
+                  long_address(0xC000, MemSpace::page(0x0E), AddressStyle::Physical, false) ==
+                      "$C000 P0E");
+    }
+}
+
+static void ladd_slot_rows() {
+    auto next = [](Emulator& emu) {
+        build(emu, MachineType::ZXN_ISSUE2);
+        static const uint8_t boot[0x2000] = {};
+        emu.mmu().set_boot_rom(boot, sizeof(boot));
+    };
+    auto now_is = [](const Debugger& d, int slot, MemSpace s) { return d.mmu_slots()[slot].now == s; };
+    {
+        // zxnext.vhd:1856-1857: the boot ROM answers 0x0000-0x3FFF above the whole arbiter.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(true);
+        Debugger dbg(emu);
+        const auto s = dbg.mmu_slots();
+        bool rest = true;
+        for (int i = 2; i < 8; ++i) rest = rest && s[i].now == s[i].space;
+        check("LADDR-10", "a Next with the boot ROM on: slots 0 and 1 read the boot ROM, slots 2-7 "
+                          "their own page",
+              emu.mmu().boot_rom_enabled() && s[0].now == MemSpace::boot_rom() &&
+                  s[1].now == MemSpace::boot_rom() && rest);
+    }
+    {
+        // divmmc.vhd:94-96, zxnext.vhd:3084-3098.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        Debugger dbg(emu);
+        const bool premise = dbg.mmu_slots()[0].is_rom && dbg.mmu_slots()[0].now == dbg.mmu_slots()[0].space;
+        emu.port().out(0x00E3, 0x85);   // conmem, bank 5
+        const auto s = dbg.mmu_slots();
+        const bool conmem = now_is(dbg, 0, MemSpace::divmmc_rom()) && now_is(dbg, 1, MemSpace::divmmc_ram(5)) &&
+                            s[0].space.kind == MemSpace::Kind::Rom && s[1].space.kind == MemSpace::Kind::Rom;
+        emu.port().out(0x00E3, 0xC5);   // mapram
+        check("LADDR-11", "DivMMC conmem bank 5 over ROM slots: slot 0 reads DivMMC ROM, slot 1 "
+                          "DivMMC RAM 5, their own space stays a ROM; with mapram slot 0 is "
+                          "DivMMC RAM 3",
+              premise && conmem && now_is(dbg, 0, MemSpace::divmmc_ram(3)),
+              "slot0=" + jnext::dbg::space_tag(dbg.mmu_slots()[0].now));
+    }
+    {
+        // zxnext.vhd:3037-3043 (override "110" overlays a RAM-mapped slot 0/1 too), :3084.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        Debugger dbg(emu);
+        dbg.nextreg_write(1, 0x50, 0x10);
+        const bool ram = dbg.mmu_slots()[0].now == MemSpace::page(0x10);
+        emu.port().out(0x00E3, 0x80);   // conmem
+        const bool over = now_is(dbg, 0, MemSpace::divmmc_rom()) &&
+                          dbg.mmu_slots()[0].space == MemSpace::page(0x10);
+        emu.port().out(0x00E3, 0x00);
+        check("LADDR-12", "DivMMC conmem overlays a slot mapped to RAM page 0x10 as well; with "
+                          "conmem off the slot reads that page again",
+              ram && over && now_is(dbg, 0, MemSpace::page(0x10)));
+    }
+    {
+        // zxnext.vhd:2937, :3029-3035: the Multiface sits above DivMMC.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        Debugger dbg(emu);
+        emu.port().out(0x00E3, 0x80);
+        emu.multiface().set_enabled(true);
+        emu.multiface().button_press();
+        emu.multiface().on_m1(0x0066, /*mreq_low=*/true);
+        check("LADDR-13", "Multiface memory paged (with DivMMC conmem also set): slot 0 reads the "
+                          "Multiface ROM, slot 1 its RAM",
+              emu.multiface().is_mem_active() && now_is(dbg, 0, MemSpace::multiface_rom()) &&
+                  now_is(dbg, 1, MemSpace::multiface_ram()));
+    }
+    {
+        // zxnext.vhd:2966-2971, :3043-3065, :3100: Layer 2 read mapping.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        Debugger dbg(emu);
+        dbg.nextreg_write(1, 0x12, 9);
+        emu.port().out(0x123B, 0x04);   // read enable, segment 0
+        const auto a = dbg.mmu_slots();
+        bool seg0 = a[0].now == MemSpace::layer2(0x12) && a[1].now == MemSpace::layer2(0x13);
+        for (int i = 2; i < 8; ++i) seg0 = seg0 && a[i].now == a[i].space;
+        emu.port().out(0x123B, 0xC4);   // read enable, segment 3 (all 48K)
+        const auto b = dbg.mmu_slots();
+        bool seg3 = true;
+        for (int i = 0; i < 6; ++i)
+            seg3 = seg3 && b[i].now == MemSpace::layer2(static_cast<uint16_t>(0x12 + i));
+        seg3 = seg3 && b[6].now == b[6].space && b[7].now == b[7].space;
+        dbg.nextreg_write(1, 0x12, 4);
+        const auto c = dbg.mmu_slots();
+        check("LADDR-14", "Layer 2 read mapping: segment 0 maps slots 0/1 only (NR 0x12 = 9: "
+                          "L2P12, L2P13); segment 3 maps slots 0-5 and not 6/7; NR 0x12 = 4 gives "
+                          "slot 2 L2P0A while its own space stays page 0x0A",
+              seg0 && seg3 && c[2].now == MemSpace::layer2(0x0A) &&
+                  c[2].space == MemSpace::page(0x0A),
+              "slot2=" + jnext::dbg::space_tag(c[2].now) + "/" + jnext::dbg::space_tag(c[2].space));
+    }
+    {
+        // zxnext.vhd:3078, :3116-3123, :2981-3008: the alt ROM is a READ override only with NR 0x8C bit 6 = 0.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.mmu().set_config_mode(false);
+        Debugger dbg(emu);
+        emu.mmu().set_nr_8c(0x80);
+        const bool a0 = now_is(dbg, 0, MemSpace::alt_rom(0)) && now_is(dbg, 1, MemSpace::alt_rom(0));
+        emu.mmu().set_nr_8c(0xC0);   // read/write: the alt ROM answers neither reads of a ROM-less read
+        const bool rw = dbg.mmu_slots()[0].now.kind == MemSpace::Kind::Rom;
+        emu.mmu().set_nr_8c(0x00);
+        emu.mmu().map_128k_bank(0x10);
+        emu.mmu().set_nr_8c(0x80);
+        const bool a1 = now_is(dbg, 0, MemSpace::alt_rom(1));
+        check("LADDR-15", "NR 0x8C = 0x80: slots 0/1 read the alt ROM selected by 7FFD (ALTROM0, "
+                          "ALTROM1 with ROM 1); NR 0x8C = 0xC0: the read is the plain ROM",
+              a0 && rw && a1, "a0=" + std::to_string(a0) + " rw=" + std::to_string(rw) +
+                                  " a1=" + std::to_string(a1));
+    }
+    {
+        // zxnext.vhd:3044-3050 (config), :3061 (slots 2-7 >= 0xE0 float), :3052 (ROM sentinel).
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        Debugger dbg(emu);
+        emu.mmu().set_config_mode(true);
+        emu.mmu().set_nr_04_romram_bank(0x17);
+        const bool cfg = now_is(dbg, 0, MemSpace::config(0x17)) && now_is(dbg, 1, MemSpace::config(0x17));
+        emu.mmu().set_config_mode(false);
+        dbg.nextreg_write(1, 0x52, 0xE5);
+        const bool fl = now_is(dbg, 2, MemSpace::floating());
+        dbg.nextreg_write(1, 0x50, 0xE5);
+        const auto s0 = dbg.mmu_slots()[0];
+        check("LADDR-16", "config mode with NR 0x04 = 0x17: slots 0/1 read CFG17; MMU2 = 0xE5 "
+                          "floats slot 2; MMU0 = 0xE5 (config off) is a ROM slot",
+              cfg && fl && s0.is_rom && s0.now.kind == MemSpace::Kind::Rom,
+              "slot0=" + jnext::dbg::space_tag(s0.now));
+    }
+}
+
+
+
+// ===========================================================================
+// GH #388 (E23-25) -- INS-21: memory coverage by execute, read and write.
+//
+// The hook is in Mmu (route_bits_, given the access direction), behind
+// DebugState::mem_gate_live(); this suite drives it through the facade, a whole
+// machine at a time. A set (no counts), keyed by the decode path the arbiter
+// named, recorded for guest accesses only (what a watchpoint sees).
+// ===========================================================================
+
+using jnext::dbg::COVERAGE_EXEC;
+using jnext::dbg::COVERAGE_READ;
+using jnext::dbg::COVERAGE_WRITE;
+
+/// The flags of one byte of `space`'s store.
+static uint8_t mc_at(const Debugger& dbg, MemSpace space, uint32_t offset) {
+    uint8_t b = 0xEE;
+    dbg.mem_coverage(space, offset, 1, &b);
+    return b;
+}
+
+static uint32_t mc_key(MemSpace s) {
+    return static_cast<uint32_t>(s.kind) << 16 | s.index;
+}
+
+/// Every marked space's whole map.
+static std::map<uint32_t, std::vector<uint8_t>> mc_maps(const Debugger& dbg) {
+    std::map<uint32_t, std::vector<uint8_t>> out;
+    for (const MemSpace& sp : dbg.mem_coverage_spaces()) {
+        const size_t n = jnext::dbg::space_size(sp.kind);
+        std::vector<uint8_t> v(n);
+        dbg.mem_coverage(sp, 0, n, v.data());
+        out[mc_key(sp)] = std::move(v);
+    }
+    return out;
+}
+
+/// Bytes with any flag / with exactly the given flag bit set, over every space.
+static size_t mc_count(const Debugger& dbg, uint8_t mask = 0xFF) {
+    size_t n = 0;
+    for (const auto& kv : mc_maps(dbg))
+        for (uint8_t b : kv.second) if (b & mask) ++n;
+    return n;
+}
+
+static bool mc_spaces_are(const Debugger& dbg, const std::vector<MemSpace>& want) {
+    const auto got = dbg.mem_coverage_spaces();
+    if (got.size() != want.size()) return false;
+    for (size_t i = 0; i < got.size(); ++i)
+        if (!(got[i] == want[i])) return false;
+    return true;
+}
+
+static std::string mc_spaces_str(const Debugger& dbg) {
+    std::string s = std::to_string(mc_count(dbg)) + " bytes in:";
+    for (const MemSpace& sp : dbg.mem_coverage_spaces())
+        s += " " + std::to_string(static_cast<int>(sp.kind)) + "/" + std::to_string(sp.index);
+    return s;
+}
+
+/// A Next machine with the program the issue names: at 0xC000, in Page{page}:
+///   C000 3A 10 C0   LD A,(0xC010)
+///   C003 32 20 C0   LD (0xC020),A
+///   C006 00         NOP
+static void mc_build_issue_program(Emulator& emu, uint8_t p1, uint8_t p2) {
+    build(emu, MachineType::ZXN_ISSUE2);
+    emu.mmu().set_boot_rom_enabled(false);
+    emu.mmu().set_config_mode(false);
+    const uint8_t prog[] = { 0x3A, 0x10, 0xC0, 0x32, 0x20, 0xC0, 0x00 };
+    for (uint8_t pg : { p2, p1 }) {
+        emu.mmu().set_page(6, pg);
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            emu.mmu().write(static_cast<uint16_t>(0xC000 + i), prog[i]);
+    }
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0xC000; r.SP = TEST_SP; r.IFF1 = r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
+static void e25_mem_coverage_rows() {
+    // INS-21-01: a fresh backend.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        uint8_t b[16]; std::memset(b, 0xEE, sizeof(b));
+        const auto cpu = dbg.mem_coverage(MemSpace::cpu(), PROG, 16, b);
+        bool zero = cpu.status == Result::Ok;
+        for (uint8_t v : b) zero = zero && v == 0;
+        check("INS-21-01", "a fresh backend has memory coverage OFF, no marked space, every query 0 "
+                           "and publishes no sink to the machine",
+              !dbg.mem_coverage_enabled() && dbg.mem_coverage_spaces().empty() && zero &&
+                  dbg.mem_coverage_fetch(PROG) == 0 && mc_at(dbg, MemSpace::page(0x30), 0) == 0 &&
+                  emu.debug_state().mem_coverage_sink() == nullptr &&
+                  emu.debug_state().mem_coverage_live() == nullptr);
+    }
+
+    // INS-21-02: the issue's row.
+    {
+        const uint8_t p1 = 0x30, p2 = 0x31;
+        Emulator emu; mc_build_issue_program(emu, p1, p2);
+        Debugger dbg(emu);
+        dbg.mem_coverage_enable(true);
+        emu.mmu().set_page(6, p1);
+        emu.execute_single_instruction();
+        emu.execute_single_instruction();
+        emu.execute_single_instruction();
+        const MemSpace s1 = MemSpace::page(p1);
+        const bool x = mc_at(dbg, s1, 0) == COVERAGE_EXEC && mc_at(dbg, s1, 3) == COVERAGE_EXEC &&
+                       mc_at(dbg, s1, 6) == COVERAGE_EXEC;
+        const bool operands = mc_at(dbg, s1, 1) == COVERAGE_READ && mc_at(dbg, s1, 2) == COVERAGE_READ &&
+                              mc_at(dbg, s1, 4) == COVERAGE_READ && mc_at(dbg, s1, 5) == COVERAGE_READ;
+        const bool data = mc_at(dbg, s1, 0x10) == COVERAGE_READ && mc_at(dbg, s1, 0x20) == COVERAGE_WRITE;
+        const bool exact = mc_count(dbg) == 9 && mc_spaces_are(dbg, { s1 });   // 3 X + 4 operands + R + W
+        bool p2_clear = true;
+        for (uint32_t o = 0; o < 0x2000; ++o) p2_clear = p2_clear && mc_at(dbg, MemSpace::page(p2), o) == 0;
+        check("INS-21-02", "LD A,(C010) / LD (C020),A / NOP at 0xC000 in Page{p1}: X at +0, +3, +6; R at "
+                           "the operand bytes +1 +2 +4 +5 and at +0x10; W at +0x20; the same bytes in "
+                           "Page{p2} stay clear and no other space is marked",
+              x && operands && data && exact && p2_clear, mc_spaces_str(dbg));
+    }
+
+    // INS-21-03: switch semantics.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.mem_coverage_enable(true);
+        emu.run_frame();
+        const size_t full = mc_count(dbg);
+        dbg.mem_coverage_enable(true);                      // on over on: nothing is cleared
+        const bool kept = mc_count(dbg) == full && full > 0 &&
+                          emu.debug_state().mem_coverage_sink() != nullptr;
+        dbg.mem_coverage_clear();
+        const bool cleared = mc_count(dbg) == 0 && dbg.mem_coverage_enabled() &&
+                             dbg.mem_coverage_spaces().empty();
+        emu.run_frame();                                    // parked at JR $: only it executes now
+        const bool goes_on = mc_at(dbg, dbg.source_page(PARK), PARK & 0x1FFF) == COVERAGE_EXEC;
+        dbg.mem_coverage_enable(false);                     // off clears
+        const bool off_clear = mc_count(dbg) == 0 && !dbg.mem_coverage_enabled() &&
+                               emu.debug_state().mem_coverage_sink() == nullptr;
+        emu.run_frame();
+        check("INS-21-03", "on over on keeps the bits; Clear empties every space and recording goes on; "
+                           "off clears at once and nothing is recorded afterwards",
+              kept && cleared && goes_on && off_clear && mc_count(dbg) == 0 &&
+                  dbg.mem_coverage_spaces().empty(),
+              mc_spaces_str(dbg));
+    }
+
+    // INS-21-04: never enabled, nothing is recorded.
+    {
+        Emulator emu;
+        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+        Debugger dbg(emu);
+        bool live_null = true;
+        for (int i = 0; i < 50; ++i) {
+            emu.run_frame();
+            live_null = live_null && emu.debug_state().mem_coverage_live() == nullptr;
+        }
+        check("INS-21-04", "never enabled, 50 frames of a Next boot record no space and the machine's "
+                           "coverage sink stays null",
+              live_null && dbg.mem_coverage_spaces().empty() && mc_count(dbg) == 0 &&
+                  emu.debug_state().mem_coverage_sink() == nullptr);
+    }
+
+    // INS-21-05: the three execution roots.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.mem_coverage_enable(true);
+        emu.run_frame();
+        const bool run_frame_x = (dbg.mem_coverage_fetch(PROG) & COVERAGE_EXEC) &&
+                                 (dbg.mem_coverage_fetch(PARK) & COVERAGE_EXEC);
+        Emulator emu2; build(emu2);
+        Debugger d2(emu2);
+        const ClientId a2 = d2.attach(client("A")).value;
+        d2.mem_coverage_enable(true);
+        d2.pause(a2);
+        d2.step_into(a2);                                   // step_frame_slot()
+        const bool step_x = (d2.mem_coverage_fetch(PROG) & COVERAGE_EXEC) &&
+                            !(d2.mem_coverage_fetch(PROG + 1) & COVERAGE_EXEC);
+        d2.mem_coverage_clear();
+        emu2.execute_single_instruction();                  // execute_single_instruction()
+        const bool single_x = (d2.mem_coverage_fetch(PROG + 1) & COVERAGE_EXEC) &&
+                              !(d2.mem_coverage_fetch(PROG) & COVERAGE_EXEC);
+        (void)a;
+        check("INS-21-05", "X is recorded by all three execution roots: run_frame, a debugger Step "
+                           "(step_frame_slot) and execute_single_instruction, at the PC each ran",
+              run_frame_x && step_x && single_x);
+    }
+
+    // INS-21-06: an interrupt acknowledge fetches nothing.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.mem_coverage_enable(true);
+        emu.cpu().request_nmi();
+        emu.execute_single_instruction();
+        const bool nmi_no_x = pc_of(emu) == 0x0066 && dbg.mem_coverage_fetch(PROG) == 0;
+        uint8_t st[2] = {0, 0};
+        dbg.mem_coverage(MemSpace::cpu(), TEST_SP - 2, 2, st);
+        const bool nmi_push = st[0] == COVERAGE_WRITE && st[1] == COVERAGE_WRITE;
+
+        Emulator e2; build(e2);
+        Debugger d2(e2);
+        d2.mem_coverage_enable(true);
+        Z80Registers r = e2.cpu().get_registers();
+        r.IFF1 = r.IFF2 = 1; r.IM = 1;
+        e2.cpu().set_registers(r);
+        e2.cpu().request_interrupt(0xFF);
+        e2.execute_single_instruction();
+        const bool int_no_x = pc_of(e2) == 0x0038 && d2.mem_coverage_fetch(PROG) == 0;
+        uint8_t st2[2] = {0, 0};
+        d2.mem_coverage(MemSpace::cpu(), TEST_SP - 2, 2, st2);
+        const bool int_push = st2[0] == COVERAGE_WRITE && st2[1] == COVERAGE_WRITE;
+        check("INS-21-06", "an accepted NMI or INT fetches nothing: no X (and no R) at the interrupted "
+                           "PC; W at the two pushed return-address bytes (t80na.vhd:278-279)",
+              nmi_no_x && nmi_push && int_no_x && int_push && dbg.mem_coverage_fetch(PROG) == 0,
+              "nmi " + std::to_string(nmi_no_x) + std::to_string(nmi_push) + " int " +
+                  std::to_string(int_no_x) + std::to_string(int_push));
+    }
+
+    // INS-21-07 / 08: a rewind is neither remove nor add.
+    {
+        Emulator emu;
+        EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 10;
+        emu.init(cfg);
+        //   8000 LD A,(9000)  8003 INC A  8004 LD (9001),A  8007 JR 8000
+        load_prog(emu, { 0x3A, 0x00, 0x90, 0x3C, 0x32, 0x01, 0x90, 0x18, 0xF7 });
+        emu.trace_log().set_enabled(true);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.mem_coverage_enable(true);
+        for (int i = 0; i < 8; ++i) emu.run_frame();
+        dbg.pause(a);
+        const auto m1 = dbg.rewind_range();
+        const auto before = mc_maps(dbg);
+        const size_t x_before = mc_count(dbg, COVERAGE_EXEC), r_before = mc_count(dbg, COVERAGE_READ),
+                     w_before = mc_count(dbg, COVERAGE_WRITE);
+        const Result rr = dbg.rewind_to_frame(a, m1.newest_frame - 3);
+        const bool sticky = rr == Result::Ok && mc_maps(dbg) == before;
+        dbg.run(a);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        const bool replay = mc_maps(dbg) == before && mc_count(dbg, COVERAGE_EXEC) == x_before &&
+                            mc_count(dbg, COVERAGE_READ) == r_before &&
+                            mc_count(dbg, COVERAGE_WRITE) == w_before;
+        check("INS-21-07", "rewind_to_frame(F-3) leaves the coverage maps byte-equal (sticky: it "
+                           "removes nothing); running back to F leaves them byte-equal with the same "
+                           "per-flag counts (a replay adds nothing: no double count)",
+              sticky && replay && x_before == 4 && w_before == 1,
+              "rc=" + std::string(jnext::dbg::result_name(rr)) + " sticky=" + std::to_string(sticky) +
+                  " replay=" + std::to_string(replay) + " X=" + std::to_string(x_before) +
+                  " R=" + std::to_string(r_before) + " W=" + std::to_string(w_before));
+
+        dbg.pause(a);
+        const auto pre = mc_maps(dbg);
+        const Result sb = dbg.step_back(a, 1);
+        check("INS-21-08", "step_back() leaves the coverage maps byte-equal",
+              sb == Result::Ok && mc_maps(dbg) == pre && !pre.empty(),
+              "rc=" + std::string(jnext::dbg::result_name(sb)));
+    }
+
+    // INS-21-09: survives every machine landing, and the next instruction records.
+    {
+        struct Out { bool enabled, sink, kept_old, records_new; };
+        auto show = [](const Out& o) {
+            return std::string("en=") + (o.enabled ? "1" : "0") + " sink=" + (o.sink ? "1" : "0") +
+                   " kept=" + (o.kept_old ? "1" : "0") + " new=" + (o.records_new ? "1" : "0");
+        };
+        // 0 reset(Hard), 1 reconstructing load(), 2 the guest path, 3 reset(Soft), 4 load_state_bytes
+        auto run_path = [&](int path) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            auto boot = [&]() {
+                emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+            };
+            jnext::dbg::LoopDriver d;
+            d.cold_boot = [&]() { boot(); return true; };
+            d.load      = [&](const std::string&) { boot(); return true; };
+            dbg.set_loop_driver(d);
+            dbg.mem_coverage_enable(true);
+            emu.run_frame();                                 // records the free run
+            std::vector<uint8_t> state;
+            if (path == 4) state = dbg.save_state_bytes(a, jnext::dbg::SaveStateMode::RefuseMidFrame).value;
+            if (path == 0)      dbg.reset(a, ResetKind::Hard);
+            else if (path == 1) dbg.load(a, "game.nex");
+            else if (path == 2) { dbg.on_cold_boot_begin(); boot(); dbg.on_cold_boot_done(); }
+            else if (path == 3) dbg.reset(a, ResetKind::Soft);
+            else                dbg.load_state_bytes(a, state.data(), state.size());
+            emu.mmu().write(0xA000, 0x18);                   // a NEW program: JR $ at 0xA000
+            emu.mmu().write(0xA001, 0xFE);
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0xA000; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            emu.run_frame();
+            Out o;
+            o.enabled     = dbg.mem_coverage_enabled();
+            o.sink        = emu.debug_state().mem_coverage_sink() != nullptr;
+            o.kept_old    = (dbg.mem_coverage_fetch(SUB) & COVERAGE_EXEC) != 0;
+            o.records_new = (dbg.mem_coverage_fetch(0xA000) & COVERAGE_EXEC) != 0;
+            dbg.detach(a);
+            return o;
+        };
+        bool all = true;
+        std::string detail;
+        for (int p = 0; p < 5; ++p) {
+            const Out o = run_path(p);
+            all = all && o.enabled && o.sink && o.kept_old && o.records_new;
+            detail += "[" + std::to_string(p) + ": " + show(o) + "] ";
+        }
+        check("INS-21-09", "memory coverage survives reset(Hard), a reconstructing load(), the guest cold "
+                           "boot, reset(Soft) and load_state_bytes(): switch on, sink re-published, the "
+                           "pre-landing bits kept, and the next instruction is recorded",
+              all, detail);
+    }
+
+    // INS-21-10: a snapshot's frame-boundary advance records.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        Subscription s;
+        s.kind = EventKind::Execute; s.filter.lo = PROG + 2; s.filter.hi = PROG + 2;
+        s.action = Action::Stop;
+        dbg.subscribe(a, s);
+        dbg.mem_coverage_enable(true);
+        emu.run_frame();                                    // stops AT the CALL
+        const bool mid = emu.frame_in_progress() && pc_of(emu) == PROG + 2;
+        dbg.mem_coverage_clear();
+        const auto saved = dbg.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        const bool x = (dbg.mem_coverage_fetch(SUB) & COVERAGE_EXEC) &&
+                       (dbg.mem_coverage_fetch(PARK) & COVERAGE_EXEC) &&
+                       (dbg.mem_coverage_fetch(PROG + 2) & COVERAGE_EXEC) &&
+                       !(dbg.mem_coverage_fetch(PROG) & COVERAGE_EXEC);   // before the clear: not re-run
+        check("INS-21-10", "a snapshot's frame-boundary advance (SuspendScope) records the instructions "
+                           "it executed",
+              mid && saved.status == Result::Ok && !emu.frame_in_progress() && x, mc_spaces_str(dbg));
+    }
+
+    // INS-21-11: the debugger and the loaders mark nothing.
+    {
+        auto run_100 = [&](bool observers) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            dbg.mem_coverage_enable(true);
+            if (observers) {
+                emu.trace_log().set_enabled(true);
+                emu.call_stack().set_enabled(true);
+            }
+            for (int i = 0; i < 100; ++i) emu.execute_single_instruction();
+            return mc_maps(dbg);
+        };
+        const bool captures_add_nothing = run_100(true) == run_100(false);
+
+        // Step Out reads the opcode of the RET it just ran to judge the step: that is the
+        // DEBUGGER looking, inside the guest's execution scope, so it must not add an R
+        // to the RET's byte (it used to be mmu_.read(), which marked it and latched the +3
+        // floating bus). X only.
+        bool step_out_x_only = false;
+        {
+            Emulator e3; build(e3);
+            Debugger d3(e3);
+            d3.mem_coverage_enable(true);
+            for (int i = 0; i < 3; ++i) e3.execute_single_instruction();   // NOP NOP CALL: inside SUB
+            d3.mem_coverage_clear();
+            attach_and_pause(e3);
+            const bool armed = d3.step_out(1) == Result::Ok;
+            run_until_paused(e3);
+            step_out_x_only = armed && pc_of(e3) == AFTER_CALL &&
+                              d3.mem_coverage_fetch(SUB + 2) == COVERAGE_EXEC;     // the RET: X, not X|R
+        }
+
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.mem_coverage_enable(true);
+        std::vector<uint8_t> buf(0x10000);
+        dbg.peek(MemSpace::cpu(), 0, 0x10000, buf.data());
+        for (uint32_t p : { 0u, 0x20u, 0x0Au })
+            dbg.peek(MemSpace::page(static_cast<uint16_t>(p)), 0, 0x2000, buf.data());
+        dbg.disassemble(PROG, 64, nullptr);
+        const uint8_t pk[4] = { 1, 2, 3, 4 };
+        dbg.poke(a, MemSpace::cpu(), 0xC000, 4, pk);
+        dbg.poke(a, MemSpace::page(0x30), 0, 4, pk);
+        const std::string bin = tmp_file("mc_inject", ".bin");
+        const std::string nex = tmp_file("mc_nex", ".nex");
+        { std::ofstream f(bin, std::ios::binary); f.write(reinterpret_cast<const char*>(pk), 4); }
+        const bool inj = emu.inject_binary(bin, 0xC100, 0xC100);
+        const bool nx = b5_write_nex(nex, { 0x00, 0x00, 0x00 }) && emu.load_nex(nex);
+        std::remove(bin.c_str()); std::remove(nex.c_str());
+        check("INS-21-11", "the debugger and loaders mark nothing: peek of the CPU map and pages, "
+                           "disassemble, poke(Cpu) and poke(Page), inject_binary and load_nex leave the "
+                           "maps empty, a run with the trace and call stack on records exactly what "
+                           "the run without them does, and Step Out's check of the RET it ran leaves "
+                           "the RET's byte X only",
+              captures_add_nothing && step_out_x_only && inj && nx && mc_count(dbg) == 0 &&
+                  dbg.mem_coverage_spaces().empty(),
+              mc_spaces_str(dbg) + " inj=" + std::to_string(inj) + " nex=" + std::to_string(nx) +
+                  " step_out_x_only=" + std::to_string(step_out_x_only));
+    }
+
+    // INS-21-12: the DMA is a bus master: R at the source, W at the destination, no X.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.mem_coverage_enable(true);
+        b5_prime_dma(emu, dbg, 0);                        // 8 bytes 0xA000 -> 0x9000
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8100; emu.cpu().set_registers(r);
+        emu.mmu().write(0x8100, 0x18); emu.mmu().write(0x8101, 0xFE);   // JR $
+        emu.run_frame();
+        bool src = true, dst = true, no_x = true;
+        for (int i = 0; i < 8; ++i) {
+            const uint16_t sa = static_cast<uint16_t>(0xA000 + i), da = static_cast<uint16_t>(0x9000 + i);
+            uint8_t fs = 0, fd = 0;
+            dbg.mem_coverage(MemSpace::cpu(), sa, 1, &fs);
+            dbg.mem_coverage(MemSpace::cpu(), da, 1, &fd);
+            src = src && fs == COVERAGE_READ;
+            dst = dst && fd == COVERAGE_WRITE;
+            no_x = no_x && !(fs & COVERAGE_EXEC) && !(fd & COVERAGE_EXEC);
+        }
+        check("INS-21-12", "a memory-to-memory DMA marks R at every source byte and W at every "
+                           "destination byte, and no X (zxnext.vhd:1824-1835: the DMA drives the bus "
+                           "with m1_n high)",
+              src && dst && no_x && emu.cpu().get_registers().PC == 0x8100,
+              mc_spaces_str(dbg));
+    }
+
+    // INS-21-13: video fetches are not memory accesses.
+    {
+        Emulator emu; mc_build_issue_program(emu, 0x30, 0x31);
+        Debugger dbg(emu);
+        emu.mmu().write(0xC000, 0x18); emu.mmu().write(0xC001, 0xFE);   // JR $ in Page{0x30}
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0xC000; emu.cpu().set_registers(r);
+        emu.layer2().set_enabled(true);
+        dbg.mem_coverage_enable(true);
+        emu.run_frame();
+        emu.run_frame();
+        bool video_clear = true;
+        for (uint16_t pg : { 0x0A, 0x0B }) video_clear = video_clear && mc_at(dbg, MemSpace::page(pg), 0x1800) == 0 &&
+                                                            mc_at(dbg, MemSpace::page(pg), 0) == 0;
+        const bool only = mc_spaces_are(dbg, { MemSpace::page(0x30) }) && mc_count(dbg) == 2;   // X + R operand
+        check("INS-21-13", "with the ULA and Layer 2 on, a CPU parked on JR $ for two frames marks only "
+                           "its own two bytes: no mark in Page{0x0A}/{0x0B} or any Layer 2 page "
+                           "(zxnext.vhd:6558-6575, 1666: video reads use other ports)",
+              video_clear && only, mc_spaces_str(dbg));
+    }
+
+    // INS-21-14: the query views, and the refusals.
+    {
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.mmu().set_config_mode(false);
+        Debugger dbg(emu);
+        dbg.mem_coverage_enable(true);
+        // (a) Layer 2 read mapping: the Cpu view follows the live data route.
+        emu.mmu().set_page(2, 0x30);
+        emu.mmu().set_l2_port(0xC4, 9);                    // read mapping on, segment 11, bank 9
+        {
+            DebugState::GuestExecutionScope g(emu.debug_state());
+            (void)emu.mmu().read(0x4100);                  // marks Layer2{0x14}+0x100 only
+        }
+        const bool l2_on = mc_at(dbg, MemSpace::cpu(), 0x4100) == COVERAGE_READ &&
+                           mc_at(dbg, MemSpace::layer2(0x14), 0x100) == COVERAGE_READ;
+        emu.mmu().set_l2_port(0x00, 9);                    // mapping off: the data route is Page{0x30}
+        const bool l2_off = mc_at(dbg, MemSpace::cpu(), 0x4100) == 0;
+        // (b) the fetch view vs the data view across a DivMMC automap (FSRC-10's setup).
+        emu.nextreg().write(0x50, 10);
+        emu.nextreg().write(0x0A, 0x10);
+        emu.nextreg().write(0xB8, 0x02); emu.nextreg().write(0xB9, 0x02); emu.nextreg().write(0xBA, 0x02);
+        emu.divmmc().set_port_io_enable(true);
+        emu.divmmc().rom_data()[8] = 0x00;                 // NOP at DivMMC ROM 0x0008
+        emu.mmu().write(0x0008, 0x00);
+        emu.mmu().write(0x8000, 0xCF);                     // RST $08
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8000; r.SP = TEST_SP; r.IFF1 = r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        emu.execute_single_instruction();                  // RST: the M1 at 0x0008 follows
+        emu.execute_single_instruction();                  // the NOP, fetched from the DivMMC ROM
+        emu.divmmc().on_retn();                            // leave the DivMMC, as a RETN does
+        emu.divmmc().on_retn_instruction_complete();
+        const bool pre = dbg.source_page(0x0008) == MemSpace::divmmc_rom() &&
+                         emu.mmu().route(0x0008).space == MemSpace::page(10);
+        const bool fetch_view = (dbg.mem_coverage_fetch(0x0008) & COVERAGE_EXEC) != 0;
+        const bool data_view = mc_at(dbg, MemSpace::cpu(), 0x0008) == 0;
+        // (c) refusals as peek.
+        uint8_t b[4];
+        const bool refusals =
+            dbg.mem_coverage(MemSpace::page(0xE0), 0, 1, b).status == Result::InvalidPage &&
+            dbg.mem_coverage(MemSpace::rom(4), 0, 1, b).status == Result::InvalidPage &&
+            dbg.mem_coverage(MemSpace::page(0x30), 0x1FFE, 4, b).status == Result::RefusedUnavailable &&
+            dbg.mem_coverage(MemSpace::page(0x30), 0x1FFE, 4, b).value == 2 &&
+            dbg.mem_coverage(MemSpace::rom(0), 0x3FFE, 2, b).status == Result::Ok;
+        check("INS-21-14", "mem_coverage(Cpu) follows the live data route (Layer 2 read mapping on and "
+                           "off); mem_coverage_fetch(0x0008) before an automapping RST 8 is the DivMMC "
+                           "ROM byte while mem_coverage(Cpu, 0x0008) is the underlying page's; an "
+                           "out-of-range page, ROM image or offset is refused as peek refuses it",
+              l2_on && l2_off && pre && fetch_view && data_view && refusals,
+              std::string("l2_on=") + std::to_string(l2_on) + " l2_off=" + std::to_string(l2_off) +
+                  " pre=" + std::to_string(pre) + " fetch=" + std::to_string(fetch_view) +
+                  " data=" + std::to_string(data_view) + " refusals=" + std::to_string(refusals));
+    }
+
+    // INS-21-18: the coverage hook marks each access through the DivMMC view its own bus cycle had
+    // (divmmc.vhd:128-148, zxnext.vhd ~2904): the M1 through the FETCH view (`automap` = held OR
+    // instant-on), every other cycle through the data view (`automap_hold` only). Delayed-on: the RST 8
+    // entry is delayed (NR 0xBA = 0, divmmc.h:223-234), so the instruction AT 0x0008 is fetched from
+    // the page (X there) but its operands already come from the DivMMC ROM (R there). Delayed-off: an
+    // instruction fetched in the 0x1FF8-0x1FFF range is still fetched from the DivMMC (X there) and its
+    // operands come from the page again. A swap of either view in Mmu::cov_note_ shows in both halves.
+    {
+        auto machine = [](Emulator& emu) {
+            build(emu, MachineType::ZXN_ISSUE2);
+            emu.mmu().set_boot_rom_enabled(false);
+            emu.mmu().set_config_mode(false);
+            emu.nextreg().write(0x50, 10);                          // MMU0 = RAM page 10
+            emu.nextreg().write(0x0A, 0x10);                        // automap enable
+            emu.divmmc().set_port_io_enable(true);
+        };
+        auto cov = [](Debugger& d, MemSpace sp, uint32_t off) { return mc_at(d, sp, off); };
+        bool on_ok = false, off_ok = false;
+        std::string detail;
+        {   // delayed-on
+            Emulator emu; machine(emu);
+            Debugger dbg(emu);
+            dbg.mem_coverage_enable(true);
+            emu.nextreg().write(0xB8, 0x02); emu.nextreg().write(0xB9, 0x02); emu.nextreg().write(0xBA, 0x00);
+            emu.divmmc().rom_data()[8] = 0x11; emu.divmmc().rom_data()[9] = 0x00; emu.divmmc().rom_data()[10] = 0x90;
+            emu.mmu().write(0x0008, 0x3A); emu.mmu().write(0x0009, 0x55); emu.mmu().write(0x000A, 0x66);
+            emu.mmu().write(0x8000, 0xCF);                          // RST $08
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.SP = TEST_SP; r.IFF1 = r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            emu.execute_single_instruction();                       // RST 8
+            emu.execute_single_instruction();                       // the instruction at 0x0008
+            const MemSpace pg = MemSpace::page(10), dr = MemSpace::divmmc_rom();
+            on_ok = cov(dbg, pg, 8) == COVERAGE_EXEC && cov(dbg, dr, 8) == 0 &&
+                    cov(dbg, dr, 9) == COVERAGE_READ && cov(dbg, dr, 10) == COVERAGE_READ &&
+                    cov(dbg, pg, 9) == 0 && cov(dbg, pg, 10) == 0;
+            detail += "on: page " + std::to_string(cov(dbg, pg, 8)) + "," + std::to_string(cov(dbg, pg, 9)) + "," +
+                      std::to_string(cov(dbg, pg, 10)) + " rom " + std::to_string(cov(dbg, dr, 8)) + "," +
+                      std::to_string(cov(dbg, dr, 9)) + "," + std::to_string(cov(dbg, dr, 10)) + "; ";
+        }
+        {   // delayed-off
+            Emulator emu; machine(emu);
+            Debugger dbg(emu);
+            dbg.mem_coverage_enable(true);
+            emu.nextreg().write(0xB8, 0x02); emu.nextreg().write(0xB9, 0x02); emu.nextreg().write(0xBA, 0x02);
+            emu.divmmc().rom_data()[8] = 0x00;
+            emu.mmu().write(0x0008, 0x00);
+            emu.mmu().write(0x8000, 0xCF);                          // RST $08, instant-on
+            emu.mmu().write(0x1FF8, 0x3A); emu.mmu().write(0x1FF9, 0x55); emu.mmu().write(0x1FFA, 0x66);   // page: LD A,(6655)
+            emu.divmmc().rom_data()[0x1FF8] = 0x11; emu.divmmc().rom_data()[0x1FF9] = 0x00; emu.divmmc().rom_data()[0x1FFA] = 0x90;
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.SP = TEST_SP; r.IFF1 = r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            emu.execute_single_instruction();                       // RST 8
+            emu.execute_single_instruction();                       // the NOP at 0x0008, instant-on: the DivMMC is held
+            r = emu.cpu().get_registers(); r.PC = 0x1FF8; emu.cpu().set_registers(r);
+            emu.execute_single_instruction();                       // fetched in the off range
+            const MemSpace pg = MemSpace::page(10), dr = MemSpace::divmmc_rom();
+            off_ok = cov(dbg, dr, 0x1FF8) == COVERAGE_EXEC && cov(dbg, pg, 0x1FF8) == 0 &&
+                     cov(dbg, pg, 0x1FF9) == COVERAGE_READ && cov(dbg, pg, 0x1FFA) == COVERAGE_READ &&
+                     cov(dbg, dr, 0x1FF9) == 0 && cov(dbg, dr, 0x1FFA) == 0;
+            detail += "off: page " + std::to_string(cov(dbg, pg, 0x1FF8)) + "," + std::to_string(cov(dbg, pg, 0x1FF9)) + "," +
+                      std::to_string(cov(dbg, pg, 0x1FFA)) + " rom " + std::to_string(cov(dbg, dr, 0x1FF8)) + "," +
+                      std::to_string(cov(dbg, dr, 0x1FF9)) + "," + std::to_string(cov(dbg, dr, 0x1FFA));
+        }
+        check("INS-21-18", "the hook marks an M1 through the DivMMC fetch view and every other cycle through the "
+                           "data view: at a delayed-on RST 8 the instruction at 0x0008 is X in the page and its "
+                           "operands are R in the DivMMC ROM; an instruction fetched in 0x1FF8-0x1FFF is X in the "
+                           "DivMMC ROM and its operands R in the page (divmmc.vhd:128-148; zxnext.vhd:2904)",
+              on_ok && off_ok, detail);
+    }
+
+    // INS-21-15: X agrees with INS-20.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.coverage_enable(true);
+        dbg.mem_coverage_enable(true);
+        emu.run_frame();
+        emu.run_frame();
+        bool each = true;
+        for (size_t pc = 0; pc < 0x10000; ++pc) {
+            const bool logical = dbg.coverage().test(pc);
+            const bool physical = (dbg.mem_coverage_fetch(static_cast<uint16_t>(pc)) & COVERAGE_EXEC) != 0;
+            each = each && logical == physical;
+        }
+        check("INS-21-15", "with both on over a fixed mapping, the logical PCs INS-20 holds, mapped "
+                           "through that mapping, are exactly the X bytes -- same bytes, same count",
+              each && dbg.coverage().count() == 8 && mc_count(dbg, COVERAGE_EXEC) == 8,
+              std::to_string(dbg.coverage().count()) + " vs " +
+                  std::to_string(mc_count(dbg, COVERAGE_EXEC)));
+    }
+
+    // INS-21-16: the space list.
+    {
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.mmu().set_config_mode(false);
+        Debugger dbg(emu);
+        dbg.mem_coverage_enable(true);
+        //   C000 3A 00 00 LD A,(0x0000)    -> Rom{sram_rom} (MMU0 = the ROM sentinel)
+        //   C003 3A 00 40 LD A,(0x4000)    -> Page{0x0A}
+        //   C006 18 FE    JR $
+        emu.mmu().set_page(6, 0x30);
+        const uint8_t prog[] = { 0x3A, 0x00, 0x00, 0x3A, 0x00, 0x40, 0x18, 0xFE };
+        for (size_t i = 0; i < sizeof(prog); ++i) emu.mmu().write(static_cast<uint16_t>(0xC000 + i), prog[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0xC000; r.SP = TEST_SP; r.IFF1 = r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        emu.run_frame();
+        check("INS-21-16", "mem_coverage_spaces() is exactly the spaces the run touched, sorted by "
+                           "(kind, index): Page{0x0A}, Page{0x30}, Rom{0}",
+              mc_spaces_are(dbg, { MemSpace::page(0x0A), MemSpace::page(0x30), MemSpace::rom(0) }),
+              mc_spaces_str(dbg));
+    }
+
+    // INS-21-17: ~Debugger() retires the memory-coverage sink (the pair of LIFE-07). The sink points
+    // INTO Impl::mem_cov; left installed, the machine's next guest access marks freed memory.
+    {
+        Emulator emu; build(emu);
+        bool published = false;
+        {
+            Debugger dbg(emu);
+            dbg.mem_coverage_enable(true);
+            published = emu.debug_state().mem_coverage_sink() != nullptr;
+        }
+        const bool retired = emu.debug_state().mem_coverage_sink() == nullptr &&
+                             !emu.debug_state().mem_gate_live();
+        emu.run_frame();                                   // a guest access now would write through a dangling sink
+        check("INS-21-17", "~Debugger() retires the memory-coverage sink it published: the machine's sink is null "
+                         "and mem_gate_live() false, and it runs a frame on without it",
+              published && retired && pc_of(emu) == PARK);
+    }
+
+    // HOST-COV-01: --coverage reaches the backend before the first frame.
+    {
+        HeadlessApp app;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.coverage = true;
+        app.set_config(cfg);
+        const bool ok = app.init(0, nullptr);
+        const bool before_frame = app.debugger().mem_coverage_enabled() && app.emulator().frame_num() == 0;
+        app.set_delayed_exit(1);
+        app.run();
+        const bool x_at_boot = (mc_at(app.debugger(), MemSpace::rom(0), 0) & COVERAGE_EXEC) != 0;
+        app.shutdown();
+        check("HOST-COV-01", "HeadlessApp with config.coverage enables memory coverage before frame 1 "
+                             "(--coverage), and after one frame the first boot instruction has X",
+              ok && before_frame && x_at_boot);
+    }
+}
+
 // ── REV — Debugger::state_revision() (GH #428) ─────────────────────────────
 //
 // Oracle: the GH #428 plan, section 2.5. A paused frontend redraws its panels
@@ -6545,6 +7565,36 @@ static void gh428_rev_rows() {
             [](Debugger& d, Emulator& e, ClientId a) {
                 e.nextreg().write(0x06, 0x08);   // NR 0x06 bit 3: the Multiface button is wired
                 return d.press_nmi(a, jnext::dbg::NmiButton::Mf) == Result::Ok; });
+    // The epic's verbs (GH #388, E23-09) that the stamp cannot see by the clock.
+    rev_row1("REV-42", "mem_coverage_enable advances the revision (merge of GH #388 with GH #428)",
+            [](Debugger& d, Emulator&, ClientId) { return d.mem_coverage_enable(true) == Result::Ok; });
+    rev_row1("REV-43", "mem_coverage_clear advances the revision (merge of GH #388 with GH #428)",
+            [](Debugger& d, Emulator&, ClientId) { return d.mem_coverage_clear() == Result::Ok; });
+    {
+        const std::string sld = tmp_file("gh428_grp", ".sld");
+        { std::ofstream f(sld);
+          f << "|SLD.data.version|1\n"
+               "main.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+               "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
+               "main.bas|10||0|0|32768|T|\n"; }
+        jnext::dbg::GroupId prepared_group = 0;
+        auto group_prep = [&](Debugger& d, Emulator&, ClientId a) {
+            (void)d.load_source_map(sld, true);
+            Subscription s; s.kind = EventKind::Execute; s.action = Action::Stop;
+            prepared_group = d.subscribe_source_line(a, "main.bas:10", s).value; };
+        rev_row("REV-44", "unsubscribe_group advances the revision (merge of E23-09 with GH #428)",
+                [&](Debugger& d, Emulator&, ClientId a) { return d.unsubscribe_group(a, prepared_group) == Result::Ok; },
+                group_prep);
+        rev_row("REV-45", "set_group_enabled advances the revision (merge of E23-09 with GH #428)",
+                [&](Debugger& d, Emulator&, ClientId a) { return d.set_group_enabled(a, prepared_group, false) == Result::Ok; },
+                group_prep);
+        rev_row("REV-46", "subscribe_source_line advances the revision (merge of E23-09 with GH #428)",
+                [&](Debugger& d, Emulator&, ClientId a) {
+                    Subscription s; s.kind = EventKind::Execute; s.action = Action::Stop;
+                    return d.subscribe_source_line(a, "main.bas:10", s).status == Result::Ok; },
+                [&](Debugger& d, Emulator&, ClientId) { (void)d.load_source_map(sld, true); });
+        std::remove(sld.c_str());
+    }
     {
         // REV-C1: a guest-initiated cold boot reaches the backend through
         // on_cold_boot_begin / on_cold_boot_done.
@@ -6829,6 +7879,33 @@ int main() {
         check("CTL-06-03", "and the stop names the target it was given",
               dbg.state().pause_reason.kind == PauseReason::Kind::RunTo &&
               dbg.state().pause_reason.addr == AFTER_CALL);
+    }
+    {
+        // GH #423 - a second run_to while the machine RUNS re-targets: the first
+        // target (reached earlier) is dropped with the caller's other transients,
+        // another client's transient is not.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        Subscription other;
+        other.kind      = EventKind::Execute;
+        other.filter.lo = other.filter.hi = 0xF000;     // never reached
+        other.transient = true;
+        other.action    = Action::Stop;
+        dbg.subscribe(4, other);
+        dbg.run_to(3, AFTER_CALL);                      // reached first
+        const bool running = !emu.debug_state().paused();
+        dbg.run_to(3, PARK);                            // re-target while running
+        const size_t mine_and_other = dbg.subscriptions(true).size();
+        run_until_paused(emu);
+        check("CTL-06-04", "GH #423: run_to() on a RUNNING machine drops the caller's earlier "
+                           "transient target (the stop is at the new one, passing the old), and "
+                           "keeps another client's transient until the stop",
+              running && mine_and_other == 2 && dbg.state().paused && pc_of(emu) == PARK &&
+                  dbg.state().pause_reason.kind == PauseReason::Kind::RunTo &&
+                  dbg.state().pause_reason.addr == PARK,
+              "running=" + std::to_string(running) + " subs=" + std::to_string(mine_and_other) +
+                  " PC=" + hex(pc_of(emu)));
     }
     {
         Emulator emu; build(emu);
@@ -7367,6 +8444,110 @@ int main() {
               dbg.poke(1, MemSpace::page(0xE0), 0, 1, src).status == Result::InvalidPage);
         check("INS-02-19", "while poking a SENTINEL is ReadOnly, not InvalidPage",
               dbg.poke(1, MemSpace::page(0xFE), 0, 1, src).status == Result::RefusedReadOnly);
+    }
+    {
+        // GH #339 -- the kinds the read arbiter NAMES (Mmu::route(): the boot ROM,
+        // the Multiface halves, the DivMMC ROM and RAM banks, the alternate ROM,
+        // the Layer 2 mapping, config mode, nothing at all) address no store a verb
+        // can reach yet. peek and poke refuse every one with Unsupported -- a
+        // MemSpace is also an IDENTITY now -- and a refused poke writes nothing and
+        // logs no MUTATE line. The control: an ordinary Page still reads.
+        auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(16);
+        Log::debugger()->sinks().push_back(ring);
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const MemSpace identity_only[] = {
+            MemSpace::boot_rom(),      MemSpace::multiface_rom(), MemSpace::multiface_ram(),
+            MemSpace::divmmc_rom(),    MemSpace::divmmc_ram(3),   MemSpace::alt_rom(1),
+            MemSpace::layer2(0x10),    MemSpace::config(9),       MemSpace::floating(),
+        };
+        auto machine_bytes = [&] {
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> bytes(measure.position());
+            StateWriter w(bytes.data(), bytes.size());
+            emu.save_state(w);
+            return bytes;
+        };
+        const std::vector<uint8_t> before = machine_bytes();
+        const uint8_t canary = 0xA5;
+        bool peeks_refused = true, pokes_refused = true;
+        for (const MemSpace& sp : identity_only) {
+            uint8_t b = 0x77;
+            // GH #351 (E23-21): DivMMC RAM is read by peek (INS-02-31/32); poke still refuses it.
+            if (!(sp == MemSpace::divmmc_ram(3))) {
+                const auto pk = dbg.peek(sp, 0, 1, &b);
+                peeks_refused = peeks_refused && pk.status == Result::Unsupported && b == 0x77;
+            }
+            const auto pw = dbg.poke(1, sp, 0, 1, &canary);
+            pokes_refused = pokes_refused && pw.status == Result::Unsupported;
+        }
+        int mutates = 0;
+        for (const auto& l : ring->last_formatted())
+            if (l.find("MUTATE") != std::string::npos) ++mutates;
+        uint8_t control = 0;
+        const bool control_ok = dbg.peek(MemSpace::page(0x0A), 0, 1, &control).status == Result::Ok;
+        auto& sinks = Log::debugger()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), ring), sinks.end());
+        check("INS-02-30", "peek of each identity-only MemSpace kind but DivMMC RAM (boot ROM, Multiface, "
+                           "DivMMC ROM, alt ROM, Layer 2, config, floating) and poke of every one "
+                           "(DivMMC RAM too) are Unsupported: "
+                           "nothing read, nothing written, no MUTATE line; an ordinary Page still reads",
+              peeks_refused && pokes_refused && machine_bytes() == before && mutates == 0 && control_ok,
+              "peeks_refused=" + std::to_string(peeks_refused) + " pokes_refused=" +
+                  std::to_string(pokes_refused) + " mutates=" + std::to_string(mutates) +
+                  " control_ok=" + std::to_string(control_ok));
+    }
+    {
+        // GH #351 (E23-21) -- peek(DivMmcRam{b}) reads DivMMC RAM bank b: SRAM page
+        // 0x10 + b on the Next (zxnext.vhd:3092-3098), whatever port 0xE3 selects.
+        // Read-only: the machine is unchanged (poke is refused, INS-02-30).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        uint8_t* ram = emu.divmmc().ram_data();
+        constexpr int kBank[3] = {0, 2, 15};
+        for (int i = 0; i < 3; ++i) {
+            ram[kBank[i] * 0x2000 + 0x0000] = static_cast<uint8_t>(0x10 + kBank[i]);
+            ram[kBank[i] * 0x2000 + 0x1FFF] = static_cast<uint8_t>(0xE0 + kBank[i]);
+        }
+        auto machine_bytes = [&] {
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> bytes(measure.position());
+            StateWriter w(bytes.data(), bytes.size());
+            emu.save_state(w);
+            return bytes;
+        };
+        const std::vector<uint8_t> before = machine_bytes();
+        bool own = true;
+        for (int i = 0; i < 3; ++i) {
+            uint8_t first = 0, last = 0;
+            const auto a = dbg.peek(MemSpace::divmmc_ram(kBank[i]), 0x0000, 1, &first);
+            const auto b = dbg.peek(MemSpace::divmmc_ram(kBank[i]), 0x1FFF, 1, &last);
+            own = own && a.status == Result::Ok && b.status == Result::Ok &&
+                  first == 0x10 + kBank[i] && last == 0xE0 + kBank[i];
+        }
+        check("INS-02-31", "peek(DivMmcRam{b}) reads bank b from its own storage: distinct marker bytes in banks 0, 2 and 15 "
+                           "read back from their own bank only, at offsets 0 and $1FFF; the machine state is unchanged",
+              own && machine_bytes() == before,
+              "own=" + std::to_string(own));
+    }
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.divmmc().ram_data()[0x1FFE] = 0xAB;
+        emu.divmmc().ram_data()[0x1FFF] = 0xCD;
+        uint8_t buf[4] = {0x77, 0x77, 0x77, 0x77};
+        uint8_t one = 0x77;
+        const auto bad_bank = dbg.peek(MemSpace::divmmc_ram(16), 0, 1, &one);
+        const auto past_end = dbg.peek(MemSpace::divmmc_ram(0), 0x2000, 1, &one);
+        const auto cut = dbg.peek(MemSpace::divmmc_ram(0), 0x1FFE, 4, buf);
+        check("INS-02-32", "peek(DivMmcRam{16}) is InvalidPage and reads nothing; a read of 4 bytes from $1FFE returns the 2 "
+                           "that exist with RefusedUnavailable; a read at $2000 returns none",
+              bad_bank.status == Result::InvalidPage && one == 0x77 && cut.status == Result::RefusedUnavailable &&
+                  cut.value == 2 && buf[0] == 0xAB && buf[1] == 0xCD && buf[2] == 0x77 &&
+                  past_end.status == Result::RefusedUnavailable && past_end.value == 0,
+              "cut.value=" + std::to_string(cut.value));
     }
     {
         // The drift guard for Mmu::nr_page_ptr(): a byte written through a slot
@@ -8638,9 +9819,9 @@ int main() {
         const auto dbgmap = dbg.load_map(JNEXT_ZDEBUGMAP_DIR "/debug.map", jnext::dbg::MapFormat::Z88dk);
         auto nm = [&](uint16_t a) { const auto n = dbg.lookup(a); return n ? *n : std::string("-"); };
         check("SYM-14", "in a z88dk `-debug` map the function labels keep their addresses: "
-                        "lookup($8C92) = _main and lookup($8C78) = _square, not the __C_LINE_ markers at them",
-              dbgmap.status == Result::Ok && nm(0x8C92) == "_main" && nm(0x8C78) == "_square" &&
-                  nm(0x8D35) == "_util_twice",
+                        "lookup($8C92) = main and lookup($8C78) = square (the C names of _main and _square), not the __C_LINE_ markers at them",
+              dbgmap.status == Result::Ok && nm(0x8C92) == "main" && nm(0x8C78) == "square" &&
+                  nm(0x8D35) == "util_twice",
               nm(0x8C92) + " " + nm(0x8C78) + " " + nm(0x8D35));
         const auto& all = dbg.symbols();
         check("SYM-15", "the C-line markers at address $0000 (the stdint.h and other header lines) name nothing",
@@ -8990,6 +10171,14 @@ int main() {
                     if (d.lookup_name(w[i].name)) found += std::string(w[i].name) + " ";
                 return found;
             };
+            // A name that resolves to its sjasmplus ADDRESS: a z88dk map's own `_main` / `_counter` also
+            // answer to the C names `main` / `counter` (GH #424), at their own addresses.
+            auto sjasm_loaded = [](const Debugger& d, const WantName* w, size_t n) {
+                std::string found;
+                for (size_t i = 0; i < n; ++i)
+                    if (d.lookup_name(w[i].name) == std::optional<uint16_t>(w[i].addr)) found += std::string(w[i].name) + " ";
+                return found;
+            };
             Emulator emu; build(emu);
             Debugger dbg(emu);
             auto load_text = [&](const std::string& text) {
@@ -9013,7 +10202,7 @@ int main() {
                 const auto r = load_text(c.text);
                 const size_t want = c.has_map ? kMapN : 0;
                 if (r.status != Result::Ok || r.value != static_cast<int>(want) || dbg.symbols().size() != want ||
-                    !present(dbg, kSym, kSymN).empty() || (c.has_map && !wrong_names(dbg, kMap, kMapN).empty()))
+                    !sjasm_loaded(dbg, kSym, kSymN).empty() || (c.has_map && !wrong_names(dbg, kMap, kMapN).empty()))
                     bad_z88dk += std::string(c.what) + " ";
             }
             check("SYM-31", "a file whose FIRST line is not an sjasmplus EQU line is a z88dk map to its end, "
@@ -10489,6 +11678,28 @@ int main() {
               all.front().seq > 1);
         t.clear_history();
         check("EVT-TBL-HIST-11", "clear_history() empties it", t.since(0).empty());
+    }
+
+    // ── TRACE-SEQ — TraceLog::recorded() (GH #342) ───────────────────────
+    {
+        TraceLog t(4);
+        t.set_enabled(true);
+        TraceEntry e{};
+        for (int i = 0; i < 6; ++i) t.record(e);
+        const uint64_t wrapped = t.recorded();
+        t.clear();
+        t.record(e);
+        const uint64_t after_clear = t.recorded();
+        TraceLog f(2);
+        f.set_enabled(true);
+        f.set_no_wrap(true);
+        f.record(e);
+        f.record(e);
+        f.record(e);   // frozen: not stored, not counted
+        check("TRACE-SEQ-01", "recorded() counts every stored entry across a wrap and a clear(), "
+                              "and not a record the no-wrap freeze dropped",
+              wrapped == 6 && t.size() == 1 && after_clear == 7 && f.recorded() == 2 &&
+                  f.size() == 2);
     }
 
     // ── EVT-BP — BreakpointSet's half of the §6 mask, and the OR ─────────
@@ -18162,6 +19373,7 @@ int main() {
     q_wp2_host_order_rows();
     q_wp3_rewind_rows();          // GH #278 WP3
     q_wp3_trace_export_rows();    // GH #278 WP3
+    q_trace_fetch_identity_rows();   // GH #340
     q4c_observer_rows();          // GH #278 WP4c
     q4c_master_mirror_rows();     // GH #278 WP4c
     q4c_magic_hold_rows();        // GH #278 WP4c
@@ -18170,6 +19382,10 @@ int main() {
     dzrp_d_rows();
     q_wp7_raster_rows();          // GH #278 WP7
     rwm_rows();                   // §4.2a rewind wall
+    ladd_formatter_rows();        // GH #360
+    ladd_slot_rows();             // GH #360
+    dasm_z80n_rows();             // GH #422 F1
+    e25_mem_coverage_rows();      // GH #388
     gh428_rev_rows();             // GH #428 state_revision()
 
     std::printf("\n======================================================\n");

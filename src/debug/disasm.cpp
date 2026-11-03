@@ -9,6 +9,12 @@ static DisasmLine disasm_cb(uint16_t addr, DisasmReadFn const& read_fn);
 static DisasmLine disasm_ed(uint16_t addr, DisasmReadFn const& read_fn);
 static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_t prefix);
 
+// How many redundant DD/FD prefixes deep disasm_ddfd() -> disasm_one() -> disasm_ddfd() is. Memory
+// full of 0xDD (or the 64 KiB address space wrapping onto itself) would otherwise recurse once per
+// byte, without end. Past kMaxPrefixChain the next prefix byte is shown as a line of its own.
+static constexpr int kMaxPrefixChain = 64;
+static thread_local int s_prefix_chain = 0;
+
 // ---------------------------------------------------------------------------
 // Helper: read a 16-bit little-endian word
 // ---------------------------------------------------------------------------
@@ -345,6 +351,29 @@ static DisasmLine disasm_cb(uint16_t addr, DisasmReadFn const& read_fn) {
 }
 
 // ---------------------------------------------------------------------------
+// The Z80N ED-prefixed extensions, once: the opcode byte after ED and the
+// instruction's total length. `instruction_length()` and `is_z80n_extension()`
+// read this table; `disasm_ed()` below carries the mnemonics of the same set
+// (SKCTL-08 pins every entry's length against it). Oracle: the ED decode of
+// cores/zxnext/src/cpu/t80n_mcode.vhd.
+// ---------------------------------------------------------------------------
+namespace {
+struct Z80nEd { uint8_t op; uint8_t len; };
+const Z80nEd kZ80nEd[] = {
+    {0x23, 2}, {0x24, 2}, {0x27, 3}, {0x28, 2}, {0x29, 2}, {0x2A, 2}, {0x2B, 2}, {0x2C, 2},
+    {0x30, 2}, {0x31, 2}, {0x32, 2}, {0x33, 2}, {0x34, 4}, {0x35, 4}, {0x36, 4}, {0x8A, 4},
+    {0x90, 2}, {0x91, 4}, {0x92, 3}, {0x93, 2}, {0x94, 2}, {0x95, 2}, {0x98, 2}, {0xA4, 2},
+    {0xA5, 2}, {0xAC, 2}, {0xB4, 2}, {0xB6, 2}, {0xB7, 2}, {0xBC, 2},
+};
+}  // namespace
+
+/// The length of the Z80N instruction `ED <op>`, 0 when `op` is not one.
+static int z80n_ed_length(uint8_t op) {
+    for (const Z80nEd& e : kZ80nEd) if (e.op == op) return e.len;
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
 // ED-prefix disassembly (standard Z80 + Z80N extensions)
 // ---------------------------------------------------------------------------
 static DisasmLine disasm_ed(uint16_t addr, DisasmReadFn const& read_fn) {
@@ -412,9 +441,9 @@ static DisasmLine disasm_ed(uint16_t addr, DisasmReadFn const& read_fn) {
     case 0xA5: return make_line(addr, 2, read_fn, "LDWS");
     case 0xAC: return make_line(addr, 2, read_fn, "LDDX");
     case 0xB4: return make_line(addr, 2, read_fn, "LDIRX");
+    case 0xB6: return make_line(addr, 2, read_fn, "LDIRSCALE");
     case 0xB7: return make_line(addr, 2, read_fn, "LDPIRX");
     case 0xBC: return make_line(addr, 2, read_fn, "LDDRX");
-    case 0xC6: return make_line(addr, 2, read_fn, "LOOP");
     }
 
     // ---- Standard Z80 ED opcodes ----
@@ -755,12 +784,20 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
 
     // If we reach here, the DD/FD prefix is ignored and the opcode is treated
     // as its unprefixed equivalent. Disassemble from addr+1 and adjust.
+    if (s_prefix_chain >= kMaxPrefixChain) {
+        char b[16];
+        std::snprintf(b, sizeof b, "DB $%02X", prefix);
+        return make_line(addr, 1, read_fn, b);
+    }
+    ++s_prefix_chain;
     DisasmLine inner = disasm_one(static_cast<uint16_t>(addr + 1), read_fn);
+    --s_prefix_chain;
     // Rebuild with the prefix byte included
     DisasmLine result;
     result.addr = addr;
+    // The TRUE length: a redundant-prefix chain (DD FD LD IY,nn) is 5 bytes or more, and step-over,
+    // the panel and the ZRCP disassembler advance by it. Only the displayed bytes[] stop at 4.
     result.byte_count = inner.byte_count + 1;
-    if (result.byte_count > 4) result.byte_count = 4; // safety clamp
     result.bytes[0] = prefix;
     for (int i = 0; i < inner.byte_count && i < 3; i++) {
         result.bytes[i + 1] = inner.bytes[i];
@@ -773,6 +810,10 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
 // ---------------------------------------------------------------------------
 // instruction_length — fast length calculation without full formatting
 // ---------------------------------------------------------------------------
+bool is_z80n_extension(uint16_t addr, DisasmReadFn read_fn) {
+    return read_fn(addr) == 0xED && z80n_ed_length(read_fn(static_cast<uint16_t>(addr + 1))) != 0;
+}
+
 int instruction_length(uint16_t addr, DisasmReadFn read_fn) {
     uint8_t op = read_fn(addr);
 
@@ -780,11 +821,8 @@ int instruction_length(uint16_t addr, DisasmReadFn read_fn) {
 
     if (op == 0xED) {
         uint8_t ed_op = read_fn(static_cast<uint16_t>(addr + 1));
-        // Z80N 4-byte instructions
-        if (ed_op == 0x34 || ed_op == 0x35 || ed_op == 0x36 ||
-            ed_op == 0x8A || ed_op == 0x91) return 4;
-        // Z80N 3-byte instructions
-        if (ed_op == 0x27 || ed_op == 0x92) return 3;
+        // Z80N extensions (3 and 4 bytes; the 2-byte ones are in the standard ED size below)
+        if (const int n = z80n_ed_length(ed_op)) return n;
         // Standard ED 4-byte: LD (nn),rp / LD rp,(nn)
         uint8_t x = (ed_op >> 6) & 3;
         uint8_t z = ed_op & 7;

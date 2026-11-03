@@ -80,7 +80,7 @@ work. A breakpoint change another client made arrives as
 | Disassembly | `disasm_one()` over `memory_reader()`, with symbols, a breakpoint gutter and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
 | Stack | the words at and above SP, through `peek` | — |
-| Call Stack | `call_stack()`, a shadow stack built from SP deltas plus a frame per accepted INT or NMI | — |
+| Call Stack | `call_stack()`, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a JP (HL)/(IX)/(IY) onto the newest CALL's return point, or taken with SP above its slot when the routine has stored no copy of its return address above SP (a callee prologue's PUSH or EX (SP)), ends that frame (sccz80's `EX (SP),HL` / `POP r; JP (r)` helpers and `l_case`; a `__z88dk_callee` body's internal jumps keep it); a routine that drops its return address and leaves by a direct JP keeps its frame until a later RET ends it by SP | — |
 | Watches | byte, word or long at user addresses, through `peek` | — |
 | Breakpoints | every client's subscriptions, through `BreakpointModel` | the GUI's own |
 | Video | `raster()` in all four counter domains plus the ULA fetch phase, and `render_layer()` for each of the eight views | — |
@@ -89,25 +89,59 @@ work. A breakpoint change another client made arrives as
 | NextREG | `nextreg_peek()` for the whole register file | `nextreg_write()` |
 | Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
-| Source | `source_location()` for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
+| Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
 
 Four panels (CPU, Disassembly, Stack, Call Stack) update only while paused:
 reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
 
-**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()`
-redraws the window on every 12th tick (~4 Hz). Paused, it redraws only when a
-*stamp* changed since the last redraw, and re-derives the actions on every tick
-(cheap, and their inputs have no verb). The stamp is: the CPU register file
-(a direct core write), the master clock (steps, run-to, rewinds), the backend's
-`state_revision()` (every MUTATE from any client, a cold boot, and the metadata
-verbs: symbols, source map, subscriptions, trace / coverage / rewind settings,
-attach / detach), a host-input epoch (key, mouse-button and wheel events
-anywhere in the app, counted by an event filter on `qApp` while the debugger is
-enabled; mouse movement is not counted), and the loaded source file's
-modification time. The map and SLD loads need no special call: they bump the
-revision, so the tick redraws. `take_panel_refresh_count()` counts the redraws; the `ticks:` line reports it as `panel-refreshes=`.
+**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:974`)
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:370`: ~4 Hz). Paused, it
+redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:963`; `PausedStamp`,
+`debugger_manager.h:245`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
+the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
+everything, the Video tab's composited frame included, fifty times a second. The stamp is:
+
+- the whole CPU register file, compared field by field (a direct core write behind the backend, as the tests and
+  host actions make);
+- the master clock, `time().master_cycle` (steps, run-to, rewinds);
+- the backend's `state_revision()`, a counter that `Impl::bump_revision()` advances (31 call sites in
+  `src/debug/`) for every MUTATE line of any client (`log_mutate()`, `log_mutate_range()`), a cold boot
+  (`on_cold_boot_done()`), a landing `recheck()` applied, and the metadata verbs: `load_map()` and
+  `clear_symbols()`, `load_source_map()`, `clear_source_map()` and `load_program_sidecars()`, every
+  subscription verb (`subscribe`, `subscribe_source_line`, the group, enable and master switches), the
+  trace, call-stack, coverage and rewind settings, attach and detach, and the magic and persistent
+  breakpoints. A map or SLD load needs no special call: it bumps the revision, so the tick redraws;
+- the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:151`), installed on `qApp`
+  while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
+  double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side
+  changes made on user input (the CPU-speed menu writing NR 0x07). Mouse *movement* is not counted: hover
+  and Kempston mouse capture must not redraw a paused window;
+- a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
+  loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:551`), so an edit on disk still shows.
+
+`refresh_window()` (`debugger_manager.cpp:954`) takes the stamp after the redraw, because a panel may itself touch the backend and
+that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
+machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the
+redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window's half of the same issue,
+the framebuffer generation and the upload gate that stops a paused machine re-presenting an unchanged frame,
+is in [2.3](../02-architecture/03-a-frame-end-to-end.md).
+
+**The window's opening size (GH #114, #360).** A window opening at its default size grows to the size where
+nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_natural()`,
+`debugger_window.cpp:498`, queued from the first `showEvent()`); a size restored from the config file is left
+alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left column
+of tabs is widened by what its pages' `sizeHint()` lack, using the share of a widening the splitter really gave
+it on the previous pass (`fit_last_add_`, `fit_last_lacking_`; bounded by `kMaxInitialFitPasses` = 4
+(`kMaxInitialFitPasses`, `debugger_window.h:201`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:226`)). The frame, not the client area, must fit the screen
+(`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
+so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
+(`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
+at most `kMaxFitEchoes` = 6 times (`resizeEvent()`, `debugger_window.cpp:485-496`); any other size is the user's and ends the fit
+(`end_fit_()`, `debugger_window.cpp:478`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
+pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:522-526`), after which every size is the user's and the remembered sizes are
+dropped. Rows: `GR-06` (a stale answer inside the grace window is asked again), `GR-07` (after it every size is the user's) and `GR-08` (an earlier request landing while a pass is queued), in `debugger_window_grow_test`.
 
 **The breakpoint views follow the model.** The Breakpoints list and the
 disassembly gutter follow `BreakpointModel::changed(kinds)`, so a breakpoint
@@ -169,6 +203,12 @@ each labelled with the VHDL signal it mirrors; `cvc` is labelled as what NR
 the live `VideoTiming` by reference, so there is no second table of raster
 constants in `src/debugger/`.
 
+**Which memory an address is in (GH #360).** Every view names the memory behind an address through
+`debug/long_address.h`, by way of `src/debugger/memory_text.h`; `DebuggerWindow` holds one
+`AddressStyle` (Debug > Physical Addresses) and hands it to each panel and to the `BreakpointModel`.
+Which space each view prints, and the columns that were added, are described in
+[7.7](../07-source-level-debugging/07-frontends.md).
+
 ## The key bindings are data
 
 No shortcut in the debugger window is written at its call site. The inventory is
@@ -207,45 +247,69 @@ later, the loser is left unbound — and every refusal becomes a `LoadIssue` tha
 `MainWindow` keeps the map in effect in `debug_keys_`. Both its forwarding of
 the five execution keys (`run`, `pause`, `step_into`, `step_over`, `step_out`)
 and the push into `DebuggerWindow::set_keymap()` read that member, so the two
-windows cannot disagree.
+windows cannot disagree. The five source-step actions are keymap actions too
+(`source_step_into` and the rest), but they are debugger-window only: the
+forwarding stays at the five instruction-level keys.
 
 ## Symbols
 
-The Map menu loads into the backend's one table with `load_map()`, and the
-Disassembly, Call Stack and Breakpoints panels read `symbols()`. A breakpoint set
-on a symbol keeps its name in the list, and a symbol any other client loads
-shows in the panels too. `src/debug/symbol_table.*` reads z88dk maps
-(`load_z88dk_map()`), plain `SYMBOL = $ADDR` lists (`load_simple_map()`),
-sjasmplus `--sym` / `--exp` files (`load_sjasmplus_equ()`) and NextBuild
-`Memory.txt` files (`load_nextbuild_memory()`); the address fields of the
-breakpoint and watch dialogs go through `SymbolTable::resolve()`.
+The Map menu also imports and exports skoolkit control files and Ghidra symbol files (GH #389): see [7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md).
 
-The three Map > Load MAP File items (Z88DK, Simple, sjasmplus) are three handlers
-in `DebuggerManager`, each calling `load_map()` and then `refresh_panels()`. The
-Breakpoints Symbol column and the Call Stack's target names are computed in the
-panels' own `refresh()`, so a load that skipped it left the previous names on a
-paused machine (rows QMAP-05 and QMAP-06).
+The Map menu loads into the backend's one table with `load_map()`, and the Disassembly, Call Stack and
+Breakpoints panels read `symbols()`. A breakpoint set on a symbol keeps its name in the list, and a symbol
+any other client loads shows in the panels too. What each loader reads is
+[7.4](../07-source-level-debugging/04-formats.md); the Qt side is only the naming:
+
+- The panels name an address in the memory that supplies it now (`Debugger::source_page()`), through
+  `disasm_text::symbol_namer()` for the disassembly; a Breakpoints row uses its own page when it has one,
+  a Call Stack frame the page its target was entered in, and a breakpoint dialog keeps the page of a name
+  assembled for one (`resolve_key()`). The address fields of the breakpoint and watch dialogs go through
+  `SymbolTable::resolve()`.
+- A z88dk C symbol is shown by its C name (`lookup()`, design 10.6). The Disassembly copy asks
+  `symbol_namer(..., true)` for the assembler name so the paste still assembles, the watch dialog labels an
+  auto-filled watch with `SymbolTable::shown_name()`, and the Source tab's word menu offers the shown name
+  too (rows `QCN-01` to `-05`, `DCN-01`/`02`, `QMAP-08`).
+- The three Map > Load MAP File items (Z88DK, Simple, sjasmplus) are three handlers in `DebuggerManager`,
+  each calling `load_map()` and then `refresh_panels()`. The Breakpoints Symbol column and the Call Stack's
+  target names are computed in the panels' own `refresh()`, so a load that skipped it left the previous names
+  on a paused machine (rows `QMAP-05` and `QMAP-06`). A file refused rather than unreadable has the
+  backend's reason appended to the failure box (`on_load_map_z88dk()`, `on_load_map_simple()`, rows `QMAP-07`).
+
+## Labels and comments of your own (GH #387)
+
+The Disassembly and the Source tab share one menu builder, `add_annotation_actions()`
+(`src/debugger/annotation_menu.cpp:77`), for Add / Rename Label…, Remove Label and Add / Edit Comment…;
+`DisasmPanel` draws a **Label** column and the first line of a comment, and **Map ▸ Open / Save / Save As
+Annotations** and the quit question about unsaved changes are `DebuggerManager`'s. The mechanism and its rows
+are [7.4.6](../07-source-level-debugging/04-6-user-annotations.md), section 10.
 
 ## Source
 
-The Source tab (`source_panel.*`) shows the PC's line from the backend's source
-map and carries the source-step buttons; it holds no state of its own beyond
-the loaded file and its modification time, where the view was last put, and the
-sidecar reason `report_sidecars()` gave it. `refresh()` runs while the machine
-is paused whenever the paused stamp changes (the loaded file's modification
-time is part of it, so an edit on disk still shows), so it moves the cursor and centres only when the line or
-the PC changed or the text was loaded since (a user who scrolled stays put).
-`follow_pc()` forces the next one: `DebuggerWindow::activate_follow_pc()` calls
-it, and `apply_pause_state(true)` runs that at every stop and every step, as it
-does for the disassembly, so a stop at the very PC and line already shown still
-puts the view back. While the machine runs the tab says "Running" and drops the
-highlight. Its buttons are not menu items and
-have no key binding: the menu tree and the bindings are pinned by
-`debugger_accel_test` and `debugger_keymap_test`. `BreakpointModel` lists an
-Execute subscription with a page qualifier as the GUI's own row (`Row::page`);
-the Breakpoints panel creates one from a `file:line`, and the gutter draws it
-only while its page is mapped (`pc_marked()`). The Call Stack's last column
-looks up each frame's caller on its recorded page.
+The Source tab (`source_panel.*`) shows the PC's line from the backend's source map and carries the
+source-step buttons; it holds no state of its own beyond the loaded file, its modification time, where the
+view was last put, and the sidecar reason `report_sidecars()` gave it. Its refresh, the file search path, the
+highlighter and colour schemes, the gutter and breakpoint rows, the context menu, the selection sync with the
+Disassembly (GH #347) and the Debug > Source actions are described in
+[7.7](../07-source-level-debugging/07-frontends.md), with the mechanism behind each. The menu tree and the
+bindings are pinned by `debugger_accel_test` and `debugger_keymap_test`.
+
+## Memory coverage
+
+**Debug ▸ Coverage** (`Enable Coverage`, `Clear Coverage`) drives INS-21
+(`mem_coverage_enable/clear`, [3.9.1](09-1-the-backend-api.md)); the check mirrors
+the backend on every `refresh_panels()` and at construction, so a window built over
+a backend that `--coverage` already switched on shows it ticked. All colours come
+from `coverage_colors.h` (X green, R blue, W orange-red, the Source tint a pale
+green), each through `palette_tint`; the Source tab alone takes its tint from the scheme
+(`SchemeColours::coverage_line`: Light is `coverage_colors::exec_line()` of a light palette, Dark and
+Borland their own dark greens, so every class colour reads on it, QSRC-195 clause 5, QSRC-200). The Disassembly paints a 3 px bar right of the
+gutter separator on a line where `mem_coverage_fetch(addr)` has X, after the PC and
+selection fills; the Memory panel asks `mem_coverage()` for each row through the
+same `locate()` as the bytes and underlines each covered byte in thirds, X | R | W,
+with a legend label in its top bar; the Source tab adds a full-width
+`ExtraSelection`, in the scheme's tint, for each line in `executed_source_lines(file)` before the
+current-line selection, so that one wins on its own line. Nothing is drawn while
+coverage is off.
 
 ## Copying out of a custom-painted panel
 

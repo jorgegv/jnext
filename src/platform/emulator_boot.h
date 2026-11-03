@@ -89,6 +89,67 @@ inline bool emulator_apply_load_keeping_keys(Emulator& emu, const std::string& f
     return ok;
 }
 
+/// GH #344 - `--source-map FILE`: attach the source map as the user's, right after
+/// the first successful CLI load (the program is then in memory, which its identity
+/// and, for z88dk, its banked sections are judged against). The same load a hand
+/// "Load Source Map..." does, with a mismatch refused. `line` is what the frontend
+/// logs (an Info line on success, an Error on a refusal, which makes it exit 1, as
+/// a failed `--load` does). A template over the debugger so this header stays free
+/// of its includes (and of the logger's).
+struct CliSourceMapResult {
+    bool        ok = false;
+    bool        pending = false;   ///< attached, its identity judged when the program first runs
+    std::string line;
+};
+/// `deferred`: the program is a tape, not in memory yet (`program_loads_later()`), so a
+/// map with an identity attaches pending and is judged where the CPU first runs its code
+/// (stage 3); the frontend then watches it with emulator_poll_cli_source_map().
+/// `dot_only` (GH #351): there is no `--load`, so only a z88dk dot command's map is
+/// accepted; it attaches pending (the guest loads the command when it is typed) and is
+/// judged when the command starts. Any other map is refused: no program to judge it by.
+/// `rzx`: the refusal names the RZX replay (--rzx-play, --load R.rzx).
+template <typename Dbg>
+inline CliSourceMapResult emulator_attach_cli_source_map(Dbg& dbg, const std::string& file,
+                                                         bool deferred = false,
+                                                         bool dot_only = false,
+                                                         bool rzx = false) {
+    const auto r = dbg.load_source_map(file, /*accept_identity_mismatch=*/false, deferred, dot_only);
+    CliSourceMapResult out;
+    out.ok = r.count >= 0;
+    out.pending = out.ok && r.pending;
+    if (r.not_dot) {
+        out.line = rzx ? "--source-map with an RZX replay accepts only the map of a z88dk dot command: '" +
+                             file + "' is not one"
+                       : "--source-map requires --load FILE, or the map of a z88dk dot command: '" +
+                             file + "' is not one";
+        return out;
+    }
+    out.line = "--source-map '" + file + "': " +
+               (out.ok ? std::to_string(r.count) + " source lines" +
+                             (r.listings > 0 ? " (" + std::to_string(r.listings) +
+                                                   (r.listings == 1 ? " z88dk listing)" : " z88dk listings)")
+                                             : std::string()) +
+                             r.identity_note +
+                             (r.listing_note.empty() ? std::string() : "; " + r.listing_note)
+                       : r.error);
+    return out;
+}
+
+/// GH #344 stage 3 - what became of a `--source-map` that attached pending, asked once
+/// per tick while the frontend watches it: still waiting for the program to run its
+/// code, verified, or dropped by a mismatch (the backend has logged the error; the
+/// frontend exits 1, as it does for a map refused at attach). `reason` is the Source
+/// tab's, for the frontend's own line.
+enum class CliSourceMapWatch { Waiting, Done, Failed };
+template <typename Dbg>
+inline CliSourceMapWatch emulator_poll_cli_source_map(const Dbg& dbg, std::string* reason = nullptr) {
+    const auto st = dbg.source_map_status();
+    if (st.state == Dbg::SourceMapStatus::State::Attached)
+        return st.pending ? CliSourceMapWatch::Waiting : CliSourceMapWatch::Done;
+    if (reason) *reason = st.reason;
+    return CliSourceMapWatch::Failed;
+}
+
 /// True when emulator_apply_load() above would route `file` to
 /// Emulator::load_nex() — i.e. the extension is `.nex` or unrecognised (the
 /// fallback). The GH #228 experimental-V1.3 gate applies to exactly that
