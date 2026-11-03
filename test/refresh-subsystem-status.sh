@@ -129,6 +129,7 @@ BEGIN {
     M["contention_test"]               = "Contention"
     M["port_test"]                     = "I/O Port Dispatch"
     M["audio_test"]                    = "Audio (AY+DAC+Beeper)"
+    M["ay_cache_test"]                 = "AY/TurboSound caches"
     M["audio_nextreg_test"]            = "Audio (NextREG)"
     M["audio_port_dispatch_test"]      = "Audio (port dispatch)"
     M["audio_posix_test"]              = "Audio (Pi I2S source, POSIX)"

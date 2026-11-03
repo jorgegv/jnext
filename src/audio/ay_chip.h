@@ -39,7 +39,7 @@ public:
     uint8_t read_register(uint8_t reg) const { return reg_[reg & 0x0F]; }
 
     /// Set AY mode (true) or YM mode (false).
-    void set_ay_mode(bool ay) { ay_mode_ = ay; }
+    void set_ay_mode(bool ay) { ay_mode_ = ay; dirty_ = true; }
 
     /// Current AY/YM mode (true=AY, false=YM). Mirrors the per-chip
     /// `aymode_i` input routed from NR 0x06 bit 0 (VHDL zxnext.vhd:6389).
@@ -48,7 +48,12 @@ public:
     /// Advance the chip by one PSG clock-enable tick (1.75 MHz rate).
     /// The internal /8 divider produces the tone generator clock;
     /// the /16 divider produces the noise generator clock.
-    void tick();
+    /// Returns true when output_a/b/c() changed (GH #440).
+    bool tick();
+
+    /// The output depends on inputs this class does not see change (a state
+    /// load rewrites them in place): force the next tick() to recompute it.
+    void mark_dirty() { dirty_ = true; }
 
     /// Get current output level for channel A/B/C (0-255).
     uint8_t output_a() const { return out_a_; }
@@ -90,6 +95,14 @@ private:
     uint8_t out_a_ = 0;
     uint8_t out_b_ = 0;
     uint8_t out_c_ = 0;
+
+    // GH #440. The outputs are a pure function of reg_[7..10], tone_op_[],
+    // noise_op_, env_vol_ and ay_mode_ (VHDL ym2149.vhd:469-541). The
+    // generators move only on a divider tick (ena_div_, one in 8; the noise
+    // one is a subset), so tick() recomputes only then, or when dirty_: set by
+    // every other writer of those inputs (write_data, the envelope reset in
+    // tick(), set_ay_mode, reset, mark_dirty after a state load).
+    bool dirty_ = true;
 
     // Volume lookup tables (from VHDL)
     static const uint8_t vol_table_ay_[16];

@@ -38,20 +38,20 @@ public:
     void reset_ay_only();
 
     /// Enable/disable TurboSound (when disabled, only AY#0 is active).
-    void set_enabled(bool en) { enabled_ = en; }
+    void set_enabled(bool en) { enabled_ = en; mix_dirty_ = true; }
     bool enabled() const { return enabled_; }
 
     /// Set AY/YM mode for all chips.
     void set_ay_mode(bool ay);
 
     /// Set stereo mode: false=ABC (default), true=ACB.
-    void set_stereo_mode(bool acb) { stereo_mode_ = acb; }
+    void set_stereo_mode(bool acb) { stereo_mode_ = acb; mix_dirty_ = true; }
     /// Current stereo mode. Mirrors `stereo_mode_i` from NR 0x08 bit 5
     /// (VHDL zxnext.vhd:5177, :6400).
     bool stereo_mode() const { return stereo_mode_; }
 
     /// Set per-chip mono flags (bit 0=AY#0, bit 1=AY#1, bit 2=AY#2).
-    void set_mono_mode(uint8_t flags) { mono_mode_ = flags & 0x07; }
+    void set_mono_mode(uint8_t flags) { mono_mode_ = flags & 0x07; mix_dirty_ = true; }
     /// Current per-chip mono flags. Mirrors `mono_mode_i` from NR 0x09
     /// bits 7:5 (VHDL zxnext.vhd:5186, :6398).
     uint8_t mono_mode() const { return mono_mode_; }
@@ -80,7 +80,7 @@ public:
     /// keeps reading back. Not hardware, not machine state — see
     /// audio/audio_mute.h. Deliberately not touched by reset() /
     /// reset_ay_only() / save_state() / load_state().
-    void set_chip_mute_mask(uint8_t m) { chip_mute_mask_ = m & AudioMute::AY_ALL; }
+    void set_chip_mute_mask(uint8_t m) { chip_mute_mask_ = m & AudioMute::AY_ALL; mix_dirty_ = true; }
     uint8_t chip_mute_mask() const { return chip_mute_mask_; }
 
     /// Get mixed stereo output (12-bit per channel).
@@ -120,6 +120,13 @@ private:
     std::array<uint16_t, 3> chip_pcm_L_{};
     std::array<uint16_t, 3> chip_pcm_R_{};
     bool chip_pcm_valid_ = true;
+
+    // GH #440. The mix is a pure function of the chips' outputs, ay_select_,
+    // pan_, enabled_, stereo_mode_, mono_mode_ and chip_mute_mask_
+    // (turbosound.vhd:184-337), so tick() recomputes it only when a chip's
+    // output changed or this flag is set by a writer of any other input
+    // (the setters, reg_addr, reset, reset_ay_only, load_state).
+    bool mix_dirty_ = true;
 
     // Debugger-only; NOT machine state (not reset, not serialised).
     uint8_t chip_mute_mask_ = AudioMute::NONE;

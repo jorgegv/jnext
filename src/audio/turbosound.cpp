@@ -59,6 +59,7 @@ void TurboSound::reset()
     enabled_ = false;
     stereo_mode_ = false;
     mono_mode_ = 0;
+    mix_dirty_ = true;
 }
 
 void TurboSound::reset_ay_only()
@@ -77,6 +78,7 @@ void TurboSound::reset_ay_only()
     chip_pcm_L_.fill(0);
     chip_pcm_R_.fill(0);
     chip_pcm_valid_ = true;
+    mix_dirty_ = true;
 }
 
 void TurboSound::set_ay_mode(bool ay)
@@ -102,6 +104,7 @@ void TurboSound::reg_addr(uint8_t data)
     if (enabled_ && (data & 0x80) && ((data >> 2) & 0x07) == 0x07) {
         uint8_t sel = data & 0x03;
         uint8_t new_pan = (data >> 5) & 0x03;
+        mix_dirty_ = true;
 
         switch (sel) {
             case 0x02:  // AY#1
@@ -139,18 +142,22 @@ uint8_t TurboSound::reg_read(bool reg_mode) const
 void TurboSound::tick()
 {
     // Always tick AY#0
-    ay_[0].tick();
+    bool changed = ay_[0].tick();
 
     // Tick AY#1 and AY#2 only if TurboSound is enabled,
     // or if that AY is currently selected
     if (enabled_ || ay_select_ == 2) {
-        ay_[1].tick();
+        changed |= ay_[1].tick();
     }
     if (enabled_ || ay_select_ == 1) {
-        ay_[2].tick();
+        changed |= ay_[2].tick();
     }
 
-    compute_stereo_mix();
+    // GH #440: the mix only moves when a chip's output or a mix input did.
+    if (changed || mix_dirty_) {
+        compute_stereo_mix();
+        mix_dirty_ = false;
+    }
 }
 
 void TurboSound::compute_stereo_mix()
@@ -248,4 +255,6 @@ void TurboSound::load_state(StateReader& r)
     chip_pcm_L_.fill(0);
     chip_pcm_R_.fill(0);
     chip_pcm_valid_ = false;
+    for (auto& a : ay_) a.mark_dirty();   // the loaded outputs may predate the loaded inputs
+    mix_dirty_ = true;
 }
