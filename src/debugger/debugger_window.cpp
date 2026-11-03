@@ -24,6 +24,8 @@
 #include "debugger/window_attach.h"
 #include "platform/config_keys.h"
 
+#include <cmath>
+
 #include <QCloseEvent>
 #include <QGuiApplication>
 #include <QScreen>
