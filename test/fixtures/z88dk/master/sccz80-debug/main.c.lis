@@ -613,10 +613,12 @@ main.c::square::1::1:
     11  000d  39                	add	hl,sp
     11  000e  6e                	ld	l,(hl)
     11  000f  2600              	ld	h,0
-    11  0011  cd0000            	call	l_mult_u
-    11  0014  2600              	ld	h,0
-    11  0016  cd0000            	call	l_debug_pop_frame
-    11  0019  c9                	ret
+    11  0011  55                	ld	d,l
+    11  0012  ed30              	mul	de
+    11  0014  eb                	ex	de,hl
+    11  0015  2600              	ld	h,0
+    11  0017  cd0000            	call	l_debug_pop_frame
+    11  001a  c9                	ret
     11                          
     11                          
     11                          	C_LINE	14,"main.c::square::0::1"
@@ -628,129 +630,130 @@ main.c::square::0::1:
     14                          	C_LINE	15,"main.c::main::0::2"
 main.c::main::0::2:
     15                          ._main
-    15  001a  cd0000            	call	l_debug_push_frame
+    15  001b  cd0000            	call	l_debug_push_frame
     15                          	C_LINE	15,"main.c::main::0::2"
     15                          	C_LINE	16,"main.c::main::1::3"
 main.c::main::1::3:
     16                          	C_LINE	16,"main.c::main::1::3"
     16                          	C_LINE	17,"main.c::main::1::3"
     17                          	C_LINE	17,"main.c::main::1::3"
-    17  001d  3b                	dec	sp
-    17  001e  210000            	ld	hl,0	;const
-    17  0021  7d                	ld	a,l
-    17  0022  320000            	ld	(_counter),a
+    17  001e  3b                	dec	sp
+    17  001f  210000            	ld	hl,0	;const
+    17  0022  7d                	ld	a,l
+    17  0023  320000            	ld	(_counter),a
     17                          	C_LINE	18,"main.c::main::1::3"
     18                          	C_LINE	18,"main.c::main::1::3"
-    18  0025  210000            	ld	hl,0	;const
-    18  0028  39                	add	hl,sp
-    18  0029  3600              	ld	(hl),0
-    18  002b  c33300            	jp	i_4	;EOS
+    18  0026  210000            	ld	hl,0	;const
+    18  0029  39                	add	hl,sp
+    18  002a  3600              	ld	(hl),0
+    18  002c  c33400            	jp	i_4	;EOS
     18                          .i_2
-    18  002e  210000            	ld	hl,0	;const
-    18  0031  39                	add	hl,sp
-    18  0032  34                	inc	(hl)
+    18  002f  210000            	ld	hl,0	;const
+    18  0032  39                	add	hl,sp
+    18  0033  34                	inc	(hl)
     18                          .i_4
-    18  0033  e1                	pop	hl
-    18  0034  e5                	push	hl
-    18  0035  2600              	ld	h,0
-    18  0037  7d                	ld	a,l
-    18  0038  d608              	sub	8
-    18  003a  d27400            	jp	nc,i_3	;
+    18  0034  e1                	pop	hl
+    18  0035  e5                	push	hl
+    18  0036  2600              	ld	h,0
+    18  0038  7d                	ld	a,l
+    18  0039  d608              	sub	8
+    18  003b  d27700            	jp	nc,i_3	;
     18                          	C_LINE	19,"main.c::main::3::4"
 main.c::main::3::4:
     19                          	C_LINE	19,"main.c::main::3::4"
-    19  003d  110100            	ld	de,_table
-    19  0040  e1                	pop	hl
-    19  0041  e5                	push	hl
-    19  0042  2600              	ld	h,0
-    19  0044  19                	add	hl,de
-    19  0045  e5                	push	hl
-    19  0046  210200            	ld	hl,2	;const
-    19  0049  39                	add	hl,sp
-    19  004a  6e                	ld	l,(hl)
-    19  004b  2600              	ld	h,0
-    19  004d  e5                	push	hl
-    19  004e  cd0000            	call	_square
-    19  0051  c1                	pop	bc
-    19  0052  d1                	pop	de
-    19  0053  7d                	ld	a,l
-    19  0054  12                	ld	(de),a
+    19  003e  110100            	ld	de,_table
+    19  0041  e1                	pop	hl
+    19  0042  e5                	push	hl
+    19  0043  2600              	ld	h,0
+    19  0045  19                	add	hl,de
+    19  0046  e5                	push	hl
+    19  0047  210200            	ld	hl,2	;const
+    19  004a  39                	add	hl,sp
+    19  004b  6e                	ld	l,(hl)
+    19  004c  2600              	ld	h,0
+    19  004e  e5                	push	hl
+    19  004f  cd0000            	call	_square
+    19  0052  c1                	pop	bc
+    19  0053  d1                	pop	de
+    19  0054  7d                	ld	a,l
+    19  0055  12                	ld	(de),a
+    19  0056  2600              	ld	h,0
     19                          	C_LINE	20,"main.c::main::3::4"
     20                          	C_LINE	20,"main.c::main::3::4"
-    20  0055  2a0000            	ld	hl,(_counter)
-    20  0058  2600              	ld	h,0
-    20  005a  e5                	push	hl
-    20  005b  110100            	ld	de,_table
-    20  005e  210200            	ld	hl,2	;const
-    20  0061  39                	add	hl,sp
-    20  0062  6e                	ld	l,(hl)
-    20  0063  2600              	ld	h,0
-    20  0065  19                	add	hl,de
-    20  0066  6e                	ld	l,(hl)
-    20  0067  2600              	ld	h,0
-    20  0069  d1                	pop	de
-    20  006a  19                	add	hl,de
-    20  006b  2600              	ld	h,0
-    20  006d  7d                	ld	a,l
-    20  006e  320000            	ld	(_counter),a
+    20  0058  2a0000            	ld	hl,(_counter)
+    20  005b  2600              	ld	h,0
+    20  005d  e5                	push	hl
+    20  005e  110100            	ld	de,_table
+    20  0061  210200            	ld	hl,2	;const
+    20  0064  39                	add	hl,sp
+    20  0065  6e                	ld	l,(hl)
+    20  0066  2600              	ld	h,0
+    20  0068  19                	add	hl,de
+    20  0069  6e                	ld	l,(hl)
+    20  006a  2600              	ld	h,0
+    20  006c  d1                	pop	de
+    20  006d  19                	add	hl,de
+    20  006e  2600              	ld	h,0
+    20  0070  7d                	ld	a,l
+    20  0071  320000            	ld	(_counter),a
     20                          	C_LINE	21,"main.c::main::3::4"
-    21  0071  c32e00            	jp	i_2	;EOS
+    21  0074  c32f00            	jp	i_2	;EOS
     21                          .i_3
     21                          	C_LINE	22,"main.c::main::1::4"
 main.c::main::1::4:
     22                          	C_LINE	22,"main.c::main::1::4"
-    22  0074  2a0000            	ld	hl,(_counter)
-    22  0077  3e64              	ld	a,100
-    22  0079  95                	sub	l
-    22  007a  d29700            	jp	nc,i_5	;
-    22  007d  2a0000            	ld	hl,(_counter)
-    22  0080  3e64              	ld	a,100
-    22  0082  95                	sub	l
-    22  0083  d28c00            	jp	nc,i_6	;
-    22  0086  216400            	ld	hl,100	;const
-    22  0089  c39100            	jp	i_7	;
+    22  0077  2a0000            	ld	hl,(_counter)
+    22  007a  3e64              	ld	a,100
+    22  007c  95                	sub	l
+    22  007d  d29a00            	jp	nc,i_5	;
+    22  0080  2a0000            	ld	hl,(_counter)
+    22  0083  3e64              	ld	a,100
+    22  0085  95                	sub	l
+    22  0086  d28f00            	jp	nc,i_6	;
+    22  0089  216400            	ld	hl,100	;const
+    22  008c  c39400            	jp	i_7	;
     22                          .i_6
-    22  008c  2a0000            	ld	hl,(_counter)
-    22  008f  2600              	ld	h,0
+    22  008f  2a0000            	ld	hl,(_counter)
+    22  0092  2600              	ld	h,0
     22                          .i_7
-    22  0091  2600              	ld	h,0
-    22  0093  7d                	ld	a,l
-    22  0094  320000            	ld	(_counter),a
+    22  0094  2600              	ld	h,0
+    22  0096  7d                	ld	a,l
+    22  0097  320000            	ld	(_counter),a
     22                          	C_LINE	23,"main.c::main::1::4"
     23                          .i_5
     23                          	C_LINE	23,"main.c::main::1::4"
-    23  0097  cd0000            	call	_asm_bump
+    23  009a  cd0000            	call	_asm_bump
     23                          	C_LINE	24,"main.c::main::1::4"
     24                          	C_LINE	24,"main.c::main::1::4"
-    24  009a  2a0000            	ld	hl,(_counter)
-    24  009d  2600              	ld	h,0
-    24  009f  e5                	push	hl
-    24  00a0  cd0000            	call	_util_twice
-    24  00a3  c1                	pop	bc
-    24  00a4  2600              	ld	h,0
-    24  00a6  7d                	ld	a,l
-    24  00a7  320000            	ld	(_counter),a
+    24  009d  2a0000            	ld	hl,(_counter)
+    24  00a0  2600              	ld	h,0
+    24  00a2  e5                	push	hl
+    24  00a3  cd0000            	call	_util_twice
+    24  00a6  c1                	pop	bc
+    24  00a7  2600              	ld	h,0
+    24  00a9  7d                	ld	a,l
+    24  00aa  320000            	ld	(_counter),a
     24                          	C_LINE	25,"main.c::main::1::4"
     25                          	C_LINE	25,"main.c::main::1::4"
     25                          .i_8
     25                          	C_LINE	26,"main.c::main::2::5"
 main.c::main::2::5:
     26                          	C_LINE	26,"main.c::main::2::5"
-    26  00aa  210000            	ld	hl,_counter
-    26  00ad  7e                	ld	a,(hl)
-    26  00ae  34                	inc	(hl)
-    26  00af  6f                	ld	l,a
-    26  00b0  2600              	ld	h,0
+    26  00ad  210000            	ld	hl,_counter
+    26  00b0  7e                	ld	a,(hl)
+    26  00b1  34                	inc	(hl)
+    26  00b2  6f                	ld	l,a
+    26  00b3  2600              	ld	h,0
     26                          	C_LINE	27,"main.c::main::2::5"
-    27  00b2  c3aa00            	jp	i_8	;EOS
+    27  00b5  c3ad00            	jp	i_8	;EOS
     27                          .i_9
     27                          	C_LINE	28,"main.c::main::1::5"
 main.c::main::1::5:
     28                          	C_LINE	28,"main.c::main::1::5"
-    28  00b5  210000            	ld	hl,0	;const
-    28  00b8  33                	inc	sp
-    28  00b9  cd0000            	call	l_debug_pop_frame
-    28  00bc  c9                	ret
+    28  00b8  210000            	ld	hl,0	;const
+    28  00bb  33                	inc	sp
+    28  00bc  cd0000            	call	l_debug_pop_frame
+    28  00bf  c9                	ret
     28                          
     28                          
     28                          	SECTION	bss_compiler

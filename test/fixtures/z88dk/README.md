@@ -11,10 +11,9 @@ z88dk, hence committed outputs and a hash check (rows Z88FIX-01/02 in `source_ma
 | dir | commit | describe | zsdcc |
 |-----|--------|----------|-------|
 | `v2.4/` | `4d530b6eb779ad0f2a1d13c0bb670cf717477501` | v2.4 | 4.5.0 #15242 |
-| `master/` | `39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7` | v2.4-2695-g39421a01cd | 4.6.0 #16639 |
+| `master/` | `97731e4e2988543e2c849cd1ae1d0aeddf372fcd` | v2.4-2883-g97731e4e29 | 4.6.0 #16639 pr3093 Nov 3 2026 |
 
-The master tree has one local modification (`include/_DEVELOPMENT/common/string.h`, the
-`__80CC` `__builtin_strlen_fastcall` block removed); our sources do not use `strlen`.
+The master tree has no local modification (`master/PROVENANCE`: `modified tracked files:` is empty).
 Each `PROVENANCE` and each `build.log` (first line) record the commit. The master tools
 print a stale banner (`v23856-580777436e-20251005`, from an old generated `config.h`):
 trust the commit, not `zcc`'s banner.
@@ -62,7 +61,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sccz80-dot, sccz80-dotx, sdcc-dot; v2.4-dotn/sccz80 | `dot.c dutil.c`, `-subtype=dot` / `dotx` / `dotn`, `-clib=new -debug` (sdcc-dot: `-clib=sdcc_iy -SO2 --c-code-in-asm`: lines in the `.lis` only) | ok, `PROG` (`PROG.X` for dotx) | GH #351 dot commands; dotn lives in `v2.4-dotn/` so that Z88CN-10's walk over `v2.4/` and `master/` (every map shows a C name) is not tripped by its refused C symbols |
 | master/sccz80-dot, sccz80-dotx, sdcc-dot, 80cc-dot | `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #351 |
 | master/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic page prefix; keeps the classic CRT listing (G19-G21) |
-| master/classic-debug | `-clib=classic -debug`, `BANK_10` | **fails rc=1** | Z1 |
+| master/classic-debug | `-clib=classic -debug`, `BANK_10` | ok (z88dk v2.4-2883; failed with Z1 on v2.4-2695) | Z1 fixed on master, GH #445 |
 | v2.4/sccz80-cvars, master/sccz80-cvars, master/sdcc-cvars, master/80cc-cvars | `vars.c other.c` (+ `types.h`): `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #431: C variable records of every type (section "C variables") |
 | v2.4/sdcc-cvars | `-clib=sdcc_iy -debug`, `vars.c other.c` | **fails rc=1** | z88dk#3172, as `v2.4/sdcc-debug` |
 | v2.4/sccz80-cvars-banked, master/{sccz80,sdcc,80cc}-cvars-banked | `bk.c` compiled with `--codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20`, then `bkmain.c bk.o`, the compiler flags of the line above + `-pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000` | ok | GH #431: banked code AND data (runnable, as the `-run` builds) |
@@ -80,16 +79,15 @@ CODE block at $8000 that equals `prog_CODE.bin`; link flags without `-subtype=ne
 
 Kept per successful build: `prog.map` (trimmed), every user `*.c.lis` / `*.asm.lis`,
 `prog.nex` (`prog.tap` for the tape build), every `prog_<GROUP>.bin` (classic: `prog`). `prog.lis` (the crt0
-listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master/sdcc-debug`, and both `classic-bank10`
-(`KEEP_CRT=1` in `generate.sh`, GH #348); not kept for the others, nor `.sym`, `.o`.
+listing, 12-18K lines) is kept for exactly six builds, `v2.4/sdcc-SO2`, `master/sdcc-debug`, both `classic-bank10` and both
+`sccz80-banked-crt` (`KEEP_CRT=1` in `generate.sh`, GH #348, GH #426); not kept for the others, nor `.sym`, `.o`.
 
 ### Not producible (recorded, `build.log` only)
 
 - `v2.4/sdcc-debug` (G12): `defc Gcounter0_00==.` syntax errors in 2.4's sdcc `-debug`
   (z88dk issue 3172; fixed on master).
 - `v2.4/sdcc-cvars` (GH #431): the same z88dk issue 3172 failure as `v2.4/sdcc-debug`, on `vars.c other.c`.
-- `v2.4/classic-debug`, `master/classic-debug` (Z1): `Unknown option2 --hardware-keyboard`.
-  "Classic +zxn banked -debug: not producible."
+- `v2.4/classic-debug` (Z1): `Unknown option2 --hardware-keyboard`. `master/classic-debug` failed the same way until z88dk v2.4-2883 (GH #445) and is now built (classic +zxn banked `-debug` is producible on master only).
 
 ## Findings (evidence in this tree)
 
@@ -97,7 +95,7 @@ listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master
   (`v2.4/sccz80-debug`).
 - G2 80 `= $0000 ; addr, local, , <mod>, ,` lines in that map.
 - G3 lines 14/15 share $8C92, 16/17 $8C95, 24/25 $8D12 (2.4 sccz80).
-- G4 line 20 is $8CBE on 2.4 and $8CCD on master; master 24 $8D12, 25/26 $8D22.
+- G4 line 20 is $8CBE on 2.4 and $8CBA on master; master 24 $8CFF, 25/26 $8D0F.
 - G5 `call l_debug_push_frame` in `main.c.lis`; the helper symbols are kept in the map.
 - G6 2.4 sdcc maps have no `__C_LINE_`; the lines are `;main.c:N:` comments in the
   `.lis` (`--c-code-in-asm`).
@@ -109,8 +107,8 @@ listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master
 - G11 `__CDBINFO__` count: 9 (2.4 sccz80), 9 (master sccz80), 24 (master sdcc), 11 (master 80cc), 0 (2.4 sdcc).
 - G12 see above.
 - G13 `prog.lis` lists the false branches of `IF` too, with no bytes: `__stdio_closed_file_list:` is at
-  m4 line 9207 (with bytes) and again at 9266. The map names the defining line (9207), so a label
-  matches only at that line. The m4 file's lines are 1..9689 with none missing (2.4 and master).
+  m4 line 9207 (with bytes) and again at 9266 on 2.4 (master: 9219 and 9278). The map names the defining line (9207 / master 9219), so a label
+  matches only at that line. The m4 file's lines are 1..9689 on 2.4 and 1..9701 on master, none missing.
 - G14 z80asm defines `__ASM_LINE_<n>_<file>` for a label only while the location is not C source:
   master sdcc has `__ASM_LINE_224/226_main.c` for `_counter` / `_table`, which sit before the first
   `C_LINE`; those numbers are lines of the generated assembly, not of `main.c`.
@@ -155,20 +153,22 @@ listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master
   runs from `Page{4}`/`Page{5}`) and dotn (the main part runs from pages NextZXOS allocates: $DC $DB $DE $DD
   in the run). The machine resets while NextZXOS boots, so a map attached at start-up meets a reset
   before the command can be typed. Not measured: NextZXOS's 48K personality, esxDOS proper.
-- Z3 (candidate upstream bug, GH #345): newlib `+zxn` `__banked` programs built with the
-  defaults cannot run. `CRT_ORG_PAGE_20` is 16-bit ($C000), but `banked_call` reads the page
+- Z3 (candidate upstream bug, GH #345; v2.4 only for the first half): newlib `+zxn` `__banked` programs built with the
+  defaults cannot run on v2.4. `CRT_ORG_PAGE_20` is 16-bit ($C000) there, but `banked_call` reads the page
   from bits 16-23, so `defq _banked_add` is `00 C0 00 00` and it pages in page 0; and the
   default stack ($FF58) is in the banking segment (MMU7), so `banked_call`'s `ret` pops from
   the wrong page and returns to $FFFF. The `-run` builds pass `CRT_ORG_PAGE_20=0x14C000` and
   `REGISTER_SP=0xC000` and run on both installs (`__PAGE_20_head` is then 24-bit, read by its
   low 16 bits, design 9.4). `sccz80-page20`, `sccz80-bank10`, `sccz80-banked`, `sdcc-banked`
   (and `bankin.asm`'s `bank_in`) are map/identity fixtures only and do not run.
+  On master (v2.4-2883) the default `CRT_ORG_PAGE_20` is `$14C000` (24-bit; `master/sdcc-banked/prog.map`, built
+  with no pragma), so that half is gone; the default stack was not re-measured there.
 - Z4 (candidate upstream bug, GH #345): z88dk-gdb (2.4 and master) segfaults loading a map
   with a 24-bit `__C_LINE_` value (the `-run` maps).
   Z3/Z4 are for the owner to decide on; nothing is filed by this work.
 - Z1 (candidate upstream bug): `-debug` makes zcc forward ALIAS options to the compiler.
   `zcc +zx --vt100 -c util.c -o u.o` succeeds, `zcc +zx --vt100 -debug -c util.c -o u.o`
-  fails with `Unknown option2 --vt100`, on both installs.
+  fails with `Unknown option2 --vt100` on v2.4; master v2.4-2883 accepts both (measured with the install named in `generate.sh`).
 - Z2 (known upstream TODO): master sdcc labels header code compiled into a second module
   with the wrong line (`util_inc` in `util_c` shows as `util.h:9`, really line 7).
 
@@ -178,8 +178,8 @@ The `*-cvars`, `*-cvars-banked` and `*-fc` builds exist to give the C variable r
 (`__CDBINFO__`) a ground truth. Everything below was read from the committed maps with a
 small decoder (undo z80asm's `_hh` escaping of the name; the module is the 4th comma-separated field after the line's ` ; `),
 and the `.lis` files; all builds are `-debug`, `TMPDIR=/tmp`.
-**Which install produced what:** `v2.4/` = 4d530b6eb, `master/` = 39421a01cd (the installed
-latest, kept as the fixture base; it predates upstream PR #3221). 80cc exists only in `master/`.
+**Which install produced what:** `v2.4/` = 4d530b6eb, `master/` = 97731e4e29 (v2.4-2883, regenerated by GH #445;
+the earlier base 39421a01cd predated upstream PR #3221). 80cc exists only in `master/`.
 
 Records kept per build (F functions, M modules, S variables, T types; total in the map):
 
@@ -203,7 +203,7 @@ Facts the decoder and the frame rows rely on (each checked in the files named):
   sccz80/80cc (`g_char` `SC:S`) and unsigned in zsdcc (`SC:U`); `float` is `{6}SF` (sccz80, 80cc) and
   `{4}SF` (zsdcc); an enum variable is `SI:S` (sccz80/80cc, 2 bytes) or `SC:U` (zsdcc, 1 byte).
 - `g_float = 1.5` in the data: `00 00 00 00 40 81` (6-byte z88dk format, sccz80 and 80cc, `_g_float`
-  $904A on 2.4 / $904C on master sccz80 / $8FD7 80cc) and `00 00 c0 3f` (IEEE single, zsdcc, $8F44).
+  $904A on 2.4 / $904C on master sccz80 / $8FC7 80cc) and `00 00 c0 3f` (IEEE single, zsdcc, $8F44).
   Read from `prog_CODE.bin` at (address - `__CODE_head` $8000).
 - sccz80 and 80cc write a second, incomplete-array record for `g_str` (zsdcc one record): `({-1}DA-1x,SC:S)` beside `({3}DA3x,SC:S)`.
 - sccz80/80cc enumerators are records with an empty type (`S:G$RED$0_0$0({0}),E,0,0`); zsdcc has none.
@@ -215,10 +215,10 @@ Facts the decoder and the frame rows rely on (each checked in the files named):
   whose module column is the first declarer's: `F:G$other` has `mod=vars_c` in the sccz80/80cc maps
   (`types.h` declares it) and `mod=other_c` in zsdcc's. Take a function's address from `_<name>`.
 - File statics with one name in two files: `_s_dup` is `other_c` $9069 and `vars_c` $909F
-  (master sccz80), $8F62 / $8F96 (master sdcc), $8FF4 / $902A (80cc); records
+  (master sccz80), $8F62 / $8F96 (master sdcc), $8FE4 / $901A (80cc); records
   `S:Fvars.c$s_dup` / `S:Fother.c$s_dup` (zsdcc `S:Fvars$s_dup` / `S:Fother$s_dup`).
 - Static local `calls` in `sum`: sccz80/80cc `S:Fvars.c$st_sum_calls$1_0$1`, symbol `_st_sum_calls`
-  ($90A0 master sccz80, $902B 80cc); zsdcc `S:Lvars.sum$calls$1_0$10`, symbol `_sum_calls_10000_10`
+  ($90A0 master sccz80, $901B 80cc); zsdcc `S:Lvars.sum$calls$1_0$10`, symbol `_sum_calls_10000_10`
   ($8F97).
 - Stack offsets (`B,1,n`) in `sum(a, b, p, k)`: sccz80 and 80cc `a`=+10, `b`=+8, `p`=+6, `k`=+4 (first
   argument pushed first); zsdcc `a`=+4, `b`=+6, `p`=+8, `k`=+10. Locals are negative. The frame
@@ -239,7 +239,7 @@ Facts the decoder and the frame rows rely on (each checked in the files named):
   `vars.c::x::<level*10000>::<block><TAB>`: 33-35 and 41-42 `10000::10`, 36 `20000::11`, 38-39
   `30000::12` (function field `x`, the block is the current one, a TAB ends the field).
   Upstream gap: line 44 is `int main(void)`, and sccz80 and 80cc scope it `sum::0::2`
-  (`__C_LINE_44` sits at `_main`: $8D54 sccz80, $8CD8 80cc, the address of `main::0::3` line 45);
+  (`__C_LINE_44` sits at `_main`: $8D54 sccz80, $8CD9 80cc, the address of `main::0::3` line 45);
   zsdcc gets it right, `x::10000::14`.
 - `fc.c`: sccz80 (both installs) records the `__z88dk_fastcall` parameter `x` at `B,1,4`, its
   nominal slot, and that record is WRONG: a fastcall caller pushes nothing, and the listing
@@ -259,7 +259,7 @@ Facts the decoder and the frame rows rely on (each checked in the files named):
   to the PUBLIC symbol of its name, never to the module of its line.
 
 Not producible: `v2.4/sdcc-cvars` (z88dk#3172). Not built here: zsdcc `-O0` (no records), `+zxn`
-classic `-debug` (Z1), sdcc_ix (the planner measured records identical to sdcc_iy; not re-run here).
+classic `-debug` on v2.4 (Z1), sdcc_ix (the planner measured records identical to sdcc_iy; not re-run here).
 
 ### Scope-table golden: `derive-scopes.py`
 

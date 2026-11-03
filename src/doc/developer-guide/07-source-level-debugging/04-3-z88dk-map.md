@@ -18,13 +18,13 @@ exact commands are the `+ zcc ...` lines of each `build.log`):
 | Fixtures | Tree | Commit |
 |---|---|---|
 | `test/fixtures/z88dk/v2.4/` | `z88dk 2.4`, `~/src/spectrum/z88dk-original-2.4` | `4d530b6eb779ad0f2a1d13c0bb670cf717477501` (v2.4) |
-| `test/fixtures/z88dk/master/` | `z88dk master`, `~/src/spectrum/z88dk-original-latest` | `39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7` (v2.4-2695-g39421a01cd) |
+| `test/fixtures/z88dk/master/` | `z88dk master`, `~/src/spectrum/z88dk-original-latest` | `97731e4e2988543e2c849cd1ae1d0aeddf372fcd` (v2.4-2883-g97731e4e29) |
 
 A map built without `-debug` has symbols and no source lines. Several
 `-debug` builds do not exist: 2.4's sdcc `-debug` fails to assemble
 (`defc Gcounter0_00==.` syntax errors, z88dk issue 3172, fixed on master) and the
-classic `+zxn` banked `-debug` is not producible (`Unknown option2
---hardware-keyboard`). `test/fixtures/z88dk/README.md` records both.
+classic `+zxn` banked `-debug` is not producible on 2.4 (`Unknown option2
+--hardware-keyboard`; master builds it since v2.4-2883). `test/fixtures/z88dk/README.md` records both.
 
 ## 2. The producer's writer
 

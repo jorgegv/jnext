@@ -536,9 +536,9 @@ int main() {
     {
         SourceMap m;
         const auto r = load(m, master / "sccz80-debug" / "prog.map");
-        check("Z88MAP-19", "sccz80 splits a statement over two lines on 2.4 (19 ends at $8CBD, 20 starts at $8CBE) and on master at $8CCD",
+        check("Z88MAP-19", "sccz80 splits a statement over two lines on 2.4 (19 ends at $8CBD, 20 starts at $8CBE) and on master at $8CBA (GH #445: z88dk v2.4-2883 moved it)",
               r && is_at(sc.lookup(P4, 0x8CBD), "main.c", 19) && is_at(sc.lookup(P4, 0x8CBE), "main.c", 20) &&
-                  is_at(m.lookup(P4, 0x8CCC), "main.c", 19) && is_at(m.lookup(P4, 0x8CCD), "main.c", 20));
+                  is_at(m.lookup(P4, 0x8CB9), "main.c", 19) && is_at(m.lookup(P4, 0x8CBA), "main.c", 20));
     }
     {
         SourceMap m20;
@@ -1039,9 +1039,9 @@ int main() {
         {   // Z88CN-04
             struct Prog { const fs::path map; uint16_t counter; };
             const Prog progs[] = {{v24 / "sdcc-SO0" / "prog.map", 0x8ED5}, {v24 / "sdcc-SO2" / "prog.map", 0x8ECD},
-                                  {master / "sccz80-debug" / "prog.map", 0x8F59},
+                                  {master / "sccz80-debug" / "prog.map", 0x8F4A},
                                   {master / "sdcc-debug" / "prog.map", 0x8EBE},
-                                  {master / "80cc-debug" / "prog.map", 0x8EFB}};
+                                  {master / "80cc-debug" / "prog.map", 0x8EF6}};   // GH #445: master sccz80/80cc moved with z88dk v2.4-2883
             bool all = true;
             for (const Prog& p : progs) {
                 SymbolTable t;
@@ -1294,6 +1294,29 @@ int main() {
         }
         check("Z88MAP-30", "a record of line 0 in a code section (sccz80 and 80cc write one for an #include after a function) is no code: the map attaches, incmid.c:3 is where its record puts it, and no location at the line-0 record's address has line 0",
               ok);
+    }
+
+    // ── Z88MAP-31 (GH #445): the classic compiler's -debug build, producible since z88dk v2.4-2883 ──
+    // Oracle: master/classic-debug/prog.map (banked.c compiled into BANK_10, __BANK_10_head = $14C000,
+    // banked.c:6 at $14C000, :7 and :8 at $14C003, :9 at $14C01D; CRT_ORG_BANK_10 = $C000 in this CRT)
+    // and README "banked_add is the only function in the bank".
+    {
+        SourceMap m;
+        const auto r = load(m, master / "classic-debug" / "prog.map");
+        const VariableStore* s = store_of(m);
+        const CFunction* f = s ? fn_named(*s, "banked_add") : nullptr;
+        const NexMemory nex(master / "classic-debug" / "prog.nex");
+        check("Z88MAP-31", "master classic-debug (-clib=classic -debug, BANK_10): the map attaches with its section binary "
+                           "(identity verified against prog.nex), "
+                           "banked.c:6 starts at page 20 $C000, :8 at $C003 (:7 is its alias), :9 at $C01D, and the "
+                           "C store has banked_add resolved at page 20 $C000",
+              r && starts_are(m.resolve("banked.c:6"), {{P20, 0xC000}}) &&
+                  starts_are(m.resolve("banked.c:8"), {{P20, 0xC003}}) &&
+                  starts_are(m.resolve("banked.c:7"), {{P20, 0xC003}}) &&
+                  starts_are(m.resolve("banked.c:9"), {{P20, 0xC01D}}) &&
+                  is_at(m.lookup(P20, 0xC01D), "banked.c", 9) && f && stored_at(f->entry, P20, 0xC000) &&
+                  nex.ok && m.has_identity() &&
+                  m.verify_program(logical_junk, nex.reader()) == std::optional<bool>(true));
     }
 
     // ── Z88DOT-*: z88dk dot commands (GH #351, design 9.4 rule 5) ───────────────
@@ -1641,10 +1664,10 @@ int main() {
         const CVariable* e = v_cc ? var_named(*v_cc, "s_dup", "vars_c") : nullptr;
         const CVariable* f = v_cc ? var_named(*v_cc, "s_dup", "other_c") : nullptr;
         check("Z88CDB-03", "the two file statics named s_dup are told apart by module: sccz80 vars_c P4:$909F / "
-                           "other_c P4:$9069, zsdcc $8F96 / $8F62, 80cc $902A / $8FF4",
+                           "other_c P4:$9069, zsdcc $8F96 / $8F62, 80cc $901A / $8FE4 (GH #445: z88dk v2.4-2883 moved the 80cc ones)",
               a && b && c && d && e && f && stored_at(a->storage, P4, 0x909F) && stored_at(b->storage, P4, 0x9069) &&
                   stored_at(c->storage, P4, 0x8F96) && stored_at(d->storage, P4, 0x8F62) &&
-                  stored_at(e->storage, P4, 0x902A) && stored_at(f->storage, P4, 0x8FF4));
+                  stored_at(e->storage, P4, 0x901A) && stored_at(f->storage, P4, 0x8FE4));
     }
     {
         std::vector<std::string> lines = map_lines(sc_cvars);
@@ -1673,8 +1696,8 @@ int main() {
                    v->c_name == "calls" && v->storage.symbol == "_st_sum_calls" && stored_at(v->storage, P4, addr);
         };
         check("Z88CDB-05", "sccz80 and 80cc static local st_sum_calls: attributed to sum, C name calls, symbol "
-                           "_st_sum_calls at P4:$90A0 (sccz80) / P4:$902B (80cc)",
-              good(a, v_sc, 0x90A0) && good(b, v_cc, 0x902B));
+                           "_st_sum_calls at P4:$90A0 (sccz80) / P4:$901B (80cc; GH #445: z88dk v2.4-2883 moved it)",
+              good(a, v_sc, 0x90A0) && good(b, v_cc, 0x901B));
     }
     {
         const CVariable* v = v_sd ? var_named(*v_sd, "calls", "vars_c", "sum") : nullptr;
@@ -1779,11 +1802,11 @@ int main() {
                               {0x8C6F, 2, 0, 11}, {0x8C77, 3, 0, 12}, {0x8C94, 3, 0, 12}, {0x8C97, 1, 0, 10},
                               {0x8C9A, 1, 0, 10}},
                              P4));
-    check("Z88CDB-15", "scope table of sum, 80cc: $8C62 0/0, then $8C6F $8C76 $8C8A $8CA9 $8CB3 $8CB7 $8CC9 all 0/2 "
-                       "(no level, no block structure)",
+    check("Z88CDB-15", "scope table of sum, 80cc: $8C62 0/0, then $8C6F $8C76 $8C8B $8CAA $8CB4 $8CB8 $8CCA all 0/2 "
+                       "(no level, no block structure; GH #445: z88dk v2.4-2883 moved the last five)",
           v_cc && scopes_are(fn_named(*v_cc, "sum"),
-                             {{0x8C62, 0, 0, 0}, {0x8C6F, 0, 0, 2}, {0x8C76, 0, 0, 2}, {0x8C8A, 0, 0, 2},
-                              {0x8CA9, 0, 0, 2}, {0x8CB3, 0, 0, 2}, {0x8CB7, 0, 0, 2}, {0x8CC9, 0, 0, 2}},
+                             {{0x8C62, 0, 0, 0}, {0x8C6F, 0, 0, 2}, {0x8C76, 0, 0, 2}, {0x8C8B, 0, 0, 2},
+                              {0x8CAA, 0, 0, 2}, {0x8CB4, 0, 0, 2}, {0x8CB8, 0, 0, 2}, {0x8CCA, 0, 0, 2}},
                              P4));
     {
         const auto first = [](const VariableStore* s) -> const jnext::dbg::CScope* {
@@ -1798,13 +1821,13 @@ int main() {
                 if (sc.at.address == addr) return true;
             return false;
         };
-        check("Z88CDB-16", "main's first entry is its own line 45 (0/3) on sccz80 P4:$8D54 and 80cc P4:$8CD8, not "
+        check("Z88CDB-16", "main's first entry is its own line 45 (0/3) on sccz80 P4:$8D54 and 80cc P4:$8CD9, not "
                            "line 44's sum::0::2 that shares the address, and sum's table has no entry there; zsdcc "
-                           "P4:$8C9F is 1/0/14",
+                           "P4:$8C9F is 1/0/14 (GH #445: 80cc moved from $8CD8 with z88dk v2.4-2883)",
               a && b && c && a->known && a->at.address == 0x8D54 && a->line == 45 && a->level == 0 && a->block == 3 &&
-                  b->known && b->at.address == 0x8CD8 && b->line == 45 && b->level == 0 && b->block == 3 &&
+                  b->known && b->at.address == 0x8CD9 && b->line == 45 && b->level == 0 && b->block == 3 &&
                   c->known && c->at.address == 0x8C9F && c->level == 1 && c->sub == 0 && c->block == 14 &&
-                  !has_at(v_sc, 0x8D54) && !has_at(v_cc, 0x8CD8));
+                  !has_at(v_sc, 0x8D54) && !has_at(v_cc, 0x8CD9));
     }
     {
         std::vector<std::string> lines = map_lines(sc_cvars);
@@ -1954,9 +1977,9 @@ int main() {
         const VariableStore* b = store_of(dotx);
         const CVariable* ta = a ? var_named(*a, "total", "dot_c") : nullptr;
         const CVariable* tb = b ? var_named(*b, "total", "dot_c") : nullptr;
-        check("Z88CDB-23", "dot commands: total is DivMmcRam{2}:$3251 (rule 5) in master/sccz80-dot and P4:$8C38 "
-                           "(rule 4, main RAM) in master/sccz80-dotx",
-              ta && tb && stored_at(ta->storage, MemSpace::divmmc_ram(2), 0x3251) && stored_at(tb->storage, P4, 0x8C38));
+        check("Z88CDB-23", "dot commands: total is DivMmcRam{2}:$3253 (rule 5) in master/sccz80-dot and P4:$8C3A "
+                           "(rule 4, main RAM) in master/sccz80-dotx (GH #445: z88dk v2.4-2883 moved both)",
+              ta && tb && stored_at(ta->storage, MemSpace::divmmc_ram(2), 0x3253) && stored_at(tb->storage, P4, 0x8C3A));
     }
     {
         SourceMap none, beside;
@@ -2263,35 +2286,35 @@ sum vars_c 8C48
   8C97 L41 K 1/0/10
   8C9A L42 K 1/0/10
 )GOLD"},
-        {"master/80cc-cvars", R"GOLD(main vars_c 8CD8
-  8CD8 L45 K 0/0/3
-  8CE5 L49 K 0/0/6
-  8CEA L52 K 0/0/6
-  8D02 L53 K 0/0/6
-  8D0C L54 K 0/0/6
-  8D1E L55 K 0/0/6
-  8D22 L56 K 0/0/6
-  8D7A L57 K 0/0/6
-  8D7D L58 K 0/0/6
-  8D83 L59 K 0/0/6
-  8D96 L60 K 0/0/6
-  8DA7 L61 K 0/0/6
-  8DB0 L62 K 0/0/6
-  8DB6 L64 K 0/0/6
-  8DBD L65 K 0/0/6
-other other_c 8DC0
-  8DC0 L6 K 0/0/0
-  8DC4 L8 K 0/0/1
-  8DD6 L9 K 0/0/1
+        {"master/80cc-cvars", R"GOLD(main vars_c 8CD9
+  8CD9 L45 K 0/0/3
+  8CE6 L49 K 0/0/6
+  8CEB L52 K 0/0/6
+  8D03 L53 K 0/0/6
+  8D0D L54 K 0/0/6
+  8D1F L55 K 0/0/6
+  8D23 L56 K 0/0/6
+  8D6A L57 K 0/0/6
+  8D6D L58 K 0/0/6
+  8D73 L59 K 0/0/6
+  8D86 L60 K 0/0/6
+  8D97 L61 K 0/0/6
+  8DA0 L62 K 0/0/6
+  8DA6 L64 K 0/0/6
+  8DAD L65 K 0/0/6
+other other_c 8DB0
+  8DB0 L6 K 0/0/0
+  8DB4 L8 K 0/0/1
+  8DC6 L9 K 0/0/1
 sum vars_c 8C62
   8C62 L29 K 0/0/0
   8C6F L33 K 0/0/2
   8C76 L34 K 0/0/2
-  8C8A L35 K 0/0/2
-  8CA9 L36 K 0/0/2
-  8CB3 L38 K 0/0/2
-  8CB7 L39 K 0/0/2
-  8CC9 L41 K 0/0/2
+  8C8B L35 K 0/0/2
+  8CAA L36 K 0/0/2
+  8CB4 L38 K 0/0/2
+  8CB8 L39 K 0/0/2
+  8CCA L41 K 0/0/2
 )GOLD"},
         {"v2.4/sccz80-cvars", R"GOLD(main vars_c 8D54
   8D54 L45 K 0/0/3
@@ -2373,46 +2396,46 @@ util_twice util_c 8CBB
   8CC8 L8 K 1/0/10
   8CC9 L9 K 1/0/10
 )GOLD"},
-        {"master/sccz80-debug", R"GOLD(main main_c 8C92
-  8C92 L15 K 0/0/2
-  8C95 L17 K 1/0/3
-  8C9D L18 K 1/0/3
-  8CB5 L19 K 3/0/4
-  8CCD L20 K 3/0/4
-  8CE9 L21 K 3/0/4
-  8CEC L22 K 1/0/4
-  8D0F L23 K 1/0/4
-  8D12 L24 K 1/0/4
-  8D22 L26 K 2/0/5
-  8D2A L27 K 2/0/5
-  8D2D L28 K 1/0/5
-square main_c 8C78
-  8C78 L10 K 0/0/0
-  8C7B L11 K 1/0/1
-util_twice util_c 8D35
-  8D35 L4 K 0/0/0
-  8D38 L6 K 1/0/1
-  8D50 L7 K 1/0/1
-  8D5C L8 K 1/0/1
+        {"master/sccz80-debug", R"GOLD(main main_c 8C7D
+  8C7D L15 K 0/0/2
+  8C80 L17 K 1/0/3
+  8C88 L18 K 1/0/3
+  8CA0 L19 K 3/0/4
+  8CBA L20 K 3/0/4
+  8CD6 L21 K 3/0/4
+  8CD9 L22 K 1/0/4
+  8CFC L23 K 1/0/4
+  8CFF L24 K 1/0/4
+  8D0F L26 K 2/0/5
+  8D17 L27 K 2/0/5
+  8D1A L28 K 1/0/5
+square main_c 8C62
+  8C62 L10 K 0/0/0
+  8C65 L11 K 1/0/1
+util_twice util_c 8D22
+  8D22 L4 K 0/0/0
+  8D25 L6 K 1/0/1
+  8D3F L7 K 1/0/1
+  8D4D L8 K 1/0/1
 )GOLD"},
         {"master/80cc-debug", R"GOLD(main main_c 8C76
   8C76 L15 K 0/0/2
   8C7F L17 K 0/0/5
   8C84 L18 K 0/0/5
   8C88 L20 K 0/0/5
-  8CBE L21 K 0/0/5
-  8CC1 L22 K 0/0/5
-  8CD4 L23 K 0/0/5
-  8CD7 L24 K 0/0/5
-  8CE6 L27 K 0/0/5
+  8CBB L21 K 0/0/5
+  8CBE L22 K 0/0/5
+  8CD1 L23 K 0/0/5
+  8CD4 L24 K 0/0/5
+  8CE1 L27 K 0/0/5
 square main_c 8C62
   8C62 L10 K 0/0/0
   8C65 L11 K 0/0/1
-util_twice util_c 8CF6
-  8CF6 L4 K 0/0/0
-  8CFA L6 K 0/0/1
-  8D00 L7 K 0/0/1
-  8D01 L8 K 0/0/1
+util_twice util_c 8CF1
+  8CF1 L4 K 0/0/0
+  8CF5 L6 K 0/0/1
+  8CFB L7 K 0/0/1
+  8CFC L8 K 0/0/1
 )GOLD"},
         {"v2.4/sccz80-fc", R"GOLD(fcallee fc_c 8C74
   8C74 L4 U 0/0/0
@@ -2443,9 +2466,9 @@ main fc_c 8C65
 ffast fc_c 8C62
   8C62 L3 K 0/0/0
   8C6C L3 K 0/0/1
-main fc_c 8C97
-  8C97 L5 U 0/0/0
-  8CA0 L5 K 0/0/4
+main fc_c 8C96
+  8C96 L5 U 0/0/0
+  8C9F L5 K 0/0/4
 )GOLD"},
     };
         std::string bad;
@@ -2478,7 +2501,7 @@ main fc_c 8C97
         }
         check("Z88CDB-40", "every function's whole scope table on 12 committed maps (cvars, debug and fc builds of "
                            "the three compilers) equals the golden derived from the raw map lines: the other-module, "
-                           "data-section and equal-line-disagreement rules",
+                           "data-section and equal-line-disagreement rules (GH #445: 4 goldens regenerated for z88dk v2.4-2883)",
               n == 12 && bad.empty());
         if (!bad.empty()) std::printf("  Z88CDB-40 differs:%s\n", bad.c_str());
     }

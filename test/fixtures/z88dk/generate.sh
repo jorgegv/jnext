@@ -195,7 +195,8 @@ build "$ZM" master sdcc-banked  banked:PAGE_20:kw -clib=sdcc_iy -debug
 build "$ZM" master sdcc-banked-run banked:PAGE_20:kw -clib=sdcc_iy -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000
 KEEP_CRT=1 build "$ZM" master sccz80-banked-crt banked:PAGE_20:kw -clib=new -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000
 KEEP_CRT=1 build "$ZM" master classic-bank10 banked:BANK_10 -clib=classic
-EXPECT_FAIL=1 build "$ZM" master classic-debug  banked:BANK_10 -clib=classic -debug
+# GH #445: producible since z88dk v2.4-2883 (Z1 is fixed on master; v2.4 still fails)
+build "$ZM" master classic-debug  banked:BANK_10 -clib=classic -debug
 build "$ZM" master sccz80-cvars        cvars   -clib=new -debug
 build "$ZM" master sdcc-cvars          cvars   -clib=sdcc_iy -debug
 build "$ZM" master 80cc-cvars          cvars   -clib=new -compiler=80cc -debug

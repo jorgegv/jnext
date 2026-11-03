@@ -2999,10 +2999,10 @@ void test_z88dk_listings() {
         SourcePanel* sp = fx.dbg()->source_panel();
         auto* editor = sp->findChild<QPlainTextEdit*>();
         const bool text_ok = editor &&
-            editor->document()->findBlockByNumber(9469).text() == QStringLiteral("      push iy") &&
-            editor->document()->findBlockByNumber(9461).text() == QStringLiteral("__Start:") &&
+            editor->document()->findBlockByNumber(9481).text() == QStringLiteral("      push iy") &&
+            editor->document()->findBlockByNumber(9473).text() == QStringLiteral("__Start:") &&
             sp->location_tooltip().endsWith(QStringLiteral("/q140/build/prog.lis"));
-        const bool m4_ok = text_ok && editor && editor->document()->blockCount() == 9689 && sp->highlighted_line() == 9470 &&
+        const bool m4_ok = text_ok && editor && editor->document()->blockCount() == 9701 && sp->highlighted_line() == 9482 &&
                            sp->location_text().endsWith(QStringLiteral("(m4 output, from prog.lis)")) &&
                            !button(sp, QStringLiteral("Locate File..."))->isEnabled();
         const QString m4_text = sp->location_text();
@@ -3010,7 +3010,7 @@ void test_z88dk_listings() {
         const bool disk_ok = editor && editor->document()->blockCount() == 11 && sp->highlighted_line() == 3 &&
                              !sp->location_text().contains(QStringLiteral("m4 output"));
         check("QSRC-140", "with prog.lis loaded beside the map, $8001 shows the CRT's m4 text from the listing "
-                          "(9689 lines, line 9470 highlighted, labelled '(m4 output, from prog.lis)', no Locate "
+                          "(9701 lines, line 9482 highlighted; GH #445: was 9689 and 9470 before z88dk v2.4-2883; labelled '(m4 output, from prog.lis)', no Locate "
                           "File...), and $8000 goes back to the disk file crt_start_di.inc with line 3 highlighted",
               m4_ok && disk_ok, s(m4_text) + " | " + s(sp->location_text()));
     }
@@ -3101,16 +3101,16 @@ void test_z88dk_listings() {
         fx.mgr->refresh_panels();
         SourcePanel* sp = fx.dbg()->source_panel();
         auto* editor = sp->findChild<QPlainTextEdit*>();
-        const bool before = editor && editor->document()->findBlockByNumber(9469).text() == QStringLiteral("      push iy");
+        const bool before = editor && editor->document()->findBlockByNumber(9481).text() == QStringLiteral("      push iy");
         std::string lis = read_text(root + "/build/prog.lis");
         const size_t at = lis.find("      push iy");
         if (at != std::string::npos) lis.replace(at, 13, "      push ix");
         write_text(root + "/build/prog.lis", lis);
         fx.backend->load_source_map(map, true);
         fx.mgr->refresh_panels();
-        check("QSRC-143", "loading the map again after its prog.lis changed shows the new m4 text, not the old",
+        check("QSRC-143", "loading the map again after its prog.lis changed shows the new m4 text, not the old (GH #445: block 9481, was 9469 before z88dk v2.4-2883)",
               before && editor && at != std::string::npos &&
-                  editor->document()->findBlockByNumber(9469).text() == QStringLiteral("      push ix"));
+                  editor->document()->findBlockByNumber(9481).text() == QStringLiteral("      push ix"));
     }
 }
 
@@ -5624,8 +5624,8 @@ void test_source_highlight_panel() {
         };
         const std::string m_ifndef = word_mask(ifndef_line, QLatin1Char('I'), 6);
         const std::string m_defc = word_mask(defc_line, QLatin1Char('d'), 4);
-        const std::string m_start = panel_mask(sp, 9462);
-        const std::string m_push = panel_mask(sp, 9470);
+        const std::string m_start = panel_mask(sp, 9474);
+        const std::string m_push = panel_mask(sp, 9482);
         const bool single_pass = editor && pass == editor->document()->blockCount() + 1;
         const bool m4_asm = sp->source_language() == SourceLanguage::Asm;
         const bool label = !m_start.empty() && m_start == std::string(m_start.size(), 'L');
@@ -5635,7 +5635,7 @@ void test_source_highlight_panel() {
                             panel_mask(sp, 1) == std::string(panel_mask(sp, 1).size(), 'C') &&
                             !panel_mask(sp, 1).empty();
         check("QSRC-138", "the start-up code's m4 text from the listing is coloured as assembly in one pass: "
-                          "IFNDEF and defc are directives (Keyword class), __Start: a label, push iy a mnemonic and a register, "
+                          "IFNDEF and defc are directives (Keyword class), __Start: a label (m4 line 9474, was 9462 before z88dk v2.4-2883, GH #445), push iy a mnemonic and a register, "
                           "and crt_start_di.inc after it is assembly with its comment line coloured",
               m4_asm && m_ifndef == "KKKKKK" && m_defc == "KKKK" && label && single_pass &&
                   m_push == "......IIII.II" && m4_label && inc_ok,
