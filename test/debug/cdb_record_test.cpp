@@ -539,8 +539,8 @@ int main() {
             }
         }
         if (!why.empty()) std::printf("  note: first refusal: %s\n", why.c_str());
-        check("CDB-35", "every __CDBINFO__ record of every committed map decodes (none refused, none dropped), and the three -cvars maps have the counts the README states (53, 63, 55), 51 maps carry 619 records (GH #434: + the four cross maps: 5, 6, 8 and 5 records; GH #445: + master/classic-debug, 6 records; GH #433: + the two master/*-extern maps, 7 and 3 records; the merge of main added the 8 intarg, longsw and calleejp maps: +62 records)",
-              !maps.empty() && with_cdb == 51 && records == 619 && lines == records && refusals == 0 &&
+        check("CDB-35", "every __CDBINFO__ record of every committed map decodes (none refused, none dropped), and the three -cvars maps have the counts the README states (53, 63, 55), 54 maps carry 642 records (GH #434: + the four cross maps: 5, 6, 8 and 5 records, + the three floats maps: 7, 7 and 9; GH #445: + master/classic-debug, 6 records; GH #433: + the two master/*-extern maps, 7 and 3 records; the merge of main added the 8 intarg, longsw and calleejp maps: +62 records)",
+              !maps.empty() && with_cdb == 54 && records == 642 && lines == records && refusals == 0 &&
               per_map["master/sccz80-cvars"] == 53 && per_map["v2.4/sccz80-cvars"] == 53 &&
               per_map["master/sdcc-cvars"] == 63 && per_map["master/80cc-cvars"] == 55);
         auto n = [&](const char* map, CdbHidden h) { return hidden[map][h]; };
