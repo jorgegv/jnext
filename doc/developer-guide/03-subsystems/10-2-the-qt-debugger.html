@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.112</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.112</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3174,7 +3174,7 @@ the framebuffer generation and the upload gate that stops a paused machine re-pr
 is in <a href="../02-architecture/03-a-frame-end-to-end.html">2.3</a>.</p>
 <p><strong>The window's opening size (GH #114, #360).</strong> A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (<code>DebuggerWindow::grow_default_size_to_natural()</code>,
-<code>debugger_window.cpp:498</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
+<code>debugger_window.cpp:499</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
 alone. The size is <em>measured</em>: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' <code>sizeHint()</code> lack, using the share of a widening the splitter really gave
 it on the previous pass (<code>fit_last_add_</code>, <code>fit_last_lacking_</code>; bounded by <code>kMaxInitialFitPasses</code> = 4
@@ -3182,9 +3182,9 @@ it on the previous pass (<code>fit_last_add_</code>, <code>fit_last_lacking_</co
 (<code>jnext::clamp_window_size_to_screen</code>). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (<code>fit_sizes_</code>, <code>fit_known_size_()</code>) is the manager's answer, not the user's, and the request is asked again,
-at most <code>kMaxFitEchoes</code> = 6 times (<code>resizeEvent()</code>, <code>debugger_window.cpp:485-496</code>); any other size is the user's and ends the fit
-(<code>end_fit_()</code>, <code>debugger_window.cpp:478</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
-pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:522-526</code>), after which every size is the user's and the remembered sizes are
+at most <code>kMaxFitEchoes</code> = 6 times (<code>resizeEvent()</code>, <code>debugger_window.cpp:486-497</code>); any other size is the user's and ends the fit
+(<code>end_fit_()</code>, <code>debugger_window.cpp:479</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
+pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:523-527</code>), after which every size is the user's and the remembered sizes are
 dropped. Rows: <code>GR-06</code> (a stale answer inside the grace window is asked again), <code>GR-07</code> (after it every size is the user's) and <code>GR-08</code> (an earlier request landing while a pass is queued), in <code>debugger_window_grow_test</code>.</p>
 <p><strong>The breakpoint views follow the model.</strong> The Breakpoints list and the
 disassembly gutter follow <code>BreakpointModel::changed(kinds)</code>, so a breakpoint

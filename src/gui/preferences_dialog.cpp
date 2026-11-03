@@ -632,7 +632,7 @@ void PreferencesDialog::browse_sd_image(QLineEdit* target) {
 // --source-dir refuses it.
 bool PreferencesDialog::source_dirs_ok() {
     if (!source_dirs_edit_) return true;
-    const QChar sep(QLatin1Char(source_search::kListSeparator));
+    const QChar sep = QLatin1Char(source_search::kListSeparator);
     for (const QString& line : source_dirs_edit_->toPlainText().split(QLatin1Char('\n'))) {
         if (!line.contains(sep)) continue;
         QMessageBox::warning(this, tr("Source search path"),
