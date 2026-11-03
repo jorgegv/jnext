@@ -2914,6 +2914,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#formatting-a-value-the-pure-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Formatting a value (the pure layer)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#fixtures-and-rows" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3066,11 +3077,94 @@ writer, from two things:</p>
 replay-guarded <code>clients_attached()</code>), so it cannot recurse, and it runs wherever an input changes: a request,
 an attach or detach, <code>recheck()</code>, a source map loaded or cleared, the program sidecars, a reconstruct.
 <code>CallStack::set_enabled()</code> empties the tracker only on a change, and the backend writes it only when the derived state changes (or, after a reconstruct, whenever it is on): a write made outside the backend, directly on the <code>Emulator</code> (CTL-12-55, QEN-01), is not undone by an attach or an in-place landing that changes nothing derived. <code>call_stack_enabled()</code> returns the effective state.</p>
+<h2 id="formatting-a-value-the-pure-layer">Formatting a value (the pure layer)<a class="headerlink" href="#formatting-a-value-the-pure-layer" title="Permanent link">&para;</a></h2>
+<p><code>src/debug/c_value.{h,cpp}</code> turns a type chain and bytes into text and knows no machine: a <code>CReader</code> callback
+supplies bytes (the CPU view for the stack and for pointer targets; the caller picks), so every rule is pinned with
+synthetic memory in <code>c_value_test</code> (<code>CVALF-*</code>). Reading a value on a running machine through the page-aware
+identity, and the facade that returns rows, are the next stage.</p>
+<p><strong>Formatting is locale-independent</strong>: every number goes through <code>std::to_chars</code>, never a printf-family call or an
+ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish host <code>%g</code> prints <code>1,5</code>; <code>CVALF-09</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Type (decoder)</th>
+<th>Text</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SC</code></td>
+<td><code>65 'A'</code> for 0x20..0x7E, else the number; signed or unsigned by <code>:S</code> / <code>:U</code></td>
+</tr>
+<tr>
+<td><code>SI</code>, <code>SL</code>, bare <code>:S</code>/<code>:U</code></td>
+<td>little-endian, <code>{size}</code> bytes (1, 2, 4, 8), decimal</td>
+</tr>
+<tr>
+<td><code>SF</code> <code>{6}</code></td>
+<td>z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by <code>$80</code>; 12 significant digits (<code>c_format_float48()</code>, <code>c_value.cpp:360</code>). Oracle: the bytes z88dk compiled in <code>*-floats</code></td>
+</tr>
+<tr>
+<td><code>SF</code> <code>{4}</code></td>
+<td>IEEE 754 binary32, shortest text that reads back. The SIZE decides, not the noun</td>
+</tr>
+<tr>
+<td><code>S6</code></td>
+<td>IEEE 754 binary16 through float</td>
+</tr>
+<tr>
+<td><code>SQ</code></td>
+<td><code>&lt;fixed-point $xxxx: layout not decoded&gt;</code></td>
+</tr>
+<tr>
+<td>pointer</td>
+<td><code>$8D21</code>, <code>$0000 (NULL)</code>, <code>&lt;name&gt;</code> of a variable or function mapped there, and for a <code>char *</code> its string (at most 32 bytes, escaped, <code>...</code> when cut)</td>
+</tr>
+<tr>
+<td>array</td>
+<td>the count is the <code>DA&lt;n&gt;</code>, never the byte size (a <code>DA4x,SI</code> is 8 bytes and 4 elements); at most 16 elements, then <code>...</code>; a char array reads up to its NUL</td>
+</tr>
+<tr>
+<td>struct</td>
+<td><code>{x = 3, y = 4, tag = 5}</code>, nested, from the <code>T:</code> record</td>
+</tr>
+<tr>
+<td>zsdcc bitfield <code>SB&lt;s&gt;$&lt;w&gt;</code></td>
+<td><code>(value &gt;&gt; s) &amp; mask</code></td>
+</tr>
+<tr>
+<td>sccz80 / 80cc overlapping members</td>
+<td>the storage unit's value with <code>bitfield layout unknown (z88dk U2)</code>: in a struct whose members are not all at offset 0, a member sharing bytes with another (a union is not one)</td>
+</tr>
+</tbody>
+</table>
+<p><code>c_find_type()</code> (<code>c_value.cpp:447</code>) finds a struct's <code>T:</code> record: the records of the variable's own scope first (zsdcc's
+copy per module), then those of its module, then a tag that is unique across all records (sccz80 and 80cc: one per
+header). Different definitions at the deciding step are ambiguous, never first-wins. <code>c_type_text()</code>
+(<code>c_value.cpp:440</code>) prints <code>char</code>, <code>unsigned int</code>, <code>struct node *</code>, <code>int [2][3]</code>, <code>int (*)()</code>; the CDB has no
+union marker, so a union is <code>struct word</code>, and no typedef name survives.</p>
+<p><code>c_parse_path()</code> (<code>c_value.cpp:530</code>) parses the C paths: <code>['*'] primary {'.' name | '-&gt;' name | '[' index ']'}</code>,
+the primary a name, <code>fn::name</code> or <code>file.c::name</code>, the index decimal, <code>0x&lt;hex&gt;</code> or <code>$&lt;hex&gt;</code> with no sign;
+<code>c_eval_path()</code> (<code>c_value.cpp:618</code>) walks one over a typed location (an array index is checked against its count, a
+pointer index scales by the element size, a null pointer is refused) and <code>c_read_loc()</code> reads and formats it. Every
+refusal says why.</p>
+<p><code>c_visible_locals()</code> (<code>c_value.cpp:712</code>) lists which locals show at a PC: the parameters (ordered by stack position),
+the locals, the static locals. Parameters and level-1 locals are always visible; a local of level &gt;= 2 is visible iff
+its block is the open block or one of its ancestors. The block tree is over the (level, block) pairs of the blocks
+that hold a local; the open block at the scope's level is the greatest block at or below the scope's block, which turns
+sccz80's "last opened block" into the block that is open. With no block data (80cc) or an unknown scope, every block
+local is shown, marked.
+<code>c_read_register_local()</code> (<code>c_value.cpp:780</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
+that it may be stale), refuses <code>[]</code> as optimised out and an outer frame as not available.
+<code>c_param_location_unknown()</code> (<code>c_value.cpp:820</code>) marks a listed <code>__z88dk_fastcall</code> parameter recorded at an offset</p>
+<blockquote>
+<p>= 0 (z88dk U1).</p>
+</blockquote>
 <h2 id="fixtures-and-rows">Fixtures and rows<a class="headerlink" href="#fixtures-and-rows" title="Permanent link">&para;</a></h2>
 <p><code>Z88CDB-41</code> to <code>-50</code> in <code>z88dk_map_test</code> (the extents against a golden that <code>derive-scopes.py --extents</code>
 derives from the raw map lines, the <code>*-cross</code> fixtures, the helpers, the listing evidence for the calling
 convention, the no-record facts, and the unchanged scope tables on the 12 maps of <code>Z88CDB-40</code>), and
-<code>SRCDBG-CVAL-01</code> to <code>-27</code> in <code>source_debug_test</code> (the tracker policy, and the frames of each compiler on a
+<code>CVALF-01</code> to <code>-30</code> in <code>c_value_test</code> (<code>-27a</code> and <code>-28a</code> beside them), and <code>SRCDBG-CVAL-01</code> to <code>-27</code> in <code>source_debug_test</code> (the tracker policy, and the frames of each compiler on a
 running fixture: tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, and a
 function that crosses a slot).</p>
 

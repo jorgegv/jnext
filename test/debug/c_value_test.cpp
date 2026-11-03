@@ -353,10 +353,11 @@ int main() {
         const CTypeLookup other = c_find_type(*sd.store, "point", "other", "other_c");
         const CTypeLookup bymod = c_find_type(*sd.store, "point", "nosuch", "other_c");
         const CTypeLookup header = c_find_type(*sc.store, "point", "vars.c", "vars_c");
+        const CTypeLookup scope_first = c_find_type(*sd.store, "point", "vars", "other_c");   // the scope outranks the module
         check("CVALF-20", "zsdcc: struct point is the T: copy of the variable's own scope (Fvars, Fother), else of its module; sccz80/80cc have one per header "
                           "(types.h), found by its unique tag",
               own.record && own.record->record.scope_name == "vars" && other.record && other.record->record.scope_name == "other" &&
-                  bymod.record && bymod.record->module == "other_c" && header.record && header.record->record.scope_name == "types.h");
+                  bymod.record && bymod.record->module == "other_c" && scope_first.record && scope_first.record->record.scope_name == "vars" && header.record && header.record->record.scope_name == "types.h");
     }
     {
         const auto rec = [](const char* text, const char* module) {
@@ -498,6 +499,32 @@ int main() {
                           "parameters first in stack order, static locals last",
               a41.size() == 7 && names(a41) == "k p b a acc t calls" && names(a39) == "k p b a acc inner t calls" && names(b41) == "a b p k acc t calls" &&
                   names(b39) == "a b p k acc inner t calls" && unknown_marked && a41[0].kind == CVarKind::Param && a41.back().kind == CVarKind::StaticLocal);
+    }
+
+    {
+        // sccz80 writes (level of the innermost open block, number of the LAST OPENED block): scope (2, 4) with level-2 blocks 2 and 3
+        // means the open level-2 block is the greatest one at or below 4, block 3, whose parent is the level-1 block
+        const auto loc = [](const char* name, int level, int block) {
+            CVariable v;
+            const std::string rec = std::string("S:Lt.c.f$") + name + "$" + std::to_string(level) + "_0$" + std::to_string(block) + "({2}SI:S),B,1,-2";
+            v.record = cdb_decode(rec).record;
+            v.text = rec;
+            v.c_name = name;
+            v.function = 0;
+            return v;
+        };
+        CFunction f;
+        f.name = "f";
+        CScope sc4;
+        sc4.known = true;
+        sc4.level = 2;
+        sc4.block = 4;
+        f.scopes.push_back(sc4);
+        const VariableStore st({f}, {loc("v1", 1, 1), loc("v2", 2, 2), loc("v3", 2, 3), loc("v4", 3, 4)}, {}, {}, {});
+        const auto got = c_visible_locals(st, 0, &st.functions()[0].scopes[0]);
+        check("CVALF-28a", "scope (2, 4) with level-2 blocks 2 and 3: the open block is 3 (the greatest at or below 4 at that level): v1 (level 1) and v3 are visible, "
+                           "the sibling v2 and the deeper v4 are not",
+              names(got) == "v1 v3");
     }
 
     // ── CVALF-29: register locals ──────────────────────────────────────────────

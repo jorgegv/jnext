@@ -720,7 +720,7 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
         if (v.function == function && v.record.hidden == CdbHidden::None) mine.push_back(&v);
 
     bool deep_local = false;
-    std::set<std::pair<int, int>> pairs;   // (level, block) of the function's blocks
+    std::set<std::pair<int, int>> pairs;   // (level, block) of the blocks that hold a local (a scope entry's own pair is not a block)
     for (const CVariable* v : mine) {
         if (v->record.var.space == 'E') continue;
         if (v->record.var.space == 'B' && v->record.var.stack_offset() >= 4) continue;
@@ -730,7 +730,6 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
     bool block_data = false;
     for (const CScope& s : fn.scopes) {
         if (!s.known) continue;
-        pairs.insert({s.level, s.block});
         block_data = block_data || s.level > 0;
     }
     const bool unknown = !scope || !scope->known || (deep_local && !block_data);

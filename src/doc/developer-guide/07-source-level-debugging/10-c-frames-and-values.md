@@ -88,11 +88,58 @@ replay-guarded `clients_attached()`), so it cannot recurse, and it runs wherever
 an attach or detach, `recheck()`, a source map loaded or cleared, the program sidecars, a reconstruct.
 `CallStack::set_enabled()` empties the tracker only on a change, and the backend writes it only when the derived state changes (or, after a reconstruct, whenever it is on): a write made outside the backend, directly on the `Emulator` (CTL-12-55, QEN-01), is not undone by an attach or an in-place landing that changes nothing derived. `call_stack_enabled()` returns the effective state.
 
+## Formatting a value (the pure layer)
+
+`src/debug/c_value.{h,cpp}` turns a type chain and bytes into text and knows no machine: a `CReader` callback
+supplies bytes (the CPU view for the stack and for pointer targets; the caller picks), so every rule is pinned with
+synthetic memory in `c_value_test` (`CVALF-*`). Reading a value on a running machine through the page-aware
+identity, and the facade that returns rows, are the next stage.
+
+**Formatting is locale-independent**: every number goes through `std::to_chars`, never a printf-family call or an
+ostream (QApplication runs `setlocale(LC_ALL, "")`, and on a Spanish host `%g` prints `1,5`; `CVALF-09`).
+
+| Type (decoder) | Text |
+|---|---|
+| `SC` | `65 'A'` for 0x20..0x7E, else the number; signed or unsigned by `:S` / `:U` |
+| `SI`, `SL`, bare `:S`/`:U` | little-endian, `{size}` bytes (1, 2, 4, 8), decimal |
+| `SF` `{6}` | z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by `$80`; 12 significant digits (`c_format_float48()`, `c_value.cpp:360`). Oracle: the bytes z88dk compiled in `*-floats` |
+| `SF` `{4}` | IEEE 754 binary32, shortest text that reads back. The SIZE decides, not the noun |
+| `S6` | IEEE 754 binary16 through float |
+| `SQ` | `<fixed-point $xxxx: layout not decoded>` |
+| pointer | `$8D21`, `$0000 (NULL)`, ` <name>` of a variable or function mapped there, and for a `char *` its string (at most 32 bytes, escaped, `...` when cut) |
+| array | the count is the `DA<n>`, never the byte size (a `DA4x,SI` is 8 bytes and 4 elements); at most 16 elements, then `...`; a char array reads up to its NUL |
+| struct | `{x = 3, y = 4, tag = 5}`, nested, from the `T:` record |
+| zsdcc bitfield `SB<s>$<w>` | `(value >> s) & mask` |
+| sccz80 / 80cc overlapping members | the storage unit's value with `bitfield layout unknown (z88dk U2)`: in a struct whose members are not all at offset 0, a member sharing bytes with another (a union is not one) |
+
+`c_find_type()` (`c_value.cpp:447`) finds a struct's `T:` record: the records of the variable's own scope first (zsdcc's
+copy per module), then those of its module, then a tag that is unique across all records (sccz80 and 80cc: one per
+header). Different definitions at the deciding step are ambiguous, never first-wins. `c_type_text()`
+(`c_value.cpp:440`) prints `char`, `unsigned int`, `struct node *`, `int [2][3]`, `int (*)()`; the CDB has no
+union marker, so a union is `struct word`, and no typedef name survives.
+
+`c_parse_path()` (`c_value.cpp:530`) parses the C paths: `['*'] primary {'.' name | '->' name | '[' index ']'}`,
+the primary a name, `fn::name` or `file.c::name`, the index decimal, `0x<hex>` or `$<hex>` with no sign;
+`c_eval_path()` (`c_value.cpp:618`) walks one over a typed location (an array index is checked against its count, a
+pointer index scales by the element size, a null pointer is refused) and `c_read_loc()` reads and formats it. Every
+refusal says why.
+
+`c_visible_locals()` (`c_value.cpp:712`) lists which locals show at a PC: the parameters (ordered by stack position),
+the locals, the static locals. Parameters and level-1 locals are always visible; a local of level >= 2 is visible iff
+its block is the open block or one of its ancestors. The block tree is over the (level, block) pairs of the blocks
+that hold a local; the open block at the scope's level is the greatest block at or below the scope's block, which turns
+sccz80's "last opened block" into the block that is open. With no block data (80cc) or an unknown scope, every block
+local is shown, marked.
+`c_read_register_local()` (`c_value.cpp:780`) reads an `R` local of frame 0 (`[c,b]` is C | B << 8, with a note
+that it may be stale), refuses `[]` as optimised out and an outer frame as not available.
+`c_param_location_unknown()` (`c_value.cpp:820`) marks a listed `__z88dk_fastcall` parameter recorded at an offset
+>= 0 (z88dk U1).
+
 ## Fixtures and rows
 
 `Z88CDB-41` to `-50` in `z88dk_map_test` (the extents against a golden that `derive-scopes.py --extents`
 derives from the raw map lines, the `*-cross` fixtures, the helpers, the listing evidence for the calling
 convention, the no-record facts, and the unchanged scope tables on the 12 maps of `Z88CDB-40`), and
-`SRCDBG-CVAL-01` to `-27` in `source_debug_test` (the tracker policy, and the frames of each compiler on a
+`CVALF-01` to `-30` in `c_value_test` (`-27a` and `-28a` beside them), and `SRCDBG-CVAL-01` to `-27` in `source_debug_test` (the tracker policy, and the frames of each compiler on a
 running fixture: tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, and a
 function that crosses a slot).
