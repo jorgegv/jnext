@@ -7,6 +7,7 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <sstream>
 
 namespace jnext {
 namespace dbg {
@@ -1085,20 +1086,57 @@ std::string_view trim_blanks(std::string_view t)
     return t;
 }
 
-// std::from_chars over ALL of `t` (a leading '+' is accepted, which from_chars does not). False: not a number, or a prefix only.
+// `[+-]digits[.digits][e[+-]digits]` (or `.digits`), all of `t`. `nonzero`: some mantissa digit is not a 0.
+bool decimal_float_syntax(std::string_view t, bool* nonzero)
+{
+    const auto digit = [](char c) { return c >= '0' && c <= '9'; };
+    size_t i = 0, nd = 0;
+    *nonzero = false;
+    if (i < t.size() && (t[i] == '+' || t[i] == '-')) ++i;
+    for (; i < t.size() && digit(t[i]); ++i, ++nd)
+        if (t[i] != '0') *nonzero = true;
+    if (i < t.size() && t[i] == '.') {
+        for (++i; i < t.size() && digit(t[i]); ++i, ++nd)
+            if (t[i] != '0') *nonzero = true;
+    }
+    if (nd == 0) return false;
+    if (i < t.size() && (t[i] == 'e' || t[i] == 'E')) {
+        ++i;
+        if (i < t.size() && (t[i] == '+' || t[i] == '-')) ++i;
+        size_t ne = 0;
+        for (; i < t.size() && digit(t[i]); ++i, ++ne) {
+        }
+        if (ne == 0) return false;
+    }
+    return i == t.size();
+}
+
+// `nan`, `inf`, `infinity`, with an optional sign, in any case.
+bool nonfinite_word(std::string_view t)
+{
+    if (!t.empty() && (t[0] == '+' || t[0] == '-')) t.remove_prefix(1);
+    std::string w;
+    for (const char c : t) w += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return w == "nan" || w == "inf" || w == "infinity";
+}
+
+// A decimal number of all of `t`, read through a stream imbued with the classic locale (no host locale: QApplication calls
+// setlocale(LC_ALL, ""), and std::from_chars for floating point is missing from libc++ before LLVM 20). False: not a decimal
+// number. `out_of_range`: it overflows `F`, or is not zero and underflows to it.
 template <typename F>
 bool float_from_text(std::string_view t, F* out, bool* out_of_range)
 {
     *out_of_range = false;
-    if (t.size() > 1 && t[0] == '+' && t[1] != '+' && t[1] != '-') t.remove_prefix(1);
+    bool nonzero = false;
+    if (!decimal_float_syntax(t, &nonzero)) return false;
+    std::istringstream is{std::string(t)};
+    is.imbue(std::locale::classic());
     F v{};
-    const auto r = std::from_chars(t.data(), t.data() + t.size(), v);
-    if (r.ptr != t.data() + t.size() || t.empty()) return false;
-    if (r.ec == std::errc::result_out_of_range) {
+    is >> v;
+    if (is.fail() || (nonzero && v == 0)) {
         *out_of_range = true;
         return true;
     }
-    if (r.ec != std::errc()) return false;
     *out = v;
     return true;
 }
@@ -1233,6 +1271,7 @@ CEncoded c_encode_value(const CdbType& type, const CNewValue& v, const uint8_t* 
         const bool is48 = e.kind == CdbTypeKind::Float && type.size == 6;
         const bool is32 = e.kind == CdbTypeKind::Float && type.size == 4;
         if (e.kind == CdbTypeKind::Float && !is48 && !is32) return refuse("a float of " + num(type.size) + " bytes is not supported");
+        if (nonfinite_word(text)) return refuse("'" + text + "' is not a finite number");
         double d = 0;
         float f = 0;
         bool range = false;
@@ -1251,7 +1290,6 @@ CEncoded c_encode_value(const CdbType& type, const CNewValue& v, const uint8_t* 
             range = std::isinf(d);
         }
         if (range) return refuse("'" + text + "' is out of range for " + tt);
-        if (is48 ? !std::isfinite(d) : !std::isfinite(f)) return refuse("'" + text + "' is not a finite number");
         std::string why;
         if (is48) {
             if (!encode_float48(d, out.bytes, &why)) return refuse("'" + text + "' is " + why);

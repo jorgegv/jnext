@@ -1044,7 +1044,17 @@ int main() {
             check("CVW-05", "48-bit float (sccz80): 1.5, -2.5, 0.1, 1e10, 1e-10 and 0 encode to exactly the bytes z88dk compiled for them (round to nearest: "
                             "0.1 and 1e-10 tell truncation apart); 3 is 00 00 00 00 40 82, an integer text is accepted",
                   ok48 && is(enc("{6}SF:S", "3"), {0, 0, 0, 0, 0x40, 0x82}) && is(enc("{6}SF:S", "0x10"), {0, 0, 0, 0, 0x00, 0x85}));
-            check("CVW-06", "binary32 (zsdcc): the same six texts encode to the bytes z88dk compiled", ok32);
+            // a host whose global locale has a comma decimal point (QApplication calls setlocale(LC_ALL, "")): the text is still read as
+            // C reads it, so 1.5 is not "1" followed by junk, and a comma is no decimal point
+            const std::locale before = std::locale::global(std::locale(std::locale::classic(), new CommaPunct));
+            const char* c_loc = std::setlocale(LC_ALL, "es_ES.UTF-8");
+            const CEncoded comma_ok = enc("{6}SF:S", k15), comma_ok32 = enc("{4}SF:S", k15), comma_bad = enc("{4}SF:S", "1,5");
+            std::setlocale(LC_ALL, "C");
+            std::locale::global(before);
+            (void)c_loc;
+            check("CVW-06", "binary32 (zsdcc): the same six texts encode to the bytes z88dk compiled; under a global locale with a comma decimal point 1.5 still "
+                            "encodes and `1,5` is not a number",
+                  ok32 && is(comma_ok, {0, 0, 0, 0, 0x40, 0x81}) && is(comma_ok32, {0x00, 0x00, 0xC0, 0x3F}) && no(comma_bad, "is not a number"));
         }
         check("CVW-07", "float refusals, in 48-bit and binary32: 1e39 is out of range, 1e-50 underflows, nan, inf and -inf are not finite, abc is not a "
                         "number: never an infinity, a NaN or a 0",

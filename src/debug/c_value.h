@@ -168,7 +168,7 @@ struct CEncoded {
 };
 /// The bytes `type` (its head and size) stores for `v`, never a truncated or wrapped value: a value out of the type's range is
 /// refused. Text: surrounding blanks trimmed, then an optional sign and decimal / `0x` / `$` hex digits, or a `'c'` literal, or
-/// (float types) a decimal float through std::from_chars, all of it. Int32 (a script): the type's range, except a 4-byte
+/// (float types) a decimal float read with the classic locale, all of it (`nan` and `inf` are refused). Int32 (a script): the type's range, except a 4-byte
 /// integer, which takes the 32-bit pattern (the mirror of c_int32_scalar); a float and an 8-byte integer are refused. A 48-bit
 /// float is rounded to nearest (z88dk does). `current` / `avail` are the object's present bytes: only a bitfield reads them,
 /// to keep its unit's other bits. No printf, no ostream: locale independent.
