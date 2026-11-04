@@ -12,7 +12,7 @@ address is in. Reading a value, a frame or a type is not here (last section).
 
 ## What the store holds
 
-`VariableStore` (`class VariableStore`, `src/debug/variable_store.h:122`) is immutable once
+`VariableStore` (`class VariableStore`, `src/debug/variable_store.h:125`) is immutable once
 built. Its five vectors:
 
 | Accessor | Holds |
@@ -61,15 +61,15 @@ no store, because it replaces nothing. `Load MAP` (symbols only) never has one.
 ## How it is filled
 
 `load_z88dk_source_map()` reads the map once. Pass 1 keeps a `const` line that
-starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:631`),
+starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:671`),
 and the parser gained `Z88dkMapLine::is_public` (the scope field). The line records
 of code sections are copied to `scope_records` right after they are placed and
-**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:698`):
+**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:738`):
 a listing's `C_LINE` keeps only the file, so the scope can come only from the map.
 Just before `map.replace()`, `build_variable_store()`
-(`src/debug/z88dk_source_map.cpp:472`)
+(`src/debug/z88dk_source_map.cpp:512`)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:927`),
+space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:967`),
 shared by the extent code and the store, so no rule is kept twice.
 
 ## The joins
