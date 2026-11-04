@@ -107,7 +107,7 @@ ostream (QApplication runs `setlocale(LC_ALL, "")`, and on a Spanish host `%g` p
 | `S6` | IEEE 754 binary16 through float |
 | `SQ` | `<fixed-point $xxxx: layout not decoded>` |
 | pointer | `$8D21`, `$0000 (NULL)`, ` <name>` of a variable or function mapped there, and for a `char *` its string (at most 32 bytes, escaped, `...` when cut) |
-| array | the count is the `DA<n>`, never the byte size (a `DA4x,SI` is 8 bytes and 4 elements); at most 16 elements, then `...`; a char array reads up to its NUL when what precedes it is text, else (`uint8_t btable[4]`, the CDB cannot tell it from a `char` array) it is a list of numbers |
+| array | the count is the `DA<n>`, never the byte size (a `DA4x,SI` is 8 bytes and 4 elements); at most 16 elements, then `...`; a char array is a string when every byte that is not a NUL is text (GDB's null-stop off, GH #437: a NUL inside prints as `\0`, the padding after the last text byte is dropped, so `"hi\0lo"` and `"hi"`), else (`uint8_t btable[4]`, a table that starts at 0; the CDB cannot tell it from a `char` array) it is a list of numbers |
 | struct | `{x = 3, y = 4, tag = 5}`, nested, from the `T:` record |
 | zsdcc bitfield `SB<s>$<w>` | `(value >> s) & mask` |
 | sccz80 / 80cc overlapping members | the storage unit's value with `bitfield layout unknown (z88dk U2)`: in a struct whose members are not all at offset 0, a member sharing bytes with another (a union is not one) |

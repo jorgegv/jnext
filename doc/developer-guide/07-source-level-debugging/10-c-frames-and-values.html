@@ -3155,7 +3155,7 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 </tr>
 <tr>
 <td>array</td>
-<td>the count is the <code>DA&lt;n&gt;</code>, never the byte size (a <code>DA4x,SI</code> is 8 bytes and 4 elements); at most 16 elements, then <code>...</code>; a char array reads up to its NUL when what precedes it is text, else (<code>uint8_t btable[4]</code>, the CDB cannot tell it from a <code>char</code> array) it is a list of numbers</td>
+<td>the count is the <code>DA&lt;n&gt;</code>, never the byte size (a <code>DA4x,SI</code> is 8 bytes and 4 elements); at most 16 elements, then <code>...</code>; a char array is a string when every byte that is not a NUL is text (GDB's null-stop off, GH #437: a NUL inside prints as <code>\0</code>, the padding after the last text byte is dropped, so <code>"hi\0lo"</code> and <code>"hi"</code>), else (<code>uint8_t btable[4]</code>, a table that starts at 0; the CDB cannot tell it from a <code>char</code> array) it is a list of numbers</td>
 </tr>
 <tr>
 <td>struct</td>

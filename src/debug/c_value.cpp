@@ -213,13 +213,19 @@ struct Formatter {
             const size_t esz = static_cast<size_t>(size / e.count);
             if (avail < static_cast<size_t>(size)) return fail("the object is shorter than its type");
             if (is_char(ch, i + 1)) {
-                // a char array reads as a string when what comes before its NUL (or all of it) is text; an unsigned char array of
-                // numbers (`uint8_t btable[4] = {10, 20, 30, 40}`, a union's byte view) is a list of numbers, as the CDB cannot tell them apart
+                // a char array reads as a string when every byte that is not a NUL is text (GDB's null-stop off: GH #437 owner decision,
+                // CVALF-16): a NUL inside it prints as \0 and the NULs after the last text byte are padding and are dropped, so
+                // `{'h', 'i', 0, 0}` is "hi" and `{'h', 'i', 0, 'l', 'o', 0}` is "hi\0lo". An unsigned char array of numbers
+                // (`uint8_t btable[4] = {10, 20, 30, 40}`, a union's byte view, a table that starts at 0) is a list of numbers, as the CDB cannot tell them apart
                 bool text = true;
-                for (size_t k = 0; k < static_cast<size_t>(size) && b[k] != 0; ++k)
+                size_t last = 0;
+                for (size_t k = 0; k < static_cast<size_t>(size); ++k) {
+                    if (b[k] == 0) continue;
+                    last = k + 1;
                     text = text && ((b[k] >= 0x20 && b[k] < 0x7F) || b[k] == '\t' || b[k] == '\n' || b[k] == '\r');
+                }
                 if (text) {
-                    out = string_of(b, static_cast<size_t>(size), true);
+                    out = string_of(b, last, false);
                     return true;
                 }
             }
