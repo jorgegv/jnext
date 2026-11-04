@@ -36,7 +36,7 @@ browsed (`browse_addr_`) and the reason `report_sidecars()` gave it.
 `SourcePanel::refresh_()` (`source_panel.cpp:590`) runs while the machine is paused,
 whenever the window's paused stamp changed ([3.10.2](../03-subsystems/10-2-the-qt-debugger.md):
 the stamp carries a flag for "the loaded file changed on disk",
-`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:968`; the flag is
+`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:969`; the flag is
 `SourcePanel::file_changed_on_disk()`, `source_panel.cpp:551`). In order:
 
 1. `update_buttons(paused)` (`source_panel.cpp:494`): the forward steps need a paused machine and a
@@ -84,13 +84,13 @@ already shown still puts the view back.
 the SDL-only and Windows trees test it): an absolute name; then the map's directory and each
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading `..` is dropped.
-`DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:310`) takes the
+`DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:311`) takes the
 configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3128`, fed by
 `apply_startup_config()`, `:2910`: the saved list with the command line's `--source-dir` or
 `paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:438`)
-adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:322`). The effective
+adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:323`). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
-`DebuggerManager::push_source_dirs()` (`debugger_manager.cpp:302`) on every change and again in `ensure_window()`, since the window is
+`DebuggerManager::push_source_dirs()` (`debugger_manager.cpp:303`) on every change and again in `ensure_window()`, since the window is
 created lazily. Locate derives the directory with `source_search::root_for()`, refuses a file of
 another name, and asks whether to save it; `source_dir_save_requested` is MainWindow's, which
 appends to `[paths] source_dirs` and refuses a directory that holds the list separator, as
@@ -103,12 +103,12 @@ and MainWindow logs `Source search path: ...`.
 ### Loading a map by hand
 
 The Source tab's **Load Source Map...** button and the Debug > Source > Load Source Map... item
-are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:862`). Its file dialog
+are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:863`). Its file dialog
 offers `*.sld`, `*.sld.txt` and `*.map`; the backend tells the format by content
 ([7.3](03-loaders.md)), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 `load_map()`; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:904`):
+rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:905`):
 the log, and the main window's status bar for ten seconds.
 
 ### Colouring
@@ -158,7 +158,7 @@ the log, and the main window's status bar for ten seconds.
   viewport. `set_colour_scheme()` (`source_panel.cpp:542`) applies at once (Preferences Apply while the machine
   runs) and refreshes, because the tints are selections `refresh_()` builds and a paused tick
   redraws only when the machine moved. The setting is held by
-  `DebuggerManager::set_source_scheme()` (`debugger_manager.cpp:316`) and pushed by
+  `DebuggerManager::set_source_scheme()` (`debugger_manager.cpp:317`) and pushed by
   `ensure_window()`, fed by `MainWindow::apply_startup_config()`.
 - **What a scheme does not reach.** The gutter and its header paint from the panel's palette, so
   a scheme never colours them, and the breakpoint marks stay as they are. The current-line marker
@@ -287,7 +287,7 @@ of a store, and it **formats nothing**: every value, type, refusal and note is t
   style switch) keeps the choice, so a frame picked in an older caller survives everything but moving the machine.
 - **One mapping.** The Call Stack panel lists the tracked CALLs newest first, with no row for frame 0 or for a frame found through
   the saved-frame-pointer chain; `c_frames()` takes frame k's PC from the CALL `tracked[n-k]`, so **Call Stack row i is C frame i + 1**.
-  That is written once, in `VariablesPanel::call_stack_row()` (`variables_panel.cpp:71`) and `frame_of_call_row()`. `CallStackPanel::call_selected(row)` (emitted
+  That is written once, in `VariablesPanel::call_stack_row()` (`variables_panel.cpp:110`) and `frame_of_call_row()`. `CallStackPanel::call_selected(row)` (emitted
   only for the user's choice: a refresh and `select_row()` set a guard) goes to `select_frame(row + 1)`, and `frame_changed(k)` goes back to
   `select_row(call_stack_row())`, which emits nothing, so there is no loop. After each refresh the window re-selects the row the chosen
   frame maps to (-1 clears it), because a refresh may have rebuilt the Call Stack's rows.
@@ -302,7 +302,15 @@ of a store, and it **formats nothing**: every value, type, refusal and note is t
 - **Addresses.** A global's `where` is a page address (`long_address(addr, space, style, next_layout)`); a stack slot or a followed
   pointer is a CPU address, spelled with the memory mapped there NOW (`memtext::now_of(mmu_slots(), addr)`: what a read reaches); a register
   local shows its register names. Debug > Physical Addresses reaches the panel through `apply_address_style()` like every other.
-- **Read-only**, with no new setting (so no CLI flag): editing is GH #437.
+- **Editing (GH #437).** The Value cell of an item whose facade row is `ok` and not an aggregate is editable (`Node::editable`: a pointer is, its
+  value is its address): a double-click on the cell, or the context menu's Edit Value, calls `edit_item()` while paused. The editor is the
+  `ValueDelegate`'s line edit, which holds `RoleEditText` (the first space-separated word of the facade's value: string slicing, so the panel
+  still formats no number) and fills it once per editor (a keystroke is host input, so the manager's next paused tick redraws the row and the view offers the editor its data again: a refill would put the old text back over what is being typed, QVARW-09), and never writes the model: `setModelData()` hands the text to `commit_edit()`, which writes nothing when it equals the
+  edit text and otherwise calls `write_c_value(client_, frame_, path, text)`. On success nothing else happens: the write bumped the revision, so
+  the manager's next paused tick redraws every panel (`paused_stamp()`), this one with the value read back. On a refusal `variables_message` shows
+  `<path>: <why>` (cleared by the next success or a new stop) and the cell keeps its value, because the model was never written. `client_` is the
+  window's, set by `DebuggerManager::set_panels_client()` like the Memory panel's, so the MUTATE line names it. No new setting, so no CLI flag. The Watches
+  C rows stay read-only.
 
 ### C watches in the Watches tab
 
@@ -364,18 +372,20 @@ read through it) and ZRCP `cpu-step-over`
 
 ## GDB, ZRCP, DZRP, scripts
 
-**GDB RSP** (`src/remote/gdb/rsp_server.cpp`). `monitor src [ADDR]` (`monitor_src()`, `:1056`) prints
+**GDB RSP** (`src/remote/gdb/rsp_server.cpp`). `monitor src [ADDR]` (`monitor_src()`, `:1063`) prints
 `$8CB8 main.c:19 P04` or `$8CB8 unmapped P28`: `source_location()` and the tag of
-`source_page(addr)`. `monitor sym` (`monitor_sym()`, `rsp_server.cpp:1019`) prints the tag of the memory the lookup
-used; a name prints its tag when it is paged. `monitor mmu` (`monitor_mmu()`, `rsp_server.cpp:916`) prints each slot's `now` tag and,
+`source_page(addr)`. `monitor sym` (`monitor_sym()`, `rsp_server.cpp:1026`) prints the tag of the memory the lookup
+used; a name prints its tag when it is paged. `monitor mmu` (`monitor_mmu()`, `rsp_server.cpp:923`) prints each slot's `now` tag and,
 on the Next, the physical text of the slot's first byte. The server's own symbol and source verbs are
 described in [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md).
 
-The C variables (GH #436) are three more verbs over the facade of [7.10](10-c-frames-and-values.md), all read-only.
-`monitor_locals()` (`rsp_server.cpp:1100`) prints the header of frame N (`frame 0: main at main.c:21, fp $FF51 (prologue)`, from
+The C variables (GH #436) are three more verbs over the facade of [7.10](10-c-frames-and-values.md), read-only; the write (GH #437)
+is a fourth, `monitor set var [FRAME] PATH = VALUE` (`monitor_set_var()`, `rsp_server.cpp:1212`), over `write_c_value()`: `OK` and the value read back, or
+`refused: <why>` and `E01`.
+`monitor_locals()` (`rsp_server.cpp:1107`) prints the header of frame N (`frame 0: main at main.c:21, fp $FF51 (prologue)`, from
 `c_frames()`), then one `(type) name = value` line per `c_locals()` row, and a `[note]` line under a row that has notes.
-`monitor_globals()` (`rsp_server.cpp:1148`) prints one line per `c_globals()` row named by its `path`, so a name pastes into
-`print`, with the memory the variable lives in (`$903E P04`). `monitor_print()` (`rsp_server.cpp:1169`) takes the raw rest of
+`monitor_globals()` (`rsp_server.cpp:1155`) prints one line per `c_globals()` row named by its `path`, so a name pastes into
+`print`, with the memory the variable lives in (`$903E P04`). `monitor_print()` (`rsp_server.cpp:1176`) takes the raw rest of
 the line, not the split words, because a C path may hold spaces (`p -> y`); a leading decimal word is the frame (a C path cannot
 start with a digit). A refusal (no C variables, an unknown name, no such frame) is text and `OK`, as `monitor src` does; a
 wrong argument is `E01`. They exist for any RSP client and for what `z88dk-gdb` gets wrong on its own: it resolves a file
@@ -389,7 +399,12 @@ DSL, it first translates it (`translate_condition()`, `zrcp_condition.cpp`), and
 echoes `CVAR(path)` with the path's case kept. Conditions compile through the same translation, so a breakpoint may carry it
 (`PC=8D3EH AND CVAR(a)=2`); a read that fails is ZEsarUX's `Error evaluating parsed string`, with no reason. A condition with no
 `PC=` first term is checked at every instruction, and a `CVAR` in it builds the C frames each time: put a `PC=` term first.
-`smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2625`) calls
+The write (GH #437) is `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1190`): the command table's census pins ZEsarUX's
+`ls`, so no command can be added, and the extension is a branch of the one assignment verb. It takes the path up to the first `)`, then `=`, and
+the trimmed rest as the value (a value ZRCP's `parse_number()` reads, decimal or `nnnnH`, is converted to decimal text; anything else, `-5`,
+a fraction, `'A'`, `0x10`, goes as typed) and calls `write_c_value()` in frame 0. Success answers `set-register`'s own register line; every failure
+is ZEsarUX's `Error changing register`, with no reason.
+`smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2652`) calls
 `Debugger::load()` (`debugger_reconstruct.cpp:465`), which calls `load_program_sidecars()` after a successful load
 (`load_program_sidecars()`, `debugger_reconstruct.cpp:528-532`), so a program loaded over ZRCP gets its symbols and
 source map like `--load`, and a refused sidecar is logged to every client as a Warn line.
@@ -416,6 +431,7 @@ rest of the language are in [3.10.6](../03-subsystems/13-the-debugger-scripting-
 `read_c_value(0, path)` (frame 0, where the CPU is) and `c_int32_scalar()` ([7.10](10-c-frames-and-values.md)) and returns
 the int32. The store is looked up at each evaluation, so a script compiled before the program loaded works once the sidecars
 attach, and every refusal is an `EvalError`, never a 0.
+`set cvar(PATH) = v` (GH #437) is the write: `parse_lvalue()` makes it an `ExprKind::CVar` target and the `Set` action of `script_engine.cpp` calls `write_c_value()` in frame 0 with the int32 as `CNewValue::From::Int32`; a refusal is `fail()` with the facade's reason.
 
 **Reading C variables inside a delivery.** A predicate runs inside the loops over the event table, and `cvar()` is the first
 reader there that runs `recheck()` (`c_frames()` and `read_c_value()` do): the first `cvar()` after a verdict the verify hook

@@ -42,7 +42,8 @@ end
 | `A B C D E H L F I R AF BC DE HL IX IY SP PC AF2 BC2 DE2 HL2` | registers |
 | `SF ZF HF PF NF CF`, `IFF1 IFF2 IM HALTED` | flags, interrupt state |
 | `mem[a] mem16[a] phys[p, o] stack[n]` | memory |
-| `cvar(PATH)` | a C variable of the frame the CPU is in, as a 32-bit integer (z88dk `-debug` map); read-only, every refusal a run-time error |
+| `cvar(PATH)` | a C variable of the frame the CPU is in, as a 32-bit integer (z88dk `-debug` map); every refusal a run-time error |
+| `set cvar(PATH) = v` | writes a C variable of frame 0: a 32-bit integer, range-checked, no floats |
 | `mmu[s] page[s] nextreg[r]` | MMU, NextREGs |
 | `FRAME CYCLE TFRAME` | time |
 | `RAW_HC RAW_VC HC_ULA VC_ULA CVC PHC` | the raster |

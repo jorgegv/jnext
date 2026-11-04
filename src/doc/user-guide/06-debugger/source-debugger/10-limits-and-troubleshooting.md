@@ -59,6 +59,13 @@ the two pragmas: see [Building programs with z88dk](02-building-with-z88dk.md#ba
 - **C variables** are shown in the Variables tab ([C variables in the debugger](11-c-variables.md), with
   what it cannot show) and read by scripts (`cvar()`), over GDB and over ZRCP, never over DeZog's protocol (DZRP): see
   [Scripts and remote debuggers](09-scripts-and-remote-debuggers.md#c-variables).
+- **Some C variables cannot be written** (from a script, over GDB and ZRCP; each refusal says why):
+  a variable the compiler keeps in a register (zsdcc), and anything reached through a pointer held in a register (the
+  debug record gives no live range, so the register may hold something else by then); a whole struct or array (write a
+  member or an element); sccz80's fastcall parameter (z88dk U1) and a member of an overlapping bitfield struct
+  (z88dk U2), whose places are not certain; an 80cc block local (the compiler writes no block structure, so the slot
+  may hold another variable); a variable not allocated yet or out of scope; a global of a dot command, which lives in
+  DivMMC RAM, where the debugger cannot write; and anything in ROM.
 - **A step is synchronous and bounded.** A step that never reaches another
   statement (a loop on one line, a `HALT` with interrupts disabled) stops by itself
   at a disabled-interrupt `HALT`, or after a million instructions or 100 frames,

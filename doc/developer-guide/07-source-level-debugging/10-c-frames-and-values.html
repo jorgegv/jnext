@@ -2947,6 +2947,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#writing-a-value-gh-437" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Writing a value (GH #437)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#fixtures-and-rows" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3124,7 +3135,7 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 </tr>
 <tr>
 <td><code>SF</code> <code>{6}</code></td>
-<td>z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by <code>$80</code>; 12 significant digits (<code>c_format_float48()</code>, <code>c_value.cpp:411</code>). Oracle: the bytes z88dk compiled in <code>*-floats</code></td>
+<td>z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by <code>$80</code>; 12 significant digits (<code>c_format_float48()</code>, <code>c_value.cpp:416</code>). Oracle: the bytes z88dk compiled in <code>*-floats</code></td>
 </tr>
 <tr>
 <td><code>SF</code> <code>{4}</code></td>
@@ -3144,7 +3155,7 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 </tr>
 <tr>
 <td>array</td>
-<td>the count is the <code>DA&lt;n&gt;</code>, never the byte size (a <code>DA4x,SI</code> is 8 bytes and 4 elements); at most 16 elements, then <code>...</code>; a char array reads up to its NUL when what precedes it is text, else (<code>uint8_t btable[4]</code>, the CDB cannot tell it from a <code>char</code> array) it is a list of numbers</td>
+<td>the count is the <code>DA&lt;n&gt;</code>, never the byte size (a <code>DA4x,SI</code> is 8 bytes and 4 elements); at most 16 elements, then <code>...</code>; a char array is a string when every byte that is not a NUL is text (GDB's null-stop off, GH #437): every byte is shown and a NUL prints as <code>\0</code>, trailing ones too (<code>{'h', 'i', 0, 0}</code> is <code>"hi\0\0"</code>), else (<code>uint8_t btable[4]</code>, a table that starts at 0; the CDB cannot tell it from a <code>char</code> array) it is a list of numbers</td>
 </tr>
 <tr>
 <td>struct</td>
@@ -3160,10 +3171,10 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 </tr>
 </tbody>
 </table>
-<p><code>c_find_type()</code> (<code>c_value.cpp:498</code>) finds a struct's <code>T:</code> record: the records of the variable's own scope first (zsdcc's
+<p><code>c_find_type()</code> (<code>c_value.cpp:503</code>) finds a struct's <code>T:</code> record: the records of the variable's own scope first (zsdcc's
 copy per module), then those of its module, then a tag that is unique across all records (sccz80 and 80cc: one per
 header). Different definitions at the deciding step are ambiguous, never first-wins. <code>c_type_text()</code>
-(<code>c_value.cpp:491</code>) prints <code>char</code>, <code>unsigned int</code>, <code>struct node *</code>, <code>int [2][3]</code>, <code>int (*)()</code>; the CDB has no
+(<code>c_value.cpp:496</code>) prints <code>char</code>, <code>unsigned int</code>, <code>struct node *</code>, <code>int [2][3]</code>, <code>int (*)()</code>; the CDB has no
 union marker, so a union is <code>struct word</code>, and no typedef name survives. A zsdcc padding member (<code>__00000000</code>) is
 not shown.</p>
 <p><strong>A struct's size</strong> is a declared object's when there is one: an <code>S:</code> record, or a struct member, whose chain is
@@ -3174,13 +3185,13 @@ overstates the size and is not used: with no declared object it is refused as <c
 such a member (the whole struct, a member path, a pointer, an element <code>p[1]</code>, a member of a nested struct) clamps its
 read to the struct that holds it and zero-fills the overhang, so <code>hi</code> is 200 for the bytes <code>8D C8</code> whichever way it is
 reached, and no read goes past that struct.</p>
-<p><code>c_parse_path()</code> (<code>c_value.cpp:581</code>) parses the C paths: <code>['*'] primary {'.' name | '-&gt;' name | '[' index ']'}</code>,
+<p><code>c_parse_path()</code> (<code>c_value.cpp:586</code>) parses the C paths: <code>['*'] primary {'.' name | '-&gt;' name | '[' index ']'}</code>,
 the primary a name, <code>fn::name</code>, <code>file.c::name</code> or <code>file.c::fn::name</code> (the file names which <code>fn</code> when two modules have a function of that name), the index decimal, <code>0x&lt;hex&gt;</code> or <code>$&lt;hex&gt;</code> with no sign. As in C the
 postfix operators bind tighter than the <code>*</code>: <code>*x[1]</code> is <code>*(x[1])</code> and <code>*head-&gt;next</code> is <code>*(head-&gt;next)</code>.
-<code>c_eval_path()</code> (<code>c_value.cpp:682</code>) walks the steps over a typed location (an array index is checked against its
+<code>c_eval_path()</code> (<code>c_value.cpp:687</code>) walks the steps over a typed location (an array index is checked against its
 count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
 refused), then applies the <code>*</code>, and <code>c_read_loc()</code> reads and formats it. Every refusal says why.</p>
-<p><code>c_visible_locals()</code> (<code>c_value.cpp:885</code>) lists which locals show at a PC: the parameters (ordered by stack position),
+<p><code>c_visible_locals()</code> (<code>c_value.cpp:890</code>) lists which locals show at a PC: the parameters (ordered by stack position),
 the locals, the static locals. A parameter is a record of level 0 (sccz80, 80cc), at a stack offset &gt;= 4, or (zsdcc) in
 a block below the body's first block (the entry scope's), where its register and fastcall parameters sit. Parameters
 and level-1 locals are always visible; a local of level &gt;= 2 is visible iff its block is the open block or one of its
@@ -3190,9 +3201,9 @@ block just opened is the last opened one). The open block is the greatest known 
 the scope's block, which turns sccz80's "last opened block" into the block that is open and keeps a closed sibling's
 locals hidden; its ancestors are found over the same set. With no block data (80cc) or an unknown scope, every block
 local is shown, marked.
-<code>c_read_register_local()</code> (<code>c_value.cpp:966</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
+<code>c_read_register_local()</code> (<code>c_value.cpp:971</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
 that it may be stale), refuses <code>[]</code> as optimised out and an outer frame as not available.
-<code>c_param_location_unknown()</code> (<code>c_value.cpp:1006</code>) marks a listed <code>__z88dk_fastcall</code> parameter recorded at an offset</p>
+<code>c_param_location_unknown()</code> (<code>c_value.cpp:1011</code>) marks a listed <code>__z88dk_fastcall</code> parameter recorded at an offset</p>
 <blockquote>
 <p>= 0 (z88dk U1).</p>
 </blockquote>
@@ -3208,28 +3219,28 @@ that it may be stale), refuses <code>[]</code> as optimised out and an outer fra
 </thead>
 <tbody>
 <tr>
-<td><code>c_variables_status()</code> (<code>debugger_cvalues.cpp:409</code>)</td>
+<td><code>c_variables_status()</code> (<code>debugger_cvalues.cpp:411</code>)</td>
 <td><code>{available, why}</code> with a printable reason: <code>no source map is attached</code>; <code>an SLD source map carries no C variables</code>; <code>the map has no C debug records</code> (lines from listings only); <code>zsdcc wrote no C variable records for this build</code> (<code>zcc -O0</code> keeps the <code>C_LINE</code> records and writes no <code>__CDBINFO__</code>, fixture <code>master/sdcc-cvars-O0</code>); <code>the map has line records but no __CDBINFO__ records</code>; <code>all N C variable records were refused: &lt;reason&gt;</code>; a stale map</td>
 </tr>
 <tr>
-<td><code>c_locals(frame)</code> (<code>debugger_cvalues.cpp:445</code>)</td>
+<td><code>c_locals(frame)</code> (<code>debugger_cvalues.cpp:447</code>)</td>
 <td>the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a <code>CValueRow</code>; refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known</td>
 </tr>
 <tr>
-<td><code>c_globals()</code> (<code>debugger_cvalues.cpp:477</code>)</td>
+<td><code>c_globals()</code> (<code>debugger_cvalues.cpp:479</code>)</td>
 <td>every global, file static and static local, ordered by file then name, with a <code>path</code> no local can shadow: <code>vars.c::s_dup</code>, <code>sum::calls</code> (<code>a.c::init::done</code> when two modules have a function <code>init</code>)</td>
 </tr>
 <tr>
-<td><code>read_c_value(frame, path)</code> (<code>debugger_cvalues.cpp:507</code>)</td>
+<td><code>read_c_value(frame, path)</code> (<code>debugger_cvalues.cpp:509</code>)</td>
 <td>the object a C path names in that frame: <code>ok</code> or <code>why</code>, the type text, the value text, <code>notes</code>, the typed location <code>loc</code>, <code>where</code>, <code>integer</code> (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and <code>real</code> (the floats)</td>
 </tr>
 <tr>
-<td><code>c_children(frame, path, first, max)</code> (<code>debugger_cvalues.cpp:519</code>)</td>
+<td><code>c_children(frame, path, first, max)</code> (<code>debugger_cvalues.cpp:593</code>)</td>
 <td>what a tree lists under an object: a struct's members, an array's elements <code>first</code>..<code>first + max</code> (<code>total</code> is the element COUNT), a pointer's pointee (a struct's members as <code>p-&gt;x</code>, anything else as <code>p[0]</code>, named <code>*</code>); <code>void *</code>, a function pointer and a scalar have none (<code>ok</code>, <code>total</code> 0). Each row's <code>path</code> is the parent's plus a suffix and round-trips through <code>read_c_value</code> (for a <code>*E</code> path the base is <code>E[0]</code>, since the grammar applies a leading <code>*</code> after the postfix steps: <code>*p</code> + <code>.x</code> would read <code>*(p.x)</code>); a row is read, placed and noted exactly as <code>read_c_value</code> would, so a banked global's elements carry its page. <code>!ok</code> gives <code>read_c_value</code>'s own reason, or <code>null pointer</code> / the unreadable address</td>
 </tr>
 </tbody>
 </table>
-<p>The children come from the pure <code>c_children()</code> (<code>c_value.cpp:791</code>; <code>CChild</code>, <code>CChildren</code>): a struct's visible named members in record order
+<p>The children come from the pure <code>c_children()</code> (<code>c_value.cpp:796</code>; <code>CChild</code>, <code>CChildren</code>): a struct's visible named members in record order
 (an unnamed C11 member has no path and is left out), an array's elements scaled by the element size, one pointee for a pointer.</p>
 <p>A <code>CValueRow</code> carries <code>name</code>, <code>path</code> (which round-trips through <code>read_c_value</code>), <code>file</code>, <code>type</code>, <code>kind</code> (Param, Local,
 StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code>value</code> or <code>why</code>, <code>aggregate</code> and <code>notes</code>. A failed read has an empty
@@ -3249,11 +3260,11 @@ StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code
   inside its root object, cleared when a pointer is followed (<code>CFormatCtx::read_root</code>).</li>
 <li>A listed <code>__z88dk_fastcall</code> parameter recorded at an offset &gt;= 0 is <code>location unknown (z88dk U1...)</code>.</li>
 </ul>
-<p><code>find_var()</code> (<code>debugger_cvalues.cpp:314</code>) resolves a name in frame <code>k</code>: the frame's visible locals, then its function's static
+<p><code>find_var()</code> (<code>debugger_cvalues.cpp:316</code>) resolves a name in frame <code>k</code>: the frame's visible locals, then its function's static
 locals, the file's statics, the globals. A local that exists but is hidden is <code>out of scope at &lt;file&gt;:&lt;line&gt;</code>. <code>fn::name</code> names a static
 local from any frame, and a local of <code>fn</code> only from a frame of <code>fn</code>; <code>file.c::name</code> names that file's statics and globals.</p>
 <h2 id="the-int32-atom-c_int32_scalar-gh-436">The int32 atom: <code>c_int32_scalar()</code> (GH #436)<a class="headerlink" href="#the-int32-atom-c_int32_scalar-gh-436" title="Permanent link">&para;</a></h2>
-<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1045</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
+<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1052</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
 and, through its translation, ZRCP's <code>CVAR()</code> both reach it through the evaluator, so there is nothing to keep in step. It reads
 <code>loc.type</code> (the head of the chain and the size) and <code>loc.note</code>, so a register-held value (no address) passes a <code>CLoc</code> with just its
 type, which <code>read_c_value()</code> fills for it. <code>integer</code> is the facade's <code>CValueResult::integer</code>.</p>
@@ -3298,15 +3309,128 @@ type, which <code>read_c_value()</code> fills for it. <code>integer</code> is th
 <p>The register-local "may be stale" and "page N is not mapped" notes are row notes, not <code>CLoc::note</code>, and do not refuse: they say
 how far to trust a value that is shown. The rule is a pure function, so <code>CVINT-01</code> and <code>CVINT-02</code> reach every arm with synthetic types; no
 fixture has an 8-byte integer, a binary16 or an <code>_Accum</code> global.</p>
+<h2 id="writing-a-value-gh-437">Writing a value (GH #437)<a class="headerlink" href="#writing-a-value-gh-437" title="Permanent link">&para;</a></h2>
+<p><code>write_c_value(by, frame, path, CNewValue)</code> (<code>debugger_cvalues.cpp:530</code>) is the one write, and it takes its place from the read:
+a write needs a successful <code>eval_var()</code> of the same path, and its bytes are that read's <code>loc</code> and <code>where</code>, so
+there is no second resolver to drift from the first. Whatever a read refuses a write refuses with the read's own words (U1, a frame
+base that is not known, <code>not allocated</code>, <code>optimised out</code>, a null pointer, an index past the end, a page crossing, an unresolved
+storage). The write adds five refusals, in this order:</p>
+<table>
+<thead>
+<tr>
+<th>Refusal</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>scope unknown</code> (<code>Found::scope_unknown</code>, copied from <code>CLocalRef</code> in <code>find_local()</code>)</td>
+<td>80cc writes no block structure, so the slot of a block local may hold another variable: a note for a read, a refusal for a write</td>
+</tr>
+<tr>
+<td><code>a register variable cannot be written</code></td>
+<td>a root with record space <code>R</code>, and a path that follows a register-held pointer: the record gives no live range, so the register may hold another value by then; <code>registers_of()</code> names them</td>
+</tr>
+<tr>
+<td><code>&lt;type&gt; is an aggregate: write a member or an element</code></td>
+<td>a struct or an array, char arrays included (no string assignment: its read-back would depend on how a string with a NUL prints)</td>
+</tr>
+<tr>
+<td>the <code>loc.note</code></td>
+<td>a member of an overlapping struct (z88dk U2): the place is not certain</td>
+</tr>
+<tr>
+<td>the encoder's refusal</td>
+<td>below</td>
+</tr>
+</tbody>
+</table>
+<p>The current bytes are peeked through <code>where</code> (<code>Page</code>: <code>peek(space, space_offset(...))</code>, <code>Cpu</code>: the CPU view), the encoder
+makes the new ones, and <strong>exactly one <code>poke()</code></strong> writes them: one MUTATE line and one <code>state_revision()</code> bump (GH #428), and neither on
+a refusal decided before the poke (it writes, logs and bumps nothing). A write that lands only some of its bytes (a 2-byte object on $3FFF, half in ROM) is <code>RefusedReadOnly</code>
+with the one MUTATE line and the one bump of the bytes that landed; a refusal by <code>poke()</code> before a byte lands (RZX, a read-only page, DivMMC RAM) has neither. The status is poke's own:
+<code>RefusedRzx</code>, <code>RefusedReadOnly</code> (with <code>landed</code>, worded <code>K of N bytes landed (the rest is read-only)</code>), <code>InvalidPage</code> or <code>Unsupported</code>; every
+refusal decided before it is <code>RefusedUnavailable</code> with the reason in <code>why</code>. There is no C-specific code. A dot command's global lives in
+<code>DivMmcRam</code>, which <code>poke()</code> refuses (<code>identity_only()</code>, INS-02-30), so it is <code>Unsupported</code> with <code>DivMMC RAM bank 2 cannot be written by the
+debugger (unsupported)</code>. After an <code>Ok</code> the object is read back into <code>CWriteResult::value</code>. A <code>Page</code> object cannot half-land: the read already
+refused a page crossing.</p>
+<p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1343</code>) is pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
+independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRCP, GDB) or a script's 32-bit value:</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Text</th>
+<th>Int32 (a script)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Char, Int, Long, Scalar of 1 or 2 bytes, Bitfield</td>
+<td>the type's range by sign (a bitfield: the field's width), else <code>'&lt;text&gt;' is out of range for &lt;type&gt; (&lt;lo&gt;..&lt;hi&gt;)</code></td>
+<td>the same</td>
+</tr>
+<tr>
+<td>the same, 4 bytes</td>
+<td>the strict range</td>
+<td>any int32, as its 32-bit pattern (the mirror of <code>c_int32_scalar()</code>)</td>
+</tr>
+<tr>
+<td>the same, 8 bytes</td>
+<td>the int64 / uint64 range</td>
+<td>refused: <code>does not fit the script's 32 bits</code></td>
+</tr>
+<tr>
+<td>Pointer</td>
+<td>0..65535</td>
+<td>0..65535</td>
+</tr>
+<tr>
+<td><code>{6}SF</code> (z88dk 48-bit)</td>
+<td>rounded to nearest; refused when the exponent leaves 1..255 (<code>encode_float48()</code>, <code>c_value.cpp:1278</code>)</td>
+<td>refused: <code>float is not an integer</code></td>
+</tr>
+<tr>
+<td><code>{4}SF</code> (binary32)</td>
+<td>the C library's <code>strtof</code> through an <code>istringstream</code> (correctly rounded), out of range refused</td>
+<td>refused</td>
+</tr>
+<tr>
+<td><code>S6</code> (binary16)</td>
+<td>through float, nearest even, refused when it rounds to infinity or to zero (<code>encode_float16()</code>, <code>c_value.cpp:1309</code>)</td>
+<td>refused</td>
+</tr>
+<tr>
+<td><code>SQ</code></td>
+<td>refused: <code>fixed-point layout not decoded</code></td>
+<td>refused</td>
+</tr>
+</tbody>
+</table>
+<p>A text is trimmed, then an optional sign and decimal, <code>0x</code> or <code>$</code> digits (<code>parse_int_text()</code>, <code>c_value.cpp:1150</code>), or a <code>'c'</code> character, or for a
+float type a decimal number (<code>float_from_text()</code>, <code>c_value.cpp:1233</code>: its syntax is checked first, then the text is read by an <code>istringstream</code> imbued with the classic
+locale, because <code>QApplication</code> calls <code>setlocale(LC_ALL, "")</code> and a comma host would read <code>1.5</code> as <code>1</code>; <code>std::from_chars</code> for floating point is
+missing from libc++ before LLVM 20, so the macOS build could not use it). <code>nan</code> and <code>inf</code> are refused.
+A value out of range is refused, never truncated: a person typing <code>-1</code> into an unsigned long made a mistake, not
+a bit pattern, which is why only a script's int32 is a pattern. <strong>The 48-bit encoder rounds to nearest because the compiler does:</strong> the constants z88dk
+compiled into <code>master/sccz80-floats</code> are <code>0.1</code> = <code>CD CC CC CC 4C 7D</code> and <code>1e-10</code> = <code>BE CE FE E6 5B 5F</code>, which truncation gets wrong (<code>CC ...</code>
+and <code>BD ...</code>), and <code>CVW-05</code> reads those bytes from the fixture at run time, never from a copy. A bitfield reads its unit's bytes, replaces its
+bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:1251</code>, is its range check, on the field's width).</p>
+<p><strong>F1, found while planning:</strong> the reader ignored a bitfield's sign. <code>c_format_value()</code> and <code>c_integer_value()</code> returned the unsigned field for
+<code>SB&lt;s&gt;$&lt;w&gt;:S</code>, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so <code>CVW-10</code>
+uses a synthetic record.</p>
+<p>The frontends: GDB <code>monitor set var [FRAME] PATH = VALUE</code> (<code>monitor_set_var()</code>, <code>rsp_server.cpp:1212</code>), and ZRCP <code>set-register CVAR(path)=value</code>
+(<code>cmd_set_register()</code>, <code>zrcp_server.cpp:1190</code>). A ZRCP command table cannot gain a command (its census pins ZEsarUX's), so it is the
+<code>CVAR(</code> branch of the one assignment verb, in frame 0, with ZEsarUX's own failure text.</p>
 <h2 id="fixtures-and-rows">Fixtures and rows<a class="headerlink" href="#fixtures-and-rows" title="Permanent link">&para;</a></h2>
 <p><code>Z88CDB-41</code> to <code>-50</code> in <code>z88dk_map_test</code> (the extents against a golden that <code>derive-scopes.py --extents</code>
 derives from the raw map lines, the <code>*-cross</code> fixtures, the helpers, the listing evidence for the calling
 convention, the no-record facts, and the unchanged scope tables on the 12 maps of <code>Z88CDB-40</code>), and
-<code>CVALF-01</code> to <code>-41</code> and <code>CVCH-01</code> to <code>-06</code> (the children) in <code>c_value_test</code> (with <code>-27a</code> and <code>-28a</code> to <code>-28d</code>), and <code>SRCDBG-CVAL-01</code> to <code>-58</code> in <code>source_debug_test</code> (the tracker policy, the frames of each compiler on a running fixture:
+<code>CVALF-01</code> to <code>-41</code> and <code>CVCH-01</code> to <code>-06</code> (the children) and <code>CVW-01</code> to <code>-12</code> (the encoder) in <code>c_value_test</code> (with <code>-27a</code> and <code>-28a</code> to <code>-28d</code>), and <code>SRCDBG-CVAL-01</code> to <code>-58</code> in <code>source_debug_test</code> (the tracker policy, the frames of each compiler on a running fixture:
 tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, a function that crosses a slot; and the
 values: the first call of sum on each compiler, the globals, the loop, paged globals with their note, the fastcall marker, C paths and
 their refusals, bitfields, the status texts, the lifetime, a rewind, a dot command's global, order and hiding, and the facade's
-contract, an unknown frame base, a stale map, an ambiguous function, page crossing and the label of an unmapped page, file-qualified static locals, a pointer in a register). The plan's row for an identity-only space (a value whose storage is in <code>BootRom</code>, <code>Layer2</code> and the like) is not built, and cannot be: <code>storage_of()</code> refuses any bound placement that is not a <code>Page</code> and <code>z88dk_section_space()</code> produces only <code>Page</code> and <code>DivMmcRam</code>, so no z88dk map can place a variable in such a space; the neighbouring contract, a failed read is never <code>0</code>, is reachable and rowed (a 2-byte global on the last byte of its page). A struct's size by module is <code>CVALF-37</code>, the integer and real a value holds <code>CVALF-38</code>, rooted reads <code>CVALF-39</code>; the int32 rule is <code>CVINT-01</code> and <code>-02</code> in <code>c_value_test</code>. The frontends' rows are <code>EVAL-CVAR-*</code>, <code>GDB-CVAR-*</code> and <code>ZRCP-CVAR-*</code> (<a href="08-tests-and-new-producers.html">7.8</a>).</p>
+contract, an unknown frame base, a stale map, an ambiguous function, page crossing and the label of an unmapped page, file-qualified static locals, a pointer in a register). The plan's row for an identity-only space (a value whose storage is in <code>BootRom</code>, <code>Layer2</code> and the like) is not built, and cannot be: <code>storage_of()</code> refuses any bound placement that is not a <code>Page</code> and <code>z88dk_section_space()</code> produces only <code>Page</code> and <code>DivMmcRam</code>, so no z88dk map can place a variable in such a space; the neighbouring contract, a failed read is never <code>0</code>, is reachable and rowed (a 2-byte global on the last byte of its page). A struct's size by module is <code>CVALF-37</code>, the integer and real a value holds <code>CVALF-38</code>, rooted reads <code>CVALF-39</code>; the int32 rule is <code>CVINT-01</code> and <code>-02</code> in <code>c_value_test</code>; the write is <code>SRCDBG-CVW-01</code> to <code>-22</code> in <code>source_debug_test</code>. The frontends' rows are <code>EVAL-CVAR-*</code>, <code>GDB-CVAR-*</code> and <code>ZRCP-CVAR-*</code>, and <code>GDB-CVW-*</code> and <code>ZRCP-CVW-*</code> for the writes (<a href="08-tests-and-new-producers.html">7.8</a>).</p>
 
 
 

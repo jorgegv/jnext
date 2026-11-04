@@ -7,6 +7,7 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <sstream>
 
 namespace jnext {
 namespace dbg {
@@ -212,13 +213,15 @@ struct Formatter {
             const size_t esz = static_cast<size_t>(size / e.count);
             if (avail < static_cast<size_t>(size)) return fail("the object is shorter than its type");
             if (is_char(ch, i + 1)) {
-                // a char array reads as a string when what comes before its NUL (or all of it) is text; an unsigned char array of
-                // numbers (`uint8_t btable[4] = {10, 20, 30, 40}`, a union's byte view) is a list of numbers, as the CDB cannot tell them apart
+                // a char array reads as a string when every byte that is not a NUL is text (GDB's null-stop off: GH #437 owner decisions
+                // CVALF-16 and 2026-11-04): EVERY byte is shown, a NUL as \0, so `{'h', 'i', 0, 0}` is "hi\0\0" and `{'h', 'i', 0, 'l', 'o', 0}`
+                // is "hi\0lo\0". An unsigned char array of numbers (`uint8_t btable[4] = {10, 20, 30, 40}`, a union's byte view, a table
+                // that starts at 0) is a list of numbers, as the CDB cannot tell them apart
                 bool text = true;
-                for (size_t k = 0; k < static_cast<size_t>(size) && b[k] != 0; ++k)
-                    text = text && ((b[k] >= 0x20 && b[k] < 0x7F) || b[k] == '\t' || b[k] == '\n' || b[k] == '\r');
+                for (size_t k = 0; k < static_cast<size_t>(size); ++k)
+                    text = text && (b[k] == 0 || (b[k] >= 0x20 && b[k] < 0x7F) || b[k] == '\t' || b[k] == '\n' || b[k] == '\r');
                 if (text) {
-                    out = string_of(b, static_cast<size_t>(size), true);
+                    out = string_of(b, static_cast<size_t>(size), false);
                     return true;
                 }
             }
@@ -274,7 +277,9 @@ struct Formatter {
             unsigned long long u = 0;
             for (size_t k = n; k-- > 0;) u = (u << 8) | b[k];
             const unsigned long long mask = e.bit_width >= 64 ? ~0ull : ((1ull << e.bit_width) - 1);
-            out = unum((u >> e.bit_start) & mask);
+            const unsigned long long field = (u >> e.bit_start) & mask;
+            if (e.is_unsigned || e.bit_width <= 0 || e.bit_width >= 64) out = unum(field);
+            else out = num(static_cast<long long>(field << (64 - e.bit_width)) >> (64 - e.bit_width));   // `:S`: sign-extended (GH #437)
             return true;
         }
         case CdbTypeKind::Void:
@@ -1035,7 +1040,9 @@ std::optional<int64_t> c_integer_value(const CdbType& type, const uint8_t* b, si
     for (size_t k = n; k-- > 0;) u = (u << 8) | b[k];
     if (e.kind == CdbTypeKind::Bitfield) {
         const unsigned long long mask = e.bit_width >= 64 ? ~0ull : ((1ull << e.bit_width) - 1);
-        return static_cast<int64_t>((u >> e.bit_start) & mask);
+        const unsigned long long field = (u >> e.bit_start) & mask;
+        if (e.is_unsigned || e.bit_width <= 0 || e.bit_width >= 64) return static_cast<int64_t>(field);
+        return static_cast<int64_t>(field << (64 - e.bit_width)) >> (64 - e.bit_width);   // `:S`: sign-extended (GH #437)
     }
     if (e.kind == CdbTypeKind::Pointer || e.is_unsigned || n == 8) return static_cast<int64_t>(u);
     const unsigned shift = 64u - 8u * static_cast<unsigned>(n);
@@ -1120,6 +1127,343 @@ std::optional<double> c_float_value(const CdbType& type, const uint8_t* b, size_
         return (h >> 15) ? -v : v;
     }
     return std::nullopt;
+}
+
+}  // namespace dbg
+}  // namespace jnext
+
+// -- GH #437: the encoder of a written value --------------------------------------------------------------------------
+
+namespace jnext {
+namespace dbg {
+
+namespace {
+
+struct IntText {
+    bool ok = false;
+    bool neg = false;
+    bool overflow = false;   // the magnitude does not fit 64 bits
+    unsigned long long mag = 0;
+};
+
+// `[+-]digits`, `[+-]0x<hex>`, `[+-]$<hex>` or `'c'` (one printable ASCII character but `'` and `\`), all of `t`.
+IntText parse_int_text(std::string_view t)
+{
+    IntText r;
+    if (t.size() == 3 && t[0] == '\'' && t[2] == '\'') {
+        const unsigned char c = static_cast<unsigned char>(t[1]);
+        if (c >= 0x20 && c < 0x7F && c != '\'' && c != '\\') {
+            r.ok = true;
+            r.mag = c;
+        }
+        return r;
+    }
+    size_t i = 0;
+    if (i < t.size() && (t[i] == '+' || t[i] == '-')) r.neg = t[i++] == '-';
+    unsigned base = 10;
+    if (t.size() - i >= 2 && t[i] == '0' && (t[i + 1] == 'x' || t[i + 1] == 'X')) {
+        base = 16;
+        i += 2;
+    } else if (i < t.size() && t[i] == '$') {
+        base = 16;
+        ++i;
+    }
+    if (i >= t.size()) return IntText{};
+    unsigned long long m = 0;
+    for (; i < t.size(); ++i) {
+        const char c = t[i];
+        unsigned d;
+        if (c >= '0' && c <= '9') d = static_cast<unsigned>(c - '0');
+        else if (base == 16 && c >= 'a' && c <= 'f') d = static_cast<unsigned>(c - 'a' + 10);
+        else if (base == 16 && c >= 'A' && c <= 'F') d = static_cast<unsigned>(c - 'A' + 10);
+        else return IntText{};
+        if (r.overflow || m > (~0ull - d) / base) r.overflow = true;
+        else m = m * base + d;
+    }
+    r.ok = true;
+    r.mag = m;
+    return r;
+}
+
+std::string_view trim_blanks(std::string_view t)
+{
+    while (!t.empty() && std::isspace(static_cast<unsigned char>(t.front()))) t.remove_prefix(1);
+    while (!t.empty() && std::isspace(static_cast<unsigned char>(t.back()))) t.remove_suffix(1);
+    return t;
+}
+
+// `[+-]digits[.digits][e[+-]digits]` (or `.digits`), all of `t`. `nonzero`: some mantissa digit is not a 0.
+bool decimal_float_syntax(std::string_view t, bool* nonzero)
+{
+    const auto digit = [](char c) { return c >= '0' && c <= '9'; };
+    size_t i = 0, nd = 0;
+    *nonzero = false;
+    if (i < t.size() && (t[i] == '+' || t[i] == '-')) ++i;
+    for (; i < t.size() && digit(t[i]); ++i, ++nd)
+        if (t[i] != '0') *nonzero = true;
+    if (i < t.size() && t[i] == '.') {
+        for (++i; i < t.size() && digit(t[i]); ++i, ++nd)
+            if (t[i] != '0') *nonzero = true;
+    }
+    if (nd == 0) return false;
+    if (i < t.size() && (t[i] == 'e' || t[i] == 'E')) {
+        ++i;
+        if (i < t.size() && (t[i] == '+' || t[i] == '-')) ++i;
+        size_t ne = 0;
+        for (; i < t.size() && digit(t[i]); ++i, ++ne) {
+        }
+        if (ne == 0) return false;
+    }
+    return i == t.size();
+}
+
+// `nan`, `inf`, `infinity`, with an optional sign, in any case.
+bool nonfinite_word(std::string_view t)
+{
+    if (!t.empty() && (t[0] == '+' || t[0] == '-')) t.remove_prefix(1);
+    std::string w;
+    for (const char c : t) w += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return w == "nan" || w == "inf" || w == "infinity";
+}
+
+// A decimal number of all of `t`, read through a stream imbued with the classic locale (no host locale: QApplication calls
+// setlocale(LC_ALL, ""), and std::from_chars for floating point is missing from libc++ before LLVM 20). False: not a decimal
+// number. `out_of_range`: it overflows `F`, or is not zero and underflows to it.
+template <typename F>
+bool float_from_text(std::string_view t, F* out, bool* out_of_range)
+{
+    *out_of_range = false;
+    bool nonzero = false;
+    if (!decimal_float_syntax(t, &nonzero)) return false;
+    std::istringstream is{std::string(t)};
+    is.imbue(std::locale::classic());
+    F v{};
+    is >> v;
+    if (is.fail() || (nonzero && v == 0)) {
+        *out_of_range = true;
+        return true;
+    }
+    *out = v;
+    return true;
+}
+
+// Does `neg`/`mag` fit an integer of `bits` bits, unsigned or two's-complement signed?
+bool int_fits(bool neg, unsigned long long mag, bool overflow, int bits, bool is_unsigned)
+{
+    if (overflow) return false;
+    if (is_unsigned) return (!neg || mag == 0) && (bits >= 64 || mag <= (1ull << bits) - 1);
+    const unsigned long long half = 1ull << (bits - 1);
+    return neg ? mag <= half : mag <= half - 1;
+}
+
+std::string int_range_text(int bits, bool is_unsigned)
+{
+    if (is_unsigned) return "0.." + unum(bits >= 64 ? ~0ull : (1ull << bits) - 1);
+    return "-" + unum(1ull << (bits - 1)) + ".." + unum((1ull << (bits - 1)) - 1);
+}
+
+// The two's-complement pattern of neg/mag, low `bits` bits.
+unsigned long long int_pattern(bool neg, unsigned long long mag, int bits)
+{
+    const unsigned long long u = neg ? 0ull - mag : mag;
+    return bits >= 64 ? u : u & ((1ull << bits) - 1);
+}
+
+void put_le(std::vector<uint8_t>& out, unsigned long long u, size_t n)
+{
+    for (size_t k = 0; k < n; ++k) out.push_back(static_cast<uint8_t>(u >> (8 * k)));
+}
+
+// z88dk's 48-bit: five mantissa bytes (bit 39 = the sign), then the biased exponent; m = 0.1xxx binary, rounded to nearest.
+bool encode_float48(double d, std::vector<uint8_t>& out, std::string* why)
+{
+    if (d == 0) {
+        out.assign(6, 0);
+        return true;
+    }
+    int ex = 0;
+    const double m = std::frexp(std::fabs(d), &ex);   // [0.5, 1)
+    long long mant = std::llround(std::ldexp(m, 40));
+    if (mant >= (1ll << 40)) {
+        mant >>= 1;
+        ++ex;
+    }
+    const int biased = ex + 0x80;
+    if (biased > 255) {
+        *why = "out of range for float (z88dk 48-bit)";
+        return false;
+    }
+    if (biased < 1) {
+        *why = "too small for float (z88dk 48-bit): it would underflow";
+        return false;
+    }
+    unsigned long long low = static_cast<unsigned long long>(mant) & ((1ull << 39) - 1);
+    if (d < 0) low |= 1ull << 39;
+    out.clear();
+    put_le(out, low, 5);
+    out.push_back(static_cast<uint8_t>(biased));
+    return true;
+}
+
+// IEEE 754 binary16 of a finite float, nearest even. False: it rounds to infinity or to zero.
+bool encode_float16(float f, uint16_t* bits, std::string* why)
+{
+    const double a = std::fabs(static_cast<double>(f));
+    const unsigned sign = std::signbit(f) ? 0x8000u : 0u;
+    if (a == 0) {
+        *bits = static_cast<uint16_t>(sign);
+        return true;
+    }
+    if (a >= 65520.0) {
+        *why = "out of range for binary16 (65504 is the largest)";
+        return false;
+    }
+    if (a < std::ldexp(1.0, -14)) {
+        const long long q = std::llrint(std::ldexp(a, 24));   // current rounding mode: nearest even
+        if (q == 0) {
+            *why = "too small for binary16: it would underflow";
+            return false;
+        }
+        *bits = static_cast<uint16_t>(sign | static_cast<unsigned>(q));
+        return true;
+    }
+    int ex = 0;
+    const double m = std::frexp(a, &ex);
+    long long sig = std::llrint(std::ldexp(m, 11));   // [1024, 2048]
+    if (sig == 2048) {
+        sig = 1024;
+        ++ex;
+    }
+    *bits = static_cast<uint16_t>(sign | static_cast<unsigned>(ex - 1 + 15) << 10 | static_cast<unsigned>(sig - 1024));
+    return true;
+}
+
+}  // namespace
+
+CEncoded c_encode_value(const CdbType& type, const CNewValue& v, const uint8_t* current, size_t avail)
+{
+    CEncoded out;
+    const auto refuse = [&out](std::string why) {
+        out.ok = false;
+        out.why = std::move(why);
+        out.bytes.clear();
+        return out;
+    };
+    if (type.chain.empty()) return refuse("the object has no type");
+    const CdbTypeElem& e = type.chain[0];
+    const std::string tt = c_type_text(type);
+    const bool from_text = v.from == CNewValue::From::Text;
+    const std::string text = from_text ? std::string(trim_blanks(v.text)) : num(v.int32);
+    const auto out_of_range = [&](int bits, bool uns) {
+        return refuse("'" + text + "' is out of range for " + tt + " (" + int_range_text(bits, uns) + ")");
+    };
+
+    switch (e.kind) {
+    case CdbTypeKind::Struct:
+    case CdbTypeKind::Array:
+        return refuse(tt + " is an aggregate: write a member or an element");
+    case CdbTypeKind::Void:
+    case CdbTypeKind::Function:
+        return refuse("a function or void is not a value");
+    case CdbTypeKind::Fixed:
+        return refuse("fixed-point layout not decoded");
+    default:
+        break;
+    }
+    if (type.size <= 0) return refuse("the size of the object is not known");
+
+    if (e.kind == CdbTypeKind::Float || e.kind == CdbTypeKind::Float16) {
+        if (!from_text) return refuse(tt + " is not an integer");
+        const bool is48 = e.kind == CdbTypeKind::Float && type.size == 6;
+        const bool is32 = e.kind == CdbTypeKind::Float && type.size == 4;
+        if (e.kind == CdbTypeKind::Float && !is48 && !is32) return refuse("a float of " + num(type.size) + " bytes is not supported");
+        if (nonfinite_word(text)) return refuse("'" + text + "' is not a finite number");
+        double d = 0;
+        float f = 0;
+        bool range = false;
+        bool parsed;
+        if (is48) {
+            parsed = float_from_text<double>(text, &d, &range);
+        } else {
+            parsed = float_from_text<float>(text, &f, &range);
+        }
+        if (!parsed) {
+            const IntText it = parse_int_text(text);   // 0x10, $10, 'c'
+            if (!it.ok) return refuse("'" + text + "' is not a number");
+            d = it.overflow ? HUGE_VAL : static_cast<double>(it.mag);
+            if (it.neg) d = -d;
+            f = static_cast<float>(d);
+            range = std::isinf(d);
+        }
+        if (range) return refuse("'" + text + "' is out of range for " + tt);
+        std::string why;
+        if (is48) {
+            if (!encode_float48(d, out.bytes, &why)) return refuse("'" + text + "' is " + why);
+        } else if (is32) {
+            uint32_t u;
+            std::memcpy(&u, &f, sizeof u);
+            put_le(out.bytes, u, 4);
+        } else {
+            uint16_t h = 0;
+            if (!encode_float16(f, &h, &why)) return refuse("'" + text + "' is " + why);
+            put_le(out.bytes, h, 2);
+        }
+        out.ok = true;
+        return out;
+    }
+
+    // an integer-like object: Char, Int, Long, Scalar, Bitfield, Pointer
+    int bits = 0;
+    bool uns = e.is_unsigned;
+    size_t n = 0;
+    switch (e.kind) {
+    case CdbTypeKind::Char: bits = 8; n = 1; break;
+    case CdbTypeKind::Pointer: bits = 16; n = 2; uns = true; break;
+    case CdbTypeKind::Bitfield:
+        n = static_cast<size_t>(std::max(1, type.size));
+        if (n > 4) return refuse("a bitfield unit of " + num(static_cast<long long>(n)) + " bytes is not supported");
+        if (e.bit_width <= 0 || e.bit_start < 0 || e.bit_start + e.bit_width > 8 * static_cast<int>(n))
+            return refuse("the bitfield does not fit its storage unit");
+        bits = e.bit_width;
+        break;
+    default:
+        if (type.size != 1 && type.size != 2 && type.size != 4 && type.size != 8)
+            return refuse("an integer of " + num(type.size) + " bytes is not supported");
+        n = static_cast<size_t>(type.size);
+        bits = 8 * type.size;
+        break;
+    }
+    const bool plain = e.kind == CdbTypeKind::Int || e.kind == CdbTypeKind::Long || e.kind == CdbTypeKind::Scalar;
+    IntText it;
+    if (from_text) {
+        it = parse_int_text(text);
+        if (!it.ok) {
+            double d = 0;
+            bool range = false;
+            if (float_from_text<double>(text, &d, &range) && !range && std::isfinite(d)) return refuse("'" + text + "' is not an integer");
+            return refuse("'" + text + "' is not a number");
+        }
+    } else {
+        if (plain && n == 8) return refuse("a 8-byte integer does not fit the script's 32 bits");
+        it.ok = true;
+        it.neg = v.int32 < 0;
+        it.mag = it.neg ? 0ull - static_cast<unsigned long long>(static_cast<long long>(v.int32)) : static_cast<unsigned long long>(v.int32);
+    }
+    // a script's 32-bit value is a bit pattern in a 4-byte integer (c_int32_scalar's mirror)
+    const bool pattern = !from_text && plain && n == 4;
+    if (!pattern && !int_fits(it.neg, it.mag, it.overflow, bits, uns)) return out_of_range(bits, uns);
+    unsigned long long u = pattern ? static_cast<uint32_t>(v.int32) : int_pattern(it.neg, it.mag, bits);
+    if (e.kind == CdbTypeKind::Bitfield) {
+        if (!current || avail < n) return refuse("the object is shorter than its type");
+        unsigned long long unit = 0;
+        for (size_t k = n; k-- > 0;) unit = (unit << 8) | current[k];
+        const unsigned long long mask = ((1ull << e.bit_width) - 1) << e.bit_start;
+        unit = (unit & ~mask) | ((u << e.bit_start) & mask);
+        u = unit;
+    }
+    put_le(out.bytes, u, n);
+    out.ok = true;
+    return out;
 }
 
 }  // namespace dbg

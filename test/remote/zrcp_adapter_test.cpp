@@ -5053,6 +5053,87 @@ static void cvar_rows() {
     }
 }
 
+// ── ZRCP-CVW: `set-register CVAR(path)=value` writes a C variable (GH #437) ──────────────────────────
+// Oracle: vars.c (at the vars.c:41 stop of the first call g_int = -5, t = 122, p->x = 3, g_uint = 40000; sum's second call
+// reads b = g_int), the map ($903E = _g_int), ZEsarUX's own reply for a failed set-register (`Error changing register`, no
+// reason), and the register line a successful one answers. Existing rows pin that the command table's census and an
+// ordinary register assignment are untouched.
+static void cvw_rows() {
+    const std::string nex = JNEXT_Z88DK_FIXTURE_DIR "/master/sccz80-cvars/prog.nex";
+    const auto at_41 = [&nex](Rig& rig, Zc& c) {
+        emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 PC=8D3EH");
+        return fired_stop(run_to_stop(c, 120), 0x8D3E, "PC=8D3EH");
+    };
+    const auto val = [](Zc& c, const std::string& e) {
+        const std::string r = c.cmd("evaluate " + e);
+        const std::string tail = std::string("\n") + PROMPT_STEP;
+        return ends_with(r, tail) ? r.substr(0, r.size() - tail.size()) : r;
+    };
+    {   // ZRCP-CVW-01
+        Rig rig(MachineType::ZXN_ISSUE2);
+        Zc  c(rig);
+        const bool at = at_41(rig, c);
+        const std::string r1 = c.cmd("set-register CVAR(g_int)=20");
+        const std::string g1 = val(c, "CVAR(g_int)");
+        const std::string r2 = c.cmd("set-register cvar(t)=1000");
+        const std::string t1 = val(c, "CVAR(t)");
+        const std::string r3 = c.cmd("set-register CVAR(g_int)=0AH");
+        const std::string g2 = val(c, "CVAR(g_int)");
+        const std::string r4 = c.cmd("set-register CVAR( p -> x )=9");
+        const std::string x1 = val(c, "CVAR(p->x)");
+        const std::string r5 = c.cmd("set-register CVAR(g_schar)=-7");
+        const std::string s1 = val(c, "CVAR(g_schar)");
+        const std::string stop2 = run_to_stop(c, 120);   // sum's second call
+        const std::string b2 = val(c, "CVAR(b)");
+        check("ZRCP-CVW-01", "at vars.c:41 of the first call `set-register CVAR(g_int)=20` answers the register line and CVAR(g_int) reads 20; "
+                             "`cvar(t)=1000` (any case) makes CVAR(t) 1000; the ZRCP hex form `0AH` stores 10; a spaced path `CVAR( p -> x )=9` "
+                             "writes through the pointer; a negative decimal is accepted; continued to the second call CVAR(b), which is g_int, is 10",
+              at && starts_with(r1, "PC=8d3e ") && starts_with(r2, "PC=8d3e ") && starts_with(r3, "PC=8d3e ") && starts_with(r4, "PC=8d3e ") &&
+                  starts_with(r5, "PC=8d3e ") && g1 == "20" && t1 == "1000" && g2 == "10" && x1 == "9" && s1 == "-7" &&
+                  fired_stop(stop2, 0x8D3E, "PC=8D3EH") && b2 == "10",
+              esc(r1) + " " + g1 + " " + t1 + " " + g2 + " " + x1 + " " + s1 + " " + b2);
+    }
+    {   // ZRCP-CVW-02
+        Rig rig(MachineType::ZXN_ISSUE2);
+        Zc  c(rig);
+        const bool at = at_41(rig, c);
+        const std::string bad = reply_of("Error changing register", true);
+        const std::string inner = c.cmd("set-register CVAR(inner)=1"), agg = c.cmd("set-register CVAR(g_pt)=1"),
+                          neg = c.cmd("set-register CVAR(g_uint)=-1"), noval = c.cmd("set-register CVAR(t)="),
+                          open = c.cmd("set-register CVAR(t=1"), noeq = c.cmd("set-register CVAR(t)"), empty = c.cmd("set-register CVAR()=1"),
+                          junk = c.cmd("set-register CVAR(t)=12ab");
+        const std::string uint_after = val(c, "CVAR(g_uint)"), t_after = val(c, "CVAR(t)");
+        const std::uint64_t rev = rig.dbg->state_revision();
+        std::string rzx_reply;
+        {
+            RzxOn rzx(rig.emu);
+            rzx_reply = c.cmd("set-register CVAR(g_int)=1");
+        }
+        Rig nm(MachineType::ZXN_ISSUE2);
+        Zc  c2(nm);
+        const std::string nomap = c2.cmd("set-register CVAR(t)=1");
+        check("ZRCP-CVW-02", "every refusal answers `Error changing register` with no reason and writes nothing: CVAR(inner) (out of scope), CVAR(g_pt) "
+                             "(an aggregate), CVAR(g_uint)=-1 (out of range), an empty value, an unclosed path, no `=`, an empty path, a value that is "
+                             "no number, a Next with no map, and a write under an RZX playback (g_int keeps -5)",
+              at && inner == bad && agg == bad && neg == bad && noval == bad && open == bad && noeq == bad && empty == bad && junk == bad &&
+                  uint_after == "40000" && t_after == "122" && rig.emu.mmu().peek(0x903E) == 0xFB && rig.emu.mmu().peek(0x903F) == 0xFF &&
+                  rzx_reply == reply_of("Error changing register", true) && rig.dbg->state_revision() == rev &&
+                  nomap == reply_of("Error changing register"),
+              esc(inner) + esc(agg) + esc(neg) + esc(rzx_reply) + esc(nomap));
+    }
+    {   // ZRCP-CVW-03
+        Rig rig;
+        Zc  c(rig);
+        const std::string help = c.cmd("help set-register");
+        const std::string pc   = c.cmd("set-register PC=4660");
+        check("ZRCP-CVW-03", "help set-register names the CVAR(path)=value extension, and an ordinary `set-register PC=...` is untouched",
+              help.find("CVAR(path)=value") != std::string::npos && starts_with(pc, "PC=1234 ") && rig.pc() == 0x1234, esc(help) + esc(pc));
+    }
+}
+
 int main() {
     std::printf("zrcp_adapter_test — the ZRCP adapter over T's fake transport (GH #280)\n");
     framing_rows();
@@ -5087,6 +5168,7 @@ int main() {
     wp5_snapshot_rows();
     fixture_rows();
     cvar_rows();
+    cvw_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,

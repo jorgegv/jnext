@@ -845,6 +845,15 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                             d.nextreg_write(cid_, static_cast<uint8_t>(reg), static_cast<uint8_t>(v & 0xFF)));
                     break;
                 }
+                if (t.kind == ExprKind::CVar) {
+                    // GH #437: frame 0, where the CPU is, as the read atom; the script's int32 (a bit pattern for a 4-byte integer)
+                    dbg::CNewValue nv;
+                    nv.from  = dbg::CNewValue::From::Int32;
+                    nv.int32 = v;
+                    const auto w = d.write_c_value(cid_, 0, t.text, nv);
+                    if (!w.ok()) fail(a.pos, "`set cvar(" + t.text + ")` was refused (" + w.why + ")");
+                    break;
+                }
                 fail(t.pos, "internal: bad `set` target");
             }
             case ActionKind::Out: {

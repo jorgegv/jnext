@@ -2347,8 +2347,8 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
 - **Variables** - with a z88dk `-debug` source map, the C variables of a call
   frame (chosen in a selector or in the Call stack) and the globals and statics,
   as a tree that opens onto struct members, array elements and what a pointer
-  points at; the type, the value (or why there is none) and where it is; read
-  only, paused only. Right-click a row to watch it
+  points at; the type, the value (or why there is none) and where it is; paused
+  only. Double-click a value to edit it; right-click a row to watch it
 - **Breakpoints** - execution, read, write and I/O watchpoints, in one panel.
   An I/O watchpoint address of **00**-**FF** matches any port with that low
   byte (**FE** catches every ULA access, whatever the high byte holds);
@@ -2516,8 +2516,11 @@ z88dk-gdb -h 127.0.0.1 -p 3333 -x mygame.map
   the right module's file statics, z88dk's 48-bit floats, array counts and
   paged globals, which z88dk-gdb's own `info locals` / `print` can get wrong.
   A refusal (no map, an unknown name, a variable the compiler optimised out)
-  prints its reason; they are read-only. Only z88dk-gdb versions that have
-  `monitor` can send them.
+  prints its reason. `monitor set var` [*FRAME*] *PATH* `=` *VALUE* writes one
+  (an integer, a `'c'` character, a float for a float variable, an address for a
+  pointer; a value out of the type's range is refused, never truncated); a
+  refusal prints `refused:` and its reason and the reply is `E01`. Only
+  z88dk-gdb versions that have `monitor` can send them.
 - **Either side may pause or resume**, as with DeZog: the client is told the
   machine stopped when something else stops it while the client has it
   running.
@@ -2569,8 +2572,12 @@ wider than 32 bits are refused, naming the type. The path is checked when the
 script loads. Every other refusal (no C variables, an unknown name, a variable
 out of scope or optimised out, a null pointer, an index past the end) is a
 run-time error, never a zero: in a `when` it disables the rule and the run
-exits 1, so put the rule on a line where the variable is in scope. A `cvar()`
-is read-only: `set cvar(x) = 1` is refused.
+exits 1, so put the rule on a line where the variable is in scope.
+`set cvar(`*PATH*`) =` *value* writes one (frame 0): the value is a 32-bit
+integer, a 4-byte integer takes its bit pattern, a smaller one must fit its
+type (never truncated), and a float, a struct, an array, a register variable
+and the other things a C variable cannot be written to (see the user guide) are
+run-time errors that name the reason.
 
 **Source lines.** With a source map loaded, `on execute main.c:19` (or
 `on execute "dir with space/main.c:19"`) breaks on every place the line's code
@@ -2691,7 +2698,9 @@ Try it by hand with `telnet localhost PORT` and `help`.
   `PC=PEEKW(SP-2) AND SP>=65280`, `A<>0 AND (HL&FFH)=5` ...), grouped the
   way ZEsarUX groups them; `help set-breakpoint` lists what is honoured and
   what is declined; `CVAR(`*path*`)`, a jnext extension, reads a C variable
-  of the stopped program (`PC=8D3EH AND CVAR(a)=2`, `evaluate CVAR(p->x)`).
+  of the stopped program (`PC=8D3EH AND CVAR(a)=2`, `evaluate CVAR(p->x)`);
+  `set-register CVAR(`*path*`)=`*value* writes one (`set-register CVAR(g_int)=10`;
+  every refusal is `Error changing register`).
   A condition with no `PC=` first term fires only when it
   turns from false to true, as in ZEsarUX: one that stays true stops (or
   prints) once. A `PC=` breakpoint fires at every arrival at its address,

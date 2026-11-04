@@ -3,6 +3,7 @@
 //
 //   QVAR-*   the Variables tab: C locals per call frame, globals and statics, lazy expansion,
 //            the Call Stack selection kept in step both ways, addresses, refresh and idle
+//   QVARW-*  editing a value in place (GH #437): the editor, the write, a refusal, the frame, the client, the machine seeing it
 //
 // The real DebuggerManager + DebuggerWindow over a real ZX Next Emulator running the committed z88dk
 // fixtures (test/fixtures/z88dk). The window is enabled BEFORE the program is loaded, so call tracking
@@ -28,10 +29,14 @@
 #include "debugger/variables_panel.h"
 #include "debugger/watch_panel.h"
 #include "platform/emulator_boot.h"
+#include "core/log.h"
+
+#include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <QApplication>
 #include <QComboBox>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMainWindow>
 #include <QSignalSpy>
 #include <QTabWidget>
@@ -261,6 +266,65 @@ void syn_enter(Fix& f, uint16_t pc, uint16_t sp, int steps = 5) {   // run `step
 // vars.c:41, sum's first call (sccz80, master): the stop every row starts from.
 constexpr uint16_t kS41 = 0x8D3E;
 
+// ── GH #437: editing ──────────────────────────────────────────────────────────────────────────────────
+QLineEdit* editor(Fix& f) { return f.tree()->viewport()->findChild<QLineEdit*>(); }
+void settle_editor() {
+    QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QApplication::processEvents();
+}
+// A double-click on the Value cell; true when an editor opened.
+bool dbl(Fix& f, QTreeWidgetItem* it) {
+    if (!it) return false;
+    emit f.tree()->itemDoubleClicked(it, 2);
+    QApplication::processEvents();
+    return editor(f) != nullptr;
+}
+// Type `t` into the open editor and press Enter.
+void commit(Fix& f, const QString& t) {
+    QLineEdit* e = editor(f);
+    if (!e) return;
+    e->setText(t);
+    QTest::keyClick(e, Qt::Key_Return);
+    settle_editor();
+}
+QString editor_text(Fix& f) { return editor(f) ? editor(f)->text() : QStringLiteral("<no editor>"); }
+void cancel(Fix& f) {
+    if (QLineEdit* e = editor(f)) QTest::keyClick(e, Qt::Key_Escape);
+    settle_editor();
+}
+QLabel* message(Fix& f) { return f.vp()->findChild<QLabel*>("variables_message"); }
+bool editable(QTreeWidgetItem* it) { return it && (it->flags() & Qt::ItemIsEditable); }
+std::vector<uint8_t> cpu_bytes(Fix& f, uint32_t a, size_t n) {
+    std::vector<uint8_t> b;
+    for (size_t i = 0; i < n; ++i) b.push_back(f.emu.mmu().peek(static_cast<uint16_t>(a + i)));
+    return b;
+}
+// The debugger channel's lines while `fn` runs.
+std::string log_of(const std::function<void()>& fn) {
+    auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(64);
+    Log::debugger()->sinks().push_back(ring);
+    fn();
+    Log::debugger()->sinks().pop_back();
+    std::string all;
+    for (const auto& l : ring->last_formatted()) all += l;
+    return all;
+}
+size_t count_of(const std::string& hay, const std::string& needle) {
+    size_t n = 0;
+    for (size_t at = hay.find(needle); at != std::string::npos; at = hay.find(needle, at + 1)) ++n;
+    return n;
+}
+using Bytes = std::vector<uint8_t>;
+// Manager ticks until one redraws nothing (a new stop is drawn by the first), then the redraw count starts from 0.
+bool quiesce(Fix& f) {
+    for (int i = 0; i < 6; ++i) {
+        (void)f.mgr->take_panel_refresh_count();
+        f.mgr->refresh_panels();
+        if (f.mgr->take_panel_refresh_count() == 0) return true;
+    }
+    return false;
+}
+
 void test_rows() {
     const std::string k15 = std::string("1") + ".5";   // a bare 1.5 literal is shaped like a row ID
 
@@ -347,10 +411,10 @@ void test_rows() {
         Fix f;
         f.load("master/sccz80-cvars", "q04");
         const bool at = f.run_to(kS41);
-        check("QVAR-04", "at vars.c:41 Globals has the group vars.c with g_int -5, g_uint 40000, g_char 65 'A', g_float 1.5, g_str \"hi\", g_matrix {{1, 2, 3}, {4, 5, 6}}, "
+        check("QVAR-04", "at vars.c:41 Globals has the group vars.c with g_int -5, g_uint 40000, g_char 65 'A', g_float 1.5, g_str \"hi\\0\", g_matrix {{1, 2, 3}, {4, 5, 6}}, "
                          "s_file 9, s_dup 0, the static local sum::calls 1, and the group other.c with s_dup 4",
               at && val(global(f, "vars.c", "g_int")) == "-5" && val(global(f, "vars.c", "g_uint")) == "40000" && val(global(f, "vars.c", "g_char")) == "65 'A'" &&
-                  val(global(f, "vars.c", "g_float")) == QString::fromStdString(k15) && val(global(f, "vars.c", "g_str")) == "\"hi\"" &&
+                  val(global(f, "vars.c", "g_float")) == QString::fromStdString(k15) && val(global(f, "vars.c", "g_str")) == "\"hi\\0\"" &&
                   val(global(f, "vars.c", "g_matrix")) == "{{1, 2, 3}, {4, 5, 6}}" && val(global(f, "vars.c", "s_file")) == "9" &&
                   val(global(f, "vars.c", "s_dup")) == "0" && val(global(f, "other.c", "s_dup")) == "4" && val(global(f, "vars.c", "sum::calls")) == "1",
               detail_of(global(f, "vars.c", "g_float")) + " " + detail_of(global(f, "other.c", "s_dup")));
@@ -943,6 +1007,272 @@ void test_rows() {
         check("QVAR-26", "a pointer opens onto its pointee, named after it: g_cptr (const char *, \"abc\") has the indicator and one child `*g_cptr` = 97 'a'; a void * (g_vp) has "
                          "nothing to open and no indicator",
               at && ind && star && star->text(0) == "*g_cptr" && val(star) == "97 'a'", detail_of(star));
+    }
+
+    // ── QVARW-01..08 (GH #437): editing a value in place ──────────────────────────────────────────────────
+    // Oracle: vars.c at the vars.c:41 stop of the first call (a = 0, k = 120 'x', t = 122, p = &lp, g_uint = 40000, g_float = 1.5, main's c = 'x'
+    // and lp = {3, 4, 5}; `return t + (int16_t)acc` with acc = 345), the maps' addresses and record offsets (sccz80 t = fp-2), an independent peek
+    // of the machine, and the debugger backend's own contract (one write = one MUTATE line and one state_revision() bump).
+    {   // QVARW-01
+        Fix f;
+        f.load("master/sccz80-cvars", "w01");
+        const bool at = f.run_to(kS41);
+        const uint16_t fp = f.backend->c_frames()[0].fp;
+        QTreeWidgetItem* t = child(locals(f), "t");
+        const bool opened = dbl(f, t);
+        const QString held = editor_text(f);
+        cancel(f);
+        const bool idle = quiesce(f);   // a key or a click is host input and redraws the window, so the redraw count is measured on commit_edit()   // the manager's own ticks for this stop (settle() redraws the window, not the manager's stamp)
+        const uint64_t rev = f.backend->state_revision();
+        f.vp()->commit_edit(t, "1000");
+        const uint64_t rev1 = f.backend->state_revision();
+        f.mgr->refresh_panels();   // the manager's next paused tick
+        const uint64_t redraws = f.mgr->take_panel_refresh_count();
+        check("QVARW-01", "sccz80 at vars.c:41: double-clicking t's Value opens an editor holding 122; committing 1000 bumps the revision by 1, the next manager tick redraws "
+                          "once, t shows 1000 and the CPU bytes at fp-2 are E8 03",
+              at && idle && opened && held == "122" && rev1 == rev + 1 && redraws == 1 && val(child(locals(f), "t")) == "1000" && cpu_bytes(f, fp - 2u, 2) == Bytes{0xE8, 0x03},
+              s(held) + " rev " + std::to_string(rev) + "->" + std::to_string(rev1) + " redraws " + std::to_string(redraws) + " " + detail_of(child(locals(f), "t")));
+    }
+    {   // QVARW-02
+        Fix f;
+        f.load("master/sccz80-cvars", "w02");
+        const bool at = f.run_to(kS41);
+        const bool ok_k = dbl(f, child(locals(f), "k"));
+        const QString k = editor_text(f);
+        cancel(f);
+        const bool ok_p = dbl(f, child(locals(f), "p"));
+        const QString p = editor_text(f);
+        cancel(f);
+        const bool ok_f = dbl(f, global(f, "vars.c", "g_float"));
+        const QString fl = editor_text(f);
+        cancel(f);
+        const bool idle = quiesce(f);
+        const uint64_t rev = f.backend->state_revision();
+        std::string log;
+        QTreeWidgetItem* gf = global(f, "vars.c", "g_float");
+        log = log_of([&] { f.vp()->commit_edit(gf, fl); });   // the same text: nothing is written
+        f.mgr->refresh_panels();
+        const uint64_t redraws2 = f.mgr->take_panel_refresh_count();
+        check("QVARW-02", "the editor holds the first word of the value: k (120 'x') gives 120, p gives its address `$XXXX` (no label, no type), g_float gives its number; "
+                          "committing the unchanged text writes nothing: no MUTATE line, no revision bump, no redraw",
+              at && idle && ok_k && k == "120" && ok_p && p.startsWith("$") && !p.contains(' ') && p.size() >= 5 && ok_f && fl == QString::fromStdString(k15) &&
+                  f.backend->state_revision() == rev && log.find("MUTATE") == std::string::npos && redraws2 == 0 && val(gf) == fl,
+              s(k) + " " + s(p) + " " + s(fl) + " rev=" + std::to_string(f.backend->state_revision() == rev) + " log=" + log + " val=" + s(val(gf)) + " redraws=" + std::to_string(redraws2));
+    }
+    {   // QVARW-03
+        Fix f;
+        f.load("master/sdcc-cvars", "w03a");
+        const bool zat = f.run_to(0x8C97);
+        QTreeWidgetItem* t = child(locals(f), "t");
+        const QString before = val(t);
+        const bool opened = dbl(f, t);
+        cancel(f);
+        const bool idle = quiesce(f);
+        const uint64_t rev = f.backend->state_revision();
+        f.vp()->commit_edit(t, "1");
+        f.mgr->refresh_panels();
+        const QString msg_t = message(f)->text();
+        const bool shown_t = !message(f)->isHidden();
+        const uint64_t redraws3 = f.mgr->take_panel_refresh_count();
+        const bool same = val(child(locals(f), "t")) == before && f.backend->state_revision() == rev && redraws3 == 0;
+        Fix g;
+        g.load("master/sccz80-cvars", "w03b");
+        const bool at = g.run_to(kS41);
+        const bool op2 = dbl(g, global(g, "vars.c", "g_uint"));
+        commit(g, "-1");
+        const QString msg_u = message(g)->text();
+        const bool cell = val(global(g, "vars.c", "g_uint")) == "40000";
+        const bool op3 = dbl(g, global(g, "vars.c", "g_int"));
+        commit(g, "7");
+        check("QVARW-03", "a refused edit: zsdcc's t (a register local) shows `t: <why>` in the message label and the cell shows its value again, with no revision bump and no "
+                          "redraw; sccz80's g_uint = -1 shows `vars.c::g_uint: ... out of range` (the facade path); the next successful edit (g_int = 7) clears the message",
+              zat && idle && opened && shown_t && msg_t.startsWith("t: ") && msg_t.contains("register variable") && same && at && op2 && msg_u.startsWith("vars.c::g_uint: ") &&
+                  msg_u.contains("out of range") && cell && op3 && message(g)->isHidden(),
+              s(msg_t) + " | " + s(msg_u) + " same=" + std::to_string(same) + " redraws=" + std::to_string(redraws3) + " before=" + s(before) + " now=" + s(val(child(locals(f), "t"))));
+    }
+    {   // QVARW-04
+        Fix z;
+        z.load("master/sdcc-cvars", "w04a");
+        const bool zat = z.run_to(0x8C97);
+        QTreeWidgetItem* acc = child(locals(z), "acc");   // optimised out
+        const bool acc_ok = acc && !editable(acc) && !dbl(z, acc);
+        Fix f;
+        f.load("master/sccz80-cvars", "w04b");
+        f.run_to(kS41);
+        f.vp()->select_frame(1);
+        QTreeWidgetItem* lp = child(locals(f), "lp");
+        QTreeWidgetItem* matrix = global(f, "vars.c", "g_matrix");
+        const bool aggr = lp && matrix && !editable(lp) && !editable(matrix) && !dbl(f, lp) && !dbl(f, matrix);
+        const bool groups = !editable(locals(f)) && !editable(globals(f)) && !editable(child(globals(f), "vars.c")) && !dbl(f, locals(f));
+        // frame 1 at l_debug_push_frame's first instruction: sum's t is not allocated
+        Fix n;
+        n.load("master/sccz80-cvars", "w04c");
+        n.run_to(0x8CB9);
+        const bool nat = n.run_to(0x8B64);
+        n.vp()->select_frame(1);
+        QTreeWidgetItem* nt = child(locals(n), "t");
+        const bool unalloc = nat && nt && val(nt) == "not allocated" && !editable(nt) && !dbl(n, nt);
+        // a scalar and a pointer ARE editable
+        const bool scalars = editable(child(locals(f), "lp")) == false && editable(global(f, "vars.c", "g_int")) && editable(global(f, "vars.c", "g_cptr"));
+        check("QVARW-04", "not editable (no flag, a double-click opens no editor): aggregates (lp, g_matrix), a group (Locals, Globals, vars.c), a refusal (zsdcc's optimised-out "
+                          "acc, frame 1's `not allocated` t at $8B64); a scalar (g_int) and a pointer (g_cptr) are",
+              zat && acc_ok && aggr && groups && unalloc && scalars);
+    }
+    {   // QVARW-05
+        Fix f;
+        f.load("master/sccz80-cvars", "w05");
+        const bool at = f.run_to(kS41);
+        f.cs_table()->setCurrentCell(0, 0);   // frame 1 (main) through the Call Stack
+        QApplication::processEvents();
+        const uint16_t fp1 = f.backend->c_frames()[1].fp;
+        const bool o1 = dbl(f, child(locals(f), "c"));
+        commit(f, "100");
+        f.mgr->refresh_panels();
+        const bool c_ok = val(child(locals(f), "c")) == "100 'd'" && f.vp()->selected_frame() == 1 && f.frames()->currentIndex() == 1 && cpu_bytes(f, fp1 - 15u, 1) == Bytes{100};
+        emit f.frames()->activated(0);
+        QApplication::processEvents();
+        QTreeWidgetItem* p = child(locals(f), "p");
+        expand(p);
+        QTreeWidgetItem* star = p && p->childCount() ? p->child(0) : nullptr;
+        QTreeWidgetItem* px = star ? child(star, "x") : nullptr;
+        QTreeWidgetItem* ptr_x = px ? px : (star ? star : nullptr);
+        const std::string ptr_detail = detail_of(ptr_x);
+        const bool o2 = dbl(f, ptr_x);
+        commit(f, "10");
+        f.mgr->refresh_panels();
+        const bool kept = child(locals(f), "p") && child(locals(f), "p")->isExpanded();
+        emit f.frames()->activated(1);
+        QApplication::processEvents();
+        QTreeWidgetItem* lp = child(locals(f), "lp");
+        const bool lp_ok = val(lp).startsWith("{x = 10, y = 4");
+        check("QVARW-05", "frame 1 and a child: with frame 1 chosen through the Call Stack, main's c = 100 shows 100 'd', lands at main's fp-15 and frame 1 stays chosen after the "
+                          "redraw; back on frame 0, p's pointee member x = 10 keeps p open; main's lp then reads x = 10",
+              at && o1 && c_ok && ptr_x && o2 && kept && lp_ok, s(val(lp)) + " " + ptr_detail);
+    }
+    {   // QVARW-06
+        Fix f;
+        f.load("master/sccz80-cvars", "w06a");
+        const bool at = f.run_to(kS41);
+        const bool o1 = dbl(f, global(f, "vars.c", "s_dup"));
+        commit(f, "7");
+        f.mgr->refresh_panels();
+        const bool dup = val(global(f, "vars.c", "s_dup")).startsWith("7") && val(global(f, "other.c", "s_dup")).startsWith("4") && cpu_bytes(f, 0x909F, 1) == Bytes{7} &&
+                         cpu_bytes(f, 0x9069, 1) == Bytes{4};
+        Fix b;
+        b.load("master/sccz80-cvars-banked", "w06b");
+        const auto l7 = b.backend->source_map().resolve("bkmain.c:7");
+        const bool bat = !l7.starts.empty() && b.run_to(l7.starts[0].address);
+        const Bytes cpu0 = cpu_bytes(b, 0xC000, 4);
+        QTreeWidgetItem* bt = global(b, "bk.c", "btable");
+        expand(bt);
+        QTreeWidgetItem* e0 = bt ? child(bt, "[0]") : nullptr;
+        const bool o2 = dbl(b, e0);
+        commit(b, "50");
+        b.mgr->refresh_panels();
+        QTreeWidgetItem* e0b = child(global(b, "bk.c", "btable"), "[0]");
+        check("QVARW-06", "globals: vars.c's s_dup = 7 leaves other.c's s_dup at 4 (bytes $909F and $9069); banked, at bkmain.c:7: btable[0] = 50 shows 50 at `$C000 P14` "
+                          "(Page 20, not mapped now) and the CPU's bytes at $C000 are unchanged",
+              at && o1 && dup && bat && o2 && e0b && val(e0b).startsWith("50") && addr(e0b).contains("$C000") && addr(e0b).contains("P14") && cpu_bytes(b, 0xC000, 4) == cpu0,
+              detail_of(e0b));
+    }
+    {   // QVARW-07
+        Fix f;
+        f.load("master/sccz80-cvars", "w07");
+        const bool at = f.run_to(kS41);
+        const bool o = dbl(f, child(locals(f), "t"));
+        const std::string log = log_of([&] { commit(f, "5"); });
+        // the MUTATE line names the window's client, never 0 (CLIENT_NONE) and not the test's own client
+        const std::string tag = "MUTATE";
+        const size_t at_line = log.find(tag);
+        unsigned by = 0;
+        if (at_line != std::string::npos) {
+            const size_t b = log.find(" by ", at_line);
+            if (b != std::string::npos) by = static_cast<unsigned>(std::atoi(log.c_str() + b + 4));
+        }
+        f.vp()->set_paused(false);   // while running: no editor
+        const bool closed = !f.vp()->edit_item(child(locals(f), "t")) && !dbl(f, child(locals(f), "t"));
+        f.vp()->set_paused(true);
+        check("QVARW-07", "the client: the MUTATE line of a panel edit ends `by <the window's client>`, never 0 and not the test's client; while running a double-click opens no editor",
+              at && o && count_of(log, "MUTATE") == 1 && by != 0 && by != f.me && closed, log + " by=" + std::to_string(by));
+    }
+    {   // QVARW-08
+        Fix f;
+        f.load("master/sccz80-cvars", "w08");
+        const bool at = f.run_to(kS41);
+        const bool o = dbl(f, child(locals(f), "t"));
+        commit(f, "1000");
+        f.mgr->refresh_panels();
+        const bool at2 = f.run_to(kS41);   // sum's second call
+        f.vp()->select_frame(1);
+        QTreeWidgetItem* arr = child(locals(f), "arr");
+        expand(arr);
+        QTreeWidgetItem* a0 = arr ? child(arr, "[0]") : nullptr;
+        check("QVARW-08", "the machine sees it: t = 1000 at the first vars.c:41 makes sum return 1345; at the second call, with frame 1 chosen and arr expanded, [0] is 1345",
+              at && o && at2 && a0 && val(a0) == "1345", detail_of(a0));
+    }
+    {   // QVARW-09
+        // review 1 F1: every keystroke is host input, so the manager's next paused tick redraws the window; that redraw must not put the old text
+        // back over what is being typed. Real key events, a tick, then Enter.
+        Fix f;
+        f.load("master/sccz80-cvars", "w09");
+        const bool at = f.run_to(kS41);
+        const uint16_t fp = f.backend->c_frames()[0].fp;
+        const bool idle = quiesce(f);
+        const bool opened = dbl(f, child(locals(f), "t"));
+        QLineEdit* e = editor(f);
+        if (e) e->selectAll();
+        if (e) QTest::keyClicks(e, "999");
+        const QString typed = editor_text(f);
+        f.mgr->refresh_panels();   // the keystrokes redraw the window
+        const uint64_t redraws = f.mgr->take_panel_refresh_count();
+        const QString after_tick = editor_text(f);
+        const uint64_t rev = f.backend->state_revision();
+        if (QLineEdit* e2 = editor(f)) QTest::keyClick(e2, Qt::Key_Return);
+        settle_editor();
+        check("QVARW-09", "typing with real key events survives a manager redraw: 999 typed into t's editor is still 999 after the tick the keystrokes cause (it was reset to 122), and "
+                          "Enter writes it: the bytes at fp-2 are E7 03 and the revision moved by 1",
+              at && idle && opened && typed == "999" && redraws >= 1 && after_tick == "999" && f.backend->state_revision() == rev + 1 && cpu_bytes(f, fp - 2u, 2) == Bytes{0xE7, 0x03},
+              s(typed) + " after_tick=" + s(after_tick) + " redraws=" + std::to_string(redraws));
+    }
+    {   // QVARW-10
+        // review 1 F2 (Q07): the message of a refused edit goes at a new stop
+        Fix f;
+        f.load("master/sdcc-cvars", "w10");
+        const bool at = f.run_to(0x8C97);
+        f.vp()->commit_edit(child(locals(f), "t"), "1");
+        const bool shown = !message(f)->isHidden() && message(f)->text().startsWith("t: ");
+        const bool at2 = f.run_to(0x8C97);   // sum's second call: a new stop
+        check("QVARW-10", "the message of a refused edit is cleared at a new stop: shown after a refused t = 1, hidden after continuing to the next vars.c:41",
+              at && shown && at2 && message(f)->isHidden());
+    }
+    {   // QVARW-11
+        // review 1 F2 (Q09): an item reused in place that turns into a refusal is no longer editable
+        Fix f;
+        f.load("master/sccz80-cvars", "w11");
+        const bool at = f.run_to(kS41);
+        QTreeWidgetItem* t = child(locals(f), "t");
+        const bool was = editable(t) && val(t) == "122";
+        const bool at2 = f.run_to(0x8D53);   // the ret after l_debug_pop_frame: sum's locals are below the stack it owns
+        QTreeWidgetItem* t2 = child(locals(f), "t");
+        const bool same_item = t2 == t;
+        const bool refused = t2 && val(t2) == "not allocated";
+        check("QVARW-11", "an item reused in place that becomes a refusal loses its editable flag: t is editable at vars.c:41, and after the epilogue (the same tree item, now `not allocated`) "
+                          "it is not and a double-click opens no editor",
+              at && was && at2 && same_item && refused && !editable(t2) && !dbl(f, t2), detail_of(t2) + " same=" + std::to_string(same_item));
+    }
+    {   // QVARW-12
+        // review 1 F2 (Q11): an editor still open when the machine resumes must not write
+        Fix f;
+        f.load("master/sccz80-cvars", "w12");
+        const bool at = f.run_to(kS41);
+        const bool opened = dbl(f, child(locals(f), "t"));
+        f.vp()->set_paused(false);   // a remote client or a script resumed the machine
+        const uint64_t rev = f.backend->state_revision();
+        const std::string log = log_of([&] { commit(f, "7"); });
+        const bool quiet = f.backend->state_revision() == rev && log.find("MUTATE") == std::string::npos;
+        f.vp()->set_paused(true);
+        check("QVARW-12", "committing an editor that was open when the machine resumed writes nothing: no MUTATE line and no revision bump",
+              at && opened && quiet, log);
     }
 }
 

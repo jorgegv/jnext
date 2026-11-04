@@ -113,6 +113,7 @@ reaches what the GDB protocol itself cannot express:
 | `monitor locals [FRAME]` | the C parameters and locals of a frame of the program (0, the default, is where the CPU is; 1 is its caller...); needs a z88dk `-debug` map. See [C variables](../source-debugger/09-scripts-and-remote-debuggers.md#c-variables) |
 | `monitor globals` | the C globals, file statics and static locals, each with its value and the memory it lives in |
 | `monitor print [FRAME] PATH` | one C value: `p->x`, `*p`, `g_matrix[1][2]`, `sum::calls`, `vars.c::s_dup`; a struct or an array prints whole |
+| `monitor set var [FRAME] PATH = VALUE` | writes one C value (see [Changing a C variable](../source-debugger/09-scripts-and-remote-debuggers.md#c-variables)); the answer is the new value read back, or `refused: ` and the reason (and `E01`) |
 | `monitor time` | frame, cycle, T-states and the raster position |
 | `monitor reset [soft\|hard]` | resets the machine; it stays stopped |
 | `monitor bp` | every breakpoint and watchpoint, and who set it |

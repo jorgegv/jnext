@@ -31,6 +31,7 @@
 #include "script/evaluator.h"
 #include "script/expr_compiler.h"
 #include "script/parser.h"
+#include "script/script_engine.h"
 #include "script/state.h"
 
 #include "core/emulator.h"
@@ -1314,8 +1315,6 @@ static void cvar_rows() {
                 detail += src + " -> " + (d ? d->to_string() : "accepted") + "; ";
             }
         }
-        const ParseResult as = parse_script("on frame do set cvar(t) = 1 end");
-        const bool assign_refused = !as.ok() && as.error->message.find("cannot be assigned") != std::string::npos;
         const ParseResult sp = parse_script("on frame when cvar (t) == 1 do end");
         const bool spaced_not_accessor = !sp.ok();
         // `cvar` is a reserved word, as `depth` and `changed` are: a variable of that name is refused at load, so no script
@@ -1324,9 +1323,9 @@ static void cvar_rows() {
         const bool var_ok = !rv.ok() && rv.error->pos.line == 1 && rv.error->pos.column == 5 &&
                             rv.error->message.find("`cvar` is a reserved name") != std::string::npos;
         check("EVAL-CVAR-07", "cvar() paths are checked at compile time with a position: `a.`, ``, an unclosed `p->x`, `(x)`, "
-                              "`a[-1]` are errors at the token and a quote is the lexer's; `set cvar(t) = 1` is refused (read-only); `cvar (t)` with a "
+                              "`a[-1]` are errors at the token and a quote is the lexer's; `cvar (t)` with a "
                               "space is not the accessor; a variable called cvar is refused as a reserved name (as depth and changed are)",
-              ok && assign_refused && spaced_not_accessor && var_ok, detail);
+              ok && spaced_not_accessor && var_ok, detail);
     }
     // EVAL-CVAR-08
     {
@@ -1442,6 +1441,179 @@ static void cvar_rows() {
     }
 }
 
+// ── EVAL-CVW: `set cvar(PATH) = v` writes a C variable of frame 0 (GH #437) ──────────────────────────────────────
+// Oracle: the C source of the fixtures (vars.c: sum's first call at vars.c:41 has a = 0, t = 122 and returns
+// t + (int16_t)acc with acc = 345, which main stores in arr[0]; main's loop is vars.c:64), their maps, and an independent
+// peek of the machine after each run. The rig runs the engine on a real Next machine, as script_events_test does.
+struct CvwSink : jnext::dbg::Listener {
+    std::vector<std::string> lines;
+    void on_paused(const jnext::dbg::PausedInfo&) override {}
+    void on_resumed(jnext::dbg::ClientId) override {}
+    void on_reset(jnext::dbg::ResetKind) override {}
+    void on_frame_ended(uint32_t) override {}
+    void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+    void on_exit_requested(int) override {}
+    void on_log(jnext::dbg::LogLevel, const std::string& t) override { lines.push_back(t); }
+    size_t count(const std::string& needle) const {
+        size_t n = 0;
+        for (const auto& l : lines)
+            if (l.find(needle) != std::string::npos) ++n;
+        return n;
+    }
+    std::string first(const std::string& needle) const {
+        for (const auto& l : lines)
+            if (l.find(needle) != std::string::npos) return l;
+        return {};
+    }
+};
+
+struct CvwRig {
+    Emulator                      emu;
+    std::unique_ptr<Debugger>     dbg;
+    CvwSink                       sink;
+    jnext::dbg::ClientId          cid = jnext::dbg::CLIENT_NONE;
+    std::unique_ptr<ScriptEngine> eng;
+    bool                          loaded = false;
+
+    explicit CvwRig(const char* fixture = nullptr) {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+        dbg = std::make_unique<Debugger>(emu);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "cvw";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        cid     = dbg->attach(ci).value;
+        dbg->set_listener(cid, &sink);
+        eng = std::make_unique<ScriptEngine>(*dbg, EngineHost{});
+        if (fixture) {
+            const std::string nex = std::string(JNEXT_Z88DK_FIXTURE_DIR) + "/" + fixture + "/prog.nex";
+            loaded = emulator_apply_load(emu, nex, false);
+            dbg->load_program_sidecars(nex);
+        }
+        dbg->pump(jnext::dbg::PumpBudget{});   // the first pump only primes
+    }
+    ~CvwRig() {
+        eng.reset();
+        dbg->set_listener(cid, nullptr);
+        dbg->detach(cid);
+        dbg.reset();
+    }
+    bool load(const std::string& src) { return eng->load(src, "t.jds").ok(); }
+    void frames(int n) {
+        for (int i = 0; i < n && !dbg->state().paused; ++i) {
+            emu.run_frame();
+            dbg->pump(jnext::dbg::PumpBudget{});
+        }
+    }
+    std::vector<uint8_t> at(uint16_t a, size_t n) {
+        std::vector<uint8_t> b(n, 0);
+        dbg->peek(jnext::dbg::MemSpace::cpu(), a, n, b.data());
+        return b;
+    }
+    int64_t value(const char* path) {
+        const auto r = dbg->read_c_value(0, path);
+        return r.ok && r.integer ? *r.integer : INT64_MIN;
+    }
+};
+
+static void cvw_rows() {
+    using Bytes = std::vector<uint8_t>;
+    // EVAL-CVW-01
+    {
+        CvwRig r("master/sccz80-cvars");
+        const bool ok = r.loaded && r.load("on execute vars.c:41 once do set cvar(t) = 1000 end\n"
+                                           "on execute vars.c:64 once do stop \"loop\" end\n");
+        r.frames(200);
+        check("EVAL-CVW-01", "`on execute vars.c:41 once do set cvar(t) = 1000 end`: sum returns 1000 + 345, which main's loop holds in arr[0] "
+                             "(467 without the write); no run-time error",
+              ok && r.dbg->state().paused && r.eng->runtime_errors() == 0 && r.value("arr[0]") == 1345,
+              std::to_string(r.value("arr[0]")) + " " + std::to_string(r.eng->runtime_errors()));
+    }
+    // EVAL-CVW-02
+    {
+        CvwRig r("master/sccz80-cvars");
+        const bool ok = r.loaded && r.load("on execute vars.c:41 once do\n"
+                                           "  set cvar(g_ulong) = 0xCAFEBABE\n"
+                                           "  set cvar(g_char) = 90\n"
+                                           "  set cvar(p->x) = 10\n"
+                                           "  set cvar(sum::calls) = 10\n"
+                                           "  set cvar(vars.c::s_dup) = 7\n"
+                                           "  stop \"here\"\n"
+                                           "end\n");
+        r.frames(200);
+        check("EVAL-CVW-02", "at vars.c:41 `set cvar(g_ulong) = 0xCAFEBABE` stores BE BA FE CA (the 32-bit pattern), g_char = 90, p->x = 10 (through the pointer), "
+                             "sum::calls = 10 and vars.c::s_dup = 7, each read back with the machine's own bytes",
+              ok && r.eng->runtime_errors() == 0 && r.at(0x9048, 4) == Bytes{0xBE, 0xBA, 0xFE, 0xCA} && r.at(0x9043, 1) == Bytes{90} && r.value("p->x") == 10 &&
+                  r.at(0x90A0, 1) == Bytes{10} && r.at(0x909F, 1) == Bytes{7} && r.at(0x9069, 1) == Bytes{4},
+              r.sink.first("SCRIPT ERROR"));
+    }
+    // EVAL-CVW-03
+    {
+        struct Bad { const char* fixture; const char* stmt; const char* path; const char* why; uint16_t at; };
+        const Bad kBad[] = {
+            {"master/sccz80-cvars", "set cvar(g_uint) = -1", "g_uint", "out of range for unsigned int (0..65535)", 0x8D3E},
+            {"master/sccz80-cvars", "set cvar(g_float) = 2", "g_float", "float is not an integer", 0x8D3E},
+            {"master/sccz80-cvars", "set cvar(g_pt) = 1", "g_pt", "is an aggregate: write a member or an element", 0x8D3E},
+            {"master/sccz80-cvars", "set cvar(inner) = 1", "inner", "out of scope at vars.c:41", 0x8D3E},
+            {"master/sdcc-cvars", "set cvar(t) = 1", "t", "a register variable cannot be written", 0x8C97},
+        };
+        bool all = true;
+        std::string detail;
+        for (const Bad& b : kBad) {
+            CvwRig r(b.fixture);
+            const std::string want = std::string("`set cvar(") + b.path + ")` was refused (";
+            const bool ok = r.loaded && r.load(std::string("on execute vars.c:41 once do ") + b.stmt + " end\n");
+            r.frames(200);
+            const auto rules = r.eng->rules();
+            const std::string line = r.sink.first("SCRIPT ERROR");
+            const bool good = ok && rules.size() == 1 && rules[0].dead && r.eng->runtime_errors() == 1 && line.find(want) != std::string::npos &&
+                              line.find(b.why) != std::string::npos && r.eng->status().runtime_errors == 1 &&
+                              (b.at != 0x8D3E || (r.at(0x9040, 2) == Bytes{0x40, 0x9C} && r.at(0x9061, 5) == Bytes{1, 0, 2, 0, 3}));   // sccz80's addresses
+            if (!good) {
+                all = false;
+                detail += std::string(b.stmt) + ": " + line + "; ";
+            }
+        }
+        check("EVAL-CVW-03", "each refusal is a run-time error at the action, `set cvar(PATH)` was refused (<the facade's reason>), the rule is disabled and the "
+                             "run-time error counted (the run exits 1): g_uint = -1, g_float = 2 (not an integer), g_pt = 1 (an aggregate), inner = 1 (out of "
+                             "scope), zsdcc's register local t; g_uint and g_pt stay",
+              all, detail);
+    }
+    // EVAL-CVW-04
+    {
+        const ParseResult bad = parse_script("on frame do set cvar(a.) = 1 end");
+        std::vector<Diagnostic> errs;
+        Script bad_script = bad.script;
+        if (bad.ok()) errs = check_script(bad_script, CheckOptions{});
+        const Diagnostic* d = !bad.ok() ? &*bad.error : (errs.empty() ? nullptr : &errs[0]);
+        const std::string why = jnext::dbg::c_parse_path("a.").why;
+        const ParseResult good = parse_script("on frame do set cvar(t) = 1 end");
+        Script good_script = good.script;
+        const bool good_ok = good.ok() && check_script(good_script, CheckOptions{}).empty();
+        CvwRig none;
+        const bool ok = none.load("on frame do set cvar(t) = 1 end\n");
+        none.frames(2);
+        check("EVAL-CVW-04", "`set cvar(a.) = 1` is a load error at the cvar token (column 17) carrying c_parse_path's reason; `set cvar(t) = 1` loads; with no map "
+                             "the run-time error carries the status text",
+              d && d->pos.line == 1 && d->pos.column == 17 && !why.empty() && d->message.find(why) != std::string::npos && good_ok && ok &&
+                  none.sink.count("`set cvar(t)` was refused (no source map is attached)") == 1 && none.eng->runtime_errors() == 1,
+              d ? d->to_string() : std::string("accepted"));
+    }
+    // EVAL-CVW-05
+    {
+        CvwRig r("master/sccz80-cvars");
+        const bool ok = r.loaded && r.load("on execute vars.c:41 once do set cvar(t) = 1000\n  set cvar(g_int) = 3\n  stop \"here\" end\n");
+        r.dbg->resize_rewind_buffer(4);
+        r.dbg->set_rewind_enabled(true);
+        r.frames(200);
+        check("EVAL-CVW-05", "`set cvar()` is a mutation: with the rewind buffer on, the \"a script mutates the machine\" warning is logged once for two writes, "
+                             "and both land",
+              ok && r.dbg->rewind_enabled() && r.sink.count("rewind buffer is on") == 1 && r.at(0x903E, 2) == Bytes{3, 0} && r.eng->runtime_errors() == 0,
+              r.sink.first("SCRIPT ERROR"));
+    }
+}
+
 int main() {
     std::printf("script_eval_test — the debugger DSL evaluator (GH #26 WP2)\n");
 
@@ -1487,6 +1659,7 @@ int main() {
     run_group("work", work_rows);
     run_group("stack", stack_rows);
     run_group("cvar", cvar_rows);
+    run_group("cvw", cvw_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

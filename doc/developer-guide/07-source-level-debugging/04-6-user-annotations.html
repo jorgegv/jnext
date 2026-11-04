@@ -3178,7 +3178,7 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   file the toolchain layer was loaded from (<code>toolchain_symbols().loaded_file()</code> in <code>add_annotation_actions()</code>, <code>toolchain_note</code>,
   <code>annotation_menu.cpp:95-98</code>; <code>state_of()</code>, <code>:24</code>, only says whether a label is there). The panels hold a <code>const Debugger*</code> for reading; the writes go
   through the non-const pointer <code>DebuggerManager</code> hands them with <code>set_annotation_backend()</code>
-  (<code>src/debugger/debugger_manager.cpp:391</code> and <code>:395</code>), and each panel's <code>annotations_changed()</code> signal makes the
+  (<code>src/debugger/debugger_manager.cpp:392</code> and <code>:396</code>), and each panel's <code>annotations_changed()</code> signal makes the
   manager refresh the panels.</li>
 <li><strong>The Disassembly draws it.</strong> <code>label_column_shown()</code> (<code>disasm_panel.cpp:1016</code>) is true while the symbol table
   (the composed reader, section 9) holds any label; then the <strong>Label</strong> column sits between the BP column and the
@@ -3196,18 +3196,18 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   file).</li>
 <li><strong>The Map menu.</strong> <code>DebuggerWindow</code> adds <strong>Open Annotations…</strong>, <strong>Save Annotations</strong> and <strong>Save Annotations As…</strong>
   (<code>connect</code>, <code>src/debugger/debugger_window.cpp:890-894</code>), connected to <code>DebuggerManager::on_open_annotations()</code>
-  (<code>debugger_manager.cpp:783</code>), <code>on_save_annotations()</code> (<code>:759</code>) and <code>on_save_annotations_as()</code> (<code>:749</code>); Save with no
+  (<code>debugger_manager.cpp:784</code>), <code>on_save_annotations()</code> (<code>:760</code>) and <code>on_save_annotations_as()</code> (<code>:750</code>); Save with no
   current file is Save As, which appends <code>.jdp</code> to a name without a suffix. Failures are warnings with the
   backend's <code>why</code> (an Open names the line).</li>
 <li><strong>Unsaved changes (D11).</strong> <code>DebuggerManager</code> keeps <code>saved_revision_</code> (<code>debugger_manager.h</code>), the backend's
   <code>annotations_revision()</code> at the last Open, Save or <code>--annotations</code>; <code>annotations_unsaved()</code> compares them.
-  <code>confirm_discard_annotations()</code> (<code>debugger_manager.cpp:765</code>) asks Save / Discard / Cancel when they differ, and is
+  <code>confirm_discard_annotations()</code> (<code>debugger_manager.cpp:766</code>) asks Save / Discard / Cancel when they differ, and is
   asked by <code>on_open_annotations()</code> before it opens and by <code>MainWindow::closeEvent()</code>
   (<code>confirm_discard_annotations</code>, <code>src/gui/main_window.cpp:3830</code>) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
   through <code>close()</code>, which then returns false). An unattended close (<code>unattended_</code>, the delayed automatic exit and
   SIGINT/SIGTERM, tested at <code>src/gui/main_window.cpp:3827</code>) asks nothing: it logs that the unsaved changes were
   discarded and quits (<code>QG-ANN-05</code>). With nothing changed there is no dialog. <code>set_annotations_file()</code>
-  (<code>debugger_manager.cpp:730</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>set_annotations_file</code>, <code>src/gui/qt_app.cpp:394</code>), makes that file
+  (<code>debugger_manager.cpp:731</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>set_annotations_file</code>, <code>src/gui/qt_app.cpp:394</code>), makes that file
   the Save target and the starting point of "unsaved".</li>
 <li><strong>Settings.</strong> None: the store has no Preferences field, so <code>config_keys.cpp</code> has no row; the CLI is
   <code>--annotations FILE</code>.</li>

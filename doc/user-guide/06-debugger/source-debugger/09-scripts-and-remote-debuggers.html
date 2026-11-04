@@ -3688,6 +3688,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="C variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changing-a-c-variable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changing a C variable
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -4282,8 +4299,8 @@ every variable lives, in which module, and in which memory page.</p>
 <p><strong>In a script</strong>, the <code>cvar(PATH)</code> atom: <code>on execute main.c:21 when cvar(i) == 3 ...</code>. The path
 grammar, what is refused and why are in <a href="../scripting/04-reading-the-machine.html#c-variables-cvar">Reading the machine</a>.</p>
 <p><strong>Over GDB</strong>, three <code>monitor</code> commands (only a <code>z88dk-gdb</code> that has <code>monitor</code>, newer than 2.4):
-<code>monitor locals [FRAME]</code>, <code>monitor globals</code> and <code>monitor print [FRAME] PATH</code>. They are read-only and
-print their reason when they cannot read something. A session on the <code>vars.c</code> / <code>other.c</code> program of <code>test/fixtures/z88dk/src</code> (built as the
+<code>monitor locals [FRAME]</code>, <code>monitor globals</code> and <code>monitor print [FRAME] PATH</code>. They print their reason when
+they cannot read something (<code>monitor set var</code> writes: see <a href="#changing-a-c-variable">Changing a C variable</a>). A session on the <code>vars.c</code> / <code>other.c</code> program of <code>test/fixtures/z88dk/src</code> (built as the
 <code>master/sccz80-cvars</code> fixture, whose <code>build.log</code> has the <code>zcc</code> line), with the <code>z88dk-gdb</code> client built from
 z88dk checkout 97731e4e29 (2026-11-03), and JNEXT started as <code>jnext --headless --machine next --load prog.nex
 --gdb-port 3333</code>:</p>
@@ -4361,6 +4378,47 @@ Error parsing
 <p>The breakpoint stopped at the third call of <code>sum</code> (<code>a</code> is 2), <code>CVAR(inner)</code> failed because <code>inner</code> is out of scope on
 that line, and an unclosed <code>CVAR(</code> does not parse. A failed read has no reason in ZRCP, as ZEsarUX's reply has none;
 <code>monitor print</code> and a script show it. <code>CVAR</code> takes the same paths as <code>cvar()</code> and gives integers and pointers.</p>
+<h3 id="changing-a-c-variable">Changing a C variable<a class="headerlink" href="#changing-a-c-variable" title="Permanent link">&para;</a></h3>
+<p>A C variable can be written from a script, over GDB and over ZRCP, in the frame the CPU is in or (over GDB) in one of its callers:</p>
+<table>
+<thead>
+<tr>
+<th>Over</th>
+<th>Form</th>
+<th>Frame</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a script</td>
+<td><code>set cvar(PATH) = v</code> (a 32-bit integer; <a href="../scripting/08-changing-the-machine.html#set-cvarpath">details</a>)</td>
+<td>0</td>
+</tr>
+<tr>
+<td>GDB</td>
+<td><code>monitor set var [FRAME] PATH = VALUE</code></td>
+<td><code>FRAME</code>, 0 by default</td>
+</tr>
+<tr>
+<td>ZRCP</td>
+<td><code>set-register CVAR(path)=value</code></td>
+<td>0</td>
+</tr>
+</tbody>
+</table>
+<p><code>PATH</code> is the same path as for reading. <code>VALUE</code> is an integer (decimal, <code>0x..</code> or <code>$..</code>; ZRCP also takes its own <code>nnnnH</code>),
+a character (<code>'x'</code>), a decimal number for a float variable, or an address for a pointer. A float is rounded to the nearest
+value its format holds (z88dk's 48-bit format, or IEEE 754 for zsdcc). A value that does not fit the variable's type is
+refused, never truncated: <code>monitor set var g_uint = -1</code> is <code>refused: ... is out of range for unsigned int (0..65535)</code>.</p>
+<pre><code>monitor set var g_int = 10
+monitor set var 1 c = 100
+monitor set var p -&gt; x = 10
+</code></pre>
+<p>GDB answers each with the value read back (<code>(int) g_int = 10</code>), ZRCP with the register line of the stop. A refusal is
+<code>refused:</code> and the reason, and the reply <code>E01</code>, over GDB, and <code>Error changing register</code> over ZRCP, which has no room
+for a reason. A write is a change of the machine like a <code>poke</code>: it is logged as a <code>MUTATE</code> line naming the client,
+and it is refused while an RZX recording or playback is running. The program sees the new value when it next reads it.</p>
+<p>What cannot be written, and why, is in <a href="10-limits-and-troubleshooting.html#limits">Limits and troubleshooting</a>.</p>
 <h2 id="dezog">DeZog<a class="headerlink" href="#dezog" title="Permanent link">&para;</a></h2>
 <p>DeZog has no C variables from JNEXT: the DZRP protocol has no command that could carry a variable, and DeZog evaluates its
 own breakpoint conditions. It reads the source map itself, from its own launch configuration (<code>"sjasmplus": [ { "path":

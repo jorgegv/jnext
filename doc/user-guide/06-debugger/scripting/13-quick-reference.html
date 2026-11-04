@@ -4382,7 +4382,11 @@ end
 </tr>
 <tr>
 <td><code>cvar(PATH)</code></td>
-<td>a C variable of the frame the CPU is in, as a 32-bit integer (z88dk <code>-debug</code> map); read-only, every refusal a run-time error</td>
+<td>a C variable of the frame the CPU is in, as a 32-bit integer (z88dk <code>-debug</code> map); every refusal a run-time error</td>
+</tr>
+<tr>
+<td><code>set cvar(PATH) = v</code></td>
+<td>writes a C variable of frame 0: a 32-bit integer, range-checked, no floats</td>
 </tr>
 <tr>
 <td><code>mmu[s] page[s] nextreg[r]</code></td>

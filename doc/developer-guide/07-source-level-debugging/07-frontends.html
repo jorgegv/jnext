@@ -3121,7 +3121,7 @@ browsed (<code>browse_addr_</code>) and the reason <code>report_sidecars()</code
 <p><code>SourcePanel::refresh_()</code> (<code>source_panel.cpp:590</code>) runs while the machine is paused,
 whenever the window's paused stamp changed (<a href="../03-subsystems/10-2-the-qt-debugger.html">3.10.2</a>:
 the stamp carries a flag for "the loaded file changed on disk",
-<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:968</code>; the flag is
+<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:969</code>; the flag is
 <code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:551</code>). In order:</p>
 <ol>
 <li><code>update_buttons(paused)</code> (<code>source_panel.cpp:494</code>): the forward steps need a paused machine and a
@@ -3167,13 +3167,13 @@ already shown still puts the view back.</p>
 the SDL-only and Windows trees test it): an absolute name; then the map's directory and each
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading <code>..</code> is dropped.
-<code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:310</code>) takes the
+<code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:311</code>) takes the
 configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3128</code>, fed by
 <code>apply_startup_config()</code>, <code>:2910</code>: the saved list with the command line's <code>--source-dir</code> or
 <code>paths.source_dirs</code> value over it), and <strong>Locate File...</strong> (<code>SourcePanel::locate_file()</code>, <code>source_panel.cpp:438</code>)
-adds to a second, session-only list through <code>DebuggerManager::on_source_dir_located()</code> (<code>debugger_manager.cpp:322</code>). The effective
+adds to a second, session-only list through <code>DebuggerManager::on_source_dir_located()</code> (<code>debugger_manager.cpp:323</code>). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
-<code>DebuggerManager::push_source_dirs()</code> (<code>debugger_manager.cpp:302</code>) on every change and again in <code>ensure_window()</code>, since the window is
+<code>DebuggerManager::push_source_dirs()</code> (<code>debugger_manager.cpp:303</code>) on every change and again in <code>ensure_window()</code>, since the window is
 created lazily. Locate derives the directory with <code>source_search::root_for()</code>, refuses a file of
 another name, and asks whether to save it; <code>source_dir_save_requested</code> is MainWindow's, which
 appends to <code>[paths] source_dirs</code> and refuses a directory that holds the list separator, as
@@ -3184,12 +3184,12 @@ manager announces each change (<code>source_dirs_changed</code>, because <code>s
 and MainWindow logs <code>Source search path: ...</code>.</p>
 <h3 id="loading-a-map-by-hand">Loading a map by hand<a class="headerlink" href="#loading-a-map-by-hand" title="Permanent link">&para;</a></h3>
 <p>The Source tab's <strong>Load Source Map...</strong> button and the Debug &gt; Source &gt; Load Source Map... item
-are one slot, <code>DebuggerManager::on_load_sld()</code> (<code>debugger_manager.cpp:862</code>). Its file dialog
+are one slot, <code>DebuggerManager::on_load_sld()</code> (<code>debugger_manager.cpp:863</code>). Its file dialog
 offers <code>*.sld</code>, <code>*.sld.txt</code> and <code>*.map</code>; the backend tells the format by content
 (<a href="03-loaders.html">7.3</a>), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 <code>load_map()</code>; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is <code>DebuggerManager::report_sidecars()</code> (<code>:904</code>):
+rather than unreadable. The sidecar report is <code>DebuggerManager::report_sidecars()</code> (<code>:905</code>):
 the log, and the main window's status bar for ten seconds.</p>
 <h3 id="colouring">Colouring<a class="headerlink" href="#colouring" title="Permanent link">&para;</a></h3>
 <p><code>SourceHighlighter</code> (<code>source_highlighter.*</code>, a <code>QSyntaxHighlighter</code> that exists only in
@@ -3237,7 +3237,7 @@ the log, and the main window's status bar for ten seconds.</p>
   viewport. <code>set_colour_scheme()</code> (<code>source_panel.cpp:542</code>) applies at once (Preferences Apply while the machine
   runs) and refreshes, because the tints are selections <code>refresh_()</code> builds and a paused tick
   redraws only when the machine moved. The setting is held by
-  <code>DebuggerManager::set_source_scheme()</code> (<code>debugger_manager.cpp:316</code>) and pushed by
+  <code>DebuggerManager::set_source_scheme()</code> (<code>debugger_manager.cpp:317</code>) and pushed by
   <code>ensure_window()</code>, fed by <code>MainWindow::apply_startup_config()</code>.</li>
 <li><strong>What a scheme does not reach.</strong> The gutter and its header paint from the panel's palette, so
   a scheme never colours them, and the breakpoint marks stay as they are. The current-line marker
@@ -3359,7 +3359,7 @@ of a store, and it <strong>formats nothing</strong>: every value, type, refusal 
   style switch) keeps the choice, so a frame picked in an older caller survives everything but moving the machine.</li>
 <li><strong>One mapping.</strong> The Call Stack panel lists the tracked CALLs newest first, with no row for frame 0 or for a frame found through
   the saved-frame-pointer chain; <code>c_frames()</code> takes frame k's PC from the CALL <code>tracked[n-k]</code>, so <strong>Call Stack row i is C frame i + 1</strong>.
-  That is written once, in <code>VariablesPanel::call_stack_row()</code> (<code>variables_panel.cpp:71</code>) and <code>frame_of_call_row()</code>. <code>CallStackPanel::call_selected(row)</code> (emitted
+  That is written once, in <code>VariablesPanel::call_stack_row()</code> (<code>variables_panel.cpp:110</code>) and <code>frame_of_call_row()</code>. <code>CallStackPanel::call_selected(row)</code> (emitted
   only for the user's choice: a refresh and <code>select_row()</code> set a guard) goes to <code>select_frame(row + 1)</code>, and <code>frame_changed(k)</code> goes back to
   <code>select_row(call_stack_row())</code>, which emits nothing, so there is no loop. After each refresh the window re-selects the row the chosen
   frame maps to (-1 clears it), because a refresh may have rebuilt the Call Stack's rows.</li>
@@ -3374,7 +3374,15 @@ of a store, and it <strong>formats nothing</strong>: every value, type, refusal 
 <li><strong>Addresses.</strong> A global's <code>where</code> is a page address (<code>long_address(addr, space, style, next_layout)</code>); a stack slot or a followed
   pointer is a CPU address, spelled with the memory mapped there NOW (<code>memtext::now_of(mmu_slots(), addr)</code>: what a read reaches); a register
   local shows its register names. Debug &gt; Physical Addresses reaches the panel through <code>apply_address_style()</code> like every other.</li>
-<li><strong>Read-only</strong>, with no new setting (so no CLI flag): editing is GH #437.</li>
+<li><strong>Editing (GH #437).</strong> The Value cell of an item whose facade row is <code>ok</code> and not an aggregate is editable (<code>Node::editable</code>: a pointer is, its
+  value is its address): a double-click on the cell, or the context menu's Edit Value, calls <code>edit_item()</code> while paused. The editor is the
+  <code>ValueDelegate</code>'s line edit, which holds <code>RoleEditText</code> (the first space-separated word of the facade's value: string slicing, so the panel
+  still formats no number) and fills it once per editor (a keystroke is host input, so the manager's next paused tick redraws the row and the view offers the editor its data again: a refill would put the old text back over what is being typed, QVARW-09), and never writes the model: <code>setModelData()</code> hands the text to <code>commit_edit()</code>, which writes nothing when it equals the
+  edit text and otherwise calls <code>write_c_value(client_, frame_, path, text)</code>. On success nothing else happens: the write bumped the revision, so
+  the manager's next paused tick redraws every panel (<code>paused_stamp()</code>), this one with the value read back. On a refusal <code>variables_message</code> shows
+  <code>&lt;path&gt;: &lt;why&gt;</code> (cleared by the next success or a new stop) and the cell keeps its value, because the model was never written. <code>client_</code> is the
+  window's, set by <code>DebuggerManager::set_panels_client()</code> like the Memory panel's, so the MUTATE line names it. No new setting, so no CLI flag. The Watches
+  C rows stay read-only.</li>
 </ul>
 <h3 id="c-watches-in-the-watches-tab">C watches in the Watches tab<a class="headerlink" href="#c-watches-in-the-watches-tab" title="Permanent link">&para;</a></h3>
 <p>A <code>WatchEntry</code> has a kind, <code>Memory</code> (the address watch of GH #278) or <code>CVariable</code> (<code>CVarWatch</code>: the facade <code>path</code>, the <code>function</code> and CDB
@@ -3429,17 +3437,19 @@ other bytes than the ones that execute. The Disassembly, <code>step_over()</code
 read through it) and ZRCP <code>cpu-step-over</code>
 (<code>ZrcpServer::cmd_cpu_step_over</code>) all use it (rows <code>LADDR-17</code> to <code>LADDR-20</code>).</p>
 <h2 id="gdb-zrcp-dzrp-scripts">GDB, ZRCP, DZRP, scripts<a class="headerlink" href="#gdb-zrcp-dzrp-scripts" title="Permanent link">&para;</a></h2>
-<p><strong>GDB RSP</strong> (<code>src/remote/gdb/rsp_server.cpp</code>). <code>monitor src [ADDR]</code> (<code>monitor_src()</code>, <code>:1056</code>) prints
+<p><strong>GDB RSP</strong> (<code>src/remote/gdb/rsp_server.cpp</code>). <code>monitor src [ADDR]</code> (<code>monitor_src()</code>, <code>:1063</code>) prints
 <code>$8CB8 main.c:19 P04</code> or <code>$8CB8 unmapped P28</code>: <code>source_location()</code> and the tag of
-<code>source_page(addr)</code>. <code>monitor sym</code> (<code>monitor_sym()</code>, <code>rsp_server.cpp:1019</code>) prints the tag of the memory the lookup
-used; a name prints its tag when it is paged. <code>monitor mmu</code> (<code>monitor_mmu()</code>, <code>rsp_server.cpp:916</code>) prints each slot's <code>now</code> tag and,
+<code>source_page(addr)</code>. <code>monitor sym</code> (<code>monitor_sym()</code>, <code>rsp_server.cpp:1026</code>) prints the tag of the memory the lookup
+used; a name prints its tag when it is paged. <code>monitor mmu</code> (<code>monitor_mmu()</code>, <code>rsp_server.cpp:923</code>) prints each slot's <code>now</code> tag and,
 on the Next, the physical text of the slot's first byte. The server's own symbol and source verbs are
 described in <a href="../03-subsystems/11-the-gdb-rsp-server.html">3.10.4</a>.</p>
-<p>The C variables (GH #436) are three more verbs over the facade of <a href="10-c-frames-and-values.html">7.10</a>, all read-only.
-<code>monitor_locals()</code> (<code>rsp_server.cpp:1100</code>) prints the header of frame N (<code>frame 0: main at main.c:21, fp $FF51 (prologue)</code>, from
+<p>The C variables (GH #436) are three more verbs over the facade of <a href="10-c-frames-and-values.html">7.10</a>, read-only; the write (GH #437)
+is a fourth, <code>monitor set var [FRAME] PATH = VALUE</code> (<code>monitor_set_var()</code>, <code>rsp_server.cpp:1212</code>), over <code>write_c_value()</code>: <code>OK</code> and the value read back, or
+<code>refused: &lt;why&gt;</code> and <code>E01</code>.
+<code>monitor_locals()</code> (<code>rsp_server.cpp:1107</code>) prints the header of frame N (<code>frame 0: main at main.c:21, fp $FF51 (prologue)</code>, from
 <code>c_frames()</code>), then one <code>(type) name = value</code> line per <code>c_locals()</code> row, and a <code>[note]</code> line under a row that has notes.
-<code>monitor_globals()</code> (<code>rsp_server.cpp:1148</code>) prints one line per <code>c_globals()</code> row named by its <code>path</code>, so a name pastes into
-<code>print</code>, with the memory the variable lives in (<code>$903E P04</code>). <code>monitor_print()</code> (<code>rsp_server.cpp:1169</code>) takes the raw rest of
+<code>monitor_globals()</code> (<code>rsp_server.cpp:1155</code>) prints one line per <code>c_globals()</code> row named by its <code>path</code>, so a name pastes into
+<code>print</code>, with the memory the variable lives in (<code>$903E P04</code>). <code>monitor_print()</code> (<code>rsp_server.cpp:1176</code>) takes the raw rest of
 the line, not the split words, because a C path may hold spaces (<code>p -&gt; y</code>); a leading decimal word is the frame (a C path cannot
 start with a digit). A refusal (no C variables, an unknown name, no such frame) is text and <code>OK</code>, as <code>monitor src</code> does; a
 wrong argument is <code>E01</code>. They exist for any RSP client and for what <code>z88dk-gdb</code> gets wrong on its own: it resolves a file
@@ -3452,7 +3462,12 @@ DSL, it first translates it (<code>translate_condition()</code>, <code>zrcp_cond
 echoes <code>CVAR(path)</code> with the path's case kept. Conditions compile through the same translation, so a breakpoint may carry it
 (<code>PC=8D3EH AND CVAR(a)=2</code>); a read that fails is ZEsarUX's <code>Error evaluating parsed string</code>, with no reason. A condition with no
 <code>PC=</code> first term is checked at every instruction, and a <code>CVAR</code> in it builds the C frames each time: put a <code>PC=</code> term first.
-<code>smartload "file"</code> (<code>ZrcpServer::cmd_smartload</code>, <code>zrcp_server.cpp:2625</code>) calls
+The write (GH #437) is <code>set-register CVAR(path)=value</code> (<code>cmd_set_register()</code>, <code>zrcp_server.cpp:1190</code>): the command table's census pins ZEsarUX's
+<code>ls</code>, so no command can be added, and the extension is a branch of the one assignment verb. It takes the path up to the first <code>)</code>, then <code>=</code>, and
+the trimmed rest as the value (a value ZRCP's <code>parse_number()</code> reads, decimal or <code>nnnnH</code>, is converted to decimal text; anything else, <code>-5</code>,
+a fraction, <code>'A'</code>, <code>0x10</code>, goes as typed) and calls <code>write_c_value()</code> in frame 0. Success answers <code>set-register</code>'s own register line; every failure
+is ZEsarUX's <code>Error changing register</code>, with no reason.
+<code>smartload "file"</code> (<code>ZrcpServer::cmd_smartload</code>, <code>zrcp_server.cpp:2652</code>) calls
 <code>Debugger::load()</code> (<code>debugger_reconstruct.cpp:465</code>), which calls <code>load_program_sidecars()</code> after a successful load
 (<code>load_program_sidecars()</code>, <code>debugger_reconstruct.cpp:528-532</code>), so a program loaded over ZRCP gets its symbols and
 source map like <code>--load</code>, and a refused sidecar is logged to every client as a Warn line.
@@ -3475,7 +3490,8 @@ rest of the language are in <a href="../03-subsystems/13-the-debugger-scripting-
 <p><code>cvar(PATH)</code> (GH #436) is the one atom that reads a C variable: <code>eval_int()</code> (<code>evaluator.cpp:276</code>) calls
 <code>read_c_value(0, path)</code> (frame 0, where the CPU is) and <code>c_int32_scalar()</code> (<a href="10-c-frames-and-values.html">7.10</a>) and returns
 the int32. The store is looked up at each evaluation, so a script compiled before the program loaded works once the sidecars
-attach, and every refusal is an <code>EvalError</code>, never a 0.</p>
+attach, and every refusal is an <code>EvalError</code>, never a 0.
+<code>set cvar(PATH) = v</code> (GH #437) is the write: <code>parse_lvalue()</code> makes it an <code>ExprKind::CVar</code> target and the <code>Set</code> action of <code>script_engine.cpp</code> calls <code>write_c_value()</code> in frame 0 with the int32 as <code>CNewValue::From::Int32</code>; a refusal is <code>fail()</code> with the facade's reason.</p>
 <p><strong>Reading C variables inside a delivery.</strong> A predicate runs inside the loops over the event table, and <code>cvar()</code> is the first
 reader there that runs <code>recheck()</code> (<code>c_frames()</code> and <code>read_c_value()</code> do): the first <code>cvar()</code> after a verdict the verify hook
 recorded in guest execution (<code>verify_due</code>, a tape program running its code) runs <code>apply_deferred()</code> and <code>sync_call_stack()</code> in the

@@ -6,8 +6,8 @@ call frame you choose, and the globals and statics. They are the values the prog
 found by name, type and place from the compiler's records, so a `struct`, an array or a pointer is shown
 as one, and a variable that cannot be read says why instead of showing a number.
 
-The tab is the second one of the bottom-right tab bar, between **Watches** and **Breakpoints**. It is
-read-only, and it shows data only while the machine is **paused** ([the panel](../panels/16-variables.md)).
+The tab is the second one of the bottom-right tab bar, between **Watches** and **Breakpoints**. A value can be
+[edited](#editing-a-value), and it shows data only while the machine is **paused** ([the panel](../panels/16-variables.md)).
 
 ## What it shows
 
@@ -58,6 +58,20 @@ Right-click a row and choose **Watch**: it becomes a row of the **Watches** tab 
 - Without a source map, the rows show why there are no variables, and bind again when a map with that function
   and variable is attached.
 
+## Editing a value
+
+Double-click a variable's **Value** (or right-click ▸ **Edit Value**) while the machine is paused: an editor opens holding the value's
+first word (`120` for `120 'x'`, `$8D21` for `$8D21 <g_node>`, `1.5` for a float). Type the new value and press Enter; Esc cancels.
+
+- A value is a decimal, `0x..` or `$..` integer, a character such as `'x'`, a decimal number for a float variable, or an address
+  for a pointer. A value that does not fit the variable's type is refused, never truncated (`-1` into a `uint16_t`).
+- The edit writes the frame you chose (a variable of an older frame included) and the machine sees the new value when it next reads it.
+  It is logged as a `MUTATE` line, like a write in the Memory panel.
+- A refusal is shown above the tree as `<path>: <reason>`, and the value stays as it was. Aggregates (a struct, an array), a row that
+  has no value, a register variable and the other cases in [Limits and troubleshooting](10-limits-and-troubleshooting.md#limits) cannot be
+  edited.
+- Watches rows of C variables are not editable.
+
 ## When there is nothing to show
 
 The tab says why: no source map attached; an SLD map (SLD carries no C variables, only a z88dk `-debug` map does); a z88dk
@@ -75,6 +89,6 @@ These are limits of what the compilers record, not of the debugger:
 - sccz80 and 80cc write a bitfield as a whole `int`: its members are marked `bitfield layout unknown`.
 - Enumerations show their number, not their name; a `union` is shown as a `struct`; zsdcc writes no record for a `const` global.
 - Before a function has set up its frame, its locals are `not allocated`; a variable at an offset below the stack the frame owns, too.
-- The values are read-only: editing a variable is not available.
+- Some variables cannot be written: see [Editing a value](#editing-a-value).
 
 To read the same values from a script, GDB or ZRCP, see [Scripts and remote debuggers](09-scripts-and-remote-debuggers.md#c-variables).

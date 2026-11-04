@@ -90,16 +90,16 @@ work. A breakpoint change another client made arrives as
 | Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
 | Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
-| Variables | `c_frames()`, `c_locals()`, `c_globals()`, `c_children()`, `c_variables_status()`, `call_stack()`, `mmu_slots()`: the C variables of a call frame and the globals, as a tree ([7.7](../07-source-level-debugging/07-frontends.md)) | — |
+| Variables | `c_frames()`, `c_locals()`, `c_globals()`, `c_children()`, `c_variables_status()`, `call_stack()`, `mmu_slots()`: the C variables of a call frame and the globals, as a tree, a value editable in place through `write_c_value()` ([7.7](../07-source-level-debugging/07-frontends.md)) | — |
 
 Five panels (CPU, Disassembly, Stack, Call Stack, Variables) update only while paused:
 reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
 
-**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:979`)
+**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:980`)
 redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:370`: ~4 Hz). Paused, it
-redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:968`; `PausedStamp`,
+redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:969`; `PausedStamp`,
 `debugger_manager.h:245`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:
@@ -114,7 +114,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
   subscription verb (`subscribe`, `subscribe_source_line`, the group, enable and master switches), the
   trace, call-stack, coverage and rewind settings, attach and detach, and the magic and persistent
   breakpoints. A map or SLD load needs no special call: it bumps the revision, so the tick redraws;
-- the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:156`), installed on `qApp`
+- the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:157`), installed on `qApp`
   while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
   double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse *movement* is not counted: hover
@@ -122,7 +122,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
   loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:551`), so an edit on disk still shows.
 
-`refresh_window()` (`debugger_manager.cpp:959`) takes the stamp after the redraw, because a panel may itself touch the backend and
+`refresh_window()` (`debugger_manager.cpp:960`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the
 redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window's half of the same issue,
@@ -332,5 +332,5 @@ The Qt suites are gated on a Qt + debugger build and run in `make unit-test`:
 controls), `debugger_panels_test` (each panel's displayed text), `debugger_video_panel_test`, `debugger_audio_panel_test`,
 `debugger_inspect_watchpoint_test`, `debugger_persistent_bp_test`,
 `debugger_keymap_test`, `debugger_menu_test`, `debugger_disasm_copy_test`,
-`debugger_quit_gate_test`, `debugger_variables_panel_test` (the Variables tab, `QVAR-*`), and the window-geometry suites. The regression rows
+`debugger_quit_gate_test`, `debugger_variables_panel_test` (the Variables tab, `QVAR-*`, editing `QVARW-*`), and the window-geometry suites. The regression rows
 `qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting.

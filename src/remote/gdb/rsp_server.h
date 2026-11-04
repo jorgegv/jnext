@@ -182,6 +182,8 @@ private:
     bool monitor_locals(const std::vector<std::string>& args);
     bool monitor_globals(const std::vector<std::string>& args);
     bool monitor_print(const std::string& rest);
+    /// GH #437: `set var [FRAME] PATH = VALUE` writes a C value; `rest` is the raw text after `set var`.
+    bool monitor_set_var(const std::string& rest);
     bool monitor_time(const std::vector<std::string>& args);
     bool monitor_reset(const std::vector<std::string>& args);
     bool monitor_bp(const std::vector<std::string>& args);
