@@ -63,7 +63,7 @@ public:
     /// is editable (a variable, member, element or pointee whose facade row is ok and not an aggregate).
     bool edit_item(QTreeWidgetItem* item);
     /// GH #437 - what the editor of `item` commits: write `text` to the item's C object in the selected frame. An unchanged text writes nothing.
-    /// A refusal shows `<path>: <why>` in the message label and redraws the tab (nothing changed, so the manager would not). Public for the delegate.
+    /// A refusal shows `<path>: <why>` in the message label; the cell keeps its value (the editor never writes the model). Public for the delegate.
     void commit_edit(QTreeWidgetItem* item, const QString& text);
 
 signals:

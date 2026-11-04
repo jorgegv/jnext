@@ -364,7 +364,7 @@ void VariablesPanel::commit_edit(QTreeWidgetItem* item, const QString& text)
     }
     message_->setText(path + ": " + QString::fromStdString(w.why));
     message_->show();
-    refresh();   // nothing changed, so the manager will not redraw: the cell must get its value back
+    // nothing changed and nothing needs a redraw: the delegate never wrote the model, so the cell still shows the value it had
 }
 
 void VariablesPanel::on_expanded(QTreeWidgetItem* item)

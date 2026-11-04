@@ -1136,6 +1136,7 @@ void test_rows() {
         QTreeWidgetItem* star = p && p->childCount() ? p->child(0) : nullptr;
         QTreeWidgetItem* px = star ? child(star, "x") : nullptr;
         QTreeWidgetItem* ptr_x = px ? px : (star ? star : nullptr);
+        const std::string ptr_detail = detail_of(ptr_x);
         const bool o2 = dbl(f, ptr_x);
         commit(f, "10");
         f.mgr->refresh_panels();
@@ -1146,7 +1147,7 @@ void test_rows() {
         const bool lp_ok = val(lp).startsWith("{x = 10, y = 4");
         check("QVARW-05", "frame 1 and a child: with frame 1 chosen through the Call Stack, main's c = 100 shows 100 'd', lands at main's fp-15 and frame 1 stays chosen after the "
                           "redraw; back on frame 0, p's pointee member x = 10 keeps p open; main's lp then reads x = 10",
-              at && o1 && c_ok && ptr_x && o2 && kept && lp_ok, s(val(lp)) + " " + detail_of(ptr_x));
+              at && o1 && c_ok && ptr_x && o2 && kept && lp_ok, s(val(lp)) + " " + ptr_detail);
     }
     {   // QVARW-06
         Fix f;
