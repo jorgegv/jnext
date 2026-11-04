@@ -56,8 +56,8 @@ the two pragmas: see [Building programs with z88dk](02-building-with-z88dk.md#ba
 - **DivMMC sections** (`DIV_n`, and z88dk's `dotn` programs) are refused: a map
   with a line in one is rejected, with the line named, rather than attached half.
   A `dot` or `dotx` command is supported: [Dot commands](03-dot-commands.md).
-- **C variables beyond their names** (types, locals, structs) are read by scripts
-  (`cvar()`), over GDB and over ZRCP, never over DeZog's protocol (DZRP): see
+- **C variables** are shown in the Variables tab ([C variables in the debugger](11-c-variables.md), with
+  what it cannot show) and read by scripts (`cvar()`), over GDB and over ZRCP, never over DeZog's protocol (DZRP): see
   [Scripts and remote debuggers](09-scripts-and-remote-debuggers.md#c-variables).
 - **A step is synchronous and bounded.** A step that never reaches another
   statement (a loop on one line, a `HALT` with interrupts disabled) stops by itself

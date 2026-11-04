@@ -20,7 +20,7 @@ digraph srcdbg_frontends {
           fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.14,0.08"];
     edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5a3f43"];
 
-    verbs [label="Debugger facade (debug/debugger.h)\lsource_location()  source_map()  source_map_status()  source_page()\lsubscribe_source_line()  run_to_source_line()  source_step()\lload_source_map()  load_program_sidecars()  symbols()  lookup()\lc_frames()  c_locals()  c_globals()  read_c_value()  c_variables_status()\l", fillcolor="#e9d3d6"];
+    verbs [label="Debugger facade (debug/debugger.h)\lsource_location()  source_map()  source_map_status()  source_page()\lsubscribe_source_line()  run_to_source_line()  source_step()\lload_source_map()  load_program_sidecars()  symbols()  lookup()\lc_frames()  c_locals()  c_globals()  c_children()  read_c_value()  c_variables_status()\l", fillcolor="#e9d3d6"];
 
     subgraph cluster_qt {
         label="Qt debugger (src/debugger/)";
@@ -28,8 +28,10 @@ digraph srcdbg_frontends {
         color="#d3bdc0"; style="rounded";
         q0 [label="Source tab (SourcePanel)\lPC line, gutter, context menu, highlighter,\lsteps, Load Source Map..., Locate File...\l"];
         q1 [label="Disassembly, Call Stack, Breakpoints, MMU, Memory\lsymbol_namer(), caller_space, Row::group,\lthe long address (AddressStyle)\l"];
+        q3 [label="Variables tab (VariablesPanel)\lC locals per frame, globals, lazy children,\lframe selected from the Call Stack\l"];
         q2 [label="DebuggerManager\lsidecar report, source dirs,\lpaused stamp\l"];
         q0 -> q1 [label=" selection sync", dir=both];
+        q3 -> q1 [label=" frame <-> Call Stack row", dir=both];
         q2 -> q0;
     }
 
@@ -52,6 +54,7 @@ digraph srcdbg_frontends {
 
     verbs -> q0;
     verbs -> q1;
+    verbs -> q3;
     verbs -> g0;
     verbs -> z0;
     verbs -> s0;

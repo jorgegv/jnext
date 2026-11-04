@@ -3180,7 +3180,7 @@ postfix operators bind tighter than the <code>*</code>: <code>*x[1]</code> is <c
 <code>c_eval_path()</code> (<code>c_value.cpp:682</code>) walks the steps over a typed location (an array index is checked against its
 count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
 refused), then applies the <code>*</code>, and <code>c_read_loc()</code> reads and formats it. Every refusal says why.</p>
-<p><code>c_visible_locals()</code> (<code>c_value.cpp:781</code>) lists which locals show at a PC: the parameters (ordered by stack position),
+<p><code>c_visible_locals()</code> (<code>c_value.cpp:885</code>) lists which locals show at a PC: the parameters (ordered by stack position),
 the locals, the static locals. A parameter is a record of level 0 (sccz80, 80cc), at a stack offset &gt;= 4, or (zsdcc) in
 a block below the body's first block (the entry scope's), where its register and fastcall parameters sit. Parameters
 and level-1 locals are always visible; a local of level &gt;= 2 is visible iff its block is the open block or one of its
@@ -3190,14 +3190,14 @@ block just opened is the last opened one). The open block is the greatest known 
 the scope's block, which turns sccz80's "last opened block" into the block that is open and keeps a closed sibling's
 locals hidden; its ancestors are found over the same set. With no block data (80cc) or an unknown scope, every block
 local is shown, marked.
-<code>c_read_register_local()</code> (<code>c_value.cpp:862</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
+<code>c_read_register_local()</code> (<code>c_value.cpp:966</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
 that it may be stale), refuses <code>[]</code> as optimised out and an outer frame as not available.
-<code>c_param_location_unknown()</code> (<code>c_value.cpp:902</code>) marks a listed <code>__z88dk_fastcall</code> parameter recorded at an offset</p>
+<code>c_param_location_unknown()</code> (<code>c_value.cpp:1006</code>) marks a listed <code>__z88dk_fastcall</code> parameter recorded at an offset</p>
 <blockquote>
 <p>= 0 (z88dk U1).</p>
 </blockquote>
 <h2 id="reading-values-the-facade">Reading values: the facade<a class="headerlink" href="#reading-values-the-facade" title="Permanent link">&para;</a></h2>
-<p><code>Debugger</code> has five CAP-SRC readers (<code>debugger.h</code>), all <code>const</code>, all running <code>recheck()</code> first (through <code>variables()</code> and
+<p><code>Debugger</code> has six CAP-SRC readers (<code>debugger.h</code>), all <code>const</code>, all running <code>recheck()</code> first (through <code>variables()</code> and
 <code>c_frames()</code>) and bumping nothing themselves, so a panel redrawing on <code>state_revision()</code> does not redraw on a read:</p>
 <table>
 <thead>
@@ -3208,28 +3208,34 @@ that it may be stale), refuses <code>[]</code> as optimised out and an outer fra
 </thead>
 <tbody>
 <tr>
-<td><code>c_variables_status()</code> (<code>debugger_cvalues.cpp:399</code>)</td>
+<td><code>c_variables_status()</code> (<code>debugger_cvalues.cpp:409</code>)</td>
 <td><code>{available, why}</code> with a printable reason: <code>no source map is attached</code>; <code>an SLD source map carries no C variables</code>; <code>the map has no C debug records</code> (lines from listings only); <code>zsdcc wrote no C variable records for this build</code> (<code>zcc -O0</code> keeps the <code>C_LINE</code> records and writes no <code>__CDBINFO__</code>, fixture <code>master/sdcc-cvars-O0</code>); <code>the map has line records but no __CDBINFO__ records</code>; <code>all N C variable records were refused: &lt;reason&gt;</code>; a stale map</td>
 </tr>
 <tr>
-<td><code>c_locals(frame)</code> (<code>debugger_cvalues.cpp:435</code>)</td>
+<td><code>c_locals(frame)</code> (<code>debugger_cvalues.cpp:445</code>)</td>
 <td>the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a <code>CValueRow</code>; refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known</td>
 </tr>
 <tr>
-<td><code>c_globals()</code> (<code>debugger_cvalues.cpp:467</code>)</td>
+<td><code>c_globals()</code> (<code>debugger_cvalues.cpp:477</code>)</td>
 <td>every global, file static and static local, ordered by file then name, with a <code>path</code> no local can shadow: <code>vars.c::s_dup</code>, <code>sum::calls</code> (<code>a.c::init::done</code> when two modules have a function <code>init</code>)</td>
 </tr>
 <tr>
-<td><code>read_c_value(frame, path)</code> (<code>debugger_cvalues.cpp:497</code>)</td>
+<td><code>read_c_value(frame, path)</code> (<code>debugger_cvalues.cpp:507</code>)</td>
 <td>the object a C path names in that frame: <code>ok</code> or <code>why</code>, the type text, the value text, <code>notes</code>, the typed location <code>loc</code>, <code>where</code>, <code>integer</code> (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and <code>real</code> (the floats)</td>
+</tr>
+<tr>
+<td><code>c_children(frame, path, first, max)</code> (<code>debugger_cvalues.cpp:519</code>)</td>
+<td>what a tree lists under an object: a struct's members, an array's elements <code>first</code>..<code>first + max</code> (<code>total</code> is the element COUNT), a pointer's pointee (a struct's members as <code>p-&gt;x</code>, anything else as <code>p[0]</code>, named <code>*</code>); <code>void *</code>, a function pointer and a scalar have none (<code>ok</code>, <code>total</code> 0). Each row's <code>path</code> is the parent's plus a suffix and round-trips through <code>read_c_value</code> (for a <code>*E</code> path the base is <code>E[0]</code>, since the grammar applies a leading <code>*</code> after the postfix steps: <code>*p</code> + <code>.x</code> would read <code>*(p.x)</code>); a row is read, placed and noted exactly as <code>read_c_value</code> would, so a banked global's elements carry its page. <code>!ok</code> gives <code>read_c_value</code>'s own reason, or <code>null pointer</code> / the unreadable address</td>
 </tr>
 </tbody>
 </table>
+<p>The children come from the pure <code>c_children()</code> (<code>c_value.cpp:791</code>; <code>CChild</code>, <code>CChildren</code>): a struct's visible named members in record order
+(an unnamed C11 member has no path and is left out), an array's elements scaled by the element size, one pointee for a pointer.</p>
 <p>A <code>CValueRow</code> carries <code>name</code>, <code>path</code> (which round-trips through <code>read_c_value</code>), <code>file</code>, <code>type</code>, <code>kind</code> (Param, Local,
 StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code>value</code> or <code>why</code>, <code>aggregate</code> and <code>notes</code>. A failed read has an empty
 <code>value</code>, never <code>0</code>. <code>where</code> tells a page address (<code>Page</code>: the space and the 16-bit logical address, also
 <code>DivMmcRam</code>) from a CPU address (<code>Cpu</code>: a stack slot, what a pointer points at) and from registers (<code>Register</code>: <code>BC</code>).</p>
-<p>Where an object is read from (<code>eval_var()</code>, <code>debugger_cvalues.cpp:140</code>):</p>
+<p>Where an object is read from (<code>eval_var()</code>, <code>debugger_cvalues.cpp:152</code>):</p>
 <ul>
 <li><strong>A global, file static or static local</strong> is read from the page its map symbol was placed in (<code>CStorage::at</code>; the reader is
   <code>space_reader()</code>, <code>debugger_cvalues.cpp:104</code>), whatever the MMU maps there now, and an element or member of it too. A note says
@@ -3243,11 +3249,11 @@ StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code
   inside its root object, cleared when a pointer is followed (<code>CFormatCtx::read_root</code>).</li>
 <li>A listed <code>__z88dk_fastcall</code> parameter recorded at an offset &gt;= 0 is <code>location unknown (z88dk U1...)</code>.</li>
 </ul>
-<p><code>find_var()</code> (<code>debugger_cvalues.cpp:304</code>) resolves a name in frame <code>k</code>: the frame's visible locals, then its function's static
+<p><code>find_var()</code> (<code>debugger_cvalues.cpp:314</code>) resolves a name in frame <code>k</code>: the frame's visible locals, then its function's static
 locals, the file's statics, the globals. A local that exists but is hidden is <code>out of scope at &lt;file&gt;:&lt;line&gt;</code>. <code>fn::name</code> names a static
 local from any frame, and a local of <code>fn</code> only from a frame of <code>fn</code>; <code>file.c::name</code> names that file's statics and globals.</p>
 <h2 id="the-int32-atom-c_int32_scalar-gh-436">The int32 atom: <code>c_int32_scalar()</code> (GH #436)<a class="headerlink" href="#the-int32-atom-c_int32_scalar-gh-436" title="Permanent link">&para;</a></h2>
-<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:941</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
+<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1045</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
 and, through its translation, ZRCP's <code>CVAR()</code> both reach it through the evaluator, so there is nothing to keep in step. It reads
 <code>loc.type</code> (the head of the chain and the size) and <code>loc.note</code>, so a register-held value (no address) passes a <code>CLoc</code> with just its
 type, which <code>read_c_value()</code> fills for it. <code>integer</code> is the facade's <code>CValueResult::integer</code>.</p>
@@ -3296,7 +3302,7 @@ fixture has an 8-byte integer, a binary16 or an <code>_Accum</code> global.</p>
 <p><code>Z88CDB-41</code> to <code>-50</code> in <code>z88dk_map_test</code> (the extents against a golden that <code>derive-scopes.py --extents</code>
 derives from the raw map lines, the <code>*-cross</code> fixtures, the helpers, the listing evidence for the calling
 convention, the no-record facts, and the unchanged scope tables on the 12 maps of <code>Z88CDB-40</code>), and
-<code>CVALF-01</code> to <code>-41</code> in <code>c_value_test</code> (with <code>-27a</code> and <code>-28a</code> to <code>-28d</code>), and <code>SRCDBG-CVAL-01</code> to <code>-58</code> in <code>source_debug_test</code> (the tracker policy, the frames of each compiler on a running fixture:
+<code>CVALF-01</code> to <code>-41</code> and <code>CVCH-01</code> to <code>-06</code> (the children) in <code>c_value_test</code> (with <code>-27a</code> and <code>-28a</code> to <code>-28d</code>), and <code>SRCDBG-CVAL-01</code> to <code>-58</code> in <code>source_debug_test</code> (the tracker policy, the frames of each compiler on a running fixture:
 tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, a function that crosses a slot; and the
 values: the first call of sum on each compiler, the globals, the loop, paged globals with their note, the fastcall marker, C paths and
 their refusals, bitfields, the status texts, the lifetime, a rewind, a dot command's global, order and hiding, and the facade's

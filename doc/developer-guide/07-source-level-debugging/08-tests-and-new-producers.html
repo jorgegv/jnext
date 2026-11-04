@@ -2974,7 +2974,7 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 </tr>
 <tr>
 <td><code>c_value_test</code></td>
-<td>The pure C value layer (<code>c_value.cpp</code>, <a href="10-c-frames-and-values.html">7.10</a>): the 48-bit and IEEE floats, integers, pointers, arrays, structs, bitfields, the struct type lookup and type text, the path grammar and its evaluation, visible locals, register locals (<code>CVALF-*</code>), and the int32 rule of the script atom and ZRCP (<code>CVINT-*</code>)</td>
+<td>The pure C value layer (<code>c_value.cpp</code>, <a href="10-c-frames-and-values.html">7.10</a>): the 48-bit and IEEE floats, integers, pointers, arrays, structs, bitfields, the struct type lookup and type text, the path grammar and its evaluation, visible locals, register locals (<code>CVALF-*</code>), the children of an object (<code>CVCH-*</code>), and the int32 rule of the script atom and ZRCP (<code>CVINT-*</code>)</td>
 </tr>
 <tr>
 <td><code>cdb_record_test</code></td>
@@ -2982,7 +2982,7 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 </tr>
 <tr>
 <td><code>source_debug_test</code></td>
-<td>The backend on a real machine: identity of fetches (<code>SRCDBG-ID-*</code>), sidecars and ownership (<code>SRCDBG-SIDE-*</code>, <code>-OWN-*</code>), symbols (<code>SRCDBG-SYM-*</code>), z88dk (<code>SRCDBG-Z88-*</code>, <code>-LIS-*</code>), tapes (<code>SRCDBG-TAPE-*</code>), the variable store's lifetime (<code>SRCDBG-VAR-*</code>), the tracker policy and the C frames (<code>SRCDBG-CVAL-*</code>, <a href="10-c-frames-and-values.html">7.10</a>), lifetime (<code>SRCLIFE-*</code>), dot commands (<code>SRCDOT-*</code>, <a href="06-lifetime.html">7.6</a>), breakpoints (<code>SRCBP-*</code>), run to line (<code>SRCRUN-*</code>), steps (<code>SRCSTEP-*</code>, <code>SRCDBG-STEP-*</code>, <code>-BACK-*</code>, <code>-HIST-*</code>), call stack (<code>SRCDBG-CS-*</code>), coverage (<code>SRCDBG-COV-*</code>), the long address through a machine (<code>LADDR-17</code> to <code>-20</code>; the pure formatter's <code>LADDR-01</code> to <code>-16</code> are in <code>debugger_backend_test</code>)</td>
+<td>The backend on a real machine: identity of fetches (<code>SRCDBG-ID-*</code>), sidecars and ownership (<code>SRCDBG-SIDE-*</code>, <code>-OWN-*</code>), symbols (<code>SRCDBG-SYM-*</code>), z88dk (<code>SRCDBG-Z88-*</code>, <code>-LIS-*</code>), tapes (<code>SRCDBG-TAPE-*</code>), the variable store's lifetime (<code>SRCDBG-VAR-*</code>), the tracker policy and the C frames (<code>SRCDBG-CVAL-*</code>, <a href="10-c-frames-and-values.html">7.10</a>), the children of a C variable on a running machine (<code>SRCDBG-CVCH-*</code>), lifetime (<code>SRCLIFE-*</code>), dot commands (<code>SRCDOT-*</code>, <a href="06-lifetime.html">7.6</a>), breakpoints (<code>SRCBP-*</code>), run to line (<code>SRCRUN-*</code>), steps (<code>SRCSTEP-*</code>, <code>SRCDBG-STEP-*</code>, <code>-BACK-*</code>, <code>-HIST-*</code>), call stack (<code>SRCDBG-CS-*</code>), coverage (<code>SRCDBG-COV-*</code>), the long address through a machine (<code>LADDR-17</code> to <code>-20</code>; the pure formatter's <code>LADDR-01</code> to <code>-16</code> are in <code>debugger_backend_test</code>)</td>
 </tr>
 <tr>
 <td><code>source_debug_posix_test</code></td>
@@ -3007,6 +3007,10 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 <tr>
 <td><code>script_events_test</code></td>
 <td>The DSL's <code>on execute FILE:LINE</code> and <code>--map</code></td>
+</tr>
+<tr>
+<td><code>debugger_variables_panel_test</code></td>
+<td>The Qt Variables tab on a real Next running the z88dk fixtures: frames, locals, globals, lazy expansion, the Call Stack selection both ways, addresses, refresh, idle (<code>QVAR-*</code>, the C rows of the Watches tab included, <a href="07-frontends.html">7.7</a>); gated on Qt and the debugger</td>
 </tr>
 <tr>
 <td><code>script_eval_test</code></td>

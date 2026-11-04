@@ -39,6 +39,8 @@ attaches it. Which file you need depends on the tool:
 - [In the Source tab: names, watches, coverage and colours](08-around-the-source.md):
   C names, watching and breaking from the source, which lines have run, and
   the colour schemes.
+- [C variables in the debugger](11-c-variables.md): the Variables tab, frames, expanding, watching a
+  variable, and what the compilers' records cannot show.
 - [Scripts and remote debuggers](09-scripts-and-remote-debuggers.md): `on
   execute main.c:19`, z88dk-gdb, DeZog.
 - [Limits and troubleshooting](10-limits-and-troubleshooting.md): what each

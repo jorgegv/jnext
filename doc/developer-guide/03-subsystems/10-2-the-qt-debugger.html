@@ -3122,7 +3122,7 @@ work. A breakpoint change another client made arrives as
 </tr>
 <tr>
 <td>Watches</td>
-<td>byte, word or long at user addresses, through <code>peek</code></td>
+<td>byte, word or long at user addresses, through <code>peek</code>; a C variable row (<code>read_c_value()</code>, <code>c_frames()</code>, <code>c_variables_status()</code>), read only while paused</td>
 <td>—</td>
 </tr>
 <tr>
@@ -3165,15 +3165,20 @@ work. A breakpoint change another client made arrives as
 <td><code>source_location()</code> (a pointer into the store) for the PC, and the source file it names</td>
 <td>the source steps and loads, through <code>DebuggerManager</code></td>
 </tr>
+<tr>
+<td>Variables</td>
+<td><code>c_frames()</code>, <code>c_locals()</code>, <code>c_globals()</code>, <code>c_children()</code>, <code>c_variables_status()</code>, <code>call_stack()</code>, <code>mmu_slots()</code>: the C variables of a call frame and the globals, as a tree (<a href="../07-source-level-debugging/07-frontends.html">7.7</a>)</td>
+<td>—</td>
+</tr>
 </tbody>
 </table>
-<p>Four panels (CPU, Disassembly, Stack, Call Stack) update only while paused:
+<p>Five panels (CPU, Disassembly, Stack, Call Stack, Variables) update only while paused:
 reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on <code>DebuggerManager</code>'s timer, except
 the two views of the breakpoints.</p>
-<p><strong>Refresh cadence (GH #428).</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:974</code>)
+<p><strong>Refresh cadence (GH #428).</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:979</code>)
 redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:370</code>: ~4 Hz). Paused, it
-redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:963</code>; <code>PausedStamp</code>,
+redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:968</code>; <code>PausedStamp</code>,
 <code>debugger_manager.h:245</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:</p>
@@ -3188,7 +3193,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
   subscription verb (<code>subscribe</code>, <code>subscribe_source_line</code>, the group, enable and master switches), the
   trace, call-stack, coverage and rewind settings, attach and detach, and the magic and persistent
   breakpoints. A map or SLD load needs no special call: it bumps the revision, so the tick redraws;</li>
-<li>the host-input epoch (<code>input_epoch_</code>): <code>DebuggerManager::eventFilter()</code> (<code>debugger_manager.cpp:151</code>), installed on <code>qApp</code>
+<li>the host-input epoch (<code>input_epoch_</code>): <code>DebuggerManager::eventFilter()</code> (<code>debugger_manager.cpp:156</code>), installed on <code>qApp</code>
   while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
   double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse <em>movement</em> is not counted: hover
@@ -3196,7 +3201,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
 <li>a flag, <code>source_file_changed</code>: whether the loaded source file's modification time differs from the one
   loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:551</code>), so an edit on disk still shows.</li>
 </ul>
-<p><code>refresh_window()</code> (<code>debugger_manager.cpp:954</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
+<p><code>refresh_window()</code> (<code>debugger_manager.cpp:959</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, <code>follow_pc()</code>) repaints the tab itself. <code>take_panel_refresh_count()</code> counts the
 redraws; the <code>ticks:</code> line reports it as <code>panel-refreshes=</code>. The emulator window's half of the same issue,
@@ -3204,16 +3209,16 @@ the framebuffer generation and the upload gate that stops a paused machine re-pr
 is in <a href="../02-architecture/03-a-frame-end-to-end.html">2.3</a>.</p>
 <p><strong>The window's opening size (GH #114, #360).</strong> A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (<code>DebuggerWindow::grow_default_size_to_natural()</code>,
-<code>debugger_window.cpp:499</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
+<code>debugger_window.cpp:500</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
 alone. The size is <em>measured</em>: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' <code>sizeHint()</code> lack, using the share of a widening the splitter really gave
 it on the previous pass (<code>fit_last_add_</code>, <code>fit_last_lacking_</code>; bounded by <code>kMaxInitialFitPasses</code> = 4
-(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:201</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:226</code>)). The frame, not the client area, must fit the screen
+(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:204</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:229</code>)). The frame, not the client area, must fit the screen
 (<code>jnext::clamp_window_size_to_screen</code>). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (<code>fit_sizes_</code>, <code>fit_known_size_()</code>) is the manager's answer, not the user's, and the request is asked again,
 at most <code>kMaxFitEchoes</code> = 6 times (<code>resizeEvent()</code>, <code>debugger_window.cpp:486-497</code>); any other size is the user's and ends the fit
-(<code>end_fit_()</code>, <code>debugger_window.cpp:479</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
+(<code>end_fit_()</code>, <code>debugger_window.cpp:480</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
 pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:523-527</code>), after which every size is the user's and the remembered sizes are
 dropped. Rows: <code>GR-06</code> (a stale answer inside the grace window is asked again), <code>GR-07</code> (after it every size is the user's) and <code>GR-08</code> (an earlier request landing while a pass is queued), in <code>debugger_window_grow_test</code>.</p>
 <p><strong>The breakpoint views follow the model.</strong> The Breakpoints list and the
@@ -3380,7 +3385,7 @@ events and reads the real clipboard.</p>
 controls), <code>debugger_panels_test</code> (each panel's displayed text), <code>debugger_video_panel_test</code>, <code>debugger_audio_panel_test</code>,
 <code>debugger_inspect_watchpoint_test</code>, <code>debugger_persistent_bp_test</code>,
 <code>debugger_keymap_test</code>, <code>debugger_menu_test</code>, <code>debugger_disasm_copy_test</code>,
-<code>debugger_quit_gate_test</code>, and the window-geometry suites. The regression rows
+<code>debugger_quit_gate_test</code>, <code>debugger_variables_panel_test</code> (the Variables tab, <code>QVAR-*</code>), and the window-geometry suites. The regression rows
 <code>qt-host-probe-func</code> and <code>qt-host-order-func</code> exercise <code>QtApp</code>'s hosting.</p>
 
 

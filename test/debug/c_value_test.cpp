@@ -935,6 +935,207 @@ int main() {
               y.ok && y.loc.addr == 0xA002 && !y.loc.rooted && y1.ok && y1.loc.addr == 0xA005 + 2 && whole.ok && whole.loc.addr == 0xA000 && !dot.ok && ii.ok && ii.loc.addr == 0xA000);
     }
 
+    // ── CVCH-01..06: the children of an object (GH #435) ─────────────────────────────────────────────────────────
+    // Oracles: test/fixtures/z88dk/src/types.h and vars.c (the declarations), and the committed sccz80 / zsdcc records (a struct point is 5
+    // bytes, packed: x at +0, y at +2, tag at +4; a struct rect is {a, b, name} at +0, +5, +10).
+    {
+        const CVariable* gpt = global_var(*sc.store, "g_pt");
+        const CVariable* grect = global_var(*sc.store, "g_rect");
+        CLoc pt;
+        pt.type = gpt ? gpt->record.var.type : CdbType{};
+        pt.addr = 0xA000;
+        CLoc rect;
+        rect.type = grect ? grect->record.var.type : CdbType{};
+        rect.addr = 0xB000;
+        const CChildren a = c_children(csc, pt, 0, 100);
+        const CChildren b = c_children(csc, rect, 0, 100);
+        check("CVCH-01", "g_pt (struct point) has the children x, y, tag (suffixes .x .y .tag) at +0, +2, +4 typed int, int, unsigned char; g_rect nests a and b "
+                         "(struct point) and name (char [4]) at +0, +5, +10",
+              a.ok && a.total == 3 && a.items.size() == 3 && a.items[0].label == "x" && a.items[0].suffix == ".x" && a.items[0].loc.addr == 0xA000 &&
+                  a.items[1].label == "y" && a.items[1].suffix == ".y" && a.items[1].loc.addr == 0xA002 && a.items[2].label == "tag" &&
+                  a.items[2].suffix == ".tag" && a.items[2].loc.addr == 0xA004 && c_type_text(a.items[0].loc.type) == "int" &&
+                  c_type_text(a.items[1].loc.type) == "int" && c_type_text(a.items[2].loc.type) == "unsigned char" && b.ok && b.total == 3 &&
+                  b.items.size() == 3 && b.items[0].label == "a" && b.items[0].loc.addr == 0xB000 && c_type_text(b.items[0].loc.type) == "struct point" &&
+                  b.items[1].label == "b" && b.items[1].loc.addr == 0xB005 && c_type_text(b.items[1].loc.type) == "struct point" &&
+                  b.items[2].label == "name" && b.items[2].loc.addr == 0xB00A && c_type_text(b.items[2].loc.type) == "char [4]");
+    }
+    {
+        Mem mem;
+        mem.put(0xA000, {0x00, 0xB0});   // struct point *p = $B000
+        mem.put(0xA002, {0x00, 0x00});   // struct point *q = NULL
+        CFormatCtx ctx = csc;
+        ctx.read = mem.reader();
+        CLoc p;
+        p.type = ty("{2}DG,STpoint:S");
+        p.addr = 0xA000;
+        CLoc q = p;
+        q.addr = 0xA002;
+        const CChildren a = c_children(ctx, p, 0, 100);
+        const CChildren n = c_children(ctx, q, 0, 100);
+        check("CVCH-02", "a pointer to a struct lists the pointee's members with `->` (p->x at $B000, p->y at $B002, p->tag at $B004, read through the pointee's "
+                         "address); a NULL pointer is refused as `null pointer`, with no children",
+              a.ok && a.total == 3 && a.items.size() == 3 && a.items[0].suffix == "->x" && a.items[0].loc.addr == 0xB000 && a.items[1].suffix == "->y" &&
+                  a.items[1].loc.addr == 0xB002 && a.items[2].suffix == "->tag" && a.items[2].loc.addr == 0xB004 && !n.ok && n.why == "null pointer" &&
+                  n.items.empty() && n.total == 0);
+    }
+    {
+        Mem mem;
+        mem.put(0xA000, {0x00, 0xB0});   // int *p = $B000
+        mem.put(0xA010, {0x00, 0xB1});   // int **pp = $B100
+        mem.put(0xB100, {0x00, 0xB2});   // *pp = $B200
+        CFormatCtx ctx;
+        ctx.read = mem.reader();
+        CLoc p;
+        p.type = ty("{2}DG,SI:S");
+        p.addr = 0xA000;
+        CLoc pp;
+        pp.type = ty("{2}DG,DG,SI:S");
+        pp.addr = 0xA010;
+        CLoc vp = p;
+        vp.type = ty("{2}DG,SV:S");
+        CLoc fp = p;
+        fp.type = ty("{2}DG,DF,SV:S");
+        const CChildren a = c_children(ctx, p, 0, 100);
+        const CChildren b = c_children(ctx, pp, 0, 100);
+        const CChildren b2 = b.ok && b.items.size() == 1 ? c_children(ctx, b.items[0].loc, 0, 100) : CChildren{};
+        const CChildren v = c_children(ctx, vp, 0, 100);
+        const CChildren f = c_children(ctx, fp, 0, 100);
+        check("CVCH-03", "a pointer to int has one child `*` (suffix [0]) at the pointee; an int ** has one child [0] which has one child [0] (the `**pp` the path "
+                         "grammar cannot spell); void * and a function pointer are leaves (ok, total 0)",
+              a.ok && a.total == 1 && a.items.size() == 1 && a.items[0].label == "*" && a.items[0].suffix == "[0]" && a.items[0].loc.addr == 0xB000 &&
+                  b.ok && b.items.size() == 1 && b.items[0].suffix == "[0]" && b.items[0].loc.addr == 0xB100 && b2.ok && b2.items.size() == 1 &&
+                  b2.items[0].suffix == "[0]" && b2.items[0].loc.addr == 0xB200 && v.ok && v.total == 0 && v.items.empty() && f.ok && f.total == 0 &&
+                  f.items.empty());
+    }
+    {
+        CFormatCtx ctx;
+        CLoc arr;
+        arr.type = ty("{8}DA4x,SI:S");   // int a[4]: 8 bytes, 4 elements
+        arr.addr = 0xA000;
+        CLoc m2;
+        m2.type = ty("{12}DA2x,DA3x,SI:S");   // int m[2][3]
+        m2.addr = 0xB000;
+        const CChildren all = c_children(ctx, arr, 0, 100);
+        const CChildren win = c_children(ctx, arr, 1, 2);
+        const CChildren past = c_children(ctx, arr, 4, 10);
+        const CChildren two = c_children(ctx, m2, 0, 100);
+        check("CVCH-04", "int a[4] has total 4 (its element count, not its 8 bytes) with [0]..[3] at +0, +2, +4, +6; first = 1, max = 2 gives [1] and [2]; first at "
+                         "the end gives none (still total 4); a 2-D array's children are the int [3] rows, [1] at +6",
+              all.ok && all.total == 4 && all.items.size() == 4 && all.items[3].label == "[3]" && all.items[3].suffix == "[3]" && all.items[3].loc.addr == 0xA006 &&
+                  win.ok && win.total == 4 && win.items.size() == 2 && win.items[0].label == "[1]" && win.items[0].loc.addr == 0xA002 && win.items[1].label == "[2]" &&
+                  win.items[1].loc.addr == 0xA004 && past.ok && past.total == 4 && past.items.empty() && two.ok && two.total == 2 && two.items.size() == 2 &&
+                  c_type_text(two.items[1].loc.type) == "int [3]" && two.items[1].loc.addr == 0xB006);
+    }
+    {
+        const CVariable* gw = global_var(*sc.store, "g_word");
+        const CVariable* gf = global_var(*sd.store, "g_flags");
+        CLoc w;
+        w.type = gw ? gw->record.var.type : CdbType{};
+        w.addr = 0xA000;
+        Mem mem;
+        mem.put(0xB000, {0x8D, 0xC8});
+        CFormatCtx ctx = csd;
+        ctx.read = mem.reader();
+        CLoc fl;
+        fl.type = gf ? gf->record.var.type : CdbType{};
+        fl.addr = 0xB000;
+        const CChildren u = c_children(csc, w, 0, 100);
+        const CChildren f = c_children(ctx, fl, 0, 100);
+        std::string vals;
+        for (const CChild& c : f.items) {
+            const CFormatted r = c_read_loc(ctx, c.loc);
+            vals += c.label + "=" + (r.ok ? r.text : "!") + " ";
+        }
+        check("CVCH-05", "a union's members are all at +0 (g_word: w and b at $A000); zsdcc's g_flags over the bytes 8D C8 lists lo, mid, hi and each reads back "
+                         "through c_read_loc as 5, 17, 200 (the bitfield chain is kept)",
+              u.ok && u.total == 2 && u.items.size() == 2 && u.items[0].label == "w" && u.items[0].loc.addr == 0xA000 && u.items[1].label == "b" &&
+                  u.items[1].loc.addr == 0xA000 && f.ok && f.total == 3 && vals == "lo=5 mid=17 hi=200 ");
+    }
+    {
+        const auto rec = [](const char* text, const char* module) {
+            CRecord r;
+            r.text = text;
+            r.module = module;
+            r.record = cdb_decode(text).record;
+            return r;
+        };
+        // two modules each define a different `struct s`; from a module that has neither, the lookup is ambiguous
+        const VariableStore amb({}, {},
+                                {rec("T:Fa.h$s[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)]", "a_c"), rec("T:Fb.h$s[({0}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "b_c")}, {}, {});
+        CFormatCtx ctx;
+        ctx.store = &amb;
+        ctx.module = "zz";
+        CLoc s;
+        s.type = ty("{2}STs:S");
+        s.addr = 0xA000;
+        const CTypeLookup lk = c_find_type(amb, "s", "", "zz");
+        const CChildren r = c_children(ctx, s, 0, 100);
+        CLoc sc16;
+        sc16.type = ty("{2}SI:S");
+        sc16.addr = 0xA000;
+        const CChildren leaf = c_children(csc, sc16, 0, 100);
+        check("CVCH-06", "a scalar has no children (ok, total 0); a struct whose type lookup is ambiguous gets the lookup's own reason, not a guess",
+              leaf.ok && leaf.total == 0 && leaf.items.empty() && !lk.record && !r.ok && r.why == lk.why && !r.why.empty() && r.items.empty());
+    }
+
+    {   // CVCH-07
+        const auto rec = [](const char* text, const char* module) {
+            CRecord r;
+            r.text = text;
+            r.module = module;
+            r.record = cdb_decode(text).record;
+            return r;
+        };
+        // struct s { uint8_t a; unsigned :2 (zsdcc writes __00000000); <unnamed C11 member>; uint8_t b; }: no path can name the 2nd and the 3rd
+        const VariableStore st({}, {},
+                               {rec("T:Fv$s[({0}S:S$a$0_0$0({1}SC:U),Z,0,0)({1}S:S$__00000000$0_0$0({1}SB0$2:U),Z,0,0)({2}S:S$$0_0$0({1}SC:U),Z,0,0)({3}S:S$b$0_0$0({1}SC:U),Z,0,0)]",
+                                    "v_c")},
+                               {}, {});
+        CFormatCtx ctx;
+        ctx.store = &st;
+        ctx.scope_name = "v";
+        ctx.module = "v_c";
+        CLoc s;
+        s.type = ty("{4}STs:S");
+        s.addr = 0xA000;
+        const CChildren c = c_children(ctx, s, 0, 100);
+        check("CVCH-07", "a zsdcc padding member (__00000000) and an unnamed member of a struct are not children (no path can name them): struct s lists a and b, total 2, b at +3",
+              c.ok && c.total == 2 && c.items.size() == 2 && c.items[0].label == "a" && c.items[1].label == "b" && c.items[1].loc.addr == 0xA003);
+    }
+    {   // CVCH-08
+        const CVariable* gpt = global_var(*sc.store, "g_pt");
+        CLoc pt;
+        pt.type = gpt ? gpt->record.var.type : CdbType{};
+        pt.addr = 0xA000;
+        const CChildren one = c_children(csc, pt, 1, 1);
+        const CChildren two = c_children(csc, pt, 1, 100);
+        const CChildren past = c_children(csc, pt, 3, 100);
+        check("CVCH-08", "a struct's members honour first and max: g_pt with first = 1, max = 1 is y alone at +2 (total still 3); first = 1 is y and tag; first at the end is none",
+              one.ok && one.total == 3 && one.items.size() == 1 && one.items[0].label == "y" && one.items[0].loc.addr == 0xA002 && two.items.size() == 2 &&
+                  two.items[0].label == "y" && two.items[1].label == "tag" && past.ok && past.total == 3 && past.items.empty());
+    }
+    {   // CVCH-09
+        Mem mem;
+        mem.put(0xA000, {0x00, 0xB0});   // int *p = $B000
+        CFormatCtx ctx;
+        ctx.read = mem.reader();
+        CLoc p;
+        p.type = ty("{2}DG,SI:S");
+        p.addr = 0xA000;
+        const CChildren later = c_children(ctx, p, 1, 100);
+        const CChildren none = c_children(ctx, p, 0, 0);
+        CLoc arr;
+        arr.type = ty("{8}DA4x,SI:S");
+        arr.addr = 0xC000;
+        arr.rooted = true;
+        const CChildren els = c_children(ctx, arr, 0, 100);
+        bool rooted = els.ok && els.items.size() == 4;
+        for (const CChild& c : els.items) rooted = rooted && c.loc.rooted;
+        check("CVCH-09", "a pointer's one child exists only for first = 0 and max > 0 (first = 1 and max = 0 give none, total still 1); the elements of a rooted array are rooted "
+                         "(read through the root object's own view)",
+              later.ok && later.total == 1 && later.items.empty() && none.ok && none.total == 1 && none.items.empty() && rooted);
+    }
+
     // ── CVINT-01..02 (GH #436): what is an int32 scalar, the one rule behind `cvar()` and `CVAR()` ─────────
     // Oracle: the DSL's own value model (lexer.h: "the value is the 32-bit pattern", so 0xCAFEBABE is -889275714), the
     // fixture's C types (vars.c: int16_t g_int = -5, uint16_t g_uint = 40000, uint32_t g_ulong = 0xCAFEBABE, a pointer is
