@@ -52,15 +52,16 @@ if want dzrp-paused-headless-func; then
         LANG=C timeout --foreground --kill-after=5s 45s \
             python3 "$SCRIPT_DIR/dzrp-peer.py" paused-headless "$port" "$pid_file" "$EXIT_FRAMES" \
             >"$peer_log" 2>&1 &
-        ppid=$!
+        peer_pid=$!
         for _ in $(seq 1 200); do
             [[ -e "$pid_file.dialing" ]] && break
+            kill -0 "$peer_pid" 2>/dev/null || break    # the client died: its output says why
             sleep 0.05
         done
         if [[ ! -e "$pid_file.dialing" ]]; then
-            kill "$ppid" 2>/dev/null || true
-            wait "$ppid" 2>/dev/null || true
-            fail_row " (the DZRP client never started dialling)"
+            kill "$peer_pid" 2>/dev/null || true
+            wait "$peer_pid" 2>/dev/null || true
+            fail_row " (the DZRP client never started dialling: $(tail -n 1 "$peer_log"))"
             verdict=done
             continue
         fi
@@ -70,7 +71,7 @@ if want dzrp-paused-headless-func; then
         jpid=$!
         echo "$jpid" >"$pid_file.tmp" && mv "$pid_file.tmp" "$pid_file"
         peer_rc=0
-        wait "$ppid" 2>/dev/null || peer_rc=$?
+        wait "$peer_pid" 2>/dev/null || peer_rc=$?
         peer_out=$(cat "$peer_log")
         j_rc=0
         wait "$jpid" 2>/dev/null || j_rc=$?
