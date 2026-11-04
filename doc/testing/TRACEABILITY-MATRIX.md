@@ -29,7 +29,7 @@ mentions them, so a test can no longer be absent from this document.
 | Tilemap                                    |   123 |  123 |    0 |    0 |       0 |          0 |
 | Copper                                     |   110 |  110 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   294 |  294 |    0 |    0 |       0 |          0 |
-| Audio                                      |   252 |  252 |    0 |    0 |       0 |          0 |
+| Audio                                      |   275 |  275 |    0 |    0 |       0 |          0 |
 | DMA                                        |   186 |  186 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   163 |  163 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    58 |   58 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6102 | 6102 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6125 | 6125 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6102**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5621**. Rows the 179 suites declared in `test/unit-tests.conf` run live: **15508**.
+Rows the sections above carry: **6125**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5644**. Rows the 180 suites declared in `test/unit-tests.conf` run live: **15570**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 132 suites (9971 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 133 suites (10010 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -90,6 +90,7 @@ These 132 suites (9971 live rows) have no VHDL-derived plan row to map, so they 
 | `esxdos_stub_test` | 185 | esxDOS API surface + jnext trap policy, not core logic |
 | `esxdos_symlink_test` | 6 | esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic |
 | `quick_snapshot_posix_test` | 2 | GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle |
+| `video_recorder_posix_test` | 7 | GH #446 ffmpeg PATH lookup rows needing exec bits, symlinks and a decoy script (POSIX-only); host tooling, no VHDL oracle |
 | `pgo_map_parse_test` | 4 | GH #416 PGO link-map reader contract (POSIX-only, drives cmake -P); build tooling, no VHDL oracle |
 | `phantom_typist_test` | 26 | jnext auto-typing state machine (host keystroke injection) |
 | `esp_wiring_test` | 127 | jnext host ESP policy/visibility/wiring, no core counterpart |
@@ -105,7 +106,7 @@ These 132 suites (9971 live rows) have no VHDL-derived plan row to map, so they 
 | `sd_identity_test` | 31 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the Tier-1 identity read off a REAL image -- MBR partition table, FAT32 BS_VolID (Tier 2 retired, GH #396) -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sd_no_digest_linux_test` | 5 | GH #396: no whole-card read on .jns save/probe/load or a warm-start hit, measured by Linux /proc/self/io rchar; jnext-internal host behaviour (a UI-thread stall), the FPGA core has no counterpart |
 | `jns_host_path_linux_test` | 4 | GH #401: a non-UTF-8 host path is written with U+FFFD and never aborts a .jns save; jnext-internal host behaviour, the FPGA core has no counterpart |
-| `ay_cache_test` | 18 | AY output / TurboSound mix caches vs an always-recompute reference (GH #440; equivalence of two implementations, VHDL cited in the suite header) |
+| `ay_cache_test` | 19 | AY output / TurboSound mix caches vs an always-recompute reference (GH #440; equivalence of two implementations, VHDL cited in the suite header) |
 | `audio_pacing_test` | 58 | host SDL audio pacing/underrun policy, downstream of the mixer |
 | `audio_fill_test` | 39 | host SDL device-boundary fill/hold policy (GH #208), downstream of the mixer |
 | `audio_capture_test` | 22 | host WAV capture of the mixer output |
@@ -133,7 +134,7 @@ These 132 suites (9971 live rows) have no VHDL-derived plan row to map, so they 
 | `log_gate_test` | 27 | jnext log-level gating |
 | `cli_options_test` | 63 | CLI flag table vs the man page (see `make cli-check`) |
 | `config_keys_test` | 25 | the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle) |
-| `video_recorder_cmd_test` | 33 | FFmpeg command-line construction (host encoder) |
+| `video_recorder_cmd_test` | 54 | FFmpeg command-line construction (host encoder) |
 | `nex_loader_test` | 147 | NEX file-format spec (host loader), no core counterpart |
 | `nex_v13_test` | 79 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
 | `extended_nex_test` | 44 | narrative section, ID ranges not per-row IDs |
@@ -198,7 +199,7 @@ These 132 suites (9971 live rows) have no VHDL-derived plan row to map, so they 
 | `color_scheme_test` | 28 | GUI light/dark scheme from the desktop portal (host GUI, GH #363) |
 | `color_scheme_linux_test` | 2 | GH #414: the private dbus-daemon of color_scheme_test dies with a SIGKILLed or normally exiting suite; Linux-only test infrastructure (guard process, /proc), the FPGA core has no counterpart |
 | `sdcard_dialog_test` | 9 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
-| `quit_cleanup_test` | 10 | host shutdown ordering (GUI lifecycle) |
+| `quit_cleanup_test` | 12 | host shutdown ordering (GUI lifecycle) |
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
 | `preferences_apply_test` | 96 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 122 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
@@ -212,9 +213,9 @@ These 132 suites (9971 live rows) have no VHDL-derived plan row to map, so they 
 | `debugger_keymap_test` | 44 | user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives |
 | `debugger_menu_test` | 68 | debugger menu reachability (host GUI) |
 | `debugger_disasm_copy_test` | 44 | disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N` |
-| `debugger_panels_test` | 110 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
+| `debugger_panels_test` | 117 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
 | `debugger_verbs_test` | 108 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
-| `debugger_source_panel_test` | 270 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
+| `debugger_source_panel_test` | 271 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
 | `debugger_variables_panel_test` | 32 | debugger Variables tab: C locals per frame, globals, lazy expansion, Call Stack selection (GH #435, host GUI, jnext-internal); the T80N core has no debugger |
 
 The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
@@ -1777,138 +1778,152 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| AY-01 | addr latches bits[4:0] of data bus | ym2149.vhd:172-173 | pass | test/audio/audio_test.cpp:118 |
-| AY-02 | addr unchanged by write_data (busctrl_addr=0) | ym2149.vhd:172 | pass | test/audio/audio_test.cpp:129 |
-| AY-03 | reset clears addr to 00000 | ym2149.vhd:170-171 | pass | test/audio/audio_test.cpp:139 |
-| AY-04 | write to all 16 registers (0..15) | ym2149.vhd:189-207 | pass | test/audio/audio_test.cpp:173 |
-| AY-05 | write with addr(4)=1 is a no-op | ym2149.vhd:188 | pass | test/audio/audio_test.cpp:184 |
-| AY-06 | reset: all regs 0 except R7=0xFF | ym2149.vhd:184-186 | pass | test/audio/audio_test.cpp:202 |
-| AY-07 | R13 write pulses env_reset (shape 0D `/‾‾‾` settles to the top rail YM[31]=0xFF) | ym2149.vhd:209-211,392-401 | pass | test/audio/audio_test.cpp:221 |
-| AY-10 | R0 AY-mode full 8 bits | ym2149.vhd:226 | pass | test/audio/audio_test.cpp:242 |
-| AY-11 | R1 AY mode: bits[7:4] masked to 0 | ym2149.vhd:227 | pass | test/audio/audio_test.cpp:253 |
-| AY-12 | R1 YM mode: full 8 bits | ym2149.vhd:227 | pass | test/audio/audio_test.cpp:264 |
-| AY-13 | R3/R5 AY->{0x05,0x0A}, YM->{0xF5,0xFA} | ym2149.vhd:229,231 | pass | test/audio/audio_test.cpp:282 |
-| AY-14 | R6 AY mode: bits[7:5]=0 | ym2149.vhd:232 | pass | test/audio/audio_test.cpp:294 |
-| AY-15 | R6 YM mode: full 8 bits | ym2149.vhd:232 | pass | test/audio/audio_test.cpp:305 |
-| AY-16 | R7 full 8 bits in both modes | ym2149.vhd:233 | pass | test/audio/audio_test.cpp:318 |
-| AY-17 | R8/R9/R10 AY mode: 0x1F | ym2149.vhd:234-236 | pass | test/audio/audio_test.cpp:333 |
-| AY-18 | R8/R9/R10 YM mode: 0xFF | ym2149.vhd:234-236 | pass | test/audio/audio_test.cpp:349 |
-| AY-19 | R13 AY mode: bits[7:4]=0 | ym2149.vhd:239 | pass | test/audio/audio_test.cpp:361 |
-| AY-20 | R13 YM mode: full 8 bits | ym2149.vhd:239 | pass | test/audio/audio_test.cpp:372 |
-| AY-21 | R11/R12 full 8 bits in both modes | ym2149.vhd:237-238 | pass | test/audio/audio_test.cpp:388 |
-| AY-22 | YM mode addr>=16 returns 0xFF | ym2149.vhd:222-223 | pass | test/audio/audio_test.cpp:399 |
-| AY-23 | AY mode addr>=16 aliases low 4 bits (R0) | ym2149.vhd:222 | pass | test/audio/audio_test.cpp:411 |
-| AY-24 | I_REG=1 returns AY_ID<<6 \| addr | ym2149.vhd:220-221 | pass | test/audio/audio_test.cpp:421 |
-| AY-25 | AY_ID per chip: 3/2/1 | turbosound.vhd:158,213,268 | pass | test/audio/audio_test.cpp:433 |
-| AY-30 | R14 with R7 bit 6 = 0 (port A input) reads port_a_i, not the latched byte | ym2149.vhd:240-242 | pass | test/audio/audio_test.cpp:470 |
-| AY-31 | R14 with R7 bit 6 = 1 (port A output) reads reg(14) AND port_a_i | ym2149.vhd:240-244 | pass | test/audio/audio_test.cpp:485 |
-| AY-32 | R15 with R7 bit 7 = 0 (port B input) reads port_b_i, not the latched byte | ym2149.vhd:245-247 | pass | test/audio/audio_test.cpp:498 |
-| AY-33 | R15 with R7 bit 7 = 1 (port B output) reads reg(15) AND port_b_i | ym2149.vhd:245-249 | pass | test/audio/audio_test.cpp:512 |
-| AY-34 | port_a_i / port_b_i are tied all-ones: an input-mode read of a 0x00 latch is 0xFF, an output-mode read of it is 0x00 | ym2149.vhd:240-249, turbosound.vhd:174-176 | pass | test/audio/audio_test.cpp:533 |
-| AY-40 | /8 divider pulses ena_div (period-0 tone flips) | ym2149.vhd:260-279 | pass | test/audio/audio_test.cpp:568 |
-| AY-42 | ena_div clocks tone gens (forced-high => vol max) | ym2149.vhd:264-268 | pass | test/audio/audio_test.cpp:591 |
-| AY-43 | ena_div_noise is half ena_div and lags it by one ena_div period: tone edges on an 8-tick grid, noise edges on a 16-tick grid, offset 8 | ym2149.vhd:266-272,283,309,470-471 | pass | test/audio/audio_test.cpp:664 |
-| AY-44 | I_SEL_L=1 /8 divider: period 2 yields >=3 flips in 64 ticks | turbosound.vhd:164, ym2149.vhd:267 | pass | test/audio/audio_test.cpp:695 |
-| AY-50 | Tone period 0 or 1 produces constant high output | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:713 |
-| AY-51 | tone period 2 -> comp=1 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:727 |
-| AY-52 | tone period 0xFFF -> comp=0xFFE | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:737 |
-| AY-53 | Ch A period = {R1[3:0],R0} = 0x234 | ym2149.vhd:306 | pass | test/audio/audio_test.cpp:747 |
-| AY-54 | Ch B period = {R3[3:0],R2} = 0x756 | ym2149.vhd:307 | pass | test/audio/audio_test.cpp:757 |
-| AY-55 | Ch C period = {R5[3:0],R4} = 0xFFF | ym2149.vhd:308 | pass | test/audio/audio_test.cpp:767 |
-| AY-56 | tone output toggles multiple times (not a pulse) | ym2149.vhd:321-322 | pass | test/audio/audio_test.cpp:787 |
-| AY-60 | noise period from R6[4:0]=0x15 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:804 |
-| AY-61 | Noise period 0 or 1 => comparator 0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:813 |
-| AY-62 | LFSR with zero-detect injection yields non-constant noise | ym2149.vhd:284,293 | pass | test/audio/audio_test.cpp:836 |
-| AY-63 | Noise output is poly17 bit 0 | ym2149.vhd:111,284,293,302 | pass | test/audio/audio_test.cpp:884 |
-| AY-64 | noise shifts once per (comp+1) ena_div_noise pulses: the output-edge grid is 16*(comp+1) ticks for R6 = 0 / 3 / 5 | ym2149.vhd:283,290-296 | pass | test/audio/audio_test.cpp:973 |
-| AY-70 | R7[0]=0: tone A enabled -> output oscillates | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1002 |
-| AY-71 | R7[0]=1 forces Ch A high (vol max) | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1014 |
-| AY-72 | R7[3]=0: noise on Ch A -> output varies | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1031 |
-| AY-73 | R7[3]=1 forces Ch A noise branch high | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1043 |
-| AY-74 | Ch B force-high yields vol max | ym2149.vhd:470 | pass | test/audio/audio_test.cpp:1056 |
-| AY-75 | Ch C force-high yields vol max | ym2149.vhd:471 | pass | test/audio/audio_test.cpp:1059 |
-| AY-76 | both tone&noise disabled => constant high, all chans | ym2149.vhd:469-471 | pass | test/audio/audio_test.cpp:1073 |
-| AY-77 | tone+noise AND: both 0 and non-0 observed | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1093 |
-| AY-78 | mixed=0 during tone low-phase -> output 0 | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1111 |
-| AY-80 | R8[4]=0 fixed vol -> YM[31]=0xFF | ym2149.vhd:472-520 | pass | test/audio/audio_test.cpp:1131 |
-| AY-81 | R8[4]=1 envelope path (shape 0 -> hold 0) | ym2149.vhd:472-520 | pass | test/audio/audio_test.cpp:1146 |
-| AY-82 | fixed vol 0 -> 5-bit index 0 -> YM[0]=0 | ym2149.vhd:472-520 | pass | test/audio/audio_test.cpp:1158 |
-| AY-83 | fixed vol 1->YM[3]=0x02, vol 15->YM[31]=0xFF | ym2149.vhd:472-520 | pass | test/audio/audio_test.cpp:1177 |
-| AY-84 | R9/R10 fixed volume path identical to R8 | ym2149.vhd:472-520 | pass | test/audio/audio_test.cpp:1190 |
-| AY-90 | YM 32-entry endpoints: YM[0]=0, YM[31]=0xFF | ym2149.vhd:157-162 | pass | test/audio/audio_test.cpp:1218 |
-| AY-91 | AY mode bits[4:1] index -> ay_table[15]=0xFF | ym2149.vhd:150-155 | pass | test/audio/audio_test.cpp:1230 |
-| AY-92 | YM[0]=0x00 and YM[31]=0xFF | ym2149.vhd:157-162 | pass | test/audio/audio_test.cpp:1250 |
-| AY-93 | AY[0]=0x00 and AY[15]=0xFF | ym2149.vhd:150-155 | pass | test/audio/audio_test.cpp:1271 |
-| AY-94 | YM vol table probes {0,3,7,15,23,31} match literals | ym2149.vhd:157-162 | pass | test/audio/audio_test.cpp:1297 |
-| AY-95 | AY vol table 0..15 matches ym2149.vhd:150-155 literals | ym2149.vhd:150-155 | pass | test/audio/audio_test.cpp:1321 |
-| AY-96 | reset zeroes all three audio outputs | ym2149.vhd:184-186 | pass | test/audio/audio_test.cpp:1333 |
-| AY-100 | env period = {R12,R11} = 0x1234 | ym2149.vhd:334 | pass | test/audio/audio_test.cpp:1352 |
-| AY-101 | Envelope period 0 or 1 => comparator 0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1362 |
-| AY-102 | R13 re-write resets env counter (shape 0 -> hold 0) | ym2149.vhd:340-342 | pass | test/audio/audio_test.cpp:1384 |
-| AY-103 | R13 write reloads the envelope from the Attack bit mid-ramp: At=1 jumps to the bottom and ascends, At=0 jumps back to the top | ym2149.vhd:209-211,392-402 | pass | test/audio/audio_test.cpp:1858 |
-| AY-110 | shape 0 (\___): hold at 0 (YM=0x00) | ym2149.vhd:412-421 | pass | test/audio/audio_test.cpp:1403 |
-| AY-111 | shape 4 (/___): rises, wraps and holds at 0 (YM=0x00) | ym2149.vhd:412-421 | pass | test/audio/audio_test.cpp:1423 |
-| AY-112 | shape 8 (saw-down continuous): cycles, never locks | ym2149.vhd:411 | pass | test/audio/audio_test.cpp:1443 |
-| AY-113 | shape 9 `\___` H=1 Alt=0 down: holds at the bottom rail YM[0]=0x00 | ym2149.vhd:428-431 | pass | test/audio/audio_test.cpp:1465 |
-| AY-114 | shape 10 triangle: reaches BOTH rails and turns round (bottom rail visited more than once) | ym2149.vhd:444-461 | pass | test/audio/audio_test.cpp:1496 |
-| AY-115 | shape 11 `\‾‾‾`: decays then holds at the top rail YM[31]=0xFF | ym2149.vhd:424-427 | pass | test/audio/audio_test.cpp:1517 |
-| AY-116 | shape 12 (saw-up continuous): cycles, never locks | ym2149.vhd:411 | pass | test/audio/audio_test.cpp:1538 |
-| AY-117 | shape 13 `/‾‾‾` H=1 Alt=0 up: holds at the top rail YM[31]=0xFF | ym2149.vhd:438-441 | pass | test/audio/audio_test.cpp:1557 |
-| AY-118 | shape 14 `/\/\` triangle: reaches BOTH rails and turns round (top rail visited more than once) | ym2149.vhd:444-461 | pass | test/audio/audio_test.cpp:1587 |
-| AY-119 | shape 15 `/___`: rises then holds at the bottom rail YM[0]=0x00 | ym2149.vhd:434-437 | pass | test/audio/audio_test.cpp:1606 |
-| AY-120 | Attack=0 loads env_vol=31 counting down: the ramp starts at the top of the range, never rises, and reaches the bottom exactly 31 steps after the reset | ym2149.vhd:393-396,341 | pass | test/audio/audio_test.cpp:1761 |
-| AY-121 | Attack=1 loads env_vol=0 counting up: the ramp starts at the bottom of the range, never falls, and reaches the top exactly 31 steps after the reset | ym2149.vhd:397-399,341 | pass | test/audio/audio_test.cpp:1780 |
-| AY-122 | C=0 always single-ramp (shape 2 -> 0) | ym2149.vhd:412-421 | pass | test/audio/audio_test.cpp:1627 |
-| AY-123 | H=1 Alt=0: `\___` holds YM[0]=0x00, `/‾‾‾` holds YM[31]=0xFF (ym2149.vhd:377-378, :385-386) | ym2149.vhd:377-378,385-386, ym2149.vhd:422-443 | pass | test/audio/audio_test.cpp:1645 |
-| AY-124 | H=1 Alt=1: `\‾‾‾` holds YM[31]=0xFF, `/___` holds YM[0]=0x00 (ym2149.vhd:379-381, :389-390) | ym2149.vhd:379-381,389-390, ym2149.vhd:422-443 | pass | test/audio/audio_test.cpp:1665 |
-| AY-125 | C=1 H=0 Al=1 is a triangle: the direction REVERSES at the bottom (next level is volTableYm[1], not the top) and the ramp keeps running to the top again | ym2149.vhd:444-461 | pass | test/audio/audio_test.cpp:1804 |
-| AY-126 | C=1 H=0 Al=0 is a sawtooth: the counter WRAPS at the bottom straight back to the top with no dwell and no direction change | ym2149.vhd:411-462,403-410 | pass | test/audio/audio_test.cpp:1823 |
-| AY-127 | envelope walks all 32 levels, one step apart (shape 8 anchored at the top emits volTableYm[31..0]) | ym2149.vhd:403-410,157-162 | pass | test/audio/audio_test.cpp:1739 |
-| AY-128 | R13 write resets the envelope PERIOD counter: the first step after a mid-period re-arm is a FULL period away, not the remainder of the one that was in flight | ym2149.vhd:340-342 | pass | test/audio/audio_test.cpp:1917 |
-| TS-01 | reset selects PSG0 (id=11) | turbosound.vhd:123 | pass | test/audio/audio_test.cpp:1939 |
-| TS-02 | bits[1:0]=11 selects PSG0 (id=11) | turbosound.vhd:134 | pass | test/audio/audio_test.cpp:1966 |
-| TS-03 | bits[1:0]=10 selects PSG1 (id=10) | turbosound.vhd:132 | pass | test/audio/audio_test.cpp:1952 |
-| TS-04 | bits[1:0]=01 selects PSG2 (id=01) | turbosound.vhd:133 | pass | test/audio/audio_test.cpp:1959 |
-| TS-05 | selection ignored when turbosound disabled | turbosound.vhd:129 | pass | test/audio/audio_test.cpp:1978 |
-| TS-06 | select requires psg_reg_addr=1 (reg_write skipped) | turbosound.vhd:129 | pass | test/audio/audio_test.cpp:1991 |
-| TS-07 | bit7=0 does not trigger select | turbosound.vhd:129 | pass | test/audio/audio_test.cpp:2003 |
-| TS-08 | bits[4:2]!=111 does not trigger select | turbosound.vhd:129 | pass | test/audio/audio_test.cpp:2015 |
-| TS-09 | pan bits[6:5]=10 at select time -> PSG0 L only | turbosound.vhd:132-134,323-327 | pass | test/audio/audio_test.cpp:2037 |
-| TS-10 | default pan=11 -> both L and R non-zero | turbosound.vhd:123-127,186-192 | pass | test/audio/audio_test.cpp:2058 |
-| TS-15 | reg addr bits[7:5]=000 reaches active PSG | turbosound.vhd:141 | pass | test/audio/audio_test.cpp:2076 |
-| TS-16 | reg write routed only to selected PSG | turbosound.vhd:143-150 | pass | test/audio/audio_test.cpp:2091 |
-| TS-17 | psgN_we follows ay_select alone: each PSG keeps its own register contents and its own address latch across selection changes; a write never leaks into an unselected PSG | turbosound.vhd:141,143-150 | pass | test/audio/audio_test.cpp:2143 |
-| TS-18 | psg_d_o muxes on ay_select | turbosound.vhd:321 | pass | test/audio/audio_test.cpp:2166 |
-| TS-20 | ABC: A=max -> L>0, R=0 | turbosound.vhd:186-190 | pass | test/audio/audio_test.cpp:2198 |
-| TS-21 | ACB: A=0 B=max C=0 -> L=0, R>0 | turbosound.vhd:186-190 | pass | test/audio/audio_test.cpp:2226 |
-| TS-22 | PSG0 mono_mode=1 -> L==R>0 | turbosound.vhd:189-192 | pass | test/audio/audio_test.cpp:2254 |
-| TS-23 | mono_mode[1]=1 leaves PSG0 stereo (L>0, R=0) | turbosound.vhd:189-192 | pass | test/audio/audio_test.cpp:2284 |
-| TS-24 | global stereo_mode flips L_mux on all 3 PSGs | turbosound.vhd:186,241,296 | pass | test/audio/audio_test.cpp:2349 |
-| TS-30 | ts disabled + PSG0 selected -> non-zero | turbosound.vhd:197-203 | pass | test/audio/audio_test.cpp:2367 |
-| TS-31 | ts enabled: all three PSGs contribute (L > 0xFF) | turbosound.vhd:197,252,307 | pass | test/audio/audio_test.cpp:2388 |
-| TS-32 | PSG0 silenced: aggregate L drops by PSG0's 0xFF | turbosound.vhd:197 | pass | test/audio/audio_test.cpp:2443 |
-| TS-33 | PSG1 silenced: aggregate L drops by PSG1's 0x41 | turbosound.vhd:252 | pass | test/audio/audio_test.cpp:2456 |
-| TS-34 | PSG2 silenced: aggregate L drops by PSG2's 0x0F | turbosound.vhd:307 | pass | test/audio/audio_test.cpp:2469 |
-| TS-60 | reset_ay_only preserves NR-driven enabled/stereo/mono AND clears ay_select+pan | turbosound.vhd:118-138 | pass | test/audio/audio_test.cpp:2501 |
-| TS-61 | reset_ay_only preserves NR 0x09 mono_mode (per-PSG triplet) | turbosound.vhd:118-138 | pass | test/audio/audio_test.cpp:2530 |
-| TS-40 | pan "11" opens both pan gates: L and R both carry the PSG (and pan "00" had silenced both) | turbosound.vhd:129-134,323,327 | pass | test/audio/audio_test.cpp:2573 |
-| TS-41 | pan=10 -> L>0 and R=0 | turbosound.vhd:323-327 | pass | test/audio/audio_test.cpp:2598 |
-| TS-42 | pan=01 -> L=0 and R>0 | turbosound.vhd:186-192,323-329 | pass | test/audio/audio_test.cpp:2621 |
-| TS-43 | pan=00 -> L=0 and R=0 | turbosound.vhd:323-329 | pass | test/audio/audio_test.cpp:2639 |
-| TS-44 | L = sum of L contributions (PSG0 pan=10, PSG2 pan=11) | turbosound.vhd:331-336 | pass | test/audio/audio_test.cpp:2667 |
-| TS-45 | R = sum of R contributions (PSG1 pan=01, PSG2 pan=11) | turbosound.vhd:331-336 | pass | test/audio/audio_test.cpp:2670 |
-| TS-50 | PSG0 AY_ID = 11 | turbosound.vhd:158 | pass | test/audio/audio_test.cpp:2684 |
-| TS-51 | PSG1 AY_ID = 10 | turbosound.vhd:213 | pass | test/audio/audio_test.cpp:2690 |
-| TS-52 | PSG2 AY_ID = 01 | turbosound.vhd:268 | pass | test/audio/audio_test.cpp:2696 |
-| SD-01 | reset: all channels 0x80 (L=R=0x100) | soundrive.vhd:72-78 | pass | test/audio/audio_test.cpp:2711 |
-| AUD-SD-02 | write channel A latches value | soundrive.vhd:81-82 | pass | test/audio/audio_test.cpp:2721 |
-| SD-03 | write channel B latches value | soundrive.vhd:87-88 | pass | test/audio/audio_test.cpp:2730 |
-| SD-04 | write channel C latches value | soundrive.vhd:93-94 | pass | test/audio/audio_test.cpp:2739 |
-| SD-05 | write channel D latches value | soundrive.vhd:99-100 | pass | test/audio/audio_test.cpp:2748 |
-| SD-06 | nr_mono writes chA and chD | soundrive.vhd:83-85,101-103 | pass | test/audio/audio_test.cpp:2757 |
-| SD-07 | nr_left writes chB only | soundrive.vhd:89-91 | pass | test/audio/audio_test.cpp:2767 |
-| SD-08 | nr_right writes chC only | soundrive.vhd:95-97 | pass | test/audio/audio_test.cpp:2777 |
-| AUD-SD-19 | nr_08_dac_en 1->0 resets DAC channels to 0x80 silence [soundrive.vhd:69-78, zxnext.vhd:6436] | soundrive.vhd:69-78, zxnext.vhd:6436 | pass | test/audio/audio_nextreg_test.cpp:1081 |
+| AY-01 | addr latches bits[4:0] of data bus | ym2149.vhd:172-173 | pass | test/audio/audio_test.cpp:121 |
+| AY-02 | addr unchanged by write_data (busctrl_addr=0) | ym2149.vhd:172 | pass | test/audio/audio_test.cpp:132 |
+| AY-03 | reset clears addr to 00000 | ym2149.vhd:170-171 | pass | test/audio/audio_test.cpp:142 |
+| AY-04 | write to all 16 registers (0..15) | ym2149.vhd:189-207 | pass | test/audio/audio_test.cpp:176 |
+| AY-05 | write with addr(4)=1 is a no-op | ym2149.vhd:188 | pass | test/audio/audio_test.cpp:187 |
+| AY-06 | reset: all regs 0 except R7=0xFF | ym2149.vhd:184-186 | pass | test/audio/audio_test.cpp:205 |
+| AY-07 | R13 write pulses env_reset (shape 0D `/‾‾‾` settles to the top rail YM[31]=0xFF) | ym2149.vhd:209-211,392-401 | pass | test/audio/audio_test.cpp:224 |
+| AY-10 | R0 AY-mode full 8 bits | ym2149.vhd:226 | pass | test/audio/audio_test.cpp:245 |
+| AY-11 | R1 AY mode: bits[7:4] masked to 0 | ym2149.vhd:227 | pass | test/audio/audio_test.cpp:256 |
+| AY-12 | R1 YM mode: full 8 bits | ym2149.vhd:227 | pass | test/audio/audio_test.cpp:267 |
+| AY-13 | R3/R5 AY->{0x05,0x0A}, YM->{0xF5,0xFA} | ym2149.vhd:229,231 | pass | test/audio/audio_test.cpp:285 |
+| AY-14 | R6 AY mode: bits[7:5]=0 | ym2149.vhd:232 | pass | test/audio/audio_test.cpp:297 |
+| AY-15 | R6 YM mode: full 8 bits | ym2149.vhd:232 | pass | test/audio/audio_test.cpp:308 |
+| AY-16 | R7 full 8 bits in both modes | ym2149.vhd:233 | pass | test/audio/audio_test.cpp:321 |
+| AY-17 | R8/R9/R10 AY mode: 0x1F | ym2149.vhd:234-236 | pass | test/audio/audio_test.cpp:336 |
+| AY-18 | R8/R9/R10 YM mode: 0xFF | ym2149.vhd:234-236 | pass | test/audio/audio_test.cpp:352 |
+| AY-19 | R13 AY mode: bits[7:4]=0 | ym2149.vhd:239 | pass | test/audio/audio_test.cpp:364 |
+| AY-20 | R13 YM mode: full 8 bits | ym2149.vhd:239 | pass | test/audio/audio_test.cpp:375 |
+| AY-21 | R11/R12 full 8 bits in both modes | ym2149.vhd:237-238 | pass | test/audio/audio_test.cpp:391 |
+| AY-22 | YM mode addr>=16 returns 0xFF | ym2149.vhd:222-223 | pass | test/audio/audio_test.cpp:402 |
+| AY-23 | AY mode addr>=16 aliases low 4 bits (R0) | ym2149.vhd:222 | pass | test/audio/audio_test.cpp:414 |
+| AY-24 | I_REG=1 returns AY_ID<<6 \| addr | ym2149.vhd:220-221 | pass | test/audio/audio_test.cpp:424 |
+| AY-25 | AY_ID per chip: 3/2/1 | turbosound.vhd:158,213,268 | pass | test/audio/audio_test.cpp:436 |
+| AY-30 | R14 with R7 bit 6 = 0 (port A input) reads port_a_i, not the latched byte | ym2149.vhd:240-242 | pass | test/audio/audio_test.cpp:473 |
+| AY-31 | R14 with R7 bit 6 = 1 (port A output) reads reg(14) AND port_a_i | ym2149.vhd:240-244 | pass | test/audio/audio_test.cpp:488 |
+| AY-32 | R15 with R7 bit 7 = 0 (port B input) reads port_b_i, not the latched byte | ym2149.vhd:245-247 | pass | test/audio/audio_test.cpp:501 |
+| AY-33 | R15 with R7 bit 7 = 1 (port B output) reads reg(15) AND port_b_i | ym2149.vhd:245-249 | pass | test/audio/audio_test.cpp:515 |
+| AY-34 | port_a_i / port_b_i are tied all-ones: an input-mode read of a 0x00 latch is 0xFF, an output-mode read of it is 0x00 | ym2149.vhd:240-249, turbosound.vhd:174-176 | pass | test/audio/audio_test.cpp:536 |
+| AY-40 | /8 divider pulses ena_div (period-0 tone flips) | ym2149.vhd:260-279 | pass | test/audio/audio_test.cpp:571 |
+| AY-42 | ena_div clocks tone gens (forced-high => vol max) | ym2149.vhd:264-268 | pass | test/audio/audio_test.cpp:594 |
+| AY-43 | ena_div_noise is half ena_div and lags it by one ena_div period: tone edges on an 8-tick grid, noise edges on a 16-tick grid, offset 8 | ym2149.vhd:266-272,283,309,470-471 | pass | test/audio/audio_test.cpp:667 |
+| AY-44 | I_SEL_L=1 /8 divider: period 2 yields >=3 flips in 64 ticks | turbosound.vhd:164, ym2149.vhd:267 | pass | test/audio/audio_test.cpp:698 |
+| AY-50 | Tone period 0 or 1 produces constant high output | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:716 |
+| AY-51 | tone period 2 -> comp=1 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:730 |
+| AY-52 | tone period 0xFFF -> comp=0xFFE | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:740 |
+| AY-53 | Ch A period = {R1[3:0],R0} = 0x234 | ym2149.vhd:306 | pass | test/audio/audio_test.cpp:750 |
+| AY-54 | Ch B period = {R3[3:0],R2} = 0x756 | ym2149.vhd:307 | pass | test/audio/audio_test.cpp:760 |
+| AY-55 | Ch C period = {R5[3:0],R4} = 0xFFF | ym2149.vhd:308 | pass | test/audio/audio_test.cpp:770 |
+| AY-56 | tone output toggles multiple times (not a pulse) | ym2149.vhd:321-322 | pass | test/audio/audio_test.cpp:790 |
+| AY-60 | noise period from R6[4:0]=0x15 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:807 |
+| AY-61 | Noise period 0 or 1 => comparator 0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:816 |
+| AY-62 | LFSR with zero-detect injection yields non-constant noise | ym2149.vhd:284,293 | pass | test/audio/audio_test.cpp:839 |
+| AY-63 | Noise output is poly17 bit 0 | ym2149.vhd:111,284,293,302 | pass | test/audio/audio_test.cpp:887 |
+| AY-64 | noise shifts once per (comp+1) ena_div_noise pulses: the output-edge grid is 16*(comp+1) ticks for R6 = 0 / 3 / 5 | ym2149.vhd:283,290-296 | pass | test/audio/audio_test.cpp:976 |
+| AY-70 | R7[0]=0: tone A enabled -> output oscillates | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1005 |
+| AY-71 | R7[0]=1 forces Ch A high (vol max) | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1017 |
+| AY-72 | R7[3]=0: noise on Ch A -> output varies | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1034 |
+| AY-73 | R7[3]=1 forces Ch A noise branch high | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1046 |
+| AY-74 | Ch B force-high yields vol max | ym2149.vhd:470 | pass | test/audio/audio_test.cpp:1059 |
+| AY-75 | Ch C force-high yields vol max | ym2149.vhd:471 | pass | test/audio/audio_test.cpp:1062 |
+| AY-76 | both tone&noise disabled => constant high, all chans | ym2149.vhd:469-471 | pass | test/audio/audio_test.cpp:1076 |
+| AY-77 | tone+noise AND: both 0 and non-0 observed | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1096 |
+| AY-78 | mixed=0 during tone low-phase -> output 0 | ym2149.vhd:469 | pass | test/audio/audio_test.cpp:1114 |
+| AY-80 | R8[4]=0 fixed vol -> YM[31]=0xFF | ym2149.vhd:472-520 | pass | test/audio/audio_test.cpp:1134 |
+| AY-81 | R8[4]=1 envelope path (shape 0 -> hold 0) | ym2149.vhd:472-520 | pass | test/audio/audio_test.cpp:1149 |
+| AY-82 | fixed vol 0 -> 5-bit index 0 -> YM[0]=0 | ym2149.vhd:472-520 | pass | test/audio/audio_test.cpp:1161 |
+| AY-83 | fixed vol 1->YM[3]=0x02, vol 15->YM[31]=0xFF | ym2149.vhd:472-520 | pass | test/audio/audio_test.cpp:1180 |
+| AY-84 | R9/R10 fixed volume path identical to R8 | ym2149.vhd:472-520 | pass | test/audio/audio_test.cpp:1193 |
+| AY-90 | YM 32-entry endpoints: YM[0]=0, YM[31]=0xFF | ym2149.vhd:157-162 | pass | test/audio/audio_test.cpp:1221 |
+| AY-91 | AY mode bits[4:1] index -> ay_table[15]=0xFF | ym2149.vhd:150-155 | pass | test/audio/audio_test.cpp:1233 |
+| AY-92 | YM[0]=0x00 and YM[31]=0xFF | ym2149.vhd:157-162 | pass | test/audio/audio_test.cpp:1253 |
+| AY-93 | AY[0]=0x00 and AY[15]=0xFF | ym2149.vhd:150-155 | pass | test/audio/audio_test.cpp:1274 |
+| AY-94 | YM vol table probes {0,3,7,15,23,31} match literals | ym2149.vhd:157-162 | pass | test/audio/audio_test.cpp:1300 |
+| AY-95 | AY vol table 0..15 matches ym2149.vhd:150-155 literals | ym2149.vhd:150-155 | pass | test/audio/audio_test.cpp:1324 |
+| AY-96 | reset zeroes all three audio outputs | ym2149.vhd:184-186 | pass | test/audio/audio_test.cpp:1336 |
+| AY-100 | env period = {R12,R11} = 0x1234 | ym2149.vhd:334 | pass | test/audio/audio_test.cpp:1355 |
+| AY-101 | Envelope period 0 or 1 => comparator 0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1365 |
+| AY-102 | R13 re-write resets env counter (shape 0 -> hold 0) | ym2149.vhd:340-342 | pass | test/audio/audio_test.cpp:1387 |
+| AY-103 | R13 write reloads the envelope from the Attack bit mid-ramp: At=1 jumps to the bottom and ascends, At=0 jumps back to the top | ym2149.vhd:209-211,392-402 | pass | test/audio/audio_test.cpp:1861 |
+| AY-110 | shape 0 (\___): hold at 0 (YM=0x00) | ym2149.vhd:412-421 | pass | test/audio/audio_test.cpp:1406 |
+| AY-111 | shape 4 (/___): rises, wraps and holds at 0 (YM=0x00) | ym2149.vhd:412-421 | pass | test/audio/audio_test.cpp:1426 |
+| AY-112 | shape 8 (saw-down continuous): cycles, never locks | ym2149.vhd:411 | pass | test/audio/audio_test.cpp:1446 |
+| AY-113 | shape 9 `\___` H=1 Alt=0 down: holds at the bottom rail YM[0]=0x00 | ym2149.vhd:428-431 | pass | test/audio/audio_test.cpp:1468 |
+| AY-114 | shape 10 triangle: reaches BOTH rails and turns round (bottom rail visited more than once) | ym2149.vhd:444-461 | pass | test/audio/audio_test.cpp:1499 |
+| AY-115 | shape 11 `\‾‾‾`: decays then holds at the top rail YM[31]=0xFF | ym2149.vhd:424-427 | pass | test/audio/audio_test.cpp:1520 |
+| AY-116 | shape 12 (saw-up continuous): cycles, never locks | ym2149.vhd:411 | pass | test/audio/audio_test.cpp:1541 |
+| AY-117 | shape 13 `/‾‾‾` H=1 Alt=0 up: holds at the top rail YM[31]=0xFF | ym2149.vhd:438-441 | pass | test/audio/audio_test.cpp:1560 |
+| AY-118 | shape 14 `/\/\` triangle: reaches BOTH rails and turns round (top rail visited more than once) | ym2149.vhd:444-461 | pass | test/audio/audio_test.cpp:1590 |
+| AY-119 | shape 15 `/___`: rises then holds at the bottom rail YM[0]=0x00 | ym2149.vhd:434-437 | pass | test/audio/audio_test.cpp:1609 |
+| AY-120 | Attack=0 loads env_vol=31 counting down: the ramp starts at the top of the range, never rises, and reaches the bottom exactly 31 steps after the reset | ym2149.vhd:393-396,341 | pass | test/audio/audio_test.cpp:1764 |
+| AY-121 | Attack=1 loads env_vol=0 counting up: the ramp starts at the bottom of the range, never falls, and reaches the top exactly 31 steps after the reset | ym2149.vhd:397-399,341 | pass | test/audio/audio_test.cpp:1783 |
+| AY-122 | C=0 always single-ramp (shape 2 -> 0) | ym2149.vhd:412-421 | pass | test/audio/audio_test.cpp:1630 |
+| AY-123 | H=1 Alt=0: `\___` holds YM[0]=0x00, `/‾‾‾` holds YM[31]=0xFF (ym2149.vhd:377-378, :385-386) | ym2149.vhd:377-378,385-386, ym2149.vhd:422-443 | pass | test/audio/audio_test.cpp:1648 |
+| AY-124 | H=1 Alt=1: `\‾‾‾` holds YM[31]=0xFF, `/___` holds YM[0]=0x00 (ym2149.vhd:379-381, :389-390) | ym2149.vhd:379-381,389-390, ym2149.vhd:422-443 | pass | test/audio/audio_test.cpp:1668 |
+| AY-125 | C=1 H=0 Al=1 is a triangle: the direction REVERSES at the bottom (next level is volTableYm[1], not the top) and the ramp keeps running to the top again | ym2149.vhd:444-461 | pass | test/audio/audio_test.cpp:1807 |
+| AY-126 | C=1 H=0 Al=0 is a sawtooth: the counter WRAPS at the bottom straight back to the top with no dwell and no direction change | ym2149.vhd:411-462,403-410 | pass | test/audio/audio_test.cpp:1826 |
+| AY-127 | envelope walks all 32 levels, one step apart (shape 8 anchored at the top emits volTableYm[31..0]) | ym2149.vhd:403-410,157-162 | pass | test/audio/audio_test.cpp:1742 |
+| AY-128 | R13 write resets the envelope PERIOD counter: the first step after a mid-period re-arm is a FULL period away, not the remainder of the one that was in flight | ym2149.vhd:340-342 | pass | test/audio/audio_test.cpp:1920 |
+| AY-129 | reset keeps the divider and tone generators running | ym2149.vhd:258-278,314-330 | pass | test/audio/audio_test.cpp:2563 |
+| AY-130 | reset keeps the noise LFSR and the envelope running | ym2149.vhd:286-300,338-462 | pass | test/audio/audio_test.cpp:2589 |
+| AY-131 | a reset between an R13 write and the next tick keeps the envelope load | ym2149.vhd:180-207,340-341,393-401 | pass | test/audio/audio_test.cpp:2612 |
+| AY-132 | power_on() restores the declared initial values and keeps the AY/YM input | ym2149.vhd:105-125 | pass | test/audio/audio_test.cpp:2636 |
+| TS-01 | reset selects PSG0 (id=11) | turbosound.vhd:123 | pass | test/audio/audio_test.cpp:1942 |
+| TS-02 | bits[1:0]=11 selects PSG0 (id=11) | turbosound.vhd:134 | pass | test/audio/audio_test.cpp:1969 |
+| TS-03 | bits[1:0]=10 selects PSG1 (id=10) | turbosound.vhd:132 | pass | test/audio/audio_test.cpp:1955 |
+| TS-04 | bits[1:0]=01 selects PSG2 (id=01) | turbosound.vhd:133 | pass | test/audio/audio_test.cpp:1962 |
+| TS-05 | selection ignored when turbosound disabled | turbosound.vhd:129 | pass | test/audio/audio_test.cpp:1981 |
+| TS-06 | select requires psg_reg_addr=1 (reg_write skipped) | turbosound.vhd:129 | pass | test/audio/audio_test.cpp:1994 |
+| TS-07 | bit7=0 does not trigger select | turbosound.vhd:129 | pass | test/audio/audio_test.cpp:2006 |
+| TS-08 | bits[4:2]!=111 does not trigger select | turbosound.vhd:129 | pass | test/audio/audio_test.cpp:2018 |
+| TS-09 | pan bits[6:5]=10 at select time -> PSG0 L only | turbosound.vhd:132-134,323-327 | pass | test/audio/audio_test.cpp:2040 |
+| TS-10 | default pan=11 -> both L and R non-zero | turbosound.vhd:123-127,186-192 | pass | test/audio/audio_test.cpp:2061 |
+| TS-15 | reg addr bits[7:5]=000 reaches active PSG | turbosound.vhd:141 | pass | test/audio/audio_test.cpp:2079 |
+| TS-16 | reg write routed only to selected PSG | turbosound.vhd:143-150 | pass | test/audio/audio_test.cpp:2094 |
+| TS-17 | psgN_we follows ay_select alone: each PSG keeps its own register contents and its own address latch across selection changes; a write never leaks into an unselected PSG | turbosound.vhd:141,143-150 | pass | test/audio/audio_test.cpp:2146 |
+| TS-18 | psg_d_o muxes on ay_select | turbosound.vhd:321 | pass | test/audio/audio_test.cpp:2169 |
+| TS-20 | ABC: A=max -> L>0, R=0 | turbosound.vhd:186-190 | pass | test/audio/audio_test.cpp:2201 |
+| TS-21 | ACB: A=0 B=max C=0 -> L=0, R>0 | turbosound.vhd:186-190 | pass | test/audio/audio_test.cpp:2229 |
+| TS-22 | PSG0 mono_mode=1 -> L==R>0 | turbosound.vhd:189-192 | pass | test/audio/audio_test.cpp:2257 |
+| TS-23 | mono_mode[1]=1 leaves PSG0 stereo (L>0, R=0) | turbosound.vhd:189-192 | pass | test/audio/audio_test.cpp:2287 |
+| TS-24 | global stereo_mode flips L_mux on all 3 PSGs | turbosound.vhd:186,241,296 | pass | test/audio/audio_test.cpp:2352 |
+| TS-30 | ts disabled + PSG0 selected -> non-zero | turbosound.vhd:197-203 | pass | test/audio/audio_test.cpp:2785 |
+| TS-31 | ts enabled: all three PSGs contribute (L > 0xFF) | turbosound.vhd:197,252,307 | pass | test/audio/audio_test.cpp:2806 |
+| TS-32 | PSG0 silenced: aggregate L drops by PSG0's 0xFF | turbosound.vhd:197 | pass | test/audio/audio_test.cpp:2861 |
+| TS-33 | PSG1 silenced: aggregate L drops by PSG1's 0x41 | turbosound.vhd:252 | pass | test/audio/audio_test.cpp:2874 |
+| TS-34 | PSG2 silenced: aggregate L drops by PSG2's 0x0F | turbosound.vhd:307 | pass | test/audio/audio_test.cpp:2887 |
+| TS-35 | TurboSound off: unselected AY#1 stays in lockstep with AY#0, mix gated | turbosound.vhd:162,217,252,334, zxnext.vhd:6385 | pass | test/audio/audio_test.cpp:2433 |
+| TS-36 | TurboSound off: unselected AY#2 stays in lockstep with AY#0, mix gated | turbosound.vhd:162,272,307,334, zxnext.vhd:6385 | pass | test/audio/audio_test.cpp:2438 |
+| TS-37 | TurboSound off, AY#1 selected: all chips run, only AY#1 reaches the mix | turbosound.vhd:129,162,197,217,252,272,307 | pass | test/audio/audio_test.cpp:2463 |
+| TS-38 | TurboSound off: noise and envelope of unselected chips run in lockstep | ym2149.vhd:281-300,334-462, turbosound.vhd:217,272 | pass | test/audio/audio_test.cpp:2506 |
+| TS-62 | TurboSound::reset() keeps all three chips' generators running | turbosound.vhd:162/217/272, ym2149.vhd:258-519 | pass | test/audio/audio_test.cpp:2662 |
+| TS-63 | TurboSound::power_on() equals a freshly constructed TurboSound | ym2149.vhd:105-125, turbosound.vhd:123-127 | pass | test/audio/audio_test.cpp:2687 |
+| TS-64 | held in reset: register select and register writes are ignored | ym2149.vhd:170,184,216-250 | pass | test/audio/audio_test.cpp:2697 |
+| TS-65 | held in reset: the select/pan command is ignored, ay_select stays 11 | turbosound.vhd:121-135 | pass | test/audio/audio_test.cpp:2720 |
+| TS-66 | held in reset: outputs stay 0 and the generators keep running | ym2149.vhd:258-330,525-528, zxnext.vhd:6379 | pass | test/audio/audio_test.cpp:2754 |
+| TS-67 | release: reset values stand and register writes land again | ym2149.vhd:184-188 | pass | test/audio/audio_test.cpp:2767 |
+| TS-60 | reset_ay_only preserves NR-driven enabled/stereo/mono AND clears ay_select+pan | turbosound.vhd:118-138 | pass | test/audio/audio_test.cpp:2919 |
+| TS-61 | reset_ay_only preserves NR 0x09 mono_mode (per-PSG triplet) | turbosound.vhd:118-138 | pass | test/audio/audio_test.cpp:2948 |
+| TS-40 | pan "11" opens both pan gates: L and R both carry the PSG (and pan "00" had silenced both) | turbosound.vhd:129-134,323,327 | pass | test/audio/audio_test.cpp:2991 |
+| TS-41 | pan=10 -> L>0 and R=0 | turbosound.vhd:323-327 | pass | test/audio/audio_test.cpp:3016 |
+| TS-42 | pan=01 -> L=0 and R>0 | turbosound.vhd:186-192,323-329 | pass | test/audio/audio_test.cpp:3039 |
+| TS-43 | pan=00 -> L=0 and R=0 | turbosound.vhd:323-329 | pass | test/audio/audio_test.cpp:3057 |
+| TS-44 | L = sum of L contributions (PSG0 pan=10, PSG2 pan=11) | turbosound.vhd:331-336 | pass | test/audio/audio_test.cpp:3085 |
+| TS-45 | R = sum of R contributions (PSG1 pan=01, PSG2 pan=11) | turbosound.vhd:331-336 | pass | test/audio/audio_test.cpp:3088 |
+| TS-50 | PSG0 AY_ID = 11 | turbosound.vhd:158 | pass | test/audio/audio_test.cpp:3102 |
+| TS-51 | PSG1 AY_ID = 10 | turbosound.vhd:213 | pass | test/audio/audio_test.cpp:3108 |
+| TS-52 | PSG2 AY_ID = 01 | turbosound.vhd:268 | pass | test/audio/audio_test.cpp:3114 |
+| SD-01 | reset: all channels 0x80 (L=R=0x100) | soundrive.vhd:72-78 | pass | test/audio/audio_test.cpp:3129 |
+| AUD-SD-02 | write channel A latches value | soundrive.vhd:81-82 | pass | test/audio/audio_test.cpp:3139 |
+| SD-03 | write channel B latches value | soundrive.vhd:87-88 | pass | test/audio/audio_test.cpp:3148 |
+| SD-04 | write channel C latches value | soundrive.vhd:93-94 | pass | test/audio/audio_test.cpp:3157 |
+| SD-05 | write channel D latches value | soundrive.vhd:99-100 | pass | test/audio/audio_test.cpp:3166 |
+| SD-06 | nr_mono writes chA and chD | soundrive.vhd:83-85,101-103 | pass | test/audio/audio_test.cpp:3175 |
+| SD-07 | nr_left writes chB only | soundrive.vhd:89-91 | pass | test/audio/audio_test.cpp:3185 |
+| SD-08 | nr_right writes chC only | soundrive.vhd:95-97 | pass | test/audio/audio_test.cpp:3195 |
+| AUD-SD-19 | nr_08_dac_en 1->0 resets DAC channels to 0x80 silence [soundrive.vhd:69-78, zxnext.vhd:6436] | soundrive.vhd:69-78, zxnext.vhd:6436 | pass | test/audio/audio_nextreg_test.cpp:1084 |
 | SD-10 | Soundrive mode 1 ports 0x1F/0x0F/0x4F/0x5F map to DAC channels A/B/C/D [zxnext.vhd:2429; emulator.cpp 0xFFFF/0x005F] | zxnext.vhd:2429 | pass | test/audio/audio_port_dispatch_test.cpp:180 |
 | SD-11 | Soundrive mode 2 ports 0xF1/0xF3/0xF9/0xFB map to DAC channels A/B/C/D [zxnext.vhd:2432; emulator.cpp:1291-1298] | zxnext.vhd:2432 | pass | test/audio/audio_port_dispatch_test.cpp:201 |
 | AUD-SD-12 | Profi Covox ports 0x3F(A) + 0x5F(D) reach DAC channels A/D [zxnext.vhd:2431/2661/2664; emulator.cpp 0xFFFF match] | zxnext.vhd:2431/2661/2664 | pass | test/audio/audio_port_dispatch_test.cpp:223 |
@@ -1916,28 +1931,28 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | AUD-SD-14 | port 0xFB mono fan-out: single write updates ch A + ch D when NR 0x84 bit 5=1, bit 2=0 [zxnext.vhd:2433/2661/2664] | zxnext.vhd:2433/2661/2664 | pass | test/audio/audio_port_dispatch_test.cpp:276 |
 | AUD-SD-15 | port 0xB3 (GS Covox) mono fan-out updates ch B + ch C [zxnext.vhd:2659/2662-2663; emulator.cpp 0xFFFF/0x00B3] | zxnext.vhd:2659/2662-2663 | pass | test/audio/audio_port_dispatch_test.cpp:293 |
 | AUD-SD-16 | SpecDrum port 0xDF writes both DAC channels A+D [zxnext.vhd:2662; emulator.cpp:1304-1308] | zxnext.vhd:2662 | pass | test/audio/audio_port_dispatch_test.cpp:311 |
-| AUD-SD-17 | nr_08_dac_en gates Soundrive port writes [zxnext.vhd:5179, :6436] | zxnext.vhd:5179,6436 | pass | test/audio/audio_nextreg_test.cpp:1025 |
+| AUD-SD-17 | nr_08_dac_en gates Soundrive port writes [zxnext.vhd:5179, :6436] | zxnext.vhd:5179,6436 | pass | test/audio/audio_nextreg_test.cpp:1028 |
 | AUD-SD-18 | Mono-port aliasing: one write to 0xDF lands on both ch A and ch D simultaneously [zxnext.vhd port-decode fan] | zxnext.vhd | pass | test/audio/audio_port_dispatch_test.cpp:338 |
-| AUD-SD-20 | pcm_L = chA + chB | soundrive.vhd:112 | pass | test/audio/audio_test.cpp:2833 |
-| AUD-SD-21 | pcm_R = chC + chD | soundrive.vhd:113 | pass | test/audio/audio_test.cpp:2843 |
-| AUD-SD-22 | max pcm_L = 0x1FE (9-bit) | soundrive.vhd:112 | pass | test/audio/audio_test.cpp:2853 |
-| AUD-SD-23 | reset output L=R=0x100 | soundrive.vhd:72-78,112-113 | pass | test/audio/audio_test.cpp:2861 |
+| AUD-SD-20 | pcm_L = chA + chB | soundrive.vhd:112 | pass | test/audio/audio_test.cpp:3251 |
+| AUD-SD-21 | pcm_R = chC + chD | soundrive.vhd:113 | pass | test/audio/audio_test.cpp:3261 |
+| AUD-SD-22 | max pcm_L = 0x1FE (9-bit) | soundrive.vhd:112 | pass | test/audio/audio_test.cpp:3271 |
+| AUD-SD-23 | reset output L=R=0x100 | soundrive.vhd:72-78,112-113 | pass | test/audio/audio_test.cpp:3279 |
 | BP-01 | OUT (0xFE), A stores bits [4:0] into port_fe_reg (border, MIC, EAR all captured) [zxnext.vhd:3593; emulator.cpp:1181-1185] | zxnext.vhd:3593 | pass | test/audio/audio_port_dispatch_test.cpp:376 |
-| BP-02 | EAR latch toggles via set_ear() | zxnext.vhd:3598 | pass | test/audio/audio_test.cpp:2892 |
-| BP-03 | MIC latch via set_mic() | zxnext.vhd:3599 | pass | test/audio/audio_test.cpp:2901 |
-| BP-05 | reset clears ear/mic/tape_ear | zxnext.vhd:3591 | pass | test/audio/audio_test.cpp:2913 |
+| BP-02 | EAR latch toggles via set_ear() | zxnext.vhd:3598 | pass | test/audio/audio_test.cpp:3310 |
+| BP-03 | MIC latch via set_mic() | zxnext.vhd:3599 | pass | test/audio/audio_test.cpp:3319 |
+| BP-05 | reset clears ear/mic/tape_ear | zxnext.vhd:3591 | pass | test/audio/audio_test.cpp:3331 |
 | BP-06 | port 0xFE dispatch lands on the beeper/border handler; 0xFF does not alias it [zxnext.vhd:2582-2583, :2711, :2714] | zxnext.vhd:2582-2583,2711,2714 | pass | test/audio/audio_port_dispatch_test.cpp:410 |
-| BP-10 | beep_mic_final XOR expression matches zxnext.vhd:6503 over all 8 corners | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:727 |
-| BP-11 | issue2 path cancels MIC → beep_mic_final = i_AUDIO_EAR [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:744 |
-| BP-12 | issue3 (issue2=0) → beep_mic_final = tape_ear XOR mic [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:763 |
-| BP-13 | beep_spkr_excl = nr_06_internal_speaker_beep AND nr_08_internal_speaker_en [zxnext.vhd:6504] | zxnext.vhd:6504 | pass | test/audio/audio_nextreg_test.cpp:799 |
-| MX-01 | EAR alone -> signed = 512*4 = 2048 | audio_mixer.vhd:63,80 | pass | test/audio/audio_test.cpp:2946 |
-| MX-02 | MIC alone -> signed = 128*4 = 512 | audio_mixer.vhd:64,81 | pass | test/audio/audio_test.cpp:2958 |
-| AUD-MX-03 | exc_i (beep_spkr_excl) tracks NR 0x06 bit 6 AND NR 0x08 bit 4 [zxnext.vhd:6504, :6514] | zxnext.vhd:6504,6514 | pass | test/audio/audio_nextreg_test.cpp:834 |
-| AUD-MX-04 | AY_L routed verbatim (signed = ay_L*4) | audio_mixer.vhd:83-84 | pass | test/audio/audio_test.cpp:2985 |
-| MX-05 | DAC L max -> signed = 4064 | audio_mixer.vhd:86-87 | pass | test/audio/audio_test.cpp:2999 |
-| MX-06 | I2S max (1023,1023) sums into L and R (10->13 zero-extend) | audio_mixer.vhd:89-90,99-100 | pass | test/audio/audio_test.cpp:3034 |
-| MX-07 | I2S min (0,0) is a full-NEGATIVE excursion about the 0x200 midpoint, not silence | i2s.vhd:179, zxnext.vhd:2358-2359, audio_mixer.vhd:89-90 | pass | test/audio/audio_test.cpp:3060 |
+| BP-10 | beep_mic_final XOR expression matches zxnext.vhd:6503 over all 8 corners | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:730 |
+| BP-11 | issue2 path cancels MIC → beep_mic_final = i_AUDIO_EAR [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:747 |
+| BP-12 | issue3 (issue2=0) → beep_mic_final = tape_ear XOR mic [zxnext.vhd:6503] | zxnext.vhd:6503 | pass | test/audio/audio_nextreg_test.cpp:766 |
+| BP-13 | beep_spkr_excl = nr_06_internal_speaker_beep AND nr_08_internal_speaker_en [zxnext.vhd:6504] | zxnext.vhd:6504 | pass | test/audio/audio_nextreg_test.cpp:802 |
+| MX-01 | EAR alone -> signed = 512*4 = 2048 | audio_mixer.vhd:63,80 | pass | test/audio/audio_test.cpp:3364 |
+| MX-02 | MIC alone -> signed = 128*4 = 512 | audio_mixer.vhd:64,81 | pass | test/audio/audio_test.cpp:3376 |
+| AUD-MX-03 | exc_i (beep_spkr_excl) tracks NR 0x06 bit 6 AND NR 0x08 bit 4 [zxnext.vhd:6504, :6514] | zxnext.vhd:6504,6514 | pass | test/audio/audio_nextreg_test.cpp:837 |
+| AUD-MX-04 | AY_L routed verbatim (signed = ay_L*4) | audio_mixer.vhd:83-84 | pass | test/audio/audio_test.cpp:3403 |
+| MX-05 | DAC L max -> signed = 4064 | audio_mixer.vhd:86-87 | pass | test/audio/audio_test.cpp:3417 |
+| MX-06 | I2S max (1023,1023) sums into L and R (10->13 zero-extend) | audio_mixer.vhd:89-90,99-100 | pass | test/audio/audio_test.cpp:3452 |
+| MX-07 | I2S min (0,0) is a full-NEGATIVE excursion about the 0x200 midpoint, not silence | i2s.vhd:179, zxnext.vhd:2358-2359, audio_mixer.vhd:89-90 | pass | test/audio/audio_test.cpp:3478 |
 | MX-31 | the Pi I2S source prebuffers 2205 frames (50 ms) before playing, reports an underrun as silence when it runs dry, and prebuffers again before resuming (jnext-only buffering, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:170 |
 | MX-32 | a Pi I2S backlog beyond the maximum latency is trimmed to 4410 frames (100 ms) by dropping the oldest frames (jnext-only buffering, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:201 |
 | MX-33 | with nothing consuming, the Pi I2S ring keeps exactly its capacity (131072 frames) and drops, counting them, the frames past it (jnext-only buffering, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:234 |
@@ -1955,8 +1970,8 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | MX-39 | the Pi audio reader holds one close-on-exec descriptor on its FIFO, a second open does not leak the first, and close() releases it and forgets it, so closing again cannot close a descriptor that reused its number (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:836 |
 | MX-40 | a signal interrupting the Pi audio reader's poll() (EINTR) does not end the reader: a stream written afterwards still arrives (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:883 |
 | MX-41 | the Pi I2S source delivers a continuous stream: PiAudio reads QEMU's WAV stream from a FIFO frame for frame (header and frames split across writes), to_i2s maps it to 10-bit offset binary, and a Pi frame reaches the mix; all 3000 frames are counted received and none dropped (i2s.vhd:177-180) | i2s.vhd:177-180 | pass | test/audio/audio_posix_test.cpp:131 |
-| MX-48 | NR 0xA2 bit 0's EAR comparator rises at L(9:8) OR R(9:8) = 11, falls at 00 and holds in between, on the raw samples, either channel driving it (zxnext.vhd:2361-2373) | zxnext.vhd:2361-2373 | pass | test/audio/audio_test.cpp:3096 |
-| MX-49 | NR 0xA2 bit 0's EAR comparator is forced to 0 unless I2S is enabled (b7 or b6) and bit 0 is set, re-evaluated on each NR 0xA2 write; with bit 0 set the Pi leaves the mixer (0x200); reset clears it (zxnext.vhd:2358-2373) | zxnext.vhd:2358-2373 | pass | test/audio/audio_test.cpp:3119 |
+| MX-48 | NR 0xA2 bit 0's EAR comparator rises at L(9:8) OR R(9:8) = 11, falls at 00 and holds in between, on the raw samples, either channel driving it (zxnext.vhd:2361-2373) | zxnext.vhd:2361-2373 | pass | test/audio/audio_test.cpp:3514 |
+| MX-49 | NR 0xA2 bit 0's EAR comparator is forced to 0 unless I2S is enabled (b7 or b6) and bit 0 is set, re-evaluated on each NR 0xA2 write; with bit 0 set the Pi leaves the mixer (0x200); reset clears it (zxnext.vhd:2358-2373) | zxnext.vhd:2358-2373 | pass | test/audio/audio_test.cpp:3537 |
 | MX-50 | after the ring overflowed during a pause, the flush also ends playback: 100 fresh frames (below the 2205-frame prebuffer) are not played, and the prebuffer's worth is, from its first frame (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:370 |
 | MX-51 | a second stream's WAV header split between its 12th and 44th byte across two reads is still skipped whole: exactly 6000 frames arrive, exact (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:409 |
 | MX-52 | audio frames that spell RIFF at a frame boundary without WAVE at byte 8 are played as audio, not skipped as a header: all 3003 frames arrive, exact (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:444 |
@@ -1965,49 +1980,58 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | MX-55 | in tape mode a Pi audio level above 14333 frames is brought down by skipping single frames, one every 500 pops exactly (12 in 6001, the first seen at pop 500), with nothing trimmed below the 44100-frame tape limit (jnext-only buffering) | — | pass | test/audio/audio_posix_test.cpp:962 |
 | MX-56 | in tape mode a Pi audio level below 7717 frames is made up by repeating single frames, one every 500 pops exactly (the first seen at pop 3310, 4 in 5001), without an underrun (jnext-only buffering) | — | pass | test/audio/audio_posix_test.cpp:1008 |
 | MX-57 | entering tape mode while playing prebuffers the Pi audio again to 11025 frames, and leaving it drops the oldest frames beyond 4410 once, so music latency returns to 100 ms (jnext-only buffering) | — | pass | test/audio/audio_posix_test.cpp:1044 |
-| MX-58 | NR 0xA2 sends the Pi's audio to EAR (I2s::ear_routed) exactly when I2S is enabled (b7 or b6) and bit 0 is set, independent of the comparator's level (zxnext.vhd:2361-2373) | zxnext.vhd:2361-2373 | pass | test/audio/audio_test.cpp:3137 |
+| MX-58 | NR 0xA2 sends the Pi's audio to EAR (I2s::ear_routed) exactly when I2S is enabled (b7 or b6) and bit 0 is set, independent of the comparator's level (zxnext.vhd:2361-2373) | zxnext.vhd:2361-2373 | pass | test/audio/audio_test.cpp:3555 |
 | MX-59 | in tape mode a Pi audio backlog of 44100 frames (1 s) is kept, and one of 44101 is trimmed to 11025 by dropping the oldest (jnext-only buffering) | — | pass | test/audio/audio_posix_test.cpp:1080 |
 | MX-60 | in tape mode a Pi audio level of 14333 frames (the band's upper edge, 11025 + 3308) is left alone, and 14334 gets exactly one skip, at pop 500 (jnext-only buffering) | — | pass | test/audio/audio_posix_test.cpp:1118 |
 | MX-61 | in tape mode the drift-correction timer restarts with each playback: after a refill to 14833 frames (one above the band's upper edge at pop 500) the first skip is seen at pop 500, even when the previous playback ended with the timer part-way (jnext-only buffering) | — | pass | test/audio/audio_posix_test.cpp:1155 |
-| MX-10 | silence: pcm_L = 0 | audio_mixer.vhd:99 | pass | test/audio/audio_test.cpp:3169 |
-| MX-11 | silence: pcm_R = 0 | audio_mixer.vhd:100 | pass | test/audio/audio_test.cpp:3180 |
-| MX-12 | reset empties ring buffer | audio_mixer.vhd:95-97 | pass | test/audio/audio_test.cpp:3217 |
-| MX-13 | EAR+MIC contribute equally to L and R | audio_mixer.vhd:99-100 | pass | test/audio/audio_test.cpp:3230 |
-| MX-14 | EAR+MIC+DAC subset sum: signed = 6624 | audio_mixer.vhd:99 | pass | test/audio/audio_test.cpp:3246 |
-| MX-15 | full-scale mix does not saturate: 512+128+2295+2040+1023 = 5998 arrives intact on both channels | audio_mixer.vhd:63-64,80-89,99-100 | pass | test/audio/audio_test.cpp:3295 |
-| MX-16 | silence with the Pi I2S input wired and idle is digital ZERO, not its 0x200 midpoint | zxnext.vhd:2358-2359, i2s.vhd:179, audio_mixer.vhd:89-90 | pass | test/audio/audio_test.cpp:3204 |
-| MX-17 | an assembled power-on machine emits DIGITAL ZERO — silence is 0, so a zero-padded device seam is inaudible [GH #116] | zxnext.vhd:2358-2359, i2s.vhd:179, audio_mixer.vhd:89-90,99-100 | pass | test/audio/audio_nextreg_test.cpp:979 |
-| MX-20 | exc_i silencing path fires for exactly one NR combination (speaker_beep=1 AND speaker_en=1) [zxnext.vhd:6504] | zxnext.vhd:6504 | pass | test/audio/audio_nextreg_test.cpp:856 |
-| MX-21 | exc_i=0 reopens both beeper muxes combinationally: EAR contributes 512, MIC 128, together 640 (x4 into int16) | audio_mixer.vhd:63-64,80-81 | pass | test/audio/audio_test.cpp:3338 |
-| MX-22 | exc_i depends only on NR 0x06 b6 + NR 0x08 b4 — no AY/DAC/issue2 crosstalk [zxnext.vhd:6504] | zxnext.vhd:6504 | pass | test/audio/audio_nextreg_test.cpp:877 |
-| MX-23 | Mixer gates EAR/MIC when exc_i=1 (audio_mixer.vhd:80-81; exc_i = beep_spkr_excl per zxnext.vhd:6504) | audio_mixer.vhd:80-81, zxnext.vhd:6504 | pass | test/audio/audio_nextreg_test.cpp:931 |
-| AUD-NR-01 | NR 0x06 bits[1:0] handler forwards to TurboSound::ay_mode [zxnext.vhd:5170, :6389] | zxnext.vhd:5170,6389 | pass | test/audio/audio_nextreg_test.cpp:165 |
-| AUD-NR-02 | psg_mode=00 sinks to YM mode [zxnext.vhd:6389] | zxnext.vhd:6389 | pass | test/audio/audio_nextreg_test.cpp:177 |
-| AUD-NR-03 | psg_mode=01 sinks to AY mode [zxnext.vhd:6389] | zxnext.vhd:6389 | pass | test/audio/audio_nextreg_test.cpp:188 |
-| AUD-NR-04 | psg_mode=10 alias (bit 0 = 0 → YM) [zxnext.vhd:6389] | zxnext.vhd:6389 | pass | test/audio/audio_nextreg_test.cpp:201 |
-| AUD-NR-05 | audio_ay_reset = (nr_06_psg_mode="11") clears AY register file [zxnext.vhd:6379, :6387] | zxnext.vhd:6379,6387 | pass | test/audio/audio_nextreg_test.cpp:227 |
-| AUD-NR-06 | NR 0x06 bit 6 latches nr_06_internal_speaker_beep [zxnext.vhd:5163] | zxnext.vhd:5163 | pass | test/audio/audio_nextreg_test.cpp:242 |
-| AUD-NR-10 | NR 0x08 bit 5 → nr_08_psg_stereo_mode → TurboSound stereo [zxnext.vhd:5177, :6400] | zxnext.vhd:5177,6400 | pass | test/audio/audio_nextreg_test.cpp:274 |
-| AUD-NR-11 | NR 0x08 bit 4 latches nr_08_internal_speaker_en (default '1') [zxnext.vhd:5178, :1116, :5906] | zxnext.vhd:5178,1116,5906 | pass | test/audio/audio_nextreg_test.cpp:292 |
-| NR-12 | NR 0x08 bit 3 latches nr_08_dac_en [zxnext.vhd:5179] | zxnext.vhd:5179 | pass | test/audio/audio_nextreg_test.cpp:311 |
-| AUD-NR-13 | NR 0x08 bit 1 → nr_08_psg_turbosound_en → TurboSound enable [zxnext.vhd:5181, :6390] | zxnext.vhd:5181,6390 | pass | test/audio/audio_nextreg_test.cpp:325 |
-| AUD-NR-14 | NR 0x08 bit 0 latches nr_08_keyboard_issue2 [zxnext.vhd:5182, :5906] | zxnext.vhd:5182,5906 | pass | test/audio/audio_nextreg_test.cpp:340 |
-| NR-20 | NR 0x09 bits[7:5] latch per-PSG mono into TurboSound::mono_mode [zxnext.vhd:5186] | zxnext.vhd:5186 | pass | test/audio/audio_nextreg_test.cpp:369 |
-| NR-21 | NR 0x09 bits 5/6/7 map to mono_mode bits 0/1/2 (AY#0/#1/#2) [zxnext.vhd:5186, :6398] | zxnext.vhd:5186,6398 | pass | test/audio/audio_nextreg_test.cpp:390 |
-| NR-30 | NR 0x2C → soundrive nr_left_we writes chB (left) [zxnext.vhd:4852, :6453; soundrive.vhd:90-94] | zxnext.vhd:4852,6453, soundrive.vhd:90-94 | pass | test/audio/audio_nextreg_test.cpp:430 |
-| NR-31 | NR 0x2D → soundrive nr_mono_we writes chA+chD (both sides) [zxnext.vhd:4853, :6452; soundrive.vhd:85-89] | zxnext.vhd:4853,6452, soundrive.vhd:85-89 | pass | test/audio/audio_nextreg_test.cpp:446 |
-| NR-32 | NR 0x2E → soundrive nr_right_we writes chC (right) [zxnext.vhd:4854, :6454; soundrive.vhd:95-97] | zxnext.vhd:4854,6454, soundrive.vhd:95-97 | pass | test/audio/audio_nextreg_test.cpp:461 |
-| NR-33 | NR 0x2C/0x2E read returns pi_audio_L/R(9..2) and latches pi_audio_L/R(1..0) into nr_2d_i2s_sample [zxnext.vhd:6006-6015, :2358-2359] | zxnext.vhd:6006-6015,2358-2359 | pass | test/audio/audio_nextreg_test.cpp:495 |
-| NR-34 | NR 0x2D read returns nr_2d_i2s_sample & "000000"; latch updated by NR 0x2C/0x2E reads [zxnext.vhd:6010-6011, :6008, :6015] | zxnext.vhd:6010-6011,6008,6015 | pass | test/audio/audio_nextreg_test.cpp:532 |
-| NR-40 | NR 0xA2 write handler stores nr_a2_pi_i2s_ctl into I2s [zxnext.vhd:5564, :2283-2290] | zxnext.vhd:5564,2283-2290 | pass | test/audio/audio_nextreg_test.cpp:564 |
-| NR-41 | NR 0xA2 fan-out reaches I2s gate (mute drops gated read to silence midpoint) [zxnext.vhd:2283-2290, :2358] | zxnext.vhd:2283-2290,2358 | pass | test/audio/audio_nextreg_test.cpp:587 |
-| NR-42 | NR 0xA2 read returns ctl[7:6] & 0 & ctl[4:2] & 1 & ctl[0] [zxnext.vhd:6192] | zxnext.vhd:6192 | pass | test/audio/audio_nextreg_test.cpp:611 |
-| NR-43 | Mixer gates Pi I2S contribution by NR 0xA2 enable/mute (audio_mixer.vhd:91-92, zxnext.vhd:2358-2359) | audio_mixer.vhd:50-60 | pass | test/audio/audio_nextreg_test.cpp:671 |
+| MX-10 | silence: pcm_L = 0 | audio_mixer.vhd:99 | pass | test/audio/audio_test.cpp:3587 |
+| MX-11 | silence: pcm_R = 0 | audio_mixer.vhd:100 | pass | test/audio/audio_test.cpp:3598 |
+| MX-12 | reset empties ring buffer | audio_mixer.vhd:95-97 | pass | test/audio/audio_test.cpp:3635 |
+| MX-13 | EAR+MIC contribute equally to L and R | audio_mixer.vhd:99-100 | pass | test/audio/audio_test.cpp:3648 |
+| MX-14 | EAR+MIC+DAC subset sum: signed = 6624 | audio_mixer.vhd:99 | pass | test/audio/audio_test.cpp:3664 |
+| MX-15 | full-scale mix does not saturate: 512+128+2295+2040+1023 = 5998 arrives intact on both channels | audio_mixer.vhd:63-64,80-89,99-100 | pass | test/audio/audio_test.cpp:3713 |
+| MX-16 | silence with the Pi I2S input wired and idle is digital ZERO, not its 0x200 midpoint | zxnext.vhd:2358-2359, i2s.vhd:179, audio_mixer.vhd:89-90 | pass | test/audio/audio_test.cpp:3622 |
+| MX-17 | an assembled power-on machine emits DIGITAL ZERO — silence is 0, so a zero-padded device seam is inaudible [GH #116] | zxnext.vhd:2358-2359, i2s.vhd:179, audio_mixer.vhd:89-90,99-100 | pass | test/audio/audio_nextreg_test.cpp:982 |
+| MX-20 | exc_i silencing path fires for exactly one NR combination (speaker_beep=1 AND speaker_en=1) [zxnext.vhd:6504] | zxnext.vhd:6504 | pass | test/audio/audio_nextreg_test.cpp:859 |
+| MX-21 | exc_i=0 reopens both beeper muxes combinationally: EAR contributes 512, MIC 128, together 640 (x4 into int16) | audio_mixer.vhd:63-64,80-81 | pass | test/audio/audio_test.cpp:3756 |
+| MX-22 | exc_i depends only on NR 0x06 b6 + NR 0x08 b4 — no AY/DAC/issue2 crosstalk [zxnext.vhd:6504] | zxnext.vhd:6504 | pass | test/audio/audio_nextreg_test.cpp:880 |
+| MX-23 | Mixer gates EAR/MIC when exc_i=1 (audio_mixer.vhd:80-81; exc_i = beep_spkr_excl per zxnext.vhd:6504) | audio_mixer.vhd:80-81, zxnext.vhd:6504 | pass | test/audio/audio_nextreg_test.cpp:934 |
+| AUD-NR-01 | NR 0x06 bits[1:0] handler forwards to TurboSound::ay_mode [zxnext.vhd:5170, :6389] | zxnext.vhd:5170,6389 | pass | test/audio/audio_nextreg_test.cpp:168 |
+| AUD-NR-02 | psg_mode=00 sinks to YM mode [zxnext.vhd:6389] | zxnext.vhd:6389 | pass | test/audio/audio_nextreg_test.cpp:180 |
+| AUD-NR-03 | psg_mode=01 sinks to AY mode [zxnext.vhd:6389] | zxnext.vhd:6389 | pass | test/audio/audio_nextreg_test.cpp:191 |
+| AUD-NR-04 | psg_mode=10 alias (bit 0 = 0 → YM) [zxnext.vhd:6389] | zxnext.vhd:6389 | pass | test/audio/audio_nextreg_test.cpp:204 |
+| AUD-NR-05 | audio_ay_reset = (nr_06_psg_mode="11") clears AY register file [zxnext.vhd:6379, :6387] | zxnext.vhd:6379,6387 | pass | test/audio/audio_nextreg_test.cpp:230 |
+| AUD-NR-07 | NR 0x06 psg_mode=11 holds the AY reset; leaving it accepts writes [zxnext.vhd:6379] | zxnext.vhd:6379,6387 | pass | test/audio/audio_nextreg_test.cpp:1183 |
+| AUD-NR-08 | the AY reset hold survives a soft reset [zxnext.vhd:1112,6379] | zxnext.vhd:1112 | pass | test/audio/audio_nextreg_test.cpp:1196 |
+| AUD-NR-09 | a state load restores the AY reset hold from NR 0x06 [zxnext.vhd:6379] | zxnext.vhd:6379 | pass | test/audio/audio_nextreg_test.cpp:1227 |
+| AUD-NR-35 | psg_mode=10 is not a hold: writes land at once, after a soft reset and after a state load [zxnext.vhd:6379] | zxnext.vhd:6379 | pass | test/audio/audio_nextreg_test.cpp:1286 |
+| AUD-NR-33 | power-on PSG mode is YM until NR 0x06 is written [zxnext.vhd:1112,6389] | zxnext.vhd:1112,6389 | pass | test/audio/audio_nextreg_test.cpp:1238 |
+| AUD-NR-34 | the NR 0x06 PSG mode survives a soft reset [zxnext.vhd:1112,6389] | zxnext.vhd:1112,6389 | pass | test/audio/audio_nextreg_test.cpp:1254 |
+| AUD-NR-06 | NR 0x06 bit 6 latches nr_06_internal_speaker_beep [zxnext.vhd:5163] | zxnext.vhd:5163 | pass | test/audio/audio_nextreg_test.cpp:245 |
+| AUD-NR-30 | a soft reset keeps every AY generator field and clears only addr, registers and outputs [ym2149.vhd:170-171,184-186,258-519,525-528] | ym2149.vhd:170-171,184-186,258-519,525-528 | pass | test/audio/audio_nextreg_test.cpp:1327 |
+| AUD-NR-31 | a soft reset keeps the PSG clock-enable phase [zxnext_top_issue2.vhd:1158-1177] | zxnext_top_issue2.vhd:1158-1177 | pass | test/audio/audio_nextreg_test.cpp:1343 |
+| AUD-NR-32 | init() without preserve_memory is power-on: generators and PSG phase at their initial values [zxnext_top_issue2.vhd:1195, ym2149.vhd:105-125] | zxnext_top_issue2.vhd:1195, ym2149.vhd:105-125 | pass | test/audio/audio_nextreg_test.cpp:1358 |
+| AUD-NR-10 | NR 0x08 bit 5 → nr_08_psg_stereo_mode → TurboSound stereo [zxnext.vhd:5177, :6400] | zxnext.vhd:5177,6400 | pass | test/audio/audio_nextreg_test.cpp:277 |
+| AUD-NR-11 | NR 0x08 bit 4 latches nr_08_internal_speaker_en (default '1') [zxnext.vhd:5178, :1116, :5906] | zxnext.vhd:5178,1116,5906 | pass | test/audio/audio_nextreg_test.cpp:295 |
+| NR-12 | NR 0x08 bit 3 latches nr_08_dac_en [zxnext.vhd:5179] | zxnext.vhd:5179 | pass | test/audio/audio_nextreg_test.cpp:314 |
+| AUD-NR-13 | NR 0x08 bit 1 → nr_08_psg_turbosound_en → TurboSound enable [zxnext.vhd:5181, :6390] | zxnext.vhd:5181,6390 | pass | test/audio/audio_nextreg_test.cpp:328 |
+| AUD-NR-14 | NR 0x08 bit 0 latches nr_08_keyboard_issue2 [zxnext.vhd:5182, :5906] | zxnext.vhd:5182,5906 | pass | test/audio/audio_nextreg_test.cpp:343 |
+| NR-20 | NR 0x09 bits[7:5] latch per-PSG mono into TurboSound::mono_mode [zxnext.vhd:5186] | zxnext.vhd:5186 | pass | test/audio/audio_nextreg_test.cpp:372 |
+| NR-21 | NR 0x09 bits 5/6/7 map to mono_mode bits 0/1/2 (AY#0/#1/#2) [zxnext.vhd:5186, :6398] | zxnext.vhd:5186,6398 | pass | test/audio/audio_nextreg_test.cpp:393 |
+| NR-30 | NR 0x2C → soundrive nr_left_we writes chB (left) [zxnext.vhd:4852, :6453; soundrive.vhd:90-94] | zxnext.vhd:4852,6453, soundrive.vhd:90-94 | pass | test/audio/audio_nextreg_test.cpp:433 |
+| NR-31 | NR 0x2D → soundrive nr_mono_we writes chA+chD (both sides) [zxnext.vhd:4853, :6452; soundrive.vhd:85-89] | zxnext.vhd:4853,6452, soundrive.vhd:85-89 | pass | test/audio/audio_nextreg_test.cpp:449 |
+| NR-32 | NR 0x2E → soundrive nr_right_we writes chC (right) [zxnext.vhd:4854, :6454; soundrive.vhd:95-97] | zxnext.vhd:4854,6454, soundrive.vhd:95-97 | pass | test/audio/audio_nextreg_test.cpp:464 |
+| NR-33 | NR 0x2C/0x2E read returns pi_audio_L/R(9..2) and latches pi_audio_L/R(1..0) into nr_2d_i2s_sample [zxnext.vhd:6006-6015, :2358-2359] | zxnext.vhd:6006-6015,2358-2359 | pass | test/audio/audio_nextreg_test.cpp:498 |
+| NR-34 | NR 0x2D read returns nr_2d_i2s_sample & "000000"; latch updated by NR 0x2C/0x2E reads [zxnext.vhd:6010-6011, :6008, :6015] | zxnext.vhd:6010-6011,6008,6015 | pass | test/audio/audio_nextreg_test.cpp:535 |
+| NR-40 | NR 0xA2 write handler stores nr_a2_pi_i2s_ctl into I2s [zxnext.vhd:5564, :2283-2290] | zxnext.vhd:5564,2283-2290 | pass | test/audio/audio_nextreg_test.cpp:567 |
+| NR-41 | NR 0xA2 fan-out reaches I2s gate (mute drops gated read to silence midpoint) [zxnext.vhd:2283-2290, :2358] | zxnext.vhd:2283-2290,2358 | pass | test/audio/audio_nextreg_test.cpp:590 |
+| NR-42 | NR 0xA2 read returns ctl[7:6] & 0 & ctl[4:2] & 1 & ctl[0] [zxnext.vhd:6192] | zxnext.vhd:6192 | pass | test/audio/audio_nextreg_test.cpp:614 |
+| NR-43 | Mixer gates Pi I2S contribution by NR 0xA2 enable/mute (audio_mixer.vhd:91-92, zxnext.vhd:2358-2359) | audio_mixer.vhd:50-60 | pass | test/audio/audio_nextreg_test.cpp:674 |
 | IO-01 | OUT (0xFFFD),A latches AY register index on the active AY [zxnext.vhd:2647; emulator.cpp:1252-1264] | zxnext.vhd:2647 | pass | test/audio/audio_port_dispatch_test.cpp:449 |
 | IO-02 | OUT (0xBFFD),A writes selected AY register on active AY [zxnext.vhd:2648; emulator.cpp:1266-1274] | zxnext.vhd:2648 | pass | test/audio/audio_port_dispatch_test.cpp:465 |
 | IO-03 | port 0xBFF5 read returns AY_ID:selected_register [zxnext.vhd:2649/6395; emulator.cpp 0xC00F/0x8005] | zxnext.vhd:2649/6395 | pass | test/audio/audio_port_dispatch_test.cpp:484 |
 | IO-05 | BFFD read aliases FFFD on +3 timing (post-D3F-02 gate keys on machine_timing_p3); not on 128K timing [zxnext.vhd:2771; emulator.cpp 0xC007/0x8005 read] | zxnext.vhd:2771 | pass | test/audio/audio_port_dispatch_test.cpp:545 |
-| IO-10 | dac_hw_en gate holds for Mode-2 ports (0xF1/0xF3) [zxnext.vhd:2775-2778, :6436] | zxnext.vhd:2775-2778,6436 | pass | test/audio/audio_nextreg_test.cpp:1051 |
+| IO-10 | dac_hw_en gate holds for Mode-2 ports (0xF1/0xF3) [zxnext.vhd:2775-2778, :6436] | zxnext.vhd:2775-2778,6436 | pass | test/audio/audio_nextreg_test.cpp:1054 |
 | IO-11 | Ports 0x1F / 0xF1 / 0xDF all fan in to DAC ch A [zxnext.vhd port-decode alias; emulator.cpp:1281/1291/1304] | zxnext.vhd | pass | test/audio/audio_port_dispatch_test.cpp:582 |
 | IO-12 | OUT (0xF1),A writes DAC ch A only; AY data register untouched (address decode A2=0 excludes BFFD match) [zxnext.vhd:2777; emulator.cpp mask 0xC007 val 0x8005] | zxnext.vhd:2777 | pass | test/audio/audio_port_dispatch_test.cpp:620 |
 | IO-13 | NR 0x84 b1 gates Soundrive Mode 1 port 0x1F → ch A [zxnext.vhd:2429; emulator.cpp 0x00FF/0x001F b1 gate] | zxnext.vhd:2429 | pass | test/audio/audio_port_dispatch_test.cpp:676 |
@@ -2015,20 +2039,20 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | IO-15 | NR 0x84 b4 gates Covox ports 0x0F/0x4F → ch B/ch C [zxnext.vhd:2432; emulator.cpp 0x00FF/0x000F+0x004F b1\|b4 gate] | zxnext.vhd:2432 | pass | test/audio/audio_port_dispatch_test.cpp:722 |
 | IO-16 | NR 0x84 b6 gates GS Covox port 0xB3 → ch B+C fan-out [zxnext.vhd:2434; emulator.cpp 0xFFFF/0x00B3 b6 gate] | zxnext.vhd:2434 | pass | test/audio/audio_port_dispatch_test.cpp:744 |
 | IO-17 | NR 0x84 b7 gates SpecDrum port 0xDF → ch A+D fan-out [zxnext.vhd:2435; emulator.cpp 0x00FF/0x00DF b7 write gate] | zxnext.vhd:2435 | pass | test/audio/audio_port_dispatch_test.cpp:766 |
-| AY-50a | tone period 0 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:713 |
-| AY-50b | tone period 1 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:717 |
-| AY-61a | noise period 0 -> comp=0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:813 |
-| AY-61b | noise period 1 -> comp=0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:817 |
+| AY-50a | tone period 0 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:716 |
+| AY-50b | tone period 1 -> comp=0 | ym2149.vhd:310 | pass | test/audio/audio_test.cpp:720 |
+| AY-61a | noise period 0 -> comp=0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:816 |
+| AY-61b | noise period 1 -> comp=0 | ym2149.vhd:283 | pass | test/audio/audio_test.cpp:820 |
 | SD2-01 | NR 0x84 b2 SET: OUT to 0x7FF1/0xDFF9/0x1FF1 (low byte F1/F9) leaves 7FFD/DFFD/1FFD unchanged, byte goes to Soundrive [zxnext.vhd:2708, 2718-2720; conflict resolves DAC-wards] | zxnext.vhd:2708,2718-2720 | pass | test/audio/audio_port_dispatch_test.cpp:848 |
 | SD2-02 | NR 0x84 b2 CLEAR: identical OUTs to 0x7FF1/0xDFF9/0x1FF1 DO reapply 7FFD/DFFD/1FFD paging, DAC untouched [zxnext.vhd:2708 conflict term 0; :2718-2720 fire] | zxnext.vhd:2708 | pass | test/audio/audio_port_dispatch_test.cpp:880 |
-| AY-63a | noise output is poly17 BIT 0: 96 shifts match an independent re-implementation of the VHDL LFSR recurrence bit for bit | ym2149.vhd:111,284,293,302 | pass | test/audio/audio_test.cpp:884 |
-| AY-63b | a single shared noise drives all three channel mixers (A == B == C on every tick, with the stream actually moving) | ym2149.vhd:302,470-472 | pass | test/audio/audio_test.cpp:915 |
-| AY-101a | env period 0 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1362 |
-| AY-101b | env period 1 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1366 |
-| MX-BL-01 | emit_sample = time-weighted average of the interval | — | pass | test/audio/audio_test.cpp:3383 |
-| MX-BL-02 | a supersonic beeper averages out instead of aliasing | — | pass | test/audio/audio_test.cpp:3414 |
-| MX-BL-03 | emit with nothing accumulated produces no sample | — | pass | test/audio/audio_test.cpp:3427 |
-| MX-BL-04 | generate_sample == accumulate(1) + emit_sample | — | pass | test/audio/audio_test.cpp:3445 |
+| AY-63a | noise output is poly17 BIT 0: 96 shifts match an independent re-implementation of the VHDL LFSR recurrence bit for bit | ym2149.vhd:111,284,293,302 | pass | test/audio/audio_test.cpp:887 |
+| AY-63b | a single shared noise drives all three channel mixers (A == B == C on every tick, with the stream actually moving) | ym2149.vhd:302,470-472 | pass | test/audio/audio_test.cpp:918 |
+| AY-101a | env period 0 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1365 |
+| AY-101b | env period 1 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1369 |
+| MX-BL-01 | emit_sample = time-weighted average of the interval | — | pass | test/audio/audio_test.cpp:3801 |
+| MX-BL-02 | a supersonic beeper averages out instead of aliasing | — | pass | test/audio/audio_test.cpp:3832 |
+| MX-BL-03 | emit with nothing accumulated produces no sample | — | pass | test/audio/audio_test.cpp:3845 |
+| MX-BL-04 | generate_sample == accumulate(1) + emit_sample | — | pass | test/audio/audio_test.cpp:3863 |
 
 ## DMA — `test/dma/dma_test.cpp`
 

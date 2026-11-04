@@ -53,7 +53,9 @@ It also reaches beyond the unit harness. Rows `HS-21`..`HS-24`, `HS-31` and
 declared functional test with no script, and a stray undeclared script — which
 is why `make harness-selftest` declares `unit-test-build`, `gui-release` and
 `sdl-release` as prerequisites, since those are the same binaries preflight
-resolves. Other rows assert that the lints are still *wired in* at all: that
+resolves. `HS-157a`..`h` (GH #443) pin that a row name neither manifest declares, or an
+empty one, is refused in every mode, before any row runs, and that declared screenshot and
+functional names, and a platform's absent rows, keep their treatment. Other rows assert that the lints are still *wired in* at all: that
 `make unit-test` reaches the assertion lint and reaches it first, and that an
 offending row script fails the whole regression preflight rather than just the
 lint. The rest cover cleanup, checking that every SD-clone cleanup script
@@ -117,7 +119,7 @@ behind a symlink, which flock(1) resolves and the holder check must too.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 141` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is

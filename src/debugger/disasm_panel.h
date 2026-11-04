@@ -22,7 +22,7 @@ class SymbolTable;
 namespace jnext { namespace dbg { class Debugger; } }
 class WatchPanel;
 
-/// Scrollable disassembly view with breakpoint gutter.
+/// Scrollable disassembly view: Mem, Addr, breakpoint column, [Label], mnemonic, bytes (GH #448).
 /// Uses custom painting for precise control over the display.
 ///
 /// GH #220 — it follows the GUI's BreakpointModel, but only its Execute kind:
@@ -86,6 +86,14 @@ public:
     bool label_column_shown() const;
     /// GH #387 - x of the mnemonic text of every line (for the layout rows).
     int mnemonic_x() const;
+    /// GH #448 - the layout, left to right: Mem, Addr, BP column, [Label], mnemonic, bytes,
+    /// [; comment]. x of the BP column's left edge (its glyph is centred GUTTER_WIDTH/2 in).
+    int breakpoint_x() const;
+    /// GH #448 - width of the mnemonic column: a longer mnemonic still paints whole.
+    int mnemonic_width() const;
+    /// GH #448 - x of the opcode bytes of `line`: after the mnemonic column, or after the
+    /// mnemonic itself (plus a gap) when that line's mnemonic is wider than the column.
+    int bytes_x(int line) const;
 
     /// Set watch panel for "Add Watch" context menu actions.
     void set_watch_panel(WatchPanel* wp) { watch_panel_ = wp; }
@@ -257,8 +265,11 @@ private:
     static constexpr int ADDR_WIDTH = 48;     // address column width
     static constexpr int MEM_WIDTH = 96;      // GH #360: memory column; holds "BRAM7+$1FFF"
     static constexpr int BYTES_WIDTH = 100;   // hex bytes column width
+    static constexpr int LEFT_MARGIN = 4;     // GH #448: Mem starts here
+    static constexpr int MNEMONIC_CHARS = 20; // GH #448: the mnemonic column holds this many characters
     static constexpr int LABEL_CHARS = 16;    // GH #387: the Label column holds this many characters
     int label_width() const;
+    void fill_row(QPainter& painter, int y, int w, const QColor& c) const;
     jnext::dbg::Debugger* annot_ = nullptr;
 
     QFont mono_font_;

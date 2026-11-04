@@ -187,6 +187,11 @@ if(NOT WIN32)
     target_link_libraries(esxdos_symlink_test PRIVATE jnext_core spdlog::spdlog)
     target_include_directories(esxdos_symlink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME esxdos_symlink_tests COMMAND esxdos_symlink_test)
+    # GH #446 -- the POSIX-only rows of the ffmpeg PATH lookup (exec bits, symlinks, decoy script).
+    add_executable(video_recorder_posix_test core/video_recorder_posix_test.cpp)
+    target_link_libraries(video_recorder_posix_test PRIVATE jnext_core spdlog::spdlog)
+    target_include_directories(video_recorder_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME video_recorder_posix_tests COMMAND video_recorder_posix_test)
 endif()
 
 # Input subsystem compliance test

@@ -21,9 +21,10 @@ class TurboSound {
 public:
     TurboSound();
 
-    /// Full reset (power-on / hard reset). Clears ALL state — register
-    /// files of every AY chip, ay_select, panning, NR-driven enable /
-    /// stereo / mono shadows, and the cached PCM outputs.
+    /// The VHDL `reset` (hard or soft) as seen by turbosound.vhd: RESET_H on the
+    /// chips (address, registers, outputs; the generators keep running) plus the
+    /// NR-driven shadows, which Emulator::init re-derives. Also cleared: ay_select,
+    /// panning and the cached PCM outputs.
     void reset();
 
     /// Audio AY reset (VHDL `audio_ay_reset` — turbosound.vhd:118-138).
@@ -37,7 +38,20 @@ public:
     /// match the VHDL ym2149 reset that fires alongside audio_ay_reset.
     void reset_ay_only();
 
-    /// Enable/disable TurboSound (when disabled, only AY#0 is active).
+    /// Hard reset / construction: every chip at its declared initial values
+    /// (ym2149.vhd:105-125), then reset().
+    void power_on();
+
+    /// The audio_ay_reset LEVEL (zxnext.vhd:6379: reset or nr_06_psg_mode = "11"):
+    /// while held, port writes and the select/pan command are ignored, ay_select
+    /// and the pans stay "11" (turbosound.vhd:120-126); the generators keep
+    /// running. A plain input: the emulator applies the onset reset_ay_only() and
+    /// re-derives the level from NR 0x06 after init() and after a state load.
+    void set_reset_held(bool h) { reset_held_ = h; }
+    bool reset_held() const { return reset_held_; }
+
+    /// Enable/disable TurboSound (when disabled, only the selected chip reaches the mix,
+    /// turbosound.vhd:197/252/307; all three keep running).
     void set_enabled(bool en) { enabled_ = en; mix_dirty_ = true; }
     bool enabled() const { return enabled_; }
 
@@ -71,7 +85,8 @@ public:
     /// Port 0xBFFD read: read from selected register on active AY.
     uint8_t reg_read(bool reg_mode = false) const;
 
-    /// Advance all active AY chips by one PSG clock-enable tick.
+    /// Advance all three AY chips by one PSG clock-enable tick; every ym2149 runs on
+    /// clock_en_i (turbosound.vhd:162/217/272).
     void tick();
 
     /// Debugger-only per-chip mute (AudioMute::AY0/AY1/AY2; bit i = chip i).
@@ -111,7 +126,8 @@ private:
     // Default: both channels enabled (0b11)
     std::array<uint8_t, 3> pan_{};
 
-    bool enabled_ = false;        // TurboSound enable (false = only AY#0)
+    bool reset_held_ = false;     // audio_ay_reset level from NR 0x06 psg_mode = 11 (not serialised)
+    bool enabled_ = false;        // TurboSound enable (false = only the selected AY is output)
     bool stereo_mode_ = false;    // false=ABC, true=ACB
     uint8_t mono_mode_ = 0;      // Per-chip mono flags
 

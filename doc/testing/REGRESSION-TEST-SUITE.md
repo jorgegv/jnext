@@ -135,6 +135,9 @@ rows; the bare `regression.sh <row>...` form needs them built already. The Qt
 `jnext` is the non-PGO Release build, so a branch never trains a PGO profile
 (same code, same pixels); `ROWS_PGO=1` runs `build/gui-release` (PGO) instead.
 `make regression` and `regression-confirm` always run the PGO build.
+A name that is neither a declared screenshot nor a declared functional row (or an empty
+one) is a harness fault, exit 2, naming it, in every mode (named rows, `--update`,
+`--platform`). A declared row the platform's os= tag leaves out keeps its own refusal.
 
 ## Platform runs: macOS and Windows under wine (GH #319)
 
@@ -544,11 +547,13 @@ mean (the DC level) and its AC RMS (the mean removed), in
 redundant:
 
 - a shape ending at the **wrong rail** is a pure DC change with no AC change
-  at all — slice 14 reads `0 0` correct and `1020 0` with the bug;
+  at all — slice 14 reads `0 0` correct and `1020 0` with the bug (measured
+  with the AY volume table, before GH #442 F4 made power-on YM);
 - a shape that **locks** instead of ramping is a pure AC collapse — slices
-  20-22 read `96 226 / 424 399 / 958 224` correct and
-  `13 91 / 13 91 / 21 107` with the bug, the AC RMS collapsing to between a
-  half and a quarter.
+  20-22 read `68 182 / 354 392 / 952 240` correct (the committed profile, YM
+  table) and `13 91 / 13 91 / 21 107` with the bug (measured with the AY table
+  before F4, when the correct values were `96 226 / 424 399 / 958 224`), the
+  AC RMS collapsing to between a half and a quarter.
 
 The comparison is **exact**, not tolerance-based. The whole chain — injected
 binary, fixed frame count, no RTC, no tape, no display — is deterministic to

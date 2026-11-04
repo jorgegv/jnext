@@ -19,7 +19,14 @@ public:
     /// Chip ID (2-bit, used for register readback): 0=AY#2, 1=unused, 2=AY#1, 3=AY#0
     explicit AyChip(uint8_t id = 3);
 
+    /// VHDL RESET_H: address, register file (R7 = 0xFF) and outputs only; the
+    /// generators keep running (ym2149.vhd:170-171,184-186,525-528, no reset
+    /// clause at :258-519).
     void reset();
+
+    /// Power-on / hard reset: every field at its declared initial value
+    /// (ym2149.vhd:105-125). The AY/YM input (ay_mode_) is kept.
+    void power_on();
 
     /// Select a register (0-15). addr bits 4:0 are used.
     void select_register(uint8_t addr);
@@ -61,6 +68,8 @@ public:
     uint8_t output_c() const { return out_c_; }
 
 private:
+    void load_envelope();   // apply a pending env_reset_ (ym2149.vhd:340-341, 393-401)
+
     uint8_t id_;
     bool ay_mode_ = true;  // true=AY, false=YM
 

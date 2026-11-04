@@ -315,7 +315,8 @@ struct GutterView {
         if (auto* sb = panel->findChild<QScrollBar*>()) sb->setValue(0x8005);
         QApplication::processEvents();
     }
-    QPoint dot() const { return QPoint(kGutterW / 2, kPaintY + kLineH / 2); }
+    // GH #448: the Disassembly's BP column is where the panel says, no longer at the left edge.
+    QPoint dot() const { return QPoint(panel->breakpoint_x() + kGutterW / 2, kPaintY + kLineH / 2); }
     void click_gutter() {
         const QPointF pos(dot());
         QMouseEvent ev(QEvent::MouseButtonPress, pos, panel->mapToGlobal(dot()),
@@ -6878,7 +6879,8 @@ void test_source_sync() {
         SyncWin w(fx);
         w.src_move(11);
         QImage img = w.dis_image();
-        const auto px = [&](const QImage& i, int row) { return QColor::fromRgb(i.pixel(i.width() - 20, disasm_row_y(row))); };
+        // GH #448: sampled in the left margin (x = 1, no glyph reaches it); width - 20 now lands on the bytes column.
+        const auto px = [&](const QImage& i, int row) { return QColor::fromRgb(i.pixel(1, disasm_row_y(row))); };
         const QColor lk = source_sync_colors::linked(w.dp->palette()), yellow(255, 255, 204), white(255, 255, 255);
         const int c = w.centre();
         const bool rows = px(img, c + 2) == lk && px(img, c) == yellow && px(img, c + 1) == white && px(img, c + 3) == white;
@@ -6905,6 +6907,24 @@ void test_source_sync() {
               rows && pc_wins && over && distinct,
               "rows=" + std::to_string(rows) + " pc_wins=" + std::to_string(pc_wins) + " over=" + std::to_string(over) +
                   " distinct=" + std::to_string(distinct));
+    }
+    {   // QSRC-448 (GH #448): the Source-linked tint stops at the Disassembly's BP column
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.src_move(11);
+        const QImage img = w.dis_image();
+        const int c = w.centre();
+        const int bx = w.dp->breakpoint_x() + 10;
+        const auto px = [&](int x, int row) { return QColor::fromRgb(img.pixel(x, disasm_row_y(row) - 7)); };
+        const QColor lk = source_sync_colors::linked(w.dp->palette());
+        const bool tinted = px(1, c + 2) == lk && px(w.dp->width() - 60, c + 2) == lk;   // the row is linked
+        const bool bare = px(bx, c + 2) == px(bx, c + 3) && px(bx, c + 2) != lk;
+        check("QSRC-448", "a Source-linked Disassembly row is tinted left of the BP column and right of it, and the "
+                          "BP column's own pixel on that row equals an unlinked row's (never tinted)",
+              tinted && bare, "tinted=" + std::to_string(tinted) + " bare=" + std::to_string(bare));
     }
     {   // QSRC-179: a multi-line selection, and a line any of whose locations is the address
         Fixture fx;

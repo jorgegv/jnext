@@ -476,13 +476,17 @@ int panel_row_of(DebuggerWindow* dbg, uint16_t addr) {
 constexpr int D_PAINT_Y  = 52;   // DisasmPanel::paint_y_offset_
 constexpr int D_LINE_H   = 18;   // DisasmPanel::LINE_HEIGHT
 constexpr int D_GUTTER_W = 20;   // DisasmPanel::GUTTER_WIDTH
+// GH #448 - the BP column is where the panel says (breakpoint_x()), not at the left edge: the panel
+// the helpers below last drove or rendered.
+const DisasmPanel* g_dis_geometry = nullptr;
 
 /// Click IN THE GUTTER of disassembly line `line` — x inside GUTTER_WIDTH,
 /// which is what makes mousePressEvent take the toggle-breakpoint branch
 /// rather than the selection one.
 void gutter_click(DisasmPanel* p, int line) {
     if (!p) return;
-    const QPointF pos(D_GUTTER_W / 2, D_PAINT_Y + line * D_LINE_H + D_LINE_H / 2);
+    g_dis_geometry = p;
+    const QPointF pos(p->breakpoint_x() + D_GUTTER_W / 2, D_PAINT_Y + line * D_LINE_H + D_LINE_H / 2);
     QMouseEvent press(QEvent::MouseButtonPress, pos, p->mapToGlobal(pos.toPoint()),
                       Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(p, &press);
@@ -509,9 +513,10 @@ GutterMark gutter_mark(const QImage& img) {
     GutterMark m;
     const QRgb red = qRgb(255, 0, 0);
     int minx = img.width(), maxx = -1, miny = img.height(), maxy = -1;
-    const int gw = std::min(D_GUTTER_W, img.width());
+    const int gx = g_dis_geometry->breakpoint_x();
+    const int gw = std::min(gx + D_GUTTER_W, img.width());
     for (int y = 0; y < img.height(); ++y) {
-        for (int x = 0; x < gw; ++x) {
+        for (int x = gx; x < gw; ++x) {
             if (img.pixel(x, y) != red) continue;
             ++m.red;
             if (x < minx) minx = x;
@@ -529,6 +534,7 @@ GutterMark gutter_mark(const QImage& img) {
 
 /// The disassembly panel's painted output, at its current size.
 QImage render_disasm(DisasmPanel* p) {
+    g_dis_geometry = p;
     QImage img(p->size(), QImage::Format_ARGB32);
     img.fill(Qt::magenta);            // "nothing was painted here" is visible
     p->render(&img);

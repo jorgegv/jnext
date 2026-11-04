@@ -555,18 +555,20 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
     painter.setFont(header_font);
     painter.setPen(palette_tint::ink(palette(), QColor(80, 80, 80)));
     int header_y = paint_y_offset_ - 4;
-    painter.drawText(2, header_y, "BP");
-    painter.drawText(GUTTER_WIDTH + 4, header_y, "Addr");
-    painter.drawText(GUTTER_WIDTH + 4 + ADDR_WIDTH, header_y, "Mem");   // GH #360
+    // GH #448: Mem, Addr, BP column, [Label], mnemonic, bytes, [; comment].
+    const int bp_x = breakpoint_x();
+    painter.drawText(LEFT_MARGIN, header_y, "Mem");   // GH #360
+    painter.drawText(LEFT_MARGIN + MEM_WIDTH, header_y, "Addr");
+    painter.drawText(bp_x + 2, header_y, "BP");
     const bool label_col = label_column_shown();   // GH #387
     if (label_col)
-        painter.drawText(GUTTER_WIDTH + 4 + ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH, header_y, "Label");
+        painter.drawText(bp_x + GUTTER_WIDTH + 4, header_y, "Label");
     painter.setFont(mono_font_);
 
     // Draw gutter separator
     painter.setPen(palette_tint::surface(palette(), QColor(200, 200, 200)));
-    painter.drawLine(GUTTER_WIDTH, paint_y_offset_,
-                     GUTTER_WIDTH, paint_y_offset_ + visible_lines() * LINE_HEIGHT);
+    painter.drawLine(bp_x + GUTTER_WIDTH, paint_y_offset_,
+                     bp_x + GUTTER_WIDTH, paint_y_offset_ + visible_lines() * LINE_HEIGHT);
 
     QFontMetrics fm(mono_font_);
     const bool cov_on = dbg_ && dbg_->mem_coverage_enabled();   // GH #388
@@ -579,27 +581,26 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         // GH #347 - the Source tab's lines: drawn first, so the PC row keeps its yellow and the
         // selection and the coverage bar show over it.
         if (linked_at_(entry.space, entry.line.addr)) {
-            painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
-                             source_sync_colors::linked(palette()));
+            fill_row(painter, y, w, source_sync_colors::linked(palette()));
         }
         // Row background highlights
         if (entry.is_current_pc) {
-            painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
-                             palette_tint::surface(palette(), QColor(255, 255, 204))); // light yellow
+            fill_row(painter, y, w,
+                     palette_tint::surface(palette(), QColor(255, 255, 204))); // light yellow
         }
         // GH #21 — the selection, as a range of addresses. Two things the
-        // fill must not destroy: it starts at GUTTER_WIDTH, so the breakpoint
+        // fill must not destroy: it skips the BP column (fill_row), so the breakpoint
         // dot stays fully opaque, and it is semi-transparent, so the PC row's
         // yellow tint still shows through under it and its bold black text
         // stays readable. Same colour and alpha the single selected line has
         // always used — this is the same highlight, over more lines.
         if (line_selected(entry.line.addr)) {
-            painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
-                             palette_tint::surface(palette(), QColor(204, 221, 255, 128))); // semi-transparent light blue
+            fill_row(painter, y, w,
+                     palette_tint::surface(palette(), QColor(204, 221, 255, 128))); // semi-transparent light blue
         }
 
-        // GH #388 - memory coverage: a bar in the margin between the gutter
-        // separator and the address text on a line whose first opcode byte ran
+        // GH #388 - memory coverage: a bar in the margin between the BP column's
+        // separator and the label/mnemonic text on a line whose first opcode byte ran
         // (X), looked up the way an M1 at that address would fetch it NOW
         // (mem_coverage_fetch), so the DivMMC at RST 8 shows the DivMMC ROM's
         // mark. After the PC and selection fills so it stays visible on them;
@@ -607,7 +608,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         // line's bytes are its operands and self-modification, which the Memory
         // panel shows per byte.
         if (cov_on && (dbg_->mem_coverage_fetch(entry.line.addr) & jnext::dbg::COVERAGE_EXEC)) {
-            painter.fillRect(GUTTER_WIDTH + 1, y + 1, 3, LINE_HEIGHT - 2,
+            painter.fillRect(bp_x + GUTTER_WIDTH + 1, y + 1, 3, LINE_HEIGHT - 2,
                              coverage_colors::exec(palette()));
         }
 
@@ -631,38 +632,41 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         // a SECOND visual channel — a paler red for suspended — not a bigger
         // ring: the gutter is 20 px wide and the dot already fills it.
         if (entry.has_breakpoint) {
-            const int cx = GUTTER_WIDTH / 2;
+            const int cx = bp_x + GUTTER_WIDTH / 2;
             const int cy = y + LINE_HEIGHT / 2;
             paint_breakpoint_glyph(painter, QPoint(cx, cy), entry.breakpoint_live, false);
         }
 
+        // GH #448 - x order is Mem, Addr, BP, [Label], mnemonic, bytes, comment, but the draw-call
+        // order stays address, Mem, bytes, label, mnemonic, comment (what the layout rows locate
+        // their line by); the mnemonic string comes first because the bytes' x depends on it.
+        const QString mnemonic_str = QString::fromStdString(
+            disasm_text::apply_symbols(entry.line.mnemonic, namer()));
+        const int bx = bytes_x(i);
+        int mx = mnemonic_x();
+
         // Address column
-        int x = GUTTER_WIDTH + 4;
         painter.setPen(palette_tint::ink(palette(), QColor(100, 100, 100)));
         QString addr_str = QString::asprintf("$%04X", entry.line.addr);
-        painter.drawText(x, text_y, addr_str);
+        painter.drawText(LEFT_MARGIN + MEM_WIDTH, text_y, addr_str);
 
         // GH #360 - the memory column: which memory the line's bytes came from.
-        x += ADDR_WIDTH;
         painter.setPen(palette_tint::ink(palette(), QColor(0x80, 0x40, 0x80)));
-        painter.drawText(x, text_y, memtext::text(dbg_, style_, entry.mem, entry.line.addr));
+        painter.drawText(LEFT_MARGIN, text_y, memtext::text(dbg_, style_, entry.mem, entry.line.addr));
 
         // Hex bytes column
-        x += MEM_WIDTH;
         painter.setPen(palette_tint::ink(palette(), QColor(150, 150, 150)));
         QString bytes_str;
         for (int b = 0; b < entry.line.byte_count && b < 4; ++b) {   // bytes[] holds 4
             if (b > 0) bytes_str += ' ';
             bytes_str += QString::asprintf("%02X", entry.line.bytes[b]);
         }
-        painter.drawText(x, text_y, bytes_str);
+        painter.drawText(bx, text_y, bytes_str);
 
         // GH #387 - the Label column: the name of this line's own address in its own memory.
-        x += BYTES_WIDTH;
         if (label_col) {
             painter.setPen(palette_tint::ink(palette(), QColor(0x20, 0x70, 0x20)));
-            painter.drawText(x, text_y, line_label(i));
-            x += label_width();
+            painter.drawText(bp_x + GUTTER_WIDTH + 4, text_y, line_label(i));
         }
 
         // Mnemonic column — with optional symbol resolution
@@ -677,15 +681,13 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         // also what the clipboard path calls — GH #21 requires the copied text
         // to carry the symbolic form, and one shared rule is what guarantees
         // the two can never drift apart.
-        const QString mnemonic_str = QString::fromStdString(
-            disasm_text::apply_symbols(entry.line.mnemonic, namer()));
-        painter.drawText(x, text_y, mnemonic_str);
+        painter.drawText(mx, text_y, mnemonic_str);
 
-        // GH #387 - the user's comment after the mnemonic, in muted ink.
+        // GH #387 - the user's comment after the bytes column, in muted ink.
         const QString comment = line_comment(i);
         if (!comment.isEmpty()) {
             painter.setPen(palette_tint::ink(palette(), QColor(0x60, 0x80, 0x60)));
-            painter.drawText(x + fm.horizontalAdvance(mnemonic_str) + 12, text_y, comment);
+            painter.drawText(bx + BYTES_WIDTH, text_y, comment);
         }
 
         if (entry.is_current_pc) {
@@ -712,7 +714,8 @@ void DisasmPanel::mousePressEvent(QMouseEvent* event)
     int line = line_at_y(static_cast<int>(evpos.y()));
     if (line < 0) return;
 
-    if (static_cast<int>(evpos.x()) < GUTTER_WIDTH) {
+    const int click_x = static_cast<int>(evpos.x());
+    if (click_x >= breakpoint_x() && click_x < breakpoint_x() + GUTTER_WIDTH) {
         // Toggle breakpoint
         // GH #225: the gutter click toggles whether a breakpoint IS THERE,
         // which is what it has always done; enabling and disabling is the
@@ -1017,9 +1020,37 @@ int DisasmPanel::label_width() const
     return QFontMetrics(mono_font_).horizontalAdvance(QLatin1Char('0')) * LABEL_CHARS + 8;
 }
 
+int DisasmPanel::breakpoint_x() const { return LEFT_MARGIN + MEM_WIDTH + ADDR_WIDTH; }
+
 int DisasmPanel::mnemonic_x() const
 {
-    return GUTTER_WIDTH + 4 + ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH + (label_column_shown() ? label_width() : 0);
+    return breakpoint_x() + GUTTER_WIDTH + 4 + (label_column_shown() ? label_width() : 0);
+}
+
+int DisasmPanel::mnemonic_width() const
+{
+    return QFontMetrics(mono_font_).horizontalAdvance(QLatin1Char('0')) * MNEMONIC_CHARS + 8;
+}
+
+int DisasmPanel::bytes_x(int line) const
+{
+    const int column_end = mnemonic_x() + mnemonic_width();
+    if (line < 0 || line >= static_cast<int>(entries_.size())) return column_end;
+    // The width of the mnemonic in the font it is painted in (bold on the PC line).
+    QFont f = mono_font_;
+    if (entries_[line].is_current_pc) f.setBold(true);
+    const QString mn = QString::fromStdString(
+        disasm_text::apply_symbols(entries_[line].line.mnemonic, namer()));
+    const int after_text = mnemonic_x() + QFontMetrics(f).horizontalAdvance(mn) + 8;
+    return std::max(column_end, after_text);
+}
+
+void DisasmPanel::fill_row(QPainter& painter, int y, int w, const QColor& c) const
+{
+    // GH #448 - never over the BP column, so its breakpoint glyph stays fully opaque (GH #21).
+    const int bp_x = breakpoint_x();
+    painter.fillRect(0, y, bp_x, LINE_HEIGHT, c);
+    painter.fillRect(bp_x + GUTTER_WIDTH, y, w - bp_x - GUTTER_WIDTH, LINE_HEIGHT, c);
 }
 
 QString DisasmPanel::line_label(int line) const

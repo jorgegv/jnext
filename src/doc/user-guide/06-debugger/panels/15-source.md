@@ -54,7 +54,7 @@ on the CPU's line. When a toolchain
 attributes the same address to more than one source line, the position line names the
 primary one and lists the others, `main.bas:11  $8002  P2E  also: util.bas:7`.
 
-Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
+Left of the text is a gutter: a **BP** column and the file's
 own **Line** numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a
 suspended one (individually disabled, or the master switch off). A line some of whose

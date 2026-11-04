@@ -21,33 +21,55 @@ AyChip::AyChip(uint8_t id) : id_(id & 0x03) { reset(); }
 
 void AyChip::reset()
 {
+    // VHDL RESET_H scope only: addr (ym2149.vhd:170-171), the register file with
+    // reg(7) = 0xFF (:184-186) and O_AUDIO_A/B/C (:525-528). The divider, tone,
+    // noise and envelope generators have no reset clause (:258-519): they keep
+    // running through a reset and take their declared initial values only at
+    // power-on (power_on(), :105-125). GH #442.
+    //
+    // An R13 write whose envelope load has not been applied yet is applied first:
+    // the VHDL applies it on the next 28 MHz clock (:340-341, :393-401), before any
+    // later reset clears reg(13).
+    if (env_reset_) load_envelope();
+
     reg_.fill(0);
     reg_[7] = 0xFF;  // All channels disabled on reset (VHDL: reg(7) <= x"ff")
     addr_ = 0;
-
-    cnt_div_ = 0;
-    noise_div_ = false;
-    ena_div_ = false;
-    ena_div_noise_ = false;
-
-    tone_cnt_.fill(0);
-    tone_op_.fill(false);
-
-    noise_cnt_ = 0;
-    poly17_ = 0;
-    noise_op_ = false;
-
-    env_cnt_ = 0;
-    env_ena_ = false;
-    env_reset_ = false;
-    env_vol_ = 0;
-    env_inc_ = false;
-    env_hold_ = false;
 
     out_a_ = 0;
     out_b_ = 0;
     out_c_ = 0;
     dirty_ = true;
+}
+
+void AyChip::power_on()
+{
+    // The member initialisers in ay_chip.h are the declared initial values
+    // (ym2149.vhd:105-125, zero where none is declared). ay_mode_ is the
+    // ctrl_aymode input port, not chip state, so it is kept.
+    const bool ay = ay_mode_;
+    *this = AyChip(id_);
+    ay_mode_ = ay;
+}
+
+void AyChip::load_envelope()
+{
+    dirty_ = true;
+    env_cnt_ = 0;
+    env_ena_ = true;
+
+    // Load initial envelope state based on attack bit
+    if ((reg_[13] & 0x04) == 0) {
+        // Attack = 0: start at top, count down
+        env_vol_ = 31;
+        env_inc_ = false;
+    } else {
+        // Attack = 1: start at bottom, count up
+        env_vol_ = 0;
+        env_inc_ = true;
+    }
+    env_hold_ = false;
+    env_reset_ = false;
 }
 
 void AyChip::select_register(uint8_t addr)
@@ -175,24 +197,7 @@ uint16_t AyChip::env_comp() const
 bool AyChip::tick()
 {
     // Handle envelope reset (deferred from write)
-    if (env_reset_) {
-        dirty_ = true;
-        env_cnt_ = 0;
-        env_ena_ = true;
-
-        // Load initial envelope state based on attack bit
-        if ((reg_[13] & 0x04) == 0) {
-            // Attack = 0: start at top, count down
-            env_vol_ = 31;
-            env_inc_ = false;
-        } else {
-            // Attack = 1: start at bottom, count up
-            env_vol_ = 0;
-            env_inc_ = true;
-        }
-        env_hold_ = false;
-        env_reset_ = false;
-    }
+    if (env_reset_) load_envelope();
 
     update_divider();
 
