@@ -90,8 +90,9 @@ work. A breakpoint change another client made arrives as
 | Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
 | Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
+| Variables | `c_frames()`, `c_locals()`, `c_globals()`, `c_children()`, `c_variables_status()`, `call_stack()`, `mmu_slots()`: the C variables of a call frame and the globals, as a tree ([7.7](../07-source-level-debugging/07-frontends.md)) | — |
 
-Four panels (CPU, Disassembly, Stack, Call Stack) update only while paused:
+Five panels (CPU, Disassembly, Stack, Call Stack, Variables) update only while paused:
 reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
@@ -331,5 +332,5 @@ The Qt suites are gated on a Qt + debugger build and run in `make unit-test`:
 controls), `debugger_panels_test` (each panel's displayed text), `debugger_video_panel_test`, `debugger_audio_panel_test`,
 `debugger_inspect_watchpoint_test`, `debugger_persistent_bp_test`,
 `debugger_keymap_test`, `debugger_menu_test`, `debugger_disasm_copy_test`,
-`debugger_quit_gate_test`, and the window-geometry suites. The regression rows
+`debugger_quit_gate_test`, `debugger_variables_panel_test` (the Variables tab, `QVAR-*`), and the window-geometry suites. The regression rows
 `qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting.

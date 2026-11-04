@@ -15,7 +15,7 @@ DZRP has no source surface at all.*
 
 | Frontend | Reads | Adds | Page |
 |---|---|---|---|
-| Qt debugger | `source_location()`, `source_map()`, `source_map_status()`, `source_page()`, `lookup()`, the breakpoint groups, `executed_source_lines()` | The Source tab, the Breakpoints rows, the Call Stack column, symbol names, the long address | below, and [3.10.2](../03-subsystems/10-2-the-qt-debugger.md) |
+| Qt debugger | `source_location()`, `source_map()`, `source_map_status()`, `source_page()`, `lookup()`, the breakpoint groups, `executed_source_lines()`, `c_frames()`, `c_locals()`, `c_globals()`, `c_children()`, `read_c_value()`, `c_variables_status()` | The Source tab, the Variables tab, the Breakpoints rows, the Call Stack column, symbol names, the long address | below, and [3.10.2](../03-subsystems/10-2-the-qt-debugger.md) |
 | GDB RSP | `source_location()`, `symbols()`, `mmu_slots()` | `monitor src`, `monitor sym`, `monitor mmu` | [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md) |
 | ZRCP | `load()`, `mmu_slots()` | `smartload` reaches the sidecars; `get-memory-pages` names the memory | [3.10.5](../03-subsystems/12-the-zrcp-server.md) |
 | DZRP | Nothing | None | [3.10.3](../03-subsystems/10-the-dzrp-server.md) |
@@ -270,6 +270,41 @@ announces nothing. The gutter, the menu, Copy with Addresses and Run to Cursor a
 they act on the file browsed. Rows `QSRC-176` to `QSRC-189` and `QSRC-201` to `QSRC-208` pin the
 behaviour; `source_sync_colors.h` is the one definition of the linked colour for both views; the Source tab keeps one
 per scheme (`SchemeColours::linked_line`), tested for legibility like the coverage tint (row `QSRC-189`).
+
+## The Qt Variables tab (GH #435)
+
+`VariablesPanel` (`src/debugger/variables_panel.*`) is a tab of the bottom-right tab widget, between Watches and
+Breakpoints (the window has no docks: its layout is the fixed one of GH #114). It shows the C variables of one call
+frame and the globals and statics as a `QTreeWidget` (Name, Type, Value, Address). Like every CAP-SRC reader it holds no copy
+of a store, and it **formats nothing**: every value, type, refusal and note is the facade's text (`c_locals()`,
+`c_globals()`, `c_children()`, [7.10](10-c-frames-and-values.md)); the panel only joins a row's notes onto its value
+(`  (note; note)`, also the tooltip) and spells its address.
+
+- **Paused only.** `refresh()` returns at once unless `set_paused(true)` (`DebuggerManager::set_panels_paused()`), like the Call
+  Stack. `DebuggerWindow::refresh_panels()` calls it after the Call Stack's own refresh.
+- **Frames.** A frame selector lists `c_frames()`: `<function> at <file>:<line>`, or `<not C code> $XXXX`, frame 0 suffixed
+  `(current)`. **A refresh at a new master cycle (a new stop) selects frame 0**; one at the same cycle (an idle tick, an input redraw, a
+  style switch) keeps the choice, so a frame picked in an older caller survives everything but moving the machine.
+- **One mapping.** The Call Stack panel lists the tracked CALLs newest first, with no row for frame 0 or for a frame found through
+  the saved-frame-pointer chain; `c_frames()` takes frame k's PC from the CALL `tracked[n-k]`, so **Call Stack row i is C frame i + 1**.
+  That is written once, in `VariablesPanel::call_stack_row()` and `frame_of_call_row()`. `CallStackPanel::call_selected(row)` (emitted
+  only for the user's choice: a refresh and `select_row()` set a guard) goes to `select_frame(row + 1)`, and `frame_changed(k)` goes back to
+  `select_row(call_stack_row())`, which emits nothing, so there is no loop. After each refresh the window re-selects the row the chosen
+  frame maps to (-1 clears it), because a refresh may have rebuilt the Call Stack's rows.
+- **Lazy children.** An item that is an aggregate or a pointer to something (not `void *`) has the child indicator and no children.
+  Expanding it calls `c_children(frame, path, 0, 100)`; when `total` exceeds 100 the children are **range items** `[0..99]`, `[100..199]`, ...,
+  each read with its own `first`. A refused expansion (`null pointer`, an unreadable pointer) is one placeholder item with the facade's
+  reason. The panel never decodes a type.
+- **In-place refresh.** Every item has a key (a path, a range, a file group, prefixed by the section and, for Locals, the function).
+  `sync()` compares a parent's children with the new rows by key: unchanged keys are updated in place, so the selection, the scroll
+  position and the expansion stay; changed keys rebuild that parent and re-open the items whose key the user had open (`expanded_`).
+  Only open items are re-read; a closed item's children are dropped, to be read when it opens.
+- **Addresses.** A global's `where` is a page address (`long_address(addr, space, style, next_layout)`); a stack slot or a followed
+  pointer is a CPU address, spelled with the memory mapped there NOW (`memtext::now_of(mmu_slots(), addr)`: what a read reaches); a register
+  local shows its register names. Debug > Physical Addresses reaches the panel through `apply_address_style()` like every other.
+- **Read-only**, with no new setting (so no CLI flag): editing is GH #437.
+
+Rows `QVAR-01` to `-15` and `-22` (`variables_panel_test`) pin the tab; `CVCH-*` and `SRCDBG-CVCH-*` the children.
 
 ## Which memory a view names (GH #360)
 

@@ -152,7 +152,7 @@ that it may be stale), refuses `[]` as optimised out and an outer frame as not a
 
 ## Reading values: the facade
 
-`Debugger` has five CAP-SRC readers (`debugger.h`), all `const`, all running `recheck()` first (through `variables()` and
+`Debugger` has six CAP-SRC readers (`debugger.h`), all `const`, all running `recheck()` first (through `variables()` and
 `c_frames()`) and bumping nothing themselves, so a panel redrawing on `state_revision()` does not redraw on a read:
 
 | Reader | Gives |
@@ -161,6 +161,10 @@ that it may be stale), refuses `[]` as optimised out and an outer frame as not a
 | `c_locals(frame)` (`debugger_cvalues.cpp:434`) | the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a `CValueRow`; refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known |
 | `c_globals()` (`debugger_cvalues.cpp:466`) | every global, file static and static local, ordered by file then name, with a `path` no local can shadow: `vars.c::s_dup`, `sum::calls` (`a.c::init::done` when two modules have a function `init`) |
 | `read_c_value(frame, path)` (`debugger_cvalues.cpp:496`) | the object a C path names in that frame: `ok` or `why`, the type text, the value text, `notes`, the typed location `loc`, `where`, `integer` (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and `real` (the floats) |
+| `c_children(frame, path, first, max)` (`debugger_cvalues.cpp:C_CHILDREN`) | what a tree lists under an object: a struct's members, an array's elements `first`..`first + max` (`total` is the element COUNT), a pointer's pointee (a struct's members as `p->x`, anything else as `p[0]`, named `*`); `void *`, a function pointer and a scalar have none (`ok`, `total` 0). Each row's `path` is the parent's plus a suffix and round-trips through `read_c_value`; a row is read, placed and noted exactly as `read_c_value` would, so a banked global's elements carry its page. `!ok` gives `read_c_value`'s own reason, or `null pointer` / the unreadable address |
+
+The children come from the pure `c_children()` (`c_value.cpp`: `CChild`, `CChildren`): a struct's visible named members in record order
+(an unnamed C11 member has no path and is left out), an array's elements scaled by the element size, one pointee for a pointer.
 
 A `CValueRow` carries `name`, `path` (which round-trips through `read_c_value`), `file`, `type`, `kind` (Param, Local,
 StaticLocal, FileStatic, Global), `where`, `ok` with `value` or `why`, `aggregate` and `notes`. A failed read has an empty

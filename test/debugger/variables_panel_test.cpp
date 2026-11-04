@@ -39,9 +39,11 @@
 #include <QTest>
 #include <QTreeWidget>
 
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -119,7 +121,7 @@ struct Fix {
     QTableWidget* cs_table() const { return cs()->findChild<QTableWidget*>(); }
 
     // Load a fixture's NEX and its map, the way the frontends do.
-    bool load(const char* fixture, const char* name) {
+    bool load(const char* fixture, const char* name, const std::function<void(const fs::path&)>& edit = {}) {
         dir = fs::path(g_tmp->path().toStdString()) / name;
         fs::create_directories(dir);
         for (const auto& e : fs::directory_iterator(kFixtures / fixture)) {
@@ -127,6 +129,7 @@ struct Fix {
             if (n == "prog.nex" || n == "prog.map" || (n.size() > 4 && n.compare(n.size() - 4, 4, ".bin") == 0))
                 fs::copy_file(e.path(), dir / n, fs::copy_options::overwrite_existing);
         }
+        if (edit) edit(dir);
         const bool ok = emulator_apply_load(emu, (dir / "prog.nex").string(), false);
         backend->load_program_sidecars((dir / "prog.nex").string());
         return ok;
@@ -374,7 +377,7 @@ void test_rows() {
               at && names(m) == "[0] [1]" && val(r1) == "{4, 5, 6}" && names(r1) == "[0] [1] [2]" && val(child(r1, "[0]")) == "4" && val(child(r1, "[1]")) == "5" &&
                   val(child(r1, "[2]")) == "6" && names(str) == "[0] [1] [2]" && val(child(str, "[0]")) == "104 'h'" && val(child(str, "[1]")) == "105 'i'" &&
                   val(child(str, "[2]")) == "0",
-              names(m) + " | " + names(str));
+              s(names(m)) + " | " + s(names(str)));
     }
 
     {   // QVAR-10
@@ -400,7 +403,7 @@ void test_rows() {
         {   // sccz80: in l_debug_push_frame, sum's first call: frame 0 is not C code; frame 1 (sum) has t and acc not allocated yet
             Fix f;
             f.load("master/sccz80-cvars", "q11a");
-            const bool at = f.run_to(0x8B64);
+            const bool at = f.run_to(0x8CB9) && f.run_to(0x8B64);   // _sum's entry first: main calls the helper too, earlier
             const std::string why0 = f.backend->c_locals(0).why;
             QTreeWidgetItem* msg = locals(f)->childCount() == 1 ? locals(f)->child(0) : nullptr;
             const bool frame0 = at && !why0.empty() && f.frames()->currentText().startsWith("<not C code>") && msg && val(msg) == QString::fromStdString(why0);
@@ -439,9 +442,9 @@ void test_rows() {
         const QString friendly = addr(sd);
         // a stack slot: `$XXXX <tag of the memory mapped there now>`, XXXX = the frame pointer (sum$a is at +10)
         const uint16_t xxxx = static_cast<uint16_t>(f.peek16(0x906A) + 10);
-        const auto slots = f.backend->mmu_slots();
+        const auto mmu = f.backend->mmu_slots();
         const auto spell = [&](jnext::dbg::AddressStyle st) {
-            return QString::fromStdString(jnext::dbg::long_address(xxxx, slots[xxxx >> 13].now, st, next));
+            return QString::fromStdString(jnext::dbg::long_address(xxxx, mmu[xxxx >> 13].now, st, next));
         };
         const QString a_friendly = addr(child(locals(f), "a"));
         f.dbg()->set_address_style(jnext::dbg::AddressStyle::Physical);
@@ -506,6 +509,47 @@ void test_rows() {
         check("QVAR-15", "idle (GH #428): at vars.c:41 with p expanded, two idle paused ticks redraw nothing (take_panel_refresh_count() == 0), and redrawing the Variables tab "
                          "leaves the backend's state_revision() unchanged",
               at && idle == 0 && f.backend->state_revision() == rev, "idle=" + std::to_string(idle));
+    }
+
+    {   // QVAR-22
+        // a 300-byte global added to the committed map: one record the way the compiler writes it (every character that is not a letter is
+        // `_xx`), and its symbol at $9200 (page 4). Memory is poked with (i % 30) + 1, so every element is a plain number.
+        Fix f;
+        const auto esc = [](const std::string& t) {
+            std::string o;
+            for (const unsigned char c : t) {
+                if (std::isalpha(c)) {
+                    o += static_cast<char>(c);
+                } else {
+                    char b[8];
+                    std::snprintf(b, sizeof b, "_%02x", c);
+                    o += b;
+                }
+            }
+            return o;
+        };
+        f.load("master/sccz80-cvars", "q22", [&](const fs::path& d) {
+            std::ofstream out(d / "prog.map", std::ios::app);
+            out << "__CDBINFO__" << esc("S:G$g_big$0_0$0({300}DA300x,SC:U),E,0,0") << " = $0001 ; const, public, , vars_c, code_compiler, vars.c::main::1::6:66\n"
+                << "_g_big = $9200 ; addr, public, , vars_c, bss_compiler, vars.c::main::1::6:66\n";
+        });
+        const bool at = f.run_to(kS41);
+        for (int i = 0; i < 300; ++i) f.emu.mmu().write(static_cast<uint16_t>(0x9200 + i), static_cast<uint8_t>(i % 30 + 1));
+        f.dbg()->refresh_panels();
+        QTreeWidgetItem* big = global(f, "vars.c", "g_big");
+        expand(big);
+        const QString ranges = names(big);
+        QTreeWidgetItem* last = child(big, "[200..299]");
+        expand(last);
+        bool elems = last && last->childCount() == 100 && last->child(0)->text(0) == "[200]" && last->child(99)->text(0) == "[299]";
+        for (int i = 0; elems && i < 100; ++i) elems = last->child(i)->text(2) == QString::number((200 + i) % 30 + 1);
+        QTreeWidgetItem* first = child(big, "[0..99]");
+        expand(first);
+        check("QVAR-22", "a 300-element unsigned char global expands to the ranges [0..99], [100..199] and [200..299] (100 elements each, not 99 or 101); [200..299] expands to "
+                         "[200] to [299], each the byte poked at its address ((i % 30) + 1)",
+              at && big && ranges == "[0..99] [100..199] [200..299]" && elems && first && first->childCount() == 100 && first->child(0)->text(0) == "[0]" &&
+                  first->child(0)->text(2) == "1",
+              s(ranges) + " " + detail_of(last));
     }
 }
 
