@@ -972,7 +972,7 @@ int main() {
                           "value, an 8-byte integer does not fit 32 bits, a location carrying the U2 note says the note, and an "
                           "integer that was not read says so",
               has(st, "struct point is an aggregate") && has(ar, "is an aggregate") && has(f6, "float is not an integer") &&
-                  has(f4, "float is not an integer") && !f4.ok && !h2.ok && !fx.ok && has(vo, "void has no value") && has(fn, "has no value") &&
+                  has(f4, "float is not an integer") && has(h2, "is not an integer") && has(fx, "is not an integer") && has(vo, "void has no value") && has(fn, "has no value") &&
                   has(big, "8-byte integer does not fit the script's 32 bits") && u2.why == "bitfield layout unknown (z88dk U2)" && !u2.ok &&
                   has(none, "no integer value was read"));
     }

@@ -53,6 +53,7 @@
 #include "core/log.h"
 #include "core/rzx.h"
 #include "debug/debugger.h"
+#include "debug/long_address.h"
 #include "platform/emulator_boot.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>
@@ -2388,6 +2389,92 @@ static void cvar_rows() {
                   none_p.size() == 1 && none_p[0] == w0 && f1 == "OK" && f2 == "OK" && f3 == "OK" && sld_l.size() == 1 &&
                   sld_l[0] == w1 && sld_p.size() == 1 && sld_p[0] == w1 && f4 == "OK" && f5 == "OK" && h1 && h2 && h3,
               join(none_l) + " " + join(sld_l));
+    }
+    // GDB-CVAR-07: the refused-row line, the asm-frame header and the argument errors, on zsdcc's build
+    // Oracle: the CDB record of `acc` on master/sdcc-cvars is `R,0,0,[]` (zsdcc kept it nowhere), so its row is refused as
+    // "optimised out" and printed `(type) name: why`, never as a value. The frames above main are the CRT: not C code.
+    // vars.c:41 is $8C97 there.
+    {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const std::string snex = JNEXT_Z88DK_FIXTURE_DIR "/master/sdcc-cvars/prog.nex";
+        const bool loaded = emulator_apply_load(rig.emu, snex, false);
+        rig.dbg->load_program_sidecars(snex);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0x8C97);
+        std::string f0, f2, e1, e2, e3;
+        const auto l0 = c.monitor("locals", f0);
+        const auto fr = rig.dbg->c_frames();
+        const auto rows = rig.dbg->c_locals(0).rows;
+        std::string acc_line;
+        bool acc_refused = false;
+        for (const auto& r : rows)
+            if (r.name == "acc") {
+                acc_refused = !r.ok && r.why == "optimised out" && r.value.empty();
+                acc_line = "  (" + r.type + ") acc: " + r.why + "\n";
+            }
+        bool has_acc = false, acc_as_value = false;
+        for (const auto& l : l0) {
+            has_acc = has_acc || l == acc_line;
+            acc_as_value = acc_as_value || l.find(") acc = ") != std::string::npos;
+        }
+        size_t asm_k = fr.size();   // the first frame that is not C code
+        for (size_t k = 0; k < fr.size(); ++k)
+            if (fr[k].function < 0) {
+                asm_k = k;
+                break;
+            }
+        std::string asm_head;
+        std::vector<std::string> la;
+        if (asm_k < fr.size()) {
+            char h[64];
+            std::snprintf(h, sizeof h, "frame %zu: not C code, $%04X ", asm_k, fr[asm_k].pc.address);
+            asm_head = std::string(h) + jnext::dbg::space_tag(fr[asm_k].pc.space) + "\n";
+            la = c.monitor("locals " + std::to_string(asm_k), f2);
+        }
+        c.monitor("locals 1 2", e1);
+        c.monitor("globals x", e2);
+        c.monitor("print 1", e3);
+        check("GDB-CVAR-07", "on master/sdcc-cvars at vars.c:41: the optimised-out acc is `(type) acc: optimised out`, never `= value`; the first frame "
+                             "that is not C code answers `frame N: not C code, $XXXX TAG` and nothing else; `locals 1 2`, `globals x` and `print 1` "
+                             "(a frame and no path) are E01",
+              loaded && at && f0 == "OK" && acc_refused && has_acc && !acc_as_value && asm_k < fr.size() && asm_k >= 2 && la.size() == 1 &&
+                  la[0] == asm_head && f2 == "OK" && e1 == "E01" && e2 == "E01" && e3 == "E01",
+              join(l0) + " | " + asm_head + join(la));
+    }
+    // GDB-CVAR-08: `(no locals)` and the unknown-base header
+    // Oracle: cross.c's main has no parameter and no local (`g_x` is a global), at cross.c:26 = $AC84 on master/sccz80-cross;
+    // and SRCDBG-CVAL-52's state: master/80cc-cvars stopped in other() (other.c:9 = $8DC6) with the call-stack tracker emptied
+    // leaves main (frame 1) with no known base.
+    {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const std::string xnex = JNEXT_Z88DK_FIXTURE_DIR "/master/sccz80-cross/prog.nex";
+        const bool loaded = emulator_apply_load(rig.emu, xnex, false);
+        rig.dbg->load_program_sidecars(xnex);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0xAC84);
+        std::string f;
+        const auto l = c.monitor("locals", f);
+        const bool empty_premise = rig.dbg->c_locals(0).ok && rig.dbg->c_locals(0).rows.empty();
+        Rig rig2(MachineType::ZXN_ISSUE2);
+        const std::string onex = JNEXT_Z88DK_FIXTURE_DIR "/master/80cc-cvars/prog.nex";
+        const bool loaded2 = emulator_apply_load(rig2.emu, onex, false);
+        rig2.dbg->load_program_sidecars(onex);
+        Client c2(rig2);
+        open_session(c2);
+        const bool at2 = cvar_stop_at(rig2, c2, 0x8DC6);
+        rig2.emu.call_stack().clear();
+        const auto fr = rig2.dbg->c_frames();
+        std::string f2;
+        const auto lu = c2.monitor("locals 1", f2);
+        const bool unknown = fr.size() >= 2 && fr[1].how == jnext::dbg::Debugger::CFrame::Base::Unknown && !fr[1].note.empty();
+        check("GDB-CVAR-08", "a C function with no parameter and no local prints its header and `  (no locals)`; a frame whose base is not known "
+                             "(80cc in other() with the tracker emptied: main) prints `frame 1: main at vars.c:61 (the call of other()), frame base unknown: <note>` and no rows",
+              loaded && at && loaded2 && at2 && empty_premise && f == "OK" && l.size() == 2 && l[0].rfind("frame 0: main at cross.c:26, fp $", 0) == 0 &&
+                  l[1] == "  (no locals)\n" && unknown && f2 == "OK" && lu.size() == 1 &&
+                  lu[0] == "frame 1: main at vars.c:61, frame base unknown: " + fr[1].note + "\n",
+              join(l) + " | " + join(lu));
     }
 }
 

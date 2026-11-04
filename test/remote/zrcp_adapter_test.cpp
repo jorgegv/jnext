@@ -5019,16 +5019,18 @@ static void cvar_rows() {
               esc(stop) + " " + t + " " + k + " " + b + " " + xy + " " + u + " " + m + " " + tag + " " + q);
         // ZRCP-CVAR-02 (same stop): refusals keep ZEsarUX's texts
         const std::string inner = c.cmd("evaluate CVAR(inner)"), star = c.cmd("evaluate CVAR(*p)"), open = c.cmd("evaluate CVAR(p->x"),
-                          empty = c.cmd("evaluate CVAR()"), nested = c.cmd("evaluate CVAR((x))");
+                          empty = c.cmd("evaluate CVAR()"), nested = c.cmd("evaluate CVAR((x))"),
+                          quote = c.cmd("evaluate CVAR(\"x\")");
         Rig nm(MachineType::ZXN_ISSUE2);
         Zc  c2(nm);
         const std::string nomap = c2.cmd("evaluate CVAR(t)");
         check("ZRCP-CVAR-02", "a CVAR() that cannot be read answers ZEsarUX's `Error evaluating parsed string: <canonical>` with no reason: "
                               "CVAR(inner) (out of scope), CVAR(*p) (an aggregate), CVAR(t) on a Next with no map; what does not tokenise "
-                              "(an unclosed `CVAR(p->x`, an empty `CVAR()`, a nested `CVAR((x))`) is `Error parsing`",
+                              "(an unclosed `CVAR(p->x`, an empty `CVAR()`, a nested `CVAR((x))`, a quote `CVAR(\"x\")`) is `Error parsing`",
               inner == reply_of("Error evaluating parsed string: CVAR(inner)", true) &&
                   star == reply_of("Error evaluating parsed string: CVAR(*p)", true) && open == reply_of("Error parsing", true) &&
                   empty == reply_of("Error parsing", true) && nested == reply_of("Error parsing", true) &&
+                  quote == reply_of("Error parsing", true) &&
                   nomap == reply_of("Error evaluating parsed string: CVAR(t)"),
               esc(inner) + esc(star) + esc(open) + esc(nomap));
     }

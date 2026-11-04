@@ -1296,7 +1296,7 @@ static void cvar_rows() {
         const struct { const char* src; int col; } sources[] = {
             {"on frame when cvar(a.) == 0 do end", 15}, {"on frame when cvar() == 0 do end", 15},
             {"on frame when cvar(p->x == 0 do end", 15}, {"on frame when cvar((x)) == 0 do end", 20},
-            {"on frame when cvar(a[-1]) == 0 do end", 15}};
+            {"on frame when cvar(a[-1]) == 0 do end", 15}, {"on frame when cvar(\"x\") == 0 do end", 20}};
         bool ok = true;
         std::string detail;
         for (const auto& sc : sources) {
@@ -1306,7 +1306,10 @@ static void cvar_rows() {
             if (pr.ok()) errs = check_script(pr.script, CheckOptions{});
             const bool refused = !pr.ok() || !errs.empty();
             const Diagnostic* d = !pr.ok() ? &*pr.error : (errs.empty() ? nullptr : &errs[0]);
-            if (!refused || !d || d->pos.line != 1 || d->pos.column != sc.col) {
+            // the `"` case is the LEXER's refusal (a C path never holds a quote), not c_parse_path's
+            const bool quote = src.find('"') != std::string::npos;
+            if (!refused || !d || d->pos.line != 1 || d->pos.column != sc.col ||
+                (quote && d->message.find("a C path in `cvar()` has no `\"`") == std::string::npos)) {
                 ok = false;
                 detail += src + " -> " + (d ? d->to_string() : "accepted") + "; ";
             }
@@ -1315,16 +1318,14 @@ static void cvar_rows() {
         const bool assign_refused = !as.ok() && as.error->message.find("cannot be assigned") != std::string::npos;
         const ParseResult sp = parse_script("on frame when cvar (t) == 1 do end");
         const bool spaced_not_accessor = !sp.ok();
-        Loaded L = load("var cvar = 2\non frame when cvar + 1 == 3 do end");
-        bool var_ok = L.ok();
-        if (var_ok) {
-            const auto p = make_condition(L.s().rules[0].when, L.st, {});
-            L.st->set_var(0, 2);
-            var_ok = p(DbgEvent{}, *g_dbg);
-        }
+        // `cvar` is a reserved word, as `depth` and `changed` are: a variable of that name is refused at load, so no script
+        // changes meaning silently (`dump_mem cvar(4)` used to be two operands)
+        const ParseResult rv = parse_script("var cvar = 2\non frame when cvar + 1 == 3 do end");
+        const bool var_ok = !rv.ok() && rv.error->pos.line == 1 && rv.error->pos.column == 5 &&
+                            rv.error->message.find("`cvar` is a reserved name") != std::string::npos;
         check("EVAL-CVAR-07", "cvar() paths are checked at compile time with a position: `a.`, ``, an unclosed `p->x`, `(x)`, "
-                              "`a[-1]` are errors at the token; `set cvar(t) = 1` is refused (read-only); `cvar (t)` with a "
-                              "space is not the accessor; a script variable called cvar still works",
+                              "`a[-1]` are errors at the token and a quote is the lexer's; `set cvar(t) = 1` is refused (read-only); `cvar (t)` with a "
+                              "space is not the accessor; a variable called cvar is refused as a reserved name (as depth and changed are)",
               ok && assign_refused && spaced_not_accessor && var_ok, detail);
     }
     // EVAL-CVAR-08
