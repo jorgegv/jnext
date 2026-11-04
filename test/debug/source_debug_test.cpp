@@ -7250,7 +7250,8 @@ int main() {
                 if (zsdcc) {
                     good = good && !bt.ok && cvv(m, 0, "bdata") == "77 'M'" && has_note(m.dbg->read_c_value(0, "bdata"), "page 20 is not mapped at $C028 now");
                 } else {
-                    good = good && bt.ok && bt.value == "{10, 20, 30, 40}" && has_note(bt, "page 20 is not mapped at $C000 now") && cpu != 10;
+                    good = good && bt.ok && bt.value == "{10, 20, 30, 40}" && has_note(bt, "page 20 is not mapped at $C000 now") && cpu != 10 &&
+                           cvv(m, 0, "btable[2]") == "30" && cvv(m, 0, "btable[3]") == "40 '('";   // an element is read from the global's page too
                 }
                 // main's `loc` (3): a stack variable on sccz80 and zsdcc; 80cc writes no record for it (z88dk U5)
                 if (fx[7] == '8') good = good && !loc.ok && loc.why.find("unknown name") != std::string::npos;
@@ -7338,13 +7339,14 @@ int main() {
             };
             check("SRCDBG-CVAL-41", "C paths on the machine at vars.c:41: g_matrix[1][2] = 6, g_pt.tag = 3, p->y = 4, *p, g_str[1] = 105 'i', g_cptr[2] = 99 'c', lp.x = 3 (frame 1), "
                                     "sum::calls = 1, other.c::s_dup = 4; refusals: g_matrix[2][0] (index 2 out of range [0, 2)), g_pt.z (no member 'z'), g_int.x (not a struct), "
-                                    "*g_int (not a pointer), nosuch (unknown name 'nosuch'), g_head->next->val (null pointer: g_head is not set yet)",
+                                    "*g_int (not a pointer), nosuch (unknown name 'nosuch'), g_head->next->val (null pointer: g_head is not set yet); sum::calls reads from frame 1 (a static local from any frame), sum::t is refused from main",
                   at && cvv(m, 0, "g_matrix[1][2]") == "6" && cvv(m, 0, "g_pt.tag") == "3" && cvv(m, 0, "p->y") == "4" && cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" &&
                       cvv(m, 0, "g_str[1]") == "105 'i'" && cvv(m, 0, "g_cptr[2]") == "99 'c'" && cvv(m, 1, "lp.x") == "3" && cvv(m, 0, "sum::calls") == "1" &&
                       cvv(m, 0, "other.c::s_dup") == "4" && cvv(m, 0, "vars.c::s_dup") == "0" && err(0, "g_matrix[2][0]") == "index 2 out of range [0, 2)" &&
                       err(0, "g_pt.z") == "no member 'z'" && err(0, "g_int.x") == "not a struct" && err(0, "*g_int") == "not a pointer" &&
                       err(0, "nosuch") == "unknown name 'nosuch'" && err(0, "g_head->next->val") == "null pointer" && err(5, "g_int").find("no frame 5") == 0 &&
-                      err(0, "g_pt.").find("member name") != std::string::npos);
+                      err(0, "g_pt.").find("member name") != std::string::npos && cvv(m, 1, "sum::calls") == "1" &&
+                      err(1, "sum::t") == "'t' is a local of sum, which frame 1 is not" && err(0, "nosuchfn::x") == "no function 'nosuchfn'");
         }
         {   // SRCDBG-CVAL-42
             // g_flags poked with 8D C8: zsdcc decodes the bitfields exactly; sccz80 and 80cc write overlapping ints (z88dk U2) and say so
@@ -7542,6 +7544,54 @@ int main() {
                                     "no sloc temporaries, enumerators or `__` records anywhere in c_locals or c_globals",
                   at && zat && sc.ok && zc.ok && names_of(sc.rows) == "k p b a acc t calls" && names_of(zc.rows) == "a b p k acc t calls" && kinds && !temps);
         }
+        {   // SRCDBG-CVAL-51
+            // a register local of an OUTER frame is not available (the live registers are frame 0's). Synthetic IX-frame program fa -> fb; fa has `unsigned char q` in [c]
+            Bare m(MachineType::ZXN_ISSUE2);
+            jnext::dbg::ClientInfo ci;
+            ci.name = "t";
+            ci.kind = jnext::dbg::ClientKind::Test;
+            m.dbg->attach(ci);
+            const auto esc = [](const std::string& t) {
+                std::string o;
+                for (const unsigned char c : t) {
+                    if (std::isalpha(c)) {
+                        o += static_cast<char>(c);
+                    } else {
+                        char b[8];
+                        std::snprintf(b, sizeof b, "_%02x", c);
+                        o += b;
+                    }
+                }
+                return o;
+            };
+            const auto rec = [&](const std::string& r) { return "__CDBINFO__" + esc(r) + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n"; };
+            const std::string map = (z / "c51.map").string();
+            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "_fb = $8020 ; addr, public, , t_c, code_compiler, t.c::fb::0::0:10\n"
+                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__C_LINE_10_t_2ec = $8020 ; addr, local, , t_c, code_compiler, t.c::fb::0::0:10\n"
+                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
+                                rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + rec("F:G$fb$0_0$0({0}DF,SI:S),C,0,0,0,0,0") +
+                                rec("S:Lt.c.fa$q$1_0$1({1}SC:U),R,0,0,[c]") + rec("S:Lt.c.fb$r$1_0$1({1}SC:U),R,0,0,[c]"));
+            const auto lr = m.dbg->load_source_map(map, true);
+            const uint8_t pro[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39};
+            const auto put = [&](uint16_t at, std::initializer_list<uint8_t> tail) {
+                for (size_t k = 0; k < sizeof pro; ++k) m.emu.mmu().write(static_cast<uint16_t>(at + k), pro[k]);
+                uint16_t a = static_cast<uint16_t>(at + sizeof pro);
+                for (const uint8_t b : tail) m.emu.mmu().write(a++, b);
+            };
+            put(0x8000, {0xCD, 0x20, 0x80, 0x18, 0xFE});
+            put(0x8020, {0x18, 0xFE});
+            Z80Registers r0 = m.emu.cpu().get_registers();
+            r0.BC = 0x0742;
+            m.emu.cpu().set_registers(r0);
+            m.start(0x8000);
+            for (int k = 0; k < 7; ++k) m.emu.execute_single_instruction();   // fa: prologue, call fb; fb: prologue
+            const Dbg::CValueResult outer = m.dbg->read_c_value(1, "fa::q");
+            const Dbg::CValueResult mine = m.dbg->read_c_value(0, "r");
+            check("SRCDBG-CVAL-51", "a register local of frame 1 (fa's q in [c]) is `not available (register, outer frame)` while frame 0's own (fb's r in [c], C = $42 = 66 'B') is read",
+                  lr.count > 0 && !outer.ok && outer.why == "not available (register, outer frame)" && mine.ok && mine.value == "66 'B'");
+        }
         {   // SRCDBG-CVAL-50
             // the facade's contract for its consumers: no reader bumps state_revision(); refusals have reasons; a result carries its type, location and integer; rows round-trip
             Machine m(false, MachineType::ZXN_ISSUE2);
@@ -7573,15 +7623,16 @@ int main() {
             cv_run_to(a, 0x8CB9);
             const bool asm_at = cv_run_to(a, 0x8B64);
             const auto asm0 = a.dbg->c_locals(0);
+            const auto unalloc = a.dbg->read_c_value(1, "t");   // frame 1 is sum, whose locals are not allocated yet
             Bare none;
             const auto nl = none.dbg->c_locals(0);
-            check("SRCDBG-CVAL-50", "no reader bumps the state revision; c_locals(past the end) says `no frame N (there are M)`, an assembly frame `is not in a C function`, no store gives the status "
+            check("SRCDBG-CVAL-50", "no reader bumps the state revision; c_locals(past the end) says `no frame N (there are M)`, an assembly frame `is not in a C function`, a local of an outer function whose frame has not allocated it `not allocated`, no store gives the status "
                                     "text (also from read_c_value and an empty c_globals); read_c_value(1, pp) has an integer (the pointer's address) and a Cpu location, g_int -5 with type `int`, "
                                     "g_float a real; c_globals() is ordered by file then name with `vars.c::s_dup` (a file static in a page), `sum::calls` (a static local) and g_int, and every row's path "
                                     "reads back the same value",
                   at && st.available && quiet && g_int.ok && g_int.integer && *g_int.integer == -5 && g_int.type == "int" && !g_int.real && !past.ok &&
                       past.why == "no frame " + std::to_string(frames.size()) + " (there are " + std::to_string(frames.size()) + ")" && asm_at && !asm0.ok &&
-                      asm0.why.find("is not in a C function") != std::string::npos && !nl.ok && nl.why == "no source map is attached" &&
+                      asm0.why.find("is not in a C function") != std::string::npos && !unalloc.ok && unalloc.why == "not allocated" && !nl.ok && nl.why == "no source map is attached" &&
                       !none.dbg->read_c_value(0, "g_int").ok && none.dbg->c_globals().empty() && head.ok && head.integer && head.where.kind == Dbg::CWhere::Kind::Cpu &&
                       gf.ok && gf.real && *gf.real == 1.5 && s_dup != glob.end() && s_dup->kind == Dbg::CValueRow::Kind::FileStatic && s_dup->file == "vars.c" &&
                       s_dup->where.kind == Dbg::CWhere::Kind::Page && calls != glob.end() && calls->kind == Dbg::CValueRow::Kind::StaticLocal &&
