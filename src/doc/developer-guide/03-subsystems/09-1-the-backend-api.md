@@ -138,7 +138,7 @@ and follow the contract of [3.9.2](09-2-event-delivery-and-mutation.md).
 | audio | `ay_registers(chip)`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()`, `audio_mute_mask()` | `set_audio_mute_mask(by, m)` (host-side, never in a snapshot or an RZX) |
 | video | `framebuffer()`, `render_layer(layer, vc, dst, stride)`, `palette(id)`, `active_ula_palette_bank()`, `ula_screen_regs()`, `clip_window(layer)` | `set_palette(...)`, `set_border(by, colour)` |
 | disassembly | `disassemble(addr, n, symbols)`, `instruction_length(addr)`, `is_call_like(addr)` | — |
-| call stack and trace | `call_stack()`, `trace_entries()`, `trace_export(path)` | `set_call_stack_enabled(by, on)` (a per-client request, [7.10](../07-source-level-debugging/10-c-frames-and-values.md)), `set_trace_enabled`, `trace_clear`, `trace_resize` |
+| call stack and trace | `call_stack()`, `trace_entries()`, `trace_export(path)` | `set_call_stack_enabled(by, on)` (a per-client request, [7.10](../07-source-level-debugging/10-c-frames-and-values.md)); C variables: `c_frames()`, `c_locals(frame)`, `c_globals()`, `read_c_value(frame, path)`, `c_variables_status()` (all `const`, none bumps the revision), `set_trace_enabled`, `trace_clear`, `trace_resize` |
 | coverage | `coverage()`, `coverage_enabled()`; INS-21: `mem_coverage_enabled()`, `mem_coverage(space, addr, n, out)`, `mem_coverage_fetch(addr)`, `mem_coverage_spaces()`, `executed_source_lines(file)` | `coverage_enable`, `coverage_clear`; INS-21: `mem_coverage_enable`, `mem_coverage_clear` |
 | input | `input_state()` | see input injection below |
 | the event model | `subscriptions(include_transient)`, `events_fired_since(seq)` | see [3.9.2](09-2-event-delivery-and-mutation.md) |
