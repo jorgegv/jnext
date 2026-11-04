@@ -123,8 +123,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | z88dk -debug map adapter |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk --list listing adapter |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk CDB record decoder |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
-| C value formatting (frames and values) |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source debugging (backend) |      471 |      471 |      0 |       0 |    100% | 🟢 All tests pass. |
+| C value formatting (frames and values) |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (backend) |      474 |      474 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Backend (GH #276) |     1567 |     1567 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -184,6 +184,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Panels (GH #278) |      110 |      110 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      270 |      270 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **15438**| **15438**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Variables panel |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **15463**| **15463**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
