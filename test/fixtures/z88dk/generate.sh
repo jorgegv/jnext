@@ -24,7 +24,7 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|blocks_c|bits_c|fm_c|u5_c|fl_c|X__xm_c|X1st_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c|cross_c|floats_c)$'
+MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|blocks_c|bits_c|fm_c|u5_c|fl_c|X__xm_c|X1st_c|xm_c|_1st_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c|cross_c|floats_c)$'
 
 trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT), $3 = for a dot command, the groups that have a prog_<G>.bin; stdout = kept lines, original order
     awk -v MODS="$MODS" -v CRT="${2:-}" -v BINS="${3:-}" -v EXTRA="${KEEP_EXTRA:-}" '

@@ -79,7 +79,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 
 | v2.4/sccz80-{blocks,bits,fm}, master/{sccz80,sdcc,80cc}-{blocks,bits}, master/{sccz80,80cc}-fm, master-fixed/{sccz80,80cc}-{bits,fm}, master-fixed/sccz80-blocks | `blocks.c`, `bits.c` or `fm.c` only: `-clib=new [-compiler=80cc] -debug` / `-clib=sdcc_iy -debug` | ok | GH #438: block scope (`for` headers, sibling blocks), bitfields, a fastcall function with two parameters and arrays sized by their initialiser (section "Debug-record bugs") |
 | master/80cc-u5, master-fixed/80cc-u5 | `u5.c` only: `-clib=new -compiler=80cc -debug` | ok | GH #438: z88dk#3233's program, a local 80cc keeps in a register |
-| master/{sccz80,sdcc,80cc}-xmod | `./xm.c 1st.c`: `-clib=new` / `-clib=sdcc_iy` / `-clib=new -compiler=80cc`, `-debug` | ok | GH #438: z80asm prefixes `X` to a module whose path starts with `.` or a digit (`X__xm_c`, `X1st_c`) |
+| master/{sccz80,sdcc,80cc}-xmod | `./xm.c 1st.c`: `-clib=new` / `-clib=sdcc_iy` / `-clib=new -compiler=80cc`, `-debug` | ok | GH #438: z80asm prefixes `X` to a sccz80 or 80cc module whose path starts with `.` or a digit (`X__xm_c`, `X1st_c`); zsdcc names its modules `xm_c` and `_1st_c` |
 | master/classic-mbf32, master/classic-math32 | `fl.c` only: `zcc +zx -debug --math-mbf32` / `--math32` | ok, a `.tap` | GH #438: the map names the float library (`__code_fp_mbf32_size` / `__code_fp_math32_size`), the record says only `{4}SF` |
 | master-fixed/{sccz80,80cc}-cvars, master-fixed/sccz80-fc | as the `master/` builds of the same name | ok | GH #438: the records after the six fixes |
 
@@ -296,7 +296,7 @@ What each z88dk gives the debugger for the new `blocks.c`, `bits.c`, `fm.c`, `u5
   and global ones are `{-1}`, the global with a stale twin; 80cc keeps that for static and global arrays on every version.
 - **80cc frame slots (z88dk#3233).** `u5.c`: `r` stays in a register and its slot is never written.
 - **Modules.** z80asm names a module after its source path with `X` prefixed when the path starts with `.`, `/` or a digit
-  (`./xm.c` is `X__xm_c`, `1st.c` is `X1st_c`); 80cc writes `M:<file>` with the file as `C_LINE` spells it (`M:./xm.c`), zsdcc
+  (`./xm.c` is `X__xm_c`, `1st.c` is `X1st_c`; zsdcc names its modules `xm_c` and `_1st_c`); 80cc writes `M:<file>` with the file as `C_LINE` spells it (`M:./xm.c`), zsdcc
   `M:<module>` against the file `<module>.c`, and sccz80 writes no `M:` into the map.
 - **Floats (z88dk#3236).** The record says `{4}SF` for mbf32, dai32 and math32 alike; `__code_fp_<lib>_size` is the only trace
   of the library.
