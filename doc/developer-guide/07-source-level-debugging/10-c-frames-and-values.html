@@ -2936,6 +2936,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-int32-atom-c_int32_scalar-gh-436" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The int32 atom: c_int32_scalar() (GH #436)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#fixtures-and-rows" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3197,19 +3208,19 @@ that it may be stale), refuses <code>[]</code> as optimised out and an outer fra
 </thead>
 <tbody>
 <tr>
-<td><code>c_variables_status()</code> (<code>debugger_cvalues.cpp:398</code>)</td>
+<td><code>c_variables_status()</code> (<code>debugger_cvalues.cpp:399</code>)</td>
 <td><code>{available, why}</code> with a printable reason: <code>no source map is attached</code>; <code>an SLD source map carries no C variables</code>; <code>the map has no C debug records</code> (lines from listings only); <code>zsdcc wrote no C variable records for this build</code> (<code>zcc -O0</code> keeps the <code>C_LINE</code> records and writes no <code>__CDBINFO__</code>, fixture <code>master/sdcc-cvars-O0</code>); <code>the map has line records but no __CDBINFO__ records</code>; <code>all N C variable records were refused: &lt;reason&gt;</code>; a stale map</td>
 </tr>
 <tr>
-<td><code>c_locals(frame)</code> (<code>debugger_cvalues.cpp:434</code>)</td>
+<td><code>c_locals(frame)</code> (<code>debugger_cvalues.cpp:435</code>)</td>
 <td>the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a <code>CValueRow</code>; refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known</td>
 </tr>
 <tr>
-<td><code>c_globals()</code> (<code>debugger_cvalues.cpp:466</code>)</td>
+<td><code>c_globals()</code> (<code>debugger_cvalues.cpp:467</code>)</td>
 <td>every global, file static and static local, ordered by file then name, with a <code>path</code> no local can shadow: <code>vars.c::s_dup</code>, <code>sum::calls</code> (<code>a.c::init::done</code> when two modules have a function <code>init</code>)</td>
 </tr>
 <tr>
-<td><code>read_c_value(frame, path)</code> (<code>debugger_cvalues.cpp:496</code>)</td>
+<td><code>read_c_value(frame, path)</code> (<code>debugger_cvalues.cpp:497</code>)</td>
 <td>the object a C path names in that frame: <code>ok</code> or <code>why</code>, the type text, the value text, <code>notes</code>, the typed location <code>loc</code>, <code>where</code>, <code>integer</code> (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and <code>real</code> (the floats)</td>
 </tr>
 </tbody>
@@ -3232,9 +3243,55 @@ StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code
   inside its root object, cleared when a pointer is followed (<code>CFormatCtx::read_root</code>).</li>
 <li>A listed <code>__z88dk_fastcall</code> parameter recorded at an offset &gt;= 0 is <code>location unknown (z88dk U1...)</code>.</li>
 </ul>
-<p><code>find_var()</code> (<code>debugger_cvalues.cpp:303</code>) resolves a name in frame <code>k</code>: the frame's visible locals, then its function's static
+<p><code>find_var()</code> (<code>debugger_cvalues.cpp:304</code>) resolves a name in frame <code>k</code>: the frame's visible locals, then its function's static
 locals, the file's statics, the globals. A local that exists but is hidden is <code>out of scope at &lt;file&gt;:&lt;line&gt;</code>. <code>fn::name</code> names a static
 local from any frame, and a local of <code>fn</code> only from a frame of <code>fn</code>; <code>file.c::name</code> names that file's statics and globals.</p>
+<h2 id="the-int32-atom-c_int32_scalar-gh-436">The int32 atom: <code>c_int32_scalar()</code> (GH #436)<a class="headerlink" href="#the-int32-atom-c_int32_scalar-gh-436" title="Permanent link">&para;</a></h2>
+<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:941</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
+and, through its translation, ZRCP's <code>CVAR()</code> both reach it through the evaluator, so there is nothing to keep in step. It reads
+<code>loc.type</code> (the head of the chain and the size) and <code>loc.note</code>, so a register-held value (no address) passes a <code>CLoc</code> with just its
+type, which <code>read_c_value()</code> fills for it. <code>integer</code> is the facade's <code>CValueResult::integer</code>.</p>
+<table>
+<thead>
+<tr>
+<th>The object</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Char, Int, Long, Scalar, Bitfield, Pointer, size at most 4</td>
+<td>the low 32 bits of <code>integer</code>: an unsigned 32-bit value keeps its bit pattern (<code>0xCAFEBABE</code> is -889275714, as the DSL's literal is), a pointer is its address</td>
+</tr>
+<tr>
+<td>the same kinds, size over 4 (<code>{8}SL</code>)</td>
+<td>refused: <code>a &lt;size&gt;-byte integer does not fit the script's 32 bits</code></td>
+</tr>
+<tr>
+<td>Float, Float16, Fixed</td>
+<td>refused: <code>&lt;type&gt; is not an integer</code> (the DSL has no floats; truncating would be a guess)</td>
+</tr>
+<tr>
+<td>Struct, Array</td>
+<td>refused: <code>&lt;type&gt; is an aggregate, not a scalar: name a member or an element</code></td>
+</tr>
+<tr>
+<td>Void, Function</td>
+<td>refused: <code>&lt;type&gt; has no value</code></td>
+</tr>
+<tr>
+<td>a <code>loc.note</code> (a member of an overlapping struct, z88dk U2)</td>
+<td>refused with the note: the value is not trustworthy</td>
+</tr>
+<tr>
+<td><code>integer</code> empty</td>
+<td>refused: <code>no integer value was read</code></td>
+</tr>
+</tbody>
+</table>
+<p>The register-local "may be stale" and "page N is not mapped" notes are row notes, not <code>CLoc::note</code>, and do not refuse: they say
+how far to trust a value that is shown. The rule is a pure function, so <code>CVINT-01</code> and <code>CVINT-02</code> reach every arm with synthetic types; no
+fixture has an 8-byte integer, a binary16 or an <code>_Accum</code> global.</p>
 <h2 id="fixtures-and-rows">Fixtures and rows<a class="headerlink" href="#fixtures-and-rows" title="Permanent link">&para;</a></h2>
 <p><code>Z88CDB-41</code> to <code>-50</code> in <code>z88dk_map_test</code> (the extents against a golden that <code>derive-scopes.py --extents</code>
 derives from the raw map lines, the <code>*-cross</code> fixtures, the helpers, the listing evidence for the calling
@@ -3243,7 +3300,7 @@ convention, the no-record facts, and the unchanged scope tables on the 12 maps o
 tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, a function that crosses a slot; and the
 values: the first call of sum on each compiler, the globals, the loop, paged globals with their note, the fastcall marker, C paths and
 their refusals, bitfields, the status texts, the lifetime, a rewind, a dot command's global, order and hiding, and the facade's
-contract, an unknown frame base, a stale map, an ambiguous function, page crossing and the label of an unmapped page, file-qualified static locals, a pointer in a register). The plan's row for an identity-only space (a value whose storage is in <code>BootRom</code>, <code>Layer2</code> and the like) is not built, and cannot be: <code>storage_of()</code> refuses any bound placement that is not a <code>Page</code> and <code>z88dk_section_space()</code> produces only <code>Page</code> and <code>DivMmcRam</code>, so no z88dk map can place a variable in such a space; the neighbouring contract, a failed read is never <code>0</code>, is reachable and rowed (a 2-byte global on the last byte of its page). A struct's size by module is <code>CVALF-37</code>, the integer and real a value holds <code>CVALF-38</code>, rooted reads <code>CVALF-39</code>.</p>
+contract, an unknown frame base, a stale map, an ambiguous function, page crossing and the label of an unmapped page, file-qualified static locals, a pointer in a register). The plan's row for an identity-only space (a value whose storage is in <code>BootRom</code>, <code>Layer2</code> and the like) is not built, and cannot be: <code>storage_of()</code> refuses any bound placement that is not a <code>Page</code> and <code>z88dk_section_space()</code> produces only <code>Page</code> and <code>DivMmcRam</code>, so no z88dk map can place a variable in such a space; the neighbouring contract, a failed read is never <code>0</code>, is reachable and rowed (a 2-byte global on the last byte of its page). A struct's size by module is <code>CVALF-37</code>, the integer and real a value holds <code>CVALF-38</code>, rooted reads <code>CVALF-39</code>; the int32 rule is <code>CVINT-01</code> and <code>-02</code> in <code>c_value_test</code>. The frontends' rows are <code>EVAL-CVAR-*</code>, <code>GDB-CVAR-*</code> and <code>ZRCP-CVAR-*</code> (<a href="08-tests-and-new-producers.html">7.8</a>).</p>
 
 
 

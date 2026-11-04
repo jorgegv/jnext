@@ -157,10 +157,10 @@ that it may be stale), refuses `[]` as optimised out and an outer frame as not a
 
 | Reader | Gives |
 |---|---|
-| `c_variables_status()` (`debugger_cvalues.cpp:398`) | `{available, why}` with a printable reason: `no source map is attached`; `an SLD source map carries no C variables`; `the map has no C debug records` (lines from listings only); `zsdcc wrote no C variable records for this build` (`zcc -O0` keeps the `C_LINE` records and writes no `__CDBINFO__`, fixture `master/sdcc-cvars-O0`); `the map has line records but no __CDBINFO__ records`; `all N C variable records were refused: <reason>`; a stale map |
-| `c_locals(frame)` (`debugger_cvalues.cpp:434`) | the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a `CValueRow`; refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known |
-| `c_globals()` (`debugger_cvalues.cpp:466`) | every global, file static and static local, ordered by file then name, with a `path` no local can shadow: `vars.c::s_dup`, `sum::calls` (`a.c::init::done` when two modules have a function `init`) |
-| `read_c_value(frame, path)` (`debugger_cvalues.cpp:496`) | the object a C path names in that frame: `ok` or `why`, the type text, the value text, `notes`, the typed location `loc`, `where`, `integer` (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and `real` (the floats) |
+| `c_variables_status()` (`debugger_cvalues.cpp:399`) | `{available, why}` with a printable reason: `no source map is attached`; `an SLD source map carries no C variables`; `the map has no C debug records` (lines from listings only); `zsdcc wrote no C variable records for this build` (`zcc -O0` keeps the `C_LINE` records and writes no `__CDBINFO__`, fixture `master/sdcc-cvars-O0`); `the map has line records but no __CDBINFO__ records`; `all N C variable records were refused: <reason>`; a stale map |
+| `c_locals(frame)` (`debugger_cvalues.cpp:435`) | the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a `CValueRow`; refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known |
+| `c_globals()` (`debugger_cvalues.cpp:467`) | every global, file static and static local, ordered by file then name, with a `path` no local can shadow: `vars.c::s_dup`, `sum::calls` (`a.c::init::done` when two modules have a function `init`) |
+| `read_c_value(frame, path)` (`debugger_cvalues.cpp:497`) | the object a C path names in that frame: `ok` or `why`, the type text, the value text, `notes`, the typed location `loc`, `where`, `integer` (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and `real` (the floats) |
 
 A `CValueRow` carries `name`, `path` (which round-trips through `read_c_value`), `file`, `type`, `kind` (Param, Local,
 StaticLocal, FileStatic, Global), `where`, `ok` with `value` or `why`, `aggregate` and `notes`. A failed read has an empty
@@ -181,9 +181,30 @@ Where an object is read from (`eval_var()`, `debugger_cvalues.cpp:140`):
   inside its root object, cleared when a pointer is followed (`CFormatCtx::read_root`).
 - A listed `__z88dk_fastcall` parameter recorded at an offset >= 0 is `location unknown (z88dk U1...)`.
 
-`find_var()` (`debugger_cvalues.cpp:303`) resolves a name in frame `k`: the frame's visible locals, then its function's static
+`find_var()` (`debugger_cvalues.cpp:304`) resolves a name in frame `k`: the frame's visible locals, then its function's static
 locals, the file's statics, the globals. A local that exists but is hidden is `out of scope at <file>:<line>`. `fn::name` names a static
 local from any frame, and a local of `fn` only from a frame of `fn`; `file.c::name` names that file's statics and globals.
+
+## The int32 atom: `c_int32_scalar()` (GH #436)
+
+`c_int32_scalar(loc, integer)` (`c_value.cpp:941`) is the one rule for what a C value is as a 32-bit integer; the script atom `cvar()`
+and, through its translation, ZRCP's `CVAR()` both reach it through the evaluator, so there is nothing to keep in step. It reads
+`loc.type` (the head of the chain and the size) and `loc.note`, so a register-held value (no address) passes a `CLoc` with just its
+type, which `read_c_value()` fills for it. `integer` is the facade's `CValueResult::integer`.
+
+| The object | Result |
+|---|---|
+| Char, Int, Long, Scalar, Bitfield, Pointer, size at most 4 | the low 32 bits of `integer`: an unsigned 32-bit value keeps its bit pattern (`0xCAFEBABE` is -889275714, as the DSL's literal is), a pointer is its address |
+| the same kinds, size over 4 (`{8}SL`) | refused: `a <size>-byte integer does not fit the script's 32 bits` |
+| Float, Float16, Fixed | refused: `<type> is not an integer` (the DSL has no floats; truncating would be a guess) |
+| Struct, Array | refused: `<type> is an aggregate, not a scalar: name a member or an element` |
+| Void, Function | refused: `<type> has no value` |
+| a `loc.note` (a member of an overlapping struct, z88dk U2) | refused with the note: the value is not trustworthy |
+| `integer` empty | refused: `no integer value was read` |
+
+The register-local "may be stale" and "page N is not mapped" notes are row notes, not `CLoc::note`, and do not refuse: they say
+how far to trust a value that is shown. The rule is a pure function, so `CVINT-01` and `CVINT-02` reach every arm with synthetic types; no
+fixture has an 8-byte integer, a binary16 or an `_Accum` global.
 
 ## Fixtures and rows
 
@@ -194,4 +215,4 @@ convention, the no-record facts, and the unchanged scope tables on the 12 maps o
 tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, a function that crosses a slot; and the
 values: the first call of sum on each compiler, the globals, the loop, paged globals with their note, the fastcall marker, C paths and
 their refusals, bitfields, the status texts, the lifetime, a rewind, a dot command's global, order and hiding, and the facade's
-contract, an unknown frame base, a stale map, an ambiguous function, page crossing and the label of an unmapped page, file-qualified static locals, a pointer in a register). The plan's row for an identity-only space (a value whose storage is in `BootRom`, `Layer2` and the like) is not built, and cannot be: `storage_of()` refuses any bound placement that is not a `Page` and `z88dk_section_space()` produces only `Page` and `DivMmcRam`, so no z88dk map can place a variable in such a space; the neighbouring contract, a failed read is never `0`, is reachable and rowed (a 2-byte global on the last byte of its page). A struct's size by module is `CVALF-37`, the integer and real a value holds `CVALF-38`, rooted reads `CVALF-39`.
+contract, an unknown frame base, a stale map, an ambiguous function, page crossing and the label of an unmapped page, file-qualified static locals, a pointer in a register). The plan's row for an identity-only space (a value whose storage is in `BootRom`, `Layer2` and the like) is not built, and cannot be: `storage_of()` refuses any bound placement that is not a `Page` and `z88dk_section_space()` produces only `Page` and `DivMmcRam`, so no z88dk map can place a variable in such a space; the neighbouring contract, a failed read is never `0`, is reachable and rowed (a 2-byte global on the last byte of its page). A struct's size by module is `CVALF-37`, the integer and real a value holds `CVALF-38`, rooted reads `CVALF-39`; the int32 rule is `CVINT-01` and `-02` in `c_value_test`. The frontends' rows are `EVAL-CVAR-*`, `GDB-CVAR-*` and `ZRCP-CVAR-*` ([7.8](08-tests-and-new-producers.md)).

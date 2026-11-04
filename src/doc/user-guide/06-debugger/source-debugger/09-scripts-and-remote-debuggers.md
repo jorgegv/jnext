@@ -72,9 +72,114 @@ reported to hang in banked code, which was not re-run for this page. z88dk PR #3
 2026-10-31, fixes these according to its description; it is newer than both installs used here,
 and no case was run with it.
 
+## C variables
+
+A z88dk `-debug` map carries the program's C variables (see [Building with
+z88dk](02-building-with-z88dk.md)), and JNEXT reads them for scripts, for GDB and for
+ZRCP. The three read the same values: each calls the same reader, which knows where
+every variable lives, in which module, and in which memory page.
+
+**In a script**, the `cvar(PATH)` atom: `on execute main.c:21 when cvar(i) == 3 ...`. The path
+grammar, what is refused and why are in [Reading the machine](../scripting/04-reading-the-machine.md#c-variables-cvar).
+
+**Over GDB**, three `monitor` commands (only a `z88dk-gdb` that has `monitor`, newer than 2.4):
+`monitor locals [FRAME]`, `monitor globals` and `monitor print [FRAME] PATH`. They are read-only and
+print their reason when they cannot read something. A session on the `vars.c` / `other.c` program of `test/fixtures/z88dk/src` (built as the
+`master/sccz80-cvars` fixture, whose `build.log` has the `zcc` line), with the `z88dk-gdb` client built from
+z88dk checkout 97731e4e29 (2026-11-03), and JNEXT started as `jnext --headless --machine next --load prog.nex
+--gdb-port 3333`:
+
+```
+set pc 0x8d54
+break vars.c:41
+cont
+print s_dup
+monitor print s_dup
+print g_float
+monitor print g_float
+monitor locals
+up
+info locals
+monitor locals 1
+```
+
+printed (trimmed to the answers; `b` is `g_int`, which the program's final loop keeps incrementing, so its value
+depends on how long the program ran before the client connected):
+
+```
+$1 = <uint8_t> 4
+(unsigned char) s_dup = 178
+$2 = <> 0.000000
+(float) g_float = 1.5
+frame 0: sum at vars.c:41, fp $FF1A (tracked)
+  (unsigned char) k = 120 'x'
+  (struct point *) p = $FF38
+  (int) b = 25180
+  (int) a = 0
+  (long) acc = 75900
+  (int) t = 25307
+  (unsigned char) calls = 5
+OK
+ * function main+133 (<struct point*>pp = 0xff38, <struct point>lp = {x=3, y=4, tag=5}, <uint8_t>i = 0, <char>c = 120, <int32_t>big = 100000, <int16_t[]>arr = 0xff30 [8] = { [0] = 21389, ... })
+frame 1: main at vars.c:56, fp $FF3D (chain)
+  (int [4]) arr = {21389, -9843, 16269, 20366}
+  (long) big = 100000
+  (char) c = 120 'x'
+  (unsigned char) i = 0
+  (struct point) lp = {x = 3, y = 4, tag = 5}
+  (struct point *) pp = $FF38
+OK
+```
+
+The client computes `info locals`, `print` and `up` itself, from the map it was given with `-x`, and for
+most values it agrees with `monitor`. Where it does not, `monitor` is right. Measured in this session, and again
+with the 2.4 client (which has no `monitor`, and printed the same answers for `print s_dup`, `print g_float`
+and `info locals`): `print s_dup` is 4, the `s_dup` of `other.c`, where `vars.c`'s is 178 (the client picks the
+first `s_dup` of the map by name, `monitor print` reads the one of the frame's own file); `print g_float` is
+`<> 0.000000` for z88dk's 48-bit float, which `monitor print` decodes (1.5); `arr` is `int16_t arr[4]`, which the
+client shows with 8 elements, four of them past the end of the array. By its source the client also asks for
+memory with 16-bit addresses (not measured here), so a global in a banked page is read from whatever is mapped
+there now, where `monitor print` reads it from its own page and says when that page is not mapped. `FRAME` counts
+from 0, where the CPU is, as `up` does.
+
+**Over ZRCP**, `CVAR(path)` in `evaluate` and in a breakpoint condition. It is a JNEXT extension of
+ZEsarUX's condition dialect (ZEsarUX answers it `Error parsing`), so put a `PC=` term first in a condition: any other
+is checked at every instruction. With the same program:
+
+```
+enter-cpu-step
+enable-breakpoints
+set-register PC=8D54H
+set-breakpoint 1 PC=8D3EH AND CVAR(a)=2
+get-breakpoints 1
+run
+evaluate CVAR(a)
+evaluate CVAR(p->x)+CVAR(p->y)
+evaluate CVAR(g_matrix[1][2])=6
+evaluate CVAR(inner)
+evaluate CVAR(p->x
+```
+
+answered (the register line of the stop and the command prompts are left out)
+
+```
+Enabled 1: PC=8D3EH AND CVAR(a)=2
+Breakpoint fired: PC=8D3EH AND CVAR(a)=2
+2
+7
+1
+Error evaluating parsed string: CVAR(inner)
+Error parsing
+```
+
+The breakpoint stopped at the third call of `sum` (`a` is 2), `CVAR(inner)` failed because `inner` is out of scope on
+that line, and an unclosed `CVAR(` does not parse. A failed read has no reason in ZRCP, as ZEsarUX's reply has none;
+`monitor print` and a script show it. `CVAR` takes the same paths as `cvar()` and gives integers and pointers.
+
 ## DeZog
 
-DeZog reads the source map itself, from its own launch configuration (`"sjasmplus": [ { "path":
+DeZog has no C variables from JNEXT: the DZRP protocol has no command that could carry a variable, and DeZog evaluates its
+own breakpoint conditions. It reads the source map itself, from its own launch configuration (`"sjasmplus": [ { "path":
 "mygame.sld" } ]`, see [Remote debugging with DeZog](../functions/10-remote-debugging-with-dezog.md)):
 JNEXT does not pass it its map. The two maps can differ, and a mismatch shows as a line in one
 tool that the other puts elsewhere.

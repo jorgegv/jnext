@@ -3620,6 +3620,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#c-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#dezog" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4203,8 +4214,96 @@ example built with both installs, which has a 24-bit line symbol; the client's <
 reported to hang in banked code, which was not re-run for this page. z88dk PR #3218, merged
 2026-10-31, fixes these according to its description; it is newer than both installs used here,
 and no case was run with it.</p>
+<h2 id="c-variables">C variables<a class="headerlink" href="#c-variables" title="Permanent link">&para;</a></h2>
+<p>A z88dk <code>-debug</code> map carries the program's C variables (see <a href="02-building-with-z88dk.html">Building with
+z88dk</a>), and JNEXT reads them for scripts, for GDB and for
+ZRCP. The three read the same values: each calls the same reader, which knows where
+every variable lives, in which module, and in which memory page.</p>
+<p><strong>In a script</strong>, the <code>cvar(PATH)</code> atom: <code>on execute main.c:21 when cvar(i) == 3 ...</code>. The path
+grammar, what is refused and why are in <a href="../scripting/04-reading-the-machine.html#c-variables-cvar">Reading the machine</a>.</p>
+<p><strong>Over GDB</strong>, three <code>monitor</code> commands (only a <code>z88dk-gdb</code> that has <code>monitor</code>, newer than 2.4):
+<code>monitor locals [FRAME]</code>, <code>monitor globals</code> and <code>monitor print [FRAME] PATH</code>. They are read-only and
+print their reason when they cannot read something. A session on the <code>vars.c</code> / <code>other.c</code> program of <code>test/fixtures/z88dk/src</code> (built as the
+<code>master/sccz80-cvars</code> fixture, whose <code>build.log</code> has the <code>zcc</code> line), with the <code>z88dk-gdb</code> client built from
+z88dk checkout 97731e4e29 (2026-11-03), and JNEXT started as <code>jnext --headless --machine next --load prog.nex
+--gdb-port 3333</code>:</p>
+<pre><code>set pc 0x8d54
+break vars.c:41
+cont
+print s_dup
+monitor print s_dup
+print g_float
+monitor print g_float
+monitor locals
+up
+info locals
+monitor locals 1
+</code></pre>
+<p>printed (trimmed to the answers; <code>b</code> is <code>g_int</code>, which the program's final loop keeps incrementing, so its value
+depends on how long the program ran before the client connected):</p>
+<pre><code>$1 = &lt;uint8_t&gt; 4
+(unsigned char) s_dup = 178
+$2 = &lt;&gt; 0.000000
+(float) g_float = 1.5
+frame 0: sum at vars.c:41, fp $FF1A (tracked)
+  (unsigned char) k = 120 'x'
+  (struct point *) p = $FF38
+  (int) b = 25180
+  (int) a = 0
+  (long) acc = 75900
+  (int) t = 25307
+  (unsigned char) calls = 5
+OK
+ * function main+133 (&lt;struct point*&gt;pp = 0xff38, &lt;struct point&gt;lp = {x=3, y=4, tag=5}, &lt;uint8_t&gt;i = 0, &lt;char&gt;c = 120, &lt;int32_t&gt;big = 100000, &lt;int16_t[]&gt;arr = 0xff30 [8] = { [0] = 21389, ... })
+frame 1: main at vars.c:56, fp $FF3D (chain)
+  (int [4]) arr = {21389, -9843, 16269, 20366}
+  (long) big = 100000
+  (char) c = 120 'x'
+  (unsigned char) i = 0
+  (struct point) lp = {x = 3, y = 4, tag = 5}
+  (struct point *) pp = $FF38
+OK
+</code></pre>
+<p>The client computes <code>info locals</code>, <code>print</code> and <code>up</code> itself, from the map it was given with <code>-x</code>, and for
+most values it agrees with <code>monitor</code>. Where it does not, <code>monitor</code> is right. Measured in this session, and again
+with the 2.4 client (which has no <code>monitor</code>, and printed the same answers for <code>print s_dup</code>, <code>print g_float</code>
+and <code>info locals</code>): <code>print s_dup</code> is 4, the <code>s_dup</code> of <code>other.c</code>, where <code>vars.c</code>'s is 178 (the client picks the
+first <code>s_dup</code> of the map by name, <code>monitor print</code> reads the one of the frame's own file); <code>print g_float</code> is
+<code>&lt;&gt; 0.000000</code> for z88dk's 48-bit float, which <code>monitor print</code> decodes (1.5); <code>arr</code> is <code>int16_t arr[4]</code>, which the
+client shows with 8 elements, four of them past the end of the array. By its source the client also asks for
+memory with 16-bit addresses (not measured here), so a global in a banked page is read from whatever is mapped
+there now, where <code>monitor print</code> reads it from its own page and says when that page is not mapped. <code>FRAME</code> counts
+from 0, where the CPU is, as <code>up</code> does.</p>
+<p><strong>Over ZRCP</strong>, <code>CVAR(path)</code> in <code>evaluate</code> and in a breakpoint condition. It is a JNEXT extension of
+ZEsarUX's condition dialect (ZEsarUX answers it <code>Error parsing</code>), so put a <code>PC=</code> term first in a condition: any other
+is checked at every instruction. With the same program:</p>
+<pre><code>enter-cpu-step
+enable-breakpoints
+set-register PC=8D54H
+set-breakpoint 1 PC=8D3EH AND CVAR(a)=2
+get-breakpoints 1
+run
+evaluate CVAR(a)
+evaluate CVAR(p-&gt;x)+CVAR(p-&gt;y)
+evaluate CVAR(g_matrix[1][2])=6
+evaluate CVAR(inner)
+evaluate CVAR(p-&gt;x
+</code></pre>
+<p>answered (the register line of the stop and the command prompts are left out)</p>
+<pre><code>Enabled 1: PC=8D3EH AND CVAR(a)=2
+Breakpoint fired: PC=8D3EH AND CVAR(a)=2
+2
+7
+1
+Error evaluating parsed string: CVAR(inner)
+Error parsing
+</code></pre>
+<p>The breakpoint stopped at the third call of <code>sum</code> (<code>a</code> is 2), <code>CVAR(inner)</code> failed because <code>inner</code> is out of scope on
+that line, and an unclosed <code>CVAR(</code> does not parse. A failed read has no reason in ZRCP, as ZEsarUX's reply has none;
+<code>monitor print</code> and a script show it. <code>CVAR</code> takes the same paths as <code>cvar()</code> and gives integers and pointers.</p>
 <h2 id="dezog">DeZog<a class="headerlink" href="#dezog" title="Permanent link">&para;</a></h2>
-<p>DeZog reads the source map itself, from its own launch configuration (<code>"sjasmplus": [ { "path":
+<p>DeZog has no C variables from JNEXT: the DZRP protocol has no command that could carry a variable, and DeZog evaluates its
+own breakpoint conditions. It reads the source map itself, from its own launch configuration (<code>"sjasmplus": [ { "path":
 "mygame.sld" } ]</code>, see <a href="../functions/10-remote-debugging-with-dezog.html">Remote debugging with DeZog</a>):
 JNEXT does not pass it its map. The two maps can differ, and a mismatch shows as a line in one
 tool that the other puts elsewhere.</p>

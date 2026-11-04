@@ -19,7 +19,7 @@ code departs from it. This page describes the code.
 
 | File | What it holds |
 |---|---|
-| `lexer.{h,cpp}` | tokens; comments `;` `//` `#`; integers (decimal, `0x`, `$`, `0b`, 32-bit wrapping); strings with `${expr[:x2\|x4\|d]}` interpolation; `file:line` as one `FileLine` token, recognised by lookahead (GH #346); the bracketed accessors (`mem[`, `mem16[`, `phys[`, `nextreg[`, `mmu[`, `page[`, `stack[`, `changed(`, `depth(`) as single tokens |
+| `lexer.{h,cpp}` | tokens; comments `;` `//` `#`; integers (decimal, `0x`, `$`, `0b`, 32-bit wrapping); strings with `${expr[:x2\|x4\|d]}` interpolation; `file:line` as one `FileLine` token, recognised by lookahead (GH #346); the bracketed accessors (`mem[`, `mem16[`, `phys[`, `nextreg[`, `mmu[`, `page[`, `stack[`, `changed(`, `depth(`) as single tokens; `cvar(PATH)` as one `CVar` token carrying the raw C path (GH #436) |
 | `parser.{h,cpp}`, `ast.h` | recursive descent over the grammar; the syntax tree (`Script`, `Rule`, `EventSpec`, `Action`, `Expr`) |
 | `names.{h,cpp}` | the one table of reserved words, built-in state names (`LIVE`) and payload names (`PAYLOAD`); which names `set` may assign |
 | `check.{h,cpp}` | the load-time checks and BINDING: each upper-case name resolved to what it reads in its scope; `payload_legal()` — the per-event payload table |
@@ -70,6 +70,17 @@ is both is the address (row SYM-13). A z88dk C symbol (module `<file>_c`) also r
 `@counter` for `_counter`, after the exact names and constants (rows SCRIPT-HOST-CN-01/02).
 The `-debug` records of a map (names starting `__C_LINE_`, `__ASM_LINE_` or
 `__CDBINFO__`) are not symbols: the loader drops them (rows SYM-14 to SYM-18).
+
+**`cvar(PATH)`** (GH #436, [7.7](../07-source-level-debugging/07-frontends.md)) is the atom that reads a C variable of frame 0, as
+an int32. Its path is not the DSL's grammar (`->`, `::`, `*`, `$1F`, a file name with a `.`), so `lex_ident()` takes `cvar` directly
+followed by `(` as one `Tok::CVar` and `lex_cvar()` (`lexer.cpp:195`) captures the raw text to the first `)` on the line, trimmed;
+a `(`, a `"`, a missing `)` and an empty path are lexical errors, and `cvar` with no `(` after it is an ordinary identifier, so a
+`var cvar` still works. Inside a `${...}` interpolation a `::` is not the format separator. `parse_primary()` makes an
+`ExprKind::CVar` whose `text` is the path (`parse_lvalue()` refuses it like any other read-only name, so `set cvar(x) = 1` is an error).
+`check_script()` checks the syntax with `c_parse_path()` at load, in every scope (it reads the machine, like `mem[]`); what the path
+names is looked up at each evaluation, by `eval_int()`, as `read_c_value(0, path)` then `c_int32_scalar()`. Every refusal is an
+`EvalError` carrying the facade's reason, which in a `when` disables the rule; none is a 0. The `-Werror=switch` of `jnext_script`
+is what forced the arms in both switches.
 
 An sjasmplus `--sym` / `--exp` file loads into the same table (`--map` picks it
 by contents). Its names are dotted (`main.loop`, `gfx.draw.loop`), so

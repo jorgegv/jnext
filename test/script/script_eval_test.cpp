@@ -1182,7 +1182,7 @@ static void cvar_rows() {
         bool ok = r.loaded && r.run_to(0x8D3E);
         const struct { const char* e; int32_t v; } want[] = {
             {"cvar(g_matrix[1][2])", 6}, {"cvar(g_matrix[0][0x1])", 2}, {"cvar(g_str[1])", 105}, {"cvar(g_cptr[2])", 99},
-            {"cvar(vars.c::s_dup)", 0}, {"cvar(other.c::s_dup)", 4}, {"cvar(sum::calls)", 1}};
+            {"cvar(vars.c::s_dup)", 0}, {"cvar(other.c::s_dup)", 4}, {"cvar(sum::calls)", 1}, {"cvar(vars.c::sum::calls)", 1}};
         std::string detail;
         for (const auto& w : want) {
             bool one = false;
@@ -1201,7 +1201,7 @@ static void cvar_rows() {
         const int32_t other = cvv(b, "mem[0xC002]", &three);
         bok = bok && t2 == 30 && other != 30;
         check("EVAL-CVAR-03", "cvar() of elements and qualified names: g_matrix[1][2]=6 g_matrix[0][0x1]=2 g_str[1]=105 g_cptr[2]=99 "
-                              "vars.c::s_dup=0 other.c::s_dup=4 sum::calls=1; a banked array element is read from its own "
+                              "vars.c::s_dup=0 other.c::s_dup=4 sum::calls=1 vars.c::sum::calls=1; a banked array element is read from its own "
                               "page, which is not mapped: btable[2] = phys[20, 2] = 30, not mem[0xC002]",
               ok && bok && one && two && three && t2 == ph, detail + " banked: " + std::to_string(bok) + cv(b, "cvar(btable[2])") + " vs " + cv(b, "phys[20, 2]") + " pc=" + hex(b.pc()));
     }
