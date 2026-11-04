@@ -3050,6 +3050,10 @@ No ZEsarUX exchange changes meaning, because ZEsarUX answers this text <code>Err
 that fails answers <code>Error evaluating parsed string: CVAR(path)</code>, with no reason (the reply is ZEsarUX's; scripts and GDB's
 <code>monitor print</code> show the reason). A condition with no <code>PC=</code> first term is checked at every instruction, so one with a <code>CVAR</code>
 builds the C frames each time: <code>help set-breakpoint</code> says to put a <code>PC=</code> term first.</p>
+<p>The write (GH #437) is the same extension on the one assignment verb: <code>set-register CVAR(path)=value</code> (<code>cmd_set_register()</code>, <code>zrcp_server.cpp:1190</code>) writes
+a C variable of frame 0 through <code>write_c_value()</code> (<a href="../07-source-level-debugging/10-c-frames-and-values.html">7.10</a>). The table's census (<code>ZRCP-TAB-01</code>)
+pins the command names to ZEsarUX's <code>ls</code>, so no <code>set-cvar</code> could be added. Success answers the register line, and every failure (no <code>)</code> or <code>=</code>, an
+empty path or value, a refusal of the facade) is ZEsarUX's <code>Error changing register</code>, with no reason, as a failed <code>CVAR()</code> read has none.</p>
 <h2 id="breakpoints-history-loading">Breakpoints, history, loading<a class="headerlink" href="#breakpoints-history-loading" title="Permanent link">&para;</a></h2>
 <p>The 100 condition slots of <code>set-breakpoint</code> are one backend subscription each,
 owned by the client. A <code>PC=</code> first term is the fast path (an <code>Execute</code>

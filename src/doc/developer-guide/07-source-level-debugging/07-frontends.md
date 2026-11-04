@@ -309,18 +309,20 @@ read through it) and ZRCP `cpu-step-over`
 
 ## GDB, ZRCP, DZRP, scripts
 
-**GDB RSP** (`src/remote/gdb/rsp_server.cpp`). `monitor src [ADDR]` (`monitor_src()`, `:1056`) prints
+**GDB RSP** (`src/remote/gdb/rsp_server.cpp`). `monitor src [ADDR]` (`monitor_src()`, `:1063`) prints
 `$8CB8 main.c:19 P04` or `$8CB8 unmapped P28`: `source_location()` and the tag of
-`source_page(addr)`. `monitor sym` (`monitor_sym()`, `rsp_server.cpp:1019`) prints the tag of the memory the lookup
-used; a name prints its tag when it is paged. `monitor mmu` (`monitor_mmu()`, `rsp_server.cpp:916`) prints each slot's `now` tag and,
+`source_page(addr)`. `monitor sym` (`monitor_sym()`, `rsp_server.cpp:1026`) prints the tag of the memory the lookup
+used; a name prints its tag when it is paged. `monitor mmu` (`monitor_mmu()`, `rsp_server.cpp:923`) prints each slot's `now` tag and,
 on the Next, the physical text of the slot's first byte. The server's own symbol and source verbs are
 described in [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md).
 
-The C variables (GH #436) are three more verbs over the facade of [7.10](10-c-frames-and-values.md), all read-only.
-`monitor_locals()` (`rsp_server.cpp:1100`) prints the header of frame N (`frame 0: main at main.c:21, fp $FF51 (prologue)`, from
+The C variables (GH #436) are three more verbs over the facade of [7.10](10-c-frames-and-values.md), read-only; the write (GH #437)
+is a fourth, `monitor set var [FRAME] PATH = VALUE` (`monitor_set_var()`, `rsp_server.cpp:1212`), over `write_c_value()`: `OK` and the value read back, or
+`refused: <why>` and `E01`.
+`monitor_locals()` (`rsp_server.cpp:1107`) prints the header of frame N (`frame 0: main at main.c:21, fp $FF51 (prologue)`, from
 `c_frames()`), then one `(type) name = value` line per `c_locals()` row, and a `[note]` line under a row that has notes.
-`monitor_globals()` (`rsp_server.cpp:1148`) prints one line per `c_globals()` row named by its `path`, so a name pastes into
-`print`, with the memory the variable lives in (`$903E P04`). `monitor_print()` (`rsp_server.cpp:1169`) takes the raw rest of
+`monitor_globals()` (`rsp_server.cpp:1155`) prints one line per `c_globals()` row named by its `path`, so a name pastes into
+`print`, with the memory the variable lives in (`$903E P04`). `monitor_print()` (`rsp_server.cpp:1176`) takes the raw rest of
 the line, not the split words, because a C path may hold spaces (`p -> y`); a leading decimal word is the frame (a C path cannot
 start with a digit). A refusal (no C variables, an unknown name, no such frame) is text and `OK`, as `monitor src` does; a
 wrong argument is `E01`. They exist for any RSP client and for what `z88dk-gdb` gets wrong on its own: it resolves a file
@@ -334,7 +336,12 @@ DSL, it first translates it (`translate_condition()`, `zrcp_condition.cpp`), and
 echoes `CVAR(path)` with the path's case kept. Conditions compile through the same translation, so a breakpoint may carry it
 (`PC=8D3EH AND CVAR(a)=2`); a read that fails is ZEsarUX's `Error evaluating parsed string`, with no reason. A condition with no
 `PC=` first term is checked at every instruction, and a `CVAR` in it builds the C frames each time: put a `PC=` term first.
-`smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2625`) calls
+The write (GH #437) is `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1190`): the command table's census pins ZEsarUX's
+`ls`, so no command can be added, and the extension is a branch of the one assignment verb. It takes the path up to the first `)`, then `=`, and
+the trimmed rest as the value (a value ZRCP's `parse_number()` reads, decimal or `nnnnH`, is converted to decimal text; anything else, `-5`,
+a fraction, `'A'`, `0x10`, goes as typed) and calls `write_c_value()` in frame 0. Success answers `set-register`'s own register line; every failure
+is ZEsarUX's `Error changing register`, with no reason.
+`smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2652`) calls
 `Debugger::load()` (`debugger_reconstruct.cpp:465`), which calls `load_program_sidecars()` after a successful load
 (`load_program_sidecars()`, `debugger_reconstruct.cpp:528-532`), so a program loaded over ZRCP gets its symbols and
 source map like `--load`, and a refused sidecar is logged to every client as a Warn line.

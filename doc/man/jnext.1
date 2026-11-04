@@ -3340,7 +3340,13 @@ They read the right module\(cqs file statics, z88dk\(cqs 48\-bit floats,
 array counts and paged globals, which z88dk\-gdb\(cqs own
 \f[CR]info locals\f[R] / \f[CR]print\f[R] can get wrong.
 A refusal (no map, an unknown name, a variable the compiler optimised
-out) prints its reason; they are read\-only.
+out) prints its reason.
+\f[CR]monitor set var\f[R] [\f[I]FRAME\f[R]] \f[I]PATH\f[R] \f[CR]=\f[R]
+\f[I]VALUE\f[R] writes one (an integer, a \f[CR]\(aqc\(aq\f[R]
+character, a float for a float variable, an address for a pointer; a
+value out of the type\(cqs range is refused, never truncated); a refusal
+prints \f[CR]refused:\f[R] and its reason and the reply is
+\f[CR]E01\f[R].
 Only z88dk\-gdb versions that have \f[CR]monitor\f[R] can send them.
 .IP \(bu 2
 \f[B]Either side may pause or resume\f[R], as with DeZog: the client is
@@ -3574,7 +3580,10 @@ machine, complete before the reply; a paused machine stays paused.
 them; \f[CR]help set\-breakpoint\f[R] lists what is honoured and what is
 declined; \f[CR]CVAR(\f[R]\f[I]path\f[R]\f[CR])\f[R], a jnext extension,
 reads a C variable of the stopped program
-(\f[CR]PC=8D3EH AND CVAR(a)=2\f[R], \f[CR]evaluate CVAR(p\->x)\f[R]).
+(\f[CR]PC=8D3EH AND CVAR(a)=2\f[R], \f[CR]evaluate CVAR(p\->x)\f[R]);
+\f[CR]set\-register CVAR(\f[R]\f[I]path\f[R]\f[CR])=\f[R]\f[I]value\f[R]
+writes one (\f[CR]set\-register CVAR(g_int)=10\f[R]; every refusal is
+\f[CR]Error changing register\f[R]).
 A condition with no \f[CR]PC=\f[R] first term fires only when it turns
 from false to true, as in ZEsarUX: one that stays true stops (or prints)
 once.

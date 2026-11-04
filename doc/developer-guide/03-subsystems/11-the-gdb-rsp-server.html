@@ -3046,8 +3046,13 @@ facade reads (<a href="../07-source-level-debugging/10-c-frames-and-values.html"
 has the formats. <code>pkt_monitor()</code> (<code>rsp_server.cpp:821</code>) hands <code>print</code> the raw rest of the packet text, not <code>split_words()</code>, because a
 C path may hold spaces; the other two take the words. The reply convention is <code>monitor src</code>'s: a content refusal (no C
 variables, no such frame, an unknown name) is an <code>O</code> line and <code>OK</code>; a wrong argument count or a non-decimal frame is <code>E01</code>. Each
-verb asks <code>c_variables_status()</code> first and prints its reason when C variables are unavailable. They are read-only: there is no verb
-that writes a C variable.</p>
+verb asks <code>c_variables_status()</code> first and prints its reason when C variables are unavailable. Those three are read-only; the
+write (GH #437) is <code>monitor set var [FRAME] PATH = VALUE</code> (<code>monitor_set_var()</code>, <code>rsp_server.cpp:1212</code>). <code>monitor set</code> takes a register
+name (<code>i</code>, <code>r</code>, <code>im</code>), and those collide with C names (<code>i</code> is a local of <code>main</code>), so the C form is gdb's own <code>set var</code> spelling:
+<code>pkt_monitor()</code> hands <code>monitor_set_var()</code> the raw rest after <code>set var</code> (a path may hold spaces), a leading decimal word is the frame, the
+path is everything up to the first <code>=</code> and the value the trimmed rest. It calls <code>write_c_value()</code> (<a href="../07-source-level-debugging/10-c-frames-and-values.html">7.10</a>):
+success prints the value read back (<code>(int) g_int = 10</code>) and <code>OK</code>; a refusal is one <code>refused: &lt;why&gt;</code> line and <code>E01</code>, as <code>monitor set</code> answers a
+refused register write (a write that did not happen must not answer <code>OK</code>); a missing path, value or <code>=</code> is <code>E01</code> with no line.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>gdb_rsp_test</code> (Qt-free, both configurations) runs the production <code>Server</code>

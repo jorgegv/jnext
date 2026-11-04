@@ -337,6 +337,7 @@ and the zone numbering is ZEsarUX-internal.
 | Command | Class | Notes | Backend |
 |---|---|---|---|
 | `get-registers` / `gr` | S | §1.4 format byte-for-byte; `MEMPTR` from `Z80Registers::MEMPTR`; `VPS: 0` constant (ZEsarUX's "video pause state", meaningless here — stated in `help`); `MMU=` as §2.3.1 | `CAP-INS-01`, `CAP-INS-03` |
+| `set-register CVAR(path)=value` (jnext extension, GH #437) | S | writes a C variable of frame 0 through `CAP-SRC` `write_c_value()`; a ZRCP hex `nnnnH` value is converted to decimal text, anything else goes as typed; success = the register line, **every** failure = `Error changing register` with no reason (a new command would break the census of `ls`) | `CAP-SRC` |
 | `set-register NAME=VALUE` | S | names: all 8/16-bit registers incl. `'` forms, `I`, `R`, `PC`, `SP`, `IX`, `IY`, `IFF1`, `IFF2`; **and `IM`** (Divergence: ZEsarUX 12.0 cannot set IM [T4]; jnext can and does — `CAP-INS-01 set_register`); unknown → `Error changing register`; reply = full register line | `CAP-INS-01` |
 | `get-memory-pages [verbose]` | S | `RO RO A10 A11 A4 A5 A0 A1 ` for a Next at reset; as built (E23-22): per slot from `SlotInfo::now`: `RO` boot ROM, `O<n>` ROM, `A<page>`, `SR<n>`, `DIV` | `CAP-INS-03` |
 | `read-memory [addr] [len]` | S | `peek(Cpu)`; bare form = 64 KB; `len` beyond 64 KB wraps around the address space (ZEsarUX serves it too, [T1]; DeZog never asks for more than 64 KB per chunk) | `CAP-INS-02` |

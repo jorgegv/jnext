@@ -4328,6 +4328,10 @@ reaches what the GDB protocol itself cannot express:</p>
 <td>one C value: <code>p-&gt;x</code>, <code>*p</code>, <code>g_matrix[1][2]</code>, <code>sum::calls</code>, <code>vars.c::s_dup</code>; a struct or an array prints whole</td>
 </tr>
 <tr>
+<td><code>monitor set var [FRAME] PATH = VALUE</code></td>
+<td>writes one C value (see <a href="../source-debugger/09-scripts-and-remote-debuggers.html#c-variables">Changing a C variable</a>); the answer is the new value read back, or <code>refused:</code> and the reason (and <code>E01</code>)</td>
+</tr>
+<tr>
 <td><code>monitor time</code></td>
 <td>frame, cycle, T-states and the raster position</td>
 </tr>

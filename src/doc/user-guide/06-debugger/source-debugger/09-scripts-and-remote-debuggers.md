@@ -83,8 +83,8 @@ every variable lives, in which module, and in which memory page.
 grammar, what is refused and why are in [Reading the machine](../scripting/04-reading-the-machine.md#c-variables-cvar).
 
 **Over GDB**, three `monitor` commands (only a `z88dk-gdb` that has `monitor`, newer than 2.4):
-`monitor locals [FRAME]`, `monitor globals` and `monitor print [FRAME] PATH`. They are read-only and
-print their reason when they cannot read something. A session on the `vars.c` / `other.c` program of `test/fixtures/z88dk/src` (built as the
+`monitor locals [FRAME]`, `monitor globals` and `monitor print [FRAME] PATH`. They print their reason when
+they cannot read something (`monitor set var` writes: see [Changing a C variable](#changing-a-c-variable)). A session on the `vars.c` / `other.c` program of `test/fixtures/z88dk/src` (built as the
 `master/sccz80-cvars` fixture, whose `build.log` has the `zcc` line), with the `z88dk-gdb` client built from
 z88dk checkout 97731e4e29 (2026-11-03), and JNEXT started as `jnext --headless --machine next --load prog.nex
 --gdb-port 3333`:
@@ -175,6 +175,33 @@ Error parsing
 The breakpoint stopped at the third call of `sum` (`a` is 2), `CVAR(inner)` failed because `inner` is out of scope on
 that line, and an unclosed `CVAR(` does not parse. A failed read has no reason in ZRCP, as ZEsarUX's reply has none;
 `monitor print` and a script show it. `CVAR` takes the same paths as `cvar()` and gives integers and pointers.
+
+### Changing a C variable
+
+A C variable can be written over GDB and over ZRCP, in the frame the CPU is in or (over GDB) in one of its callers:
+
+| Over | Form | Frame |
+|---|---|---|
+| GDB | `monitor set var [FRAME] PATH = VALUE` | `FRAME`, 0 by default |
+| ZRCP | `set-register CVAR(path)=value` | 0 |
+
+`PATH` is the same path as for reading. `VALUE` is an integer (decimal, `0x..` or `$..`; ZRCP also takes its own `nnnnH`),
+a character (`'x'`), a decimal number for a float variable, or an address for a pointer. A float is rounded to the nearest
+value its format holds (z88dk's 48-bit format, or IEEE 754 for zsdcc). A value that does not fit the variable's type is
+refused, never truncated: `monitor set var g_uint = -1` is `refused: ... is out of range for unsigned int (0..65535)`.
+
+```
+monitor set var g_int = 10
+monitor set var 1 c = 100
+monitor set var p -> x = 10
+```
+
+GDB answers each with the value read back (`(int) g_int = 10`), ZRCP with the register line of the stop. A refusal is
+`refused: ` and the reason, and the reply `E01`, over GDB, and `Error changing register` over ZRCP, which has no room
+for a reason. A write is a change of the machine like a `poke`: it is logged as a `MUTATE` line naming the client,
+and it is refused while an RZX recording or playback is running. The program sees the new value when it next reads it.
+
+What cannot be written, and why, is in [Limits and troubleshooting](10-limits-and-troubleshooting.md#limits).
 
 ## DeZog
 

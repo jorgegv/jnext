@@ -2703,8 +2703,12 @@ line) and connect to jnext’s port:
   z88dk’s 48-bit floats, array counts and paged globals, which
   z88dk-gdb’s own `info locals` / `print` can get wrong. A refusal (no
   map, an unknown name, a variable the compiler optimised out) prints
-  its reason; they are read-only. Only z88dk-gdb versions that have
-  `monitor` can send them.
+  its reason. `monitor set var` \[*FRAME*\] *PATH* `=` *VALUE* writes
+  one (an integer, a `'c'` character, a float for a float variable, an
+  address for a pointer; a value out of the type’s range is refused,
+  never truncated); a refusal prints `refused:` and its reason and the
+  reply is `E01`. Only z88dk-gdb versions that have `monitor` can send
+  them.
 - **Either side may pause or resume**, as with DeZog: the client is told
   the machine stopped when something else stops it while the client has
   it running.
@@ -2884,7 +2888,9 @@ held in cpu-step mode. Try it by hand with `telnet localhost PORT` and
   way ZEsarUX groups them; `help set-breakpoint` lists what is honoured
   and what is declined; `CVAR(`*path*`)`, a jnext extension, reads a C
   variable of the stopped program (`PC=8D3EH AND CVAR(a)=2`,
-  `evaluate CVAR(p->x)`). A condition with no `PC=` first term fires
+  `evaluate CVAR(p->x)`); `set-register CVAR(`*path*`)=`*value* writes
+  one (`set-register CVAR(g_int)=10`; every refusal is
+  `Error changing register`). A condition with no `PC=` first term fires
   only when it turns from false to true, as in ZEsarUX: one that stays
   true stops (or prints) once. A `PC=` breakpoint fires at every arrival
   at its address, except at the address a run resumes from. Breakpoints

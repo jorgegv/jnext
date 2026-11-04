@@ -94,7 +94,7 @@ does not fit 16 bits, an empty label, and a label that is empty once its leading
 Boriel install on the development machine to make one. The format above is read
 from the producer's code, and the tests use hand-written files in that format:
 
-`write_text()` at `test/debug/source_debug_test.cpp:485`, beside a `game.nex`:
+`write_text()` at `test/debug/source_debug_test.cpp:486`, beside a `game.nex`:
 
 ```
 8000: ._Main

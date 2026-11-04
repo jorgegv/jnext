@@ -4280,6 +4280,8 @@ the machine by hand.</p>
   set-breakpoint</code> lists the terms JNEXT honours. JNEXT adds <code>CVAR(path)</code>, a C
   variable of the stopped program (<code>PC=8D3EH AND CVAR(a)=2</code>, <code>evaluate CVAR(p-&gt;x)</code>): see
   <a href="../source-debugger/09-scripts-and-remote-debuggers.html#c-variables">C variables</a>.
+  <code>set-register CVAR(path)=value</code> writes one (<code>set-register CVAR(g_int)=10</code>), in the same extension: see
+  <a href="../source-debugger/09-scripts-and-remote-debuggers.html#changing-a-c-variable">Changing a C variable</a>.
   With JNEXT's debugger window open they appear in its Breakpoints panel as <code>Execute (client N)</code>, read-only, but
   are not drawn as a dot in the Disassembly or Source breakpoint columns, and a click there does not remove them
   (see <a href="../panels/08-breakpoints.html#whose-breakpoints-the-gutters-show-and-change">Whose breakpoints the gutters show and change</a>).</li>
