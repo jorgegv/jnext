@@ -102,7 +102,7 @@ ostream (QApplication runs `setlocale(LC_ALL, "")`, and on a Spanish host `%g` p
 |---|---|
 | `SC` | `65 'A'` for 0x20..0x7E, else the number; signed or unsigned by `:S` / `:U` |
 | `SI`, `SL`, bare `:S`/`:U` | little-endian, `{size}` bytes (1, 2, 4, 8), decimal |
-| `SF` `{6}` | z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by `$80`; 12 significant digits (`c_format_float48()`, `c_value.cpp:414`). Oracle: the bytes z88dk compiled in `*-floats` |
+| `SF` `{6}` | z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by `$80`; 12 significant digits (`c_format_float48()`, `c_value.cpp:420`). Oracle: the bytes z88dk compiled in `*-floats` |
 | `SF` `{4}` | IEEE 754 binary32, shortest text that reads back. The SIZE decides, not the noun |
 | `S6` | IEEE 754 binary16 through float |
 | `SQ` | `<fixed-point $xxxx: layout not decoded>` |
@@ -112,10 +112,10 @@ ostream (QApplication runs `setlocale(LC_ALL, "")`, and on a Spanish host `%g` p
 | zsdcc bitfield `SB<s>$<w>` | `(value >> s) & mask` |
 | sccz80 / 80cc overlapping members | the storage unit's value with `bitfield layout unknown (z88dk U2)`: in a struct whose members are not all at offset 0, a member sharing bytes with another (a union is not one) |
 
-`c_find_type()` (`c_value.cpp:501`) finds a struct's `T:` record: the records of the variable's own scope first (zsdcc's
+`c_find_type()` (`c_value.cpp:507`) finds a struct's `T:` record: the records of the variable's own scope first (zsdcc's
 copy per module), then those of its module, then a tag that is unique across all records (sccz80 and 80cc: one per
 header). Different definitions at the deciding step are ambiguous, never first-wins. `c_type_text()`
-(`c_value.cpp:494`) prints `char`, `unsigned int`, `struct node *`, `int [2][3]`, `int (*)()`; the CDB has no
+(`c_value.cpp:500`) prints `char`, `unsigned int`, `struct node *`, `int [2][3]`, `int (*)()`; the CDB has no
 union marker, so a union is `struct word`, and no typedef name survives. A zsdcc padding member (`__00000000`) is
 not shown.
 
@@ -128,14 +128,14 @@ such a member (the whole struct, a member path, a pointer, an element `p[1]`, a 
 read to the struct that holds it and zero-fills the overhang, so `hi` is 200 for the bytes `8D C8` whichever way it is
 reached, and no read goes past that struct.
 
-`c_parse_path()` (`c_value.cpp:584`) parses the C paths: `['*'] primary {'.' name | '->' name | '[' index ']'}`,
+`c_parse_path()` (`c_value.cpp:590`) parses the C paths: `['*'] primary {'.' name | '->' name | '[' index ']'}`,
 the primary a name, `fn::name`, `file.c::name` or `file.c::fn::name` (the file names which `fn` when two modules have a function of that name), the index decimal, `0x<hex>` or `$<hex>` with no sign. As in C the
 postfix operators bind tighter than the `*`: `*x[1]` is `*(x[1])` and `*head->next` is `*(head->next)`.
-`c_eval_path()` (`c_value.cpp:685`) walks the steps over a typed location (an array index is checked against its
+`c_eval_path()` (`c_value.cpp:691`) walks the steps over a typed location (an array index is checked against its
 count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
 refused), then applies the `*`, and `c_read_loc()` reads and formats it. Every refusal says why.
 
-`c_visible_locals()` (`c_value.cpp:784`) lists which locals show at a PC: the parameters (ordered by stack position),
+`c_visible_locals()` (`c_value.cpp:790`) lists which locals show at a PC: the parameters (ordered by stack position),
 the locals, the static locals. A parameter is a record of level 0 (sccz80, 80cc), at a stack offset >= 4, or (zsdcc) in
 a block below the body's first block (the entry scope's), where its register and fastcall parameters sit. Parameters
 and level-1 locals are always visible; a local of level >= 2 is visible iff its block is the open block or one of its
@@ -145,9 +145,9 @@ block just opened is the last opened one). The open block is the greatest known 
 the scope's block, which turns sccz80's "last opened block" into the block that is open and keeps a closed sibling's
 locals hidden; its ancestors are found over the same set. With no block data (80cc) or an unknown scope, every block
 local is shown, marked.
-`c_read_register_local()` (`c_value.cpp:865`) reads an `R` local of frame 0 (`[c,b]` is C | B << 8, with a note
+`c_read_register_local()` (`c_value.cpp:871`) reads an `R` local of frame 0 (`[c,b]` is C | B << 8, with a note
 that it may be stale), refuses `[]` as optimised out and an outer frame as not available.
-`c_param_location_unknown()` (`c_value.cpp:905`) marks a listed `__z88dk_fastcall` parameter recorded at an offset
+`c_param_location_unknown()` (`c_value.cpp:911`) marks a listed `__z88dk_fastcall` parameter recorded at an offset
 >= 0 (z88dk U1).
 
 ## Reading values: the facade
@@ -187,7 +187,7 @@ local from any frame, and a local of `fn` only from a frame of `fn`; `file.c::na
 
 ## The int32 atom: `c_int32_scalar()` (GH #436)
 
-`c_int32_scalar(loc, integer)` (`c_value.cpp:946`) is the one rule for what a C value is as a 32-bit integer; the script atom `cvar()`
+`c_int32_scalar(loc, integer)` (`c_value.cpp:952`) is the one rule for what a C value is as a 32-bit integer; the script atom `cvar()`
 and, through its translation, ZRCP's `CVAR()` both reach it through the evaluator, so there is nothing to keep in step. It reads
 `loc.type` (the head of the chain and the size) and `loc.note`, so a register-held value (no address) passes a `CLoc` with just its
 type, which `read_c_value()` fills for it. `integer` is the facade's `CValueResult::integer`.
@@ -231,7 +231,7 @@ refusal decided before it is `RefusedUnavailable` with the reason in `why`. Ther
 debugger (unsupported)`. After an `Ok` the object is read back into `CWriteResult::value`. A `Page` object cannot half-land: the read already
 refused a page crossing.
 
-`c_encode_value(type, CNewValue, current, avail)` (`c_value.cpp:1237`) is pure, with no printf or ostream (the `c_value.h` rule: locale
+`c_encode_value(type, CNewValue, current, avail)` (`c_value.cpp:1243`) is pure, with no printf or ostream (the `c_value.h` rule: locale
 independent). `CNewValue` is a text a person typed (the Qt panel, ZRCP, GDB) or a script's 32-bit value:
 
 | Type | Text | Int32 (a script) |
@@ -240,20 +240,20 @@ independent). `CNewValue` is a text a person typed (the Qt panel, ZRCP, GDB) or 
 | the same, 4 bytes | the strict range | any int32, as its 32-bit pattern (the mirror of `c_int32_scalar()`) |
 | the same, 8 bytes | the int64 / uint64 range | refused: `does not fit the script's 32 bits` |
 | Pointer | 0..65535 | 0..65535 |
-| `{6}SF` (z88dk 48-bit) | rounded to nearest; refused when the exponent leaves 1..255 (`encode_float48()`, `c_value.cpp:1172`) | refused: `float is not an integer` |
+| `{6}SF` (z88dk 48-bit) | rounded to nearest; refused when the exponent leaves 1..255 (`encode_float48()`, `c_value.cpp:1178`) | refused: `float is not an integer` |
 | `{4}SF` (binary32) | the C library's `strtof` through an `istringstream` (correctly rounded), out of range refused | refused |
-| `S6` (binary16) | through float, nearest even, refused when it rounds to infinity or to zero (`encode_float16()`, `c_value.cpp:1203`) | refused |
+| `S6` (binary16) | through float, nearest even, refused when it rounds to infinity or to zero (`encode_float16()`, `c_value.cpp:1209`) | refused |
 | `SQ` | refused: `fixed-point layout not decoded` | refused |
 
-A text is trimmed, then an optional sign and decimal, `0x` or `$` digits (`parse_int_text()`, `c_value.cpp:1044`), or a `'c'` character, or for a
-float type a decimal number (`float_from_text()`, `c_value.cpp:1127`: its syntax is checked first, then the text is read by an `istringstream` imbued with the classic
+A text is trimmed, then an optional sign and decimal, `0x` or `$` digits (`parse_int_text()`, `c_value.cpp:1050`), or a `'c'` character, or for a
+float type a decimal number (`float_from_text()`, `c_value.cpp:1133`: its syntax is checked first, then the text is read by an `istringstream` imbued with the classic
 locale, because `QApplication` calls `setlocale(LC_ALL, "")` and a comma host would read `1.5` as `1`; `std::from_chars` for floating point is
 missing from libc++ before LLVM 20, so the macOS build could not use it). `nan` and `inf` are refused.
 A value out of range is refused, never truncated: a person typing `-1` into an unsigned long made a mistake, not
 a bit pattern, which is why only a script's int32 is a pattern. **The 48-bit encoder rounds to nearest because the compiler does:** the constants z88dk
 compiled into `master/sccz80-floats` are `0.1` = `CD CC CC CC 4C 7D` and `1e-10` = `BE CE FE E6 5B 5F`, which truncation gets wrong (`CC ...`
 and `BD ...`), and `CVW-05` reads those bytes from the fixture at run time, never from a copy. A bitfield reads its unit's bytes, replaces its
-bits and writes the whole unit back (`int_fits()`, `c_value.cpp:1145`, is its range check, on the field's width).
+bits and writes the whole unit back (`int_fits()`, `c_value.cpp:1151`, is its range check, on the field's width).
 
 **F1, found while planning:** the reader ignored a bitfield's sign. `c_format_value()` and `c_integer_value()` returned the unsigned field for
 `SB<s>$<w>:S`, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so `CVW-10`
