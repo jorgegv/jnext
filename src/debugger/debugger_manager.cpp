@@ -10,6 +10,7 @@
 #include "debugger/breakpoint_model.h"
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
+#include "debugger/variables_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/audio_panel.h"
 #include "debugger/memory_panel.h"
@@ -124,6 +125,8 @@ void DebuggerManager::set_panels_paused(bool paused) {
         debugger_window_->stack_panel()->set_paused(paused);
     if (debugger_window_->callstack_panel())
         debugger_window_->callstack_panel()->set_paused(paused);
+    if (debugger_window_->variables_panel())
+        debugger_window_->variables_panel()->set_paused(paused);
 }
 
 void DebuggerManager::set_panels_client() {

@@ -239,6 +239,7 @@ BEGIN {
     M["debugger_panels_test"]          = "Debugger Panels (GH #278)"
     M["debugger_verbs_test"]           = "Debugger Verbs (GH #278)"
     M["debugger_source_panel_test"]    = "Debugger Source panel"
+    M["debugger_variables_panel_test"] = "Debugger Variables panel"
     M["emulator_boot_test"]            = "Emulator Boot"
     M["preferences_apply_test"]        = "GUI Preferences (Apply)"
     M["preferences_apply_policy_test"] = "GUI Preferences (Apply Policy)"

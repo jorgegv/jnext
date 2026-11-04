@@ -2070,6 +2070,21 @@ if(ENABLE_DEBUGGER)
         JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
     add_test(NAME debugger_source_panel_tests COMMAND debugger_source_panel_test)
 
+    # GH #435 (epic #353) - the Variables tab: C locals per call frame, globals, lazy expansion, and
+    # the Call Stack selection in step with it. Runs the committed z88dk fixtures on a real Next.
+    add_executable(debugger_variables_panel_test debugger/variables_panel_test.cpp)
+    set_target_properties(debugger_variables_panel_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_variables_panel_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
+        Qt${JNEXT_QT_MAJOR}::Test)
+    target_include_directories(debugger_variables_panel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(debugger_variables_panel_test PRIVATE
+        JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
+    add_test(NAME debugger_variables_panel_tests COMMAND debugger_variables_panel_test)
+
     # Debugger menu-reachability test (GH #215 — the Breakpoints menu offered
     # every breakpoint type EXCEPT Execute, and the main window's Debug menu
     # did not offer the debugger at all). Drives the real menu actions of both

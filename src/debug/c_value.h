@@ -143,6 +143,26 @@ std::optional<double> c_float_value(const CdbType& type, const uint8_t* bytes, s
 /// Read `loc.type.size` bytes at `loc.addr` and format them, with `loc.note` among the notes.
 CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc, std::vector<uint8_t>* bytes = nullptr);
 
+// -- children (GH #435) ------------------------------------------------------
+
+/// One child of an aggregate or a pointer: what a tree view lists under it.
+struct CChild {
+    std::string label;    ///< "x", "[3]", "*" (the dereference of a pointer to a non-struct)
+    std::string suffix;   ///< appended to the parent's path: ".x", "->x", "[3]", "[0]"; `parent + suffix` parses back to this place
+    CLoc loc;             ///< the child's typed place
+};
+struct CChildren {
+    bool ok = false;
+    std::string why;      ///< !ok: "null pointer", the type lookup's reason, "an array of unknown length", ...
+    size_t total = 0;     ///< how many children exist (a struct's visible named members, an array's COUNT; 0 = a leaf)
+    std::vector<CChild> items;   ///< children [first, first + max) of them
+};
+/// The children of the object at `loc`: a struct's members in record order (hidden and unnamed ones left out, since no path
+/// can name them), an array's elements `first`..`first + max` (`total` is the element count, never the byte size), a pointer
+/// to a struct the pointee's members (`->`), a pointer to anything else its one pointee (`[0]`). A scalar, `void *` and a
+/// function pointer have none (`ok`, `total` 0); a NULL or unreadable pointer is refused with the dereference's own reason.
+CChildren c_children(const CFormatCtx& ctx, const CLoc& loc, size_t first, size_t max);
+
 // -- scope, registers, fastcall ----------------------------------------------
 
 enum class CVarKind : uint8_t { Param, Local, StaticLocal };

@@ -1189,6 +1189,7 @@ my %NO_MATRIX_SECTION = (
     'debugger_panels_test'      => 'debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite',
     'debugger_verbs_test'       => 'debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger',
     'debugger_source_panel_test' => 'debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger',
+    'debugger_variables_panel_test' => 'debugger Variables tab: C locals per frame, globals, lazy expansion, Call Stack selection (GH #435, host GUI, jnext-internal); the T80N core has no debugger',
 );
 
 # The head Summary table is generated between these markers. They are HTML
