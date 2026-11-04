@@ -27,9 +27,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../dzrp-functions.inc"
 # with a frame bound of 100 and a machine that runs ~1000 frames a second
 # headless, a client that waited for the log line would attach too late to
 # measure anything. So the client dials the port until the listener is up and
-# attaches within jnext's first frames. The port is picked by binding and
-# releasing, a small race (esp-server-peer.py explains it); a lost race is a
-# bind failure, which is retried twice before it counts.
+# attaches within jnext's first frames. The script ENSURES the order (GH #449):
+# the client is started first and touches "<pid file>.dialing" just before its
+# dial loop; the script waits for that file (bounded) and only then launches
+# jnext, handing its pid to the client through the pid file (written
+# atomically; the client reads it after the attach). The port is picked by
+# binding and releasing, a small race (esp-server-peer.py explains it); a lost
+# race is a bind failure, which is retried twice before it counts.
 EXIT_FRAMES=100
 if want dzrp-paused-headless-func; then
     begin_func dzrp-paused-headless-func
@@ -42,14 +46,33 @@ if want dzrp-paused-headless-func; then
     for attempt in 1 2 3; do
         [[ -z "$verdict" ]] || break
         port=$(LANG=C python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+        pid_file="$TMP_DIR/dzrp-paused-headless.pid"
+        peer_log="$TMP_DIR/dzrp-paused-headless-peer.log"
+        rm -f "$pid_file" "$pid_file.tmp" "$pid_file.dialing"
+        LANG=C timeout --foreground --kill-after=5s 45s \
+            python3 "$SCRIPT_DIR/dzrp-peer.py" paused-headless "$port" "$pid_file" "$EXIT_FRAMES" \
+            >"$peer_log" 2>&1 &
+        peer_pid=$!
+        for _ in $(seq 1 200); do
+            [[ -e "$pid_file.dialing" ]] && break
+            kill -0 "$peer_pid" 2>/dev/null || break    # the client died: its output says why
+            sleep 0.05
+        done
+        if [[ ! -e "$pid_file.dialing" ]]; then
+            kill "$peer_pid" 2>/dev/null || true
+            wait "$peer_pid" 2>/dev/null || true
+            fail_row " (the DZRP client never started dialling: $(tail -n 1 "$peer_log"))"
+            verdict=done
+            continue
+        fi
         LANG=C timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine 48k \
             "${SD_CARD_ARGS[@]}" --dzrp-port "$port" \
             --delayed-automatic-exit-frames "$EXIT_FRAMES" >"$log" 2>&1 &
         jpid=$!
+        echo "$jpid" >"$pid_file.tmp" && mv "$pid_file.tmp" "$pid_file"
         peer_rc=0
-        peer_out=$(LANG=C timeout --foreground --kill-after=5s 45s \
-            python3 "$SCRIPT_DIR/dzrp-peer.py" paused-headless "$port" "$jpid" "$EXIT_FRAMES" 2>&1) \
-            || peer_rc=$?
+        wait "$peer_pid" 2>/dev/null || peer_rc=$?
+        peer_out=$(cat "$peer_log")
         j_rc=0
         wait "$jpid" 2>/dev/null || j_rc=$?
         if grep -aq "dzrp: cannot listen on 127.0.0.1:$port" "$log" && (( attempt < 3 )); then
