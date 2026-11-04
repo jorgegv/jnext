@@ -97,9 +97,9 @@ reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
 
-**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:974`)
+**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:977`)
 redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:370`: ~4 Hz). Paused, it
-redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:963`; `PausedStamp`,
+redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:966`; `PausedStamp`,
 `debugger_manager.h:245`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:
@@ -114,7 +114,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
   subscription verb (`subscribe`, `subscribe_source_line`, the group, enable and master switches), the
   trace, call-stack, coverage and rewind settings, attach and detach, and the magic and persistent
   breakpoints. A map or SLD load needs no special call: it bumps the revision, so the tick redraws;
-- the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:151`), installed on `qApp`
+- the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:154`), installed on `qApp`
   while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
   double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse *movement* is not counted: hover
@@ -122,7 +122,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
   loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:551`), so an edit on disk still shows.
 
-`refresh_window()` (`debugger_manager.cpp:954`) takes the stamp after the redraw, because a panel may itself touch the backend and
+`refresh_window()` (`debugger_manager.cpp:957`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the
 redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window's half of the same issue,
@@ -131,16 +131,16 @@ is in [2.3](../02-architecture/03-a-frame-end-to-end.md).
 
 **The window's opening size (GH #114, #360).** A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_natural()`,
-`debugger_window.cpp:499`, queued from the first `showEvent()`); a size restored from the config file is left
+`debugger_window.cpp:500`, queued from the first `showEvent()`); a size restored from the config file is left
 alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' `sizeHint()` lack, using the share of a widening the splitter really gave
 it on the previous pass (`fit_last_add_`, `fit_last_lacking_`; bounded by `kMaxInitialFitPasses` = 4
-(`kMaxInitialFitPasses`, `debugger_window.h:201`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:226`)). The frame, not the client area, must fit the screen
+(`kMaxInitialFitPasses`, `debugger_window.h:204`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:229`)). The frame, not the client area, must fit the screen
 (`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
 at most `kMaxFitEchoes` = 6 times (`resizeEvent()`, `debugger_window.cpp:486-497`); any other size is the user's and ends the fit
-(`end_fit_()`, `debugger_window.cpp:479`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
+(`end_fit_()`, `debugger_window.cpp:480`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
 pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:523-527`), after which every size is the user's and the remembered sizes are
 dropped. Rows: `GR-06` (a stale answer inside the grace window is asked again), `GR-07` (after it every size is the user's) and `GR-08` (an earlier request landing while a pass is queued), in `debugger_window_grow_test`.
 

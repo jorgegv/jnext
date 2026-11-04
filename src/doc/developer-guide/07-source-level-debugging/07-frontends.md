@@ -36,7 +36,7 @@ browsed (`browse_addr_`) and the reason `report_sidecars()` gave it.
 `SourcePanel::refresh_()` (`source_panel.cpp:590`) runs while the machine is paused,
 whenever the window's paused stamp changed ([3.10.2](../03-subsystems/10-2-the-qt-debugger.md):
 the stamp carries a flag for "the loaded file changed on disk",
-`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:963`; the flag is
+`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:966`; the flag is
 `SourcePanel::file_changed_on_disk()`, `source_panel.cpp:551`). In order:
 
 1. `update_buttons(paused)` (`source_panel.cpp:494`): the forward steps need a paused machine and a
@@ -74,7 +74,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 
 `follow_pc()` (`source_panel.cpp:557`) clears `placed_` and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1582`) calls it, and
+`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1592`) calls it, and
 `apply_pause_state(true)` runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.
 
@@ -84,13 +84,13 @@ already shown still puts the view back.
 the SDL-only and Windows trees test it): an absolute name; then the map's directory and each
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading `..` is dropped.
-`DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:305`) takes the
+`DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:308`) takes the
 configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3128`, fed by
 `apply_startup_config()`, `:2910`: the saved list with the command line's `--source-dir` or
 `paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:438`)
-adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:317`). The effective
+adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:320`). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
-`DebuggerManager::push_source_dirs()` (`debugger_manager.cpp:297`) on every change and again in `ensure_window()`, since the window is
+`DebuggerManager::push_source_dirs()` (`debugger_manager.cpp:300`) on every change and again in `ensure_window()`, since the window is
 created lazily. Locate derives the directory with `source_search::root_for()`, refuses a file of
 another name, and asks whether to save it; `source_dir_save_requested` is MainWindow's, which
 appends to `[paths] source_dirs` and refuses a directory that holds the list separator, as
@@ -103,12 +103,12 @@ and MainWindow logs `Source search path: ...`.
 ### Loading a map by hand
 
 The Source tab's **Load Source Map...** button and the Debug > Source > Load Source Map... item
-are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:857`). Its file dialog
+are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:860`). Its file dialog
 offers `*.sld`, `*.sld.txt` and `*.map`; the backend tells the format by content
 ([7.3](03-loaders.md)), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 `load_map()`; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:899`):
+rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:902`):
 the log, and the main window's status bar for ten seconds.
 
 ### Colouring
@@ -158,7 +158,7 @@ the log, and the main window's status bar for ten seconds.
   viewport. `set_colour_scheme()` (`source_panel.cpp:542`) applies at once (Preferences Apply while the machine
   runs) and refreshes, because the tints are selections `refresh_()` builds and a paused tick
   redraws only when the machine moved. The setting is held by
-  `DebuggerManager::set_source_scheme()` (`debugger_manager.cpp:311`) and pushed by
+  `DebuggerManager::set_source_scheme()` (`debugger_manager.cpp:314`) and pushed by
   `ensure_window()`, fed by `MainWindow::apply_startup_config()`.
 - **What a scheme does not reach.** The gutter and its header paint from the panel's palette, so
   a scheme never colours them, and the breakpoint marks stay as they are. The current-line marker
@@ -287,7 +287,7 @@ of a store, and it **formats nothing**: every value, type, refusal and note is t
   style switch) keeps the choice, so a frame picked in an older caller survives everything but moving the machine.
 - **One mapping.** The Call Stack panel lists the tracked CALLs newest first, with no row for frame 0 or for a frame found through
   the saved-frame-pointer chain; `c_frames()` takes frame k's PC from the CALL `tracked[n-k]`, so **Call Stack row i is C frame i + 1**.
-  That is written once, in `VariablesPanel::call_stack_row()` and `frame_of_call_row()`. `CallStackPanel::call_selected(row)` (emitted
+  That is written once, in `VariablesPanel::call_stack_row()` (`variables_panel.cpp:68`) and `frame_of_call_row()`. `CallStackPanel::call_selected(row)` (emitted
   only for the user's choice: a refresh and `select_row()` set a guard) goes to `select_frame(row + 1)`, and `frame_changed(k)` goes back to
   `select_row(call_stack_row())`, which emits nothing, so there is no loop. After each refresh the window re-selects the row the chosen
   frame maps to (-1 clears it), because a refresh may have rebuilt the Call Stack's rows.
