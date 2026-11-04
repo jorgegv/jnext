@@ -53,6 +53,7 @@
 #include "core/log.h"
 #include "core/rzx.h"
 #include "debug/debugger.h"
+#include "debug/long_address.h"
 #include "platform/emulator_boot.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>
@@ -61,6 +62,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <initializer_list>
 #include <memory>
 #include <string>
@@ -2170,6 +2172,312 @@ static void monitor_rows() {
     }
 }
 
+
+// ── GDB-CVAR: monitor locals / globals / print (GH #436) ──────────────────
+// Oracle: the C source of the fixtures (vars.c, other.c, types.h, bk.c, bkmain.c) and their maps (vars.c:41 = $8D3E;
+// `_g_int` = $903E, `_s_dup` = $909F in vars_c and $9069 in other_c, `__debug_framepointer` = $906A, all in P04; btable
+// in page 20 at $C000), and independent reads (`peek16` of the frame pointer, the RSP `m` packet). The wording of a
+// refusal is the facade's (`read_c_value().why`, `c_variables_status().why`): the verbs must pass it on unchanged.
+//
+// At the `vars.c:41` stop of the FIRST call of sum(i, g_int, pp, c): a = 0, b = -5, k = 120 'x', t = 122, acc = 345,
+// calls = 1, `*p` = {3, 4, 5}; main's lp = {3, 4, 5}, i = 0, c = 'x', big = 100000; g_int = -5, g_float = 1.5,
+// g_matrix = {{1, 2, 3}, {4, 5, 6}}, `vars.c::s_dup` = 0, `other.c::s_dup` = 4.
+
+/// Run the program to `addr` the way z88dk-gdb does: a Z0 breakpoint, then `c`.
+static bool cvar_stop_at(Rig& rig, Client& c, std::uint16_t addr) {
+    char z[32];
+    std::snprintf(z, sizeof z, "Z0,%x,1", addr);
+    c.cmd(z);
+    cont_and_stop(rig, c, 120);
+    return rig.dbg->state().paused && pc(rig) == addr;
+}
+
+/// A monitor line whose text after `) NAME = ` starts with `value` (the type text is the facade's).
+static bool cvar_val(const std::vector<std::string>& lines, const std::string& name, const std::string& value) {
+    const std::string key = ") " + name + " = ";
+    for (const auto& l : lines) {
+        const auto at = l.find(key);
+        if (at != std::string::npos && l.rfind("  (", 0) == 0 && l.compare(at + key.size(), value.size(), value) == 0)
+            return true;
+    }
+    return false;
+}
+
+static std::string cvar_after(const std::vector<std::string>& lines, const std::string& name) {
+    const std::string key = ") " + name + " = ";
+    for (const auto& l : lines) {
+        const auto at = l.find(key);
+        if (at != std::string::npos && l.rfind("  (", 0) == 0) return l.substr(at + key.size());
+    }
+    return "<none>";
+}
+
+static bool cvar_has(const std::vector<std::string>& lines, const std::string& needle) {
+    for (const auto& l : lines)
+        if (l.find(needle) != std::string::npos) return true;
+    return false;
+}
+
+static void cvar_no_interrupts(Rig& rig) {
+    Z80Registers r = rig.emu.cpu().get_registers();
+    r.IFF1 = r.IFF2 = 0;
+    rig.emu.cpu().set_registers(r);
+}
+
+static unsigned rig_peek16(Rig& rig, std::uint16_t a) {
+    return static_cast<unsigned>(rig.emu.mmu().peek(a) | (rig.emu.mmu().peek(static_cast<std::uint16_t>(a + 1)) << 8));
+}
+
+static void cvar_rows() {
+    const std::string nex = JNEXT_Z88DK_FIXTURE_DIR "/master/sccz80-cvars/prog.nex";
+    // GDB-CVAR-01 and -02: monitor locals
+    {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const bool loaded = emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0x8D3E);
+        std::string f0, f1, f9, fx;
+        const auto l0 = c.monitor("locals", f0);
+        const auto l1 = c.monitor("locals 1", f1);
+        const auto l9 = c.monitor("locals 9", f9);
+        c.monitor("locals x", fx);
+        char head[64];
+        std::snprintf(head, sizeof head, ", fp $%04X (tracked)\n", rig_peek16(rig, 0x906A));
+        const auto rows = rig.dbg->c_locals(0).rows;
+        bool order = !l0.empty() && l0.size() >= 1 + rows.size();
+        for (size_t i = 0; order && i < rows.size(); ++i)
+            order = l0[1 + i].find(") " + rows[i].name + (rows[i].ok ? " = " : ": ")) != std::string::npos;
+        const bool by_name = cvar_val(l0, "a", "0") && cvar_val(l0, "b", "-5") && cvar_val(l0, "k", "120 'x'") &&
+                             cvar_val(l0, "t", "122") && cvar_val(l0, "acc", "345") && cvar_val(l0, "calls", "1") &&
+                             cvar_after(l0, "p") == cvar_after(l1, "pp") && !cvar_has(l0, ") inner");
+        check("GDB-CVAR-01", "monitor locals at vars.c:41 of the first call: header `frame 0: sum at vars.c:41, fp $XXXX (tracked)` "
+                             "with XXXX = the frame pointer __debug_framepointer holds, then one line per facade row in its order: "
+                             "a=0 b=-5 k=120 'x' t=122 acc=345 calls=1, p equal to main's pp, no `inner` (out of scope); OK",
+              loaded && at && f0 == "OK" && !l0.empty() && l0[0].rfind("frame 0: sum at vars.c:41", 0) == 0 &&
+                  l0[0].size() > strlen(head) && l0[0].compare(l0[0].size() - strlen(head), strlen(head), head) == 0 && order && by_name,
+              join(l0));
+        // arr: DA4 means four elements, where z88dk-gdb shows eight
+        const std::string arr = cvar_after(l1, "arr");
+        size_t commas = 0;
+        for (char ch : arr) commas += ch == ',' ? 1 : 0;
+        const size_t nframes = rig.dbg->c_frames().size();
+        check("GDB-CVAR-02", "monitor locals 1 is main at vars.c:56: lp={x = 3, y = 4, tag = 5} i=0 c=120 'x' big=100000, arr has FOUR "
+                             "elements; locals 9 is `no frame 9: <N> frames` and OK; locals x is E01",
+              f1 == "OK" && l1[0].rfind("frame 1: main at vars.c:56", 0) == 0 && cvar_val(l1, "lp", "{x = 3, y = 4, tag = 5}") &&
+                  cvar_val(l1, "i", "0") && cvar_val(l1, "c", "120 'x'") && cvar_val(l1, "big", "100000") && !arr.empty() &&
+                  arr[0] == '{' && commas == 3 && l9.size() == 1 &&
+                  l9[0] == "no frame 9: " + std::to_string(nframes) + " frames\n" && f9 == "OK" && fx == "E01",
+              join(l1) + " " + join(l9));
+        // GDB-CVAR-03: globals
+        std::string fg;
+        const auto g = c.monitor("globals", fg);
+        const std::string k15 = std::string("1") + ".5";
+        check("GDB-CVAR-03", "monitor globals names each by the path that reads it back (a file-level one is qualified with its file) and ends "
+                             "with its own memory: vars.c::g_int=-5 at $903E P04, vars.c::s_dup=0 at $909F P04 and other.c::s_dup=4 at $9069 P04 (the map's two _s_dup), "
+                             "sum::calls=1, vars.c::g_float=1.5, vars.c::g_matrix={{1, 2, 3}, {4, 5, 6}}; no string-literal or enumerator rows",
+              fg == "OK" && cvar_has(g, ") vars.c::g_int = -5  $903E P04\n") && cvar_has(g, ") vars.c::s_dup = 0  $909F P04\n") &&
+                  cvar_has(g, ") other.c::s_dup = 4  $9069 P04\n") && cvar_has(g, ") sum::calls = 1  ") &&
+                  cvar_has(g, ") vars.c::g_float = " + k15 + "  $") && cvar_has(g, ") vars.c::g_matrix = {{1, 2, 3}, {4, 5, 6}}  $") &&
+                  !cvar_has(g, "__str_") && !cvar_has(g, "sloc"),
+              join(g));
+        // GDB-CVAR-04: print
+        std::string p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13;
+        const auto px = c.monitor("print p->x", p1);
+        const auto py = c.monitor("print p -> y", p2);
+        const auto pd = c.monitor("print *p", p3);
+        const auto pm = c.monitor("print g_matrix[1][2]", p4);
+        const auto pf = c.monitor("print g_float", p5);
+        const auto ps = c.monitor("print s_dup", p6);
+        const auto plp = c.monitor("print 1 lp.y", p7);
+        const auto pi = c.monitor("print 1 i", p8);
+        const auto pin = c.monitor("print inner", p9);
+        const auto pno = c.monitor("print nosuch", p10);
+        const auto pbad = c.monitor("print a.", p11);
+        c.monitor("print", p12);
+        const auto p7f = c.monitor("print 7 a", p13);
+        const auto why_inner = rig.dbg->read_c_value(0, "inner").why;
+        const auto why_no = rig.dbg->read_c_value(0, "nosuch").why;
+        const auto why_bad = rig.dbg->read_c_value(0, "a.").why;
+        check("GDB-CVAR-04", "monitor print PATH: p->x=3, `p -> y` (spaces kept) =4, *p={x = 3, y = 4, tag = 5}, g_matrix[1][2]=6, "
+                             "g_float=1.5, s_dup=0 (vars.c's, the frame's module: the map's _s_dup of vars_c, where z88dk-gdb printed "
+                             "other.c's 4), `1 lp.y`=4 and `1 i`=0 in frame 1; a refusal is `PATH: why` (the facade's) and OK, "
+                             "`print` alone is E01, `print 7 a` is `no frame 7: N frames`",
+              px.size() == 1 && px[0].find(") p->x = 3\n") != std::string::npos && py.size() == 1 &&
+                  py[0].find(") p -> y = 4\n") != std::string::npos && pd.size() == 1 &&
+                  pd[0].find(") *p = {x = 3, y = 4, tag = 5}\n") != std::string::npos && pm.size() == 1 &&
+                  pm[0].find(") g_matrix[1][2] = 6\n") != std::string::npos && pf.size() == 1 &&
+                  pf[0].find(") g_float = " + k15 + "\n") != std::string::npos && ps.size() == 1 &&
+                  ps[0].find(") s_dup = 0\n") != std::string::npos && plp.size() == 1 &&
+                  plp[0].find(") lp.y = 4\n") != std::string::npos && pi.size() == 1 &&
+                  pi[0].find(") i = 0\n") != std::string::npos && pin.size() == 1 &&
+                  pin[0] == "inner: " + why_inner + "\n" && p9 == "OK" && pno.size() == 1 && pno[0] == "nosuch: " + why_no + "\n" &&
+                  p10 == "OK" && pbad.size() == 1 && pbad[0] == "a.: " + why_bad + "\n" && p11 == "OK" && !why_bad.empty() &&
+                  p12 == "E01" && p7f.size() == 1 &&
+                  p7f[0] == "no frame 7: " + std::to_string(nframes) + " frames\n" && p13 == "OK" && p1 == "OK",
+              join(px) + join(py) + join(ps) + join(plp));
+    }
+    // GDB-CVAR-05: a paged global is read from its own page, and the notes survive
+    {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const std::string bnex = JNEXT_Z88DK_FIXTURE_DIR "/master/sccz80-cvars-banked/prog.nex";
+        const bool loaded = emulator_apply_load(rig.emu, bnex, false);
+        rig.dbg->load_program_sidecars(bnex);
+        Client c(rig);
+        open_session(c);
+        // bk.c:10, inside bk_sum (it runs before main's loop). This machine has no ROM, so the interrupts banked_call
+        // enables are cleared at bk_sum's entry ($C005): an RST 38 would run away.
+        bool at2 = cvar_stop_at(rig, c, 0xC005);
+        c.cmd("z0,c005,1");
+        cvar_no_interrupts(rig);
+        at2 = at2 && cvar_stop_at(rig, c, 0xC04C);
+        std::string fl;
+        const auto lo = c.monitor("locals", fl);
+        const auto fr = rig.dbg->c_frames();
+        const auto vs = rig.dbg->variables();
+        const std::string fn0 = !fr.empty() && fr[0].function >= 0 && vs ? vs->functions()[static_cast<size_t>(fr[0].function)].name : "-";
+        c.cmd("z0,c04c,1");
+        bool at = false;   // single-stepped, interrupts off, back to main's loop (bkmain.c:8), where page 20 is not mapped
+        for (int i = 0; i < 4000 && pc(rig) != 0x8CE8; ++i) {
+            cvar_no_interrupts(rig);
+            rig.emu.execute_single_instruction();
+        }
+        at = pc(rig) == 0x8CE8;
+        std::string fp, fb, fg, fm;
+        const auto bt = c.monitor("print btable", fp);
+        const auto bd = c.monitor("print bdata", fb);
+        const auto gl = c.monitor("globals", fg);
+        const std::string m = c.cmd("mc000,4");
+        const bool unmapped_differs = m.size() == 8 && m != "0a141e28";
+        check("GDB-CVAR-05", "on master/sccz80-cvars-banked: in main's loop `print btable` is {10, 20, 30, 40} (read from page 20) with the "
+                             "not-mapped note line while RSP `m c000,4` answers other bytes than 0a141e28, `print bdata` is 77, globals "
+                             "lists btable at $C000 P14; at bk.c:10 locals is a=3 b=2 s=103 j=4 and frame 0 is bk_sum",
+              loaded && at && at2 && fp == "OK" && bt.size() >= 2 && bt[0].find(") btable = {10, 20, 30, 40}\n") != std::string::npos &&
+                  bt[1].find("[") == 2 && bt[1].find("not mapped") != std::string::npos && unmapped_differs && bd.size() >= 1 &&
+                  bd[0].find(") bdata = 77") != std::string::npos && fg == "OK" && cvar_has(gl, ") bk.c::btable = {10, 20, 30, 40}  $C000 P14\n") &&
+                  fn0 == "bk_sum" && cvar_val(lo, "a", "3") && cvar_val(lo, "b", "2") && cvar_val(lo, "s", "103") && cvar_val(lo, "j", "4"),
+              join(bt) + " " + m + " " + join(lo));
+    }
+    // GDB-CVAR-06: no C variables, and the help
+    {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        Client c(rig);
+        open_session(c);
+        Rig sld(MachineType::ZXN_ISSUE2);
+        sld.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        Client c2(sld);
+        open_session(c2);
+        std::string f1, f2, f3, f4, f5, f6, f7;
+        const auto none_l = c.monitor("locals", f1);
+        const auto none_g = c.monitor("globals", f2);
+        const auto none_p = c.monitor("print x", f3);
+        const auto sld_l = c2.monitor("locals", f4);
+        const auto sld_p = c2.monitor("print x", f5);
+        const auto help = c.monitor("help", f6);
+        const std::string w0 = rig.dbg->c_variables_status().why + "\n";
+        const std::string w1 = sld.dbg->c_variables_status().why + "\n";
+        bool h1 = false, h2 = false, h3 = false;
+        for (const auto& l : help) {
+            h1 = h1 || l.rfind("  locals [FRAME]", 0) == 0;
+            h2 = h2 || l.rfind("  globals", 0) == 0;
+            h3 = h3 || l.rfind("  print [FRAME] PATH", 0) == 0;
+        }
+        check("GDB-CVAR-06", "with no C variables (no map; an SLD) locals, globals and print each answer the status text and OK; "
+                             "monitor help lists `locals [FRAME]`, `globals` and `print [FRAME] PATH`",
+              w0 != "\n" && w1 != "\n" && w0 != w1 && none_l.size() == 1 && none_l[0] == w0 && none_g.size() == 1 && none_g[0] == w0 &&
+                  none_p.size() == 1 && none_p[0] == w0 && f1 == "OK" && f2 == "OK" && f3 == "OK" && sld_l.size() == 1 &&
+                  sld_l[0] == w1 && sld_p.size() == 1 && sld_p[0] == w1 && f4 == "OK" && f5 == "OK" && h1 && h2 && h3,
+              join(none_l) + " " + join(sld_l));
+    }
+    // GDB-CVAR-07: the refused-row line, the asm-frame header and the argument errors, on zsdcc's build
+    // Oracle: the CDB record of `acc` on master/sdcc-cvars is `R,0,0,[]` (zsdcc kept it nowhere), so its row is refused as
+    // "optimised out" and printed `(type) name: why`, never as a value. The frames above main are the CRT: not C code.
+    // vars.c:41 is $8C97 there.
+    {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const std::string snex = JNEXT_Z88DK_FIXTURE_DIR "/master/sdcc-cvars/prog.nex";
+        const bool loaded = emulator_apply_load(rig.emu, snex, false);
+        rig.dbg->load_program_sidecars(snex);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0x8C97);
+        std::string f0, f2, e1, e2, e3;
+        const auto l0 = c.monitor("locals", f0);
+        const auto fr = rig.dbg->c_frames();
+        const auto rows = rig.dbg->c_locals(0).rows;
+        std::string acc_line;
+        bool acc_refused = false;
+        for (const auto& r : rows)
+            if (r.name == "acc") {
+                acc_refused = !r.ok && r.why == "optimised out" && r.value.empty();
+                acc_line = "  (" + r.type + ") acc: " + r.why + "\n";
+            }
+        bool has_acc = false, acc_as_value = false;
+        for (const auto& l : l0) {
+            has_acc = has_acc || l == acc_line;
+            acc_as_value = acc_as_value || l.find(") acc = ") != std::string::npos;
+        }
+        size_t asm_k = fr.size();   // the first frame that is not C code
+        for (size_t k = 0; k < fr.size(); ++k)
+            if (fr[k].function < 0) {
+                asm_k = k;
+                break;
+            }
+        std::string asm_head;
+        std::vector<std::string> la;
+        if (asm_k < fr.size()) {
+            char h[64];
+            std::snprintf(h, sizeof h, "frame %zu: not C code, $%04X ", asm_k, fr[asm_k].pc.address);
+            asm_head = std::string(h) + jnext::dbg::space_tag(fr[asm_k].pc.space) + "\n";
+            la = c.monitor("locals " + std::to_string(asm_k), f2);
+        }
+        c.monitor("locals 1 2", e1);
+        c.monitor("globals x", e2);
+        c.monitor("print 1", e3);
+        check("GDB-CVAR-07", "on master/sdcc-cvars at vars.c:41: the optimised-out acc is `(type) acc: optimised out`, never `= value`; the first frame "
+                             "that is not C code answers `frame N: not C code, $XXXX TAG` and nothing else; `locals 1 2`, `globals x` and `print 1` "
+                             "(a frame and no path) are E01",
+              loaded && at && f0 == "OK" && acc_refused && has_acc && !acc_as_value && asm_k < fr.size() && asm_k >= 2 && la.size() == 1 &&
+                  la[0] == asm_head && f2 == "OK" && e1 == "E01" && e2 == "E01" && e3 == "E01",
+              join(l0) + " | " + asm_head + join(la));
+    }
+    // GDB-CVAR-08: `(no locals)` and the unknown-base header
+    // Oracle: cross.c's main has no parameter and no local (`g_x` is a global), at cross.c:26 = $AC84 on master/sccz80-cross;
+    // and SRCDBG-CVAL-52's state: master/80cc-cvars stopped in other() (other.c:9 = $8DC6) with the call-stack tracker emptied
+    // leaves main (frame 1) with no known base.
+    {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const std::string xnex = JNEXT_Z88DK_FIXTURE_DIR "/master/sccz80-cross/prog.nex";
+        const bool loaded = emulator_apply_load(rig.emu, xnex, false);
+        rig.dbg->load_program_sidecars(xnex);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0xAC84);
+        std::string f;
+        const auto l = c.monitor("locals", f);
+        const bool empty_premise = rig.dbg->c_locals(0).ok && rig.dbg->c_locals(0).rows.empty();
+        Rig rig2(MachineType::ZXN_ISSUE2);
+        const std::string onex = JNEXT_Z88DK_FIXTURE_DIR "/master/80cc-cvars/prog.nex";
+        const bool loaded2 = emulator_apply_load(rig2.emu, onex, false);
+        rig2.dbg->load_program_sidecars(onex);
+        Client c2(rig2);
+        open_session(c2);
+        const bool at2 = cvar_stop_at(rig2, c2, 0x8DC6);
+        rig2.emu.call_stack().clear();
+        const auto fr = rig2.dbg->c_frames();
+        std::string f2;
+        const auto lu = c2.monitor("locals 1", f2);
+        const bool unknown = fr.size() >= 2 && fr[1].how == jnext::dbg::Debugger::CFrame::Base::Unknown && !fr[1].note.empty();
+        check("GDB-CVAR-08", "a C function with no parameter and no local prints its header and `  (no locals)`; a frame whose base is not known "
+                             "(80cc in other() with the tracker emptied: main) prints `frame 1: main at vars.c:61 (the call of other()), frame base unknown: <note>` and no rows",
+              loaded && at && loaded2 && at2 && empty_premise && f == "OK" && l.size() == 2 && l[0].rfind("frame 0: main at cross.c:26, fp $", 0) == 0 &&
+                  l[1] == "  (no locals)\n" && unknown && f2 == "OK" && lu.size() == 1 &&
+                  lu[0] == "frame 1: main at vars.c:61, frame base unknown: " + fr[1].note + "\n",
+              join(l) + " | " + join(lu));
+    }
+}
+
 // ── GDB-UNS — unsupported, honestly (§2 rows 26-33) ────────────────────────
 
 static void unsupported_rows() {
@@ -2404,6 +2712,7 @@ int main() {
     step_rows();
     stop_rows();
     monitor_rows();
+    cvar_rows();
     unsupported_rows();
     generic_rows();
     session_rows();

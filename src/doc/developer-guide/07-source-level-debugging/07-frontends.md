@@ -11,15 +11,15 @@ steps see chapter 10 of the user guide, *Source-level debugging*.
 
 *The facade at the top is the whole interface. The Qt window is the only
 frontend that draws source text; GDB, ZRCP and scripts print or subscribe;
-DZRP has no source surface at all.*
+DZRP has no source surface and no C variable surface at all.*
 
 | Frontend | Reads | Adds | Page |
 |---|---|---|---|
 | Qt debugger | `source_location()`, `source_map()`, `source_map_status()`, `source_page()`, `lookup()`, the breakpoint groups, `executed_source_lines()`, `c_frames()`, `c_locals()`, `c_globals()`, `c_children()`, `read_c_value()`, `c_variables_status()` | The Source tab, the Variables tab, the Breakpoints rows, the Call Stack column, symbol names, the long address | below, and [3.10.2](../03-subsystems/10-2-the-qt-debugger.md) |
-| GDB RSP | `source_location()`, `symbols()`, `mmu_slots()` | `monitor src`, `monitor sym`, `monitor mmu` | [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md) |
-| ZRCP | `load()`, `mmu_slots()` | `smartload` reaches the sidecars; `get-memory-pages` names the memory | [3.10.5](../03-subsystems/12-the-zrcp-server.md) |
-| DZRP | Nothing | None | [3.10.3](../03-subsystems/10-the-dzrp-server.md) |
-| Scripts | `source_map().resolve()`, `load_map()` | `on execute FILE:LINE`, `--map` | [3.10.6](../03-subsystems/13-the-debugger-scripting-language.md) |
+| GDB RSP | `source_location()`, `symbols()`, `mmu_slots()`, `c_frames()`, `c_locals()`, `c_globals()`, `read_c_value()`, `c_variables_status()` | `monitor src`, `monitor sym`, `monitor mmu`, `monitor locals`, `monitor globals`, `monitor print` | [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md) |
+| ZRCP | `load()`, `mmu_slots()`, `read_c_value()` (through the DSL) | `smartload` reaches the sidecars; `get-memory-pages` names the memory; `CVAR(path)` in `evaluate` and in conditions | [3.10.5](../03-subsystems/12-the-zrcp-server.md) |
+| DZRP | Nothing | None: no source and no C variable surface | [3.10.3](../03-subsystems/10-the-dzrp-server.md) |
+| Scripts | `source_map().resolve()`, `load_map()`, `read_c_value()` | `on execute FILE:LINE`, `--map`, the `cvar(PATH)` atom | [3.10.6](../03-subsystems/13-the-debugger-scripting-language.md) |
 | Loop owners (headless, SDL, Qt) | `load_source_map()`, `source_map_status()` | `--source-map` | [7.3](03-loaders.md) |
 
 ## The Qt Source tab
@@ -344,14 +344,32 @@ read through it) and ZRCP `cpu-step-over`
 
 ## GDB, ZRCP, DZRP, scripts
 
-**GDB RSP** (`src/remote/gdb/rsp_server.cpp`). `monitor src [ADDR]` (`monitor_src()`, `:1033`) prints
+**GDB RSP** (`src/remote/gdb/rsp_server.cpp`). `monitor src [ADDR]` (`monitor_src()`, `:1056`) prints
 `$8CB8 main.c:19 P04` or `$8CB8 unmapped P28`: `source_location()` and the tag of
-`source_page(addr)`. `monitor sym` (`monitor_sym()`, `rsp_server.cpp:996`) prints the tag of the memory the lookup
-used; a name prints its tag when it is paged. `monitor mmu` (`monitor_mmu()`, `rsp_server.cpp:893`) prints each slot's `now` tag and,
+`source_page(addr)`. `monitor sym` (`monitor_sym()`, `rsp_server.cpp:1019`) prints the tag of the memory the lookup
+used; a name prints its tag when it is paged. `monitor mmu` (`monitor_mmu()`, `rsp_server.cpp:916`) prints each slot's `now` tag and,
 on the Next, the physical text of the slot's first byte. The server's own symbol and source verbs are
 described in [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md).
 
-**ZRCP.** `smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2623`) calls
+The C variables (GH #436) are three more verbs over the facade of [7.10](10-c-frames-and-values.md), all read-only.
+`monitor_locals()` (`rsp_server.cpp:1100`) prints the header of frame N (`frame 0: main at main.c:21, fp $FF51 (prologue)`, from
+`c_frames()`), then one `(type) name = value` line per `c_locals()` row, and a `[note]` line under a row that has notes.
+`monitor_globals()` (`rsp_server.cpp:1148`) prints one line per `c_globals()` row named by its `path`, so a name pastes into
+`print`, with the memory the variable lives in (`$903E P04`). `monitor_print()` (`rsp_server.cpp:1169`) takes the raw rest of
+the line, not the split words, because a C path may hold spaces (`p -> y`); a leading decimal word is the frame (a C path cannot
+start with a digit). A refusal (no C variables, an unknown name, no such frame) is text and `OK`, as `monitor src` does; a
+wrong argument is `E01`. They exist for any RSP client and for what `z88dk-gdb` gets wrong on its own: it resolves a file
+static by name across modules, prints the 48-bit float as `<> 0.000000`, shows an array with the wrong count and reads
+every global through the 16-bit view. Only the client of z88dk's master has `monitor`, so v2.4 cannot reach them.
+
+**ZRCP.** `CVAR(path)` (GH #436) is jnext's one extension of ZEsarUX's condition dialect: `evaluate` does not hand its text to the
+DSL, it first translates it (`translate_condition()`, `zrcp_condition.cpp`), and `cvar(...)` was `Error parsing`. The tokeniser takes
+`CVAR(` followed by the raw path up to the first `)` as one `Tok::CVar` operand (`tokenise()`, `zrcp_condition.cpp:155`); a `(`, a
+`"`, a missing `)` and an empty path do not tokenise. The translator turns it into the DSL's `cvar(path)` and the canonical text
+echoes `CVAR(path)` with the path's case kept. Conditions compile through the same translation, so a breakpoint may carry it
+(`PC=8D3EH AND CVAR(a)=2`); a read that fails is ZEsarUX's `Error evaluating parsed string`, with no reason. A condition with no
+`PC=` first term is checked at every instruction, and a `CVAR` in it builds the C frames each time: put a `PC=` term first.
+`smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2625`) calls
 `Debugger::load()` (`debugger_reconstruct.cpp:465`), which calls `load_program_sidecars()` after a successful load
 (`load_program_sidecars()`, `debugger_reconstruct.cpp:528-532`), so a program loaded over ZRCP gets its symbols and
 source map like `--load`, and a refused sidecar is logged to every client as a Warn line.
@@ -360,8 +378,10 @@ reads now (`SlotInfo::now`): `RO` the boot ROM, `O<n>` the 8 KB ROM page `2*imag
 `SR<n>` config-mode SRAM, `DIV` DivMMC; the overlays ZEsarUX has no spelling for print the slot's own
 mapping. On the other machines segment 0 is `DIV` while DivMMC is paged in.
 
-**DZRP.** No source surface: `grep` finds no `source_*` call in `src/remote/dzrp`. DeZog reads the SLD
-or the map itself. What DZRP shares with this chapter is the legacy `bank+1` qualifier
+**DZRP.** No source surface and no C variable surface: `grep` finds no `source_*` call and no `c_*` or
+`read_c_value()` call in `src/remote/dzrp`, and the protocol has no command that could carry a variable. DeZog reads
+the SLD or the map itself and evaluates its own breakpoint conditions (jnext arms a conditional DZRP breakpoint
+unconditionally). So a DeZog user gets no C variables from jnext. What DZRP shares with this chapter is the legacy `bank+1` qualifier
 ([7.1](01-which-memory.md)). `CMD_GET_REGISTERS` reports `0xFF` for every ROM slot
 (`is_rom`, `dzrp_server.cpp:549-553`), because DeZog has no bank for the ROM values
 `0xE0`-`0xFE`.
@@ -371,6 +391,21 @@ subscribes one `Execute` per start, each with the `space` its place was compiled
 (`space`, `script_engine.cpp:346`); an unknown line is a diagnostic that names the reason. `--map` loads symbols
 with `MapFormat::Z88dkOrSjasmplus` (`script_host.cpp:187`, [7.3](03-loaders.md)). Held scripts and the
 rest of the language are in [3.10.6](../03-subsystems/13-the-debugger-scripting-language.md).
+
+`cvar(PATH)` (GH #436) is the one atom that reads a C variable: `eval_int()` (`evaluator.cpp:276`) calls
+`read_c_value(0, path)` (frame 0, where the CPU is) and `c_int32_scalar()` ([7.10](10-c-frames-and-values.md)) and returns
+the int32. The store is looked up at each evaluation, so a script compiled before the program loaded works once the sidecars
+attach, and every refusal is an `EvalError`, never a 0.
+
+**Reading C variables inside a delivery.** A predicate runs inside the loops over the event table, and `cvar()` is the first
+reader there that runs `recheck()` (`c_frames()` and `read_c_value()` do): the first `cvar()` after a verdict the verify hook
+recorded in guest execution (`verify_due`, a tape program running its code) runs `apply_deferred()` and `sync_call_stack()` in the
+middle of a delivery, and announces `pending_log` to the listeners. That is safe, and the reasons are checkable: nothing reachable
+from `recheck()` reads or writes the event table (`EventTable` is touched in `debugger_source.cpp` only by `history_stop_at()`,
+which reads it), the log listeners are no-ops or printers (`ScriptEngine::on_log()`), so none can `subscribe()` under the Execute gate's range-for over
+the table, and a map dropped there only makes the reader say so. Row `EVAL-CVAR-09` runs it on the tape fixture, both ways: right bytes (the map is verified
+inside the predicate, which then reads) and one wrong byte (the map is dropped inside the predicate, which is false with the
+facade's reason).
 
 **Headless, SDL, Qt loops.** `--source-map` is attached by `emulator_attach_cli_source_map()` after the
 first successful `--load` (or at start-up for a dot command or an RZX replay, [7.3](03-loaders.md)) and

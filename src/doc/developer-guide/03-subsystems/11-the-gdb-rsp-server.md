@@ -65,6 +65,14 @@ symbol (through `symbols().find_name()`; a paged symbol answers in its OWN
 memory, `source_location(space, addr)`, as `monitor sym` does, GH #349) or the PC. The memory spelling is the one of
 `monitor mmu`/GH #360 (`P04`, `ROM0`, `BOOT`).
 
+`monitor locals [FRAME]`, `monitor globals` and `monitor print [FRAME] PATH` (GH #436) print the C variables the debugger
+facade reads ([7.10](../07-source-level-debugging/10-c-frames-and-values.md)); [7.7](../07-source-level-debugging/07-frontends.md)
+has the formats. `pkt_monitor()` (`rsp_server.cpp:821`) hands `print` the raw rest of the packet text, not `split_words()`, because a
+C path may hold spaces; the other two take the words. The reply convention is `monitor src`'s: a content refusal (no C
+variables, no such frame, an unknown name) is an `O` line and `OK`; a wrong argument count or a non-decimal frame is `E01`. Each
+verb asks `c_variables_status()` first and prints its reason when C variables are unavailable. They are read-only: there is no verb
+that writes a C variable.
+
 ## Tests
 
 - `gdb_rsp_test` (Qt-free, both configurations) runs the production `Server`

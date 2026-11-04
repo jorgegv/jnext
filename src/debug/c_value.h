@@ -140,6 +140,20 @@ std::optional<int64_t> c_integer_value(const CdbType& type, const uint8_t* bytes
 /// The value of a 48-bit, binary32 or binary16 float; nullopt for anything else.
 std::optional<double> c_float_value(const CdbType& type, const uint8_t* bytes, size_t avail);
 
+/// E353-06's int32 atom (`cvar()` in a script, `CVAR()` over ZRCP; GH #436): the value of the object at `loc` as the DSL's
+/// 32-bit pattern, or why it is not an integer scalar. `integer` is the object's value sign- or zero-extended from its
+/// size, as the reader gave it (nullopt when it gave none). A Char, Int, Long, Scalar, Bitfield or Pointer of at most 4
+/// bytes is accepted (an unsigned 32-bit value keeps its bit pattern, as the DSL's literals do, and a pointer is its
+/// address); a larger integer, a float, an aggregate, void, a function and a location carrying a note (a member of an
+/// overlapping struct, z88dk U2: the value is not trustworthy) are refused with the reason. Only `loc.type` and
+/// `loc.note` are read, so a register-held value (no address) passes a `CLoc` with just its type.
+struct CInt32 {
+    bool ok = false;
+    int32_t value = 0;
+    std::string why;   ///< !ok
+};
+CInt32 c_int32_scalar(const CLoc& loc, std::optional<int64_t> integer);
+
 /// Read `loc.type.size` bytes at `loc.addr` and format them, with `loc.note` among the notes.
 CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc, std::vector<uint8_t>* bytes = nullptr);
 

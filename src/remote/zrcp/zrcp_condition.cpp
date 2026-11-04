@@ -15,7 +15,8 @@ namespace {
 
 // ── ZEsarUX 12.0's tokens (`expression_parser.h` / `.c`) ───────────────────
 
-enum class Tok : std::uint8_t { Number, Variable, Register, Logical, Cond, Calc, Func, Open, Close };
+enum class Tok : std::uint8_t { Number, Variable, Register, Logical, Cond, Calc, Func, Open, Close,
+                                CVar /* jnext: CVAR(path), `raw` = the path */ };
 
 enum class Fmt : std::uint8_t { Decimal, Hex, Binary, Ascii };
 
@@ -25,6 +26,7 @@ struct Token {
     Fmt          fmt   = Fmt::Decimal;
     int          sign  = 1;
     std::int32_t value = 0;     // the absolute value as ZEsarUX stores it
+    std::string  raw;           // CVar: the C path as written, trimmed (GH #436)
 };
 
 /// `MAX_PARSER_TEXTOS_INDICE_LENGTH` — a name buffer; a longer run is an error.
@@ -165,8 +167,27 @@ bool tokenise(const std::string& s, std::vector<Token>& out) {
             ++at;
             continue;
         }
+        // jnext extension (GH #436): `CVAR(path)` is one operand token carrying the raw path
+        // text up to the first `)`. ZEsarUX has no such function, so it answers this text
+        // "Error parsing" and no ZEsarUX exchange changes meaning. A `(`, a `"`, no `)` and an
+        // empty path do not tokenise.
+        bool cvar = false;
+        if (at + 5 <= s.size() && s[at + 4] == '(' && upper(s.substr(at, 4)) == "CVAR") {
+            std::size_t j = at + 5;
+            while (j < s.size() && s[j] != ')' && s[j] != '(' && s[j] != '"') ++j;
+            if (j >= s.size() || s[j] != ')') return false;
+            std::string path = s.substr(at + 5, j - (at + 5));
+            const std::size_t b = path.find_first_not_of(' ');
+            if (b == std::string::npos) return false;
+            Token t;
+            t.type = Tok::CVar;
+            t.raw  = path.substr(b, path.find_last_not_of(' ') - b + 1);
+            out.push_back(t);
+            at   = j + 1;
+            cvar = true;
+        }
         // `exp_par_is_funcion`: letters, then an opening bracket.
-        {
+        if (!cvar) {
             std::size_t i = 0;
             while (at + i < s.size() && is_letter(s[at + i]) && i < kMaxName) ++i;
             if (at + i < s.size() && is_open(s[at + i])) {
@@ -182,7 +203,7 @@ bool tokenise(const std::string& s, std::vector<Token>& out) {
             }
         }
         // An operand: a variable or register (`exp_par_is_var_reg`), else a number.
-        {
+        if (!cvar) {
             std::size_t i = 0;
             while (at + i < s.size() && i < kMaxName &&
                    (is_letter(s[at + i]) || s[at + i] == '\'' || (i > 0 && is_digit(s[at + i]))))
@@ -306,6 +327,7 @@ std::string canonical_of(const std::vector<Token>& toks) {
                 }
                 break;
             }
+            case Tok::CVar:    out += "CVAR(" + t.raw + ")"; break;
             case Tok::Open:    out += '('; break;
             case Tok::Close:   out += ')'; break;
             case Tok::Logical: out += " " + t.name + " "; break;
@@ -376,6 +398,10 @@ struct Translator {
         if (k.type == Tok::Number) {
             out = lit(static_cast<std::int32_t>(static_cast<std::uint32_t>(k.value) *
                                                 static_cast<std::uint32_t>(k.sign)));
+            return true;
+        }
+        if (k.type == Tok::CVar) {
+            out = "cvar(" + k.raw + ")";
             return true;
         }
         const std::string& n = k.name;
@@ -503,7 +529,7 @@ struct Translator {
             return true;
         }
         if (t[lo].type == Tok::Number || t[lo].type == Tok::Variable ||
-            t[lo].type == Tok::Register)
+            t[lo].type == Tok::Register || t[lo].type == Tok::CVar)
             return operand(t[lo], out);
         return fail("an operand is missing");
     }

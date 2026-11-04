@@ -3065,7 +3065,7 @@ code departs from it. This page describes the code.</p>
 <tbody>
 <tr>
 <td><code>lexer.{h,cpp}</code></td>
-<td>tokens; comments <code>;</code> <code>//</code> <code>#</code>; integers (decimal, <code>0x</code>, <code>$</code>, <code>0b</code>, 32-bit wrapping); strings with <code>${expr[:x2\|x4\|d]}</code> interpolation; <code>file:line</code> as one <code>FileLine</code> token, recognised by lookahead (GH #346); the bracketed accessors (<code>mem[</code>, <code>mem16[</code>, <code>phys[</code>, <code>nextreg[</code>, <code>mmu[</code>, <code>page[</code>, <code>stack[</code>, <code>changed(</code>, <code>depth(</code>) as single tokens</td>
+<td>tokens; comments <code>;</code> <code>//</code> <code>#</code>; integers (decimal, <code>0x</code>, <code>$</code>, <code>0b</code>, 32-bit wrapping); strings with <code>${expr[:x2\|x4\|d]}</code> interpolation; <code>file:line</code> as one <code>FileLine</code> token, recognised by lookahead (GH #346); the bracketed accessors (<code>mem[</code>, <code>mem16[</code>, <code>phys[</code>, <code>nextreg[</code>, <code>mmu[</code>, <code>page[</code>, <code>stack[</code>, <code>changed(</code>, <code>depth(</code>) as single tokens; <code>cvar(PATH)</code> as one <code>CVar</code> token carrying the raw C path (GH #436)</td>
 </tr>
 <tr>
 <td><code>parser.{h,cpp}</code>, <code>ast.h</code></td>
@@ -3152,6 +3152,17 @@ is both is the address (row SYM-13). A z88dk C symbol (module <code>&lt;file&gt;
 <code>@counter</code> for <code>_counter</code>, after the exact names and constants (rows SCRIPT-HOST-CN-01/02).
 The <code>-debug</code> records of a map (names starting <code>__C_LINE_</code>, <code>__ASM_LINE_</code> or
 <code>__CDBINFO__</code>) are not symbols: the loader drops them (rows SYM-14 to SYM-18).</p>
+<p><strong><code>cvar(PATH)</code></strong> (GH #436, <a href="../07-source-level-debugging/07-frontends.html">7.7</a>) is the atom that reads a C variable of frame 0, as
+an int32. Its path is not the DSL's grammar (<code>-&gt;</code>, <code>::</code>, <code>*</code>, <code>$1F</code>, a file name with a <code>.</code>), so <code>lex_ident()</code> takes <code>cvar</code> directly
+followed by <code>(</code> as one <code>Tok::CVar</code> and <code>lex_cvar()</code> (<code>lexer.cpp:195</code>) captures the raw text to the first <code>)</code> on the line, trimmed;
+a <code>(</code>, a <code>"</code>, a missing <code>)</code> and an empty path are lexical errors, and <code>cvar</code> is a reserved word (<code>RESERVED</code> in <code>names.cpp</code>, as <code>depth</code> and <code>changed</code> are), so <code>var cvar</code> is refused at load. The word was
+not free before: <code>dump_mem</code> and <code>out</code> take two expressions side by side, so <code>dump_mem cvar(4)</code> with a <code>var cvar</code> was two operands; it
+now fails to load, loudly, rather than meaning something else. Inside a <code>${...}</code> interpolation a <code>::</code> is not the format separator. <code>parse_primary()</code> makes an
+<code>ExprKind::CVar</code> whose <code>text</code> is the path (<code>parse_lvalue()</code> refuses it like any other read-only name, so <code>set cvar(x) = 1</code> is an error).
+<code>check_script()</code> checks the syntax with <code>c_parse_path()</code> at load, in every scope (it reads the machine, like <code>mem[]</code>); what the path
+names is looked up at each evaluation, by <code>eval_int()</code>, as <code>read_c_value(0, path)</code> then <code>c_int32_scalar()</code>. Every refusal is an
+<code>EvalError</code> carrying the facade's reason, which in a <code>when</code> disables the rule; none is a 0. The <code>-Werror=switch</code> of <code>jnext_script</code>
+is what forced the arms in both switches.</p>
 <p>An sjasmplus <code>--sym</code> / <code>--exp</code> file loads into the same table (<code>--map</code> picks it
 by contents). Its names are dotted (<code>main.loop</code>, <code>gfx.draw.loop</code>), so
 <code>lex_symbol()</code> lets a <code>.</code> continue an <code>@name</code> when a letter or <code>_</code> follows it: <code>@a..@b</code>

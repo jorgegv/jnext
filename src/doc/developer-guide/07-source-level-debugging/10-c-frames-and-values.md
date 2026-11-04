@@ -161,7 +161,7 @@ that it may be stale), refuses `[]` as optimised out and an outer frame as not a
 | `c_locals(frame)` (`debugger_cvalues.cpp:445`) | the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a `CValueRow`; refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known |
 | `c_globals()` (`debugger_cvalues.cpp:477`) | every global, file static and static local, ordered by file then name, with a `path` no local can shadow: `vars.c::s_dup`, `sum::calls` (`a.c::init::done` when two modules have a function `init`) |
 | `read_c_value(frame, path)` (`debugger_cvalues.cpp:507`) | the object a C path names in that frame: `ok` or `why`, the type text, the value text, `notes`, the typed location `loc`, `where`, `integer` (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and `real` (the floats) |
-| `c_children(frame, path, first, max)` (`debugger_cvalues.cpp:519`) | what a tree lists under an object: a struct's members, an array's elements `first`..`first + max` (`total` is the element COUNT), a pointer's pointee (a struct's members as `p->x`, anything else as `p[0]`, named `*`); `void *`, a function pointer and a scalar have none (`ok`, `total` 0). Each row's `path` is the parent's plus a suffix and round-trips through `read_c_value`; a row is read, placed and noted exactly as `read_c_value` would, so a banked global's elements carry its page. `!ok` gives `read_c_value`'s own reason, or `null pointer` / the unreadable address |
+| `c_children(frame, path, first, max)` (`debugger_cvalues.cpp:519`) | what a tree lists under an object: a struct's members, an array's elements `first`..`first + max` (`total` is the element COUNT), a pointer's pointee (a struct's members as `p->x`, anything else as `p[0]`, named `*`); `void *`, a function pointer and a scalar have none (`ok`, `total` 0). Each row's `path` is the parent's plus a suffix and round-trips through `read_c_value` (for a `*E` path the base is `E[0]`, since the grammar applies a leading `*` after the postfix steps: `*p` + `.x` would read `*(p.x)`); a row is read, placed and noted exactly as `read_c_value` would, so a banked global's elements carry its page. `!ok` gives `read_c_value`'s own reason, or `null pointer` / the unreadable address |
 
 The children come from the pure `c_children()` (`c_value.cpp:791`; `CChild`, `CChildren`): a struct's visible named members in record order
 (an unnamed C11 member has no path and is left out), an array's elements scaled by the element size, one pointee for a pointer.
@@ -189,6 +189,27 @@ Where an object is read from (`eval_var()`, `debugger_cvalues.cpp:152`):
 locals, the file's statics, the globals. A local that exists but is hidden is `out of scope at <file>:<line>`. `fn::name` names a static
 local from any frame, and a local of `fn` only from a frame of `fn`; `file.c::name` names that file's statics and globals.
 
+## The int32 atom: `c_int32_scalar()` (GH #436)
+
+`c_int32_scalar(loc, integer)` (`c_value.cpp:1045`) is the one rule for what a C value is as a 32-bit integer; the script atom `cvar()`
+and, through its translation, ZRCP's `CVAR()` both reach it through the evaluator, so there is nothing to keep in step. It reads
+`loc.type` (the head of the chain and the size) and `loc.note`, so a register-held value (no address) passes a `CLoc` with just its
+type, which `read_c_value()` fills for it. `integer` is the facade's `CValueResult::integer`.
+
+| The object | Result |
+|---|---|
+| Char, Int, Long, Scalar, Bitfield, Pointer, size at most 4 | the low 32 bits of `integer`: an unsigned 32-bit value keeps its bit pattern (`0xCAFEBABE` is -889275714, as the DSL's literal is), a pointer is its address |
+| the same kinds, size over 4 (`{8}SL`) | refused: `a <size>-byte integer does not fit the script's 32 bits` |
+| Float, Float16, Fixed | refused: `<type> is not an integer` (the DSL has no floats; truncating would be a guess) |
+| Struct, Array | refused: `<type> is an aggregate, not a scalar: name a member or an element` |
+| Void, Function | refused: `<type> has no value` |
+| a `loc.note` (a member of an overlapping struct, z88dk U2) | refused with the note: the value is not trustworthy |
+| `integer` empty | refused: `no integer value was read` |
+
+The register-local "may be stale" and "page N is not mapped" notes are row notes, not `CLoc::note`, and do not refuse: they say
+how far to trust a value that is shown. The rule is a pure function, so `CVINT-01` and `CVINT-02` reach every arm with synthetic types; no
+fixture has an 8-byte integer, a binary16 or an `_Accum` global.
+
 ## Fixtures and rows
 
 `Z88CDB-41` to `-50` in `z88dk_map_test` (the extents against a golden that `derive-scopes.py --extents`
@@ -198,4 +219,4 @@ convention, the no-record facts, and the unchanged scope tables on the 12 maps o
 tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, a function that crosses a slot; and the
 values: the first call of sum on each compiler, the globals, the loop, paged globals with their note, the fastcall marker, C paths and
 their refusals, bitfields, the status texts, the lifetime, a rewind, a dot command's global, order and hiding, and the facade's
-contract, an unknown frame base, a stale map, an ambiguous function, page crossing and the label of an unmapped page, file-qualified static locals, a pointer in a register). The plan's row for an identity-only space (a value whose storage is in `BootRom`, `Layer2` and the like) is not built, and cannot be: `storage_of()` refuses any bound placement that is not a `Page` and `z88dk_section_space()` produces only `Page` and `DivMmcRam`, so no z88dk map can place a variable in such a space; the neighbouring contract, a failed read is never `0`, is reachable and rowed (a 2-byte global on the last byte of its page). A struct's size by module is `CVALF-37`, the integer and real a value holds `CVALF-38`, rooted reads `CVALF-39`.
+contract, an unknown frame base, a stale map, an ambiguous function, page crossing and the label of an unmapped page, file-qualified static locals, a pointer in a register). The plan's row for an identity-only space (a value whose storage is in `BootRom`, `Layer2` and the like) is not built, and cannot be: `storage_of()` refuses any bound placement that is not a `Page` and `z88dk_section_space()` produces only `Page` and `DivMmcRam`, so no z88dk map can place a variable in such a space; the neighbouring contract, a failed read is never `0`, is reachable and rowed (a 2-byte global on the last byte of its page). A struct's size by module is `CVALF-37`, the integer and real a value holds `CVALF-38`, rooted reads `CVALF-39`; the int32 rule is `CVINT-01` and `-02` in `c_value_test`. The frontends' rows are `EVAL-CVAR-*`, `GDB-CVAR-*` and `ZRCP-CVAR-*` ([7.8](08-tests-and-new-producers.md)).

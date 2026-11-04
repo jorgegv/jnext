@@ -215,7 +215,7 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
             out.notes.push_back(rr.note);
         } else {
             if (deref || !steps.empty()) return refused("a register value has no address");
-            // no address, but a pointer's VALUE can be followed: c_children() starts from this
+            // no address, but the type (the int32 atom of GH #436 decides on it) and a pointer's VALUE, which c_children() follows
             out.loc.type = cv.type;
             if (!cv.type.chain.empty() && cv.type.chain[0].kind == CdbTypeKind::Pointer && rr.bytes.size() >= 2)
                 out.loc.ptr_value = static_cast<uint16_t>(rr.bytes[0] | rr.bytes[1] << 8);

@@ -1432,6 +1432,10 @@ target_link_libraries(script_eval_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(script_eval_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# EVAL-CVAR-* (GH #436) read C variables of the committed z88dk fixtures; -06 loads an SLD.
+target_compile_definitions(script_eval_test PRIVATE
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
 add_test(NAME script_eval_tests COMMAND script_eval_test)
 
 # GH #26 WP3 — the DSL engine: rules as backend subscriptions on a real
@@ -1495,8 +1499,10 @@ target_link_libraries(zrcp_adapter_test PRIVATE
 target_include_directories(zrcp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(zrcp_adapter_test PRIVATE "${CMAKE_BINARY_DIR}/generated")
 # ZRCP-FIX-* replay the committed fixture of ZEsarUX 12.0's recorded bytes (WP-6).
+# ZRCP-CVAR-* (GH #436) read C variables of the committed z88dk fixtures.
 target_compile_definitions(zrcp_adapter_test PRIVATE
-    JNEXT_ZRCP_FIXTURE="${CMAKE_SOURCE_DIR}/test/fixtures/zrcp/zesarux-12.0-exchanges.txt")
+    JNEXT_ZRCP_FIXTURE="${CMAKE_SOURCE_DIR}/test/fixtures/zrcp/zesarux-12.0-exchanges.txt"
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
 add_test(NAME zrcp_adapter_tests COMMAND zrcp_adapter_test)
 
 # OpenGL CRT display filter (doc/design/CRT-GL-FILTER.md) — the pure decision rules:

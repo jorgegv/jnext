@@ -178,6 +178,10 @@ private:
     bool monitor_out(const std::vector<std::string>& args);
     bool monitor_sym(const std::vector<std::string>& args);
     bool monitor_src(const std::vector<std::string>& args);
+    /// GH #436: C variables. `print` takes the raw rest of the line (a path may hold spaces).
+    bool monitor_locals(const std::vector<std::string>& args);
+    bool monitor_globals(const std::vector<std::string>& args);
+    bool monitor_print(const std::string& rest);
     bool monitor_time(const std::vector<std::string>& args);
     bool monitor_reset(const std::vector<std::string>& args);
     bool monitor_bp(const std::vector<std::string>& args);
