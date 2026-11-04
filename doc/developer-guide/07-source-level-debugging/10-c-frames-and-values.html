@@ -3051,11 +3051,11 @@ all three compilers, and the <code>B</code> records of a variable are offsets fr
 </table>
 <p>The helpers (<code>__debug_framepointer</code>, <code>l_debug_push_frame</code>, <code>l_debug_pop_frame</code>) are joined by
 public name in <code>CFrameHelpers</code> (<code>struct CFrameHelpers</code>, <code>variable_store.h:107</code>), by the adapter
-(<code>helpers.framepointer</code>, <code>z88dk_source_map.cpp:618</code>), never from the symbol table: a
+(<code>helpers.framepointer</code>, <code>z88dk_source_map.cpp:619</code>), never from the symbol table: a
 hand-loaded map attaches no symbols. They are unresolved, with a reason, in a zsdcc map.</p>
 <h2 id="which-function-a-pc-is-in">Which function a PC is in<a class="headerlink" href="#which-function-a-pc-is-in" title="Permanent link">&para;</a></h2>
 <p>A function's <strong>extent</strong> is a list of pieces (<code>CPiece</code>, <code>variable_store.h:56</code>). <code>fill_extents()</code>
-(<code>z88dk_source_map.cpp:327</code>) bounds the extent above by the lowest map value, in the same section,
+(<code>z88dk_source_map.cpp:328</code>) bounds the extent above by the lowest map value, in the same section,
 of another function's entry, a symbol or line record of another module, or the section's
 <code>__&lt;section&gt;_tail</code>; then it splits <code>[entry, bound)</code> at the 8 KB logical boundaries and places each
 piece with the rule the symbols use. A function that crosses a slot lives in two spaces (a NEX code
@@ -3064,7 +3064,7 @@ group is placed slot by slot: page 4 for <code>$8000</code>-<code>$9FFF</code>, 
 <p><code>VariableStore::locate()</code> (<code>variable_store.cpp:50</code>) answers "which function, and how far into it" from a
 <code>SourceAddress</code>: the piece with the same space whose range holds the address. Nothing else is
 used, neither the nearest symbol nor a jump target. The scope tables follow the same rule
-(<code>fill_scopes()</code>, <code>z88dk_source_map.cpp:376</code>): a record is filed under the function of its module and
+(<code>fill_scopes()</code>, <code>z88dk_source_map.cpp:377</code>): a record is filed under the function of its module and
 section whose entry <strong>value</strong> is the greatest at or below the record's, and each <code>CScope</code> carries its
 <code>offset</code> from the entry, so tables compare across pieces. Comparing spaces would lose the tail of a
 function that crosses a slot (<code>cross.c</code>, in the <code>*-cross</code> fixtures).</p>

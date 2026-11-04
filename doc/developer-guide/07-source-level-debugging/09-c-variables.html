@@ -3103,15 +3103,15 @@ information" is told from "there is no z88dk map". A map with no lines at all ge
 no store, because it replaces nothing. <code>Load MAP</code> (symbols only) never has one.</p>
 <h2 id="how-it-is-filled">How it is filled<a class="headerlink" href="#how-it-is-filled" title="Permanent link">&para;</a></h2>
 <p><code>load_z88dk_source_map()</code> reads the map once. Pass 1 keeps a <code>const</code> line that
-starts <code>__CDBINFO__</code> in <code>cdb_lines</code> (<code>src/debug/z88dk_source_map.cpp:671</code>),
+starts <code>__CDBINFO__</code> in <code>cdb_lines</code> (<code>src/debug/z88dk_source_map.cpp:672</code>),
 and the parser gained <code>Z88dkMapLine::is_public</code> (the scope field). The line records
 of code sections are copied to <code>scope_records</code> right after they are placed and
-<strong>before</strong> a listing replaces its module's lines (<code>scope_records</code>, <code>src/debug/z88dk_source_map.cpp:738</code>):
+<strong>before</strong> a listing replaces its module's lines (<code>scope_records</code>, <code>src/debug/z88dk_source_map.cpp:739</code>):
 a listing's <code>C_LINE</code> keeps only the file, so the scope can come only from the map.
 Just before <code>map.replace()</code>, <code>build_variable_store()</code>
-(<code>src/debug/z88dk_source_map.cpp:512</code>)
+(<code>src/debug/z88dk_source_map.cpp:513</code>)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, <code>place_symbol</code> (<code>src/debug/z88dk_source_map.cpp:967</code>),
+space by one lambda, <code>place_symbol</code> (<code>src/debug/z88dk_source_map.cpp:968</code>),
 shared by the extent code and the store, so no rule is kept twice.</p>
 <h2 id="the-joins">The joins<a class="headerlink" href="#the-joins" title="Permanent link">&para;</a></h2>
 <p>The key is the <strong>module</strong>, not the file name (z88dk issue 3222, a wrong
@@ -3129,27 +3129,27 @@ ambiguous and reported as such; the first is never taken.</p>
 <tbody>
 <tr>
 <td><code>S:G$x</code></td>
-<td>the PUBLIC <code>_x</code>, whatever its module (<code>join_public()</code>, <code>src/debug/z88dk_source_map.cpp:241</code>)</td>
+<td>the PUBLIC <code>_x</code>, whatever its module (<code>join_public()</code>, <code>src/debug/z88dk_source_map.cpp:242</code>)</td>
 <td>A record's module column is its first emitter, not its definer. Measured on <code>master/sdcc-extern</code> (<code>ext_use.c</code> declares <code>extern int g;</code>, <code>ext_def.c</code> defines it): zsdcc writes <code>S:G$g</code> with <code>ext_use_c</code> while <code>_g</code> is public in <code>ext_def_c</code>; sccz80 writes it in <code>ext_def_c</code>. The same collapse makes <code>F:G$other</code> say <code>vars_c</code> while <code>_other</code> is in <code>other_c</code> (<code>master/sccz80-cvars</code>)</td>
 </tr>
 <tr>
 <td><code>S:F&lt;file&gt;$x</code>, level 0</td>
-<td><code>_x</code> in the record's module (<code>join_in_module()</code>, <code>src/debug/z88dk_source_map.cpp:231</code>)</td>
+<td><code>_x</code> in the record's module (<code>join_in_module()</code>, <code>src/debug/z88dk_source_map.cpp:232</code>)</td>
 <td><code>_s_dup</code> is one symbol in <code>vars_c</code> and another in <code>other_c</code></td>
 </tr>
 <tr>
 <td><code>S:F&lt;file&gt;$st_&lt;fn&gt;_&lt;x&gt;</code>, level &gt; 0</td>
-<td><code>_st_&lt;fn&gt;_&lt;x&gt;</code> in the module; the local belongs to the module's function <code>fn</code>, its C name is <code>x</code> (<code>static_local_function()</code>, <code>src/debug/z88dk_source_map.cpp:301</code>)</td>
+<td><code>_st_&lt;fn&gt;_&lt;x&gt;</code> in the module; the local belongs to the module's function <code>fn</code>, its C name is <code>x</code> (<code>static_local_function()</code>, <code>src/debug/z88dk_source_map.cpp:302</code>)</td>
 <td>The writers: <code>src/sccz80/declparse.c:1012</code>, <code>src/80cc/declparse.c:1099</code>. Several candidate functions (<code>a</code> and <code>a_b</code>): left unattributed, with the raw name. 80cc's <code>st_&lt;fn&gt;_&lt;x&gt;_&lt;n&gt;</code> keeps <code>_&lt;n&gt;</code> in the C name, not distinguishable from a name that ends so</td>
 </tr>
 <tr>
 <td><code>S:L&lt;scope&gt;.&lt;fn&gt;$x$L_S$B</code>, space E (a zsdcc static local)</td>
-<td><code>_&lt;fn&gt;_&lt;x&gt;_&lt;L*10000+S&gt;_&lt;B&gt;</code> in the module (<code>join_variable()</code>, <code>src/debug/z88dk_source_map.cpp:273</code>)</td>
+<td><code>_&lt;fn&gt;_&lt;x&gt;_&lt;L*10000+S&gt;_&lt;B&gt;</code> in the module (<code>join_variable()</code>, <code>src/debug/z88dk_source_map.cpp:274</code>)</td>
 <td>SDCC <code>allocLocal()</code>, <code>z88dk/src/sdcc-build/src/SDCCmem.c:876</code></td>
 </tr>
 <tr>
 <td><code>S:L...</code>, any space</td>
-<td><code>function</code> = the one <code>CFunction</code> of that name AND module (<code>function_of()</code>, <code>src/debug/z88dk_source_map.cpp:288</code>)</td>
+<td><code>function</code> = the one <code>CFunction</code> of that name AND module (<code>function_of()</code>, <code>src/debug/z88dk_source_map.cpp:289</code>)</td>
 <td>A local exists only in its defining unit; <code>util_inc</code> of a header is two functions, one per module, each with its own <code>v</code></td>
 </tr>
 <tr>
@@ -3176,7 +3176,7 @@ A DIV section or an unplaceable 24-bit value is unresolved with the placement's
 reason.</p>
 <h2 id="the-scope-table">The scope table<a class="headerlink" href="#the-scope-table" title="Permanent link">&para;</a></h2>
 <p>Each function has a table of the scopes its code is in, built from the map's own
-<code>C_LINE</code> records (<code>fill_scopes()</code>, <code>src/debug/z88dk_source_map.cpp:376</code>). Records
+<code>C_LINE</code> records (<code>fill_scopes()</code>, <code>src/debug/z88dk_source_map.cpp:377</code>). Records
 at one address are grouped, and the highest line owns the address (the rule the
 line ranges use). Equal-line owners that disagree make the entry unknown, so no
 order of the map can change the answer. The entry is filed under the function of

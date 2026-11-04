@@ -21,13 +21,13 @@ all three compilers, and the `B` records of a variable are offsets from `fp`.
 
 The helpers (`__debug_framepointer`, `l_debug_push_frame`, `l_debug_pop_frame`) are joined by
 public name in `CFrameHelpers` (`struct CFrameHelpers`, `variable_store.h:107`), by the adapter
-(`helpers.framepointer`, `z88dk_source_map.cpp:618`), never from the symbol table: a
+(`helpers.framepointer`, `z88dk_source_map.cpp:619`), never from the symbol table: a
 hand-loaded map attaches no symbols. They are unresolved, with a reason, in a zsdcc map.
 
 ## Which function a PC is in
 
 A function's **extent** is a list of pieces (`CPiece`, `variable_store.h:56`). `fill_extents()`
-(`z88dk_source_map.cpp:327`) bounds the extent above by the lowest map value, in the same section,
+(`z88dk_source_map.cpp:328`) bounds the extent above by the lowest map value, in the same section,
 of another function's entry, a symbol or line record of another module, or the section's
 `__<section>_tail`; then it splits `[entry, bound)` at the 8 KB logical boundaries and places each
 piece with the rule the symbols use. A function that crosses a slot lives in two spaces (a NEX code
@@ -37,7 +37,7 @@ group is placed slot by slot: page 4 for `$8000`-`$9FFF`, page 5 for `$A000`-`$B
 `VariableStore::locate()` (`variable_store.cpp:50`) answers "which function, and how far into it" from a
 `SourceAddress`: the piece with the same space whose range holds the address. Nothing else is
 used, neither the nearest symbol nor a jump target. The scope tables follow the same rule
-(`fill_scopes()`, `z88dk_source_map.cpp:376`): a record is filed under the function of its module and
+(`fill_scopes()`, `z88dk_source_map.cpp:377`): a record is filed under the function of its module and
 section whose entry **value** is the greatest at or below the record's, and each `CScope` carries its
 `offset` from the entry, so tables compare across pieces. Comparing spaces would lose the tail of a
 function that crosses a slot (`cross.c`, in the `*-cross` fixtures).

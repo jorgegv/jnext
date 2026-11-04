@@ -101,7 +101,8 @@ std::optional<Location> parse_location(std::string_view text)
         const std::string_view rest = prefix.substr(scope + 2);
         const std::string_view func = rest.substr(0, rest.find("::"));
         out.func = std::string(func);
-        out.func_known = !tab && !func.empty();
+        // zsdcc writes the literal `x` where it gives no function: with a trailing TAB (z88dk 2.4 and master so far) and without one (z88dk#3222 A, once it ships)
+        out.func_known = !tab && !func.empty() && func != "x";
         out.tab = tab;
         // `level::block` after the function (GH #433): both numeric, else not given.
         const size_t after = rest.find("::");
@@ -624,7 +625,7 @@ std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
     for (const Record& r : scope_records) {
         if (!r.loc.scope_given) continue;
         facts.c_line_records = true;
-        if (r.loc.func == "x" && r.loc.tab) facts.zsdcc_form = true;
+        if (r.loc.func == "x") facts.zsdcc_form = true;   // with or without the TAB (see parse_location)
     }
     return std::make_shared<const jnext::dbg::VariableStore>(std::move(fns), std::move(vars),
                                                            std::move(types), std::move(modules),

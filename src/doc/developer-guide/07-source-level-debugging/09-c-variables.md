@@ -61,15 +61,15 @@ no store, because it replaces nothing. `Load MAP` (symbols only) never has one.
 ## How it is filled
 
 `load_z88dk_source_map()` reads the map once. Pass 1 keeps a `const` line that
-starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:671`),
+starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:672`),
 and the parser gained `Z88dkMapLine::is_public` (the scope field). The line records
 of code sections are copied to `scope_records` right after they are placed and
-**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:738`):
+**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:739`):
 a listing's `C_LINE` keeps only the file, so the scope can come only from the map.
 Just before `map.replace()`, `build_variable_store()`
-(`src/debug/z88dk_source_map.cpp:512`)
+(`src/debug/z88dk_source_map.cpp:513`)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:967`),
+space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:968`),
 shared by the extent code and the store, so no rule is kept twice.
 
 ## The joins
@@ -81,11 +81,11 @@ ambiguous and reported as such; the first is never taken.
 
 | Record | Joined to | Why |
 |---|---|---|
-| `S:G$x` | the PUBLIC `_x`, whatever its module (`join_public()`, `src/debug/z88dk_source_map.cpp:241`) | A record's module column is its first emitter, not its definer. Measured on `master/sdcc-extern` (`ext_use.c` declares `extern int g;`, `ext_def.c` defines it): zsdcc writes `S:G$g` with `ext_use_c` while `_g` is public in `ext_def_c`; sccz80 writes it in `ext_def_c`. The same collapse makes `F:G$other` say `vars_c` while `_other` is in `other_c` (`master/sccz80-cvars`) |
-| `S:F<file>$x`, level 0 | `_x` in the record's module (`join_in_module()`, `src/debug/z88dk_source_map.cpp:231`) | `_s_dup` is one symbol in `vars_c` and another in `other_c` |
-| `S:F<file>$st_<fn>_<x>`, level > 0 | `_st_<fn>_<x>` in the module; the local belongs to the module's function `fn`, its C name is `x` (`static_local_function()`, `src/debug/z88dk_source_map.cpp:301`) | The writers: `src/sccz80/declparse.c:1012`, `src/80cc/declparse.c:1099`. Several candidate functions (`a` and `a_b`): left unattributed, with the raw name. 80cc's `st_<fn>_<x>_<n>` keeps `_<n>` in the C name, not distinguishable from a name that ends so |
-| `S:L<scope>.<fn>$x$L_S$B`, space E (a zsdcc static local) | `_<fn>_<x>_<L*10000+S>_<B>` in the module (`join_variable()`, `src/debug/z88dk_source_map.cpp:273`) | SDCC `allocLocal()`, `z88dk/src/sdcc-build/src/SDCCmem.c:876` |
-| `S:L...`, any space | `function` = the one `CFunction` of that name AND module (`function_of()`, `src/debug/z88dk_source_map.cpp:288`) | A local exists only in its defining unit; `util_inc` of a header is two functions, one per module, each with its own `v` |
+| `S:G$x` | the PUBLIC `_x`, whatever its module (`join_public()`, `src/debug/z88dk_source_map.cpp:242`) | A record's module column is its first emitter, not its definer. Measured on `master/sdcc-extern` (`ext_use.c` declares `extern int g;`, `ext_def.c` defines it): zsdcc writes `S:G$g` with `ext_use_c` while `_g` is public in `ext_def_c`; sccz80 writes it in `ext_def_c`. The same collapse makes `F:G$other` say `vars_c` while `_other` is in `other_c` (`master/sccz80-cvars`) |
+| `S:F<file>$x`, level 0 | `_x` in the record's module (`join_in_module()`, `src/debug/z88dk_source_map.cpp:232`) | `_s_dup` is one symbol in `vars_c` and another in `other_c` |
+| `S:F<file>$st_<fn>_<x>`, level > 0 | `_st_<fn>_<x>` in the module; the local belongs to the module's function `fn`, its C name is `x` (`static_local_function()`, `src/debug/z88dk_source_map.cpp:302`) | The writers: `src/sccz80/declparse.c:1012`, `src/80cc/declparse.c:1099`. Several candidate functions (`a` and `a_b`): left unattributed, with the raw name. 80cc's `st_<fn>_<x>_<n>` keeps `_<n>` in the C name, not distinguishable from a name that ends so |
+| `S:L<scope>.<fn>$x$L_S$B`, space E (a zsdcc static local) | `_<fn>_<x>_<L*10000+S>_<B>` in the module (`join_variable()`, `src/debug/z88dk_source_map.cpp:274`) | SDCC `allocLocal()`, `z88dk/src/sdcc-build/src/SDCCmem.c:876` |
+| `S:L...`, any space | `function` = the one `CFunction` of that name AND module (`function_of()`, `src/debug/z88dk_source_map.cpp:289`) | A local exists only in its defining unit; `util_inc` of a header is two functions, one per module, each with its own `v` |
 | `F:G$f` | the public `_f`; the function's module is that symbol's | |
 | `F:F<file>$f` | `_f` in the record's module | |
 
@@ -105,7 +105,7 @@ reason.
 ## The scope table
 
 Each function has a table of the scopes its code is in, built from the map's own
-`C_LINE` records (`fill_scopes()`, `src/debug/z88dk_source_map.cpp:376`). Records
+`C_LINE` records (`fill_scopes()`, `src/debug/z88dk_source_map.cpp:377`). Records
 at one address are grouped, and the highest line owns the address (the rule the
 line ranges use). Equal-line owners that disagree make the entry unknown, so no
 order of the map can change the answer. The entry is filed under the function of

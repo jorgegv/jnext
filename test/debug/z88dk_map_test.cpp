@@ -3119,6 +3119,43 @@ main cross_c AC97
               fx == "lo=0/3@0 mid=3/5@0 hi=0/8@1 g_str=1 main.block=0" && mx.find("g_str=2 main.block=2") != std::string::npos && mx.find("lo=-@0") != std::string::npos);
     }
 
+    {   // Z88ZB-09
+        // zsdcc's `x` placeholder is "no function" with or without the trailing TAB (z88dk#3222 A drops it). Oracle: the same map with and without the TABs must read the same:
+        // the fixture master/sdcc-cvars with every `\t:` made `:`, and a synthetic address shared by two functions' lines, which must not alias
+        const auto strip_tabs = [](std::string text) {
+            std::string out;
+            for (const char c : text)
+                if (c != '\t') out += c;
+            return out;
+        };
+        std::string cv_text;
+        for (const std::string& l : map_lines(kFixtures / "master/sdcc-cvars" / "prog.map")) cv_text += l + "\n";
+        SourceMap with, without;
+        load(with, synth("z88zb09a.map", cv_text));
+        load(without, synth("z88zb09b.map", strip_tabs(cv_text)));
+        const bool same_store = store_of(with) && store_of(without) && store_dump(*store_of(with)) == store_dump(*store_of(without)) && !store_of(with)->functions().empty();
+        const auto starts41 = [](const SourceMap& m) { return m.resolve("vars.c:41").starts.size(); };
+        const std::string shared =
+            "_fa = $9000 ; addr, public, , t_c, code_compiler, t.c:3\n_fb = $9000 ; addr, public, , t_c, code_compiler, t.c:4\n__code_compiler_tail = $9020 ; const, public, def, , ,\n";
+        const auto shared_map = [&](const char* name, const char* tab) {
+            SourceMap m;
+            load(m, synth(name, shared + rec("__C_LINE_3_t_2ec_3", 0x9000, "t_c", "code_compiler", (std::string("t.c::x::10000::8") + tab + ":3").c_str()) +
+                                    rec("__C_LINE_4_t_2ec_4", 0x9000, "t_c", "code_compiler", (std::string("t.c::x::10000::9") + tab + ":4").c_str())));
+            return std::make_pair(m.resolve("t.c:3").starts.size(), m.resolve("t.c:4").starts.size());
+        };
+        const auto t1 = shared_map("z88zb09c.map", "\t"), t0 = shared_map("z88zb09d.map", "");
+        // the status text of a zsdcc map without records (Z88CDB-45's shape) names zsdcc whichever way the line ends
+        std::vector<std::string> kept;
+        for (const std::string& l : map_lines(kFixtures / "master/sdcc-cvars" / "prog.map"))
+            if (!is_cdb_line(l)) kept.push_back(strip_tabs(l));
+        SourceMap bare;
+        load(bare, synth("z88zb09e.map", join_lines(kept)));
+        check("Z88ZB-09", "zsdcc's `x` is no function with or without the trailing TAB: master/sdcc-cvars with its TABs removed gives the same store as the original and the same starts for vars.c:41; "
+                          "two functions' lines at one address ($9000, `x::...:3` and `x::...:4`, `_fb` the later entry) are not aliased either way (line 3 has no start of its own, line 4 has "
+                          "one); a record-less zsdcc map without TABs still says `zsdcc_form`",
+              same_store && starts41(with) == starts41(without) && starts41(with) == 1 && t1.first == 0 && t1.second == 1 && t0 == t1 && store_of(bare) && store_of(bare)->no_record_facts().zsdcc_form);
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
