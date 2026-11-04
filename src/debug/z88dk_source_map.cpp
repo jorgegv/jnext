@@ -438,13 +438,42 @@ void fill_scopes(std::vector<CFunction>& fns, const std::vector<FnEntry>& entrie
                   [](const CScope& a, const CScope& b) { return a.offset < b.offset; });
 }
 
+// Which compiler wrote each function's records (GH #438, plan 1.2), from the map alone: the `M:` module records of the
+// compilers differ. 80cc writes `M:<file>` into the module with the file name as `C_LINE` carries it (`M:./m.c` beside
+// `./m.c::main::...`); zsdcc writes `M:<module>` against `C_LINE` file `<module>.c`, so it never matches; sccz80 writes
+// no `M:` into the map at all. The name z80asm gives the module is NOT used: it prefixes `X` to a path that starts
+// with `.`, `/` or a digit. A zsdcc `x`+TAB C_LINE record rules 80cc out.
+void fill_compilers(std::vector<CFunction>& fns, const std::vector<CRecord>& modules,
+                    const std::vector<Record>& scope_records)
+{
+    std::map<std::string, std::set<std::string>> m_names, line_files;
+    std::set<std::string> zsdcc_form;
+    for (const CRecord& m : modules) m_names[m.module].insert(m.record.var.name);
+    for (const Record& r : scope_records) {
+        line_files[r.module].insert(r.loc.file);
+        if (r.loc.scope_given && r.loc.func == "x" && r.loc.tab) zsdcc_form.insert(r.module);
+    }
+    for (CFunction& f : fns) {
+        const auto m = m_names.find(f.module);
+        if (m == m_names.end()) {
+            f.compiler = jnext::dbg::CCompiler::Sccz80;
+            continue;
+        }
+        bool match = false;
+        for (const std::string& file : line_files[f.module])
+            if (m->second.count(file)) match = true;
+        f.compiler = match && !zsdcc_form.count(f.module) ? jnext::dbg::CCompiler::Cc80 : jnext::dbg::CCompiler::Zsdcc;
+    }
+}
+
 // (module, function) of every function a used listing names, and whether it is `__z88dk_fastcall`.
 using ListedFunctions = std::map<std::pair<std::string, std::string>, bool>;
 
 std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
     const std::vector<CdbLine>& cdb_lines, const std::vector<Z88dkMapLine>& symbols,
     const std::vector<Record>& scope_records, const PlaceSymbol& place,
-    const std::map<std::string, uint64_t>& bounds, const ListedFunctions& listed)
+    const std::map<std::string, uint64_t>& bounds, const ListedFunctions& listed,
+    const std::string& float_library)
 {
     SymbolIndex idx;
     for (const Z88dkMapLine& s : symbols) {
@@ -528,6 +557,20 @@ std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
 
     fill_extents(fns, entries, symbols, scope_records, bounds, place);
     fill_scopes(fns, entries, scope_records);
+    fill_compilers(fns, modules, scope_records);
+
+    // An `{-1}` array record is the twin of a sized one (an array sized by its initialiser: sccz80 and 80cc write the
+    // unsized record first). With no sized twin of the same scope, name and function it is the variable's only record: it
+    // is listed, and refused with its reason (GH #438, plan 2.6). The decoder still classes every `{-1}` array as hidden.
+    for (CVariable& v : vars) {
+        if (v.record.hidden != jnext::dbg::CdbHidden::IncompleteArray) continue;
+        const bool twin = std::any_of(vars.begin(), vars.end(), [&](const CVariable& o) {
+            return &o != &v && o.record.hidden == jnext::dbg::CdbHidden::None && o.record.scope == v.record.scope &&
+                   o.record.scope_name == v.record.scope_name && o.record.function == v.record.function &&
+                   o.record.var.name == v.record.var.name && o.module == v.module;
+        });
+        if (!twin) v.record.hidden = jnext::dbg::CdbHidden::None;
+    }
 
     jnext::dbg::CFrameHelpers helpers;
     helpers.framepointer = storage_of(join_public(idx, "__debug_framepointer"), place);
@@ -543,7 +586,8 @@ std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
     }
     return std::make_shared<const jnext::dbg::VariableStore>(std::move(fns), std::move(vars),
                                                            std::move(types), std::move(modules),
-                                                           std::move(refused), std::move(helpers), facts);
+                                                           std::move(refused), std::move(helpers), facts,
+                                                           float_library);
 }
 
 } // namespace
@@ -562,6 +606,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     std::vector<Z88dkMapLine> symbols;
     std::vector<CdbLine> cdb_lines;           // the __CDBINFO__ records, for the variable store
     std::map<std::string, uint64_t> bounds;   // const __<group>_head / _tail, first wins
+    std::string float_library;                // the first non-zero const __code_fp_<lib>_size
     std::string text;
     int map_line = 0;
     while (std::getline(input, text)) {
@@ -585,6 +630,10 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             continue;
         }
         if (parsed->is_const) {
+            // the float library the program links: `__code_fp_<lib>_size` is non-zero for it alone (GH #438, z88dk#3236)
+            if (float_library.empty() && starts_with(parsed->name, "__code_fp_") && parsed->value != 0
+                && parsed->name.size() > 15 && parsed->name.compare(parsed->name.size() - 5, 5, "_size") == 0)
+                float_library = parsed->name.substr(10, parsed->name.size() - 15);
             if (parsed->name == "startupoffset"   // a dot command's (design 9.4 rule 5)
                 || (starts_with(parsed->name, "__")
                     && (parsed->name.size() > 7)
@@ -1031,6 +1080,6 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     map.replace(std::move(ranges), std::move(aliases), std::move(identity), loaded, "z88dk",
                 std::move(listed_texts), dot != nullptr,
                 build_variable_store(cdb_lines, symbols, scope_records, place_symbol, bounds,
-                                     listed_functions));
+                                     listed_functions, float_library));
     return result;
 }

@@ -148,6 +148,29 @@ CFormatCtx var_ctx(const Env& e, const CVariable& v)
     return ctx;
 }
 
+// z88dk#3233: 80cc may leave a local in a register, and records a register-passed parameter at its nominal slot, which can be
+// another variable's. A stack variable of an 80cc function is therefore shown with this note, whatever its offset.
+const char* const k80ccSlot =
+    "80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)";
+
+// OD-A (GH #438): with no listing beside the map nothing flags a function `__z88dk_fastcall`, but its ENTRY says so: sccz80 calls
+// `l_debug_push_frame` and then pushes the register parameter (`call l_debug_push_frame; push hl`, or `push de` first for a
+// 32-bit one). The bytes are read from the function's own page (the entry's page-aware key), whatever is mapped now.
+bool prologue_is_fastcall(const Env& e, int function)
+{
+    const CFunction& f = e.store->functions()[static_cast<size_t>(function)];
+    const CStorage& pf = e.store->helpers().push_frame;
+    if (f.conv != CConv::Unlisted || !f.entry.resolved || !pf.resolved) return false;
+    uint8_t b[5] = {0, 0, 0, 0, 0};
+    const MemSpace space = f.entry.at.space;
+    const uint32_t off = space_offset(space, f.entry.at.address);
+    if (off + 5 > space_size(space.kind)) return false;
+    const auto r = e.d.peek(space, off, 5, b);
+    if (r.status != Result::Ok || r.value != 5) return false;
+    const bool call = b[0] == 0xCD && static_cast<uint16_t>(b[1] | b[2] << 8) == pf.at.address;
+    return call && (b[3] == 0xE5 || (b[3] == 0xD5 && b[4] == 0xE5));
+}
+
 // Read variable `v` (and the path's steps) in frame `k`.
 Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool deref, const std::vector<CPathStep>& steps)
 {
@@ -159,10 +182,14 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
 
     CFormatCtx ctx = var_ctx(e, v);
 
-    // OD-14 / z88dk U1: a fastcall parameter recorded at its nominal slot is not there.
-    if (v.function >= 0 && cv.space == 'B' && cv.stack_offset() >= 0) {
-        const std::string u1 = c_param_location_unknown(e.store->functions()[static_cast<size_t>(v.function)].conv, cv);
-        if (!u1.empty()) return [&] { CResult r = refused(u1); r.type = out.type; r.aggregate = out.aggregate; return r; }();
+    // OD-14 / z88dk U1 (GH #438: per FUNCTION): in a fastcall function whose parameters are all recorded at nominal slots,
+    // none of them is there.
+    if (v.function >= 0 && cv.space == 'B' && cv.level == 0 && cv.stack_offset() >= 0 &&
+        c_fastcall_records_nominal(*e.store, v.function, prologue_is_fastcall(e, v.function))) {
+        CResult r = refused(kCU1Text);
+        r.type = out.type;
+        r.aggregate = out.aggregate;
+        return r;
     }
 
     CLoc root;
@@ -188,6 +215,8 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
         if (fr.how == Frame::Base::Unknown) return refused("the frame base is not known: " + fr.note);
         const int addr = static_cast<int>(fr.fp) + cv.stack_offset();
         if (cv.stack_offset() < 0 && addr < static_cast<int>(fr.floor)) return refused("not allocated");
+        if (v.function >= 0 && e.store->functions()[static_cast<size_t>(v.function)].compiler == CCompiler::Cc80)
+            out.notes.push_back(k80ccSlot);
         root.addr = static_cast<uint32_t>(addr) & 0xFFFF;
         out.where.kind = Debugger::CWhere::Kind::Cpu;
         out.where.cpu = static_cast<uint16_t>(root.addr);
@@ -551,6 +580,7 @@ Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::s
     if (!r.ok) return refuse(r.why);
     out.type = r.type;
     out.old_value = r.value;
+    out.notes = r.notes;
     if (f.v->record.var.space == 'R')
         return refuse("a register variable cannot be written: its debug record gives no live range (in " + registers_of(r) + ")");
     if (r.aggregate) return refuse(r.type + " is an aggregate: write a member or an element");

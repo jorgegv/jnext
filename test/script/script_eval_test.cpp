@@ -1612,6 +1612,20 @@ static void cvw_rows() {
               ok && r.dbg->rewind_enabled() && r.sink.count("rewind buffer is on") == 1 && r.at(0x903E, 2) == Bytes{3, 0} && r.eng->runtime_errors() == 0,
               r.sink.first("SCRIPT ERROR"));
     }
+    // EVAL-ZB-01
+    {
+        // GH #438: fc.c's ffast(x) with x = 3. master-fixed records x at fp-2 (read at entry + 4, after `call l_debug_push_frame; push hl`); master (pre-fix) records it at
+        // its nominal slot, where it is not: refused with U1 at the entry (no listing: the entry bytes are the evidence). cvar() carries no notes (the owner's OD-C): at master
+        // 80cc vars.c:41 cvar(t) is the 122 the program computes (vars.c: t = i + 115 + 7 with i = 0)
+        CvarRig f("master-fixed/sccz80-fc");
+        CvarRig p("master/sccz80-fc");
+        CvarRig c("master/80cc-cvars");
+        const bool ok = f.loaded && f.run_to(0x8C66) && p.loaded && p.run_to(0x8C62) && c.loaded && c.run_to(0x8CCA);
+        const std::string fx = cv(f, "cvar(x)"), px = cv(p, "cvar(x)"), ct = cv(c, "cvar(t)");
+        check("EVAL-ZB-01", "cvar(x) in ffast is 3 on master-fixed sccz80-fc and refused with `location unknown (z88dk U1...)` on master's; cvar(t) at master 80cc-cvars vars.c:41 is 122 "
+                            "(cvar() carries no notes)",
+              ok && fx == "ok:3" && px.find("err:cvar(x): location unknown (z88dk U1") == 0 && ct == "ok:122", fx + " | " + px + " | " + ct);
+    }
 }
 
 int main() {

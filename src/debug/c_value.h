@@ -230,6 +230,15 @@ CRegRead c_read_register_local(const CdbVar& var, const CRegs* regs);
 /// reason, when `conv` says fastcall (a used listing flagged it) and the record's offset is >= 0; empty otherwise
 /// (a negative offset is 80cc's correct record).
 std::string c_param_location_unknown(CConv conv, const CdbVar& var);
+/// The refusal text of z88dk U1 (shared by the per-record and the per-function rule).
+inline constexpr const char* kCU1Text = "location unknown (z88dk U1: sccz80 records a fastcall parameter at its nominal slot)";
+
+/// GH #438, z88dk U1, per FUNCTION (the per-record rule above cannot see that sccz80 after z88dk#3229 records one register
+/// parameter below the frame and still the others at their nominal slots): true iff `function` is fastcall and none of its
+/// parameters (level 0, space B) is recorded at a negative offset, i.e. the records are the pre-#3229 ones, every parameter at
+/// its nominal slot, where none of them is. Fastcall is `CConv::ListedFastcall`, or `prologue_fastcall` (the caller read the
+/// entry bytes `call l_debug_push_frame; push hl` and no listing names the function). False for a function with no such parameter.
+bool c_fastcall_records_nominal(const VariableStore& store, int function, bool prologue_fastcall = false);
 
 }  // namespace dbg
 }  // namespace jnext

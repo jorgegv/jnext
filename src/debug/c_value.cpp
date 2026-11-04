@@ -92,6 +92,18 @@ bool overlaps_other(const CdbRecord& rec, size_t idx)
     return false;
 }
 
+// z88dk's debug record gives a float's SIZE and no format (z88dk#3236). The map says which library the program links: the
+// 4-byte formats of mbf32 and dai32 (and mbf64's, bbc's) are not IEEE, so reading their bytes as one is a silent wrong value.
+// math32, am9511, math48 and a map that names no library are decided by the size, as before.
+std::string float_refusal(const CFormatCtx& ctx)
+{
+    if (!ctx.store) return "";
+    const std::string& lib = ctx.store->float_library();
+    if (lib == "mbf32" || lib == "mbf64" || lib == "bbc" || lib == "dai32")
+        return "float format " + lib + " is not read: the record does not say it (z88dk#3236)";
+    return "";
+}
+
 struct Formatter {
     const CFormatCtx& ctx;
     std::vector<std::string>& notes;
@@ -168,6 +180,7 @@ struct Formatter {
             return true;
         }
         case CdbTypeKind::Float:
+            if (!float_refusal(ctx).empty()) return fail(float_refusal(ctx));
             if (size == 6 && avail >= 6) {
                 out = c_format_float48(b);
                 return true;
@@ -467,7 +480,7 @@ std::string base_text(const CdbType& t, size_t i)
     case CdbTypeKind::Void: return "void";
     case CdbTypeKind::Scalar: return e.is_unsigned ? "unsigned int" : "int";
     case CdbTypeKind::Struct: return "struct " + e.tag;
-    case CdbTypeKind::Bitfield: return "unsigned int :" + num(e.bit_width);
+    case CdbTypeKind::Bitfield: return (e.is_unsigned ? "unsigned int :" : "int :") + num(e.bit_width);   // `:S` is a signed field (GH #438)
     default: return "?";
     }
 }
@@ -867,7 +880,10 @@ CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc, std::vector<uint8_
 {
     CFormatted out;
     if (loc.type.size <= 0) {
-        out.why = "the size of the object is not known";
+        // an `{-1}DA-1x` record (sccz80 before z88dk#3229, 80cc's static and global arrays sized by their initialiser): the compiler
+        // wrote no size, so there is nothing to read (GH #438)
+        const bool unsized = !loc.type.chain.empty() && loc.type.chain[0].kind == CdbTypeKind::Array && loc.type.chain[0].count < 0;
+        out.why = unsized ? "an array of unknown length: its debug record has no size" : "the size of the object is not known";
         return out;
     }
     std::vector<uint8_t> buf(static_cast<size_t>(loc.type.size));
@@ -1008,10 +1024,26 @@ CRegRead c_read_register_local(const CdbVar& var, const CRegs* regs)
     return out;
 }
 
+bool c_fastcall_records_nominal(const VariableStore& store, int function, bool prologue_fastcall)
+{
+    if (function < 0 || static_cast<size_t>(function) >= store.functions().size()) return false;
+    const CFunction& fn = store.functions()[static_cast<size_t>(function)];
+    // a listing that names the function and does not flag it is evidence it is NOT fastcall: the prologue then proves nothing
+    if (fn.conv != CConv::ListedFastcall && !(prologue_fastcall && fn.conv == CConv::Unlisted)) return false;
+    bool any = false;
+    for (const CVariable& v : store.variables()) {
+        const CdbVar& cv = v.record.var;
+        if (v.function != function || v.record.hidden != CdbHidden::None || cv.space != 'B' || cv.level != 0) continue;
+        if (cv.stack_offset() < 0) return false;   // a fixed sccz80 or 80cc: the register parameter is recorded below the frame
+        any = true;
+    }
+    return any;
+}
+
 std::string c_param_location_unknown(CConv conv, const CdbVar& var)
 {
     if (conv == CConv::ListedFastcall && var.space == 'B' && var.stack_offset() >= 0)
-        return "location unknown (z88dk U1: sccz80 records a fastcall parameter at its nominal slot)";
+        return kCU1Text;
     return "";
 }
 

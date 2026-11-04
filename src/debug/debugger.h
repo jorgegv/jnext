@@ -1322,6 +1322,7 @@ public:
         std::string type;        ///< the type text of the object (when it could be read)
         std::string old_value;   ///< the value text before the write (when it could be read)
         std::string value;       ///< Ok: the value read back after it
+        std::vector<std::string> notes;   ///< GH #438: the notes the object's read carries (80cc's frame-slot note, ...); set once the read succeeded
         CWhere where;
         size_t landed = 0;       ///< bytes that landed (a RefusedReadOnly partial write reports it)
         bool ok() const { return status == Result::Ok; }

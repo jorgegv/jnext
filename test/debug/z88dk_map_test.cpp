@@ -2832,6 +2832,180 @@ main cross_c AC97
               n == 12 && ok);
     }
 
+    // ── GH #438: what the map says of the compiler, the unsized arrays, the float library and the fastcall records ──
+    // Oracle: the listing banners z88dk wrote beside each map (80cc, sccz80, zsdcc), the C sources (fm.c, fl.c, xm.c) and the
+    // fixtures' own record text.
+    const auto banner_of = [](const fs::path& lis) {
+        std::ifstream in(lis);
+        std::string head((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        head.resize(std::min<size_t>(head.size(), 4000));
+        return head.find("80cc z88dk") != std::string::npos        ? jnext::dbg::CCompiler::Cc80
+               : head.find("Small-C/Plus") != std::string::npos ? jnext::dbg::CCompiler::Sccz80
+                                                                 : jnext::dbg::CCompiler::Zsdcc;
+    };
+    {   // Z88ZB-01
+        int modules = 0, bad = 0, c80 = 0, scc = 0, zs = 0;
+        for (const char* root : {"v2.4", "v2.4-dotn", "master", "master-fixed"})
+            for (const auto& d : fs::directory_iterator(kFixtures / root)) {
+                if (!fs::exists(d.path() / "prog.map")) continue;
+                SourceMap m;
+                load(m, d.path() / "prog.map");
+                const VariableStore* st = store_of(m);
+                if (!st) continue;
+                std::set<std::string> seen;
+                for (const CFunction& f : st->functions()) {
+                    if (!seen.insert(f.module).second) continue;
+                    // the listing that declares `MODULE <module>`: the oracle of the module's compiler
+                    std::optional<jnext::dbg::CCompiler> want;
+                    for (const auto& e : fs::recursive_directory_iterator(d.path())) {
+                        const std::string n = e.path().string();
+                        if (n.size() < 6 || n.compare(n.size() - 6, 6, ".c.lis") != 0) continue;
+                        std::ifstream in(e.path());
+                        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                        const std::string key = "MODULE";
+                        size_t at = 0;
+                        while ((at = text.find(key, at)) != std::string::npos) {
+                            size_t b = text.find_first_not_of(" \t", at + key.size());
+                            size_t e2 = text.find_first_of(" \t\r\n", b);
+                            if (b != std::string::npos && text.substr(b, e2 - b) == f.module) { want = banner_of(e.path()); break; }
+                            at += key.size();
+                        }
+                        if (want) break;
+                    }
+                    if (!want) continue;   // an assembler or library module: no compiler banner
+                    ++modules;
+                    if (f.compiler != *want) ++bad;
+                    c80 += f.compiler == jnext::dbg::CCompiler::Cc80;
+                    scc += f.compiler == jnext::dbg::CCompiler::Sccz80;
+                    zs += f.compiler == jnext::dbg::CCompiler::Zsdcc;
+                }
+            }
+        std::printf("  Z88ZB-01: %d modules (80cc %d, sccz80 %d, zsdcc %d), %d wrong\n", modules, c80, scc, zs, bad);
+        check("Z88ZB-01", "every C module of every map under v2.4/, v2.4-dotn/, master/ and master-fixed/ is Cc80 iff its listing banner says `80cc z88dk`, "
+                          "Sccz80 iff `Small-C/Plus`, else Zsdcc (the banners are the oracle; the module count is pinned from the tree)",
+              bad == 0 && modules == 115 && c80 > 0 && scc > 0 && zs > 0);
+    }
+
+    // the records named `name` (its C name): "<count><h if hidden>" in store order
+    const auto arr_records = [](const VariableStore& st, const char* name) {
+        std::string out;
+        for (const CVariable& v : st.variables()) {
+            if (v.c_name != name || v.record.var.type.chain.empty()) continue;
+            out += (out.empty() ? "" : " ") + std::to_string(v.record.var.type.chain[0].count) +
+                   (v.record.hidden == CdbHidden::None ? "" : "h");
+        }
+        return out;
+    };
+    {   // Z88ZB-03
+        const auto all4 = [&](const char* fx) {
+            SourceMap m;
+            load(m, kFixtures / fx / "prog.map");
+            const VariableStore* st = store_of(m);
+            if (!st) return std::string("no store");
+            return arr_records(*st, "ls") + " | " + arr_records(*st, "ss") + " | " + arr_records(*st, "fs") + " | " + arr_records(*st, "gs");
+        };
+        // gs: the sized record and the unsized twin; the twin is hidden because the sized one is there (store order: by record text)
+        const std::string pre = all4("v2.4/sccz80-fm"), mas = all4("master/sccz80-fm"), fix = all4("master-fixed/sccz80-fm"),
+                          c80 = all4("master/80cc-fm"), c80f = all4("master-fixed/80cc-fm");
+        std::printf("  Z88ZB-03: v2.4 [%s] master [%s] fixed [%s] 80cc [%s] 80cc-fixed [%s]\n", pre.c_str(), mas.c_str(), fix.c_str(), c80.c_str(), c80f.c_str());
+        check("Z88ZB-03", "unsized arrays (fm.c): v2.4 and master sccz80 list ls, ss and fs with count -1 (their only record) and hide gs's -1 twin (a 5 record "
+                          "is listed); master-fixed has four sized records and no twin; master 80cc has ls {4} and ss and fs {-1} listed, gs's twin hidden "
+                          "(80cc's -1 records are still written after z88dk#3229, so master-fixed 80cc says the same)",
+              pre == "-1 | -1 | -1 | -1h 5" && mas == pre && fix == "4 | 5 | 5 | 5" && c80 == "4 | -1 | -1 | -1h 5" && c80f == c80);
+    }
+    {   // Z88ZB-04
+        const auto lib = [&](const char* fx) {
+            SourceMap m;
+            load(m, kFixtures / fx / "prog.map");
+            const VariableStore* st = store_of(m);
+            return st ? st->float_library() : std::string("no store");
+        };
+        int newlib = 0;
+        bool none = true;
+        for (const char* root : {"v2.4", "master", "master-fixed"})
+            for (const auto& d : fs::directory_iterator(kFixtures / root)) {
+                const std::string n = d.path().filename().string();
+                if (!fs::exists(d.path() / "prog.map") || n.compare(0, 7, "classic") == 0) continue;
+                SourceMap m;
+                load(m, d.path() / "prog.map");
+                ++newlib;
+                none = none && (!m.variables() || m.variables()->float_library().empty());
+            }
+        check("Z88ZB-04", "float library: master classic-mbf32 names mbf32 (__code_fp_mbf32_size $0007), classic-math32 names math32 ($001D); every other map "
+                          "(newlib, and classic without float code) names none",
+              lib("master/classic-mbf32") == "mbf32" && lib("master/classic-math32") == "math32" && lib("master/classic-debug").empty() && none && newlib == 81);
+    }
+    {   // Z88ZB-06
+        const auto var_off = [&](const char* fx, const char* fn, const char* name) {
+            SourceMap m;
+            load(m, kFixtures / fx / "prog.map");
+            const VariableStore* st = store_of(m);
+            if (st)
+                for (const CVariable& v : st->variables())
+                    if (v.c_name == name && v.function >= 0 && st->functions()[static_cast<size_t>(v.function)].name == fn && v.record.var.space == 'B')
+                        return std::to_string(v.record.var.stack_offset());
+            return std::string("-");
+        };
+        // the listing: ffast and fm push the register parameter right after `call l_debug_push_frame`
+        const auto pushes = [&](const char* fx, const char* file, const char* sym) {
+            std::ifstream in(kFixtures / fx / file);
+            const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            const size_t at = text.find(std::string("._") + sym + "\n");
+            const size_t call = text.find("call\tl_debug_push_frame", at);
+            const size_t push = text.find("push\thl", call);
+            return at != std::string::npos && call != std::string::npos && push != std::string::npos && call - at < 60 && push - call < 60;
+        };
+        check("Z88ZB-06", "master-fixed: fc.c's ffast x is recorded at -2 (below the frame), fm.c's a at +4 and b at -2 (the register parameter below, the others at their "
+                          "nominal slots); the listings show `call l_debug_push_frame; push hl` at both entries; master (pre-fix) records ffast's x at +4 and fm's a at +6, b at +4",
+              var_off("master-fixed/sccz80-fc", "ffast", "x") == "-2" && var_off("master-fixed/sccz80-fm", "fm", "a") == "4" &&
+                  var_off("master-fixed/sccz80-fm", "fm", "b") == "-2" && pushes("master-fixed/sccz80-fc", "fc.c.lis", "ffast") &&
+                  pushes("master-fixed/sccz80-fm", "fm.c.lis", "fm") && var_off("master/sccz80-fc", "ffast", "x") == "4" &&
+                  var_off("master/sccz80-fm", "fm", "a") == "6" && var_off("master/sccz80-fm", "fm", "b") == "4");
+    }
+    {   // Z88ZB-07
+        const auto of = [&](const char* fx, const char* fn) {
+            SourceMap m;
+            load(m, kFixtures / fx / "prog.map");
+            const VariableStore* st = store_of(m);
+            for (const CFunction& f : st ? st->functions() : std::vector<CFunction>())
+                if (f.name == fn) return f.module + (f.compiler == jnext::dbg::CCompiler::Cc80 ? ":80cc" : f.compiler == jnext::dbg::CCompiler::Sccz80 ? ":sccz80" : f.compiler == jnext::dbg::CCompiler::Zsdcc ? ":zsdcc" : ":?");
+            return std::string("-");
+        };
+        SourceMap m80;
+        load(m80, kFixtures / "master/80cc-xmod" / "prog.map");
+        std::set<std::string> mnames;
+        for (const auto& r : m80.variables() ? m80.variables()->modules() : std::vector<jnext::dbg::CRecord>()) mnames.insert(r.record.var.name);
+        check("Z88ZB-07", "X-prefixed modules (./xm.c is X__xm_c, 1st.c is X1st_c): on master 80cc-xmod both are 80cc, their M: records `./xm.c` and `1st.c` being the C_LINE "
+                          "file fields; on sccz80-xmod both are sccz80; zsdcc names its modules xm_c and _1st_c and both are zsdcc (the listing banners agree: Z88ZB-01)",
+              of("master/80cc-xmod", "xm") == "X__xm_c:80cc" && of("master/80cc-xmod", "first") == "X1st_c:80cc" && mnames == std::set<std::string>{"./xm.c", "1st.c"} &&
+                  of("master/sccz80-xmod", "xm") == "X__xm_c:sccz80" && of("master/sccz80-xmod", "first") == "X1st_c:sccz80" &&
+                  of("master/sdcc-xmod", "xm") == "xm_c:zsdcc" && of("master/sdcc-xmod", "first") == "_1st_c:zsdcc");
+    }
+    {   // Z88ZB-08
+        // a module whose path is absolute: z80asm names it X_home_u_g_u_x_c; the three maps differ only in the M: record and the C_LINE file
+        const auto synthetic = [&](const char* name, const char* line_file, const char* m_record) {
+            std::string text =
+                rec("__C_LINE_1_u_2dx_2ec", 0x9000, "X_home_u_g_u_x_c", "code_compiler", (std::string(line_file) + "::f::0::1:1").c_str()) +
+                rec("_f", 0x9000, "X_home_u_g_u_x_c", "code_compiler", (std::string(line_file) + "::f::0::1:1").c_str()) +
+                "__code_compiler_tail = $9010 ; const, public, def, , ,\n" +
+                "__CDBINFO__" + cdb_escape("F:G$f$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , X_home_u_g_u_x_c, code_compiler, x.c:1\n";
+            std::string out = text;
+            const std::string pub = "_f = $9000 ; addr, local";
+            const size_t at = out.find(pub);
+            out.replace(at, pub.size(), "_f = $9000 ; addr, public");
+            if (*m_record) out += "__CDBINFO__" + cdb_escape(m_record) + " = $0001 ; const, public, , X_home_u_g_u_x_c, code_compiler, x.c:1\n";
+            SourceMap m;
+            load(m, synth(name, out));
+            const VariableStore* st = store_of(m);
+            return st && st->functions().size() == 1 ? st->functions()[0].compiler : jnext::dbg::CCompiler::Unknown;
+        };
+        check("Z88ZB-08", "synthetic maps, module X_home_u_g_u_x_c with F:G$f: M:/home/u/g/u-x.c beside C_LINE records of file /home/u/g/u-x.c is 80cc (the M: name equals the "
+                          "file field); the same M: with C_LINE file u-x.c is zsdcc (zsdcc writes M:<module> against <module>.c, never a match); no M: record is sccz80",
+              synthetic("z88zb08a.map", "/home/u/g/u-x.c", "M:/home/u/g/u-x.c") == jnext::dbg::CCompiler::Cc80 &&
+                  synthetic("z88zb08b.map", "u-x.c", "M:/home/u/g/u-x.c") == jnext::dbg::CCompiler::Zsdcc &&
+                  synthetic("z88zb08c.map", "/home/u/g/u-x.c", "") == jnext::dbg::CCompiler::Sccz80);
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

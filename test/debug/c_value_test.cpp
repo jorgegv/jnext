@@ -27,6 +27,7 @@
 #include <locale>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 #include "../row_id.h"
@@ -1325,6 +1326,187 @@ int main() {
                   no(enc("{8}DA4x,SI:S", "1"), "is an aggregate: write a member or an element") && no(enc("{0}SV:S", "1"), "not a value") &&
                   no(enc("{2}DF,SI:S", "1"), "not a value") && no(enc("{4}SQ:S", "1"), "fixed-point layout not decoded") &&
                   no(enc("{0}SI:S", "1"), "size of the object is not known") && no(enc("{-1}SI:S", "1"), "size of the object is not known"));
+    }
+
+    // ── GH #438: the S1 markers. Oracle: the C sources (fc.c, fm.c, bits.c, fl.c), the fixtures' records, the listings, IEEE 754 ──
+    // A store with the listings beside the map read (the fastcall evidence of CConv::ListedFastcall).
+    const auto listed = [](const char* fixture) {
+        SourceMap map;
+        load_z88dk_source_map(map, (kFixtures / fixture / "prog.map").string(), nex_space, Z88dkListings::Beside);
+        return map.variables();
+    };
+    {   // CVZB-01
+        const auto nominal = [&](const char* fixture, const char* fn) {
+            const auto st = listed(fixture);
+            if (!st) return std::string("no store");
+            for (size_t i = 0; i < st->functions().size(); ++i)
+                if (st->functions()[i].name == fn) return std::string(c_fastcall_records_nominal(*st, static_cast<int>(i)) ? "yes" : "no");
+            return std::string("no function");
+        };
+        check("CVZB-01", "c_fastcall_records_nominal (per function: fastcall and no parameter recorded below the frame): true for v2.4 and master sccz80's ffast (fc.c) and fm "
+                         "(fm.c: a +6 and b +4 before z88dk#3229); false for master-fixed's ffast and fm (the register parameter is at -2), master 80cc's ffast and fm, "
+                         "zsdcc's ffast (register parameter), and every fcallee (callee, not fastcall)",
+              nominal("v2.4/sccz80-fc", "ffast") == "yes" && nominal("master/sccz80-fc", "ffast") == "yes" && nominal("v2.4/sccz80-fm", "fm") == "yes" &&
+                  nominal("master/sccz80-fm", "fm") == "yes" && nominal("master-fixed/sccz80-fc", "ffast") == "no" && nominal("master-fixed/sccz80-fm", "fm") == "no" &&
+                  nominal("master/80cc-fc", "ffast") == "no" && nominal("master/80cc-fm", "fm") == "no" && nominal("master/sdcc-fc", "ffast") == "no" &&
+                  nominal("v2.4/sccz80-fc", "fcallee") == "no" && nominal("master/sccz80-fc", "fcallee") == "no" && nominal("master-fixed/sccz80-fc", "fcallee") == "no" &&
+                  nominal("master/80cc-fc", "fcallee") == "no" && nominal("master/sdcc-fc", "fcallee") == "no");
+    }
+    // the type text of a member of struct `tag` named `member`
+    const auto member_text = [](const char* fixture, const char* tag, const char* member) {
+        Loaded l(fixture);
+        for (const CRecord& r : l.store ? l.store->types() : std::vector<CRecord>())
+            if (r.record.var.name == tag)
+                for (const CdbMember& m : r.record.members)
+                    if (m.var.name == member) return c_type_text(m.var.type);
+        return std::string("-");
+    };
+    check("CVZB-02", "the type text of a bitfield: `SB0$4:S` (neg: zsdcc and fixed sccz80 and 80cc) is `int :4`, `SB0$3:U` (lo) is `unsigned int :3`, and zsdcc's plain `int s:4` "
+                     "(`SB0$4:S`) is `int :4` while the same field is `unsigned int :4` on fixed sccz80 and 80cc",
+          member_text("master/sdcc-bits", "bf", "neg") == "int :4" && member_text("master-fixed/sccz80-bits", "bf", "neg") == "int :4" &&
+              member_text("master-fixed/80cc-bits", "bf", "neg") == "int :4" && member_text("master/sdcc-bits", "bf", "lo") == "unsigned int :3" &&
+              member_text("master-fixed/sccz80-bits", "bf", "lo") == "unsigned int :3" && member_text("master/sdcc-bits", "one", "s") == "int :4" &&
+              member_text("master-fixed/sccz80-bits", "one", "s") == "unsigned int :4" && member_text("master-fixed/80cc-bits", "one", "s") == "unsigned int :4");
+    // g_bf, g_lone and g_one of bits.c formatted from the bytes the program leaves (bits.c: lo 5, mid 17, hi 200, neg -3, wide 2748, tag 66)
+    const auto bits_text = [](const char* fixture, const char* scope, const char* global, std::initializer_list<uint8_t> bytes, std::vector<std::string>* notes = nullptr) {
+        Loaded l(fixture);
+        CFormatCtx ctx;
+        ctx.store = l.store.get();
+        ctx.scope_name = scope;
+        ctx.module = "bits_c";
+        const CVariable* v = l.store ? global_var(*l.store, global) : nullptr;
+        if (!v) return std::string("no variable");
+        const CFormatted f = fmt(ctx, v->record.var.type, bytes);
+        if (notes) *notes = f.notes;
+        return f.ok ? f.text : "!" + f.why;
+    };
+    {   // CVZB-03
+        const std::string good = "{lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'}";   // tag is a uint8_t: a printable byte shows its character
+        std::vector<std::string> n1, n2, n3, n4, n5;
+        const std::string a = bits_text("master-fixed/sccz80-bits", "bits.c", "g_bf", {0x8D, 0xC8, 0x0D, 0xBC, 0x0A, 0x42}, &n1);
+        const std::string b = bits_text("master-fixed/80cc-bits", "bits.c", "g_bf", {0x8D, 0xC8, 0x0D, 0xBC, 0x0A, 0x42}, &n2);
+        const std::string c = bits_text("master/sdcc-bits", "bits", "g_bf", {0x8D, 0xC8, 0x0D, 0xBC, 0x0A, 0x42}, &n3);
+        const std::string d = bits_text("master/sccz80-bits", "bits.c", "g_bf", {0x8D, 0xC8, 0x0D, 0xBC, 0x0A, 0x42}, &n4);
+        const std::string e = bits_text("master/80cc-bits", "bits.c", "g_bf", {0x8D, 0xC8, 0x0D, 0xBC, 0x0A, 0x42}, &n5);
+        const auto marked = [&](const std::string& t, const char* member) {
+            const size_t at = t.find(std::string(member) + " = ");
+            if (at == std::string::npos) return false;
+            const size_t end = t.find_first_of(",}", at);
+            return t.substr(at, end - at).find("[bitfield layout unknown (z88dk U2)]") != std::string::npos;
+        };
+        check("CVZB-03", "g_bf = 8D C8 0D BC 0A 42 (bits.c: lo 5, mid 17, hi 200, neg -3, wide 2748, tag 66) reads exactly `{lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'}` with no note on master-fixed sccz80 and 80cc "
+                         "and on master zsdcc; on v2.4/master sccz80 and master 80cc (whole-int records) lo, mid, hi and neg carry the U2 marker, wide and tag do not and tag is 66 'B'",
+              a == good && n1.empty() && b == good && n2.empty() && c == good && n3.empty() &&
+                  marked(d, "lo") && marked(d, "mid") && marked(d, "hi") && marked(d, "neg") && !marked(d, "wide") && d.find("tag = 66 'B'") != std::string::npos && n4.size() == 1 &&
+                  marked(e, "lo") && marked(e, "mid") && marked(e, "hi") && marked(e, "neg") && !marked(e, "wide") && e.find("tag = 66 'B'") != std::string::npos && n5.size() == 1);
+    }
+    {   // CVZB-04
+        // g_lone: a 12-bit field whose unit shares no byte with another member, then a char: BC FA 09 (the field's upper unit bits hold FA, c is 9)
+        check("CVZB-04", "g_lone = BC FA 09 reads {a = 2748, c = 9} once the record is exact (master-fixed sccz80, 80cc, master zsdcc); on the pre-fix record (a whole `{2}SI:U`, "
+                         "overlapping nothing) it is `a = 64188` with no note (the documented residual: the padding bits are in the value); g_one = 0D reads `{s = 13}` on "
+                         "fixed sccz80 and 80cc (a plain int bitfield is unsigned there: `SB0$4:U`), `{s = -3}` on zsdcc (`SB0$4:S`) and is refused on the pre-fix record "
+                         "(`member 's' lies beyond the object`)",
+              bits_text("master-fixed/sccz80-bits", "bits.c", "g_lone", {0xBC, 0xFA, 0x09}) == "{a = 2748, c = 9}" &&
+                  bits_text("master-fixed/80cc-bits", "bits.c", "g_lone", {0xBC, 0xFA, 0x09}) == "{a = 2748, c = 9}" &&
+                  bits_text("master/sdcc-bits", "bits", "g_lone", {0xBC, 0xFA, 0x09}) == "{a = 2748, c = 9}" &&
+                  bits_text("master/sccz80-bits", "bits.c", "g_lone", {0xBC, 0xFA, 0x09}) == "{a = 64188, c = 9}" &&
+                  bits_text("master/80cc-bits", "bits.c", "g_lone", {0xBC, 0xFA, 0x09}) == "{a = 64188, c = 9}" &&
+                  bits_text("master-fixed/sccz80-bits", "bits.c", "g_one", {0x0D}) == "{s = 13}" && bits_text("master-fixed/80cc-bits", "bits.c", "g_one", {0x0D}) == "{s = 13}" &&
+                  bits_text("master/sdcc-bits", "bits", "g_one", {0x0D}) == "{s = -3}" &&
+                  bits_text("master/sccz80-bits", "bits.c", "g_one", {0x0D}) == "!member 's' lies beyond the object");
+    }
+    {   // CVZB-10
+        // the (struct tag, member) pairs of the store whose member read through c_eval_path carries the U2 note
+        const auto u2_members = [](const char* fixture) {
+            Loaded l(fixture);
+            std::set<std::string> out;
+            if (!l.store) return std::string("no store");
+            for (const CVariable& v : l.store->variables()) {
+                const auto& ch = v.record.var.type.chain;
+                if (ch.empty() || ch[0].kind != CdbTypeKind::Struct) continue;
+                CFormatCtx ctx;
+                ctx.store = l.store.get();
+                ctx.scope_name = v.record.scope_name;
+                ctx.module = v.module;
+                const CTypeLookup lk = c_find_type(*l.store, ch[0].tag, ctx.scope_name, ctx.module);
+                if (!lk.record) continue;
+                for (const CdbMember& m : lk.record->record.members) {
+                    if (m.var.name.empty()) continue;
+                    CLoc root;
+                    root.type = v.record.var.type;
+                    root.addr = 0x9000;
+                    CPathStep step;
+                    step.kind = CPathStep::Kind::Dot;
+                    step.name = m.var.name;
+                    const CEval ev = c_eval_path(ctx, root, false, {step});
+                    if (ev.ok && !ev.loc.note.empty()) out.insert(ch[0].tag + "." + m.var.name);
+                }
+            }
+            std::string text;
+            for (const std::string& m : out) text += (text.empty() ? "" : " ") + m;
+            return text;
+        };
+        int fixed_maps = 0;
+        bool none = true;
+        for (const auto& d : fs::directory_iterator(kFixtures / "master-fixed")) {
+            if (!fs::exists(d.path() / "prog.map")) continue;
+            ++fixed_maps;
+            none = none && u2_members(("master-fixed/" + d.path().filename().string()).c_str()).empty();
+        }
+        check("CVZB-10", "U2 switch-off: no struct member of any master-fixed map carries the overlapping-int marker (every bitfield is an SB record, sized by its own width); "
+                         "struct flags' lo, mid and hi do on v2.4 and master sccz80 and on master 80cc, and none does on master zsdcc",
+              fixed_maps == 9 && none && u2_members("v2.4/sccz80-cvars") == "flags.hi flags.lo flags.mid" && u2_members("master/sccz80-cvars") == "flags.hi flags.lo flags.mid" &&
+                  u2_members("master/80cc-cvars") == "flags.hi flags.lo flags.mid" && u2_members("master/sdcc-cvars").empty());
+    }
+    {   // CVZB-11
+        const std::vector<uint8_t> mbf = {0x00, 0x00, 0xD0, 0x82}, ieee = {0x00, 0x00, 0x50, 0xC0};   // -3.25 as mbf32 (exponent 82, mantissa D0) and as IEEE 754 binary32 (C0500000)
+        const CdbType f4 = ty("{4}SF:S");
+        Loaded lmb("master/classic-mbf32"), lm3("master/classic-math32");   // alive for the whole row: the contexts point into their stores
+        CFormatCtx cmb, cm3;
+        cmb.store = lmb.store.get();
+        cm3.store = lm3.store.get();
+        const auto mb = std::make_pair(lmb.store ? lmb.store->float_library() : std::string("no store"), cmb);
+        const auto m3 = std::make_pair(lm3.store ? lm3.store->float_library() : std::string("no store"), cm3);
+        const CFormatted rm = c_format_value(mb.second, f4, mbf.data(), 4), r3 = c_format_value(m3.second, f4, ieee.data(), 4), none = c_format_value(CFormatCtx{}, f4, ieee.data(), 4);
+        const auto lib_refuses = [&](const char* lib) {
+            const VariableStore st({}, {}, {}, {}, {}, {}, {}, lib);
+            CFormatCtx ctx;
+            ctx.store = &st;
+            const CFormatted f = c_format_value(ctx, f4, ieee.data(), 4);
+            return !f.ok && f.why == std::string("float format ") + lib + " is not read: the record does not say it (z88dk#3236)";
+        };
+        const auto lib_reads = [&](const char* lib) {
+            const VariableStore st({}, {}, {}, {}, {}, {}, {}, lib);
+            CFormatCtx ctx;
+            ctx.store = &st;
+            const CFormatted f = c_format_value(ctx, f4, ieee.data(), 4);
+            return f.ok && f.text == "-3.25";
+        };
+        check("CVZB-11", "float format from the map's library: master classic-mbf32 (`{4}SF`, bytes 00 00 D0 82) is refused `float format mbf32 is not read: the record does not say it "
+                         "(z88dk#3236)`; classic-math32's 00 00 50 C0 is -3.25; mbf64, bbc and dai32 are refused like mbf32; am9511 and math48 read by size; a map that names no "
+                         "library reads by size as before (-3.25, and 00 00 D0 82 as IEEE, the silent wrong value the refusal exists for)",
+              mb.first == "mbf32" && !rm.ok && rm.why == "float format mbf32 is not read: the record does not say it (z88dk#3236)" && m3.first == "math32" && r3.ok && r3.text == "-3.25" &&
+                  none.ok && none.text == "-3.25" && c_format_value(CFormatCtx{}, f4, mbf.data(), 4).ok && lib_refuses("mbf64") && lib_refuses("bbc") && lib_refuses("dai32") &&
+                  lib_reads("am9511") && lib_reads("math48") && lib_reads("math32"));
+    }
+    {   // CVZB-12
+        Loaded l("v2.4/sccz80-fm");
+        CFormatCtx ctx;
+        ctx.store = l.store.get();
+        const CVariable* ls = nullptr;
+        if (l.store)
+            for (const CVariable& v : l.store->variables())
+                if (v.c_name == "ls") ls = &v;
+        CLoc loc;
+        if (ls) loc.type = ls->record.var.type;
+        loc.addr = 0x9000;
+        Mem mem;
+        mem.put(0x9000, {1, 2, 3, 4});
+        ctx.read = mem.reader();
+        const CFormatted f = ls ? c_read_loc(ctx, loc) : CFormatted{};
+        check("CVZB-12", "a listed `{-1}DA-1x` record (v2.4 sccz80's `char ls[] = \"loc\"` local, no size) is refused `an array of unknown length: its debug record has no size`; "
+                         "its record is listed (not hidden: it has no sized twin)",
+              ls && ls->record.hidden == CdbHidden::None && ls->record.var.type.size == -1 && !f.ok && f.why == "an array of unknown length: its debug record has no size");
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

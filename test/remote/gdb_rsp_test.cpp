@@ -2571,6 +2571,43 @@ static void cvw_rows() {
                   rig.emu.cpu().get_registers().I == 5 && listed,
               join(e1) + join(e2) + join(e3) + join(e4) + join(e5));
     }
+    {   // GDB-ZB-01
+        // GH #438: master's 80cc at vars.c:41 ($8CCA): the note of z88dk#3233 follows every stack variable of an 80cc function in the monitor lines
+        const std::string nex80 = JNEXT_Z88DK_FIXTURE_DIR "/master/80cc-cvars/prog.nex";
+        const std::string note = "  [80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)]";
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const bool loaded = emulator_apply_load(rig.emu, nex80, false);
+        rig.dbg->load_program_sidecars(nex80);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0x8CCA);
+        std::string f1, f2, f3;
+        const auto locals = c.monitor("locals", f1);
+        const auto print = c.monitor("print t", f2);
+        const auto set = c.monitor("set var t=1000", f3);
+        // the note follows each of a, b, p, k, t, acc and inner, and not `calls` (a static local)
+        const auto noted = [&](const std::string& name) {
+            for (size_t i = 0; i + 1 < locals.size(); ++i)
+                if (locals[i].find(") " + name + " = ") != std::string::npos || locals[i].find(") " + name + ": ") != std::string::npos)
+                    return locals[i + 1] == note + "\n" || locals[i + 1] == note;
+            return false;
+        };
+        const auto not_noted = [&](const std::string& name) {
+            for (size_t i = 0; i < locals.size(); ++i)
+                if (locals[i].find(") " + name + " = ") != std::string::npos)
+                    return i + 1 >= locals.size() || (locals[i + 1] != note && locals[i + 1] != note + "\n");
+            return false;
+        };
+        size_t in_print = 0, in_set = 0;
+        for (const auto& l : print) in_print += (l == note || l == note + "\n");
+        for (const auto& l : set) in_set += (l == note || l == note + "\n");
+        check("GDB-ZB-01", "monitor locals at master 80cc-cvars vars.c:41 prints `  [80cc may not keep it in the frame slot its record names: the value shown can be stale or another "
+                           "variable's (z88dk#3233)]` after a, b, p, k, t, acc and inner and not after calls; monitor print t prints it once; monitor set var t=1000 prints it once, "
+                           "after the value line",
+              loaded && at && f1 == "OK" && f2 == "OK" && f3 == "OK" && noted("a") && noted("b") && noted("p") && noted("k") && noted("t") && noted("acc") && noted("inner") &&
+                  not_noted("calls") && in_print == 1 && in_set == 1 && cvar_val(set, "t", "1000"),
+              join(locals) + join(print) + join(set));
+    }
 }
 
 // ── GDB-UNS — unsupported, honestly (§2 rows 26-33) ────────────────────────

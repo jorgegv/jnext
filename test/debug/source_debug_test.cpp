@@ -7321,15 +7321,16 @@ int main() {
                   ok, seen);
         }
         {   // SRCDBG-CVAL-40
-            // the same sccz80 build with NO listing beside the map: nothing says ffast is fastcall, so the record is read as written (the documented limit, OD-14a)
+            // the same sccz80 build with NO listing beside the map: nothing flags ffast fastcall, but its entry does (OD-A, GH #438): `call l_debug_push_frame; push hl`
             Machine m(false, MachineType::ZXN_ISSUE2);
             const fs::path d = var_dir("c40", "master/sccz80-fc");   // z88_copy: the map, the NEX and the section binaries, no .lis
             z88_load(m, d / "prog.nex");
             m.dbg->load_program_sidecars((d / "prog.nex").string());
             const bool at = cv_run_to(m, 0x8C62);
+            const bool entry = m.emu.mmu().peek(0x8C62) == 0xCD && m.emu.mmu().peek(0x8C65) == 0xE5;   // call l_debug_push_frame (fc.c.lis: 0000 cd0000, 0003 e5 push hl)
             const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
-            check("SRCDBG-CVAL-40", "ffast's x with no listing: read from the record's slot, with no U1 marker (a value, not a refusal)",
-                  at && x.ok && x.why.find("U1") == std::string::npos);
+            check("SRCDBG-CVAL-40", "ffast's x with no listing is refused `location unknown (z88dk U1...)`: its entry is `call l_debug_push_frame; push hl` (the prologue is the fastcall evidence)",
+                  at && entry && !x.ok && x.why.find("location unknown (z88dk U1") == 0);
         }
         {   // SRCDBG-CVAL-41
             Machine m(false, MachineType::ZXN_ISSUE2);
@@ -8439,6 +8440,215 @@ int main() {
                   lr.count > 0 && !w.ok() && w.status == Result::RefusedReadOnly && w.landed == 1 && w.why == "1 of 2 bytes landed (the rest is read-only)" &&
                       m.emu.mmu().peek(0x4000) == 0x12 && m.emu.mmu().peek(0x3FFF) == rom0 && lines == 1 && m.dbg->state_revision() == rev + 1,
                   w.why + " landed=" + std::to_string(w.landed) + " lines=" + std::to_string(lines) + " rev " + std::to_string(rev) + "->" + std::to_string(m.dbg->state_revision()));
+        }
+
+        // ── GH #438 (E353-08) S1: the markers. Oracle: the C sources of the fixtures (fc.c, fm.c, u5.c, bits.c, vars.c), their maps and listings
+        // (addresses; `call l_debug_push_frame; push hl`; u5.c's `add a,a`), the ABI of the program the machine runs (bytes read independently
+        // of the facade) and z88dk's own issues (#3229, #3231, #3233). Stops are asserted against the map's own line records.
+        const std::string k3233 = "z88dk#3233";
+        const auto zb_at = [&](Machine& m, const char* fixture, const char* tag, const char* line, uint16_t pc, bool lis = false) {
+            const fs::path d = var_dir(tag, fixture);
+            if (lis) z88_copy_lis(fixture, d);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            return cv_starts_at(m, line, pc) && cv_run_to(m, pc);
+        };
+        const auto note80 = [&](const std::vector<std::string>& notes) {
+            for (const auto& n : notes)
+                if (n.find(k3233) != std::string::npos) return true;
+            return false;
+        };
+        const auto u1 = [](const Dbg::CValueResult& r) { return !r.ok && r.why.find("location unknown (z88dk U1") == 0; };
+        // main's `while (1);`: its loop head. The first jump of main (jp, or jr) that lands on or before itself, inside main, found from the entry: sccz80's
+        // `jp i_6` is a jump to itself, 80cc's `ld a,1; or a; jp nz,L_f2_bb_1` jumps back to its `ld a,1`
+        const auto spin_pc = [&](Machine& m, const char* fn) -> int {
+            const auto e = cw_entry(m, fn);
+            if (!e) return -1;
+            const auto at = [&](unsigned a) { return static_cast<unsigned>(m.emu.mmu().peek(static_cast<uint16_t>(a))); };
+            for (unsigned pc = e->address; pc < e->address + 0xC0u; ++pc) {
+                const unsigned op = at(pc);
+                unsigned target = 0;
+                if (op == 0xC3 || op == 0xC2 || op == 0xCA || op == 0xD2 || op == 0xDA || op == 0xE2 || op == 0xEA || op == 0xF2 || op == 0xFA)
+                    target = at(pc + 1) | at(pc + 2) << 8;
+                else if (op == 0x18 || op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38)
+                    target = pc + 2u + static_cast<unsigned>(static_cast<int8_t>(at(pc + 1)));
+                if (target >= e->address && target <= pc) return static_cast<int>(target);
+            }
+            return -1;
+        };
+        const auto spin_at = [&](Machine& m, const char* fixture, const char* tag) {
+            const fs::path d = var_dir(tag, fixture);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const int pc = spin_pc(m, "main");
+            return pc >= 0 && cv_run_to(m, static_cast<uint16_t>(pc));
+        };
+        {   // SRCDBG-ZB-01
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({k80cc_41.fixture, "zb01a", k80cc_41.pc}, m);
+            const auto loc = m.dbg->c_locals(0);
+            bool all = at && loc.ok;
+            std::string seen;
+            for (const char* n : {"a", "b", "p", "k", "t", "acc", "inner"}) {
+                const auto* row = row_of(loc.rows, n);
+                if (!(row && note80(row->notes))) { all = false; seen += std::string(" ") + n; }
+            }
+            const auto* calls = row_of(loc.rows, "calls");
+            const Dbg::CValueResult t = m.dbg->read_c_value(0, "t"), lp = m.dbg->read_c_value(1, "lp"), g = m.dbg->read_c_value(0, "g_int"), sc = m.dbg->read_c_value(0, "sum::calls");
+            bool globals = true;
+            for (const auto& r : m.dbg->c_globals()) globals = globals && !note80(r.notes);
+            // no sccz80 or zsdcc local carries it
+            bool others = true;
+            int n = 0;
+            for (const SumAt& c : {SumAt{"master/sccz80-cvars", "zb01b", 0x8D3E}, SumAt{"master/sdcc-cvars", "zb01c", 0x8C97}, SumAt{"v2.4/sccz80-cvars", "zb01d", 0x8D3E}}) {
+                Machine o(false, MachineType::ZXN_ISSUE2);
+                others = others && at41(c, o);
+                for (const auto& r : o.dbg->c_locals(0).rows) { others = others && !note80(r.notes); ++n; }
+                others = others && !note80(o.dbg->read_c_value(1, "lp").notes);
+            }
+            check("SRCDBG-ZB-01", "master 80cc-cvars at vars.c:41: a, b, p, k, t, acc and inner carry the 80cc note (z88dk#3233) in c_locals(0), t does in read_c_value(0, \"t\") and frame 1's lp "
+                                  "does; sum::calls, g_int and every global do not; no sccz80 or zsdcc local does",
+                  all && calls && !note80(calls->notes) && t.ok && note80(t.notes) && lp.ok && note80(lp.notes) && g.ok && !note80(g.notes) && sc.ok && !note80(sc.notes) && globals && others && n > 12,
+                  seen + " n=" + std::to_string(n));
+        }
+        {   // SRCDBG-ZB-02
+            // u5.c (z88dk#3233's program): twice(v): r = v + v; r = r + 1. At line 7's start r is in A (the listing's `add a,a`), v = 3, and r's slot was never written
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = zb_at(m, "master/80cc-u5", "zb02", "u5.c:7", 0x8C6C);
+            const unsigned a = m.dbg->registers().AF >> 8;
+            const Dbg::CValueResult r = m.dbg->read_c_value(0, "r"), v = m.dbg->read_c_value(0, "v");
+            check("SRCDBG-ZB-02", "master 80cc-u5 at `r = r + 1;`: A is 6 (v + v, v = 3), r is read from its slot with the 80cc note and the slot does not hold 6 (the stale value the note warns of)",
+                  at && a == 6 && r.ok && note80(r.notes) && r.value != "6" && v.ok && v.value == "3" && note80(v.notes), "A=" + std::to_string(a) + " r=" + (r.ok ? r.value : r.why));
+        }
+        {   // SRCDBG-ZB-03
+            // U1 per function. fc.c: ffast's x is pushed after `call l_debug_push_frame` (the stop is entry + 4, after `push hl`). fm.c: fm(a, b) fastcall, y = a - b = 5 at `return y;`
+            Machine f(false, MachineType::ZXN_ISSUE2);
+            const bool fat = zb_at(f, "master-fixed/sccz80-fc", "zb03a", "fc.c:3", 0x8C62, true) && cv_run_to(f, 0x8C66);
+            const Dbg::CValueResult fx = f.dbg->read_c_value(0, "x");
+            const uint16_t fp = f.dbg->c_frames()[0].fp;
+            Machine g(false, MachineType::ZXN_ISSUE2);
+            const bool gat = zb_at(g, "master-fixed/sccz80-fm", "zb03b", "fm.c:7", 0x8C92, true);
+            Machine p(false, MachineType::ZXN_ISSUE2);
+            const bool pat = zb_at(p, "master/sccz80-fm", "zb03c", "fm.c:7", 0x8C92, true);
+            Machine c(false, MachineType::ZXN_ISSUE2);
+            const bool cat = zb_at(c, "master/80cc-fm", "zb03d", "fm.c:7", 0x8C68, true);
+            const Dbg::CValueResult ca = c.dbg->read_c_value(0, "a"), cb = c.dbg->read_c_value(0, "b");
+            check("SRCDBG-ZB-03", "U1 per function: master-fixed sccz80-fc at ffast's `push hl`: x = 3 at fp-2 (Cpu), no U1; master-fixed fm at `return y;`: a = 7, b = 2, y = 5; master (pre-fix) "
+                                  "sccz80 fm: a and b refused with U1, y = 5; master 80cc fm: a = 7 with no U1 and with the 80cc note, b has no U1 but the 80cc note and reads y's 5 "
+                                  "(its record -2 is y's slot: z88dk#3233 before PR #3244)",
+                  fat && fx.ok && fx.value == "3" && fx.where.kind == Dbg::CWhere::Kind::Cpu && fx.where.cpu == static_cast<uint16_t>(fp - 2) && !u1(fx) &&
+                      gat && cvv(g, 0, "a") == "7" && cvv(g, 0, "b") == "2" && cvv(g, 0, "y") == "5" && pat && u1(p.dbg->read_c_value(0, "a")) && u1(p.dbg->read_c_value(0, "b")) &&
+                      cvv(p, 0, "y") == "5" && cat && ca.ok && ca.value == "7" && !u1(ca) && note80(ca.notes) && cb.ok && !u1(cb) && note80(cb.notes) && cb.value == "5" && cvv(c, 0, "y") == "5",
+                  "x=" + (fx.ok ? fx.value : fx.why) + " b80=" + (cb.ok ? cb.value : cb.why));
+        }
+        {   // SRCDBG-ZB-04
+            // no listing beside any of these maps: the entry bytes decide. ffast: `call l_debug_push_frame; push hl`; fcallee's entry is the same call but no `push hl` after it
+            const auto ffast_x = [&](const char* fixture, const char* tag, uint16_t pc) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = zb_at(m, fixture, tag, "fc.c:3", 0x8C62) && (pc == 0x8C62 || cv_run_to(m, pc));
+                const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
+                return std::make_pair(at, x);
+            };
+            const auto pre24 = ffast_x("v2.4/sccz80-fc", "zb04a", 0x8C62), prem = ffast_x("master/sccz80-fc", "zb04b", 0x8C62), fixd = ffast_x("master-fixed/sccz80-fc", "zb04c", 0x8C66);
+            bool callee = true;
+            for (const SumAt& c : {SumAt{"v2.4/sccz80-fc", "zb04d", 0x8C74}, SumAt{"master/sccz80-fc", "zb04e", 0x8C74}, SumAt{"master-fixed/sccz80-fc", "zb04f", 0x8C74}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                cv_load(m, c.fixture, c.tag);
+                callee = callee && cv_run_to(m, c.pc) && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4";
+            }
+            check("SRCDBG-ZB-04", "no listing (the entry bytes are the evidence): v2.4 and master sccz80-fc's ffast x is refused with U1, master-fixed's is 3; fcallee's a and b are 4 on all three "
+                                  "(`call l_debug_push_frame` is not enough: only `push hl` after it marks a fastcall function)",
+                  pre24.first && u1(pre24.second) && prem.first && u1(prem.second) && fixd.first && fixd.second.ok && fixd.second.value == "3" && callee);
+        }
+        {   // SRCDBG-ZB-05
+            // z88dk#3231: with start/width records the bitfields of g_flags are exact. g_flags poked 8D C8: lo = 5, mid = 17 (byte 0), hi = 200 (byte 1)
+            std::string seen;
+            bool ok = true;
+            for (const SumAt& c : {SumAt{"master-fixed/sccz80-cvars", "zb05a", 0x8D3E}, SumAt{"master-fixed/80cc-cvars", "zb05b", 0x8CCA}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = at41(c, m);
+                const Dbg::CValueResult r0 = m.dbg->read_c_value(0, "g_flags");
+                const uint8_t b[2] = {0x8D, 0xC8};
+                if (r0.where.kind == Dbg::CWhere::Kind::Page) m.dbg->poke(m.a, r0.where.source.space, r0.where.source.address & 0x1FFF, 2, b);
+                const Dbg::CValueResult r = m.dbg->read_c_value(0, "g_flags");
+                if (!(at && r.ok && r.value == "{lo = 5, mid = 17, hi = 200}" && r.notes.empty())) { ok = false; seen += std::string(" ") + c.fixture + ":" + (r.ok ? r.value : r.why); }
+            }
+            check("SRCDBG-ZB-05", "master-fixed sccz80-cvars and 80cc-cvars, g_flags poked 8D C8: {lo = 5, mid = 17, hi = 200} with no note (the SB records are exact)", ok, seen);
+        }
+        {   // SRCDBG-ZB-06
+            // bits.c at `while (1);` (line 15): g_bf, l_bf, g_one. The expected text is the C program's own: lo 5, mid 17, hi 200, neg -3, wide 2748, tag 66; g_one.s = -3
+            const std::string good = "{lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'}";   // tag is a uint8_t: a printable byte shows its character
+            const auto child_type = [&](Machine& m, const char* path, const char* member) {
+                for (const auto& r : m.dbg->c_children(0, path, 0, 16).rows)
+                    if (r.name == member) return r.type;
+                return std::string("-");
+            };
+            struct Bt { const char* fx; const char* tag; uint16_t pc; bool fixed; bool c80; bool zs; };
+            std::string seen;
+            bool ok = true;
+            for (const Bt& c : {Bt{"master-fixed/sccz80-bits", "zb06a", 0x8CE1, true, false, false}, Bt{"master-fixed/80cc-bits", "zb06b", 0x8CFE, true, true, false},
+                                Bt{"master/sdcc-bits", "zb06c", 0x8CB3, true, false, true}, Bt{"master/sccz80-bits", "zb06d", 0x8CE1, false, false, false},
+                                Bt{"master/80cc-bits", "zb06e", 0x8CFE, false, true, false}, Bt{"v2.4/sccz80-bits", "zb06f", 0x8CE1, false, false, false}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = zb_at(m, c.fx, c.tag, "bits.c:15", c.pc);
+                const Dbg::CValueResult gb = m.dbg->read_c_value(0, "g_bf"), lb = m.dbg->read_c_value(0, "l_bf"), go = m.dbg->read_c_value(0, "g_one");
+                bool one;
+                bool marked = true;
+                if (c.fixed) {
+                    one = go.ok && go.value == (c.zs ? "{s = -3}" : "{s = 13}") && child_type(m, "g_bf", "neg") == "int :4" && child_type(m, "g_bf", "lo") == "unsigned int :3" &&
+                          child_type(m, "g_one", "s") == (c.zs ? "int :4" : "unsigned int :4");
+                    marked = gb.ok && gb.value == good && gb.notes.empty() && lb.ok && lb.value == good && note80(lb.notes) == c.c80 && !note80(gb.notes);
+                } else {
+                    // whole-int records: lo, mid, hi and neg are U2-marked, tag is read right; g_one's `{2}SI:U` lies beyond its 1-byte struct
+                    const std::string mark = "[bitfield layout unknown (z88dk U2)]";
+                    marked = gb.ok && gb.value.find("tag = 66 'B'") != std::string::npos && gb.value.find("lo = ") != std::string::npos;
+                    for (const char* mem : {"lo", "mid", "hi", "neg"}) {
+                        const size_t at2 = gb.value.find(std::string(mem) + " = ");
+                        marked = marked && at2 != std::string::npos && gb.value.substr(at2, gb.value.find_first_of(",}", at2) - at2).find(mark) != std::string::npos;
+                    }
+                    marked = marked && lb.ok && lb.value.find("tag = 66 'B'") != std::string::npos && note80(lb.notes) == c.c80;
+                    one = !go.ok && go.why.find("lies beyond the object") != std::string::npos;
+                }
+                if (!(at && one && marked)) { ok = false; seen += std::string(" ") + c.fx + " at=" + std::to_string(at) + " one=" + std::to_string(one) + " marked=" + std::to_string(marked) + " gb=" + (gb.ok ? gb.value : gb.why); }
+            }
+            check("SRCDBG-ZB-06", "bits.c at `while (1);`: g_bf and l_bf are {lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'} on master-fixed sccz80 and 80cc and master zsdcc, neg is `int :4` and lo "
+                                  "`unsigned int :3`; g_one = {s = 13} on fixed sccz80 and 80cc (an int bitfield is unsigned there), {s = -3} on zsdcc; the pre-fix records (v2.4 and master sccz80, "
+                                  "master 80cc) mark lo, mid, hi and neg U2 and read tag = 66 'B', and refuse g_one; the 80cc locals carry the 80cc note, nothing else does",
+                  ok, seen);
+        }
+        {   // SRCDBG-ZB-08
+            // fm.c at main's `while (1);`: ls = "loc", static ss = "stat", file static fs = "file", global gs = "glob", each with its NUL
+            const auto txt = [&](Machine& m, const char* name) { const Dbg::CValueResult r = m.dbg->read_c_value(0, name); return r.ok ? r.value : "!" + r.why; };
+            const std::string unk = "!an array of unknown length: its debug record has no size";
+            Machine f(false, MachineType::ZXN_ISSUE2);
+            const bool fat = spin_at(f, "master-fixed/sccz80-fm", "zb08a");
+            Machine p(false, MachineType::ZXN_ISSUE2);
+            const bool pat = spin_at(p, "master/sccz80-fm", "zb08b");
+            Machine v(false, MachineType::ZXN_ISSUE2);
+            const bool vat = spin_at(v, "v2.4/sccz80-fm", "zb08c");
+            Machine c(false, MachineType::ZXN_ISSUE2);
+            const bool cat = spin_at(c, "master/80cc-fm", "zb08d");
+            const Dbg::CValueResult cls = c.dbg->read_c_value(0, "ls");
+            const std::string want_ls = "\"loc\\0\"", want_ss = "\"stat\\0\"", want_fs = "\"file\\0\"", want_gs = "\"glob\\0\"";
+            check("SRCDBG-ZB-08", "fm.c at main's `while (1);`: master-fixed sccz80 reads ls \"loc\\0\", ss \"stat\\0\", fs \"file\\0\" and gs \"glob\\0\" (every byte, #437's rule); v2.4 and master sccz80 refuse ls, ss "
+                                  "and fs (`an array of unknown length: its debug record has no size`) and read gs as fixed; master 80cc reads ls with the 80cc note (the value is not asserted) and "
+                                  "refuses ss and fs",
+                  fat && txt(f, "ls") == want_ls && txt(f, "ss") == want_ss && txt(f, "fs") == want_fs && txt(f, "gs") == want_gs && pat && txt(p, "ls") == unk && txt(p, "ss") == unk &&
+                      txt(p, "fs") == unk && txt(p, "gs") == want_gs && vat && txt(v, "ls") == unk && txt(v, "gs") == want_gs && cat && cls.ok && note80(cls.notes) && txt(c, "ss") == unk &&
+                      txt(c, "fs") == unk && txt(c, "gs") == want_gs,
+                  "fixed ls=" + txt(f, "ls") + " ss=" + txt(f, "ss") + " fs=" + txt(f, "fs") + " gs=" + txt(f, "gs") + " | 80cc ls=" + txt(c, "ls") + " ss=" + txt(c, "ss"));
+        }
+        {   // SRCDBG-ZB-09
+            // writes: an 80cc frame-slot variable is written, and the result carries the note (the Qt panel and `monitor set var` print it)
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({k80cc_41.fixture, "zb09a", k80cc_41.pc}, m);
+            const Dbg::CWriteResult w = wr(m, 0, "t", "1000");
+            Machine s(false, MachineType::ZXN_ISSUE2);
+            const bool sat = at41({kSccz80_41.fixture, "zb09b", kSccz80_41.pc}, s);
+            const Dbg::CWriteResult sw = wr(s, 0, "t", "1000");
+            check("SRCDBG-ZB-09", "write t := 1000 at master 80cc vars.c:41 succeeds and its CWriteResult.notes holds the 80cc note, and t reads back 1000; the same write on sccz80 succeeds with no "
+                                  "note",
+                  at && w.ok() && note80(w.notes) && w.value == "1000" && cvv(m, 0, "t") == "1000" && sat && sw.ok() && sw.notes.empty());
         }
     }
 
