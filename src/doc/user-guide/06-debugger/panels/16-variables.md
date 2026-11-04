@@ -7,6 +7,6 @@ Choose the frame in the selector at the top, or by clicking a row of the [Call S
 N + 1. Open a struct, an array or a pointer to see inside it. Right-click a row ▸ **Watch** adds it to the
 [Watches](07-watches.md).
 
-Like the Call Stack it shows data only while the machine is **paused**. Everything is read-only.
+Like the Call Stack it shows data only while the machine is **paused**. Double-click a Value to edit it (right-click ▸ **Edit Value**).
 
 Everything about it is in [C variables in the debugger](../source-debugger/11-c-variables.md).

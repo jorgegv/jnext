@@ -2347,8 +2347,8 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
 - **Variables** - with a z88dk `-debug` source map, the C variables of a call
   frame (chosen in a selector or in the Call stack) and the globals and statics,
   as a tree that opens onto struct members, array elements and what a pointer
-  points at; the type, the value (or why there is none) and where it is; read
-  only, paused only. Right-click a row to watch it
+  points at; the type, the value (or why there is none) and where it is; paused
+  only. Double-click a value to edit it; right-click a row to watch it
 - **Breakpoints** - execution, read, write and I/O watchpoints, in one panel.
   An I/O watchpoint address of **00**-**FF** matches any port with that low
   byte (**FE** catches every ULA access, whatever the high byte holds);
