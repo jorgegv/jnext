@@ -97,6 +97,7 @@ VariablesPanel::Node VariablesPanel::node_of(const Debugger::CValueRow& row, con
     Node n;
     n.kind = KindVar;
     n.row_kind = static_cast<int>(row.kind);
+    n.file = QString::fromStdString(row.file);
     n.path = QString::fromStdString(row.path);
     n.key = key_prefix + n.path;
     QString name = QString::fromStdString(row.name);
@@ -221,6 +222,7 @@ void VariablesPanel::apply(QTreeWidgetItem* item, const Node& n)
     item->setData(0, RoleKey, n.key);
     item->setData(0, RoleExpandable, n.expandable);
     item->setData(0, RoleRowKind, n.row_kind);
+    item->setData(0, RoleFile, n.file);
     if (n.placeholder)
         item->setForeground(2, palette().color(QPalette::PlaceholderText));
     else
@@ -263,7 +265,7 @@ void VariablesPanel::sync(QTreeWidgetItem* parent, const std::vector<Node>& node
 void VariablesPanel::on_context_menu(const QPoint& pos)
 {
     QTreeWidgetItem* item = tree_->itemAt(pos);
-    if (!item || item->data(0, RoleKind).toInt() != KindVar) return;
+    if (!item || item->data(0, RoleKind).toInt() != KindVar || !paused_) return;
     QMenu menu;
     QAction* watch = menu.addAction(tr("Watch"));
     if (menu.exec(tree_->viewport()->mapToGlobal(pos)) == watch) watch_item(item);
@@ -271,7 +273,7 @@ void VariablesPanel::on_context_menu(const QPoint& pos)
 
 bool VariablesPanel::watch_item(QTreeWidgetItem* item)
 {
-    if (!dbg_ || !item || item->data(0, RoleKind).toInt() != KindVar) return false;
+    if (!dbg_ || !paused_ || !item || item->data(0, RoleKind).toInt() != KindVar) return false;
     CVarWatch w;
     w.path = item->data(0, RolePath).toString().toStdString();
     if (key_of(item).startsWith("L:")) {
@@ -281,7 +283,12 @@ bool VariablesPanel::watch_item(QTreeWidgetItem* item)
         if (!store || f < 0 || static_cast<size_t>(f) >= store->functions().size()) return false;
         const auto& fn = store->functions()[static_cast<size_t>(f)];
         if (item->data(0, RoleRowKind).toInt() == static_cast<int>(Debugger::CValueRow::Kind::StaticLocal)) {
-            w.path = fn.name + "::" + w.path;   // a static local lives in its function, not in a frame: unbound
+            // a static local lives in its function, not in a frame: unbound, spelled as c_globals() spells it, with the file when the function
+            // name is not unique (find_var prefers the CURRENT frame's function of a bare `fn::`, which could be another module's)
+            int same = 0;
+            for (const auto& other : store->functions()) same += other.name == fn.name;
+            const std::string file = item->data(0, RoleFile).toString().toStdString();
+            w.path = (same > 1 ? file + "::" : std::string()) + fn.name + "::" + w.path;
         } else {
             w.function = fn.name;
             w.module = fn.module;

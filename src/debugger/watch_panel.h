@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QMetaType>
 #include <QStringList>
 #include <QWidget>
 #include <QTableWidget>
@@ -19,6 +20,7 @@ struct CVarWatch {
     std::string function;
     std::string module;
 };
+Q_DECLARE_METATYPE(CVarWatch)
 
 /// Watch panel showing memory values at watched addresses.
 ///

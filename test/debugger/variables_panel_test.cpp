@@ -39,6 +39,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QMetaType>
 #include <QTreeWidget>
 
 #include <cctype>
@@ -215,6 +216,46 @@ QString wcell(Fix& f, int row, int col) {
 }
 std::string wrow(Fix& f, int row) {
     return s(wcell(f, row, 0) + "|" + wcell(f, row, 1) + "|" + wcell(f, row, 2) + "|" + wcell(f, row, 3) + "|" + wcell(f, row, 4));
+}
+
+// A synthetic program (no NEX): two modules, each with a static function `init` that has a static `done` and a local `x` (at fp - 2).
+// a.c's init (at $8000) calls itself; b.c's init (at $8010) does not. The prologue is `push ix; ld ix,0; add ix,sp`, then two `push hl`.
+std::string syn_rec(const std::string& r, const char* module) {
+    return "__CDBINFO__" + esc(r) + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+}
+bool syn_load(Fix& f, const char* name) {
+    f.dir = fs::path(g_tmp->path().toStdString()) / name;
+    fs::create_directories(f.dir);
+    const std::string map = (f.dir / "syn.map").string();
+    std::ofstream(map) << "_init = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                          "_init = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
+                          "__C_LINE_1_a_2ec = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                          "__C_LINE_1_b_2ec = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
+                          "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                          "_st_init_done = $9000 ; addr, local, , a_c, bss_compiler, a.c:2\n"
+                          "_st_init_done = $9010 ; addr, local, , b_c, bss_compiler, b.c:2\n"
+                       << syn_rec("F:Fa.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "a_c") << syn_rec("F:Fb.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "b_c")
+                       << syn_rec("S:Fa.c$st_init_done$1_0$1({2}SI:S),E,0,0", "a_c") << syn_rec("S:Fb.c$st_init_done$1_0$1({2}SI:S),E,0,0", "b_c")
+                       << syn_rec("S:La.c.init$x$1_0$1({2}SI:S),B,1,-2", "a_c") << syn_rec("S:Lb.c.init$x$1_0$1({2}SI:S),B,1,-2", "b_c");
+    const uint8_t pro[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39, 0xE5, 0xE5};
+    for (uint16_t base : {0x8000, 0x8010})
+        for (size_t i = 0; i < sizeof pro; ++i) f.emu.mmu().write(static_cast<uint16_t>(base + i), pro[i]);
+    const uint8_t rec_call[] = {0xCD, 0x00, 0x80, 0x18, 0xFE};   // a.c's init: call init; jr $
+    for (size_t i = 0; i < sizeof rec_call; ++i) f.emu.mmu().write(static_cast<uint16_t>(0x800A + i), rec_call[i]);
+    f.emu.mmu().write(0x801A, 0x18);
+    f.emu.mmu().write(0x801B, 0xFE);
+    f.emu.mmu().write(0x9000, 7);
+    f.emu.mmu().write(0x9010, 9);
+    return f.backend->load_source_map(map, true).count > 0;
+}
+void syn_enter(Fix& f, uint16_t pc, uint16_t sp, int steps = 5) {   // run `steps` instructions from `pc` with SP = `sp`
+    Z80Registers r = f.emu.cpu().get_registers();
+    r.PC = pc;
+    r.SP = sp;
+    r.IFF1 = r.IFF2 = 0;
+    f.emu.cpu().set_registers(r);
+    for (int i = 0; i < steps; ++i) f.emu.execute_single_instruction();
+    f.settle();
 }
 
 // vars.c:41, sum's first call (sccz80, master): the stop every row starts from.
@@ -718,6 +759,103 @@ void test_rows() {
                          "Call Stack row selected)",
               at && ignored, "frame=" + std::to_string(f.vp()->selected_frame()) + " combo=" + std::to_string(f.frames()->currentIndex()) +
                                  " row=" + std::to_string(f.cs_table()->currentRow()));
+    }
+
+    {   // QVAR-28
+        // finding of review 3: a static local pinned from Locals must name ITS variable even when another module has a function of the same name
+        Fix f;
+        const bool loaded = syn_load(f, "q28");
+        syn_enter(f, 0x8010, 0xFF00);   // in b.c's init, past its prologue
+        QSignalSpy spy(f.vp(), &VariablesPanel::watch_requested);
+        QTreeWidgetItem* done = child(locals(f), "done");
+        const bool pinned = done && f.vp()->watch_item(done);
+        const bool spelled = spy.count() == 1 && spy.at(0).at(0).value<CVarWatch>().path == "b.c::init::done" && spy.at(0).at(0).value<CVarWatch>().function.empty();
+        const bool inside_b = wcell(f, 0, 3) == "9";
+        syn_enter(f, 0x8000, 0xFE00);   // now in a.c's init: a bare `init::done` there is a.c's (7)
+        const bool inside_a = wcell(f, 0, 3) == "9";
+        Z80Registers r = f.emu.cpu().get_registers();
+        r.PC = 0x7000;                   // in neither function
+        f.emu.cpu().set_registers(r);
+        f.dbg()->refresh_panels();
+        check("QVAR-28", "a static local pinned from Locals is spelled as c_globals() spells it (b.c::init::done, the file because init is not unique, unbound) and reads b.c's 9 while "
+                         "stopped in b.c's init, in a.c's init (where a bare init::done is a.c's 7) and in neither",
+              loaded && pinned && spelled && inside_b && inside_a && wcell(f, 0, 3) == "9", wrow(f, 0));
+    }
+
+    {   // QVAR-29
+        // a bound watch reads the NEWEST frame of its function and matches the module too: a.c's init recursing once (two frames), x poked per frame
+        Fix f;
+        const bool loaded = syn_load(f, "q29");
+        syn_enter(f, 0x8000, 0xFF00, 3);
+        const uint16_t ix1 = f.emu.cpu().get_registers().IX;
+        for (int i = 0; i < 2 + 1 + 3; ++i) f.emu.execute_single_instruction();   // two pushes, the call, the next prologue
+        const uint16_t ix2 = f.emu.cpu().get_registers().IX;
+        for (int i = 0; i < 2; ++i) f.emu.execute_single_instruction();            // its two pushes: x is allocated
+        f.settle();
+        f.emu.mmu().write(static_cast<uint16_t>(ix1 - 2), 11);
+        f.emu.mmu().write(static_cast<uint16_t>(ix1 - 1), 0);
+        f.emu.mmu().write(static_cast<uint16_t>(ix2 - 2), 22);
+        f.emu.mmu().write(static_cast<uint16_t>(ix2 - 1), 0);
+        f.dbg()->watch_panel()->add_c_watch(CVarWatch{"x", "init", "a_c"});
+        f.dbg()->watch_panel()->add_c_watch(CVarWatch{"x", "init", "b_c"});   // b.c's init is not on the call stack
+        check("QVAR-29", "with a.c's init on the stack twice, a watch on its local x reads the newest activation (22, not the older 11); a watch bound to b.c's init (same function name, "
+                         "another module) says out of scope",
+              loaded && ix1 != ix2 && f.backend->c_frames().size() >= 2 && wcell(f, 0, 3) == "22" && wcell(f, 1, 3) == "out of scope: init is not on the call stack",
+              "ix1=" + std::to_string(ix1) + " ix2=" + std::to_string(ix2) + " " + wrow(f, 0) + " / " + wrow(f, 1));
+    }
+
+    {   // QVAR-30
+        Fix f;
+        f.load("master/sccz80-cvars", "q30");
+        const bool at = f.run_to(kS41);
+        f.vp()->set_paused(false);   // the machine runs: the tab shows the last stop, and a binding taken now would not be what the user pointed at
+        const bool refused = !f.vp()->watch_item(child(locals(f), "t")) && wtable(f)->rowCount() == 0;
+        f.vp()->set_paused(true);
+        const bool added = f.vp()->watch_item(child(locals(f), "t")) && wtable(f)->rowCount() == 1 && wcell(f, 0, 1) == "t (in sum)";
+        check("QVAR-30", "Watch is refused while the machine runs (nothing is added) and works at the next pause",
+              at && refused && added, wrow(f, 0));
+    }
+
+    {   // QVAR-31
+        Fix f;
+        f.load("master/sccz80-cvars", "q31");
+        const bool at = f.run_to(kS41);
+        f.vp()->watch_item(global(f, "vars.c", "s_dup"));
+        f.vp()->watch_item(child(locals(f), "t"));
+        const bool page = wcell(f, 0, 0) == "$909F" && wcell(f, 0, 4) == "P04" && wcell(f, 0, 2) == "unsigned char";
+        // a rebuild of the table while the machine runs keeps the last stop's texts
+        f.dbg()->watch_panel()->set_paused(false);
+        f.dbg()->watch_panel()->add_watch(0x903E, "m", 1);
+        const bool shown = wcell(f, 0, 3) == "0" && wcell(f, 1, 3) == "122" && wcell(f, 0, 2) == "unsigned char";
+        f.dbg()->watch_panel()->set_paused(true);
+        const bool at2 = f.run_to(0x8E1F);   // sum is not on the call stack
+        QTableWidgetItem* oos = wtable(f)->item(1, 3);
+        QTableWidgetItem* good = wtable(f)->item(0, 3);
+        const bool tint = oos && good && oos->foreground().color() == f.dbg()->watch_panel()->palette().color(QPalette::PlaceholderText) &&
+                          good->data(Qt::ForegroundRole).isNull();
+        // the symbol goes from the map: a refusal with no type keeps the Type column
+        std::ifstream in(f.dir / "prog.map");
+        std::string text, line;
+        while (std::getline(in, line))
+            if (line.find("S_3aFvars_2ec_24s_5fdup_24") == std::string::npos) text += line + "\n";
+        in.close();
+        const std::string map2 = (f.dir / "nodup.map").string();
+        std::ofstream(map2) << text;
+        f.backend->load_source_map(map2, true);
+        f.dbg()->refresh_panels();
+        const bool kept = wcell(f, 0, 3).contains("s_dup") && wcell(f, 0, 3) != "0" && wcell(f, 0, 2) == "unsigned char";
+        check("QVAR-31", "a global's C row has its address and memory ($909F, P04) and type; a table rebuild while running keeps the last stop's Values (0, 122); a refused row is drawn "
+                         "in the placeholder colour and a valued one is not; a refusal that has no type keeps the row's last Type",
+              at && page && shown && at2 && tint && kept, wrow(f, 0) + " / " + wrow(f, 1));
+    }
+
+    {   // QVAR-32
+        Fix f;
+        f.load("master/sdcc-cvars", "q32");
+        const bool at = f.run_to(0x8C97);
+        f.vp()->watch_item(child(locals(f), "t"));
+        check("QVAR-32", "a watch on zsdcc's register local t shows its value with the may-be-stale note in the Value, the register names in Address and no Memory",
+              at && wcell(f, 0, 3).startsWith("122") && wcell(f, 0, 3).contains("may be stale") && wcell(f, 0, 0) == "BC" && wcell(f, 0, 4).isEmpty(), wrow(f, 0));
     }
 
     {   // QVAR-23
