@@ -28,8 +28,12 @@ public:
         e->setFrame(false);
         return e;
     }
+    // Once per editor: a redraw of the row (every paused tick that follows a keystroke, GH #428) reaches here again through dataChanged, and
+    // must not put the old text back over what the user is typing.
     void setEditorData(QWidget* editor, const QModelIndex& index) const override {
+        if (editor->property("filled").toBool()) return;
         static_cast<QLineEdit*>(editor)->setText(index.data(VariablesPanel::RoleEditText).toString());
+        editor->setProperty("filled", true);
     }
     void setModelData(QWidget* editor, QAbstractItemModel*, const QModelIndex& index) const override {
         QTreeWidgetItem* item = tree_->itemFromIndex(index);

@@ -8413,6 +8413,33 @@ int main() {
                       t.landed == 2 && c.ok() && c.where.kind == Dbg::CWhere::Kind::Page && c.where.source.space == MemSpace::page(4) && c.where.source.address == 0x90A0 &&
                       c.landed == 1);
         }
+        {   // SRCDBG-CVW-23
+            // a 2-byte object on $3FFF: the first byte is ROM, the second is RAM. poke() lands the RAM byte, logs one MUTATE line and bumps the revision once,
+            // and answers RefusedReadOnly: a refusal that carries the bump of the bytes that landed
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const std::string map = (z / "w23.map").string();
+            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                            "_gp = $8100 ; addr, public, , t_c, data_compiler, t.c:1\n" +
+                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gp$0_0$0({2}DG,SI:S),E,0,0", "t_c"));
+            const auto lr = m.dbg->load_source_map(map, true);
+            m.emu.mmu().write(0x8100, 0xFF);
+            m.emu.mmu().write(0x8101, 0x3F);   // gp = $3FFF
+            m.emu.mmu().write(0x4000, 0x55);
+            const uint8_t rom0 = m.emu.mmu().peek(0x3FFF);
+            m.dbg->c_frames();
+            const uint64_t rev = m.dbg->state_revision();
+            Dbg::CWriteResult w;
+            const std::string log = debugger_log_of([&] { w = wr(m, 0, "*gp", "4660"); });   // $1234
+            size_t lines = 0;
+            for (size_t at_ = log.find("MUTATE"); at_ != std::string::npos; at_ = log.find("MUTATE", at_ + 1)) ++lines;
+            check("SRCDBG-CVW-23", "a 2-byte int through a pointer at $3FFF (ROM, then RAM): RefusedReadOnly `1 of 2 bytes landed (the rest is read-only)`, landed 1, the RAM byte at $4000 "
+                                   "is the high byte $12 and the ROM byte is unchanged, exactly one MUTATE line and the revision up by exactly 1",
+                  lr.count > 0 && !w.ok() && w.status == Result::RefusedReadOnly && w.landed == 1 && w.why == "1 of 2 bytes landed (the rest is read-only)" &&
+                      m.emu.mmu().peek(0x4000) == 0x12 && m.emu.mmu().peek(0x3FFF) == rom0 && lines == 1 && m.dbg->state_revision() == rev + 1,
+                  w.why + " landed=" + std::to_string(w.landed) + " lines=" + std::to_string(lines) + " rev " + std::to_string(rev) + "->" + std::to_string(m.dbg->state_revision()));
+        }
     }
 
     // ── GH #344 stage 3: a tape program's maps ───────────────────────────────

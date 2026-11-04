@@ -1282,9 +1282,12 @@ int main() {
                           return false;
                   return no(enc("{6}SF:S", "1e39"), "out of range for float (z88dk 48-bit)");
               }());
-        check("CVW-08", "binary16: 1.5 is 00 3E, 65504 is FF 7B, -2 is 00 C0; 65520 rounds to infinity and is refused",
+        check("CVW-08", "binary16: 1.5 is 00 3E, 65504 is FF 7B, -2 is 00 C0; 65520 rounds to infinity and is refused; the subnormals: 2^-24 is 01 00, the largest "
+                        "subnormal (1023 * 2^-24) is FF 03, 2^-14 (the smallest normal) is 00 04; 1e-10 underflows and is refused, 2^-25 rounds to zero and is refused",
               is(enc("{2}S6:S", k15), {0x00, 0x3E}) && is(enc("{2}S6:S", "65504"), {0xFF, 0x7B}) && is(enc("{2}S6:S", "-2"), {0x00, 0xC0}) &&
-                  !enc("{2}S6:S", "65520").ok);
+                  !enc("{2}S6:S", "65520").ok && is(enc("{2}S6:S", "5.9604644775390625e-8"), {0x01, 0x00}) &&
+                  is(enc("{2}S6:S", "6.0975551605224609375e-5"), {0xFF, 0x03}) && is(enc("{2}S6:S", "6.103515625e-5"), {0x00, 0x04}) &&
+                  no(enc("{2}S6:S", "1e-10"), "would underflow") && !enc("{2}S6:S", "2.98023223876953125e-8").ok);
         check("CVW-09", "zsdcc bitfields are read-modify-write: from 00, lo = 5 then mid = 17 give 8D, hi = 200 (its own unit) gives C8, the bytes the zsdcc "
                         "bitfield decode row reads back; from FF, mid = 0 gives 07 (the other bits kept); lo = 8 and mid = 32 are refused",
               [&] {

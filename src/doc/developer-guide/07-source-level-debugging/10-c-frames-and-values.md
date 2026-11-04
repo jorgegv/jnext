@@ -228,7 +228,8 @@ storage). The write adds five refusals, in this order:
 
 The current bytes are peeked through `where` (`Page`: `peek(space, space_offset(...))`, `Cpu`: the CPU view), the encoder
 makes the new ones, and **exactly one `poke()`** writes them: one MUTATE line and one `state_revision()` bump (GH #428), and neither on
-a refusal, because every refusal is decided before the poke, or by it before a byte lands. The status is poke's own:
+a refusal decided before the poke (it writes, logs and bumps nothing). A write that lands only some of its bytes (a 2-byte object on $3FFF, half in ROM) is `RefusedReadOnly`
+with the one MUTATE line and the one bump of the bytes that landed; a refusal by `poke()` before a byte lands (RZX, a read-only page, DivMMC RAM) has neither. The status is poke's own:
 `RefusedRzx`, `RefusedReadOnly` (with `landed`, worded `K of N bytes landed (the rest is read-only)`), `InvalidPage` or `Unsupported`; every
 refusal decided before it is `RefusedUnavailable` with the reason in `why`. There is no C-specific code. A dot command's global lives in
 `DivMmcRam`, which `poke()` refuses (`identity_only()`, INS-02-30), so it is `Unsupported` with `DivMMC RAM bank 2 cannot be written by the

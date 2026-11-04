@@ -287,7 +287,7 @@ of a store, and it **formats nothing**: every value, type, refusal and note is t
   style switch) keeps the choice, so a frame picked in an older caller survives everything but moving the machine.
 - **One mapping.** The Call Stack panel lists the tracked CALLs newest first, with no row for frame 0 or for a frame found through
   the saved-frame-pointer chain; `c_frames()` takes frame k's PC from the CALL `tracked[n-k]`, so **Call Stack row i is C frame i + 1**.
-  That is written once, in `VariablesPanel::call_stack_row()` (`variables_panel.cpp:106`) and `frame_of_call_row()`. `CallStackPanel::call_selected(row)` (emitted
+  That is written once, in `VariablesPanel::call_stack_row()` (`variables_panel.cpp:110`) and `frame_of_call_row()`. `CallStackPanel::call_selected(row)` (emitted
   only for the user's choice: a refresh and `select_row()` set a guard) goes to `select_frame(row + 1)`, and `frame_changed(k)` goes back to
   `select_row(call_stack_row())`, which emits nothing, so there is no loop. After each refresh the window re-selects the row the chosen
   frame maps to (-1 clears it), because a refresh may have rebuilt the Call Stack's rows.
@@ -305,7 +305,7 @@ of a store, and it **formats nothing**: every value, type, refusal and note is t
 - **Editing (GH #437).** The Value cell of an item whose facade row is `ok` and not an aggregate is editable (`Node::editable`: a pointer is, its
   value is its address): a double-click on the cell, or the context menu's Edit Value, calls `edit_item()` while paused. The editor is the
   `ValueDelegate`'s line edit, which holds `RoleEditText` (the first space-separated word of the facade's value: string slicing, so the panel
-  still formats no number) and never writes the model: `setModelData()` hands the text to `commit_edit()`, which writes nothing when it equals the
+  still formats no number) and fills it once per editor (a keystroke is host input, so the manager's next paused tick redraws the row and the view offers the editor its data again: a refill would put the old text back over what is being typed, QVARW-09), and never writes the model: `setModelData()` hands the text to `commit_edit()`, which writes nothing when it equals the
   edit text and otherwise calls `write_c_value(client_, frame_, path, text)`. On success nothing else happens: the write bumped the revision, so
   the manager's next paused tick redraws every panel (`paused_stamp()`), this one with the value read back. On a refusal `variables_message` shows
   `<path>: <why>` (cleared by the next success or a new stop) and the cell keeps its value, because the model was never written. `client_` is the

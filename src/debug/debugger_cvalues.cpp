@@ -566,7 +566,7 @@ Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::s
     const CEncoded enc = c_encode_value(r.loc.type, value, cur.data(), cur.size());
     if (!enc.ok) return refuse(enc.why);
 
-    const auto w = poke(by, space, at, enc.bytes.size(), enc.bytes.data());   // the ONE poke: one MUTATE line, one revision bump
+    const auto w = poke(by, space, at, enc.bytes.size(), enc.bytes.data());   // the ONE poke: one MUTATE line and one revision bump when something lands (all of it, or the bytes of a partial ROM landing)
     out.landed = w.value;
     out.status = w.status;
     if (w.status == Result::RefusedReadOnly) {

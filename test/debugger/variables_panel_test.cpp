@@ -1210,6 +1210,70 @@ void test_rows() {
         check("QVARW-08", "the machine sees it: t = 1000 at the first vars.c:41 makes sum return 1345; at the second call, with frame 1 chosen and arr expanded, [0] is 1345",
               at && o && at2 && a0 && val(a0) == "1345", detail_of(a0));
     }
+    {   // QVARW-09
+        // review 1 F1: every keystroke is host input, so the manager's next paused tick redraws the window; that redraw must not put the old text
+        // back over what is being typed. Real key events, a tick, then Enter.
+        Fix f;
+        f.load("master/sccz80-cvars", "w09");
+        const bool at = f.run_to(kS41);
+        const uint16_t fp = f.backend->c_frames()[0].fp;
+        const bool idle = quiesce(f);
+        const bool opened = dbl(f, child(locals(f), "t"));
+        QLineEdit* e = editor(f);
+        if (e) e->selectAll();
+        if (e) QTest::keyClicks(e, "999");
+        const QString typed = editor_text(f);
+        f.mgr->refresh_panels();   // the keystrokes redraw the window
+        const uint64_t redraws = f.mgr->take_panel_refresh_count();
+        const QString after_tick = editor_text(f);
+        const uint64_t rev = f.backend->state_revision();
+        if (QLineEdit* e2 = editor(f)) QTest::keyClick(e2, Qt::Key_Return);
+        settle_editor();
+        check("QVARW-09", "typing with real key events survives a manager redraw: 999 typed into t's editor is still 999 after the tick the keystrokes cause (it was reset to 122), and "
+                          "Enter writes it: the bytes at fp-2 are E7 03 and the revision moved by 1",
+              at && idle && opened && typed == "999" && redraws >= 1 && after_tick == "999" && f.backend->state_revision() == rev + 1 && cpu_bytes(f, fp - 2u, 2) == Bytes{0xE7, 0x03},
+              s(typed) + " after_tick=" + s(after_tick) + " redraws=" + std::to_string(redraws));
+    }
+    {   // QVARW-10
+        // review 1 F2 (Q07): the message of a refused edit goes at a new stop
+        Fix f;
+        f.load("master/sdcc-cvars", "w10");
+        const bool at = f.run_to(0x8C97);
+        f.vp()->commit_edit(child(locals(f), "t"), "1");
+        const bool shown = !message(f)->isHidden() && message(f)->text().startsWith("t: ");
+        const bool at2 = f.run_to(0x8C97);   // sum's second call: a new stop
+        check("QVARW-10", "the message of a refused edit is cleared at a new stop: shown after a refused t = 1, hidden after continuing to the next vars.c:41",
+              at && shown && at2 && message(f)->isHidden());
+    }
+    {   // QVARW-11
+        // review 1 F2 (Q09): an item reused in place that turns into a refusal is no longer editable
+        Fix f;
+        f.load("master/sccz80-cvars", "w11");
+        const bool at = f.run_to(kS41);
+        QTreeWidgetItem* t = child(locals(f), "t");
+        const bool was = editable(t) && val(t) == "122";
+        const bool at2 = f.run_to(0x8D53);   // the ret after l_debug_pop_frame: sum's locals are below the stack it owns
+        QTreeWidgetItem* t2 = child(locals(f), "t");
+        const bool same_item = t2 == t;
+        const bool refused = t2 && val(t2) == "not allocated";
+        check("QVARW-11", "an item reused in place that becomes a refusal loses its editable flag: t is editable at vars.c:41, and after the epilogue (the same tree item, now `not allocated`) "
+                          "it is not and a double-click opens no editor",
+              at && was && at2 && same_item && refused && !editable(t2) && !dbl(f, t2), detail_of(t2) + " same=" + std::to_string(same_item));
+    }
+    {   // QVARW-12
+        // review 1 F2 (Q11): an editor still open when the machine resumes must not write
+        Fix f;
+        f.load("master/sccz80-cvars", "w12");
+        const bool at = f.run_to(kS41);
+        const bool opened = dbl(f, child(locals(f), "t"));
+        f.vp()->set_paused(false);   // a remote client or a script resumed the machine
+        const uint64_t rev = f.backend->state_revision();
+        const std::string log = log_of([&] { commit(f, "7"); });
+        const bool quiet = f.backend->state_revision() == rev && log.find("MUTATE") == std::string::npos;
+        f.vp()->set_paused(true);
+        check("QVARW-12", "committing an editor that was open when the machine resumed writes nothing: no MUTATE line and no revision bump",
+              at && opened && quiet, log);
+    }
 }
 
 }  // namespace

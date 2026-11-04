@@ -1328,8 +1328,9 @@ public:
     };
     /// GH #437 - write the C object `path` names in frame `frame`: the place is `read_c_value()`'s own, so whatever a read refuses
     /// a write refuses too, plus a register variable, an aggregate, a member of an overlapping struct (z88dk U2) and a local whose
-    /// scope is unknown. A mutation by `by`: exactly one poke() on success (one MUTATE line, one state_revision() bump) and none on
-    /// a refusal. A value out of the type's range is refused, never truncated (`c_encode_value()`).
+    /// scope is unknown. A mutation by `by`: exactly one poke() on success (one MUTATE line, one state_revision() bump). A refusal decided before the poke writes,
+    /// logs and bumps nothing; a write that lands only some bytes (it straddles ROM and RAM) is RefusedReadOnly, and carries the one MUTATE line and the one
+    /// bump of the bytes that did land. A value out of the type's range is refused, never truncated (`c_encode_value()`).
     CWriteResult write_c_value(ClientId by, size_t frame, std::string_view path, const CNewValue& value);
     CVariablesStatus c_variables_status() const;
     /// CAP-SRC (GH #435) - what a tree view lists under the object `path` names in frame `frame`: a struct's members, an array's
