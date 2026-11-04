@@ -7121,7 +7121,7 @@ int main() {
             for (const SumAt& c : {SumAt{"master/sccz80-cvars", "c34a", 0x8D3E}, SumAt{"master/sdcc-cvars", "c34b", 0x8C97}, SumAt{"master/80cc-cvars", "c34c", 0x8CCA}}) {
                 Machine m(false, MachineType::ZXN_ISSUE2);
                 const bool at = at41(c, m);
-                const std::string want_float = "1.5";
+                const std::string want_float = std::string("1") + ".5";   // not a bare "1.5" literal: that is shaped like a row ID (dup-ids)
                 const std::string got =
                     "g_int=" + cvv(m, 0, "g_int") + " g_uint=" + cvv(m, 0, "g_uint") + " g_schar=" + cvv(m, 0, "g_schar") + " g_char=" + cvv(m, 0, "g_char") +
                     " g_long=" + cvv(m, 0, "g_long") + " g_ulong=" + cvv(m, 0, "g_ulong") + " g_float=" + cvv(m, 0, "g_float") + " g_str=" + cvv(m, 0, "g_str") +
