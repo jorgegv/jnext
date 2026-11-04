@@ -308,12 +308,12 @@ of a store, and it **formats nothing**: every value, type, refusal and note is t
 
 A `WatchEntry` has a kind, `Memory` (the address watch of GH #278) or `CVariable` (`CVarWatch`: the facade `path`, the `function` and CDB
 `module` of a parameter or local, empty for a global, a file static or a static local). `VariablesPanel::watch_item()` (the right-click
-menu's one action) builds it and emits `watch_requested`; the window connects that to `WatchPanel::add_c_watch()`, and the current tab does not change.
+menu's one action, refused while the machine runs: the tab shows the last stop, and a binding taken from the live machine would not be what the user pointed at) builds it and emits `watch_requested`; the window connects that to `WatchPanel::add_c_watch()`, and the current tab does not change.
 
 - **Binding.** A Locals item is bound to the frame's function: at each paused refresh `refresh_c_row()` reads it with `read_c_value(k, path)`, k
   the NEWEST `c_frames()` frame whose function has that name and module (not a frame index: it would go out of scope at every new call of the
   same function), and when there is none the Value is `out of scope: <function> is not on the call stack` with Address and Memory empty.
-  A Globals item (its path is `file::name`) and a static local (pinned from Locals as `function::name`) are unbound and read in frame 0 by a
+  A Globals item (its path is `file::name`) and a static local (pinned from Locals as `function::name`, with the file before it, `a.c::init::done`, when the function name is not unique, exactly as `c_globals()` spells it: `find_var()` prefers the CURRENT frame's function for a bare `fn::`, which could be another module's) are unbound and read in frame 0 by a
   path no local can shadow.
 - **Paused only.** `DebuggerManager::set_panels_paused()` tells the Watch panel; a running machine does not read a C row, which keeps the
   text of the last stop (kept in the entry, so an Add or Remove that rebuilds the table shows it again). Memory rows are unchanged.
@@ -324,7 +324,7 @@ menu's one action) builds it and emits `watch_requested`; the window connects th
 - **While running**, a frame chosen in the Variables selector or the Call Stack is ignored by `select_frame()`, and both go back to the
   frame the tree shows.
 
-Rows `QVAR-01` to `-15` and `-22` to `-27` (`debugger_variables_panel_test`) pin the tab; `CVCH-*` and `SRCDBG-CVCH-*` the children.
+Rows `QVAR-01` to `-32` (`debugger_variables_panel_test`) pin the tab; `CVCH-*` and `SRCDBG-CVCH-*` the children.
 
 ## Which memory a view names (GH #360)
 

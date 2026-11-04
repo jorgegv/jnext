@@ -50,7 +50,9 @@ Right-click a row and choose **Watch**: it becomes a row of the **Watches** tab 
 - A parameter or local is tied to **its function**: the row is labelled `t (in sum)` and is read in the
   newest call of `sum` wherever it is, and when `sum` is not on the call stack it says
   `out of scope: sum is not on the call stack`.
-- A global, a file static or a static local always reads, whatever the CPU is running.
+- A global, a file static or a static local always reads, whatever the CPU is running (a static local is pinned under its
+  own file and function, so another file's function of the same name is never read instead).
+- **Watch** is available only while the machine is paused, like everything in the tab.
 - C rows are read at each stop, not while the machine runs: they keep the text of the last stop.
 - Edit does nothing on a C row (there is no address to edit); Remove deletes it. C watches last the session.
 - Without a source map, the rows show why there are no variables, and bind again when a map with that function

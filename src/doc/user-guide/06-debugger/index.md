@@ -88,7 +88,7 @@ between sessions, and is clamped to the screen it reopens on, so a window saved
 on a large monitor never comes back unreachable on a small one.
 
 Five panels — CPU Registers, Disassembly, Stack, Call Stack and Variables — only show data
-while the machine is **paused**, and are greyed out while it runs. That is
+while the machine is **paused** (CPU Registers and Disassembly are also greyed out while it runs). That is
 deliberate: reading them every frame would slow the emulation down for no
 benefit, since the values would be a blur. The rest refresh about four times a
 second while the machine is running, except the Video panel's layer views, which
