@@ -316,10 +316,17 @@ void test_rows() {
         emit f.frames()->activated(0);
         QApplication::processEvents();
         const bool cleared = f.cs_table()->currentRow() == -1 && f.vp()->call_stack_row() == -1 && f.vp()->selected_frame() == 0;
+        const int n2 = spy.count();
+        // a frame the tracker has no CALL for (found through the saved frame pointers) has no Call Stack row
+        f.emu.call_stack().clear();
+        f.dbg()->refresh_panels();
+        f.vp()->select_frame(1);
+        const bool chain = f.frames()->count() >= 2 && f.vp()->selected_frame() == 1 && f.vp()->call_stack_row() == -1 && f.cs_table()->rowCount() == 0 &&
+                           f.cs_table()->currentRow() == -1;
         check("QVAR-06", "choosing frame 1 in the selector selects Call Stack row 0 and choosing frame 0 clears the Call Stack selection; frame_changed fires once per choice "
-                         "(no loop between the two) and a refresh keeps the row in step",
-              at && row0 && n1 == 1 && still && cleared && spy.count() == 2,
-              "n1=" + std::to_string(n1) + " total=" + std::to_string(spy.count()));
+                         "(no loop between the two) and a refresh keeps the row in step; with the tracker emptied, frame 1 (found through the frame pointers) has no row",
+              at && row0 && n1 == 1 && still && cleared && n2 == 2 && chain,
+              "n1=" + std::to_string(n1) + " total=" + std::to_string(spy.count()) + " chain=" + std::to_string(chain));
     }
 
     {   // QVAR-07
