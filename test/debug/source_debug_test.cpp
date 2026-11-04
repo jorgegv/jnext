@@ -8556,9 +8556,21 @@ int main() {
                 cv_load(m, c.fixture, c.tag);
                 callee = callee && cv_run_to(m, c.pc) && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4";
             }
+            // the shapes of the evidence, poked into master's entry (not yet executed, at $8C62; l_debug_push_frame is $8B5C): `call l_debug_push_frame; push de; push hl` (a 32-bit parameter) is evidence;
+            // `call l_debug_push_frame; push de` alone and a call to another address are not
+            const auto poked = [&](const char* tag, std::initializer_list<std::pair<uint16_t, uint8_t>> pokes) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = zb_at(m, "master/sccz80-fc", tag, "fc.c:3", 0x8C62);
+                for (const auto& pk : pokes) m.emu.mmu().write(pk.first, pk.second);
+                return std::make_pair(at, m.dbg->read_c_value(0, "x"));
+            };
+            const auto de_hl = poked("zb04h", {{0x8C65, 0xD5}, {0x8C66, 0xE5}}), de_only = poked("zb04i", {{0x8C65, 0xD5}, {0x8C66, 0xC5}}),
+                       other_call = poked("zb04j", {{0x8C63, 0x5D}});
             check("SRCDBG-ZB-04", "no listing (the entry bytes are the evidence): v2.4 and master sccz80-fc's ffast x is refused with U1, master-fixed's is 3; fcallee's a and b are 4 on all three "
-                                  "(`call l_debug_push_frame` is not enough: only `push hl` after it marks a fastcall function)",
-                  pre24.first && u1(pre24.second) && prem.first && u1(prem.second) && fixd.first && fixd.second.ok && fixd.second.value == "3" && callee);
+                                  "(`call l_debug_push_frame` is not enough: only `push hl` after it marks a fastcall function); poked into master's entry, `call l_debug_push_frame; push de; "
+                                  "push hl` is evidence too, `push de` alone and a call to another address are not",
+                  pre24.first && u1(pre24.second) && prem.first && u1(prem.second) && fixd.first && fixd.second.ok && fixd.second.value == "3" && callee && de_hl.first && u1(de_hl.second) &&
+                      de_only.first && !u1(de_only.second) && other_call.first && !u1(other_call.second));
         }
         {   // SRCDBG-ZB-05
             // z88dk#3231: with start/width records the bitfields of g_flags are exact. g_flags poked 8D C8: lo = 5, mid = 17 (byte 0), hi = 200 (byte 1)
