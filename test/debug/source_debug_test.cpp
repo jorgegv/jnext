@@ -7329,6 +7329,57 @@ int main() {
             check("SRCDBG-CVAL-40", "ffast's x with no listing: read from the record's slot, with no U1 marker (a value, not a refusal)",
                   at && x.ok && x.why.find("U1") == std::string::npos);
         }
+        {   // SRCDBG-CVAL-41
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({"master/sccz80-cvars", "c41", 0x8D3E}, m);
+            const auto err = [&](size_t k, const char* path) {
+                const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+                return r.ok ? std::string("ok") : r.why;
+            };
+            check("SRCDBG-CVAL-41", "C paths on the machine at vars.c:41: g_matrix[1][2] = 6, g_pt.tag = 3, p->y = 4, *p, g_str[1] = 105 'i', g_cptr[2] = 99 'c', lp.x = 3 (frame 1), "
+                                    "sum::calls = 1, other.c::s_dup = 4; refusals: g_matrix[2][0] (index 2 out of range [0, 2)), g_pt.z (no member 'z'), g_int.x (not a struct), "
+                                    "*g_int (not a pointer), nosuch (unknown name 'nosuch'), g_head->next->val (null pointer: g_head is not set yet)",
+                  at && cvv(m, 0, "g_matrix[1][2]") == "6" && cvv(m, 0, "g_pt.tag") == "3" && cvv(m, 0, "p->y") == "4" && cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" &&
+                      cvv(m, 0, "g_str[1]") == "105 'i'" && cvv(m, 0, "g_cptr[2]") == "99 'c'" && cvv(m, 1, "lp.x") == "3" && cvv(m, 0, "sum::calls") == "1" &&
+                      cvv(m, 0, "other.c::s_dup") == "4" && cvv(m, 0, "vars.c::s_dup") == "0" && err(0, "g_matrix[2][0]") == "index 2 out of range [0, 2)" &&
+                      err(0, "g_pt.z") == "no member 'z'" && err(0, "g_int.x") == "not a struct" && err(0, "*g_int") == "not a pointer" &&
+                      err(0, "nosuch") == "unknown name 'nosuch'" && err(0, "g_head->next->val") == "null pointer" && err(5, "g_int").find("no frame 5") == 0 &&
+                      err(0, "g_pt.").find("member name") != std::string::npos);
+        }
+        {   // SRCDBG-CVAL-42
+            // g_flags poked with 8D C8: zsdcc decodes the bitfields exactly; sccz80 and 80cc write overlapping ints (z88dk U2) and say so
+            const auto flags_at = [&](Machine& m) {
+                const Dbg::CValueResult r = m.dbg->read_c_value(0, "g_flags");
+                const uint8_t b[2] = {0x8D, 0xC8};
+                if (r.where.kind == Dbg::CWhere::Kind::Page) m.dbg->poke(m.a, r.where.source.space, r.where.source.address & 0x1FFF, 2, b);
+                return m.dbg->read_c_value(0, "g_flags");
+            };
+            Machine z(false, MachineType::ZXN_ISSUE2);
+            const bool zat = at41({"master/sdcc-cvars", "c42a", 0x8C97}, z);
+            const Dbg::CValueResult zf = flags_at(z);
+            Machine c(false, MachineType::ZXN_ISSUE2);
+            const bool cat = at41({"master/sccz80-cvars", "c42b", 0x8D3E}, c);
+            const Dbg::CValueResult cf = flags_at(c);
+            check("SRCDBG-CVAL-42", "g_flags = 8D C8: zsdcc reads lo = 5, mid = 17, hi = 200; sccz80 shows the storage units marked `bitfield layout unknown (z88dk U2)`",
+                  zat && zf.ok && zf.value == "{lo = 5, mid = 17, hi = 200}" && has_note(zf, "U2") == false && cat && cf.ok && has_note(cf, "bitfield layout unknown (z88dk U2)") &&
+                      cf.value.find("hi = 200") != std::string::npos);
+        }
+        {   // SRCDBG-CVAL-43
+            struct Oth { const char* fx; const char* tag; uint16_t pc; };
+            bool ok = true;
+            std::string seen;
+            for (const Oth& c : {Oth{"master/sccz80-cvars", "c43a", 0x8E49}, Oth{"master/sdcc-cvars", "c43b", 0x8D49}, Oth{"master/80cc-cvars", "c43c", 0x8DC6}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                cv_load(m, c.fx, c.tag);
+                const bool at = cv_run_to(m, c.pc);
+                const bool good = at && cvv(m, 0, "q") == "599" && cvv(m, 0, "res") == "1202" && cvv(m, 0, "s_dup") == "4";
+                if (!good) {
+                    ok = false;
+                    seen += std::string(" ") + c.fx;
+                }
+            }
+            check("SRCDBG-CVAL-43", "in other(599) at its `return res`: q = 599, res = 1202 (zsdcc: from HL) and the file static s_dup of other.c is 4, on all three compilers", ok, seen);
+        }
             check("SRCDBG-CVAL-36", "a real mid-run attach (main in its while (1), no tracked frame): lp = {3, 4, 5}, i = 4, arr = {467, 471, 475, 479} on sccz80 and zsdcc, and "
                                     "on sccz80 also c = 120 'x', big = 100000 and pp == &lp",
                   ok);
