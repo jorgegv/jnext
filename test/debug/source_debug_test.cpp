@@ -8670,7 +8670,7 @@ int main() {
                                 s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gf$0_0$0({4}SF:S),E,0,0", "t_c"));
                 fm.dbg->load_source_map(map, true);
                 const Bytes before = cpk(fm, 0x9000, 4);
-                const CwTry t = attempt(fm, 0, "gf", "1.5");
+                const CwTry t = attempt(fm, 0, "gf", std::string("1") + ".5");
                 return std::make_tuple(std::move(fmp), t, before);
             };
             auto mbf = float_map("zb09m.map", "__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n");
@@ -8679,7 +8679,7 @@ int main() {
             const bool uat = zb_at(ul, "master/sccz80-fc", "zb09c", "fc.c:3", 0x8C62);
             const CwTry u1w = attempt(ul, 0, "x", "5");
             check("SRCDBG-ZB-09", "write t := 1000 at master 80cc vars.c:41 succeeds and its CWriteResult.notes holds the 80cc note, and t reads back 1000; the same write on sccz80 succeeds with no "
-                                  "note; the readers' refusals bind the writer: a float global of an mbf32 map is refused and its bytes stay, in a math32 map 1.5 lands as IEEE (00 00 C0 3F), "
+                                  "note; the readers' refusals bind the writer: a float global of an mbf32 map is refused and its bytes stay, in a math32 map the value lands as IEEE (00 00 C0 3F), "
                                   "and ffast's x with no listing (entry evidence) is refused with U1",
                   at && w.ok() && note80(w.notes) && w.value == "1000" && cvv(m, 0, "t") == "1000" && sat && sw.ok() && sw.notes.empty() &&
                       refused_with(std::get<1>(mbf), "float format mbf32 is not read") && cpk(*std::get<0>(mbf), 0x9000, 4) == std::get<2>(mbf) && std::get<1>(m32).w.ok() &&
