@@ -7380,6 +7380,115 @@ int main() {
             }
             check("SRCDBG-CVAL-43", "in other(599) at its `return res`: q = 599, res = 1202 (zsdcc: from HL) and the file static s_dup of other.c is 4, on all three compilers", ok, seen);
         }
+        {   // SRCDBG-CVAL-44
+            const auto esc = [](const std::string& t) {
+                std::string o;
+                for (const unsigned char c : t) {
+                    if (std::isalpha(c)) {
+                        o += static_cast<char>(c);
+                    } else {
+                        char b[8];
+                        std::snprintf(b, sizeof b, "_%02x", c);
+                        o += b;
+                    }
+                }
+                return o;
+            };
+            const auto why_of = [&](Machine& m) { return m.dbg->c_variables_status(); };
+            Bare none;
+            const auto s_none = none.dbg->c_variables_status();
+            Machine sldm(false, MachineType::ZXN_ISSUE2);
+            const std::string sld = (z / "c44.sld").string();
+            write_text(sld, "|SLD.data.version|1\nmain.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,slots.adr:0,8192,16384,24576,32768,40960,49152,57344\nmain.bas|10||0|0|32768|T|\n");
+            sldm.dbg->load_source_map(sld, true);
+            const auto s_sld = why_of(sldm);
+            Machine so2(false, MachineType::ZXN_ISSUE2);
+            const fs::path dso2 = z / "c44so2";
+            z88_copy_lis("v2.4/sdcc-SO2", dso2);
+            z88_load(so2, dso2 / "prog.nex");
+            so2.dbg->load_program_sidecars((dso2 / "prog.nex").string());
+            const auto s_so2 = why_of(so2);
+            Machine o0(false, MachineType::ZXN_ISSUE2);
+            const fs::path do0 = var_dir("c44o0", "master/sdcc-cvars-O0");
+            z88_load(o0, do0 / "prog.nex");
+            o0.dbg->load_program_sidecars((do0 / "prog.nex").string());
+            const auto s_o0 = why_of(o0);
+            // sccz80-cvars with its __CDBINFO__ lines removed (lines, no records), and with every record made undecodable
+            std::string lines_only, bogus;
+            size_t n_cdb = 0;
+            {
+                std::ifstream in(kZ88Fixtures / "master/sccz80-cvars" / "prog.map");
+                for (std::string l; std::getline(in, l);) {
+                    if (l.compare(0, 11, "__CDBINFO__") == 0) {
+                        ++n_cdb;
+                        bogus += "__CDBINFO__" + esc("Q:bogus") + l.substr(l.find(' ')) + "\n";
+                    } else {
+                        lines_only += l + "\n";
+                        bogus += l + "\n";
+                    }
+                }
+            }
+            Machine lo(false, MachineType::ZXN_ISSUE2);
+            write_text(z / "c44lo.map", lines_only);
+            lo.dbg->load_source_map((z / "c44lo.map").string(), true);
+            const auto s_lo = why_of(lo);
+            Machine bg(false, MachineType::ZXN_ISSUE2);
+            write_text(z / "c44bg.map", bogus);
+            bg.dbg->load_source_map((z / "c44bg.map").string(), true);
+            const auto s_bg = why_of(bg);
+            Machine ok(false, MachineType::ZXN_ISSUE2);
+            cv_load(ok, "master/sccz80-cvars", "c44ok");
+            check("SRCDBG-CVAL-44", "c_variables_status(): none attached -> `no source map is attached`; an SLD -> `an SLD source map carries no C variables`; v2.4 sdcc-SO2 with listings "
+                                    "-> `the map has no C debug records`; zcc -O0 -> `zsdcc wrote no C variable records`; sccz80 with its records removed -> `the map has line records but no "
+                                    "__CDBINFO__ records`; every record undecodable -> `all N C variable records were refused`; a normal build is available",
+                  !s_none.available && s_none.why == "no source map is attached" && !s_sld.available && s_sld.why.find("an SLD source map carries no C variables") == 0 &&
+                      !s_so2.available && s_so2.why.find("the map has no C debug records") == 0 && !s_o0.available &&
+                      s_o0.why.find("zsdcc wrote no C variable records for this build") == 0 && !s_lo.available &&
+                      s_lo.why == "the map has line records but no __CDBINFO__ records" && !s_bg.available &&
+                      s_bg.why.find("all " + std::to_string(n_cdb) + " C variable records were refused: ") == 0 && ok.dbg->c_variables_status().available);
+        }
+        {   // SRCDBG-CVAL-45
+            const fs::path d = var_dir("c45");
+            const fs::path other = z / "c45other";
+            fs::create_directories(other);
+            write_text(other / "next.nex", "");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const bool had = !m.dbg->c_frames().empty() && m.dbg->c_variables_status().available;
+            m.dbg->load_program_sidecars((other / "next.nex").string());   // the next program, with no sidecar: the store goes with its map
+            const auto st = m.dbg->c_variables_status();
+            const auto loc = m.dbg->c_locals(0);
+            const auto rv = m.dbg->read_c_value(0, "g_int");
+            check("SRCDBG-CVAL-45", "the next program's load drops the store: c_frames() is empty, c_locals() and read_c_value() are refused with the status text, c_globals() is empty",
+                  had && m.dbg->c_frames().empty() && !st.available && !loc.ok && loc.why == st.why && !rv.ok && rv.why == st.why && m.dbg->c_globals().empty());
+        }
+        {   // SRCDBG-CVAL-46
+            // a rewind to before the load: c_frames() is the FIRST reader, so it runs recheck(): empty, and the state revision advances
+            const fs::path d = var_dir("c46");
+            const std::vector<uint8_t> code = read_all(d / "prog_CODE.bin");
+            Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
+            const auto run_frames = [&](int n) {
+                m.dbg->run(m.a);
+                for (int i = 0; i < n; ++i) m.emu.run_frame();
+                m.dbg->pause(m.a);
+            };
+            run_frames(1);
+            const uint32_t before_load = m.dbg->time().frame;
+            m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
+            write_text(d / "game.nex", "");
+            fs::copy_file(d / "prog.map", d / "game.map");
+            fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
+            m.dbg->load_program_sidecars((d / "game.nex").string());
+            const bool had = !m.dbg->c_frames().empty();
+            run_frames(2);
+            const Result back = m.dbg->rewind_to_frame(m.a, before_load);
+            const uint64_t rev0 = m.dbg->state_revision();
+            const size_t n = m.dbg->c_frames().size();
+            const uint64_t rev1 = m.dbg->state_revision();
+            check("SRCDBG-CVAL-46", "after a rewind to before the load, c_frames() is the first reader: it runs recheck(), returns no frame, and the state revision advances",
+                  had && back == Result::Ok && n == 0 && rev1 > rev0);
+        }
             check("SRCDBG-CVAL-36", "a real mid-run attach (main in its while (1), no tracked frame): lp = {3, 4, 5}, i = 4, arr = {467, 471, 475, 479} on sccz80 and zsdcc, and "
                                     "on sccz80 also c = 120 'x', big = 100000 and pp == &lp",
                   ok);
