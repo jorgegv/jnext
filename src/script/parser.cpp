@@ -80,6 +80,7 @@ private:
         if (tk.kind == Tok::Ident) return "`" + tk.text + "`";
         if (tk.kind == Tok::Symbol) return "`@" + tk.text + "`";
         if (tk.kind == Tok::FileLine) return "`" + tk.text + "`";
+        if (tk.kind == Tok::CVar) return "`cvar(" + tk.text + ")`";
         if (tk.kind == Tok::Int) return "the number " + std::to_string(tk.value);
         return tok_name(tk.kind);
     }
@@ -116,7 +117,7 @@ private:
             case Tok::Int: case Tok::String: case Tok::Symbol: case Tok::LParen:
             case Tok::MemL: case Tok::Mem16L: case Tok::PhysL: case Tok::NextRegL:
             case Tok::MmuL: case Tok::PageL: case Tok::StackL: case Tok::ChangedL:
-            case Tok::DepthL: case Tok::Minus: case Tok::Tilde:
+            case Tok::DepthL: case Tok::CVar: case Tok::Minus: case Tok::Tilde:
                 return true;
             case Tok::Ident:
                 return !is_reserved_word(cur().text) || cur().text == "not" ||
@@ -773,6 +774,13 @@ private:
                                     "` (expected regs, mmu, iff1 or stack0)");
                 take();
                 expect(Tok::RParen, "to close `changed(`");
+                return e;
+            }
+            case Tok::CVar: {
+                auto e  = std::make_shared<Expr>();
+                e->kind = ExprKind::CVar;
+                e->pos  = p;
+                e->text = take().text;
                 return e;
             }
             case Tok::DepthL: {

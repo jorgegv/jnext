@@ -450,6 +450,7 @@ table below is the spec either way.
 | `SEG0..SEG7` | MMU slot value **in the §2.3.1 encoding** (ROM → `8000h+k`) | the adapter wraps `page[n]` + `SlotInfo.is_rom` into the encoding (`is_rom ? 0x8000 \| ((page[n] >> 1) & 1) << 1 \| (n & 1) : page[n]`) — not a DSL builtin (the DSL's `mmu[n]` is the raw NR 0x50+n with the 0xFF sentinel, `page[n]` the effective page) | `CAP-INS-03` |
 | `ROM` / `RAM` | 128K: ROM index at 0000; bank at C000 | `rom_bank()` is **not** in the DSL v1; the adapter derives ROM as `page[0] >> 1` (§2.3.1 rule) and RAM as `page[6] >> 1`; `paging_ports().7ffd` bit 4 / `1ffd` bit 2 is the equivalent route | `CAP-INS-03` |
 | `PEEK(x)` / `PEEKW(x)` | logical memory | `mem[x]` / `mem16[x]` | `CAP-INS-02` |
+| `CVAR(path)` (jnext extension, GH #436) | a C variable of frame 0 as an int32; `Error parsing` in ZEsarUX | `cvar(path)`, the path kept as written | `CAP-SRC` `read_c_value()` |
 | `OPCODE1..4` | bytes at PC, MSB-first | `mem[PC]`, `(mem[PC]<<8)|mem[PC+1]`, … | `CAP-INS-02` |
 | `= <> < > <= >=` | comparisons | `== != < > <= >=` | — |
 | `AND OR NOT(x)` | logical | keywords `and or not` | — |

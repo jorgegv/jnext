@@ -125,7 +125,9 @@ the machine by hand.
   enable breakpoints first`. They are removed when the client leaves.
   Conditions are ZEsarUX's (`PC=8000H`, `SP>=65280`,
   `PC=PEEKW(SP-2) AND SP>=65280`, `A<>0 AND (HL&FFH)=5`, ...); `help
-  set-breakpoint` lists the terms JNEXT honours.
+  set-breakpoint` lists the terms JNEXT honours. JNEXT adds `CVAR(path)`, a C
+  variable of the stopped program (`PC=8D3EH AND CVAR(a)=2`, `evaluate CVAR(p->x)`): see
+  [C variables](../source-debugger/09-scripts-and-remote-debuggers.md#c-variables).
   With JNEXT's debugger window open they appear in its Breakpoints panel as `Execute (client N)`, read-only, but
   are not drawn as a dot in the Disassembly or Source breakpoint columns, and a click there does not remove them
   (see [Whose breakpoints the gutters show and change](../panels/08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)).

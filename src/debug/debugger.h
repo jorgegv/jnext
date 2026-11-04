@@ -842,8 +842,8 @@ public:
     bool   client_enabled(ClientId cid) const;
     Result set_client_enabled(ClientId cid, bool enabled);
 
-    /// CAP-EVT — "which `Execute` subscriptions would fire here?" A PURE query
-    /// for step loops: the GH #221 step-off arm skips exactly the address it
+    /// CAP-EVT — "which `Execute` subscriptions would fire here?" A query that
+    /// arms and fires nothing (a condition's `cvar()` may run `recheck()`, GH #436) for step loops: the GH #221 step-off arm skips exactly the address it
     /// landed on, and needs to know what is there without arming anything.
     /// Returns the ids of every live `Execute` subscription whose filter (range
     /// and page) covers `pc` AND whose condition, evaluated now against the
@@ -1286,7 +1286,7 @@ public:
         std::string type;           ///< the type text of the object the path ended at
         std::string value;
         std::vector<std::string> notes;
-        CLoc loc;                   ///< valid when `where` is Page or Cpu
+        CLoc loc;                   ///< valid when `where` is Page or Cpu; for a Register value only `loc.type` is set (no address)
         CWhere where;
         std::optional<int64_t> integer;
         std::optional<double> real;

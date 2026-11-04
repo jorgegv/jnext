@@ -4316,6 +4316,18 @@ reaches what the GDB protocol itself cannot express:</p>
 <td>the source line JNEXT's own map gives an address (default the PC) and the memory it is in, such as <code>$8CB8 main.c:19 P04</code>, or <code>$8CB8 unmapped P04</code>; a cross-check like <code>monitor sym</code>; ADDR may be a symbol</td>
 </tr>
 <tr>
+<td><code>monitor locals [FRAME]</code></td>
+<td>the C parameters and locals of a frame of the program (0, the default, is where the CPU is; 1 is its caller...); needs a z88dk <code>-debug</code> map. See <a href="../source-debugger/09-scripts-and-remote-debuggers.html#c-variables">C variables</a></td>
+</tr>
+<tr>
+<td><code>monitor globals</code></td>
+<td>the C globals, file statics and static locals, each with its value and the memory it lives in</td>
+</tr>
+<tr>
+<td><code>monitor print [FRAME] PATH</code></td>
+<td>one C value: <code>p-&gt;x</code>, <code>*p</code>, <code>g_matrix[1][2]</code>, <code>sum::calls</code>, <code>vars.c::s_dup</code>; a struct or an array prints whole</td>
+</tr>
+<tr>
 <td><code>monitor time</code></td>
 <td>frame, cycle, T-states and the raster position</td>
 </tr>

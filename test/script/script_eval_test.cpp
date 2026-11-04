@@ -17,6 +17,9 @@
 //   SEV-BUILTINS  every §2.3 state name read through a script
 //   SEV-WORK-*    the §3(b) and §3(c) scripts evaluated end to end
 //   SEV-STACK     the deepest accepted shapes on a 1 MB stack
+//   EVAL-CVAR-*   `cvar(PATH)` (GH #436, E353-06): C variables of frame 0 as int32, over the committed z88dk
+//                 fixtures on a real Next machine (the family name of script_parse_test's EVAL-* rows; the
+//                 IDs are global and distinct)
 //
 // The inspection surface is a REAL `jnext::dbg::Debugger` over a 48K machine:
 // §8 plans "a fake inspection surface", but `Debugger` is a concrete class in
@@ -32,11 +35,17 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/c_value.h"
 #include "debug/debugger.h"
+#include "platform/emulator_boot.h"
 
 #include <pthread.h>
 
 #include <climits>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <unistd.h>
 #include <cstdint>
 #include <cstdio>
 #include <map>
@@ -1020,6 +1029,419 @@ static void stack_rows() {
 
 // ── main ───────────────────────────────────────────────────────────────────
 
+
+// ── EVAL-CVAR: cvar(PATH) (GH #436) ───────────────────────────────────────
+// Oracle: the C source of the fixtures (test/fixtures/z88dk/src/vars.c, types.h, bk.c, bkmain.c), their maps (the
+// address of `vars.c:41` = $8D3E on both sccz80 fixtures, $8C97 on master/sdcc-cvars; `bk.c:10` = P20:$C04C), and
+// independent reads through `mem[]` / `phys[]`. The text of a REFUSAL is the facade's (`read_c_value(0, path).why`):
+// the atom must pass it on unchanged, and the wording is #434's.
+//
+// At the `vars.c:41` stop of the FIRST call of `sum(i, g_int, pp, c)` (i = 0): a = 0, b = -5, k = 120 ('x'), t = a + b + k
+// + inner = 0 - 5 + 120 + 7 = 122, acc = 3 * (a + b + k) = 345, calls = 1, `*p` = {3, 4, 5}; g_int = -5, g_uint = 40000,
+// g_schar = -3, g_char = 'A' = 65, g_long = 0x12345678 = 305419896, g_ulong = 0xCAFEBABE, g_colour = BLUE = 6, s_file = 9.
+// At the third call (a = 2): t = 2 - 5 + 120 + 7 = 124.
+
+struct CvarRig {
+    Emulator                  emu;
+    std::unique_ptr<Debugger> dbg;
+    jnext::dbg::ClientId      cid = jnext::dbg::CLIENT_NONE;
+    bool                      loaded = false;
+
+    explicit CvarRig(const char* fixture = nullptr, MachineType type = MachineType::ZXN_ISSUE2) {
+        EmulatorConfig cfg;
+        cfg.type = type;
+        emu.init(cfg);
+        dbg = std::make_unique<Debugger>(emu);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "cvar";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        cid     = dbg->attach(ci).value;
+        dbg->pause(cid);
+        if (fixture) {
+            const std::string nex = std::string(JNEXT_Z88DK_FIXTURE_DIR) + "/" + fixture + "/prog.nex";
+            loaded = emulator_apply_load(emu, nex, false);
+            dbg->load_program_sidecars(nex);
+        }
+    }
+    uint16_t pc() const { return dbg->registers().PC; }
+    /// This machine has no ROM: an interrupt would run away to RST 38 (banked_call enables them).
+    void no_interrupts() {
+        Z80Registers r = emu.cpu().get_registers();
+        r.IFF1 = r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+    }
+    /// Run to bk.c:10 inside bk_sum ($C04C, page 20 mapped at slot 6), through the banked entry $C005.
+    bool run_to_bk10() {
+        if (!run_to(0xC005)) return false;
+        no_interrupts();
+        return run_to(0xC04C);
+    }
+    /// Single-step, interrupts off, until PC is `addr` (back in main's loop, with page 20 unmapped again).
+    bool step_to(uint16_t addr, int max = 4000) {
+        for (int i = 0; i < max && pc() != addr; ++i) {
+            no_interrupts();
+            emu.execute_single_instruction();
+        }
+        return pc() == addr;
+    }
+    /// Run to the `nth` arrival at `addr` (a CPU address).
+    bool run_to(uint16_t addr, int nth = 1) {
+        for (int k = 0; k < nth; ++k) {
+            jnext::dbg::Subscription sub;
+            sub.kind      = EventKind::Execute;
+            sub.filter.lo = sub.filter.hi = addr;
+            sub.action    = jnext::dbg::Action::Stop;
+            const auto id = dbg->subscribe(cid, sub).value;
+            dbg->run(cid);
+            for (int i = 0; i < 100 && !dbg->state().paused; ++i) emu.run_frame();
+            dbg->unsubscribe(cid, id);
+            if (!(dbg->state().paused && pc() == addr)) return false;
+        }
+        return true;
+    }
+};
+
+/// `eval_expr` of `cvar(path)` and what it says: "ok:<value>" or "err:<message>".
+static std::string cv(CvarRig& r, const std::string& expr) {
+    const EvalResult e = eval_expr(expr, *r.dbg);
+    if (e.ok) return "ok:" + std::to_string(e.value);
+    return "err:" + (e.errors.empty() ? std::string("?") : e.errors[0].message);
+}
+static int32_t cvv(CvarRig& r, const std::string& expr, bool* ok) {
+    const EvalResult e = eval_expr(expr, *r.dbg);
+    *ok = e.ok;
+    return e.value;
+}
+
+static void cvar_rows() {
+    // EVAL-CVAR-01
+    {
+        struct Fx { const char* dir; uint16_t at; bool sccz80; };
+        const Fx fxs[] = {{"master/sccz80-cvars", 0x8D3E, true}, {"v2.4/sccz80-cvars", 0x8D3E, true},
+                          {"master/sdcc-cvars", 0x8C97, false}};
+        bool all = true;
+        std::string detail;
+        for (const Fx& f : fxs) {
+            CvarRig r(f.dir);
+            bool ok = r.loaded && r.run_to(f.at);
+            const struct { const char* e; int32_t v; } want[] = {
+                {"cvar(a)", 0}, {"cvar(b)", -5}, {"cvar(k)", 120}, {"cvar(t)", 122}, {"cvar(calls)", 1},
+                {"cvar(g_int)", -5}, {"cvar(g_uint)", 40000}, {"cvar(g_schar)", -3}, {"cvar(g_char)", 65},
+                {"cvar(g_long)", 305419896}, {"cvar(g_ulong) == 0xCAFEBABE", 1}, {"cvar(g_ulong)", -889275714},
+                {"cvar(g_colour)", 6}, {"cvar(s_file)", 9}};
+            for (const auto& w : want) {
+                bool one = false;
+                const int32_t v = cvv(r, w.e, &one);
+                if (!one || v != w.v) {
+                    ok = false;
+                    detail += std::string(f.dir) + " " + w.e + " -> " + cv(r, w.e) + "; ";
+                }
+            }
+            if (f.sccz80) {
+                bool one = false;
+                const int32_t v = cvv(r, "cvar(acc)", &one);
+                if (!one || v != 345) {
+                    ok = false;
+                    detail += std::string(f.dir) + " cvar(acc) -> " + cv(r, "cvar(acc)") + "; ";
+                }
+            }
+            all = all && ok;
+        }
+        check("EVAL-CVAR-01", "cvar() of scalars at vars.c:41 of the first call, on master/sccz80, v2.4/sccz80 and "
+                              "master/sdcc (t from BC): a=0 b=-5 k=120 t=122 calls=1 g_int=-5 g_uint=40000 (not sign-extended) "
+                              "g_schar=-3 g_char=65 g_long=305419896 g_ulong==0xCAFEBABE colour=6 s_file=9, acc=345 on sccz80",
+              all, detail);
+    }
+    // EVAL-CVAR-02
+    {
+        CvarRig r("master/sccz80-cvars");
+        bool ok = r.loaded && r.run_to(0x8D3E);
+        const struct { const char* e; int32_t v; } want[] = {
+            {"cvar(p->x)", 3}, {"cvar(p->y)", 4}, {"cvar(p->tag)", 5}, {"cvar( p -> y )", 4}, {"cvar(g_pt.tag)", 3},
+            {"cvar(*g_cptr)", 97}, {"cvar(p->x) + cvar(p->y)", 7}};
+        std::string detail;
+        for (const auto& w : want) {
+            bool one = false;
+            const int32_t v = cvv(r, w.e, &one);
+            if (!one || v != w.v) {
+                ok = false;
+                detail += std::string(w.e) + " -> " + cv(r, w.e) + "; ";
+            }
+        }
+        // The pointer is a value: p points at main's `lp`, whose first byte (x = 3) `mem[]` reads on its own.
+        bool one = false;
+        const int32_t viamem = cvv(r, "mem[cvar(p)]", &one);
+        ok = ok && one && viamem == 3;
+        check("EVAL-CVAR-02", "cvar() through members and dereferences, whitespace included: p->x=3 p->y=4 p->tag=5 "
+                              "`p -> y`=4 g_pt.tag=3 *g_cptr=97 ('a'); the pointer p is its address: mem[cvar(p)] is lp.x = 3",
+              ok, detail);
+    }
+    // EVAL-CVAR-03
+    {
+        CvarRig r("master/sccz80-cvars");
+        bool ok = r.loaded && r.run_to(0x8D3E);
+        const struct { const char* e; int32_t v; } want[] = {
+            {"cvar(g_matrix[1][2])", 6}, {"cvar(g_matrix[0][0x1])", 2}, {"cvar(g_str[1])", 105}, {"cvar(g_cptr[2])", 99},
+            {"cvar(vars.c::s_dup)", 0}, {"cvar(other.c::s_dup)", 4}, {"cvar(sum::calls)", 1}, {"cvar(vars.c::sum::calls)", 1}};
+        std::string detail;
+        for (const auto& w : want) {
+            bool one = false;
+            const int32_t v = cvv(r, w.e, &one);
+            if (!one || v != w.v) {
+                ok = false;
+                detail += std::string(w.e) + " -> " + cv(r, w.e) + "; ";
+            }
+        }
+        // Banked: btable lives in page 20, mapped at $C000 inside bk_sum: btable[2] is phys[20, 2].
+        CvarRig b("master/sccz80-cvars-banked");
+        bool bok = b.loaded && b.run_to_bk10() && b.step_to(0x8CE8);   // bk.c:10, then back in main's loop (bkmain.c:8)
+        bool one = false, two = false, three = false;
+        const int32_t t2 = cvv(b, "cvar(btable[2])", &one);
+        const int32_t ph = cvv(b, "phys[20, 2]", &two);
+        const int32_t other = cvv(b, "mem[0xC002]", &three);
+        bok = bok && t2 == 30 && other != 30;
+        check("EVAL-CVAR-03", "cvar() of elements and qualified names: g_matrix[1][2]=6 g_matrix[0][0x1]=2 g_str[1]=105 g_cptr[2]=99 "
+                              "vars.c::s_dup=0 other.c::s_dup=4 sum::calls=1 vars.c::sum::calls=1; a banked array element is read from its own "
+                              "page, which is not mapped: btable[2] = phys[20, 2] = 30, not mem[0xC002]",
+              ok && bok && one && two && three && t2 == ph, detail + " banked: " + std::to_string(bok) + cv(b, "cvar(btable[2])") + " vs " + cv(b, "phys[20, 2]") + " pc=" + hex(b.pc()));
+    }
+    // EVAL-CVAR-04
+    {
+        CvarRig r("master/sccz80-cvars");
+        CvarRig z("master/sdcc-cvars");
+        bool ok = r.loaded && r.run_to(0x8D3E) && z.loaded && z.run_to(0x8C97);
+        std::string detail;
+        const auto refused = [&](CvarRig& rig, const char* path) {
+            const EvalResult e = eval_expr(std::string("cvar(") + path + ")", *rig.dbg);
+            const auto why = rig.dbg->read_c_value(0, path);
+            const std::string want = std::string("cvar(") + path + "): " + why.why;
+            const bool good = !e.ok && e.errors.size() == 1 && e.errors[0].message == want && !why.ok && !why.why.empty() &&
+                              e.errors[0].pos.column == 1;
+            if (!good) detail += std::string(path) + " -> " + dstr(e.errors) + "; ";
+            return good;
+        };
+        ok = refused(r, "inner") && ok;           // out of scope at vars.c:41
+        ok = refused(r, "nosuch") && ok;
+        ok = refused(r, "g_matrix[2][0]") && ok;   // index past the end
+        ok = refused(r, "g_head->val") && ok;      // null pointer
+        ok = refused(r, "g_int.x") && ok;          // not a struct
+        ok = refused(z, "acc") && ok;              // zsdcc keeps it nowhere
+        // As a `when`: the predicate is false and the failure reaches on_error.
+        Loaded L = load("on frame when cvar(inner) == 1 do end");
+        std::vector<Diagnostic> seen;
+        bool cond_ok = L.ok();
+        if (cond_ok) {
+            const auto p = make_condition(L.s().rules[0].when, L.st, [&seen](const Diagnostic& d) { seen.push_back(d); });
+            const bool v = p(DbgEvent{}, *r.dbg);
+            cond_ok = !v && seen.size() == 1 && seen[0].message.find("cvar(inner): ") == 0;
+        }
+        check("EVAL-CVAR-04", "every refusal of cvar() is a run-time error at the token, with the facade's reason and never a "
+                              "value: inner (out of scope), nosuch, g_matrix[2][0], g_head->val (null), g_int.x, zsdcc's acc "
+                              "(optimised out); as a `when` it is false and reaches on_error",
+              ok && cond_ok, detail + dstr(seen));
+    }
+    // EVAL-CVAR-05
+    {
+        CvarRig r("master/sccz80-cvars");
+        bool ok = r.loaded && r.run_to(0x8D3E);
+        std::string detail;
+        const struct { const char* path; const char* what; } bad[] = {
+            {"*p", "struct point is an aggregate"}, {"g_pt", "struct point is an aggregate"}, {"g_matrix", "is an aggregate"},
+            {"g_matrix[1]", "is an aggregate"}, {"g_str", "is an aggregate"}, {"g_float", "float is not an integer"}};
+        for (const auto& b : bad) {
+            const EvalResult e = eval_expr(std::string("cvar(") + b.path + ")", *r.dbg);
+            const bool good = !e.ok && e.errors.size() == 1 && e.errors[0].message.find(std::string("cvar(") + b.path + "): ") == 0 &&
+                              e.errors[0].message.find(b.what) != std::string::npos;
+            if (!good) detail += std::string(b.path) + " -> " + dstr(e.errors) + "; ";
+            ok = ok && good;
+        }
+        check("EVAL-CVAR-05", "cvar() of what is not an int32 scalar is a run-time error naming the type, never the first "
+                              "bytes: *p and g_pt (struct point), g_matrix and g_matrix[1] and g_str (arrays), g_float",
+              ok, detail);
+    }
+    // EVAL-CVAR-06
+    {
+        CvarRig none;                    // no program, no map
+        CvarRig sld;
+        sld.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const auto why_none = none.dbg->c_variables_status().why;
+        const auto why_sld  = sld.dbg->c_variables_status().why;
+        const EvalResult en = eval_expr("cvar(t)", *none.dbg);
+        const EvalResult es = eval_expr("cvar(t)", *sld.dbg);
+        bool ok = !none.dbg->c_variables_status().available && !sld.dbg->c_variables_status().available && !why_none.empty() &&
+                  !why_sld.empty() && why_none != why_sld;
+        ok = ok && !en.ok && en.errors.size() == 1 && en.errors[0].message == "cvar(t): " + why_none;
+        ok = ok && !es.ok && es.errors.size() == 1 && es.errors[0].message == "cvar(t): " + why_sld;
+        // A predicate compiled BEFORE the program loaded is false with that error, and the same predicate reads
+        // 122 once the sidecars attach and the run reaches vars.c:41: the store is looked up per evaluation.
+        CvarRig late;
+        std::vector<Diagnostic> seen;
+        const CompiledPredicate cp2 = compile_expr("cvar(t) == 122", PayloadScope{},
+                                                   CompileOptions{{}, [&seen](const Diagnostic& d) { seen.push_back(d); }});
+        const bool before = cp2.predicate(DbgEvent{}, *late.dbg);
+        const std::string nex = std::string(JNEXT_Z88DK_FIXTURE_DIR) + "/master/sccz80-cvars/prog.nex";
+        const bool loaded = emulator_apply_load(late.emu, nex, false);
+        late.dbg->load_program_sidecars(nex);
+        const bool reached = late.run_to(0x8D3E);
+        const bool after = cp2.predicate(DbgEvent{}, *late.dbg);
+        ok = ok && cp2 && !before && seen.size() == 1 && loaded && reached && after && seen.size() == 1;
+        check("EVAL-CVAR-06", "with no C variables cvar() fails with c_variables_status().why (no map; an SLD, which has none): "
+                              "a predicate compiled before the program loaded is false with that error and the same "
+                              "predicate is true (t == 122) once the map attaches and the run reaches vars.c:41",
+              ok, "none=" + dstr(en.errors) + " sld=" + dstr(es.errors) + " seen=" + dstr(seen));
+    }
+    // EVAL-CVAR-07
+    {
+        // `cvar(` starts at column 15 of these one-line scripts; the stray `(` of `cvar((x))` is column 20
+        const struct { const char* src; int col; } sources[] = {
+            {"on frame when cvar(a.) == 0 do end", 15}, {"on frame when cvar() == 0 do end", 15},
+            {"on frame when cvar(p->x == 0 do end", 15}, {"on frame when cvar((x)) == 0 do end", 20},
+            {"on frame when cvar(a[-1]) == 0 do end", 15}, {"on frame when cvar(\"x\") == 0 do end", 20}};
+        bool ok = true;
+        std::string detail;
+        for (const auto& sc : sources) {
+            const std::string src = sc.src;
+            ParseResult pr = parse_script(src);
+            std::vector<Diagnostic> errs;
+            if (pr.ok()) errs = check_script(pr.script, CheckOptions{});
+            const bool refused = !pr.ok() || !errs.empty();
+            const Diagnostic* d = !pr.ok() ? &*pr.error : (errs.empty() ? nullptr : &errs[0]);
+            // the `"` case is the LEXER's refusal (a C path never holds a quote), not c_parse_path's
+            const bool quote = src.find('"') != std::string::npos;
+            if (!refused || !d || d->pos.line != 1 || d->pos.column != sc.col ||
+                (quote && d->message.find("a C path in `cvar()` has no `\"`") == std::string::npos)) {
+                ok = false;
+                detail += src + " -> " + (d ? d->to_string() : "accepted") + "; ";
+            }
+        }
+        const ParseResult as = parse_script("on frame do set cvar(t) = 1 end");
+        const bool assign_refused = !as.ok() && as.error->message.find("cannot be assigned") != std::string::npos;
+        const ParseResult sp = parse_script("on frame when cvar (t) == 1 do end");
+        const bool spaced_not_accessor = !sp.ok();
+        // `cvar` is a reserved word, as `depth` and `changed` are: a variable of that name is refused at load, so no script
+        // changes meaning silently (`dump_mem cvar(4)` used to be two operands)
+        const ParseResult rv = parse_script("var cvar = 2\non frame when cvar + 1 == 3 do end");
+        const bool var_ok = !rv.ok() && rv.error->pos.line == 1 && rv.error->pos.column == 5 &&
+                            rv.error->message.find("`cvar` is a reserved name") != std::string::npos;
+        check("EVAL-CVAR-07", "cvar() paths are checked at compile time with a position: `a.`, ``, an unclosed `p->x`, `(x)`, "
+                              "`a[-1]` are errors at the token and a quote is the lexer's; `set cvar(t) = 1` is refused (read-only); `cvar (t)` with a "
+                              "space is not the accessor; a variable called cvar is refused as a reserved name (as depth and changed are)",
+              ok && assign_refused && spaced_not_accessor && var_ok, detail);
+    }
+    // EVAL-CVAR-08
+    {
+        CvarRig r("master/sccz80-cvars");
+        // interpolation: `${cvar(t)}` at vars.c:41 of the first call
+        bool ok = r.loaded && r.run_to(0x8D3E);
+        Loaded L = load("on frame do log \"t=${cvar(t)} s=${cvar(sum::calls)} x=${cvar(g_uint):x4}\" end");
+        std::string text;
+        if (L.ok()) {
+            EvalContext ctx{*r.dbg, nullptr, L.st.get(), nullptr};
+            try { text = interpolate(*L.s().rules[0].body[0].s1, ctx); } catch (const EvalError& e) { text = "<" + e.d.to_string() + ">"; }
+        }
+        ok = ok && L.ok() && text == "t=122 s=1 x=9C40";
+        // a `when cvar(a) == 2` predicate on an Execute subscription at vars.c:41 stops on the THIRD call
+        CvarRig w("master/sccz80-cvars");
+        Loaded W = load("on execute 0x8D3E when cvar(a) == 2 do end");
+        bool third = false;
+        std::string t3;
+        if (w.loaded && W.ok()) {
+            jnext::dbg::Subscription sub;
+            sub.kind      = EventKind::Execute;
+            sub.filter.lo = sub.filter.hi = 0x8D3E;
+            sub.action    = jnext::dbg::Action::Stop;
+            sub.condition = make_condition(W.s().rules[0].when, W.st, {});
+            const auto id = w.dbg->subscribe(w.cid, sub).value;
+            w.dbg->run(w.cid);
+            for (int i = 0; i < 100 && !w.dbg->state().paused; ++i) w.emu.run_frame();
+            w.dbg->unsubscribe(w.cid, id);
+            third = w.dbg->state().paused && w.pc() == 0x8D3E;
+            t3    = cv(w, "cvar(t)");
+        }
+        check("EVAL-CVAR-08", "cvar() inside a script: `${cvar(t)}` is 122, `${cvar(sum::calls)}` 1 and `${cvar(g_uint):x4}` 9C40 "
+                              "(a `::` is not a format); a `when cvar(a) == 2` on an Execute subscription at vars.c:41 stops on "
+                              "the third call, where cvar(t) is 124",
+              ok && third && t3 == "ok:124", text + " " + t3);
+    }
+    // EVAL-CVAR-09
+    {
+        // A1/A9 of the plan (reading from inside an event delivery): the first `cvar()` of a predicate after a tape program
+        // runs is the first reader to run recheck() inside a delivery, which applies the verdict the verify hook recorded
+        // during guest execution. Oracle: the committed v2.4/sccz80-tape fixture (prog.tap carries prog_CODE.bin at $8000;
+        // main.c:19 starts at $8CC4, `counter` is a global byte that is 0 there, GH #344 stage 3) and its identity rule: a
+        // matching program keeps the map, one wrong byte of main.c:19 drops it.
+        namespace fs = std::filesystem;
+        const fs::path root = fs::temp_directory_path() / ("jnext-cvar-tape-" + std::to_string(::getpid()));
+        std::string detail;
+        bool all = true;
+        for (int variant = 0; variant < 2; ++variant) {
+            const bool wrong = variant == 1;
+            const fs::path d = root / (wrong ? "bad" : "good");
+            fs::create_directories(d);
+            const fs::path src = fs::path(JNEXT_Z88DK_FIXTURE_DIR) / "v2.4/sccz80-tape";
+            fs::copy_file(src / "prog.map", d / "prog.map", fs::copy_options::overwrite_existing);
+            fs::copy_file(src / "prog_CODE.bin", d / "prog_CODE.bin", fs::copy_options::overwrite_existing);   // the identity
+            { std::ofstream(d / "prog.tap"); }
+            std::vector<uint8_t> code;
+            {
+                std::ifstream in(src / "prog_CODE.bin", std::ios::binary);
+                code.assign(std::istreambuf_iterator<char>(in), {});
+            }
+            if (wrong) code[0xCC4] ^= 0xFF;   // main.c:19's first byte
+            CvarRig r(nullptr, MachineType::ZX48K);   // as the tape rows of source_debug_test
+            r.emu.mmu().write(0x6000, 0x18);   // park outside the code range while the map attaches
+            r.emu.mmu().write(0x6001, 0xFE);
+            Z80Registers regs = r.emu.cpu().get_registers();
+            regs.PC = 0x6000;
+            regs.SP = 0xFF00;
+            r.emu.cpu().set_registers(regs);
+            r.dbg->load_program_sidecars((d / "prog.tap").string());
+            const bool pending = r.dbg->source_map_status().pending;
+            r.dbg->poke(r.cid, jnext::dbg::MemSpace::cpu(), 0x8000, code.size(), code.data());   // the tape loads
+            regs.PC = 0x8000;
+            r.emu.cpu().set_registers(regs);
+            r.no_interrupts();
+            Loaded L = load("on execute 0x8CC4 when cvar(counter) == 0 do end");
+            std::vector<Diagnostic> seen;
+            bool ok = pending && L.ok();
+            bool stopped = false;
+            if (ok) {
+                jnext::dbg::Subscription sub;
+                sub.kind      = EventKind::Execute;
+                sub.filter.lo = sub.filter.hi = 0x8CC4;
+                sub.action    = jnext::dbg::Action::Stop;
+                sub.condition = make_condition(L.s().rules[0].when, L.st, [&seen](const Diagnostic& e) { seen.push_back(e); });
+                const auto id = r.dbg->subscribe(r.cid, sub).value;
+                r.dbg->run(r.cid);
+                for (int i = 0; i < 10 && !r.dbg->state().paused; ++i) r.emu.run_frame();
+                stopped = r.dbg->state().paused && r.pc() == 0x8CC4;
+                r.dbg->unsubscribe(r.cid, id);
+            }
+            const auto st = r.dbg->source_map_status();
+            const bool subs_ok = r.dbg->subscriptions(true).empty();   // the table is intact and the unsubscribe landed
+            if (!wrong) {
+                // the verdict was applied inside the delivery: the map is kept and verified, and the read worked
+                ok = ok && stopped && seen.empty() && !st.pending &&
+                     st.state == Debugger::SourceMapStatus::State::Attached && cv(r, "cvar(counter)") == "ok:0";
+            } else {
+                // the map was dropped inside the delivery: the predicate is false with the facade's reason, no stop
+                ok = ok && !stopped && st.state == Debugger::SourceMapStatus::State::None && !seen.empty() &&
+                     seen[0].message.find("cvar(counter): ") == 0;
+            }
+            ok = ok && subs_ok;
+            if (!ok) detail += std::string(wrong ? "wrong byte" : "right bytes") + ": pending=" + std::to_string(pending) +
+                               " stopped=" + std::to_string(stopped) + " st.pending=" + std::to_string(st.pending) + " " + dstr(seen) + "; ";
+            all = all && ok;
+        }
+        fs::remove_all(root);
+        check("EVAL-CVAR-09", "the first cvar() inside a delivery after a tape program runs (a recheck() that applies the verify hook's "
+                              "verdict) is safe: with the right bytes the map is verified there, kept, and the predicate reads "
+                              "counter = 0 and stops at main.c:19; with one wrong byte the map is dropped there, the predicate is "
+                              "false with the facade's reason, nothing stops; the event table is intact either way",
+              all, detail);
+    }
+}
+
 int main() {
     std::printf("script_eval_test — the debugger DSL evaluator (GH #26 WP2)\n");
 
@@ -1064,6 +1486,7 @@ int main() {
     run_group("builtin", builtin_rows);
     run_group("work", work_rows);
     run_group("stack", stack_rows);
+    run_group("cvar", cvar_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

@@ -24,6 +24,7 @@ const char* tok_name(Tok t) {
         case Tok::StackL:   return "`stack[`";
         case Tok::ChangedL: return "`changed(`";
         case Tok::DepthL:   return "`depth(`";
+        case Tok::CVar:     return "`cvar(`";
         case Tok::LParen:   return "`(`";
         case Tok::RParen:   return "`)`";
         case Tok::LBracket: return "`[`";
@@ -181,10 +182,35 @@ struct Lexer {
                 return true;
             }
         }
+        if (word == "cvar" && cur() == '(') return lex_cvar(at);
         Token t;
         t.kind = Tok::Ident;
         t.pos  = at;
         t.text = std::move(word);
+        out.tokens.push_back(std::move(t));
+        return true;
+    }
+
+    // `cvar(PATH)`: the raw path to the first `)` (see the banner). `cur()` is the `(`.
+    bool lex_cvar(SourcePos at) {
+        adv();  // '('
+        std::string path;
+        for (;;) {
+            if (at_end() || cur() == '\n') return fail(at, "`cvar(` is not closed: expected `)` on the same line");
+            const char c = cur();
+            if (c == ')') break;
+            if (c == '(' || c == '"')
+                return fail(p, std::string("a C path in `cvar()` has no ") + (c == '(' ? "`(`" : "`\"`"));
+            path.push_back(c);
+            adv();
+        }
+        adv();  // ')'
+        const size_t b = path.find_first_not_of(" \t");
+        if (b == std::string::npos) return fail(at, "`cvar()` needs a C path");
+        Token t;
+        t.kind = Tok::CVar;
+        t.pos  = at;
+        t.text = path.substr(b, path.find_last_not_of(" \t") - b + 1);
         out.tokens.push_back(std::move(t));
         return true;
     }
@@ -271,6 +297,13 @@ struct Lexer {
                     if (c == '"')
                         return fail(p, "a string literal cannot appear inside `${...}`");
                     if (c == '}') break;
+                    if (c == ':' && !in_fmt && peek() == ':') {   // `fn::x` of a `cvar()` path (GH #436)
+                        e.text.push_back(c);
+                        adv();
+                        e.text.push_back(cur());
+                        adv();
+                        continue;
+                    }
                     if (c == ':' && !in_fmt) {
                         in_fmt = true;
                         adv();

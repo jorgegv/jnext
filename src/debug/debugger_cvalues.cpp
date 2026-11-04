@@ -216,6 +216,7 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
             out.notes.push_back(rr.note);
             out.where.kind = Debugger::CWhere::Kind::Register;
             out.where.regs = rr.note.substr(3, rr.note.find(';') - 3);
+            out.loc.type = cv.type;   // no address, but the type: the int32 atom decides on it (GH #436)
             out.integer = c_integer_value(cv.type, rr.bytes.data(), rr.bytes.size());
             out.real = c_float_value(cv.type, rr.bytes.data(), rr.bytes.size());
             return out;

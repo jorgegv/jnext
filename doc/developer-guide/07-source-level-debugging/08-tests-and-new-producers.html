@@ -2974,7 +2974,7 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 </tr>
 <tr>
 <td><code>c_value_test</code></td>
-<td>The pure C value layer (<code>c_value.cpp</code>, <a href="10-c-frames-and-values.html">7.10</a>): the 48-bit and IEEE floats, integers, pointers, arrays, structs, bitfields, the struct type lookup and type text, the path grammar and its evaluation, visible locals, register locals (<code>CVALF-*</code>)</td>
+<td>The pure C value layer (<code>c_value.cpp</code>, <a href="10-c-frames-and-values.html">7.10</a>): the 48-bit and IEEE floats, integers, pointers, arrays, structs, bitfields, the struct type lookup and type text, the path grammar and its evaluation, visible locals, register locals (<code>CVALF-*</code>), and the int32 rule of the script atom and ZRCP (<code>CVINT-*</code>)</td>
 </tr>
 <tr>
 <td><code>cdb_record_test</code></td>
@@ -3002,11 +3002,15 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 </tr>
 <tr>
 <td><code>gdb_rsp_test</code>, <code>zrcp_adapter_test</code>, <code>dzrp_adapter_test</code></td>
-<td><code>monitor src</code> and <code>monitor sym</code> (<code>GDB-MON-*</code>); ZRCP <code>get-memory-pages</code> names and <code>cpu-step-over</code> at a DivMMC entry (<code>LADDR-21</code>, <code>-22</code>); DZRP's <code>0xFF</code> for a ROM slot (<code>DZRP-REG-08</code>)</td>
+<td><code>monitor src</code> and <code>monitor sym</code> (<code>GDB-MON-*</code>); <code>monitor locals</code>, <code>globals</code> and <code>print</code> on the cvars fixtures (<code>GDB-CVAR-*</code>); ZRCP <code>CVAR(path)</code> in <code>evaluate</code> and conditions (<code>ZRCP-CVAR-*</code>); ZRCP <code>get-memory-pages</code> names and <code>cpu-step-over</code> at a DivMMC entry (<code>LADDR-21</code>, <code>-22</code>); DZRP's <code>0xFF</code> for a ROM slot (<code>DZRP-REG-08</code>)</td>
 </tr>
 <tr>
 <td><code>script_events_test</code></td>
 <td>The DSL's <code>on execute FILE:LINE</code> and <code>--map</code></td>
+</tr>
+<tr>
+<td><code>script_eval_test</code></td>
+<td>The DSL evaluator; its <code>EVAL-CVAR-*</code> rows are the <code>cvar(PATH)</code> atom over a real Next machine and the committed cvars fixtures (scalars, members, elements, qualified names, banked globals, every refusal, no C variables, interpolation, a <code>when</code>, and a tape program's verdict applied inside a delivery)</td>
 </tr>
 <tr>
 <td><code>debugger_source_panel_test</code>, <code>debugger_verbs_test</code>, <code>debugger_panels_test</code>, <code>debugger_disasm_copy_test</code>, <code>debugger_menu_test</code></td>
