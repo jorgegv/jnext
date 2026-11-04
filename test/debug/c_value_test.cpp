@@ -900,6 +900,41 @@ int main() {
               e.ok && !e.loc.rooted && v.ok && v.text == "42" && e2.ok && e2.loc.rooted && v2.ok && v2.text == "-286331154");
     }
 
+    // ── CVALF-40: the file-qualified function path ────────────────────────────────────────────────────────────
+    {
+        const CPath a = c_parse_path("a.c::init::done");
+        const CPath b = c_parse_path("init::done");
+        const CPath c = c_parse_path("a.c::done");
+        const CPath d = c_parse_path("a::init::done");
+        const CPath e = c_parse_path("a.c::init::done.x[2]");
+        check("CVALF-40", "`file.c::fn::name` is a function-scoped name told apart by its file; `fn::name` has no file; `file.c::name` is a file one; `a::init::done` (no extension "
+                          "on the file) is refused with a reason; steps follow",
+              a.ok && a.primary == CPath::Primary::Function && a.file == "a.c" && a.qualifier == "init" && a.name == "done" && b.ok && b.file.empty() && b.qualifier == "init" &&
+                  c.ok && c.primary == CPath::Primary::File && c.file.empty() && !d.ok && d.why.find("a file name") != std::string::npos && e.ok && e.steps.size() == 2);
+    }
+
+    // ── CVALF-41: a pointer whose value is given (a register) is followed, anything else on it is refused ─────
+    {
+        Mem mem;
+        mem.put(0xA000, {3, 0, 4, 0, 5, 0, 6, 0});
+        CFormatCtx ctx = csc;
+        ctx.read = mem.reader();   // no memory at the root's own address: the value must not be read from it
+        CLoc p;
+        p.type = ty("{2}DG,STpoint:S");
+        p.addr = 0;
+        p.ptr_value = 0xA000;
+        CLoc q = p;
+        q.type = ty("{2}DG,SI:S");
+        const CEval y = c_eval_path(ctx, p, false, c_parse_path("p->y").steps);
+        const CEval y1 = c_eval_path(ctx, p, false, c_parse_path("p[1].y").steps);
+        const CEval whole = c_eval_path(ctx, p, true, {});
+        const CEval dot = c_eval_path(ctx, p, false, c_parse_path("p.x").steps);
+        const CEval ii = c_eval_path(ctx, q, true, {});
+        check("CVALF-41", "a pointer whose value is given (HL = $A000) is followed by `->`, `[i]` and `*` without reading memory for it: p->y at $A002, p[1].y at $A006 (the "
+                          "elements are 5 bytes) and *p; `.x` on it is refused (use ->); an int pointer's *q is at $A000",
+              y.ok && y.loc.addr == 0xA002 && !y.loc.rooted && y1.ok && y1.loc.addr == 0xA005 + 2 && whole.ok && whole.loc.addr == 0xA000 && !dot.ok && ii.ok && ii.loc.addr == 0xA000);
+    }
+
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
 }

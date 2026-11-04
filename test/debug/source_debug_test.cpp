@@ -7592,6 +7592,163 @@ int main() {
             check("SRCDBG-CVAL-51", "a register local of frame 1 (fa's q in [c]) is `not available (register, outer frame)` while frame 0's own (fb's r in [c], C = $42 = 66 'B') is read",
                   lr.count > 0 && !outer.ok && outer.why == "not available (register, outer frame)" && mine.ok && mine.value == "66 'B'");
         }
+        {   // SRCDBG-CVAL-52
+            // a frame whose base is not known: a stack variable is refused (not read from a made-up address), and c_locals refuses the frame (CVAL-13's state)
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, "master/80cc-cvars", "c52");
+            cv_run_to(m, 0x8DC6);
+            m.emu.call_stack().clear();
+            const Dbg::CValueResult lp = m.dbg->read_c_value(1, "lp");
+            const auto cl = m.dbg->c_locals(1);
+            check("SRCDBG-CVAL-52", "80cc in other with the tracker emptied: main (frame 1) has no known base, so read_c_value(1, lp) is refused (the frame base is not known) and c_locals(1) "
+                                    "is refused (the base of frame 1 is not known), while frame 0 reads",
+                  !lp.ok && lp.value.empty() && lp.why.find("the frame base is not known") == 0 && !cl.ok && cl.why.find("the base of frame 1 is not known") == 0 &&
+                      cvv(m, 0, "q") == "599");
+        }
+        {   // SRCDBG-CVAL-53
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, "master/sccz80-cvars", "c53");
+            const bool at = cv_run_to(m, 0x8E1F);
+            const Dbg::CValueResult head = m.dbg->read_c_value(0, "g_head");
+            const Dbg::CValueResult val = m.dbg->read_c_value(0, "g_head->val");
+            check("SRCDBG-CVAL-53", "what g_head points at is in the CPU view: g_head->val is 100000 with where = Cpu at the pointer's value (g_head itself is a page address)",
+                  at && head.ok && head.where.kind == Dbg::CWhere::Kind::Page && head.integer && val.ok && val.value == "100000" &&
+                      val.where.kind == Dbg::CWhere::Kind::Cpu && static_cast<int64_t>(val.where.cpu) == *head.integer + 2);
+        }
+        {   // SRCDBG-CVAL-54
+            // CVAL-05's stale user map: the status says so, and so does every reader
+            const fs::path d = var_dir("c54");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_source_map((d / "prog.map").string(), false);
+            m.dbg->reset(m.a, ResetKind::Soft);
+            m.dbg->run(m.a);
+            const uint8_t was = m.emu.mmu().peek(0x8CB5);
+            m.emu.mmu().write(0x8CB5, static_cast<uint8_t>(was ^ 0xFF));
+            for (int i = 0; i < 5; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
+            const auto st = m.dbg->c_variables_status();
+            const auto cl = m.dbg->c_locals(0);
+            const auto rv = m.dbg->read_c_value(0, "g_int");
+            check("SRCDBG-CVAL-54", "a user map gone Stale: c_variables_status(), c_locals() and read_c_value() all say `the source map is stale: ...`",
+                  !st.available && st.why.find("the source map is stale: ") == 0 && !cl.ok && cl.why == st.why && !rv.ok && rv.why == st.why);
+        }
+        {   // SRCDBG-CVAL-55
+            // static inline util_inc is defined in two modules of master/sdcc-debug: `util_inc::v` does not say which
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, "master/sdcc-debug", "c55");
+            const Dbg::CValueResult r = m.dbg->read_c_value(0, "util_inc::v");
+            check("SRCDBG-CVAL-55", "a function name defined in two modules is refused as ambiguous (name its file), not first-wins",
+                  !r.ok && r.why.find("function 'util_inc' is ambiguous") == 0);
+        }
+        // synthetic z88dk maps for the rows below: functions and variables written as the compilers write them
+        const auto s3_esc = [](const std::string& t) {
+            std::string o;
+            for (const unsigned char c : t) {
+                if (std::isalpha(c)) {
+                    o += static_cast<char>(c);
+                } else {
+                    char b[8];
+                    std::snprintf(b, sizeof b, "_%02x", c);
+                    o += b;
+                }
+            }
+            return o;
+        };
+        const auto s3_rec = [&](const std::string& r, const char* module) {
+            return "__CDBINFO__" + s3_esc(r) + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+        };
+        {   // SRCDBG-CVAL-56
+            // data in a page, with the CPU's view of the same address changed afterwards: gp ($8100) holds $9000, gv_label is at $9000, gv sits on the last byte of its page
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const std::string map = (z / "c56.map").string();
+            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                            "_gp = $8100 ; addr, public, , t_c, data_compiler, t.c:1\n"
+                            "_gv_label = $9000 ; addr, public, , t_c, data_compiler, t.c:2\n"
+                            "_gv = $9FFF ; addr, public, , t_c, data_compiler, t.c:3\n"
+                            "_gok = $9FFD ; addr, public, , t_c, data_compiler, t.c:4\n" +
+                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gp$0_0$0({2}DG,SC:U),E,0,0", "t_c") +
+                                s3_rec("S:G$gv_label$0_0$0({1}SC:U),E,0,0", "t_c") + s3_rec("S:G$gv$0_0$0({2}SI:S),E,0,0", "t_c") +
+                                s3_rec("S:G$gok$0_0$0({2}SI:S),E,0,0", "t_c"));
+            const auto lr = m.dbg->load_source_map(map, true);
+            m.emu.mmu().write(0x8100, 0x00);
+            m.emu.mmu().write(0x8101, 0x90);
+            m.emu.mmu().write(0x9000, 7);
+            m.emu.mmu().write(0x9FFD, 0x34);
+            m.emu.mmu().write(0x9FFE, 0x12);
+            const Dbg::CValueResult mapped = m.dbg->read_c_value(0, "gp");
+            const Dbg::CValueResult ok2 = m.dbg->read_c_value(0, "gok");
+            const Dbg::CValueResult cross = m.dbg->read_c_value(0, "gv");
+            m.dbg->nextreg_write(m.a, 0x54, 40);   // the CPU's $8000 slot is another page now
+            m.emu.mmu().write(0x9000, 200);        // what the CPU sees at $9000
+            const Dbg::CValueResult gp = m.dbg->read_c_value(0, "gp");
+            const Dbg::CValueResult star = m.dbg->read_c_value(0, "*gp");
+            check("SRCDBG-CVAL-56", "a 2-byte global on the last byte of its page is refused (the value crosses a page boundary) with no value, never 0, while one 2 bytes before reads 4660; "
+                                    "a pointer in a mapped page shows the label of what it points at (` <gv_label>`); once the page is unmapped the pointer still reads from its own "
+                                    "page, with the not-mapped note, has NO label (the label is of what the CPU sees), and what it points at is read through the CPU view "
+                                    "(200) with no not-mapped note and where = Cpu",
+                  lr.count > 0 && !cross.ok && cross.value.empty() && cross.why == "the value crosses a page boundary" && ok2.ok && ok2.value == "4660" && mapped.ok &&
+                      mapped.value.find("$9000 <gv_label>") == 0 && gp.ok && gp.value.find("$9000") == 0 && gp.value.find("<gv_label>") == std::string::npos && has_note(gp, "is not mapped at $8100 now") && star.ok && star.value == "200" &&
+                      star.where.kind == Dbg::CWhere::Kind::Cpu && !has_note(star, "not mapped"));
+        }
+        {   // SRCDBG-CVAL-57
+            // two modules each with `static void init(void) { static int done; }`: both rows read back, by file-qualified paths; the bare `init::done` is ambiguous
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const std::string map = (z / "c57.map").string();
+            write_text(map, "_init = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                            "_init = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
+                            "__C_LINE_1_a_2ec = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                            "__C_LINE_1_b_2ec = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
+                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                            "_st_init_done = $9000 ; addr, local, , a_c, bss_compiler, a.c:2\n"
+                            "_st_init_done = $9010 ; addr, local, , b_c, bss_compiler, b.c:2\n" +
+                                s3_rec("F:Fa.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "a_c") + s3_rec("F:Fb.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "b_c") +
+                                s3_rec("S:Fa.c$st_init_done$1_0$1({2}SI:S),E,0,0", "a_c") + s3_rec("S:Fb.c$st_init_done$1_0$1({2}SI:S),E,0,0", "b_c"));
+            const auto lr = m.dbg->load_source_map(map, true);
+            m.emu.mmu().write(0x9000, 7);
+            m.emu.mmu().write(0x9010, 9);
+            std::vector<Dbg::CValueRow> rows;
+            for (const auto& r : m.dbg->c_globals())
+                if (r.name == "done") rows.push_back(r);
+            bool round = rows.size() == 2;
+            for (const auto& r : rows) round = round && r.ok && m.dbg->read_c_value(0, r.path).ok && m.dbg->read_c_value(0, r.path).value == r.value;
+            m.set_pc(0x7000);   // in neither function
+            const Dbg::CValueResult bare = m.dbg->read_c_value(0, "init::done");
+            check("SRCDBG-CVAL-57", "two modules with a static function `init` each holding a static `done`: c_globals() has `a.c::init::done` = 7 and `b.c::init::done` = 9, both read back "
+                                    "through their path, and the unqualified `init::done` is refused as ambiguous",
+                  lr.count > 0 && round && rows[0].path == "a.c::init::done" && rows[0].value == "7" && rows[1].path == "b.c::init::done" && rows[1].value == "9" &&
+                      !bare.ok && bare.why.find("is ambiguous") != std::string::npos);
+        }
+        {   // SRCDBG-CVAL-58
+            // a pointer local held in HL (zsdcc `R,0,0,[l,h]`) is followed through the CPU view; a member of a register-held aggregate has no address
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const std::string map = (z / "c58.map").string();
+            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
+                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") +
+                                s3_rec("T:Ft.h$pt[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "t_c") +
+                                s3_rec("S:Lt.c.fa$p$1_0$1({2}DG,STpt:S),R,0,0,[l,h]", "t_c") + s3_rec("S:Lt.c.fa$w$1_0$1({4}STpt:S),R,0,0,[c,b]", "t_c"));
+            const auto lr = m.dbg->load_source_map(map, true);
+            const uint8_t pts[] = {3, 0, 4, 0, 5, 0, 6, 0};
+            for (size_t i = 0; i < sizeof pts; ++i) m.emu.mmu().write(static_cast<uint16_t>(0xA000 + i), pts[i]);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.HL = 0xA000;
+            m.emu.cpu().set_registers(r);
+            const Dbg::CValueResult py = m.dbg->read_c_value(0, "p->y");
+            const Dbg::CValueResult p1 = m.dbg->read_c_value(0, "p[1].y");
+            const Dbg::CValueResult star = m.dbg->read_c_value(0, "*p");
+            const Dbg::CValueResult pv = m.dbg->read_c_value(0, "p");
+            const Dbg::CValueResult pdot = m.dbg->read_c_value(0, "p.x");
+            const Dbg::CValueResult wx = m.dbg->read_c_value(0, "w.x");
+            check("SRCDBG-CVAL-58", "a pointer in HL: p is `$A000` (a Register value), p->y = 4, p[1].y = 6 and *p = {x = 3, y = 4} are read through the CPU view (where = Cpu, with the stale-register "
+                                    "note); `.x` on the pointer and on a register-held struct are refused (no address)",
+                  lr.count > 0 && pv.ok && pv.value == "$A000" && pv.where.kind == Dbg::CWhere::Kind::Register && py.ok && py.value == "4" &&
+                      py.where.kind == Dbg::CWhere::Kind::Cpu && py.where.cpu == 0xA002 && has_note(py, "in HL; may be stale") && p1.ok && p1.value == "6" && star.ok &&
+                      star.value == "{x = 3, y = 4}" && !pdot.ok && !wx.ok && wx.why == "a register value has no address");
+        }
         {   // SRCDBG-CVAL-50
             // the facade's contract for its consumers: no reader bumps state_revision(); refusals have reasons; a result carries its type, location and integer; rows round-trip
             Machine m(false, MachineType::ZXN_ISSUE2);
