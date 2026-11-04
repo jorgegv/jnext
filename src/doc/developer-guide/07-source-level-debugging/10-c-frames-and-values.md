@@ -102,7 +102,7 @@ ostream (QApplication runs `setlocale(LC_ALL, "")`, and on a Spanish host `%g` p
 |---|---|
 | `SC` | `65 'A'` for 0x20..0x7E, else the number; signed or unsigned by `:S` / `:U` |
 | `SI`, `SL`, bare `:S`/`:U` | little-endian, `{size}` bytes (1, 2, 4, 8), decimal |
-| `SF` `{6}` | z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by `$80`; 12 significant digits (`c_format_float48()`, `c_value.cpp:409`). Oracle: the bytes z88dk compiled in `*-floats` |
+| `SF` `{6}` | z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by `$80`; 12 significant digits (`c_format_float48()`, `c_value.cpp:411`). Oracle: the bytes z88dk compiled in `*-floats` |
 | `SF` `{4}` | IEEE 754 binary32, shortest text that reads back. The SIZE decides, not the noun |
 | `S6` | IEEE 754 binary16 through float |
 | `SQ` | `<fixed-point $xxxx: layout not decoded>` |
@@ -112,10 +112,10 @@ ostream (QApplication runs `setlocale(LC_ALL, "")`, and on a Spanish host `%g` p
 | zsdcc bitfield `SB<s>$<w>` | `(value >> s) & mask` |
 | sccz80 / 80cc overlapping members | the storage unit's value with `bitfield layout unknown (z88dk U2)`: in a struct whose members are not all at offset 0, a member sharing bytes with another (a union is not one) |
 
-`c_find_type()` (`c_value.cpp:496`) finds a struct's `T:` record: the records of the variable's own scope first (zsdcc's
+`c_find_type()` (`c_value.cpp:498`) finds a struct's `T:` record: the records of the variable's own scope first (zsdcc's
 copy per module), then those of its module, then a tag that is unique across all records (sccz80 and 80cc: one per
 header). Different definitions at the deciding step are ambiguous, never first-wins. `c_type_text()`
-(`c_value.cpp:489`) prints `char`, `unsigned int`, `struct node *`, `int [2][3]`, `int (*)()`; the CDB has no
+(`c_value.cpp:491`) prints `char`, `unsigned int`, `struct node *`, `int [2][3]`, `int (*)()`; the CDB has no
 union marker, so a union is `struct word`, and no typedef name survives. A zsdcc padding member (`__00000000`) is
 not shown.
 
@@ -128,14 +128,14 @@ such a member (the whole struct, a member path, a pointer, an element `p[1]`, a 
 read to the struct that holds it and zero-fills the overhang, so `hi` is 200 for the bytes `8D C8` whichever way it is
 reached, and no read goes past that struct.
 
-`c_parse_path()` (`c_value.cpp:579`) parses the C paths: `['*'] primary {'.' name | '->' name | '[' index ']'}`,
-the primary a name, `fn::name` or `file.c::name`, the index decimal, `0x<hex>` or `$<hex>` with no sign. As in C the
+`c_parse_path()` (`c_value.cpp:581`) parses the C paths: `['*'] primary {'.' name | '->' name | '[' index ']'}`,
+the primary a name, `fn::name`, `file.c::name` or `file.c::fn::name` (the file names which `fn` when two modules have a function of that name), the index decimal, `0x<hex>` or `$<hex>` with no sign. As in C the
 postfix operators bind tighter than the `*`: `*x[1]` is `*(x[1])` and `*head->next` is `*(head->next)`.
-`c_eval_path()` (`c_value.cpp:667`) walks the steps over a typed location (an array index is checked against its
+`c_eval_path()` (`c_value.cpp:682`) walks the steps over a typed location (an array index is checked against its
 count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
 refused), then applies the `*`, and `c_read_loc()` reads and formats it. Every refusal says why.
 
-`c_visible_locals()` (`c_value.cpp:766`) lists which locals show at a PC: the parameters (ordered by stack position),
+`c_visible_locals()` (`c_value.cpp:781`) lists which locals show at a PC: the parameters (ordered by stack position),
 the locals, the static locals. A parameter is a record of level 0 (sccz80, 80cc), at a stack offset >= 4, or (zsdcc) in
 a block below the body's first block (the entry scope's), where its register and fastcall parameters sit. Parameters
 and level-1 locals are always visible; a local of level >= 2 is visible iff its block is the open block or one of its
@@ -145,9 +145,9 @@ block just opened is the last opened one). The open block is the greatest known 
 the scope's block, which turns sccz80's "last opened block" into the block that is open and keeps a closed sibling's
 locals hidden; its ancestors are found over the same set. With no block data (80cc) or an unknown scope, every block
 local is shown, marked.
-`c_read_register_local()` (`c_value.cpp:847`) reads an `R` local of frame 0 (`[c,b]` is C | B << 8, with a note
+`c_read_register_local()` (`c_value.cpp:862`) reads an `R` local of frame 0 (`[c,b]` is C | B << 8, with a note
 that it may be stale), refuses `[]` as optimised out and an outer frame as not available.
-`c_param_location_unknown()` (`c_value.cpp:887`) marks a listed `__z88dk_fastcall` parameter recorded at an offset
+`c_param_location_unknown()` (`c_value.cpp:902`) marks a listed `__z88dk_fastcall` parameter recorded at an offset
 >= 0 (z88dk U1).
 
 ## Reading values: the facade
@@ -157,10 +157,10 @@ that it may be stale), refuses `[]` as optimised out and an outer frame as not a
 
 | Reader | Gives |
 |---|---|
-| `c_variables_status()` (`debugger_cvalues.cpp:386`) | `{available, why}` with a printable reason: `no source map is attached`; `an SLD source map carries no C variables`; `the map has no C debug records` (lines from listings only); `zsdcc wrote no C variable records for this build` (`zcc -O0` keeps the `C_LINE` records and writes no `__CDBINFO__`, fixture `master/sdcc-cvars-O0`); `the map has line records but no __CDBINFO__ records`; `all N C variable records were refused: <reason>`; a stale map |
-| `c_locals(frame)` (`debugger_cvalues.cpp:422`) | the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a `CValueRow`; refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known |
-| `c_globals()` (`debugger_cvalues.cpp:454`) | every global, file static and static local, ordered by file then name, with a `path` no local can shadow: `vars.c::s_dup`, `sum::calls` |
-| `read_c_value(frame, path)` (`debugger_cvalues.cpp:481`) | the object a C path names in that frame: `ok` or `why`, the type text, the value text, `notes`, the typed location `loc`, `where`, `integer` (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and `real` (the floats) |
+| `c_variables_status()` (`debugger_cvalues.cpp:398`) | `{available, why}` with a printable reason: `no source map is attached`; `an SLD source map carries no C variables`; `the map has no C debug records` (lines from listings only); `zsdcc wrote no C variable records for this build` (`zcc -O0` keeps the `C_LINE` records and writes no `__CDBINFO__`, fixture `master/sdcc-cvars-O0`); `the map has line records but no __CDBINFO__ records`; `all N C variable records were refused: <reason>`; a stale map |
+| `c_locals(frame)` (`debugger_cvalues.cpp:434`) | the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a `CValueRow`; refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known |
+| `c_globals()` (`debugger_cvalues.cpp:466`) | every global, file static and static local, ordered by file then name, with a `path` no local can shadow: `vars.c::s_dup`, `sum::calls` (`a.c::init::done` when two modules have a function `init`) |
+| `read_c_value(frame, path)` (`debugger_cvalues.cpp:496`) | the object a C path names in that frame: `ok` or `why`, the type text, the value text, `notes`, the typed location `loc`, `where`, `integer` (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and `real` (the floats) |
 
 A `CValueRow` carries `name`, `path` (which round-trips through `read_c_value`), `file`, `type`, `kind` (Param, Local,
 StaticLocal, FileStatic, Global), `where`, `ok` with `value` or `why`, `aggregate` and `notes`. A failed read has an empty
@@ -171,16 +171,17 @@ Where an object is read from (`eval_var()`, `debugger_cvalues.cpp:140`):
 
 - **A global, file static or static local** is read from the page its map symbol was placed in (`CStorage::at`; the reader is
   `space_reader()`, `debugger_cvalues.cpp:104`), whatever the MMU maps there now, and an element or member of it too. A note says
-  `page 20 is not mapped at $C000 now` when it is not mapped. A value that would cross the end of its 8 KB page is refused.
+  `page 20 is not mapped at $C000 now` when it is not mapped. A value that would cross the end of its 8 KB page is refused (`the value crosses a page boundary`, with no value: a failed read is never `0`).
 - **A stack variable** is at the frame's base `fp` plus its record's offset, through the CPU view; a negative offset below the frame's
   floor is `not allocated`.
 - **A register local** is frame 0's register, with the note that it may be stale; in an older frame it is `not available (register,
-  outer frame)`; `R []` is `optimised out`.
+  outer frame)`; `R []` is `optimised out`. A pointer held in a register can be followed (`*p`, `p->x`, `p[i]` start at the pointed-to
+  object, read through the CPU view, `CLoc::ptr_value`); a member or an element of a register-held aggregate has no address and is refused.
 - **What a pointer points at** is read through the CPU view (C semantics), which is why a location carries `rooted`: true while it is
   inside its root object, cleared when a pointer is followed (`CFormatCtx::read_root`).
 - A listed `__z88dk_fastcall` parameter recorded at an offset >= 0 is `location unknown (z88dk U1...)`.
 
-`find_var()` (`debugger_cvalues.cpp:291`) resolves a name in frame `k`: the frame's visible locals, then its function's static
+`find_var()` (`debugger_cvalues.cpp:303`) resolves a name in frame `k`: the frame's visible locals, then its function's static
 locals, the file's statics, the globals. A local that exists but is hidden is `out of scope at <file>:<line>`. `fn::name` names a static
 local from any frame, and a local of `fn` only from a frame of `fn`; `file.c::name` names that file's statics and globals.
 
@@ -189,8 +190,8 @@ local from any frame, and a local of `fn` only from a frame of `fn`; `file.c::na
 `Z88CDB-41` to `-50` in `z88dk_map_test` (the extents against a golden that `derive-scopes.py --extents`
 derives from the raw map lines, the `*-cross` fixtures, the helpers, the listing evidence for the calling
 convention, the no-record facts, and the unchanged scope tables on the 12 maps of `Z88CDB-40`), and
-`CVALF-01` to `-39` in `c_value_test` (with `-27a` and `-28a` to `-28d`), and `SRCDBG-CVAL-01` to `-51` in `source_debug_test` (the tracker policy, the frames of each compiler on a running fixture:
+`CVALF-01` to `-41` in `c_value_test` (with `-27a` and `-28a` to `-28d`), and `SRCDBG-CVAL-01` to `-58` in `source_debug_test` (the tracker policy, the frames of each compiler on a running fixture:
 tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, a function that crosses a slot; and the
 values: the first call of sum on each compiler, the globals, the loop, paged globals with their note, the fastcall marker, C paths and
 their refusals, bitfields, the status texts, the lifetime, a rewind, a dot command's global, order and hiding, and the facade's
-contract). A struct's size by module is `CVALF-37`, the integer and real a value holds `CVALF-38`, rooted reads `CVALF-39`.
+contract, an unknown frame base, a stale map, an ambiguous function, page crossing and the label of an unmapped page, file-qualified static locals, a pointer in a register). The plan's row for an identity-only space (a value whose storage is in `BootRom`, `Layer2` and the like) is not built, and cannot be: `storage_of()` refuses any bound placement that is not a `Page` and `z88dk_section_space()` produces only `Page` and `DivMmcRam`, so no z88dk map can place a variable in such a space; the neighbouring contract, a failed read is never `0`, is reachable and rowed (a 2-byte global on the last byte of its page). A struct's size by module is `CVALF-37`, the integer and real a value holds `CVALF-38`, rooted reads `CVALF-39`.
