@@ -1701,11 +1701,28 @@ int main() {
         const VariableStore sst({sf}, zv, {}, {}, {});
         std::string srow;
         for (const CLocalRef& r : c_visible_locals(sst, 0, &sst.functions()[0].scopes[3])) srow += r.var->c_name + " ";
+        // before z88dk#3227 a `for` directly in the function body: the body's records are level 3 with block 1 (the last opened), its i is `$3_0$1`; no level 2 exists, no record sets it
+        std::vector<CVariable> pv;
+        for (const auto& [n, lv, bl] : std::vector<std::tuple<std::string, int, int>>{{"t", 1, 1}, {"i", 3, 1}}) {
+            CVariable v;
+            v.record = cdb_decode("S:Lt.c.f$" + n + "$" + std::to_string(lv) + "_0$" + std::to_string(bl) + "({2}SI:S),B,1,-4").record;
+            v.c_name = n;
+            v.function = 0;
+            pv.push_back(v);
+        }
+        CFunction pf;
+        pf.name = "f";
+        pf.compiler = CCompiler::Sccz80;
+        pf.trail = {sc(0, 1, 0, 0), sc(3, 2, 1, 1), sc(8, 3, 3, 1)};
+        pf.scopes = pf.trail;
+        const VariableStore pst({pf}, pv, {}, {}, {});
+        std::string prow;
+        for (const CLocalRef& r : c_visible_locals(pst, 0, &pst.functions()[0].scopes[2])) prow += r.var->c_name + " ";
         check("CVZB-13", "records where a `for` opens a block (z88dk#3254): in the `if` block t p (i, k and u are not open), in the for header t i, in the for body t i k, after the loop t, in the "
                          "next block t u: the walk needs no special case for it; and the walk is sccz80's only: the same trail on a zsdcc function keeps the block rule (shows q, block 5), on sccz80 the "
-                         "replay keeps block 7 (shows p)",
-              at(10) == "p t" && at(24) == "i t" && at(30) == "i k t" && at(40) == "i t" && at(50) == "t" && at(55) == "t u" && zrow == "q " && srow == "p ",
-              at(10) + " | " + at(24) + " | " + at(30) + " | " + at(40) + " | " + at(55) + " | z=" + zrow + " s=" + srow);
+                         "replay keeps block 7 (shows p); before z88dk#3227 a `for` in the function body (records at level 3 naming block 1, no level 2 ever seen) shows its i",
+              at(10) == "p t" && at(24) == "i t" && at(30) == "i k t" && at(40) == "i t" && at(50) == "t" && at(55) == "t u" && zrow == "q " && srow == "p " && prow == "t i ",
+              at(10) + " | " + at(24) + " | " + at(30) + " | " + at(40) + " | " + at(55) + " | z=" + zrow + " s=" + srow + " p=" + prow);
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
