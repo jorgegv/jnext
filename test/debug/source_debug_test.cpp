@@ -8174,7 +8174,7 @@ int main() {
             const Bytes globals = cpk(m, 0x903E, 64);
             const uint16_t fp1 = m.dbg->c_frames()[1].fp;
             const CwTry u = attempt(m, 0, "g_uint", "-1"), i = attempt(m, 0, "g_int", "32768"), s = attempt(m, 0, "g_schar", "128"), c = attempt(m, 1, "c", "200"),
-                        p = attempt(m, 0, "g_bptr", "65536"), f = attempt(m, 0, "g_float", "1e39"), fr = attempt(m, 0, "g_int", "1.5"), ab = attempt(m, 0, "g_int", "abc");
+                        p = attempt(m, 0, "g_bptr", "65536"), f = attempt(m, 0, "g_float", "1e39"), fr = attempt(m, 0, "g_int", std::string("1") + ".5"), ab = attempt(m, 0, "g_int", "abc");
             check("SRCDBG-CVW-16", "values: g_uint = -1, g_int = 32768, g_schar = 128, frame 1's c = 200 (sccz80's char is signed), g_bptr = 65536, g_float = 1e39 (48-bit "
                                    "overflow), g_int = a fraction and g_int = abc are each refused with the encoder's text, and nothing changes",
                   at && refused_with(u, "out of range for unsigned int (0..65535)") && refused_with(i, "out of range for int (-32768..32767)") &&
