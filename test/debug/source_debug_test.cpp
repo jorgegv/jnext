@@ -7489,6 +7489,104 @@ int main() {
             check("SRCDBG-CVAL-46", "after a rewind to before the load, c_frames() is the first reader: it runs recheck(), returns no frame, and the state revision advances",
                   had && back == Result::Ok && n == 0 && rev1 > rev0);
         }
+        {   // SRCDBG-CVAL-47
+            // cross(20): r = a + 1 = 21, then r = r * 2 = 42 past the 8 KB padding, so at `return r` (the first line after the second slot starts) a = 20 and r = 42
+            struct Cr { const char* fx; const char* tag; const char* line; uint16_t pc; };
+            bool ok = true;
+            std::string seen;
+            for (const Cr& c : {Cr{"master/sccz80-cross", "c47a", "cross.c:21", 0xAC7A}, Cr{"master/80cc-cross", "c47b", "cross.c:21", 0xAC92},
+                                Cr{"master/sdcc-cross", "c47c", "cross.c:22", 0xAC58}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                cv_load(m, c.fx, c.tag);
+                const bool at = cv_starts_at(m, c.line, c.pc) && cv_run_to(m, c.pc);
+                const Dbg::CValueResult a = m.dbg->read_c_value(0, "a");
+                const Dbg::CValueResult r = m.dbg->read_c_value(0, "r");
+                const bool good = at && m.dbg->registers().PC >= 0xA000 && a.ok && a.value == "20" && r.ok && r.value == "42";
+                if (!good) {
+                    ok = false;
+                    seen += std::string(" ") + c.fx + " a=" + (a.ok ? a.value : a.why) + " r=" + (r.ok ? r.value : r.why);
+                }
+            }
+            check("SRCDBG-CVAL-47", "a function that crosses an 8 KB slot (cross.c): stopped past $A000 (page 5), a = 20 and r = 42, on sccz80, 80cc and zsdcc", ok, seen);
+        }
+        {   // SRCDBG-CVAL-48
+            // a dot command's global is in DivMMC RAM bank 2: read from its own page, with a note that it is not mapped (the CPU is not in the command)
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            m.dbg->load_source_map((kZ88Fixtures / "master/sccz80-dot/prog.map").string(), false, false, /*dot_only=*/true);
+            uint8_t* bank2 = m.emu.divmmc().ram_data() + 2 * 0x2000;
+            bank2[0x3253 & 0x1FFF] = 200;   // `total` is a uint8_t
+            const Dbg::CValueResult r = m.dbg->read_c_value(0, "total");
+            check("SRCDBG-CVAL-48", "a dot command's `total` ($3253 in DivMMC RAM bank 2) is read from its own page (200), where = DivMmcRam{2}:$3253, with the note that the bank is not mapped now",
+                  r.ok && r.value == "200" && r.where.kind == Dbg::CWhere::Kind::Page && r.where.source.space == MemSpace::divmmc_ram(2) &&
+                      r.where.source.address == 0x3253 && has_note(r, "DivMMC RAM 2 is not mapped at $3253 now"));
+        }
+        {   // SRCDBG-CVAL-49
+            // order and hiding: parameters first by stack position, then locals, then static locals; no compiler temporaries (sloc), no enumerators, no string literals
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({"master/sccz80-cvars", "c49a", 0x8D3E}, m);
+            const auto names_of = [](const std::vector<Dbg::CValueRow>& rows) {
+                std::string o;
+                for (const auto& r : rows) o += (o.empty() ? "" : " ") + r.name;
+                return o;
+            };
+            const auto sc = m.dbg->c_locals(0);
+            Machine z(false, MachineType::ZXN_ISSUE2);
+            const bool zat = at41({"master/sdcc-cvars", "c49b", 0x8C97}, z);
+            const auto zc = z.dbg->c_locals(0);
+            bool temps = false;
+            for (const auto& r : z.dbg->c_globals()) temps = temps || r.name.find("sloc") == 0 || r.name.find("__") == 0 || r.name == "RED" || r.name == "BLUE";
+            for (const auto& r : m.dbg->c_globals()) temps = temps || r.name == "RED" || r.name == "GREEN" || r.name == "BLUE" || r.name.find("__") == 0;
+            bool kinds = sc.ok && sc.rows.size() == 7 && sc.rows[0].kind == Dbg::CValueRow::Kind::Param && sc.rows[3].kind == Dbg::CValueRow::Kind::Param &&
+                         sc.rows[4].kind == Dbg::CValueRow::Kind::Local && sc.rows[6].kind == Dbg::CValueRow::Kind::StaticLocal;
+            check("SRCDBG-CVAL-49", "c_locals(0) at vars.c:41: sccz80 `k p b a acc t calls` (parameters by stack position, locals, the static local last), zsdcc `a b p k acc t calls`; "
+                                    "no sloc temporaries, enumerators or `__` records anywhere in c_locals or c_globals",
+                  at && zat && sc.ok && zc.ok && names_of(sc.rows) == "k p b a acc t calls" && names_of(zc.rows) == "a b p k acc t calls" && kinds && !temps);
+        }
+        {   // SRCDBG-CVAL-50
+            // the facade's contract for its consumers: no reader bumps state_revision(); refusals have reasons; a result carries its type, location and integer; rows round-trip
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({"master/sccz80-cvars", "c50", 0x8D3E}, m);
+            m.dbg->c_frames();   // settle any pending recheck()
+            const uint64_t rev = m.dbg->state_revision();
+            const auto frames = m.dbg->c_frames();
+            const auto loc0 = m.dbg->c_locals(0);
+            const auto glob = m.dbg->c_globals();
+            const auto g_int = m.dbg->read_c_value(0, "g_int");
+            const auto st = m.dbg->c_variables_status();
+            const bool quiet = m.dbg->state_revision() == rev;
+            const auto past = m.dbg->c_locals(frames.size());
+            const auto head = m.dbg->read_c_value(1, "pp");
+            const auto gf = m.dbg->read_c_value(0, "g_float");
+            const auto s_dup = std::find_if(glob.begin(), glob.end(), [](const Dbg::CValueRow& r) { return r.path == "vars.c::s_dup"; });
+            const auto calls = std::find_if(glob.begin(), glob.end(), [](const Dbg::CValueRow& r) { return r.path == "sum::calls"; });
+            const auto gint = std::find_if(glob.begin(), glob.end(), [](const Dbg::CValueRow& r) { return r.name == "g_int"; });
+            bool sorted = true, round = !glob.empty();
+            for (size_t i = 1; i < glob.size(); ++i)
+                sorted = sorted && (glob[i - 1].file < glob[i].file || (glob[i - 1].file == glob[i].file && glob[i - 1].name <= glob[i].name));
+            for (const auto& r : glob)
+                round = round && (!r.ok || m.dbg->read_c_value(0, r.path).value == r.value);
+            for (const auto& r : loc0.rows)
+                round = round && (!r.ok || m.dbg->read_c_value(0, r.path).value == r.value);
+            // an assembly frame: stopped at l_debug_push_frame's first instruction (frame 0 is asm)
+            Machine a(false, MachineType::ZXN_ISSUE2);
+            cv_load(a, "master/sccz80-cvars", "c50b");
+            cv_run_to(a, 0x8CB9);
+            const bool asm_at = cv_run_to(a, 0x8B64);
+            const auto asm0 = a.dbg->c_locals(0);
+            Bare none;
+            const auto nl = none.dbg->c_locals(0);
+            check("SRCDBG-CVAL-50", "no reader bumps the state revision; c_locals(past the end) says `no frame N (there are M)`, an assembly frame `is not in a C function`, no store gives the status "
+                                    "text (also from read_c_value and an empty c_globals); read_c_value(1, pp) has an integer (the pointer's address) and a Cpu location, g_int -5 with type `int`, "
+                                    "g_float a real; c_globals() is ordered by file then name with `vars.c::s_dup` (a file static in a page), `sum::calls` (a static local) and g_int, and every row's path "
+                                    "reads back the same value",
+                  at && st.available && quiet && g_int.ok && g_int.integer && *g_int.integer == -5 && g_int.type == "int" && !g_int.real && !past.ok &&
+                      past.why == "no frame " + std::to_string(frames.size()) + " (there are " + std::to_string(frames.size()) + ")" && asm_at && !asm0.ok &&
+                      asm0.why.find("is not in a C function") != std::string::npos && !nl.ok && nl.why == "no source map is attached" &&
+                      !none.dbg->read_c_value(0, "g_int").ok && none.dbg->c_globals().empty() && head.ok && head.integer && head.where.kind == Dbg::CWhere::Kind::Cpu &&
+                      gf.ok && gf.real && *gf.real == 1.5 && s_dup != glob.end() && s_dup->kind == Dbg::CValueRow::Kind::FileStatic && s_dup->file == "vars.c" &&
+                      s_dup->where.kind == Dbg::CWhere::Kind::Page && calls != glob.end() && calls->kind == Dbg::CValueRow::Kind::StaticLocal &&
+                      gint != glob.end() && gint->kind == Dbg::CValueRow::Kind::Global && sorted && round);
+        }
             check("SRCDBG-CVAL-36", "a real mid-run attach (main in its while (1), no tracked frame): lp = {3, 4, 5}, i = 4, arr = {467, 471, 475, 479} on sccz80 and zsdcc, and "
                                     "on sccz80 also c = 120 'x', big = 100000 and pp == &lp",
                   ok);
