@@ -187,6 +187,11 @@ if(NOT WIN32)
     target_link_libraries(esxdos_symlink_test PRIVATE jnext_core spdlog::spdlog)
     target_include_directories(esxdos_symlink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME esxdos_symlink_tests COMMAND esxdos_symlink_test)
+    # GH #446 -- the POSIX-only rows of the ffmpeg PATH lookup (exec bits, symlinks, decoy script).
+    add_executable(video_recorder_posix_test core/video_recorder_posix_test.cpp)
+    target_link_libraries(video_recorder_posix_test PRIVATE jnext_core spdlog::spdlog)
+    target_include_directories(video_recorder_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME video_recorder_posix_tests COMMAND video_recorder_posix_test)
 endif()
 
 # Input subsystem compliance test
@@ -2075,6 +2080,21 @@ if(ENABLE_DEBUGGER)
         JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
         JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
     add_test(NAME debugger_source_panel_tests COMMAND debugger_source_panel_test)
+
+    # GH #435 (epic #353) - the Variables tab: C locals per call frame, globals, lazy expansion, and
+    # the Call Stack selection in step with it. Runs the committed z88dk fixtures on a real Next.
+    add_executable(debugger_variables_panel_test debugger/variables_panel_test.cpp)
+    set_target_properties(debugger_variables_panel_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_variables_panel_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
+        Qt${JNEXT_QT_MAJOR}::Test)
+    target_include_directories(debugger_variables_panel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(debugger_variables_panel_test PRIVATE
+        JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
+    add_test(NAME debugger_variables_panel_tests COMMAND debugger_variables_panel_test)
 
     # Debugger menu-reachability test (GH #215 — the Breakpoints menu offered
     # every breakpoint type EXCEPT Execute, and the main window's Debug menu

@@ -47,9 +47,19 @@ TurboSound::TurboSound()
     reset();
 }
 
+void TurboSound::power_on()
+{
+    // Hard reset = FPGA reconfiguration (zxnext_top_issue2.vhd:1195): every
+    // generator takes its declared initial value (ym2149.vhd:105-125).
+    for (auto& a : ay_) a.power_on();
+    reset();
+}
+
 void TurboSound::reset()
 {
-    // Full reset (power-on / hard reset). Cleans the synchronously-reset
+    // The VHDL `reset` (hard or soft) as seen by turbosound.vhd: RESET_H on the
+    // chips (the generators keep running, ym2149.vhd:258-519) plus the NR-driven
+    // shadows, which Emulator::init re-derives. Cleans the synchronously-reset
     // selector + pan AND the NR-driven shadow fields. The latter are not
     // owned by this module per VHDL turbosound.vhd:118-138, but at
     // power-on the NR 0x08 / NR 0x09 registers are themselves reset to
@@ -59,6 +69,7 @@ void TurboSound::reset()
     enabled_ = false;
     stereo_mode_ = false;
     mono_mode_ = 0;
+    reset_held_ = false;
     mix_dirty_ = true;
 }
 
@@ -67,7 +78,8 @@ void TurboSound::reset_ay_only()
     // VHDL turbosound.vhd:118-138 — synchronous reset clause clears only
     //   ay_select <= "11"; psg{0,1,2}_pan <= "11";
     // The audio_ay_reset signal also feeds each ym2149's reset port, so
-    // we clear the per-chip register files + cached outputs to match.
+    // we clear the per-chip register files + cached outputs to match (the
+    // generators keep running, ym2149.vhd:258-519).
     // enabled / stereo_mode / mono_mode are external NR-driven inputs
     // and intentionally LEFT UNTOUCHED here.
     for (auto& a : ay_) a.reset();
@@ -98,6 +110,10 @@ int TurboSound::active_ay_index() const
 
 void TurboSound::reg_addr(uint8_t data)
 {
+    // Held in reset (NR 0x06 psg_mode = 11, zxnext.vhd:6379): the select/pan command
+    // (turbosound.vhd:121, reset branch first) and the register select
+    // (ym2149.vhd:170) are both ignored.
+    if (reset_held_) return;
     // Check for AY select / panning command:
     // VHDL: turbosound_en_i = '1' AND psg_reg_addr_i = '1'
     //       AND psg_d_i(7) = '1' AND psg_d_i(4:2) = "111"
@@ -131,6 +147,7 @@ void TurboSound::reg_addr(uint8_t data)
 
 void TurboSound::reg_write(uint8_t data)
 {
+    if (reset_held_) return;   // ym2149.vhd:184, reset branch before busctrl_we
     ay_[active_ay_index()].write_data(data);
 }
 
@@ -141,17 +158,13 @@ uint8_t TurboSound::reg_read(bool reg_mode) const
 
 void TurboSound::tick()
 {
-    // Always tick AY#0
+    // VHDL turbosound.vhd:162/217/272: all three ym2149 instances run on the
+    // ungated clock_en_i (zxnext.vhd:6385, i_CLK_PSG_EN). TurboSound enable and
+    // ay_select gate only each chip's contribution to the mix (:197/:252/:307),
+    // which compute_chip_stereo() applies. GH #442.
     bool changed = ay_[0].tick();
-
-    // Tick AY#1 and AY#2 only if TurboSound is enabled,
-    // or if that AY is currently selected
-    if (enabled_ || ay_select_ == 2) {
-        changed |= ay_[1].tick();
-    }
-    if (enabled_ || ay_select_ == 1) {
-        changed |= ay_[2].tick();
-    }
+    changed |= ay_[1].tick();
+    changed |= ay_[2].tick();
 
     // GH #440: the mix only moves when a chip's output or a mix input did.
     if (changed || mix_dirty_) {

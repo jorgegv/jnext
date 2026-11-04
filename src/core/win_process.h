@@ -11,8 +11,8 @@
 /// through `cmd.exe`, and jnext.exe is deliberately linked as a GUI-subsystem
 /// binary (`-Wl,--subsystem,windows`) so an Explorer launch shows no console —
 /// which means cmd.exe would have no console to inherit and Windows would
-/// allocate and SHOW a fresh one. VideoRecorder probes for ffmpeg at every
-/// startup, so that is a console window flashing on every launch. Spawning the
+/// allocate and SHOW a fresh one. Every ffmpeg start would be a console
+/// window flashing. Spawning the
 /// child directly with CREATE_NO_WINDOW avoids it, and removes the cmd.exe
 /// quoting layer entirely.
 ///

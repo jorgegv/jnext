@@ -7750,6 +7750,133 @@ int main() {
                       py.where.kind == Dbg::CWhere::Kind::Cpu && py.where.cpu == 0xA002 && has_note(py, "in HL; may be stale") && p1.ok && p1.value == "6" && star.ok &&
                       star.value == "{x = 3, y = 4}" && !pdot.ok && !wx.ok && wx.why == "a register value has no address");
         }
+        // ── GH #435 (E353-05): the children of a C variable, on a real machine ──
+        // Oracle: vars.c / bk.c / bkmain.c semantics (types.h: struct point {x, y, tag}; g_matrix = {{1, 2, 3}, {4, 5, 6}}; btable = {10, 20, 30, 40}
+        // in bank 20), the committed maps' addresses and records.
+        {   // SRCDBG-CVCH-01
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({"master/sccz80-cvars", "ch1", 0x8D3E}, m);
+            const Dbg::CChildRows lp = m.dbg->c_children(1, "lp");
+            const Dbg::CChildRows p = m.dbg->c_children(0, "p");
+            bool round_trip = lp.ok && p.ok;
+            for (const auto* rs : {&lp.rows, &p.rows})
+                for (const auto& r : *rs) round_trip = round_trip && r.ok && cvv(m, rs == &lp.rows ? 1 : 0, r.path.c_str()) == r.value;
+            check("SRCDBG-CVCH-01", "at vars.c:41: c_children(1, lp) is lp.x 3, lp.y 4, lp.tag 5 and c_children(0, p) is p->x 3, p->y 4, p->tag 5 (p points at main's lp); every "
+                                    "row's path read back through read_c_value gives the row's own value text",
+                  at && lp.ok && lp.total == 3 && lp.rows.size() == 3 && lp.rows[0].path == "lp.x" && lp.rows[0].value == "3" && lp.rows[1].path == "lp.y" &&
+                      lp.rows[1].value == "4" && lp.rows[2].path == "lp.tag" && lp.rows[2].value == "5" && lp.rows[0].type == "int" &&
+                      lp.rows[2].type == "unsigned char" && p.ok && p.total == 3 && p.rows.size() == 3 && p.rows[0].path == "p->x" && p.rows[0].value == "3" &&
+                      p.rows[1].path == "p->y" && p.rows[1].value == "4" && p.rows[2].path == "p->tag" && p.rows[2].value == "5" && round_trip);
+        }
+        {   // SRCDBG-CVCH-02
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({"master/sccz80-cvars", "ch2", 0x8D3E}, m);
+            const Dbg::CChildRows row1 = m.dbg->c_children(0, "g_matrix", 1, 1);
+            const Dbg::CChildRows leaf = m.dbg->c_children(0, "g_int");
+            const Dbg::CChildRows past = m.dbg->c_children(9, "lp");
+            const Dbg::CChildRows inner = m.dbg->c_children(0, "inner");
+            const Dbg::CValueResult inner_read = m.dbg->read_c_value(0, "inner");
+            check("SRCDBG-CVCH-02", "c_children(0, g_matrix, 1, 1): total 2 and the one row g_matrix[1] = {4, 5, 6}; a scalar (g_int) is ok with total 0; a frame past the end is "
+                                    "refused; `inner` (out of scope at vars.c:41) is refused with read_c_value's own reason",
+                  at && row1.ok && row1.total == 2 && row1.rows.size() == 1 && row1.rows[0].path == "g_matrix[1]" && row1.rows[0].value == "{4, 5, 6}" && leaf.ok &&
+                      leaf.total == 0 && leaf.rows.empty() && !past.ok && !past.why.empty() && !inner.ok && !inner_read.ok && inner.why == inner_read.why &&
+                      inner.why == "out of scope at vars.c:41");
+        }
+        {   // SRCDBG-CVCH-03
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at10 = at_bk10(m, "master/sccz80-cvars-banked", "ch3");
+            const auto loop = m.dbg->source_map().resolve("bkmain.c:8");
+            bool at = at10 && !loop.starts.empty();
+            // single-stepped with the interrupts off (banked_call enables them and this machine has no ROM), as SRCDBG-CVAL-38
+            for (int i = 0; at && i < 2000 && m.dbg->registers().PC != loop.starts[0].address; ++i) {
+                Z80Registers r = m.emu.cpu().get_registers();
+                r.IFF1 = r.IFF2 = 0;
+                m.emu.cpu().set_registers(r);
+                m.emu.execute_single_instruction();
+            }
+            at = at && m.dbg->registers().PC == loop.starts[0].address;
+            const Dbg::CChildRows bt = m.dbg->c_children(0, "btable");
+            bool pages = bt.ok && bt.rows.size() == 4;
+            for (size_t i = 0; pages && i < 4; ++i) {
+                const auto& r = bt.rows[i];
+                bool note = false;
+                for (const auto& n : r.notes) note = note || n.find("page 20 is not mapped at $C000 now") != std::string::npos;
+                pages = r.where.kind == Dbg::CWhere::Kind::Page && r.where.source.space == MemSpace::page(20) && r.where.source.address == 0xC000 + i && note;
+            }
+            check("SRCDBG-CVCH-03", "banked, in main's loop (bank 20 unmapped): c_children(0, btable) is 4 rows 10, 20, 30, 40 '(' each placed in Page{20} at $C000..$C003 (read "
+                                    "from the global's own page, not the CPU view) with the not-mapped note",
+                  at && pages && bt.total == 4 && bt.rows[0].value == "10" && bt.rows[1].value == "20" && bt.rows[2].value == "30" && bt.rows[3].value == "40 '('");
+        }
+        {   // SRCDBG-CVCH-04
+            // `*p` is `p[0]`: the grammar applies a leading `*` after the postfix steps, so a child path built as `*p` + `.x` would read `*(p.x)`
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({"master/sccz80-cvars", "ch4", 0x8D3E}, m);
+            const Dbg::CChildRows star = m.dbg->c_children(0, "*p");
+            bool round_trip = star.ok && star.rows.size() == 3;
+            for (const auto& r : star.rows) round_trip = round_trip && r.ok && cvv(m, 0, r.path.c_str()) == r.value;
+            check("SRCDBG-CVCH-04", "c_children(0, *p) at vars.c:41 is x 3, y 4, tag 5 (paths p[0].x, p[0].y, p[0].tag, not `*p.x`) and every row's path reads back through "
+                                    "read_c_value to the row's own value",
+                  at && star.ok && star.total == 3 && star.rows.size() == 3 && star.rows[0].path == "p[0].x" && star.rows[0].value == "3" && star.rows[1].path == "p[0].y" &&
+                      star.rows[1].value == "4" && star.rows[2].path == "p[0].tag" && star.rows[2].value == "5" && round_trip);
+        }
+        {   // SRCDBG-CVCH-05
+            // SRCDBG-CVAL-58's synthetic map: p (a struct pt *) in HL, w (a struct in BC)
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const std::string map = (z / "ch5.map").string();
+            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
+                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") +
+                                s3_rec("T:Ft.h$pt[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "t_c") +
+                                s3_rec("S:Lt.c.fa$p$1_0$1({2}DG,STpt:S),R,0,0,[l,h]", "t_c") + s3_rec("S:Lt.c.fa$w$1_0$1({4}STpt:S),R,0,0,[c,b,e,d]", "t_c"));
+            const auto lr = m.dbg->load_source_map(map, true);
+            const uint8_t pts[] = {3, 0, 4, 0};
+            for (size_t i = 0; i < sizeof pts; ++i) m.emu.mmu().write(static_cast<uint16_t>(0xA000 + i), pts[i]);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.HL = 0xA000;
+            m.emu.cpu().set_registers(r);
+            const Dbg::CChildRows p = m.dbg->c_children(0, "p");
+            const Dbg::CChildRows w = m.dbg->c_children(0, "w");
+            bool note = false;
+            if (p.rows.size() == 2)
+                for (const auto& n : p.rows[1].notes) note = note || n.find("in HL; may be stale") != std::string::npos;
+            check("SRCDBG-CVCH-05", "a pointer held in HL opens onto its pointee: c_children(0, p) is p->x 3 and p->y 4 (where = Cpu at $A002 for y, with the stale-register note); a struct held in "
+                                    "BC has no address to walk and is refused `a register value has no address`",
+                  lr.count > 0 && p.ok && p.total == 2 && p.rows.size() == 2 && p.rows[0].path == "p->x" && p.rows[0].value == "3" && p.rows[1].path == "p->y" && p.rows[1].value == "4" &&
+                      p.rows[1].where.kind == Dbg::CWhere::Kind::Cpu && p.rows[1].where.cpu == 0xA002 && note && !w.ok && w.why == "a register value has no address",
+                  "p.ok=" + std::to_string(p.ok) + " why=" + p.why + " rows=" + std::to_string(p.rows.size()) + " w=" + w.why +
+                      (p.rows.size() == 2 ? " r0=" + p.rows[0].path + "=" + p.rows[0].value + "/" + p.rows[0].why + " r1=" + p.rows[1].value : ""));
+        }
+        {   // SRCDBG-CVCH-06
+            // a pointer GLOBAL is read from its own page, what it points at through the CPU view: with the page unmapped, the pointer is still the page's
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, "master/sccz80-cvars", "ch6");
+            const bool run = cv_run_to(m, 0x8E1F);   // g_head = &g_node at vars.c:64
+            const Dbg::CValueResult head = m.dbg->read_c_value(0, "g_head");
+            const bool remapped = m.dbg->set_mmu_slot(m.a, 4, 40) == Result::Ok;   // $8000-$9FFF now shows another page
+            const Dbg::CChildRows kids = m.dbg->c_children(0, "g_head");
+            uint8_t b[4] = {0, 0, 0, 0};
+            const uint16_t node = head.integer ? static_cast<uint16_t>(*head.integer) : 0;
+            m.dbg->peek(MemSpace::cpu(), static_cast<uint16_t>(node + 2), 4, b);
+            const int32_t want = static_cast<int32_t>(b[0] | b[1] << 8 | b[2] << 16 | static_cast<uint32_t>(b[3]) << 24);
+            check("SRCDBG-CVCH-06", "with page 4 unmapped (slot 4 remapped), c_children(0, g_head) still starts from the pointer in g_head's own page ($9091, g_node): ok, next and val, val read "
+                                    "through the CPU view (what the remapped slot shows at node + 2), not refused as `null pointer`",
+                  run && remapped && head.ok && node != 0 && kids.ok && kids.total == 2 && kids.rows.size() == 2 && kids.rows[1].path == "g_head->val" &&
+                      kids.rows[1].value == std::to_string(want));
+        }
+        {   // SRCDBG-CVCH-07
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, "master/sccz80-cvars", "ch7");
+            const bool s1 = cv_run_to(m, 0x8CB9), s2 = cv_run_to(m, 0x8B64);   // l_debug_push_frame in sum's first call: frame 1 is sum, `t` is not allocated yet
+            const Dbg::CChildRows t = m.dbg->c_children(1, "t");
+            const Dbg::CValueResult read = m.dbg->read_c_value(1, "t");
+            Machine n(false, MachineType::ZXN_ISSUE2);
+            const Dbg::CChildRows none = n.dbg->c_children(0, "x");
+            check("SRCDBG-CVCH-07", "a variable that cannot be read is refused with read_c_value's own reason, not listed as a leaf: c_children(1, t) at the helper is `not allocated`; with no "
+                                    "source map the reason is c_variables_status's",
+                  s1 && s2 && !t.ok && !read.ok && t.why == read.why && t.why == "not allocated" && !none.ok && !none.why.empty() &&
+                      none.why == n.dbg->c_variables_status().why);
+        }
         {   // SRCDBG-CVAL-50
             // the facade's contract for its consumers: no reader bumps state_revision(); refusals have reasons; a result carries its type, location and integer; rows round-trip
             Machine m(false, MachineType::ZXN_ISSUE2);

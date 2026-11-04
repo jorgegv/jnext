@@ -136,6 +136,18 @@ Debugger::CValueResult refused(const std::string& why)
     return r;
 }
 
+// The format context of variable `v`: how its type is looked up and what its pointers' targets are read through.
+CFormatCtx var_ctx(const Env& e, const CVariable& v)
+{
+    CFormatCtx ctx;
+    ctx.store = e.store.get();
+    ctx.scope_name = v.record.scope_name;
+    ctx.module = v.module;
+    ctx.read = cpu_reader(e.d);
+    ctx.name_at = name_lookup(e);
+    return ctx;
+}
+
 // Read variable `v` (and the path's steps) in frame `k`.
 Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool deref, const std::vector<CPathStep>& steps)
 {
@@ -145,12 +157,7 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
     out.type = c_type_text(cv.type);
     out.aggregate = is_aggregate(cv.type);
 
-    CFormatCtx ctx;
-    ctx.store = e.store.get();
-    ctx.scope_name = v.record.scope_name;
-    ctx.module = v.module;
-    ctx.read = cpu_reader(e.d);
-    ctx.name_at = name_lookup(e);
+    CFormatCtx ctx = var_ctx(e, v);
 
     // OD-14 / z88dk U1: a fastcall parameter recorded at its nominal slot is not there.
     if (v.function >= 0 && cv.space == 'B' && cv.stack_offset() >= 0) {
@@ -208,6 +215,10 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
             out.notes.push_back(rr.note);
         } else {
             if (deref || !steps.empty()) return refused("a register value has no address");
+            // no address, but the type (the int32 atom of GH #436 decides on it) and a pointer's VALUE, which c_children() follows
+            out.loc.type = cv.type;
+            if (!cv.type.chain.empty() && cv.type.chain[0].kind == CdbTypeKind::Pointer && rr.bytes.size() >= 2)
+                out.loc.ptr_value = static_cast<uint16_t>(rr.bytes[0] | rr.bytes[1] << 8);
             const CFormatted f = c_format_value(ctx, cv.type, rr.bytes.data(), rr.bytes.size());
             if (!f.ok) return refused(f.why);
             out.ok = true;
@@ -216,7 +227,6 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
             out.notes.push_back(rr.note);
             out.where.kind = Debugger::CWhere::Kind::Register;
             out.where.regs = rr.note.substr(3, rr.note.find(';') - 3);
-            out.loc.type = cv.type;   // no address, but the type: the int32 atom decides on it (GH #436)
             out.integer = c_integer_value(cv.type, rr.bytes.data(), rr.bytes.size());
             out.real = c_float_value(cv.type, rr.bytes.data(), rr.bytes.size());
             return out;
@@ -576,6 +586,77 @@ Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::s
             out.value = back.value;
             out.where = back.where;
         }
+    }
+    return out;
+}
+
+Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, size_t first, size_t max) const
+{
+    CChildRows out;
+    const Env e = make_env(*this);
+    if (!e.store) {
+        out.why = c_variables_status().why;
+        return out;
+    }
+    const CPath p = c_parse_path(path);
+    if (!p.ok) {
+        out.why = p.why;
+        return out;
+    }
+    if (frame >= e.frames.size()) {
+        out.why = "no frame " + std::to_string(frame) + " (there are " + std::to_string(e.frames.size()) + ")";
+        return out;
+    }
+    const Found f = find_var(e, frame, p);
+    if (!f.v) {
+        out.why = f.why;
+        return out;
+    }
+    const CValueResult self = eval_var(e, frame, *f.v, p.deref, p.steps);
+    if (!self.ok) {
+        out.why = self.why;
+        return out;
+    }
+    if (self.where.kind == CWhere::Kind::Register && !self.loc.ptr_value) {
+        out.ok = !self.aggregate;   // a register scalar is a leaf; an aggregate in one has no address to walk
+        if (!out.ok) out.why = "a register value has no address";
+        return out;
+    }
+    CFormatCtx ctx = var_ctx(e, *f.v);
+    if (self.where.kind == CWhere::Kind::Page) ctx.read_root = space_reader(e.d, self.where.source.space);
+    const CChildren ch = jnext::dbg::c_children(ctx, self.loc, first, max);
+    if (!ch.ok) {
+        out.why = ch.why;
+        return out;
+    }
+    out.ok = true;
+    out.total = ch.total;
+    // `*E` is `E[0]`: the grammar applies a leading `*` AFTER the postfix steps, so `*p` + `.x` would read as `*(p.x)`. `self.loc` is the
+    // pointee already, so its members are `.x` (or `->x` if it is itself a pointer) on `E[0]`.
+    std::string base(path);
+    if (p.deref) {
+        const size_t star = base.find('*');
+        base = base.substr(star + 1);
+        const size_t b = base.find_first_not_of(" \t");
+        base = (b == std::string::npos ? std::string() : base.substr(b)) + "[0]";
+    }
+    for (const CChild& c : ch.items) {
+        const std::string child_path = base + c.suffix;
+        const CPath cp = c_parse_path(child_path);
+        CValueResult r = cp.ok ? eval_var(e, frame, *f.v, cp.deref, cp.steps) : refused(cp.why);
+        Row row;
+        row.name = c.label;
+        row.path = child_path;
+        row.file = file_of(e, f.v->module);
+        row.type = r.type.empty() ? c_type_text(c.loc.type) : r.type;
+        row.kind = f.kind;
+        row.where = r.where;
+        row.ok = r.ok;
+        row.value = r.value;
+        row.why = r.why;
+        row.aggregate = r.ok ? r.aggregate : is_aggregate(c.loc.type);
+        row.notes = r.notes;
+        out.rows.push_back(row);
     }
     return out;
 }

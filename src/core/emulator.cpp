@@ -290,7 +290,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   timer_count → 0, state → S_IDLE, cancel_nmi → 0, local_fnkeys → 0.
     emu_fnkeys_.reset();
     beeper_.reset();
-    turbosound_.reset();
+    // Hard reset = FPGA reconfiguration (zxnext_top_issue2.vhd:1195): power-on,
+    // declared initial values. A soft reset is only the `reset` pulse: RESET_H
+    // on the chips, the generators keep running (ym2149.vhd:258-519). GH #442.
+    if (preserve_memory) turbosound_.reset(); else turbosound_.power_on();
     dac_.reset();
     if (cfg.dac_write_callback) {
         dac_.set_write_callback([this, callback = cfg.dac_write_callback]
@@ -385,7 +388,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     renderer_.reset(/*hard=*/!preserve_memory);   // GH #263, see palette_ above
 
-    psg_accum_ = 0;
+    // The PSG clock-enable phase is a free-running divider with no reset
+    // (zxnext_top_issue2.vhd:1158-1177): only a hard reset restarts it. GH #442.
+    // sample_accum_ is the host resampler, not hardware.
+    if (!preserve_memory) psg_accum_ = 0;
     sample_accum_ = 0;
     dac_enabled_ = false;
     // PASS-7 NR 0x08 reset preservation. Same shape as NR 0x06 / NR 0x05 /
@@ -5529,6 +5535,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // NR 0x06 write would otherwise re-arm them.
         nmi_source_.set_mf_enable(nr_06_button_m1_nmi_en_);
         nmi_source_.set_divmmc_enable(nr_06_button_drive_nmi_en_);
+        // psg_mode is not in the reset block (zxnext.vhd:1112): a hold in force
+        // before a soft reset is still in force after it.
+        turbosound_.set_reset_held((cached_06 & 0x03) == 0x03);
+        // aymode_i <= nr_06_psg_mode(0) (zxnext.vhd:6389), and psg_mode powers on at "00"
+        // (zxnext.vhd:1112): YM until NR 0x06 is written. The write handler sets the same
+        // input; init() derives it from the preserved value, as for the other NR 0x06 shadows.
+        turbosound_.set_ay_mode((cached_06 & 0x01) != 0);
     }
     // G110 — refresh Mixer's exc_i now that the NR 0x06 b6 shadow has been
     // cleared (and `nr_08_stored_low_ = 0x10` earlier in init() set the b4
@@ -5546,18 +5559,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         turbosound_.set_ay_mode(ay_mode_bit);
 
         // VHDL zxnext.vhd:6379 — `audio_ay_reset <= '1' when reset='1' or
-        // nr_06_psg_mode = "11" else '0'`. The turbosound module receives
-        // this as its reset line, so a write of psg_mode="11" clears its
-        // internal register file + pan/selector state on the NEXT clock
-        // edge. Per turbosound.vhd:118-138 the synchronous reset clause
+        // nr_06_psg_mode = "11" else '0'`: a LEVEL. The turbosound module gets
+        // it as its reset line, so while psg_mode = "11" the chips are held in
+        // reset: register writes and the select/pan command are ignored
+        // (turbosound.vhd:120-126, ym2149.vhd:170,184). The onset applies the
+        // reset once; the hold is re-derived from NR 0x06 after init() and
+        // after a state load. Per turbosound.vhd:118-138 the reset clause
         // clears ONLY ay_select + per-PSG pan; enabled / stereo_mode /
-        // mono_mode are external NR-driven inputs (turbosound_en_i,
-        // stereo_mode_i, mono_mode_i fed from NR 0x08 b1/b5 + NR 0x09)
-        // and MUST survive the audio_ay_reset pulse. Use the partial
-        // reset_ay_only() variant to honour that contract (G115).
-        if ((v & 0x03) == 0x03) {
+        // mono_mode are external NR-driven inputs and survive it, so the
+        // partial reset_ay_only() is used (G115).
+        const bool held = (v & 0x03) == 0x03;
+        if (held) {
             turbosound_.reset_ay_only();
         }
+        turbosound_.set_reset_held(held);
 
         // VHDL zxnext.vhd:5163 — `nr_06_internal_speaker_beep <= nr_wr_dat(6)`.
         // Composes into `beep_spkr_excl` with NR 0x08 bit 4 (VHDL:6504).
@@ -13771,6 +13786,9 @@ bool Emulator::load_state(StateReader& r)
     beeper_.load_state(r);
     if (!check_sentinel("beeper")) return false;
     turbosound_.load_state(r);
+    // The hold is the NR 0x06 value, re-derived, not serialised (GH #442): the loaded
+    // chip state stays exactly as saved.
+    turbosound_.set_reset_held((nextreg_.cached(0x06) & 0x03) == 0x03);
     if (!check_sentinel("turbosound")) return false;
     dac_.load_state(r);
     if (!check_sentinel("dac")) return false;

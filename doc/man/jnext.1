@@ -819,8 +819,8 @@ Record video and audio to an MP4.
 Requires \f[B]ffmpeg\f[R](1) on the PATH.
 If the recording cannot be produced (encoder failure, no usable output),
 \f[B]jnext\f[R] reports the error and exits non\-zero.
-If the recording cannot even be started (no usable \f[B]ffmpeg\f[R]),
-\f[B]jnext\f[R] exits non\-zero immediately, without running the
+If the recording cannot even be started (no \f[B]ffmpeg\f[R] on the
+PATH), \f[B]jnext\f[R] exits non\-zero immediately, without running the
 emulation.
 .TP
 \f[B]\-\-wav\-record\f[R] \f[I]FILE\f[R]
@@ -3066,7 +3066,14 @@ page/bank selector
 \f[B]Stack\f[R] \- SP\-relative word view, SP row highlighted
 .IP \(bu 2
 \f[B]Call stack\f[R] \- CALL/RST/INT/RET tracking, with symbol
-resolution
+resolution; a click on a row chooses the C frame the Variables tab shows
+.IP \(bu 2
+\f[B]Variables\f[R] \- with a z88dk \f[CR]\-debug\f[R] source map, the C
+variables of a call frame (chosen in a selector or in the Call stack)
+and the globals and statics, as a tree that opens onto struct members,
+array elements and what a pointer points at; the type, the value (or why
+there is none) and where it is; read only, paused only.
+Right\-click a row to watch it
 .IP \(bu 2
 \f[B]Breakpoints\f[R] \- execution, read, write and I/O watchpoints, in
 one panel.
@@ -3085,7 +3092,9 @@ breakpoint is drawn in the gutter as a hollow ring rather than a filled
 dot
 .IP \(bu 2
 \f[B]Watch expressions\f[R] \- byte, word or long at arbitrary
-addresses, with custom labels
+addresses, with custom labels; and C variables pinned from the Variables
+tab (a local follows its function and says so when it is out of scope;
+read at each stop)
 .IP \(bu 2
 \f[B]Video panels\f[R] \- All layers (the real composite, through the
 live compositor), ULA (primary and shadow), Layer 2 (active and shadow),

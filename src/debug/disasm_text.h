@@ -27,8 +27,8 @@ enum class CopyFormat {
     /// assemblers that take a bare column-1 word as a label definition would
     /// otherwise read `LD HL,$4000` as a label named LD.
     AsmOnly,
-    /// Address, opcode bytes and mnemonic, laid out in the panel's own
-    /// columns — for bug reports and annotated traces.
+    /// Address, opcode bytes and mnemonic, in an assembler listing's column
+    /// order (not the panel's, GH #448) — for bug reports and annotated traces.
     WithAddresses,
 };
 

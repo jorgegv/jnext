@@ -601,8 +601,13 @@ def cpu_seconds(pid):
     return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
 
 
-def sc_paused_headless(port, wrapper_pid, exit_frames):
-    """Started BEFORE jnext listens, so it attaches in the first frames.
+def sc_paused_headless(port, pid_file, exit_frames):
+    """Started BEFORE jnext, so it attaches in the first frames.
+
+    The row script starts this client first and waits for `<pid_file>.dialing`,
+    created just before the dial loop, and only then launches jnext and writes
+    its pid to <pid_file>. So the attach never depends on how fast jnext or
+    Python start (GH #449). The pid is read after the attach, bounded.
 
     Then it holds the machine paused and measures (a) the CPU jnext uses while
     it waits — a spinning loop burns a whole core — and (b) when jnext exits on
@@ -617,7 +622,8 @@ def sc_paused_headless(port, wrapper_pid, exit_frames):
     `continue`-ing) does care about: it would exit within a fraction of a
     second, mid-chat. The silent half after it is where the CPU is measured.
     """
-    wrapper_pid, exit_frames = int(wrapper_pid), int(exit_frames)
+    exit_frames = int(exit_frames)
+    open(pid_file + ".dialing", "w").close()
     deadline = time.monotonic() + 20
     c = None
     while c is None:
@@ -630,6 +636,14 @@ def sc_paused_headless(port, wrapper_pid, exit_frames):
             time.sleep(0.001)
     c.init(name="jnext-regression")
     t_attach = time.monotonic()
+    pid_deadline = time.monotonic() + 5
+    wrapper_pid = None
+    while wrapper_pid is None:
+        try:
+            wrapper_pid = int(open(pid_file).read().strip())
+        except (OSError, ValueError):
+            check(time.monotonic() < pid_deadline, "no jnext pid in %s" % pid_file)
+            time.sleep(0.005)
     jpid = jnext_process_under(wrapper_pid)
     check(jpid is not None, "could not find jnext under pid %d" % wrapper_pid)
     # The whole register set, R included (it counts every opcode fetch): a

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.112</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.112</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2882,6 +2882,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-qt-variables-tab-gh-435" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Qt Variables tab (GH #435)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Qt Variables tab (GH #435)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#c-watches-in-the-watches-tab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C watches in the Watches tab
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#which-memory-a-view-names-gh-360" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3046,8 +3074,8 @@ DZRP has no source surface and no C variable surface at all.</em></p>
 <tbody>
 <tr>
 <td>Qt debugger</td>
-<td><code>source_location()</code>, <code>source_map()</code>, <code>source_map_status()</code>, <code>source_page()</code>, <code>lookup()</code>, the breakpoint groups, <code>executed_source_lines()</code></td>
-<td>The Source tab, the Breakpoints rows, the Call Stack column, symbol names, the long address</td>
+<td><code>source_location()</code>, <code>source_map()</code>, <code>source_map_status()</code>, <code>source_page()</code>, <code>lookup()</code>, the breakpoint groups, <code>executed_source_lines()</code>, <code>c_frames()</code>, <code>c_locals()</code>, <code>c_globals()</code>, <code>c_children()</code>, <code>read_c_value()</code>, <code>c_variables_status()</code></td>
+<td>The Source tab, the Variables tab, the Breakpoints rows, the Call Stack column, symbol names, the long address</td>
 <td>below, and <a href="../03-subsystems/10-2-the-qt-debugger.html">3.10.2</a></td>
 </tr>
 <tr>
@@ -3093,7 +3121,7 @@ browsed (<code>browse_addr_</code>) and the reason <code>report_sidecars()</code
 <p><code>SourcePanel::refresh_()</code> (<code>source_panel.cpp:590</code>) runs while the machine is paused,
 whenever the window's paused stamp changed (<a href="../03-subsystems/10-2-the-qt-debugger.html">3.10.2</a>:
 the stamp carries a flag for "the loaded file changed on disk",
-<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:963</code>; the flag is
+<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:968</code>; the flag is
 <code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:551</code>). In order:</p>
 <ol>
 <li><code>update_buttons(paused)</code> (<code>source_panel.cpp:494</code>): the forward steps need a paused machine and a
@@ -3131,7 +3159,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 </ol>
 <p><code>follow_pc()</code> (<code>source_panel.cpp:557</code>) clears <code>placed_</code> and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-<code>DebuggerWindow::activate_follow_pc()</code> (<code>debugger_window.cpp:1582</code>) calls it, and
+<code>DebuggerWindow::activate_follow_pc()</code> (<code>debugger_window.cpp:1598</code>) calls it, and
 <code>apply_pause_state(true)</code> runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.</p>
 <h3 id="finding-the-file">Finding the file<a class="headerlink" href="#finding-the-file" title="Permanent link">&para;</a></h3>
@@ -3139,13 +3167,13 @@ already shown still puts the view back.</p>
 the SDL-only and Windows trees test it): an absolute name; then the map's directory and each
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading <code>..</code> is dropped.
-<code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:305</code>) takes the
+<code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:310</code>) takes the
 configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3128</code>, fed by
 <code>apply_startup_config()</code>, <code>:2910</code>: the saved list with the command line's <code>--source-dir</code> or
 <code>paths.source_dirs</code> value over it), and <strong>Locate File...</strong> (<code>SourcePanel::locate_file()</code>, <code>source_panel.cpp:438</code>)
-adds to a second, session-only list through <code>DebuggerManager::on_source_dir_located()</code> (<code>debugger_manager.cpp:317</code>). The effective
+adds to a second, session-only list through <code>DebuggerManager::on_source_dir_located()</code> (<code>debugger_manager.cpp:322</code>). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
-<code>DebuggerManager::push_source_dirs()</code> (<code>debugger_manager.cpp:297</code>) on every change and again in <code>ensure_window()</code>, since the window is
+<code>DebuggerManager::push_source_dirs()</code> (<code>debugger_manager.cpp:302</code>) on every change and again in <code>ensure_window()</code>, since the window is
 created lazily. Locate derives the directory with <code>source_search::root_for()</code>, refuses a file of
 another name, and asks whether to save it; <code>source_dir_save_requested</code> is MainWindow's, which
 appends to <code>[paths] source_dirs</code> and refuses a directory that holds the list separator, as
@@ -3156,12 +3184,12 @@ manager announces each change (<code>source_dirs_changed</code>, because <code>s
 and MainWindow logs <code>Source search path: ...</code>.</p>
 <h3 id="loading-a-map-by-hand">Loading a map by hand<a class="headerlink" href="#loading-a-map-by-hand" title="Permanent link">&para;</a></h3>
 <p>The Source tab's <strong>Load Source Map...</strong> button and the Debug &gt; Source &gt; Load Source Map... item
-are one slot, <code>DebuggerManager::on_load_sld()</code> (<code>debugger_manager.cpp:857</code>). Its file dialog
+are one slot, <code>DebuggerManager::on_load_sld()</code> (<code>debugger_manager.cpp:862</code>). Its file dialog
 offers <code>*.sld</code>, <code>*.sld.txt</code> and <code>*.map</code>; the backend tells the format by content
 (<a href="03-loaders.html">7.3</a>), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 <code>load_map()</code>; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is <code>DebuggerManager::report_sidecars()</code> (<code>:899</code>):
+rather than unreadable. The sidecar report is <code>DebuggerManager::report_sidecars()</code> (<code>:904</code>):
 the log, and the main window's status bar for ten seconds.</p>
 <h3 id="colouring">Colouring<a class="headerlink" href="#colouring" title="Permanent link">&para;</a></h3>
 <p><code>SourceHighlighter</code> (<code>source_highlighter.*</code>, a <code>QSyntaxHighlighter</code> that exists only in
@@ -3209,7 +3237,7 @@ the log, and the main window's status bar for ten seconds.</p>
   viewport. <code>set_colour_scheme()</code> (<code>source_panel.cpp:542</code>) applies at once (Preferences Apply while the machine
   runs) and refreshes, because the tints are selections <code>refresh_()</code> builds and a paused tick
   redraws only when the machine moved. The setting is held by
-  <code>DebuggerManager::set_source_scheme()</code> (<code>debugger_manager.cpp:311</code>) and pushed by
+  <code>DebuggerManager::set_source_scheme()</code> (<code>debugger_manager.cpp:316</code>) and pushed by
   <code>ensure_window()</code>, fed by <code>MainWindow::apply_startup_config()</code>.</li>
 <li><strong>What a scheme does not reach.</strong> The gutter and its header paint from the panel's palette, so
   a scheme never colours them, and the breakpoint marks stay as they are. The current-line marker
@@ -3316,6 +3344,58 @@ announces nothing. The gutter, the menu, Copy with Addresses and Run to Cursor a
 they act on the file browsed. Rows <code>QSRC-176</code> to <code>QSRC-189</code> and <code>QSRC-201</code> to <code>QSRC-208</code> pin the
 behaviour; <code>source_sync_colors.h</code> is the one definition of the linked colour for both views; the Source tab keeps one
 per scheme (<code>SchemeColours::linked_line</code>), tested for legibility like the coverage tint (row <code>QSRC-189</code>).</p>
+<h2 id="the-qt-variables-tab-gh-435">The Qt Variables tab (GH #435)<a class="headerlink" href="#the-qt-variables-tab-gh-435" title="Permanent link">&para;</a></h2>
+<p><code>VariablesPanel</code> (<code>src/debugger/variables_panel.*</code>) is a tab of the bottom-right tab widget, between Watches and
+Breakpoints (the window has no docks: its layout is the fixed one of GH #114). It shows the C variables of one call
+frame and the globals and statics as a <code>QTreeWidget</code> (Name, Type, Value, Address). Like every CAP-SRC reader it holds no copy
+of a store, and it <strong>formats nothing</strong>: every value, type, refusal and note is the facade's text (<code>c_locals()</code>,
+<code>c_globals()</code>, <code>c_children()</code>, <a href="10-c-frames-and-values.html">7.10</a>); the panel only joins a row's notes onto its value
+(<code>(note; note)</code>, also the tooltip) and spells its address.</p>
+<ul>
+<li><strong>Paused only.</strong> <code>refresh()</code> returns at once unless <code>set_paused(true)</code> (<code>DebuggerManager::set_panels_paused()</code>), like the Call
+  Stack. <code>DebuggerWindow::refresh_panels()</code> calls it after the Call Stack's own refresh.</li>
+<li><strong>Frames.</strong> A frame selector lists <code>c_frames()</code>: <code>&lt;function&gt; at &lt;file&gt;:&lt;line&gt;</code>, or <code>&lt;not C code&gt; $XXXX</code>, frame 0 suffixed
+  <code>(current)</code>. <strong>A refresh at a new master cycle (a new stop) selects frame 0</strong>; one at the same cycle (an idle tick, an input redraw, a
+  style switch) keeps the choice, so a frame picked in an older caller survives everything but moving the machine.</li>
+<li><strong>One mapping.</strong> The Call Stack panel lists the tracked CALLs newest first, with no row for frame 0 or for a frame found through
+  the saved-frame-pointer chain; <code>c_frames()</code> takes frame k's PC from the CALL <code>tracked[n-k]</code>, so <strong>Call Stack row i is C frame i + 1</strong>.
+  That is written once, in <code>VariablesPanel::call_stack_row()</code> (<code>variables_panel.cpp:71</code>) and <code>frame_of_call_row()</code>. <code>CallStackPanel::call_selected(row)</code> (emitted
+  only for the user's choice: a refresh and <code>select_row()</code> set a guard) goes to <code>select_frame(row + 1)</code>, and <code>frame_changed(k)</code> goes back to
+  <code>select_row(call_stack_row())</code>, which emits nothing, so there is no loop. After each refresh the window re-selects the row the chosen
+  frame maps to (-1 clears it), because a refresh may have rebuilt the Call Stack's rows.</li>
+<li><strong>Lazy children.</strong> An item that is an aggregate or a pointer to something (not <code>void *</code>) has the child indicator and no children.
+  Expanding it calls <code>c_children(frame, path, 0, 100)</code>; when <code>total</code> exceeds 100 the children are <strong>range items</strong> <code>[0..99]</code>, <code>[100..199]</code>, ...,
+  each read with its own <code>first</code>. A refused expansion (<code>null pointer</code>, an unreadable pointer) is one placeholder item with the facade's
+  reason. The panel never decodes a type.</li>
+<li><strong>In-place refresh.</strong> Every item has a key (a path, a range, a file group, prefixed by the section and, for Locals, the function).
+  <code>sync()</code> compares a parent's children with the new rows by key: unchanged keys are updated in place, so the selection, the scroll
+  position and the expansion stay; changed keys rebuild that parent and re-open the items whose key the user had open (<code>expanded_</code>).
+  Only open items are re-read; a closed item's children are dropped, to be read when it opens.</li>
+<li><strong>Addresses.</strong> A global's <code>where</code> is a page address (<code>long_address(addr, space, style, next_layout)</code>); a stack slot or a followed
+  pointer is a CPU address, spelled with the memory mapped there NOW (<code>memtext::now_of(mmu_slots(), addr)</code>: what a read reaches); a register
+  local shows its register names. Debug &gt; Physical Addresses reaches the panel through <code>apply_address_style()</code> like every other.</li>
+<li><strong>Read-only</strong>, with no new setting (so no CLI flag): editing is GH #437.</li>
+</ul>
+<h3 id="c-watches-in-the-watches-tab">C watches in the Watches tab<a class="headerlink" href="#c-watches-in-the-watches-tab" title="Permanent link">&para;</a></h3>
+<p>A <code>WatchEntry</code> has a kind, <code>Memory</code> (the address watch of GH #278) or <code>CVariable</code> (<code>CVarWatch</code>: the facade <code>path</code>, the <code>function</code> and CDB
+<code>module</code> of a parameter or local, empty for a global, a file static or a static local). <code>VariablesPanel::watch_item()</code> (the right-click
+menu's one action, refused while the machine runs: the tab shows the last stop, and a binding taken from the live machine would not be what the user pointed at) builds it and emits <code>watch_requested</code>; the window connects that to <code>WatchPanel::add_c_watch()</code>, and the current tab does not change.</p>
+<ul>
+<li><strong>Binding.</strong> A Locals item is bound to the frame's function: at each paused refresh <code>refresh_c_row()</code> reads it with <code>read_c_value(k, path)</code>, k
+  the NEWEST <code>c_frames()</code> frame whose function has that name and module (not a frame index: it would go out of scope at every new call of the
+  same function), and when there is none the Value is <code>out of scope: &lt;function&gt; is not on the call stack</code> with Address and Memory empty.
+  A Globals item (its path is <code>file::name</code>) and a static local (pinned from Locals as <code>function::name</code>, with the file before it, <code>a.c::init::done</code>, when the function name is not unique, exactly as <code>c_globals()</code> spells it: <code>find_var()</code> prefers the CURRENT frame's function for a bare <code>fn::</code>, which could be another module's) are unbound and read in frame 0 by a
+  path no local can shadow.</li>
+<li><strong>Paused only.</strong> <code>DebuggerManager::set_panels_paused()</code> tells the Watch panel; a running machine does not read a C row, which keeps the
+  text of the last stop (kept in the entry, so an Add or Remove that rebuilds the table shows it again). Memory rows are unchanged.</li>
+<li><strong>No store.</strong> Every C row shows <code>c_variables_status().why</code>, and binds again when a store with that function and path is attached.</li>
+<li><strong>Columns.</strong> Address is the 16-bit address or the register names; Label the path plus <code>(in function)</code>; Type and Value the facade's text
+  (a refusal is placeholder-coloured text); Memory the space the value is in (<code>memtext::text()</code>, a stack slot or pointee by what is mapped now).</li>
+<li>Edit does nothing on a C row; Remove works on both kinds. C watches are not saved (no watch of any kind is).</li>
+<li><strong>While running</strong>, a frame chosen in the Variables selector or the Call Stack is ignored by <code>select_frame()</code>, and both go back to the
+  frame the tree shows.</li>
+</ul>
+<p>Rows <code>QVAR-01</code> to <code>-32</code> (<code>debugger_variables_panel_test</code>) pin the tab; <code>CVCH-*</code> and <code>SRCDBG-CVCH-*</code> the children.</p>
 <h2 id="which-memory-a-view-names-gh-360">Which memory a view names (GH #360)<a class="headerlink" href="#which-memory-a-view-names-gh-360" title="Permanent link">&para;</a></h2>
 <p>Every Qt view names the memory behind an address through <code>debug/long_address.h</code>
 (<a href="01-which-memory.html">7.1</a>) and nowhere else. The Qt-side wrapper is <code>src/debugger/memory_text.h</code>:

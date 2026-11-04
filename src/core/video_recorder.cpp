@@ -3,11 +3,18 @@
 #include "core/win_process.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <sstream>
 #include <system_error>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -109,26 +116,6 @@ std::string VideoRecorder::quote_arg(const std::string& arg, CmdStyle style)
     return out;
 }
 
-std::string VideoRecorder::build_probe_command(CmdStyle style)
-{
-    // `>/dev/null 2>&1` is shell syntax, and on Windows /dev/null is just a
-    // path that does not exist — cmd.exe would try to create \dev\null on the
-    // current drive. GH #56 reports the consequence as ffmpeg_available()
-    // always returning false, leaving File > Record MPEG4 Video permanently
-    // greyed out. NOT INDEPENDENTLY CONFIRMED here: the only Windows-ish
-    // runtime on the dev host is wine, whose file layer special-cases
-    // /dev/null, so it cannot answer the question either way. What IS
-    // confirmed is that the POSIX quoting below made the encode itself
-    // impossible regardless of the probe.
-    //
-    // The Windows command carries no redirection at all: there is no shell to
-    // interpret one, and win_run_hidden() points the child's stdio at NUL
-    // through STARTUPINFO instead.
-    if (style == CmdStyle::Posix)
-        return "ffmpeg -version >/dev/null 2>&1";
-    return "ffmpeg -version";
-}
-
 std::string VideoRecorder::build_encode_command(const EncodeSpec& spec, CmdStyle style)
 {
     std::ostringstream cmd;
@@ -157,9 +144,106 @@ std::string VideoRecorder::build_encode_command(const EncodeSpec& spec, CmdStyle
     return cmd.str();
 }
 
+bool VideoRecorder::ffmpeg_in_path_list(const std::string& path_list, CmdStyle style)
+{
+    const char sep = (style == CmdStyle::Windows) ? ';' : ':';
+    const char* const name = (style == CmdStyle::Windows) ? "ffmpeg.exe" : "ffmpeg";
+    std::size_t start = 0;
+    while (start <= path_list.size()) {
+        std::size_t end = path_list.find(sep, start);
+        if (end == std::string::npos) end = path_list.size();
+        std::string dir = path_list.substr(start, end - start);
+        start = end + 1;
+        if (dir.empty()) {
+            if (style == CmdStyle::Windows) continue;
+            dir = ".";  // sh: an empty PATH entry is the current directory
+        }
+        const fs::path candidate = fs::path(dir) / name;
+        std::error_code ec;
+        if (!fs::is_regular_file(candidate, ec) || ec) continue;  // follows symlinks
+#ifndef _WIN32
+        if (style == CmdStyle::Posix && ::access(candidate.c_str(), X_OK) != 0) continue;
+#endif
+        return true;
+    }
+    return false;
+}
+
+std::string VideoRecorder::ffmpeg_search_list(CmdStyle style, const char* path_env,
+                                              const std::string& exe_dir,
+                                              const std::string& system_dir,
+                                              const std::string& windows_dir,
+                                              const std::string& default_path)
+{
+    if (style == CmdStyle::Posix)
+        return path_env ? std::string(path_env) : default_path;
+
+    std::string list;
+    const auto add = [&list](const std::string& part) {
+        if (part.empty()) return;
+        if (!list.empty()) list += ';';
+        list += part;
+    };
+    add(exe_dir);
+    add(".");
+    add(system_dir);
+    if (!windows_dir.empty()) add(windows_dir + "\\System");
+    add(windows_dir);
+    add(path_env ? path_env : "");
+    return list;
+}
+
+namespace {
+
+std::atomic<int> g_probe_count{0};
+
+}  // namespace
+
+/// The search list for this platform, from the real environment.
+std::string VideoRecorder::native_search_list()
+{
+    const char* env = std::getenv("PATH");
+#ifdef _WIN32
+    char buf[MAX_PATH] = {};
+    std::string exe_dir, system_dir, windows_dir;
+    DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) exe_dir = fs::path(buf).parent_path().string();
+    n = GetSystemDirectoryA(buf, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) system_dir = buf;
+    n = GetWindowsDirectoryA(buf, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) windows_dir = buf;
+    return ffmpeg_search_list(NATIVE_STYLE, env, exe_dir,
+                                             system_dir, windows_dir, "");
+#else
+    // PATH unset: sh uses its own default; confstr(_CS_PATH) is the standard
+    // one (the shell's built-in may differ slightly).
+    std::string def;
+    const size_t need = confstr(_CS_PATH, nullptr, 0);
+    if (need > 0) {
+        std::string tmp(need, '\0');
+        confstr(_CS_PATH, tmp.data(), need);
+        def = tmp.c_str();
+    }
+    return ffmpeg_search_list(NATIVE_STYLE, env, "", "", "", def);
+#endif
+}
+
+
+bool VideoRecorder::ffmpeg_available_fresh()
+{
+    ++g_probe_count;
+    return ffmpeg_in_path_list(native_search_list(), NATIVE_STYLE);
+}
+
+int VideoRecorder::ffmpeg_probe_count()
+{
+    return g_probe_count;
+}
+
 bool VideoRecorder::ffmpeg_available()
 {
-    return run_native(build_probe_command(NATIVE_STYLE)) == 0;
+    static const bool available = ffmpeg_available_fresh();
+    return available;
 }
 
 bool VideoRecorder::start(const std::string& output_path)
@@ -169,7 +253,7 @@ bool VideoRecorder::start(const std::string& output_path)
         return false;
     }
 
-    if (!ffmpeg_available()) {
+    if (!ffmpeg_available_fresh()) {
         Log::emulator()->error("VideoRecorder: ffmpeg not found in PATH");
         return false;
     }

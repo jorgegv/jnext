@@ -759,6 +759,110 @@ CEval c_eval_path(const CFormatCtx& ctx, const CLoc& root, bool deref, const std
     return out;
 }
 
+namespace {
+
+// The members of the struct at `s` that a path can name, in record order, [first, first + max) of them.
+bool struct_children(const CFormatCtx& ctx, const CLoc& s, size_t first, size_t max, const char* arrow, CChildren* out)
+{
+    if (!ctx.store) {
+        out->why = "no type information";
+        return false;
+    }
+    const CTypeLookup lk = c_find_type(*ctx.store, s.type.chain[0].tag, ctx.scope_name, ctx.module);
+    if (!lk.record) {
+        out->why = lk.why;
+        return false;
+    }
+    std::vector<std::string> names;
+    for (const CdbMember& m : lk.record->record.members)
+        if (m.hidden == CdbHidden::None && !m.var.name.empty()) names.push_back(m.var.name);
+    out->total = names.size();
+    for (size_t i = first; i < names.size() && out->items.size() < max; ++i) {
+        CChild c;
+        c.label = names[i];
+        c.suffix = std::string(arrow) + names[i];
+        std::string why;
+        if (!member_loc(ctx, s, names[i], &c.loc, &why)) {
+            out->why = why;
+            return false;
+        }
+        out->items.push_back(c);
+    }
+    return true;
+}
+
+}  // namespace
+
+CChildren c_children(const CFormatCtx& ctx, const CLoc& loc, size_t first, size_t max)
+{
+    CChildren out;
+    if (loc.type.chain.empty()) {
+        out.ok = true;
+        return out;
+    }
+    const CdbTypeElem& e = loc.type.chain[0];
+    if (e.kind == CdbTypeKind::Struct) {
+        out.ok = struct_children(ctx, loc, first, max, ".", &out);
+        if (!out.ok) {
+            out.total = 0;
+            out.items.clear();
+        }
+        return out;
+    }
+    if (e.kind == CdbTypeKind::Array) {
+        if (e.count <= 0 || loc.type.size <= 0 || loc.type.size % e.count != 0) {
+            out.why = "an array of unknown length";
+            return out;
+        }
+        const int esz = loc.type.size / e.count;
+        out.total = static_cast<size_t>(e.count);
+        for (size_t i = first; i < out.total && out.items.size() < max; ++i) {
+            CChild c;
+            c.label = "[" + unum(i) + "]";
+            c.suffix = c.label;
+            c.loc.type = sliced(loc.type, 1, esz);
+            c.loc.addr = loc.addr + static_cast<uint32_t>(i) * static_cast<uint32_t>(esz);
+            c.loc.rooted = loc.rooted;
+            out.items.push_back(c);
+        }
+        out.ok = true;
+        return out;
+    }
+    if (e.kind == CdbTypeKind::Pointer) {
+        if (loc.type.chain.size() > 1 &&
+            (loc.type.chain[1].kind == CdbTypeKind::Void || loc.type.chain[1].kind == CdbTypeKind::Function)) {
+            out.ok = true;   // void * and a function pointer have nothing to look at
+            return out;
+        }
+        CLoc target;
+        std::string why;
+        if (!deref_loc(ctx, loc, &target, &why)) {
+            out.why = why;
+            return out;
+        }
+        if (!target.type.chain.empty() && target.type.chain[0].kind == CdbTypeKind::Struct) {
+            out.ok = struct_children(ctx, target, first, max, "->", &out);
+            if (!out.ok) {
+                out.total = 0;
+                out.items.clear();
+            }
+            return out;
+        }
+        out.total = 1;
+        if (first == 0 && max > 0) {
+            CChild c;
+            c.label = "*";
+            c.suffix = "[0]";
+            c.loc = target;
+            out.items.push_back(c);
+        }
+        out.ok = true;
+        return out;
+    }
+    out.ok = true;   // a scalar
+    return out;
+}
+
 CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc, std::vector<uint8_t>* bytes)
 {
     CFormatted out;

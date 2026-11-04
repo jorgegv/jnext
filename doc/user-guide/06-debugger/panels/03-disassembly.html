@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.112</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.112</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1708,6 +1708,8 @@
       
         
       
+        
+      
     
     
     
@@ -2233,6 +2235,34 @@
     
   
     Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="16-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Variables
   
 
     
@@ -3327,6 +3357,8 @@
       
         
       
+        
+      
     
     
     
@@ -3587,6 +3619,34 @@
     
   
     In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/11-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C variables in the debugger
   
 
     
@@ -4129,16 +4189,17 @@
 <h1 id="disassembly">Disassembly<a class="headerlink" href="#disassembly" title="Permanent link">&para;</a></h1>
 <p><img alt="Disassembly panel" src="../../img/debugger-disassembly.png" /></p>
 <p>Z80 plus all 26 Z80N instructions, disassembled live from memory as the CPU
-sees it. Columns are the breakpoint gutter, the address, the <strong>Mem</strong> column
-(which memory the line's bytes come from: <code>P04</code>, <code>ROM0</code>, <code>DIVROM</code>, or the
-physical address; <a href="../index.html#which-memory-an-address-is-in">details</a>), the raw
-opcode bytes and the mnemonic. At a DivMMC entry the line at <code>PC</code> shows the
+sees it. Columns, left to right, are the <strong>Mem</strong> column (which memory the
+line's bytes come from: <code>P04</code>, <code>ROM0</code>, <code>DIVROM</code>, or the physical address;
+<a href="../index.html#which-memory-an-address-is-in">details</a>), the address, the <strong>BP</strong>
+column (the breakpoint gutter), the mnemonic and the raw opcode bytes, so the
+instruction sits next to where you set its breakpoint. At a DivMMC entry the line at <code>PC</code> shows the
 DivMMC ROM's instruction, the one the CPU is about to run, with <code>DIVROM</code> beside it. The line at <code>PC</code> is highlighted in yellow and set in bold;
 the lines you select are highlighted in blue — over the top of the yellow, so
-the <code>PC</code> line stays recognisable inside a selection, and clear of the gutter,
+the <code>PC</code> line stays recognisable inside a selection, and clear of the BP column,
 so breakpoint dots stay visible.</p>
 <ul>
-<li><strong>Click the gutter</strong> on any line to set or clear an execute breakpoint (shown
+<li><strong>Click the BP column</strong> (the gutter between the address and the instruction) on any line to set or clear an execute breakpoint (shown
   as a red dot). A breakpoint that has been
   <a href="08-breakpoints.html">suspended</a> — unticked in the Breakpoints panel, or
   covered by its master switch — is drawn as a hollow red ring instead;
@@ -4146,7 +4207,7 @@ so breakpoint dots stay visible.</p>
   breakpoints, never one that GDB, ZRCP, DeZog or a script set: see
   <a href="08-breakpoints.html#whose-breakpoints-the-gutters-show-and-change">Whose breakpoints the gutters show and change</a>.</li>
 <li>With <a href="../functions/15-memory-coverage.html">memory coverage</a> on, a green bar
-  sits left of the address on every line whose instruction ran.</li>
+  sits just right of the BP column, before the instruction, on every line whose instruction ran.</li>
 <li><strong>Click and drag</strong> over the listing to select a range of lines, or click one
   line to select just that one. <strong>Shift+click</strong> extends the selection from
   where it started, and <strong>Shift + ↑ ↓ Page Up/Down Home End</strong> do the same from
@@ -4155,9 +4216,9 @@ so breakpoint dots stay visible.</p>
   symbol and press Enter to centre the view there. A number wins over a symbol
   spelled like one; write <code>@name</code> to mean the symbol.</li>
 <li><strong>Go to PC</strong> re-centres on the current instruction.</li>
-<li>A <strong>Label</strong> column appears between the bytes and the instruction once any label is known: the name
+<li>A <strong>Label</strong> column appears between the BP column and the instruction once any label is known: the name
   of the line's own address in its memory, loaded or your own, shortened after 16 characters. Your
-  comment follows the instruction as <code>; first line</code>. See
+  comment follows the opcode bytes as <code>; first line</code>. See
   <a href="../functions/16-user-labels-and-comments.html">Your own labels and comments</a>.</li>
 <li>With a source map loaded, a selection here moves the <a href="15-source.html">Source</a> tab (the cursor goes
   to the line of the instruction you clicked, and the lines of the whole range are tinted), and the
@@ -4181,7 +4242,8 @@ you paste is what you would have written by hand:</p>
     CALL entry
 </code></pre>
 <p><strong>Copy with Addresses</strong> is the same selection with the address and opcode
-columns kept, for a bug report or an annotated trace:</p>
+columns kept, for a bug report or an annotated trace. It keeps the order of an
+assembler listing (address, bytes, instruction), not the panel's:</p>
 <pre><code>$8000  21 34 12     LD HL,screen_buf
 $8003  00           NOP
 $8004  CD 00 80     CALL entry

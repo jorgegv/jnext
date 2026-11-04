@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.112</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.112</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3007,7 +3007,9 @@ cannot come back.</p>
 declared functional test with no script, and a stray undeclared script — which
 is why <code>make harness-selftest</code> declares <code>unit-test-build</code>, <code>gui-release</code> and
 <code>sdl-release</code> as prerequisites, since those are the same binaries preflight
-resolves. Other rows assert that the lints are still <em>wired in</em> at all: that
+resolves. <code>HS-157a</code>..<code>h</code> (GH #443) pin that a row name neither manifest declares, or an
+empty one, is refused in every mode, before any row runs, and that declared screenshot and
+functional names, and a platform's absent rows, keep their treatment. Other rows assert that the lints are still <em>wired in</em> at all: that
 <code>make unit-test</code> reaches the assertion lint and reaches it first, and that an
 offending row script fails the whole regression preflight rather than just the
 lint. The rest cover cleanup, checking that every SD-clone cleanup script
@@ -3069,7 +3071,7 @@ directory for Qt — with an untracked file ignored only by a fake <em>global</e
 ignore (it must not count as dirty) and one nobody ignores (it must); <code>HS-74c</code> repeats HS-73 with the lock file
 behind a symlink, which flock(1) resolves and the holder check must too.</p>
 <h2 id="it-pins-its-own-count">It pins its own count<a class="headerlink" href="#it-pins-its-own-count" title="Permanent link">&para;</a></h2>
-<p><code>EXPECTED_TOTAL = 141</code> sits in the script, right next to the rows it counts, and
+<p><code>EXPECTED_TOTAL</code> sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is

@@ -32,11 +32,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # mean (the DC level) and its AC RMS (the mean removed). Both halves matter
 # and neither is redundant:
 #   * a shape that ends at the WRONG RAIL is a pure DC change with no AC
-#     change at all — slice 14 reads `0 0` correct and `1020 0` with the bug;
+#     change at all — slice 14 reads `0 0` correct and `1020 0` with the bug
+#     (the bug value was measured with the AY volume table, before GH #442 F4
+#     made power-on YM and this fixture's capture use the YM table);
 #   * a shape that LOCKS instead of ramping is a pure AC collapse —
-#     slices 20-22 read `96 226 / 424 399 / 958 224` correct and
-#     `13 91 / 13 91 / 21 107` with the bug — the AC RMS collapsing to
-#     between a half and a quarter.
+#     slices 20-22 read `68 182 / 354 392 / 952 240` correct (the committed
+#     profile, YM table) and `13 91 / 13 91 / 21 107` with the bug (measured
+#     with the AY table before F4; the correct AY-table values then were
+#     `96 226 / 424 399 / 958 224`) — the AC RMS collapsing to between a half
+#     and a quarter.
 # The comparison is EXACT, not tolerance-based: the pipeline is deterministic,
 # so any tolerance would only be a place for a real regression to hide.
 #

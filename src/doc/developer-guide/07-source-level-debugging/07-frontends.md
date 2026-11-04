@@ -15,7 +15,7 @@ DZRP has no source surface and no C variable surface at all.*
 
 | Frontend | Reads | Adds | Page |
 |---|---|---|---|
-| Qt debugger | `source_location()`, `source_map()`, `source_map_status()`, `source_page()`, `lookup()`, the breakpoint groups, `executed_source_lines()` | The Source tab, the Breakpoints rows, the Call Stack column, symbol names, the long address | below, and [3.10.2](../03-subsystems/10-2-the-qt-debugger.md) |
+| Qt debugger | `source_location()`, `source_map()`, `source_map_status()`, `source_page()`, `lookup()`, the breakpoint groups, `executed_source_lines()`, `c_frames()`, `c_locals()`, `c_globals()`, `c_children()`, `read_c_value()`, `c_variables_status()` | The Source tab, the Variables tab, the Breakpoints rows, the Call Stack column, symbol names, the long address | below, and [3.10.2](../03-subsystems/10-2-the-qt-debugger.md) |
 | GDB RSP | `source_location()`, `symbols()`, `mmu_slots()`, `c_frames()`, `c_locals()`, `c_globals()`, `read_c_value()`, `c_variables_status()` | `monitor src`, `monitor sym`, `monitor mmu`, `monitor locals`, `monitor globals`, `monitor print` | [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md) |
 | ZRCP | `load()`, `mmu_slots()`, `read_c_value()` (through the DSL) | `smartload` reaches the sidecars; `get-memory-pages` names the memory; `CVAR(path)` in `evaluate` and in conditions | [3.10.5](../03-subsystems/12-the-zrcp-server.md) |
 | DZRP | Nothing | None: no source and no C variable surface | [3.10.3](../03-subsystems/10-the-dzrp-server.md) |
@@ -36,7 +36,7 @@ browsed (`browse_addr_`) and the reason `report_sidecars()` gave it.
 `SourcePanel::refresh_()` (`source_panel.cpp:590`) runs while the machine is paused,
 whenever the window's paused stamp changed ([3.10.2](../03-subsystems/10-2-the-qt-debugger.md):
 the stamp carries a flag for "the loaded file changed on disk",
-`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:963`; the flag is
+`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:968`; the flag is
 `SourcePanel::file_changed_on_disk()`, `source_panel.cpp:551`). In order:
 
 1. `update_buttons(paused)` (`source_panel.cpp:494`): the forward steps need a paused machine and a
@@ -74,7 +74,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 
 `follow_pc()` (`source_panel.cpp:557`) clears `placed_` and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1582`) calls it, and
+`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1598`) calls it, and
 `apply_pause_state(true)` runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.
 
@@ -84,13 +84,13 @@ already shown still puts the view back.
 the SDL-only and Windows trees test it): an absolute name; then the map's directory and each
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading `..` is dropped.
-`DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:305`) takes the
+`DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:310`) takes the
 configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3128`, fed by
 `apply_startup_config()`, `:2910`: the saved list with the command line's `--source-dir` or
 `paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:438`)
-adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:317`). The effective
+adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:322`). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
-`DebuggerManager::push_source_dirs()` (`debugger_manager.cpp:297`) on every change and again in `ensure_window()`, since the window is
+`DebuggerManager::push_source_dirs()` (`debugger_manager.cpp:302`) on every change and again in `ensure_window()`, since the window is
 created lazily. Locate derives the directory with `source_search::root_for()`, refuses a file of
 another name, and asks whether to save it; `source_dir_save_requested` is MainWindow's, which
 appends to `[paths] source_dirs` and refuses a directory that holds the list separator, as
@@ -103,12 +103,12 @@ and MainWindow logs `Source search path: ...`.
 ### Loading a map by hand
 
 The Source tab's **Load Source Map...** button and the Debug > Source > Load Source Map... item
-are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:857`). Its file dialog
+are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:862`). Its file dialog
 offers `*.sld`, `*.sld.txt` and `*.map`; the backend tells the format by content
 ([7.3](03-loaders.md)), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 `load_map()`; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:899`):
+rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:904`):
 the log, and the main window's status bar for ten seconds.
 
 ### Colouring
@@ -158,7 +158,7 @@ the log, and the main window's status bar for ten seconds.
   viewport. `set_colour_scheme()` (`source_panel.cpp:542`) applies at once (Preferences Apply while the machine
   runs) and refreshes, because the tints are selections `refresh_()` builds and a paused tick
   redraws only when the machine moved. The setting is held by
-  `DebuggerManager::set_source_scheme()` (`debugger_manager.cpp:311`) and pushed by
+  `DebuggerManager::set_source_scheme()` (`debugger_manager.cpp:316`) and pushed by
   `ensure_window()`, fed by `MainWindow::apply_startup_config()`.
 - **What a scheme does not reach.** The gutter and its header paint from the panel's palette, so
   a scheme never colours them, and the breakpoint marks stay as they are. The current-line marker
@@ -270,6 +270,61 @@ announces nothing. The gutter, the menu, Copy with Addresses and Run to Cursor a
 they act on the file browsed. Rows `QSRC-176` to `QSRC-189` and `QSRC-201` to `QSRC-208` pin the
 behaviour; `source_sync_colors.h` is the one definition of the linked colour for both views; the Source tab keeps one
 per scheme (`SchemeColours::linked_line`), tested for legibility like the coverage tint (row `QSRC-189`).
+
+## The Qt Variables tab (GH #435)
+
+`VariablesPanel` (`src/debugger/variables_panel.*`) is a tab of the bottom-right tab widget, between Watches and
+Breakpoints (the window has no docks: its layout is the fixed one of GH #114). It shows the C variables of one call
+frame and the globals and statics as a `QTreeWidget` (Name, Type, Value, Address). Like every CAP-SRC reader it holds no copy
+of a store, and it **formats nothing**: every value, type, refusal and note is the facade's text (`c_locals()`,
+`c_globals()`, `c_children()`, [7.10](10-c-frames-and-values.md)); the panel only joins a row's notes onto its value
+(`  (note; note)`, also the tooltip) and spells its address.
+
+- **Paused only.** `refresh()` returns at once unless `set_paused(true)` (`DebuggerManager::set_panels_paused()`), like the Call
+  Stack. `DebuggerWindow::refresh_panels()` calls it after the Call Stack's own refresh.
+- **Frames.** A frame selector lists `c_frames()`: `<function> at <file>:<line>`, or `<not C code> $XXXX`, frame 0 suffixed
+  `(current)`. **A refresh at a new master cycle (a new stop) selects frame 0**; one at the same cycle (an idle tick, an input redraw, a
+  style switch) keeps the choice, so a frame picked in an older caller survives everything but moving the machine.
+- **One mapping.** The Call Stack panel lists the tracked CALLs newest first, with no row for frame 0 or for a frame found through
+  the saved-frame-pointer chain; `c_frames()` takes frame k's PC from the CALL `tracked[n-k]`, so **Call Stack row i is C frame i + 1**.
+  That is written once, in `VariablesPanel::call_stack_row()` (`variables_panel.cpp:71`) and `frame_of_call_row()`. `CallStackPanel::call_selected(row)` (emitted
+  only for the user's choice: a refresh and `select_row()` set a guard) goes to `select_frame(row + 1)`, and `frame_changed(k)` goes back to
+  `select_row(call_stack_row())`, which emits nothing, so there is no loop. After each refresh the window re-selects the row the chosen
+  frame maps to (-1 clears it), because a refresh may have rebuilt the Call Stack's rows.
+- **Lazy children.** An item that is an aggregate or a pointer to something (not `void *`) has the child indicator and no children.
+  Expanding it calls `c_children(frame, path, 0, 100)`; when `total` exceeds 100 the children are **range items** `[0..99]`, `[100..199]`, ...,
+  each read with its own `first`. A refused expansion (`null pointer`, an unreadable pointer) is one placeholder item with the facade's
+  reason. The panel never decodes a type.
+- **In-place refresh.** Every item has a key (a path, a range, a file group, prefixed by the section and, for Locals, the function).
+  `sync()` compares a parent's children with the new rows by key: unchanged keys are updated in place, so the selection, the scroll
+  position and the expansion stay; changed keys rebuild that parent and re-open the items whose key the user had open (`expanded_`).
+  Only open items are re-read; a closed item's children are dropped, to be read when it opens.
+- **Addresses.** A global's `where` is a page address (`long_address(addr, space, style, next_layout)`); a stack slot or a followed
+  pointer is a CPU address, spelled with the memory mapped there NOW (`memtext::now_of(mmu_slots(), addr)`: what a read reaches); a register
+  local shows its register names. Debug > Physical Addresses reaches the panel through `apply_address_style()` like every other.
+- **Read-only**, with no new setting (so no CLI flag): editing is GH #437.
+
+### C watches in the Watches tab
+
+A `WatchEntry` has a kind, `Memory` (the address watch of GH #278) or `CVariable` (`CVarWatch`: the facade `path`, the `function` and CDB
+`module` of a parameter or local, empty for a global, a file static or a static local). `VariablesPanel::watch_item()` (the right-click
+menu's one action, refused while the machine runs: the tab shows the last stop, and a binding taken from the live machine would not be what the user pointed at) builds it and emits `watch_requested`; the window connects that to `WatchPanel::add_c_watch()`, and the current tab does not change.
+
+- **Binding.** A Locals item is bound to the frame's function: at each paused refresh `refresh_c_row()` reads it with `read_c_value(k, path)`, k
+  the NEWEST `c_frames()` frame whose function has that name and module (not a frame index: it would go out of scope at every new call of the
+  same function), and when there is none the Value is `out of scope: <function> is not on the call stack` with Address and Memory empty.
+  A Globals item (its path is `file::name`) and a static local (pinned from Locals as `function::name`, with the file before it, `a.c::init::done`, when the function name is not unique, exactly as `c_globals()` spells it: `find_var()` prefers the CURRENT frame's function for a bare `fn::`, which could be another module's) are unbound and read in frame 0 by a
+  path no local can shadow.
+- **Paused only.** `DebuggerManager::set_panels_paused()` tells the Watch panel; a running machine does not read a C row, which keeps the
+  text of the last stop (kept in the entry, so an Add or Remove that rebuilds the table shows it again). Memory rows are unchanged.
+- **No store.** Every C row shows `c_variables_status().why`, and binds again when a store with that function and path is attached.
+- **Columns.** Address is the 16-bit address or the register names; Label the path plus ` (in function)`; Type and Value the facade's text
+  (a refusal is placeholder-coloured text); Memory the space the value is in (`memtext::text()`, a stack slot or pointee by what is mapped now).
+- Edit does nothing on a C row; Remove works on both kinds. C watches are not saved (no watch of any kind is).
+- **While running**, a frame chosen in the Variables selector or the Call Stack is ignored by `select_frame()`, and both go back to the
+  frame the tree shows.
+
+Rows `QVAR-01` to `-32` (`debugger_variables_panel_test`) pin the tab; `CVCH-*` and `SRCDBG-CVCH-*` the children.
 
 ## Which memory a view names (GH #360)
 

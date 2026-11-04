@@ -26,8 +26,20 @@ public:
     VideoRecorder(const VideoRecorder&) = delete;
     VideoRecorder& operator=(const VideoRecorder&) = delete;
 
-    /// Check if FFmpeg is available on the system.
+    /// Is an ffmpeg executable on the search path? Answered by looking, never
+    /// by starting a process (GH #446): the startup log line and the File >
+    /// Record menu greying share this one answer, computed on first use and
+    /// cached for the life of the process. A restart picks up an install.
     static bool ffmpeg_available();
+
+    /// The same lookup, done afresh (no cache). Used when a recording starts,
+    /// in case ffmpeg was removed since startup. An ffmpeg that is present
+    /// but broken is not caught here but by the encoder-failure path (GH #78).
+    static bool ffmpeg_available_fresh();
+
+    /// How many times the lookup actually ran in this process (a seam for
+    /// the cache test).
+    static int ffmpeg_probe_count();
 
     /// Command-line dialect the ffmpeg invocation is built for (GH #56).
     ///
@@ -52,6 +64,45 @@ public:
         CmdStyle::Posix;
 #endif
 
+    /// Pure lookup: does `path_list` name a directory holding an executable
+    /// ffmpeg? The rule is the one the real spawn follows, per dialect.
+    ///
+    /// Posix (`system()` -> `/bin/sh`): ':'-separated; an EMPTY entry, and so
+    /// an empty list, means the current directory (POSIX XBD 8.3); the file
+    /// is `ffmpeg`, a regular file (symlinks followed) with an execute bit.
+    ///
+    /// Windows (CreateProcess): ';'-separated; `ffmpeg.exe` (CreateProcess
+    /// appends .exe, ignores PATHEXT); empty entries are skipped; a
+    /// double-quoted entry is NOT unquoted (CreateProcess does not strip the
+    /// quotes, cmd.exe does; measured under wine), so it names no directory.
+    ///
+    /// Both dialects are testable from either platform.
+    static bool ffmpeg_in_path_list(const std::string& path_list, CmdStyle style);
+
+    /// The list this process searches: ffmpeg_search_list() fed from the real
+    /// environment (PATH, confstr(_CS_PATH), jnext.exe's directory, the
+    /// Windows system directories).
+    static std::string native_search_list();
+
+    /// The directory list the spawn would search, as a pure function of its
+    /// inputs (so the order is testable from any host).
+    ///
+    /// Posix: `path_env` verbatim when PATH is set (even empty); `nullptr`
+    /// (unset) gives `default_path`, which the caller takes from
+    /// confstr(_CS_PATH).
+    /// Windows, the CreateProcess order for a bare name: the directory of
+    /// jnext.exe, the current directory ".", the system directory, the 16-bit
+    /// system directory `<windows_dir>\System`, the Windows directory, then
+    /// PATH. Empty parts are left out. (Limit: getenv and the Get*DirectoryA
+    /// calls are ANSI, while CreateProcess searches the wide PATH, so a
+    /// directory outside the ANSI code page is missed here but found by the
+    /// spawn.)
+    static std::string ffmpeg_search_list(CmdStyle style, const char* path_env,
+                                          const std::string& exe_dir,
+                                          const std::string& system_dir,
+                                          const std::string& windows_dir,
+                                          const std::string& default_path);
+
     /// Quote one command-line argument for `style`, so a path containing
     /// spaces (`C:\Users\Some Name\...`), quotes or shell metacharacters
     /// survives intact.
@@ -71,9 +122,6 @@ public:
 
     /// The ffmpeg command line stop() runs to mux the recording.
     static std::string build_encode_command(const EncodeSpec& spec, CmdStyle style);
-
-    /// The ffmpeg command line ffmpeg_available() runs to probe for ffmpeg.
-    static std::string build_probe_command(CmdStyle style);
 
     /// Start recording to `output_path` (e.g. "/tmp/recording.mp4").
     /// Returns true on success.

@@ -1332,6 +1332,18 @@ public:
     /// a refusal. A value out of the type's range is refused, never truncated (`c_encode_value()`).
     CWriteResult write_c_value(ClientId by, size_t frame, std::string_view path, const CNewValue& value);
     CVariablesStatus c_variables_status() const;
+    /// CAP-SRC (GH #435) - what a tree view lists under the object `path` names in frame `frame`: a struct's members, an array's
+    /// elements `first`..`first + max` (`total` is the element count), a pointer's pointee (a struct's members as `p->x`, anything else
+    /// as `p[0]`, named `*`). Each row's `path` is `path` plus its suffix and round-trips through `read_c_value`, so a row reads,
+    /// places and notes itself exactly as `read_c_value` would. `total` 0 and `ok`: a leaf. `!ok`: `why` is what `read_c_value(frame,
+    /// path)` would say, or a NULL / unreadable pointer's.
+    struct CChildRows {
+        bool ok = false;
+        std::string why;
+        size_t total = 0;
+        std::vector<CValueRow> rows;
+    };
+    CChildRows c_children(size_t frame, std::string_view path, size_t first = 0, size_t max = 100) const;
 
     /// CAP-SRC — the primary source position of `addr` as it is mapped NOW (what
     /// `source_page(addr)` says supplies it), or of the current PC. Null when
