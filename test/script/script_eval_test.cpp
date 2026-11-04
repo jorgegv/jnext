@@ -42,6 +42,10 @@
 #include <pthread.h>
 
 #include <climits>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <unistd.h>
 #include <cstdint>
 #include <cstdio>
 #include <map>
@@ -1043,9 +1047,9 @@ struct CvarRig {
     jnext::dbg::ClientId      cid = jnext::dbg::CLIENT_NONE;
     bool                      loaded = false;
 
-    explicit CvarRig(const char* fixture = nullptr) {
+    explicit CvarRig(const char* fixture = nullptr, MachineType type = MachineType::ZXN_ISSUE2) {
         EmulatorConfig cfg;
-        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.type = type;
         emu.init(cfg);
         dbg = std::make_unique<Debugger>(emu);
         jnext::dbg::ClientInfo ci;
@@ -1357,6 +1361,83 @@ static void cvar_rows() {
                               "(a `::` is not a format); a `when cvar(a) == 2` on an Execute subscription at vars.c:41 stops on "
                               "the third call, where cvar(t) is 124",
               ok && third && t3 == "ok:124", text + " " + t3);
+    }
+    // EVAL-CVAR-09
+    {
+        // A1/A9 of the plan (reading from inside an event delivery): the first `cvar()` of a predicate after a tape program
+        // runs is the first reader to run recheck() inside a delivery, which applies the verdict the verify hook recorded
+        // during guest execution. Oracle: the committed v2.4/sccz80-tape fixture (prog.tap carries prog_CODE.bin at $8000;
+        // main.c:19 starts at $8CC4, `counter` is a global byte that is 0 there, GH #344 stage 3) and its identity rule: a
+        // matching program keeps the map, one wrong byte of main.c:19 drops it.
+        namespace fs = std::filesystem;
+        const fs::path root = fs::temp_directory_path() / ("jnext-cvar-tape-" + std::to_string(::getpid()));
+        std::string detail;
+        bool all = true;
+        for (int variant = 0; variant < 2; ++variant) {
+            const bool wrong = variant == 1;
+            const fs::path d = root / (wrong ? "bad" : "good");
+            fs::create_directories(d);
+            const fs::path src = fs::path(JNEXT_Z88DK_FIXTURE_DIR) / "v2.4/sccz80-tape";
+            fs::copy_file(src / "prog.map", d / "prog.map", fs::copy_options::overwrite_existing);
+            fs::copy_file(src / "prog_CODE.bin", d / "prog_CODE.bin", fs::copy_options::overwrite_existing);   // the identity
+            { std::ofstream(d / "prog.tap"); }
+            std::vector<uint8_t> code;
+            {
+                std::ifstream in(src / "prog_CODE.bin", std::ios::binary);
+                code.assign(std::istreambuf_iterator<char>(in), {});
+            }
+            if (wrong) code[0xCC4] ^= 0xFF;   // main.c:19's first byte
+            CvarRig r(nullptr, MachineType::ZX48K);   // as the tape rows of source_debug_test
+            r.emu.mmu().write(0x6000, 0x18);   // park outside the code range while the map attaches
+            r.emu.mmu().write(0x6001, 0xFE);
+            Z80Registers regs = r.emu.cpu().get_registers();
+            regs.PC = 0x6000;
+            regs.SP = 0xFF00;
+            r.emu.cpu().set_registers(regs);
+            r.dbg->load_program_sidecars((d / "prog.tap").string());
+            const bool pending = r.dbg->source_map_status().pending;
+            r.dbg->poke(r.cid, jnext::dbg::MemSpace::cpu(), 0x8000, code.size(), code.data());   // the tape loads
+            regs.PC = 0x8000;
+            r.emu.cpu().set_registers(regs);
+            r.no_interrupts();
+            Loaded L = load("on execute 0x8CC4 when cvar(counter) == 0 do end");
+            std::vector<Diagnostic> seen;
+            bool ok = pending && L.ok();
+            bool stopped = false;
+            if (ok) {
+                jnext::dbg::Subscription sub;
+                sub.kind      = EventKind::Execute;
+                sub.filter.lo = sub.filter.hi = 0x8CC4;
+                sub.action    = jnext::dbg::Action::Stop;
+                sub.condition = make_condition(L.s().rules[0].when, L.st, [&seen](const Diagnostic& e) { seen.push_back(e); });
+                const auto id = r.dbg->subscribe(r.cid, sub).value;
+                r.dbg->run(r.cid);
+                for (int i = 0; i < 10 && !r.dbg->state().paused; ++i) r.emu.run_frame();
+                stopped = r.dbg->state().paused && r.pc() == 0x8CC4;
+                r.dbg->unsubscribe(r.cid, id);
+            }
+            const auto st = r.dbg->source_map_status();
+            const bool subs_ok = r.dbg->subscriptions(true).empty();   // the table is intact and the unsubscribe landed
+            if (!wrong) {
+                // the verdict was applied inside the delivery: the map is kept and verified, and the read worked
+                ok = ok && stopped && seen.empty() && !st.pending &&
+                     st.state == Debugger::SourceMapStatus::State::Attached && cv(r, "cvar(counter)") == "ok:0";
+            } else {
+                // the map was dropped inside the delivery: the predicate is false with the facade's reason, no stop
+                ok = ok && !stopped && st.state == Debugger::SourceMapStatus::State::None && !seen.empty() &&
+                     seen[0].message.find("cvar(counter): ") == 0;
+            }
+            ok = ok && subs_ok;
+            if (!ok) detail += std::string(wrong ? "wrong byte" : "right bytes") + ": pending=" + std::to_string(pending) +
+                               " stopped=" + std::to_string(stopped) + " st.pending=" + std::to_string(st.pending) + " " + dstr(seen) + "; ";
+            all = all && ok;
+        }
+        fs::remove_all(root);
+        check("EVAL-CVAR-09", "the first cvar() inside a delivery after a tape program runs (a recheck() that applies the verify hook's "
+                              "verdict) is safe: with the right bytes the map is verified there, kept, and the predicate reads "
+                              "counter = 0 and stops at main.c:19; with one wrong byte the map is dropped there, the predicate is "
+                              "false with the facade's reason, nothing stops; the event table is intact either way",
+              all, detail);
     }
 }
 
