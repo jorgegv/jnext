@@ -310,7 +310,7 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
     U("esxdoshandler-get-open-files", "|esxgof"),
     {"evaluate", "|e", "expression",
      "Evaluate expression. It's the same parser as breakpoint conditions (see help "
-     "set-breakpoint); the result is decimal",
+     "set-breakpoint, including jnext's CVAR(path) for a C variable); the result is decimal",
      CommandClass::Served, &ZrcpServer::cmd_evaluate},
     {"exit-cpu-step", "|ecs", nullptr, "Exit cpu step to step mode: the machine resumes",
      CommandClass::Served, &ZrcpServer::cmd_exit_cpu_step},
@@ -468,7 +468,9 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      "operator, then its first comparison, then its first + or -, then its first other "
      "operator. Integers are 32-bit signed. SEG0..SEG7 (Next), ROM and RAM (128K, +3) are "
      "honoured as a comparison with a number that is part of the top-level AND chain, the form"
-     " DeZog sends. Declined in jnext: MRA MRV MWA MWV PRA PRV PWA PWV TSTATES TSTATESL "
+     " DeZog sends. CVAR(path) reads a C variable of the stopped program (a jnext extension: "
+     "frame 0, an integer or pointer, e.g. CVAR(p->x)); put a PC=<number> term first, since "
+     "any other condition builds the C frames at every instruction. Declined in jnext: MRA MRV MWA MWV PRA PRV PWA PWV TSTATES TSTATESL "
      "TSTATESP SCANLINE OUTFIRED INFIRED INTFIRED ENTERROM EXITROM HILOWMAPPED PD765PCN USP "
      "EPC COPPERPC D0..D7 A0..A7 AC ER SR P1..P3, and FPEEK IN ABS BYTE WORD OPMWA OPMRA OPMWV"
      " OPMRV. A condition whose first term is PC=<number> is checked only at that address; any"

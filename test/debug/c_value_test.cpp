@@ -935,6 +935,48 @@ int main() {
               y.ok && y.loc.addr == 0xA002 && !y.loc.rooted && y1.ok && y1.loc.addr == 0xA005 + 2 && whole.ok && whole.loc.addr == 0xA000 && !dot.ok && ii.ok && ii.loc.addr == 0xA000);
     }
 
+    // ── CVINT-01..02 (GH #436): what is an int32 scalar, the one rule behind `cvar()` and `CVAR()` ─────────
+    // Oracle: the DSL's own value model (lexer.h: "the value is the 32-bit pattern", so 0xCAFEBABE is -889275714), the
+    // fixture's C types (vars.c: int16_t g_int = -5, uint16_t g_uint = 40000, uint32_t g_ulong = 0xCAFEBABE, a pointer is
+    // its address) and the CDB chain spellings the compilers wrote. No fixture has an 8-byte integer, a binary16 or an
+    // _Accum global, so those arms are reached with synthetic types.
+    {
+        const auto v = [](const char* chain, int64_t integer, uint32_t addr = 0) {
+            CLoc l;
+            l.type = ty(chain);
+            l.addr = addr;
+            return c_int32_scalar(l, integer);
+        };
+        const CInt32 sc = v("{1}SC:S", -1), uc = v("{1}SC:U", 255), ui = v("{2}SI:U", 40000), ul = v("{4}SL:U", 3405691582LL),
+                     sl = v("{4}SL:S", -2), pt = v("{2}DG,STpoint:S", 0x8D21), bf = v("{1}SB3$5:U", 17), sca = v("{1}:U", 1);
+        check("CVINT-01", "an integer scalar of at most 4 bytes is accepted as its 32-bit pattern: signed char -1 is -1, unsigned char "
+                          "255 is 255, uint16 40000 is 40000, uint32 0xCAFEBABE is -889275714 (the DSL's pattern for that literal), "
+                          "int32 -2 is -2, a pointer is its address 0x8D21, a bitfield 17, a bare scalar 1",
+              sc.ok && sc.value == -1 && uc.ok && uc.value == 255 && ui.ok && ui.value == 40000 && ul.ok && ul.value == -889275714 &&
+                  sl.ok && sl.value == -2 && pt.ok && pt.value == 0x8D21 && bf.ok && bf.value == 17 && sca.ok && sca.value == 1);
+    }
+    {
+        const auto r = [](const char* chain, std::optional<int64_t> integer, const std::string& note = {}) {
+            CLoc l;
+            l.type = ty(chain);
+            l.note = note;
+            return c_int32_scalar(l, integer);
+        };
+        const CInt32 st = r("{5}STpoint:S", std::nullopt), ar = r("{8}DA4x,SI:S", std::nullopt), f6 = r("{6}SF:S", std::nullopt),
+                     f4 = r("{4}SF:S", std::nullopt), h2 = r("{2}S6:S", std::nullopt), fx = r("{4}SQ:S", std::nullopt),
+                     vo = r("{0}SV:S", std::nullopt), fn = r("{2}DF,SI:S", std::nullopt), big = r("{8}SL:S", -1),
+                     u2 = r("{2}SI:S", 7, "bitfield layout unknown (z88dk U2)"), none = r("{2}SI:S", std::nullopt);
+        const auto has = [](const CInt32& x, const char* needle) { return !x.ok && x.why.find(needle) != std::string::npos; };
+        check("CVINT-02", "everything else is refused with its reason, never a value: a struct and an array are aggregates (named), "
+                          "a 48-bit float, a binary32, a binary16 and a fixed-point are not integers, void and a function have no "
+                          "value, an 8-byte integer does not fit 32 bits, a location carrying the U2 note says the note, and an "
+                          "integer that was not read says so",
+              has(st, "struct point is an aggregate") && has(ar, "is an aggregate") && has(f6, "float is not an integer") &&
+                  has(f4, "float is not an integer") && !f4.ok && !h2.ok && !fx.ok && has(vo, "void has no value") && has(fn, "has no value") &&
+                  has(big, "8-byte integer does not fit the script's 32 bits") && u2.why == "bitfield layout unknown (z88dk U2)" && !u2.ok &&
+                  has(none, "no integer value was read"));
+    }
+
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
 }

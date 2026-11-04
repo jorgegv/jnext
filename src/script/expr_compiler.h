@@ -19,8 +19,9 @@
 // `false`, `CPU` / `DMA` / `COPPER`, the upper-case state names of §2.3
 // (registers, flags, IFF1/IFF2/IM/HALTED, FRAME/CYCLE/TFRAME, the VHDL raster
 // counters, AUDIO_MUTE, MACHINE), `mem[a]`, `mem16[a]`, `phys[page, off]`,
-// `nextreg[r]`, `mmu[s]`, `page[s]`, `stack[n]`, `@symbol`, and the payload
-// names of the scope's event kind. Operators, low to high: `or`; `and`;
+// `nextreg[r]`, `mmu[s]`, `page[s]`, `stack[n]`, `cvar(path)` (a C variable of
+// frame 0 as an int32; GH #436), `@symbol`, and the payload names of the scope's
+// event kind. Operators, low to high: `or`; `and`;
 // `not`; `== != < > <= >=`; `| ^`; `&`; `<< >>`; `+ -`; `* / %`; unary `- ~`.
 // Comparisons and `and`/`or`/`not` yield 1 or 0; `and`/`or` short-circuit.
 // A predicate is true when its value is non-zero.
@@ -32,10 +33,13 @@
 //     WAIT_V WAIT_H SRC DST LEN DMA_MODE IO_SRC IO_DST);
 //   * an `@symbol` the resolver does not know, or any `@symbol` when no
 //     resolver is given;
+//   * a `cvar()` path that is not C path syntax (`c_parse_path()`);
 //   * the script-only forms — a `var`, `NAME.field`, `changed()`, `depth()` —
 //     and string literals: a condition is an integer expression.
 //
-// WHAT FAILS AT RUN TIME (dsl-frontend.md §6.5): division or modulo by zero,
+// WHAT FAILS AT RUN TIME (dsl-frontend.md §6.5): `cvar(path)` naming anything that is not
+// an int32 scalar the facade can read now (no C variables, an unknown or out-of-scope
+// name, an aggregate, a float, a null pointer: never a 0), division or modulo by zero,
 // `mem[]` / `mem16[]` / `stack[]` addressing outside 0..0xFFFF, `nextreg[]`
 // outside 0..255, `mmu[]` / `page[]` outside 0..7, `phys[]` naming a page the
 // backend refuses or an offset outside 0..0x1FFF. A predicate that fails

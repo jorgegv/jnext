@@ -112,6 +112,18 @@ bool parse_number(const std::string& s, std::uint32_t& out) {
     return true;
 }
 
+/// A frame number: decimal digits only (GH #436).
+bool parse_decimal(const std::string& s, std::uint32_t& out) {
+    if (s.empty() || s.size() > 9) return false;
+    std::uint32_t v = 0;
+    for (char c : s) {
+        if (c < '0' || c > '9') return false;
+        v = v * 10 + static_cast<std::uint32_t>(c - '0');
+    }
+    out = v;
+    return true;
+}
+
 std::vector<std::string> split_words(const std::string& s) {
     std::vector<std::string> out;
     std::string              w;
@@ -827,6 +839,14 @@ void GdbServer::pkt_monitor(const std::string& body) {
     else if (verb == "out")     ok = monitor_out(args);
     else if (verb == "sym")     ok = monitor_sym(args);
     else if (verb == "src")     ok = monitor_src(args);
+    else if (verb == "locals")  ok = monitor_locals(args);
+    else if (verb == "globals") ok = monitor_globals(args);
+    else if (verb == "print") {
+        // The raw rest of the line: a C path may hold spaces (`p -> y`), which split_words would break.
+        const std::size_t b = text.find_first_not_of(" \t\r\n");
+        const std::size_t e = text.find_first_of(" \t\r\n", b);
+        ok = monitor_print(e == std::string::npos ? std::string() : text.substr(e));
+    }
     else if (verb == "time")    ok = monitor_time(args);
     else if (verb == "reset")   ok = monitor_reset(args);
     else if (verb == "bp")      ok = monitor_bp(args);
@@ -851,6 +871,9 @@ void GdbServer::monitor_help() {
         "  out PORT VAL               write a port - PERTURBING, as a guest OUT",
         "  sym NAME|ADDR              a symbol's address, or the symbol at/below ADDR",
         "  src [ADDR]                 the source line of ADDR (default PC) and its memory",
+        "  locals [FRAME]             the C parameters and locals of FRAME (default 0, where the CPU is)",
+        "  globals                    the C globals, file statics and static locals, with their memory",
+        "  print [FRAME] PATH         one C value: a.b[2], p->x, *p, fn::x, file.c::x",
         "  time                       frame, cycle, T-states, raster position",
         "  reset [soft|hard]          reset the machine; it stays stopped",
         "  bp                         every breakpoint and watchpoint, with its owner",
@@ -1057,6 +1080,121 @@ bool GdbServer::monitor_src(const std::vector<std::string>& args) {
     if (!loc) monitor_line(head + "unmapped " + mem);
     else      monitor_line(head + printable(loc->file, 200) + ":" + std::to_string(loc->line) +
                            " " + mem);
+    return true;
+}
+
+namespace {
+
+/// `  (<type>) <name> = <value>` or, refused, `  (<type>) <name>: <why>`, then one `  [<note>]` line per note.
+std::string c_row_text(const std::string& type, const std::string& name, bool ok, const std::string& value,
+                       const std::string& why) {
+    return "  (" + printable(type, 80) + ") " + printable(name, 80) + (ok ? " = " + printable(value, 400)
+                                                                         : ": " + printable(why, 200));
+}
+
+}  // namespace
+
+// CAP-SRC (GH #436) - `monitor locals [FRAME]`: the C parameters and locals of frame FRAME (default 0),
+// from the debugger's facade. A content refusal (no C variables, no such frame) is text plus OK, a wrong
+// argument is E01, as `monitor src` does.
+bool GdbServer::monitor_locals(const std::vector<std::string>& args) {
+    if (args.size() > 1) return false;
+    std::uint32_t frame = 0;
+    if (!args.empty() && !parse_decimal(args[0], frame)) return false;
+    const auto status = dbg_.c_variables_status();
+    if (!status.available) {
+        monitor_line(printable(status.why, 200));
+        return true;
+    }
+    const auto frames = dbg_.c_frames();
+    if (frame >= frames.size()) {
+        monitor_line("no frame " + std::to_string(frame) + ": " + std::to_string(frames.size()) + " frames");
+        return true;
+    }
+    const auto&       f = frames[frame];
+    const std::string head = "frame " + std::to_string(frame) + ": ";
+    if (f.function < 0) {
+        monitor_line(head + strf("not C code, $%04X ", f.pc.address) + jnext::dbg::space_tag(f.pc.space));
+        return true;
+    }
+    const auto store = dbg_.variables();
+    std::string at = " at ";
+    at += f.line ? printable(f.line->file, 200) + ":" + std::to_string(f.line->line)
+                 : strf("$%04X", f.pc.address);
+    const std::string fn = printable(store->functions()[static_cast<std::size_t>(f.function)].name, 80);
+    if (f.how == jnext::dbg::Debugger::CFrame::Base::Unknown) {
+        monitor_line(head + fn + at + ", frame base unknown: " + printable(f.note, 200));
+        return true;
+    }
+    const char* how = f.how == jnext::dbg::Debugger::CFrame::Base::Tracked    ? "tracked"
+                      : f.how == jnext::dbg::Debugger::CFrame::Base::Prologue ? "prologue"
+                                                                              : "chain";
+    monitor_line(head + fn + at + strf(", fp $%04X (", f.fp) + how + ")");
+    const auto r = dbg_.c_locals(frame);
+    if (!r.ok) {
+        monitor_line("  " + printable(r.why, 200));
+        return true;
+    }
+    if (r.rows.empty()) monitor_line("  (no locals)");
+    for (const auto& row : r.rows) {
+        monitor_line(c_row_text(row.type, row.name, row.ok, row.value, row.why));
+        for (const auto& n : row.notes) monitor_line("  [" + printable(n, 200) + "]");
+    }
+    return true;
+}
+
+// `monitor globals`: every C global, file static and static local, named by the path that reads it back
+// (`g_int`, `vars.c::s_dup`, `sum::calls`), with the memory the variable lives in.
+bool GdbServer::monitor_globals(const std::vector<std::string>& args) {
+    if (!args.empty()) return false;
+    const auto status = dbg_.c_variables_status();
+    if (!status.available) {
+        monitor_line(printable(status.why, 200));
+        return true;
+    }
+    const auto rows = dbg_.c_globals();
+    if (rows.empty()) monitor_line("  (no globals)");
+    for (const auto& row : rows) {
+        std::string line = c_row_text(row.type, row.path, row.ok, row.value, row.why);
+        if (row.where.kind == jnext::dbg::Debugger::CWhere::Kind::Page)
+            line += strf("  $%04X ", row.where.source.address) + jnext::dbg::space_tag(row.where.source.space);
+        monitor_line(line);
+        for (const auto& n : row.notes) monitor_line("  [" + printable(n, 200) + "]");
+    }
+    return true;
+}
+
+// `monitor print [FRAME] PATH`: one C value of frame FRAME (default 0), aggregates included. FRAME is a
+// leading decimal word (a C path cannot start with a digit); the rest of the line is the path, spaces and all.
+bool GdbServer::monitor_print(const std::string& rest) {
+    std::size_t b = rest.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos) return false;
+    std::uint32_t frame = 0;
+    if (std::isdigit(static_cast<unsigned char>(rest[b]))) {
+        const std::size_t e = rest.find_first_of(" \t\r\n", b);
+        if (!parse_decimal(rest.substr(b, e == std::string::npos ? std::string::npos : e - b), frame)) return false;
+        b = e == std::string::npos ? e : rest.find_first_not_of(" \t\r\n", e);
+        if (b == std::string::npos) return false;
+    }
+    const std::size_t last = rest.find_last_not_of(" \t\r\n");
+    const std::string path = rest.substr(b, last - b + 1);
+    const auto        status = dbg_.c_variables_status();
+    if (!status.available) {
+        monitor_line(printable(status.why, 200));
+        return true;
+    }
+    const std::size_t n = dbg_.c_frames().size();
+    if (frame >= n) {
+        monitor_line("no frame " + std::to_string(frame) + ": " + std::to_string(n) + " frames");
+        return true;
+    }
+    const auto r = dbg_.read_c_value(frame, path);
+    if (!r.ok) {
+        monitor_line(printable(path, 120) + ": " + printable(r.why, 200));
+        return true;
+    }
+    monitor_line("(" + printable(r.type, 80) + ") " + printable(path, 120) + " = " + printable(r.value, 400));
+    for (const auto& note : r.notes) monitor_line("  [" + printable(note, 200) + "]");
     return true;
 }
 

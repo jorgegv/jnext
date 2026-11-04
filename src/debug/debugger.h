@@ -1286,7 +1286,7 @@ public:
         std::string type;           ///< the type text of the object the path ended at
         std::string value;
         std::vector<std::string> notes;
-        CLoc loc;                   ///< valid when `where` is Page or Cpu
+        CLoc loc;                   ///< valid when `where` is Page or Cpu; for a Register value only `loc.type` is set (no address)
         CWhere where;
         std::optional<int64_t> integer;
         std::optional<double> real;

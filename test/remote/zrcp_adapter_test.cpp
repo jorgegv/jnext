@@ -49,6 +49,7 @@
 #include "core/log.h"
 #include "core/rzx.h"
 #include "debug/debugger.h"
+#include "platform/emulator_boot.h"
 #include "version.h"
 
 #include <algorithm>
@@ -4985,6 +4986,71 @@ static void fixture_rows() {
     }
 }
 
+
+// ── ZRCP-CVAR: CVAR(path), jnext's extension (GH #436) ────────────────────
+// Oracle: the C source of the fixture (vars.c: at the vars.c:41 stop of the first call t = 122, k = 120, b = -5, *p = {3, 4, 5},
+// g_uint = 40000, g_matrix[1][2] = 6; at the third call a = 2 and t = 124), its map (vars.c:41 = $8D3E), and ZEsarUX's own
+// reply texts ("Error parsing" for what does not tokenise, "Error evaluating parsed string: <canonical>"), which a
+// failed CVAR() keeps with no reason added.
+static void cvar_rows() {
+    const std::string nex = JNEXT_Z88DK_FIXTURE_DIR "/master/sccz80-cvars/prog.nex";
+    // ZRCP-CVAR-01
+    {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const bool loaded = emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 PC=8D3EH");
+        const std::string stop = run_to_stop(c, 120);
+        const auto val = [&c](const std::string& e) {   // the reply of `evaluate` in cpu-step mode, without its prompt
+            const std::string r = c.cmd("evaluate " + e);
+            const std::string tail = std::string("\n") + PROMPT_STEP;
+            return ends_with(r, tail) ? r.substr(0, r.size() - tail.size()) : r;
+        };
+        const std::string t = val("CVAR(t)"), k = val("cvar(k)"), b = val("CVAR(b)"), xy = val("CVAR(p->x)+CVAR(p->y)"),
+                          u = val("CVAR(g_uint)"), m = val("CVAR(g_matrix[1][2])=6"), tag = val("CVAR( p -> tag )"),
+                          q = val("CVAR(vars.c::s_dup)+1");
+        check("ZRCP-CVAR-01", "evaluate reads C variables at vars.c:41 of the first call: CVAR(t)=122, cvar(k)=120 (any case), CVAR(b)=-5, "
+                              "CVAR(p->x)+CVAR(p->y)=7 (the path is one token, and keeps its case), CVAR(g_uint)=40000, "
+                              "CVAR(g_matrix[1][2])=6 is 1, `CVAR( p -> tag )`=5, a `::` path works",
+              loaded && fired_stop(stop, 0x8D3E, "PC=8D3EH") && t == "122" && k == "120" && b == "-5" && xy == "7" && u == "40000" &&
+                  m == "1" && tag == "5" && q == "1",
+              esc(stop) + " " + t + " " + k + " " + b + " " + xy + " " + u + " " + m + " " + tag + " " + q);
+        // ZRCP-CVAR-02 (same stop): refusals keep ZEsarUX's texts
+        const std::string inner = c.cmd("evaluate CVAR(inner)"), star = c.cmd("evaluate CVAR(*p)"), open = c.cmd("evaluate CVAR(p->x"),
+                          empty = c.cmd("evaluate CVAR()"), nested = c.cmd("evaluate CVAR((x))");
+        Rig nm(MachineType::ZXN_ISSUE2);
+        Zc  c2(nm);
+        const std::string nomap = c2.cmd("evaluate CVAR(t)");
+        check("ZRCP-CVAR-02", "a CVAR() that cannot be read answers ZEsarUX's `Error evaluating parsed string: <canonical>` with no reason: "
+                              "CVAR(inner) (out of scope), CVAR(*p) (an aggregate), CVAR(t) on a Next with no map; what does not tokenise "
+                              "(an unclosed `CVAR(p->x`, an empty `CVAR()`, a nested `CVAR((x))`) is `Error parsing`",
+              inner == reply_of("Error evaluating parsed string: CVAR(inner)", true) &&
+                  star == reply_of("Error evaluating parsed string: CVAR(*p)", true) && open == reply_of("Error parsing", true) &&
+                  empty == reply_of("Error parsing", true) && nested == reply_of("Error parsing", true) &&
+                  nomap == reply_of("Error evaluating parsed string: CVAR(t)"),
+              esc(inner) + esc(star) + esc(open) + esc(nomap));
+    }
+    // ZRCP-CVAR-03
+    {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Zc c(rig);
+        bp_on(c);
+        const std::string set = c.cmd("set-breakpoint 1 PC=8D3EH AND CVAR(a)=2");
+        const std::string lst = c.cmd("get-breakpoints 1");
+        const std::string stop = run_to_stop(c, 160);
+        const std::string t3 = c.cmd("evaluate CVAR(t)");
+        check("ZRCP-CVAR-03", "a condition may carry CVAR(): `PC=8D3EH AND CVAR(a)=2` is accepted, listed as written, and fires at "
+                              "vars.c:41 of the THIRD call, where CVAR(t) is 124",
+              set == reply_of("", true) && lst == "Breakpoints: On\nEnabled 1: PC=8D3EH AND CVAR(a)=2\n\ncommand@cpu-step> " &&
+                  fired_stop(stop, 0x8D3E, "PC=8D3EH AND CVAR(a)=2") && t3 == reply_of("124", true),
+              esc(set) + esc(lst) + esc(stop) + esc(t3));
+    }
+}
+
 int main() {
     std::printf("zrcp_adapter_test — the ZRCP adapter over T's fake transport (GH #280)\n");
     framing_rows();
@@ -5018,6 +5084,7 @@ int main() {
     wp5_load_rows();
     wp5_snapshot_rows();
     fixture_rows();
+    cvar_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,

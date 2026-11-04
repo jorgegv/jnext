@@ -938,6 +938,54 @@ std::optional<int64_t> c_integer_value(const CdbType& type, const uint8_t* b, si
     return static_cast<int64_t>(u << shift) >> shift;
 }
 
+CInt32 c_int32_scalar(const CLoc& loc, std::optional<int64_t> integer)
+{
+    CInt32 r;
+    const CdbType& t = loc.type;
+    if (t.chain.empty()) {
+        r.why = "the object has no type";
+        return r;
+    }
+    const std::string text = c_type_text(t);
+    switch (t.chain[0].kind) {
+    case CdbTypeKind::Float:
+    case CdbTypeKind::Float16:
+    case CdbTypeKind::Fixed:
+        r.why = text + " is not an integer";
+        return r;
+    case CdbTypeKind::Struct:
+    case CdbTypeKind::Array:
+        r.why = text + " is an aggregate, not a scalar: name a member or an element";
+        return r;
+    case CdbTypeKind::Void:
+    case CdbTypeKind::Function:
+        r.why = text + " has no value";
+        return r;
+    case CdbTypeKind::Char:
+    case CdbTypeKind::Int:
+    case CdbTypeKind::Long:
+    case CdbTypeKind::Scalar:
+    case CdbTypeKind::Bitfield:
+    case CdbTypeKind::Pointer:
+        break;
+    }
+    if (t.size > 4) {
+        r.why = "a " + std::to_string(t.size) + "-byte integer does not fit the script's 32 bits";
+        return r;
+    }
+    if (!loc.note.empty()) {
+        r.why = loc.note;
+        return r;
+    }
+    if (!integer) {
+        r.why = "no integer value was read";
+        return r;
+    }
+    r.ok = true;
+    r.value = static_cast<int32_t>(static_cast<uint32_t>(static_cast<uint64_t>(*integer)));
+    return r;
+}
+
 std::optional<double> c_float_value(const CdbType& type, const uint8_t* b, size_t avail)
 {
     if (type.chain.empty()) return std::nullopt;
