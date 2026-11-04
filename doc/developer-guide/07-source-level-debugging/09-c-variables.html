@@ -3039,7 +3039,7 @@ joins those records to the map's symbols, so that a later consumer can ask where
 a C variable lives, which function a local belongs to and which scope a code
 address is in. Reading a value, a frame or a type is not here (last section).</p>
 <h2 id="what-the-store-holds">What the store holds<a class="headerlink" href="#what-the-store-holds" title="Permanent link">&para;</a></h2>
-<p><code>VariableStore</code> (<code>class VariableStore</code>, <code>src/debug/variable_store.h:117</code>) is immutable once
+<p><code>VariableStore</code> (<code>class VariableStore</code>, <code>src/debug/variable_store.h:122</code>) is immutable once
 built. Its five vectors:</p>
 <table>
 <thead>
@@ -3103,15 +3103,15 @@ information" is told from "there is no z88dk map". A map with no lines at all ge
 no store, because it replaces nothing. <code>Load MAP</code> (symbols only) never has one.</p>
 <h2 id="how-it-is-filled">How it is filled<a class="headerlink" href="#how-it-is-filled" title="Permanent link">&para;</a></h2>
 <p><code>load_z88dk_source_map()</code> reads the map once. Pass 1 keeps a <code>const</code> line that
-starts <code>__CDBINFO__</code> in <code>cdb_lines</code> (<code>src/debug/z88dk_source_map.cpp:584</code>),
+starts <code>__CDBINFO__</code> in <code>cdb_lines</code> (<code>src/debug/z88dk_source_map.cpp:631</code>),
 and the parser gained <code>Z88dkMapLine::is_public</code> (the scope field). The line records
 of code sections are copied to <code>scope_records</code> right after they are placed and
-<strong>before</strong> a listing replaces its module's lines (<code>scope_records</code>, <code>src/debug/z88dk_source_map.cpp:647</code>):
+<strong>before</strong> a listing replaces its module's lines (<code>scope_records</code>, <code>src/debug/z88dk_source_map.cpp:698</code>):
 a listing's <code>C_LINE</code> keeps only the file, so the scope can come only from the map.
 Just before <code>map.replace()</code>, <code>build_variable_store()</code>
-(<code>src/debug/z88dk_source_map.cpp:444</code>)
+(<code>src/debug/z88dk_source_map.cpp:472</code>)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, <code>place_symbol</code> (<code>src/debug/z88dk_source_map.cpp:876</code>),
+space by one lambda, <code>place_symbol</code> (<code>src/debug/z88dk_source_map.cpp:927</code>),
 shared by the extent code and the store, so no rule is kept twice.</p>
 <h2 id="the-joins">The joins<a class="headerlink" href="#the-joins" title="Permanent link">&para;</a></h2>
 <p>The key is the <strong>module</strong>, not the file name (z88dk issue 3222, a wrong
