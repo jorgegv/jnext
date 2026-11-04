@@ -347,10 +347,10 @@ void test_rows() {
         Fix f;
         f.load("master/sccz80-cvars", "q04");
         const bool at = f.run_to(kS41);
-        check("QVAR-04", "at vars.c:41 Globals has the group vars.c with g_int -5, g_uint 40000, g_char 65 'A', g_float 1.5, g_str \"hi\", g_matrix {{1, 2, 3}, {4, 5, 6}}, "
+        check("QVAR-04", "at vars.c:41 Globals has the group vars.c with g_int -5, g_uint 40000, g_char 65 'A', g_float 1.5, g_str \"hi\\0\", g_matrix {{1, 2, 3}, {4, 5, 6}}, "
                          "s_file 9, s_dup 0, the static local sum::calls 1, and the group other.c with s_dup 4",
               at && val(global(f, "vars.c", "g_int")) == "-5" && val(global(f, "vars.c", "g_uint")) == "40000" && val(global(f, "vars.c", "g_char")) == "65 'A'" &&
-                  val(global(f, "vars.c", "g_float")) == QString::fromStdString(k15) && val(global(f, "vars.c", "g_str")) == "\"hi\"" &&
+                  val(global(f, "vars.c", "g_float")) == QString::fromStdString(k15) && val(global(f, "vars.c", "g_str")) == "\"hi\\0\"" &&
                   val(global(f, "vars.c", "g_matrix")) == "{{1, 2, 3}, {4, 5, 6}}" && val(global(f, "vars.c", "s_file")) == "9" &&
                   val(global(f, "vars.c", "s_dup")) == "0" && val(global(f, "other.c", "s_dup")) == "4" && val(global(f, "vars.c", "sum::calls")) == "1",
               detail_of(global(f, "vars.c", "g_float")) + " " + detail_of(global(f, "other.c", "s_dup")));

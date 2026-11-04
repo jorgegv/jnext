@@ -7130,14 +7130,14 @@ int main() {
                     " g_pt=" + cvv(m, 0, "g_pt") + " g_colour=" + cvv(m, 0, "g_colour") + " g_byte=" + cvv(m, 0, "g_byte") + " s_file=" + cvv(m, 0, "s_file") +
                     " vs=" + cvv(m, 0, "vars.c::s_dup") + " os=" + cvv(m, 0, "other.c::s_dup");
                 const std::string want = "g_int=-5 g_uint=40000 g_schar=-3 g_char=65 'A' g_long=305419896 g_ulong=3405691582 g_float=" + want_float +
-                                         " g_str=\"hi\" g_cptr=\"abc\" g_matrix={{1, 2, 3}, {4, 5, 6}} g_pt={x = 1, y = 2, tag = 3} g_colour=6 g_byte=7 s_file=9 vs=0 os=4";
+                                         " g_str=\"hi\\0\" g_cptr=\"abc\" g_matrix={{1, 2, 3}, {4, 5, 6}} g_pt={x = 1, y = 2, tag = 3} g_colour=6 g_byte=7 s_file=9 vs=0 os=4";
                 if (!at || got != want) {
                     ok = false;
                     seen += std::string(" [") + c.fixture + "] " + got;
                 }
             }
             check("SRCDBG-CVAL-34", "the globals of vars.c at the vars.c:41 stop, on sccz80, zsdcc and 80cc: g_int=-5 g_uint=40000 g_schar=-3 g_char=65 'A' g_long=305419896 "
-                                    "g_ulong=3405691582 g_float 1.5 g_str=\"hi\" g_cptr=\"abc\" g_matrix g_pt g_colour=6 g_byte=7 s_file=9, and the two file statics s_dup "
+                                    "g_ulong=3405691582 g_float 1.5 g_str=\"hi\\0\" g_cptr=\"abc\" g_matrix g_pt g_colour=6 g_byte=7 s_file=9, and the two file statics s_dup "
                                     "told apart by file: vars.c::s_dup=0 and other.c::s_dup=4",
                   ok, seen);
         }
