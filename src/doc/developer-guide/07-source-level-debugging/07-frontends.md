@@ -304,7 +304,7 @@ of a store, and it **formats nothing**: every value, type, refusal and note is t
   local shows its register names. Debug > Physical Addresses reaches the panel through `apply_address_style()` like every other.
 - **Read-only**, with no new setting (so no CLI flag): editing is GH #437.
 
-Rows `QVAR-01` to `-15` and `-22` (`variables_panel_test`) pin the tab; `CVCH-*` and `SRCDBG-CVCH-*` the children.
+Rows `QVAR-01` to `-15` and `-22` to `-26` (`debugger_variables_panel_test`) pin the tab; `CVCH-*` and `SRCDBG-CVCH-*` the children.
 
 ## Which memory a view names (GH #360)
 

@@ -98,8 +98,10 @@ VariablesPanel::Node VariablesPanel::node_of(const Debugger::CValueRow& row, con
     QString name = QString::fromStdString(row.name);
     if (name == "*") name += parent_name;   // the dereference of a pointer: `*p`
     if (row.kind == Debugger::CValueRow::Kind::StaticLocal) {
+        // `sum::calls`, so two statics of one name stay apart: the path without a leading `<file>::` (which only a repeated function name has)
+        name = n.path;
         const QString file = QString::fromStdString(row.file) + "::";
-        if (n.path.startsWith(file)) name = n.path.mid(file.size());   // `sum::calls`, so two statics of one name stay apart
+        if (name.startsWith(file)) name = name.mid(file.size());
     }
     QString value;
     QString tip;
@@ -299,7 +301,9 @@ void VariablesPanel::rebuild_frames()
 
 void VariablesPanel::select_frame(int k)
 {
-    if (!dbg_ || k < 0 || k >= frames_->count() || k == frame_) return;
+    // not while running: the frame list is the last stop's, and a read now would show values that belong to neither (the next paused
+    // refresh decides)
+    if (!dbg_ || !paused_ || k < 0 || k >= frames_->count() || k == frame_) return;
     frame_ = k;
     frames_->blockSignals(true);
     frames_->setCurrentIndex(k);

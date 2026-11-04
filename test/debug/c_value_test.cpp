@@ -1078,6 +1078,64 @@ int main() {
               leaf.ok && leaf.total == 0 && leaf.items.empty() && !lk.record && !r.ok && r.why == lk.why && !r.why.empty() && r.items.empty());
     }
 
+    {   // CVCH-07
+        const auto rec = [](const char* text, const char* module) {
+            CRecord r;
+            r.text = text;
+            r.module = module;
+            r.record = cdb_decode(text).record;
+            return r;
+        };
+        // struct s { uint8_t a; unsigned :2 (zsdcc writes __00000000); <unnamed C11 member>; uint8_t b; }: no path can name the 2nd and the 3rd
+        const VariableStore st({}, {},
+                               {rec("T:Fv$s[({0}S:S$a$0_0$0({1}SC:U),Z,0,0)({1}S:S$__00000000$0_0$0({1}SB0$2:U),Z,0,0)({2}S:S$$0_0$0({1}SC:U),Z,0,0)({3}S:S$b$0_0$0({1}SC:U),Z,0,0)]",
+                                    "v_c")},
+                               {}, {});
+        CFormatCtx ctx;
+        ctx.store = &st;
+        ctx.scope_name = "v";
+        ctx.module = "v_c";
+        CLoc s;
+        s.type = ty("{4}STs:S");
+        s.addr = 0xA000;
+        const CChildren c = c_children(ctx, s, 0, 100);
+        check("CVCH-07", "a zsdcc padding member (__00000000) and an unnamed member of a struct are not children (no path can name them): struct s lists a and b, total 2, b at +3",
+              c.ok && c.total == 2 && c.items.size() == 2 && c.items[0].label == "a" && c.items[1].label == "b" && c.items[1].loc.addr == 0xA003);
+    }
+    {   // CVCH-08
+        const CVariable* gpt = global_var(*sc.store, "g_pt");
+        CLoc pt;
+        pt.type = gpt ? gpt->record.var.type : CdbType{};
+        pt.addr = 0xA000;
+        const CChildren one = c_children(csc, pt, 1, 1);
+        const CChildren two = c_children(csc, pt, 1, 100);
+        const CChildren past = c_children(csc, pt, 3, 100);
+        check("CVCH-08", "a struct's members honour first and max: g_pt with first = 1, max = 1 is y alone at +2 (total still 3); first = 1 is y and tag; first at the end is none",
+              one.ok && one.total == 3 && one.items.size() == 1 && one.items[0].label == "y" && one.items[0].loc.addr == 0xA002 && two.items.size() == 2 &&
+                  two.items[0].label == "y" && two.items[1].label == "tag" && past.ok && past.total == 3 && past.items.empty());
+    }
+    {   // CVCH-09
+        Mem mem;
+        mem.put(0xA000, {0x00, 0xB0});   // int *p = $B000
+        CFormatCtx ctx;
+        ctx.read = mem.reader();
+        CLoc p;
+        p.type = ty("{2}DG,SI:S");
+        p.addr = 0xA000;
+        const CChildren later = c_children(ctx, p, 1, 100);
+        const CChildren none = c_children(ctx, p, 0, 0);
+        CLoc arr;
+        arr.type = ty("{8}DA4x,SI:S");
+        arr.addr = 0xC000;
+        arr.rooted = true;
+        const CChildren els = c_children(ctx, arr, 0, 100);
+        bool rooted = els.ok && els.items.size() == 4;
+        for (const CChild& c : els.items) rooted = rooted && c.loc.rooted;
+        check("CVCH-09", "a pointer's one child exists only for first = 0 and max > 0 (first = 1 and max = 0 give none, total still 1); the elements of a rooted array are rooted "
+                         "(read through the root object's own view)",
+              later.ok && later.total == 1 && later.items.empty() && none.ok && none.total == 1 && none.items.empty() && rooted);
+    }
+
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
 }

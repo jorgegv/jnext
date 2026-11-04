@@ -188,6 +188,24 @@ std::string detail_of(QTreeWidgetItem* it) {
     return it ? s(it->text(0) + "|" + it->text(1) + "|" + it->text(2) + "|" + it->text(3)) : "<none>";
 }
 
+// A CDB record the way a compiler writes it into a map: every character that is not a letter is `_xx`.
+std::string esc(const std::string& t) {
+    std::string o;
+    for (const unsigned char c : t) {
+        if (std::isalpha(c)) {
+            o += static_cast<char>(c);
+        } else {
+            char b[8];
+            std::snprintf(b, sizeof b, "_%02x", c);
+            o += b;
+        }
+    }
+    return o;
+}
+// Append records (`S:G$...`) and symbols to a copy of the fixture's map.
+void add_to_map(const fs::path& d, const std::string& text) { std::ofstream(d / "prog.map", std::ios::app) << text; }
+const char* const kScope = " = $0001 ; const, public, , vars_c, code_compiler, vars.c::main::1::6:66\n";
+
 // vars.c:41, sum's first call (sccz80, master): the stop every row starts from.
 constexpr uint16_t kS41 = 0x8D3E;
 
@@ -269,7 +287,7 @@ void test_rows() {
                          "t = 122, acc = 345, calls = 1, no `inner`; types int, unsigned char, struct point *, long",
               at && s(f.frames()->currentText()) == "sum at vars.c:41 (current)" && !want.isEmpty() && names(locals(f)) == want.join(' ') && val(a) == "0" &&
                   val(child(locals(f), "b")) == "-5" && val(k) == "120 'x'" && val(t) == "122" && val(acc) == "345" && val(calls) == "1" &&
-                  !child(locals(f), "inner") && ty(a) == "int" && ty(k) == "unsigned char" && ty(p) == "struct point *" && ty(acc) == "long",
+                  !child(locals(f), "inner") && ty(a) == "int" && ty(k) == "unsigned char" && ty(p) == "struct point *" && ty(acc) == "long" && f.status()->isHidden(),
               s(f.frames()->currentText()) + " | " + s(names(locals(f))));
     }
 
@@ -278,11 +296,11 @@ void test_rows() {
         f.load("master/sccz80-cvars", "q04");
         const bool at = f.run_to(kS41);
         check("QVAR-04", "at vars.c:41 Globals has the group vars.c with g_int -5, g_uint 40000, g_char 65 'A', g_float 1.5, g_str \"hi\", g_matrix {{1, 2, 3}, {4, 5, 6}}, "
-                         "s_file 9, s_dup 0, and the group other.c with s_dup 4",
+                         "s_file 9, s_dup 0, the static local sum::calls 1, and the group other.c with s_dup 4",
               at && val(global(f, "vars.c", "g_int")) == "-5" && val(global(f, "vars.c", "g_uint")) == "40000" && val(global(f, "vars.c", "g_char")) == "65 'A'" &&
                   val(global(f, "vars.c", "g_float")) == QString::fromStdString(k15) && val(global(f, "vars.c", "g_str")) == "\"hi\"" &&
                   val(global(f, "vars.c", "g_matrix")) == "{{1, 2, 3}, {4, 5, 6}}" && val(global(f, "vars.c", "s_file")) == "9" &&
-                  val(global(f, "vars.c", "s_dup")) == "0" && val(global(f, "other.c", "s_dup")) == "4",
+                  val(global(f, "vars.c", "s_dup")) == "0" && val(global(f, "other.c", "s_dup")) == "4" && val(global(f, "vars.c", "sum::calls")) == "1",
               detail_of(global(f, "vars.c", "g_float")) + " " + detail_of(global(f, "other.c", "s_dup")));
     }
 
@@ -418,6 +436,15 @@ void test_rows() {
             QApplication::processEvents();
             const bool frame1 = f.vp()->selected_frame() == 1 && val(child(locals(f), "t")) == "not allocated" && val(child(locals(f), "acc")) == "not allocated" &&
                                 val(child(locals(f), "t")) != "0";
+            // a refusal is drawn in the placeholder colour, a value is not
+            QTreeWidgetItem* tt = child(locals(f), "t");
+            QTreeWidgetItem* aa = child(locals(f), "a");
+            const bool tint = tt && aa && tt->foreground(2).color() == f.vp()->palette().color(QPalette::PlaceholderText) && aa->data(2, Qt::ForegroundRole).isNull() &&
+                              val(aa) != "";
+            if (!tint) {
+                ok = false;
+                seen += " tint";
+            }
             if (!frame0 || !frame1) {
                 ok = false;
                 seen += " sccz80[" + std::to_string(frame0) + std::to_string(frame1) + " " + detail_of(child(locals(f), "t")) + "]";
@@ -522,19 +549,6 @@ void test_rows() {
         // a 300-byte global added to the committed map: one record the way the compiler writes it (every character that is not a letter is
         // `_xx`), and its symbol at $9200 (page 4). Memory is poked with (i % 30) + 1, so every element is a plain number.
         Fix f;
-        const auto esc = [](const std::string& t) {
-            std::string o;
-            for (const unsigned char c : t) {
-                if (std::isalpha(c)) {
-                    o += static_cast<char>(c);
-                } else {
-                    char b[8];
-                    std::snprintf(b, sizeof b, "_%02x", c);
-                    o += b;
-                }
-            }
-            return o;
-        };
         f.load("master/sccz80-cvars", "q22", [&](const fs::path& d) {
             std::ofstream out(d / "prog.map", std::ios::app);
             out << "__CDBINFO__" << esc("S:G$g_big$0_0$0({300}DA300x,SC:U),E,0,0") << " = $0001 ; const, public, , vars_c, code_compiler, vars.c::main::1::6:66\n"
@@ -557,6 +571,93 @@ void test_rows() {
               at && big && ranges == "[0..99] [100..199] [200..299]" && elems && first && first->childCount() == 100 && first->child(0)->text(0) == "[0]" &&
                   first->child(0)->text(2) == "1",
               s(ranges) + " " + detail_of(last));
+    }
+
+    {   // QVAR-23
+        Fix f;
+        f.load("master/sccz80-cvars", "q23");
+        const bool at = f.run_to(kS41);
+        QTreeWidgetItem* a = child(locals(f), "a");
+        QTreeWidgetItem* p = child(locals(f), "p");
+        f.backend->c_frames();
+        const uint64_t rev = f.backend->state_revision();
+        QSignalSpy spy(f.vp(), &VariablesPanel::frame_changed);
+        if (a) a->setText(2, "SENTINEL");
+        f.vp()->set_paused(false);   // the machine runs
+        f.vp()->refresh();
+        expand(p);                    // on_expanded
+        f.vp()->select_frame(1);
+        const bool still = a && val(a) == "SENTINEL" && p && p->childCount() == 0 && f.vp()->selected_frame() == 0 && spy.count() == 0 &&
+                           s(f.frames()->currentText()) == "sum at vars.c:41 (current)" && f.backend->state_revision() == rev;
+        f.vp()->set_paused(true);
+        f.vp()->refresh();
+        check("QVAR-23", "while the machine runs, refresh, expanding an item and choosing a frame read and redraw nothing: the tree keeps its text, the item gets no children, the frame "
+                         "stays 0 with no frame_changed and no state_revision() bump; the next paused refresh reads again",
+              at && still && val(a) == "0" && p->childCount() == 3, "a=" + s(val(a)));
+    }
+
+    {   // QVAR-24
+        Fix f;
+        f.load("master/sccz80-cvars", "q24");
+        const bool at = f.run_to(kS41);
+        QTreeWidgetItem* node = global(f, "vars.c", "g_node");
+        expand(node);
+        const bool zero = node && val(child(node, "val")) == "0";
+        node->setExpanded(false);
+        QApplication::processEvents();
+        const bool at2 = f.run_to(0x8E1F);   // vars.c:64: g_node.val = 100000 has run
+        node = global(f, "vars.c", "g_node");
+        expand(node);
+        check("QVAR-24", "a collapsed item's children are not kept: g_node.val is 0 when closed at vars.c:41, and opening it again at vars.c:64 reads 100000",
+              at && zero && at2 && node && val(child(node, "val")) == "100000", detail_of(child(node, "val")));
+    }
+
+    {   // QVAR-25
+        // main gets a second local `p` (an alias of lp), so that the two functions have an item with the same path
+        Fix f;
+        f.load("master/sccz80-cvars", "q25", [&](const fs::path& d) {
+            add_to_map(d, "__CDBINFO__" + esc("S:Lvars.c.main$p$1_0$4({5}STpoint:S),B,1,-5") + kScope);
+        });
+        const bool at = f.run_to(kS41);
+        QTreeWidgetItem* p = child(locals(f), "p");
+        expand(p);
+        f.vp()->select_frame(1);
+        QTreeWidgetItem* mp = child(locals(f), "p");
+        const bool other_closed = mp && !mp->isExpanded() && mp->childCount() == 0;   // main's p: same path, another function
+        f.vp()->select_frame(0);
+        QTreeWidgetItem* back = child(locals(f), "p");
+        const bool reopened = back && back->isExpanded() && back->childCount() == 3 && val(child(back, "x")) == "3";
+        // a file group the user opened is opened again when the store goes and comes back
+        QTreeWidgetItem* grp = child(globals(f), "vars.c");
+        expand(grp);
+        const std::string map = (f.dir / "prog.map").string();
+        f.backend->clear_source_map();
+        f.dbg()->refresh_panels();
+        const bool emptied = locals(f)->childCount() == 0 && globals(f)->childCount() == 0 && !f.status()->isHidden();
+        f.backend->load_source_map(map, true);
+        f.dbg()->refresh_panels();
+        QTreeWidgetItem* grp2 = child(globals(f), "vars.c");
+        check("QVAR-25", "what the user opened stays open when items are rebuilt, by key and per function: sum's p is open again after a trip to frame 1 (whose own p, the same path, "
+                         "is closed); with the store gone both sections are empty and the status says why, and when it is back the vars.c group is open again",
+              at && p && other_closed && reopened && emptied && grp2 && grp2->isExpanded() && f.status()->isHidden(),
+              std::to_string(other_closed) + std::to_string(reopened) + std::to_string(emptied));
+    }
+
+    {   // QVAR-26
+        Fix f;
+        f.load("master/sccz80-cvars", "q26", [&](const fs::path& d) {
+            add_to_map(d, "__CDBINFO__" + esc("S:G$g_vp$0_0$0({2}DG,SV:S),E,0,0") + kScope +
+                              "_g_vp = $9300 ; addr, public, , vars_c, bss_compiler, vars.c::main::1::6:66\n");
+        });
+        const bool at = f.run_to(kS41);
+        QTreeWidgetItem* cp = global(f, "vars.c", "g_cptr");
+        QTreeWidgetItem* vp = global(f, "vars.c", "g_vp");
+        const bool ind = cp && vp && cp->childIndicatorPolicy() == QTreeWidgetItem::ShowIndicator && vp->childIndicatorPolicy() == QTreeWidgetItem::DontShowIndicator;
+        expand(cp);
+        QTreeWidgetItem* star = cp && cp->childCount() == 1 ? cp->child(0) : nullptr;
+        check("QVAR-26", "a pointer opens onto its pointee, named after it: g_cptr (const char *, \"abc\") has the indicator and one child `*g_cptr` = 97 'a'; a void * (g_vp) has "
+                         "nothing to open and no indicator",
+              at && ind && star && star->text(0) == "*g_cptr" && val(star) == "97 'a'", detail_of(star));
     }
 }
 

@@ -557,8 +557,17 @@ Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, s
     }
     out.ok = true;
     out.total = ch.total;
+    // `*E` is `E[0]`: the grammar applies a leading `*` AFTER the postfix steps, so `*p` + `.x` would read as `*(p.x)`. `self.loc` is the
+    // pointee already, so its members are `.x` (or `->x` if it is itself a pointer) on `E[0]`.
+    std::string base(path);
+    if (p.deref) {
+        const size_t star = base.find('*');
+        base = base.substr(star + 1);
+        const size_t b = base.find_first_not_of(" \t");
+        base = (b == std::string::npos ? std::string() : base.substr(b)) + "[0]";
+    }
     for (const CChild& c : ch.items) {
-        const std::string child_path = std::string(path) + c.suffix;
+        const std::string child_path = base + c.suffix;
         const CPath cp = c_parse_path(child_path);
         CValueResult r = cp.ok ? eval_var(e, frame, *f.v, cp.deref, cp.steps) : refused(cp.why);
         Row row;
