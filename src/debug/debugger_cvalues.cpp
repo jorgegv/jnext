@@ -684,7 +684,6 @@ Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, s
         const std::string child_path = base + c.suffix;
         const CPath cp = c_parse_path(child_path);
         CValueResult r = cp.ok ? eval_var(e, frame, *f.v, cp.deref, cp.steps) : refused(cp.why);
-        if (r.ok && !f.shares.empty()) r.notes.push_back(c_shares_note(f.shares));
         Row row;
         row.name = c.label;
         row.path = child_path;

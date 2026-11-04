@@ -8641,16 +8641,27 @@ int main() {
                 return std::string();
             };
             const auto listed = [&](Machine& m, const char* name) { return row_of(m.dbg->c_locals(0).rows, name) != nullptr; };
+            // the Variables tab's rows (c_locals) carry the same note as read_c_value
+            const auto row_shares = [&](Machine& m, const char* name) {
+                const auto rows = m.dbg->c_locals(0).rows;
+                const auto* r = row_of(rows, name);
+                if (r)
+                    for (const auto& n : r->notes)
+                        if (n.find("shares its stack slot with ") == 0) return n;
+                return std::string();
+            };
             for (const Bz& c : {Bz{"v2.4/sccz80-blocks", "zb07a", false}, Bz{"master/sccz80-blocks", "zb07b", false}, Bz{"master-fixed/sccz80-blocks", "zb07c", true}}) {
                 Machine m(false, MachineType::ZXN_ISSUE2);
                 cv_load(m, c.fx, c.tag);
                 const bool f8 = cv_starts_at(m, "blocks.c:8", 0x8CB4) && cv_run_to(m, 0x8CB4);
-                const bool a8 = cvv(m, 0, "t") == "3" && cvv(m, 0, "p") == "6" && (c.fixed ? !listed(m, "i") : (listed(m, "i") && shares_of(m, "p") == jnext::dbg::c_shares_note("i") && shares_of(m, "i") == jnext::dbg::c_shares_note("p")));
+                const bool a8 = cvv(m, 0, "t") == "3" && cvv(m, 0, "p") == "6" && (c.fixed ? !listed(m, "i") : (listed(m, "i") && shares_of(m, "p") == jnext::dbg::c_shares_note("i") && shares_of(m, "i") == jnext::dbg::c_shares_note("p") &&
+                                                                                    row_shares(m, "p") == jnext::dbg::c_shares_note("i") && row_shares(m, "i") == jnext::dbg::c_shares_note("p")));
                 const bool f11 = cv_starts_at(m, "blocks.c:11", 0x8CDD) && cv_run_to(m, 0x8CDD);
                 const bool a11 = cvv(m, 0, "t") == "9" && (c.fixed ? cvv(m, 0, "i") == "0" && !listed(m, "p") : (!listed(m, "i") && !listed(m, "p")));
                 const bool f17 = cv_starts_at(m, "blocks.c:17", 0x8CF7) && cv_run_to(m, 0x8CF7);
                 const bool a17 = cvv(m, 0, "t") == "12" && cvv(m, 0, "u") == "12" && cvv(m, 0, "v") == "12" &&
-                                 (c.fixed ? shares_of(m, "v") == jnext::dbg::c_shares_note("z") && shares_of(m, "z") == jnext::dbg::c_shares_note("v") : (shares_of(m, "v").empty() && !listed(m, "z")));
+                                 (c.fixed ? shares_of(m, "v") == jnext::dbg::c_shares_note("z") && shares_of(m, "z") == jnext::dbg::c_shares_note("v") && row_shares(m, "v") == jnext::dbg::c_shares_note("z") &&
+                                                  row_shares(m, "z") == jnext::dbg::c_shares_note("v") : (shares_of(m, "v").empty() && !listed(m, "z")));
                 const bool f20 = cv_starts_at(m, "blocks.c:20", 0x8D0E) && cv_run_to(m, 0x8D0E);
                 const bool a20 = cvv(m, 0, "t") == "24" && cvv(m, 0, "u") == "12" && !listed(m, "v") && (c.fixed ? cvv(m, 0, "z") == "13" && shares_of(m, "z").empty() : !listed(m, "z"));
                 const bool g32 = cv_starts_at(m, "blocks.c:32", 0x8D42) && cv_run_to(m, 0x8D42);

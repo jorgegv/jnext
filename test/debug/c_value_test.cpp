@@ -1678,9 +1678,34 @@ int main() {
             for (const std::string& x : n) out += (out.empty() ? "" : " ") + x;
             return out;
         };
+        // the walk is sccz80's: the same trail on a zsdcc function keeps the block rule (zsdcc numbers blocks exactly, not in pre-order): scope (level 2, block 5) after a
+        // record of block 7 at the same level shows block 5's local, where the replay would keep block 7
+        std::vector<CVariable> zv;
+        for (const auto& [n, lv, bl] : std::vector<std::tuple<std::string, int, int>>{{"p", 2, 7}, {"q", 2, 5}}) {
+            CVariable v;
+            v.record = cdb_decode("S:Lt.f$" + n + "$" + std::to_string(lv) + "_0$" + std::to_string(bl) + "({2}SI:S),B,1,-4").record;
+            v.c_name = n;
+            v.function = 0;
+            zv.push_back(v);
+        }
+        CFunction zf;
+        zf.name = "f";
+        zf.compiler = CCompiler::Zsdcc;
+        zf.trail = {sc(0, 1, 0, 0), sc(3, 2, 1, 1), sc(5, 3, 2, 7), sc(10, 4, 2, 5)};
+        zf.scopes = zf.trail;
+        const VariableStore zst({zf}, zv, {}, {}, {});
+        std::string zrow;
+        for (const CLocalRef& r : c_visible_locals(zst, 0, &zst.functions()[0].scopes[3])) zrow += r.var->c_name + " ";
+        CFunction sf = zf;
+        sf.compiler = CCompiler::Sccz80;
+        const VariableStore sst({sf}, zv, {}, {}, {});
+        std::string srow;
+        for (const CLocalRef& r : c_visible_locals(sst, 0, &sst.functions()[0].scopes[3])) srow += r.var->c_name + " ";
         check("CVZB-13", "records where a `for` opens a block (z88dk#3254): in the `if` block t p (i, k and u are not open), in the for header t i, in the for body t i k, after the loop t, in the "
-                         "next block t u: the walk needs no special case for it",
-              at(10) == "p t" && at(24) == "i t" && at(30) == "i k t" && at(40) == "i t" && at(50) == "t" && at(55) == "t u", at(10) + " | " + at(24) + " | " + at(30) + " | " + at(40) + " | " + at(55));
+                         "next block t u: the walk needs no special case for it; and the walk is sccz80's only: the same trail on a zsdcc function keeps the block rule (shows q, block 5), on sccz80 the "
+                         "replay keeps block 7 (shows p)",
+              at(10) == "p t" && at(24) == "i t" && at(30) == "i k t" && at(40) == "i t" && at(50) == "t" && at(55) == "t u" && zrow == "q " && srow == "p ",
+              at(10) + " | " + at(24) + " | " + at(30) + " | " + at(40) + " | " + at(55) + " | z=" + zrow + " s=" + srow);
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

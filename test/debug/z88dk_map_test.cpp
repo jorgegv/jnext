@@ -3082,9 +3082,14 @@ main cross_c AC97
         };
         const std::string a = trail_text("v2.4/sccz80-blocks"), b = trail_text("master/sccz80-blocks"), c = trail_text("master-fixed/sccz80-blocks");
         std::printf("  Z88ZB-02: %s | %s | %s\n", a.c_str(), b.c_str(), c.c_str());
+        // two records of one address listed with the higher line first: the trail still reads (offset, line)
+        SourceMap so;
+        load(so, zb_map("z88zb02.map", "__C_LINE_9_t_2ec_9 = $8004 ; addr, local, , t_c, code_compiler, t.c::f::1::1:9\n__C_LINE_8_t_2ec_8 = $8004 ; addr, local, , t_c, code_compiler, t.c::f::2::2:8\n"));
+        const CFunction* sf = store_of(so) ? fn_named(*store_of(so), "f", "t_c") : nullptr;
+        const bool ordered = sf && sf->trail.size() == 3 && sf->trail[0].line == 1 && sf->trail[1].line == 8 && sf->trail[2].line == 9 && sf->trail[1].offset == 4 && sf->trail[2].offset == 4;
         check("Z88ZB-02", "blocks.c's g2 on v2.4, master and master-fixed sccz80: the trail holds every __C_LINE_ record of g2's extent (the raw map's records between g2's entry and h's, counted from the text, "
-                          "in (address, line) order), lines 30 and 31 are adjacent at one offset, and the trail is longer than the scope table (which keeps one owner per address)",
-              a.find("same,30+31,longer") != std::string::npos && b == a && c.find("same,30+31,longer") != std::string::npos);
+                          "in (address, line) order), lines 30 and 31 are adjacent at one offset, and the trail is longer than the scope table (which keeps one owner per address); a synthetic map that lists the higher line of one address first still gives (offset, line) order",
+              a.find("same,30+31,longer") != std::string::npos && b == a && c.find("same,30+31,longer") != std::string::npos && ordered);
     }
     {   // Z88ZB-05
         // master-fixed sccz80-cvars: struct flags' members are exact bitfield records (lo 0/3 and mid 3/5 at offset 0, hi 0/8 at offset 1), g_str has ONE record (no unsized
