@@ -2896,6 +2896,18 @@ main cross_c AC97
         }
         return out;
     };
+    // GH #438 mutation pins: a minimal synthetic map (module t_c: functions f and g, one line record) plus the given extra map lines and records
+    const auto zb_map = [&](const char* name, const std::string& extra) {
+        const std::string text =
+            std::string("_f = $8000 ; addr, public, , t_c, code_compiler, t.c::f::0::0:1\n_g = $8010 ; addr, public, , t_c, code_compiler, t.c::g::0::0:2\n") +
+            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::f::0::0:1\n__code_compiler_tail = $8040 ; const, public, def, , ,\n" +
+            "__CDBINFO__" + cdb_escape("F:G$f$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n" +
+            "__CDBINFO__" + cdb_escape("F:G$g$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n" + extra;
+        return synth(name, text);
+    };
+    const auto zb_cdb = [](const std::string& rec_text, const char* module = "t_c") {
+        return "__CDBINFO__" + cdb_escape(rec_text) + " = $0001 ; const, public, , " + module + ", code_compiler, t.c:1\n";
+    };
     {   // Z88ZB-03
         const auto all4 = [&](const char* fx) {
             SourceMap m;
@@ -2904,6 +2916,24 @@ main cross_c AC97
             if (!st) return std::string("no store");
             return arr_records(*st, "ls") + " | " + arr_records(*st, "ss") + " | " + arr_records(*st, "fs") + " | " + arr_records(*st, "gs");
         };
+        // what makes a sized record the twin of an unsized one: the same kind of scope, scope name, function, name and module. A sized record that differs in any
+        // of them leaves the unsized one listed; two unsized records are nobody's twin
+        SourceMap sm;
+        load(sm, zb_map("z88zb03.map",
+            zb_cdb("S:Lt.c.f$p$1_0$1({-1}DA-1x,SC:S),B,1,0") + zb_cdb("S:Lt.c.g$p$1_0$1({4}DA4x,SC:S),B,1,-4") +                  // another function
+            zb_cdb("S:Lt.c.f$q$1_0$1({-1}DA-1x,SC:S),B,1,0") + zb_cdb("S:Lu.c.f$q$1_0$1({4}DA4x,SC:S),B,1,-4") +                  // another scope name
+            zb_cdb("S:G$r$0_0$0({-1}DA-1x,SC:S),E,0,0") + zb_cdb("S:G$r$0_0$0({4}DA4x,SC:S),E,0,0", "u_c") +                        // another module
+            zb_cdb("S:Ft.c$s$0_0$0({-1}DA-1x,SC:S),E,0,0") + zb_cdb("S:G$s$0_0$0({4}DA4x,SC:S),E,0,0") +                          // file scope vs global
+            zb_cdb("S:G$w$0_0$0({-1}DA-1x,SC:S),E,0,0") + zb_cdb("S:G$w$0_0$0({-1}DA-1x,SI:S),E,0,0") +                            // two unsized records
+            zb_cdb("S:G$z$0_0$0({-1}DA-1x,SC:S),E,0,0") + zb_cdb("S:G$z$0_0$0({4}DA4x,SC:S),E,0,0")));                              // a real twin: hidden
+        const VariableStore* sst = store_of(sm);
+        const auto listed_of = [&](const char* name) {
+            int n = 0;
+            for (const CVariable& v : sst ? sst->variables() : std::vector<CVariable>())
+                if (v.c_name == name && v.record.hidden == CdbHidden::None && v.record.var.type.chain[0].count < 0) ++n;
+            return n;
+        };
+        const bool synthetic_twins = sst && listed_of("p") == 1 && listed_of("q") == 1 && listed_of("r") == 1 && listed_of("s") == 1 && listed_of("w") == 2 && listed_of("z") == 0;
         // gs: the sized record and the unsized twin; the twin is hidden because the sized one is there (store order: by record text)
         const std::string pre = all4("v2.4/sccz80-fm"), mas = all4("master/sccz80-fm"), fix = all4("master-fixed/sccz80-fm"),
                           c80 = all4("master/80cc-fm"), c80f = all4("master-fixed/80cc-fm");
@@ -2911,9 +2941,16 @@ main cross_c AC97
         check("Z88ZB-03", "unsized arrays (fm.c): v2.4 and master sccz80 list ls, ss and fs with count -1 (their only record) and hide gs's -1 twin (a 5 record "
                           "is listed); master-fixed has four sized records and no twin; master 80cc has ls {4} and ss and fs {-1} listed, gs's twin hidden "
                           "(80cc's -1 records are still written after z88dk#3229, so master-fixed 80cc says the same)",
-              pre == "-1 | -1 | -1 | -1h 5" && mas == pre && fix == "4 | 5 | 5 | 5" && c80 == "4 | -1 | -1 | -1h 5" && c80f == c80);
+              pre == "-1 | -1 | -1 | -1h 5" && mas == pre && fix == "4 | 5 | 5 | 5" && c80 == "4 | -1 | -1 | -1h 5" && c80f == c80 && synthetic_twins);
     }
     {   // Z88ZB-04
+        // the first NON-ZERO __code_fp_<lib>_size names the library (a zero size is a library not linked)
+        int n_lib = 0;
+        const auto synth_lib = [&](const std::string& lines) {
+            SourceMap m;
+            load(m, zb_map(("z88zb04_" + std::to_string(n_lib++) + ".map").c_str(), lines));
+            return store_of(m) ? store_of(m)->float_library() : std::string("no store");
+        };
         const auto lib = [&](const char* fx) {
             SourceMap m;
             load(m, kFixtures / fx / "prog.map");
@@ -2933,7 +2970,10 @@ main cross_c AC97
             }
         check("Z88ZB-04", "float library: master classic-mbf32 names mbf32 (__code_fp_mbf32_size $0007), classic-math32 names math32 ($001D); every other map "
                           "(newlib, and classic without float code) names none",
-              lib("master/classic-mbf32") == "mbf32" && lib("master/classic-math32") == "math32" && lib("master/classic-debug").empty() && none && newlib == 81);
+              lib("master/classic-mbf32") == "mbf32" && lib("master/classic-math32") == "math32" && lib("master/classic-debug").empty() && none && newlib == 81 &&
+                  synth_lib("__code_fp_mbf32_size = $0000 ; const, public, def, , ,\n__code_fp_math32_size = $001D ; const, public, def, , ,\n") == "math32" &&
+                  synth_lib("__code_fp_math32_size = $001D ; const, public, def, , ,\n__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n") == "math32" &&
+                  synth_lib("__code_fp_math32_size = $0000 ; const, public, def, , ,\n").empty());
     }
     {   // Z88ZB-06
         const auto var_off = [&](const char* fx, const char* fn, const char* name) {
@@ -2983,10 +3023,10 @@ main cross_c AC97
     }
     {   // Z88ZB-08
         // a module whose path is absolute: z80asm names it X_home_u_g_u_x_c; the three maps differ only in the M: record and the C_LINE file
-        const auto synthetic = [&](const char* name, const char* line_file, const char* m_record) {
+        const auto synthetic = [&](const char* name, const char* line_file, const char* m_record, const char* where = "::f::0::1:1") {
             std::string text =
-                rec("__C_LINE_1_u_2dx_2ec", 0x9000, "X_home_u_g_u_x_c", "code_compiler", (std::string(line_file) + "::f::0::1:1").c_str()) +
-                rec("_f", 0x9000, "X_home_u_g_u_x_c", "code_compiler", (std::string(line_file) + "::f::0::1:1").c_str()) +
+                rec("__C_LINE_1_u_2dx_2ec", 0x9000, "X_home_u_g_u_x_c", "code_compiler", (std::string(line_file) + where).c_str()) +
+                rec("_f", 0x9000, "X_home_u_g_u_x_c", "code_compiler", (std::string(line_file) + where).c_str()) +
                 "__code_compiler_tail = $9010 ; const, public, def, , ,\n" +
                 "__CDBINFO__" + cdb_escape("F:G$f$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , X_home_u_g_u_x_c, code_compiler, x.c:1\n";
             std::string out = text;
@@ -3000,10 +3040,11 @@ main cross_c AC97
             return st && st->functions().size() == 1 ? st->functions()[0].compiler : jnext::dbg::CCompiler::Unknown;
         };
         check("Z88ZB-08", "synthetic maps, module X_home_u_g_u_x_c with F:G$f: M:/home/u/g/u-x.c beside C_LINE records of file /home/u/g/u-x.c is 80cc (the M: name equals the "
-                          "file field); the same M: with C_LINE file u-x.c is zsdcc (zsdcc writes M:<module> against <module>.c, never a match); no M: record is sccz80",
+                          "file field); the same M: with C_LINE file u-x.c is zsdcc (zsdcc writes M:<module> against <module>.c, never a match), and so is a matching M: with C_LINE records in zsdcc's `x`+TAB form; no M: record is sccz80",
               synthetic("z88zb08a.map", "/home/u/g/u-x.c", "M:/home/u/g/u-x.c") == jnext::dbg::CCompiler::Cc80 &&
                   synthetic("z88zb08b.map", "u-x.c", "M:/home/u/g/u-x.c") == jnext::dbg::CCompiler::Zsdcc &&
-                  synthetic("z88zb08c.map", "/home/u/g/u-x.c", "") == jnext::dbg::CCompiler::Sccz80);
+                  synthetic("z88zb08c.map", "/home/u/g/u-x.c", "") == jnext::dbg::CCompiler::Sccz80 &&
+                  synthetic("z88zb08d.map", "/home/u/g/u-x.c", "M:/home/u/g/u-x.c", "::x::10000::7\t:1") == jnext::dbg::CCompiler::Zsdcc);
     }
 
     fs::remove_all(dir);

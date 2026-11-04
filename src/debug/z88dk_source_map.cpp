@@ -562,6 +562,7 @@ std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
     // An `{-1}` array record is the twin of a sized one (an array sized by its initialiser: sccz80 and 80cc write the
     // unsized record first). With no sized twin of the same scope, name and function it is the variable's only record: it
     // is listed, and refused with its reason (GH #438, plan 2.6). The decoder still classes every `{-1}` array as hidden.
+    std::vector<CVariable*> unsized_alone;   // decided first, applied after: unhiding one must not make it the twin of the next
     for (CVariable& v : vars) {
         if (v.record.hidden != jnext::dbg::CdbHidden::IncompleteArray) continue;
         const bool twin = std::any_of(vars.begin(), vars.end(), [&](const CVariable& o) {
@@ -569,8 +570,9 @@ std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
                    o.record.scope_name == v.record.scope_name && o.record.function == v.record.function &&
                    o.record.var.name == v.record.var.name && o.module == v.module;
         });
-        if (!twin) v.record.hidden = jnext::dbg::CdbHidden::None;
+        if (!twin) unsized_alone.push_back(&v);
     }
+    for (CVariable* v : unsized_alone) v->record.hidden = jnext::dbg::CdbHidden::None;
 
     jnext::dbg::CFrameHelpers helpers;
     helpers.framepointer = storage_of(join_public(idx, "__debug_framepointer"), place);
