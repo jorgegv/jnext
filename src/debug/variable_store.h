@@ -77,6 +77,9 @@ struct CFunction {
     std::string module;        ///< the module of the entry symbol (the CDB line's when there is none)
     CStorage entry;
     std::vector<CScope> scopes;   ///< sorted by offset
+    /// Every C_LINE record of the extent, owners and the lower lines that share an owner's address, as CScope in (offset, line)
+    /// order (GH #438: the block walk of sccz80 modules reads the whole trail). Empty for a synthetic store.
+    std::vector<CScope> trail;
     std::vector<CPiece> pieces;   ///< the extent, in order; empty: unknown (`extent_why`)
     std::string extent_why;       ///< pieces empty: why; else the reason the extent stops short, or empty
     CConv conv = CConv::Unlisted;

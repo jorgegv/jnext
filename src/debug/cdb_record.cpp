@@ -350,7 +350,9 @@ CdbDecoded cdb_decode(std::string_view rec) {
     if (k == 'M') {
         out.kind = CdbKind::Module;
         const std::string_view name = rec.substr(2);
-        if (name.empty() || name.find_first_of("$()[],") != std::string_view::npos)
+        // 80cc writes `M:<file>`: the file name as free text, so a path such as `game(v2)/main.c` is a module name. `$` stays refused
+        // (CDB row `M:a$b`, pinned since GH #432): a path with one loses the 80cc note until the owner decides that row
+        if (name.empty() || name.find('$') != std::string_view::npos)
             return refuse_text("module record has an empty or malformed name");
         out.var.name = std::string(name);
         return d;

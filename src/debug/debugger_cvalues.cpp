@@ -156,6 +156,9 @@ const char* const k80ccSlot =
 // OD-A (GH #438): with no listing beside the map nothing flags a function `__z88dk_fastcall`, but its ENTRY says so: sccz80 calls
 // `l_debug_push_frame` and then pushes the register parameter (`call l_debug_push_frame; push hl`, or `push de` first for a
 // 32-bit one). The bytes are read from the function's own page (the entry's page-aware key), whatever is mapped now.
+// KNOWN LIMITATION: a `float` or `long long` fastcall argument is pushed by other helpers (`gen_push_float`, `llpush`), whose entry
+// bytes this does not recognise: on 2.4 and on master before z88dk#3229, with no listing beside the map, such a function's parameter is
+// still read from its nominal slot, a silent wrong value.
 bool prologue_is_fastcall(const Env& e, int function)
 {
     const CFunction& f = e.store->functions()[static_cast<size_t>(function)];
@@ -308,6 +311,7 @@ struct Found {
     Row::Kind kind = Row::Kind::Local;
     std::string why;
     bool scope_unknown = false;   // shown because the block at the PC is not known (80cc): a note for a read, a refusal for a write
+    std::string shares;           // GH #438: the visible stack variables whose slot this one shares: a note for a read, a refusal for a write
 };
 
 std::string where_text(const Env& e, size_t k)
@@ -332,6 +336,7 @@ Found find_local(const Env& e, size_t k, int f, const std::string& name)
             out.v = r.var;
             out.kind = kind_of_local(r.kind);
             out.scope_unknown = r.scope_unknown;
+            out.shares = r.shares;
             return out;
         }
     for (const CVariable& v : e.store->variables())
@@ -499,6 +504,7 @@ Debugger::CLocalsResult Debugger::c_locals(size_t frame) const
     for (const CLocalRef& r : c_visible_locals(*e.store, fr.function, scope)) {
         Row row = to_row(e, frame, *r.var, kind_of_local(r.kind), r.var->c_name);
         if (r.scope_unknown) row.notes.push_back("scope unknown: shown whatever block the PC is in");
+        if (!r.shares.empty()) row.notes.push_back(c_shares_note(r.shares));
         out.rows.push_back(row);
     }
     out.ok = true;
@@ -544,7 +550,9 @@ Debugger::CValueResult Debugger::read_c_value(size_t frame, std::string_view pat
     if (frame >= e.frames.size()) return refused("no frame " + std::to_string(frame) + " (there are " + std::to_string(e.frames.size()) + ")");
     const Found f = find_var(e, frame, p);
     if (!f.v) return refused(f.why);
-    return eval_var(e, frame, *f.v, p.deref, p.steps);
+    CValueResult r = eval_var(e, frame, *f.v, p.deref, p.steps);
+    if (r.ok && !f.shares.empty()) r.notes.push_back(c_shares_note(f.shares));
+    return r;
 }
 
 // `in BC; may be stale ...` -> `BC`: the registers a register local (or the pointer a path followed from one) lives in.
@@ -574,6 +582,8 @@ Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::s
     if (!f.v) return refuse(f.why);
     if (f.scope_unknown)
         return refuse("scope unknown: the block at the PC is not known (80cc), so the slot may hold another variable");
+    if (!f.shares.empty())
+        return refuse(c_shares_note(f.shares) + ", so a write may land in the other's value");
     // the place is the read's: a write needs a successful read of the same path
     const CValueResult r = eval_var(e, frame, *f.v, p.deref, p.steps);
     out.where = r.where;
@@ -674,6 +684,7 @@ Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, s
         const std::string child_path = base + c.suffix;
         const CPath cp = c_parse_path(child_path);
         CValueResult r = cp.ok ? eval_var(e, frame, *f.v, cp.deref, cp.steps) : refused(cp.why);
+        if (r.ok && !f.shares.empty()) r.notes.push_back(c_shares_note(f.shares));
         Row row;
         row.name = c.label;
         row.path = child_path;

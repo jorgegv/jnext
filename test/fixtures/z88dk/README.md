@@ -19,7 +19,7 @@ z88dk, hence committed outputs and a hash check (rows Z88FIX-01/02 in `source_ma
 (GH #438). Between the two nothing changed outside `src/sccz80`, `src/80cc`, `src/ticks` and one z80asm test: no library and
 no zsdcc. The install behind `master-fixed/` is a reflink copy of the `-latest` one, checked out at `a52baaf7d9`, with
 sccz80, 80cc and ticks rebuilt (`~/src/spectrum/z88dk-original-fixed`, never the other two).
-The trees have no local modification (`PROVENANCE`: `modified tracked files:` is empty).
+`master/` and `master-fixed/` have no local modification (`PROVENANCE`: `modified tracked files:` is empty); `v2.4/` lists two modified yaz180 `.inc` files (a target this tree never builds), older than GH #438.
 Each `PROVENANCE` and each `build.log` (first line) record the commit. The master tools
 print a stale banner (`v23856-580777436e-20251005`, from an old generated `config.h`):
 trust the commit, not `zcc`'s banner.
@@ -76,7 +76,6 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sccz80-cross, master/{sccz80,sdcc,80cc}-cross | `cross.c` only: `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #434 F-A: `cross()` holds 8192 bytes of padding (`defs 8192`: `#asm` for sccz80 and 80cc, `__asm` for zsdcc), so its code runs from the CODE slot at $8000 into $A000-$BFFF (extent `8C6B-A000` + `A000-AC81` on sccz80); `derive-scopes.py --extents` derives the pieces |
 | v2.4/sccz80-floats, master/{sccz80,sdcc}-floats | `floats.c` only: `-clib=new -debug` / `-clib=sdcc_iy -debug` | ok | GH #434 stage 2 (P2): six float constants (1.5, -2.5, 0.1, 1e10, 1e-10, 0); sccz80 stores them in z88dk's 48-bit format (`00 00 00 00 40 81` is 1.5), zsdcc as IEEE binary32 (`00 00 C0 3F`); the bytes are the oracle of `c_value_test` CVALF-01..06. Not built: `--math32` (`{4}SF` from sccz80, not measured) and `_Float16` (`S6`), so CVALF-07's binary16 rows rest on the IEEE 754 tables only |
 | master/sdcc-cvars-O0 | `vars.c other.c`, `-clib=sdcc_iy -debug -O0` | ok | GH #434 stage 3 (P1): zcc's `-O0` keeps zsdcc's `C_LINE` records (the `x::<level>::<block>` form) and writes NO `__CDBINFO__` record (`-SO0` writes all 63): the case `c_variables_status()` names "zsdcc wrote no C variable records for this build" |
-
 | v2.4/sccz80-{blocks,bits,fm}, master/{sccz80,sdcc,80cc}-{blocks,bits}, master/{sccz80,80cc}-fm, master-fixed/{sccz80,80cc}-{bits,fm}, master-fixed/sccz80-blocks | `blocks.c`, `bits.c` or `fm.c` only: `-clib=new [-compiler=80cc] -debug` / `-clib=sdcc_iy -debug` | ok | GH #438: block scope (`for` headers, sibling blocks), bitfields, a fastcall function with two parameters and arrays sized by their initialiser (section "Debug-record bugs") |
 | master/80cc-u5, master-fixed/80cc-u5 | `u5.c` only: `-clib=new -compiler=80cc -debug` | ok | GH #438: z88dk#3233's program, a local 80cc keeps in a register |
 | master/{sccz80,sdcc,80cc}-xmod | `./xm.c 1st.c`: `-clib=new` / `-clib=sdcc_iy` / `-clib=new -compiler=80cc`, `-debug` | ok | GH #438: z80asm prefixes `X` to a sccz80 or 80cc module whose path starts with `.` or a digit (`X__xm_c`, `X1st_c`); zsdcc names its modules `xm_c` and `_1st_c` |

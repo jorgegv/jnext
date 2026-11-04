@@ -204,12 +204,24 @@ struct CLocalRef {
     const CVariable* var = nullptr;
     CVarKind kind = CVarKind::Local;
     bool scope_unknown = false;   ///< shown because the block at the PC is not known (80cc, or an unknown entry)
+    /// GH #438: the other visible stack variables whose bytes overlap this one's, comma separated ("y", "i, p"); empty: none. Exactly
+    /// one of them holds the slot's value, and nothing says which.
+    std::string shares;
 };
+/// How many trail records of `function` name a block that the replay's stack does not hold at the record's level (GH #438): the replay then
+/// keeps its stack. 0 on every map whose block numbers are exact (z88dk#3227 and later), more on sccz80 before it.
+int c_trail_disagreements(const VariableStore& store, int function);
+/// The note and the refusal text of a stack-slot overlap: `shares_note("y")` is `shares its stack slot with y: only one of them holds its value`.
+std::string c_shares_note(const std::string& others);
 /// The parameters (ordered by stack position: the records carry no declaration order), then the locals visible at
 /// `scope` (the scope table's entry at the PC, null when none), then the static locals, of function `function`.
 /// Hidden records (CdbHidden) are left out. Parameters and level-1 locals are always visible; a local of level >= 2
 /// is visible iff its block is the open block or one of its ancestors; with no block data (every known scope at
 /// level 0 while some local has level >= 2) or an unknown scope, every block local is shown, marked.
+/// GH #438: for a function of sccz80 (`CCompiler::Sccz80`) with a trail, which block is open is read from the trail: every C_LINE record
+/// up to the PC's, replayed as a stack of open blocks (so a `for` header, which raises the level without opening a block in every sccz80
+/// before z88dk#3254, and a `for` that does open one, are both right). Other compilers keep the block rule above. Every stack variable
+/// that shares bytes with another visible one is marked (`CLocalRef::shares`).
 std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function, const CScope* scope);
 
 /// The CPU registers of frame 0.

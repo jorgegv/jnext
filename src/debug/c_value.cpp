@@ -903,6 +903,43 @@ CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc, std::vector<uint8_
 
 // -- scope, registers, fastcall ----------------------------------------------
 
+
+// The replay of a function's trail (GH #438): stack[level] is the block open at that level, or kSkip for a level with no block (the level a
+// `for` header raises without opening one, in every sccz80 before z88dk#3254). A record at a level drops every level above it. A record that
+// opens a block higher than any seen (`b > max`) fills the unset levels below it with the greatest unseen block of that level in between (a
+// block opened and closed without a line of its own), else kSkip: before z88dk#3227 the number was the last one OPENED, and when a record
+// names a block the stack does not hold at its level (`stack[level] != b`: counted in *disagreements) the stack is kept. After z88dk#3254 a
+// `for` opens a block at the raised level and the same replay holds it.
+constexpr int kSkipBlock = -1;
+void replay_trail(const CFunction& fn, const std::map<int, int>& blev, uint32_t upto, std::map<int, int>& stack, int* disagreements)
+{
+    int max_block = 0;
+    for (const CScope& e : fn.trail) {
+        if (e.offset > upto) break;
+        if (!e.known) continue;
+        const int lv = e.level, b = e.block;
+        stack.erase(stack.upper_bound(lv), stack.end());
+        if (lv == 0) continue;
+        if (b > max_block) {
+            for (int l = 1; l < lv; ++l) {
+                if (stack.count(l)) continue;
+                int best = kSkipBlock;
+                for (const auto& kv : blev)
+                    if (kv.second == l && kv.first > max_block && kv.first < b) best = std::max(best, kv.first);
+                stack[l] = best;
+            }
+            stack[lv] = b;
+            max_block = b;
+        } else if (!stack.count(lv)) {
+            const auto it = blev.find(b);
+            stack[lv] = it != blev.end() && it->second == lv ? b : kSkipBlock;
+            for (int l = 1; l < lv; ++l)
+                if (!stack.count(l)) stack[l] = kSkipBlock;
+        }
+        if (disagreements && stack[lv] != b) ++*disagreements;
+    }
+}
+
 std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function, const CScope* scope)
 {
     std::vector<CLocalRef> params, locals, statics;
@@ -942,8 +979,34 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
     }
     const bool unknown = !scope || !scope->known || (deep_local && !block_data);
 
+    // GH #438: an sccz80 function with a trail: the open blocks are the replay of the trail up to the PC's (replay_trail()).
+    constexpr int kSkip = kSkipBlock;
+    const bool use_walk = !unknown && fn.compiler == CCompiler::Sccz80 && !fn.trail.empty();
+    std::map<int, int> blev;      // block -> level
+    std::map<int, int> stack;     // level -> block | kSkip
+    if (use_walk) {
+        for (const CScope& e : fn.trail)
+            if (e.known && e.level > 0) blev.emplace(e.block, e.level);
+        for (const CVariable* v : mine) {
+            const CdbVar& cv = v->record.var;
+            if (cv.space != 'E' && !is_param(cv)) blev.emplace(cv.block, cv.level);
+        }
+        replay_trail(fn, blev, scope->offset, stack, nullptr);
+    }
+    const auto walk_visible = [&](const CdbVar& cv) {
+        const auto it = blev.find(cv.block);
+        const int bl = it != blev.end() ? it->second : cv.level;   // the level of the block the record names: below the record's own for a `for` variable
+        const auto at = [&](int l) { const auto s2 = stack.find(l); return s2 == stack.end() ? -2 : s2->second; };
+        if (bl == cv.level) return at(cv.level) == cv.block;
+        if (bl > cv.level) return false;
+        if (at(bl) != cv.block) return false;
+        for (int l = bl + 1; l <= cv.level; ++l)
+            if (at(l) != kSkip) return false;
+        return true;
+    };
+
     std::set<std::pair<int, int>> open;
-    if (!unknown) {
+    if (!unknown && !use_walk) {
         const auto below = [&](int level, int limit, bool inclusive) {
             int best = -1;
             for (const auto& kv : level_of)
@@ -971,7 +1034,7 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
             r.kind = CVarKind::Local;
             if (cv.level >= 2) {
                 if (unknown) r.scope_unknown = true;
-                else if (!open.count({cv.level, cv.block})) continue;
+                else if (use_walk ? !walk_visible(cv) : !open.count({cv.level, cv.block})) continue;
             }
             locals.push_back(r);
         }
@@ -981,7 +1044,41 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
     std::vector<CLocalRef> out = params;
     out.insert(out.end(), locals.begin(), locals.end());
     out.insert(out.end(), statics.begin(), statics.end());
+    // GH #438: stack variables that share bytes (two blocks that reuse a slot where the compiler's numbering cannot tell which is open, or 80cc's
+    // register-parameter record): both are marked, each naming the other; neither is hidden
+    const auto span = [](const CLocalRef& r) { return static_cast<int>(std::max(1, r.var->record.var.type.size)); };
+    for (size_t i = 0; i < out.size(); ++i) {
+        if (out[i].var->record.var.space != 'B') continue;
+        const int ai = out[i].var->record.var.stack_offset();
+        for (size_t j = 0; j < out.size(); ++j) {
+            if (i == j || out[j].var->record.var.space != 'B') continue;
+            const int aj = out[j].var->record.var.stack_offset();
+            if (ai < aj + span(out[j]) && aj < ai + span(out[i]))
+                out[i].shares += (out[i].shares.empty() ? "" : ", ") + out[j].var->c_name;
+        }
+    }
     return out;
+}
+
+int c_trail_disagreements(const VariableStore& store, int function)
+{
+    if (function < 0 || static_cast<size_t>(function) >= store.functions().size()) return 0;
+    const CFunction& fn = store.functions()[static_cast<size_t>(function)];
+    std::map<int, int> blev, stack;
+    for (const CScope& e : fn.trail)
+        if (e.known && e.level > 0) blev.emplace(e.block, e.level);
+    for (const CVariable& v : store.variables()) {
+        const CdbVar& cv = v.record.var;
+        if (v.function == function && cv.space != 'E' && cv.level > 0 && cv.stack_offset() < 4) blev.emplace(cv.block, cv.level);
+    }
+    int n = 0;
+    replay_trail(fn, blev, UINT32_MAX, stack, &n);
+    return n;
+}
+
+std::string c_shares_note(const std::string& others)
+{
+    return "shares its stack slot with " + others + ": only one of them holds its value";
 }
 
 CRegRead c_read_register_local(const CdbVar& var, const CRegs* regs)

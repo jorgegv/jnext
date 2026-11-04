@@ -3040,11 +3040,78 @@ main cross_c AC97
             return st && st->functions().size() == 1 ? st->functions()[0].compiler : jnext::dbg::CCompiler::Unknown;
         };
         check("Z88ZB-08", "synthetic maps, module X_srv_u_g_u_x_c with F:G$f: M:/srv/u/g/u-x.c beside C_LINE records of file /srv/u/g/u-x.c is 80cc (the M: name equals the "
-                          "file field); the same M: with C_LINE file u-x.c is zsdcc (zsdcc writes M:<module> against <module>.c, never a match), and so is a matching M: with C_LINE records in zsdcc's `x`+TAB form; no M: record is sccz80",
+                          "file field); the same M: with C_LINE file u-x.c is zsdcc (zsdcc writes M:<module> against <module>.c, never a match), and so is a matching M: with C_LINE records in zsdcc's `x`+TAB form; an M: name is free text (game(v2)/main.c and a[1],b/m.c are 80cc: ( ) [ ] , are not record syntax there); no M: record is sccz80",
               synthetic("z88zb08a.map", "/srv/u/g/u-x.c", "M:/srv/u/g/u-x.c") == jnext::dbg::CCompiler::Cc80 &&
                   synthetic("z88zb08b.map", "u-x.c", "M:/srv/u/g/u-x.c") == jnext::dbg::CCompiler::Zsdcc &&
                   synthetic("z88zb08c.map", "/srv/u/g/u-x.c", "") == jnext::dbg::CCompiler::Sccz80 &&
-                  synthetic("z88zb08d.map", "/srv/u/g/u-x.c", "M:/srv/u/g/u-x.c", "::x::10000::7\t:1") == jnext::dbg::CCompiler::Zsdcc);
+                  synthetic("z88zb08d.map", "/srv/u/g/u-x.c", "M:/srv/u/g/u-x.c", "::x::10000::7\t:1") == jnext::dbg::CCompiler::Zsdcc &&
+                  synthetic("z88zb08e.map", "game(v2)/main.c", "M:game(v2)/main.c") == jnext::dbg::CCompiler::Cc80 &&
+                  synthetic("z88zb08f.map", "a[1],b/m.c", "M:a[1],b/m.c") == jnext::dbg::CCompiler::Cc80);
+    }
+
+    {   // Z88ZB-02
+        // g2 of blocks.c (`for (;;)` at line 30 has no code of its own and shares its address with line 31): the trail holds EVERY C_LINE record of the extent, in
+        // (offset, line) order, where scopes keeps the highest line of an address. The oracle is the raw map: the g2 records of blocks.c, counted from the text
+        const auto trail_text = [&](const char* fixture) {
+            SourceMap m;
+            load(m, kFixtures / fixture / "prog.map");
+            const VariableStore* st = store_of(m);
+            const CFunction* g2 = st ? fn_named(*st, "g2", "blocks_c") : nullptr;
+            if (!g2) return std::string("no g2");
+            // raw: `__C_LINE_<n>_... = $<addr> ; addr, local, , blocks_c, code_compiler, blocks.c::g2::<level>::<block>:<line>`
+            // (the extent is [g2's entry, h's entry): a record of another function's line at the entry address, such as f's closing line, belongs to the trail too)
+            const CFunction* h = fn_named(*st, "h", "blocks_c");
+            std::vector<std::pair<unsigned long, int>> raw;
+            for (const std::string& l : map_lines(kFixtures / fixture / "prog.map")) {
+                if (l.compare(0, 9, "__C_LINE_") != 0 || l.find(", blocks_c, code_compiler,") == std::string::npos) continue;
+                const unsigned long addr = std::stoul(l.substr(l.find('$') + 1), nullptr, 16);
+                if (addr >= g2->entry.at.address && h && addr < h->entry.at.address) raw.push_back({addr, std::stoi(l.substr(l.rfind(':') + 1))});
+            }
+            std::sort(raw.begin(), raw.end());
+            std::string out = std::to_string(raw.size()) + "/" + std::to_string(g2->trail.size()) + ":";
+            bool same = raw.size() == g2->trail.size();
+            for (size_t i = 0; same && i < raw.size(); ++i)
+                same = g2->trail[i].at.address == raw[i].first && g2->trail[i].line == raw[i].second;
+            int l30 = -1, l31 = -1;
+            for (size_t i = 0; i < g2->trail.size(); ++i) {
+                if (g2->trail[i].line == 30) l30 = static_cast<int>(i);
+                if (g2->trail[i].line == 31) l31 = static_cast<int>(i);
+            }
+            const bool together = l30 >= 0 && l31 == l30 + 1 && g2->trail[static_cast<size_t>(l30)].offset == g2->trail[static_cast<size_t>(l31)].offset;
+            return out + (same ? "same" : "differs") + (together ? ",30+31" : ",apart") + (g2->trail.size() > g2->scopes.size() ? ",longer" : ",NOT-longer");
+        };
+        const std::string a = trail_text("v2.4/sccz80-blocks"), b = trail_text("master/sccz80-blocks"), c = trail_text("master-fixed/sccz80-blocks");
+        std::printf("  Z88ZB-02: %s | %s | %s\n", a.c_str(), b.c_str(), c.c_str());
+        check("Z88ZB-02", "blocks.c's g2 on v2.4, master and master-fixed sccz80: the trail holds every __C_LINE_ record of g2's extent (the raw map's records between g2's entry and h's, counted from the text, "
+                          "in (address, line) order), lines 30 and 31 are adjacent at one offset, and the trail is longer than the scope table (which keeps one owner per address)",
+              a.find("same,30+31,longer") != std::string::npos && b == a && c.find("same,30+31,longer") != std::string::npos);
+    }
+    {   // Z88ZB-05
+        // master-fixed sccz80-cvars: struct flags' members are exact bitfield records (lo 0/3 and mid 3/5 at offset 0, hi 0/8 at offset 1), g_str has ONE record (no unsized
+        // twin), and `F:G$main` is block 0 where master numbers it 2 (z88dk#3227: the last block opened)
+        const auto facts = [&](const char* fixture) {
+            SourceMap m;
+            load(m, kFixtures / fixture / "prog.map");
+            const VariableStore* st = store_of(m);
+            std::string out;
+            if (!st) return std::string("no store");
+            for (const auto& t : st->types())
+                if (t.record.var.name == "flags")
+                    for (const auto& mem : t.record.members) {
+                        const auto& ch = mem.var.type.chain;
+                        out += mem.var.name + "=" + (ch.empty() || ch[0].kind != jnext::dbg::CdbTypeKind::Bitfield ? std::string("-") : std::to_string(ch[0].bit_start) + "/" + std::to_string(ch[0].bit_width)) +
+                               "@" + std::to_string(mem.offset) + " ";
+                    }
+            int g_str = 0;
+            for (const CVariable& v : st->variables()) g_str += v.c_name == "g_str";
+            const CFunction* mn = fn_named(*st, "main", "vars_c");
+            return out + "g_str=" + std::to_string(g_str) + " main.block=" + (mn ? std::to_string(mn->record.var.block) : std::string("?"));
+        };
+        const std::string fx = facts("master-fixed/sccz80-cvars"), mx = facts("master/sccz80-cvars");
+        std::printf("  Z88ZB-05: %s | %s\n", fx.c_str(), mx.c_str());
+        check("Z88ZB-05", "master-fixed sccz80-cvars: struct flags' members are lo 0/3 and mid 3/5 at offset 0 and hi 0/8 at offset 1 (start/width bitfield records), g_str has one record, "
+                          "F:G$main is block 0; master's flags are whole ints, g_str has its twin and main is block 2",
+              fx == "lo=0/3@0 mid=3/5@0 hi=0/8@1 g_str=1 main.block=0" && mx.find("g_str=2 main.block=2") != std::string::npos && mx.find("lo=-@0") != std::string::npos);
     }
 
     fs::remove_all(dir);

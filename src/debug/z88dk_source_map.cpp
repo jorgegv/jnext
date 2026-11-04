@@ -436,6 +436,46 @@ void fill_scopes(std::vector<CFunction>& fns, const std::vector<FnEntry>& entrie
     for (CFunction& f : fns)
         std::sort(f.scopes.begin(), f.scopes.end(),
                   [](const CScope& a, const CScope& b) { return a.offset < b.offset; });
+
+    // The trail (GH #438): every record, each filed under the function of its module and section with the greatest entry VALUE at or
+    // below it, whatever its line; `scopes` above keeps the highest line of an address only.
+    for (const Record& r : records) {
+        CFunction* fn = nullptr;
+        uint64_t fn_entry = 0;
+        for (size_t i = 0; i < fns.size(); ++i) {
+            CFunction& f = fns[i];
+            if (!f.entry.resolved || !entries[i].sym || f.module != r.module || entries[i].sym->section != r.section ||
+                entries[i].sym->value > r.value)
+                continue;
+            const uint64_t v = entries[i].sym->value;
+            if (!fn || v > fn_entry || (v == fn_entry && f.text < fn->text)) {
+                fn = &f;
+                fn_entry = v;
+            }
+        }
+        if (!fn) continue;
+        CScope cs;
+        cs.at = {r.space, r.lo};
+        cs.line = r.loc.line;
+        cs.offset = static_cast<uint32_t>(r.value - fn_entry);
+        if (r.loc.scope_given) {
+            if (r.loc.func == "x" && (r.loc.tab || fn->name != "x")) {
+                cs.known = true;
+                cs.level = r.loc.level_raw / 10000;
+                cs.sub = r.loc.level_raw % 10000;
+                cs.block = r.loc.block;
+            } else if (r.loc.func == fn->name) {
+                cs.known = true;
+                cs.level = r.loc.level_raw;
+                cs.block = r.loc.block;
+            }
+        }
+        fn->trail.push_back(cs);
+    }
+    for (CFunction& f : fns)
+        std::stable_sort(f.trail.begin(), f.trail.end(), [](const CScope& a, const CScope& b) {
+            return a.offset != b.offset ? a.offset < b.offset : a.line < b.line;
+        });
 }
 
 // Which compiler wrote each function's records (GH #438, plan 1.2), from the map alone: the `M:` module records of the

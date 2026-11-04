@@ -1274,6 +1274,21 @@ void test_rows() {
         check("QVARW-12", "committing an editor that was open when the machine resumed writes nothing: no MUTATE line and no revision bump",
               at && opened && quiet, log);
     }
+    {   // QVARZB-02
+        // GH #438 review note: a C watch shows the facade's notes, the 80cc frame-slot one included
+        Fix f;
+        f.load("master/80cc-cvars", "zb02");
+        const bool at = f.run_to(0x8CCA);
+        const QString note = "80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)";
+        const bool pinned = f.vp()->watch_item(child(locals(f), "t"));
+        const QString cell = wcell(f, 0, 3);
+        Fix g;
+        g.load("master/sccz80-cvars", "zb02b");
+        const bool gat = g.run_to(kS41);
+        g.vp()->watch_item(child(locals(g), "t"));
+        check("QVARZB-02", "master 80cc-cvars at vars.c:41: a C watch of t reads `122  (<the 80cc note>)`; the same watch on sccz80 reads plain 122",
+              at && pinned && cell == "122  (" + note + ")" && gat && wcell(g, 0, 3) == "122", s(cell) + " | " + s(wcell(g, 0, 3)));
+    }
     {   // QVARZB-01
         // GH #438: master 80cc-cvars at vars.c:41: t is an 80cc frame-slot variable (z88dk#3233); the note is in the Value text, the tooltip and, after an edit, the message
         Fix f;

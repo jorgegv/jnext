@@ -8535,10 +8535,11 @@ int main() {
             const Dbg::CValueResult ca = c.dbg->read_c_value(0, "a"), cb = c.dbg->read_c_value(0, "b");
             check("SRCDBG-ZB-03", "U1 per function: master-fixed sccz80-fc at ffast's `push hl`: x = 3 at fp-2 (Cpu), no U1; master-fixed fm at `return y;`: a = 7, b = 2, y = 5; master (pre-fix) "
                                   "sccz80 fm: a and b refused with U1, y = 5; master 80cc fm: a = 7 with no U1 and with the 80cc note, b has no U1 but the 80cc note and reads y's 5 "
-                                  "(its record -2 is y's slot: z88dk#3233 before PR #3244)",
+                                  "(its record -2 is y's slot: z88dk#3233 before PR #3244) and both b and y carry `shares its stack slot with <the other>`",
                   fat && fx.ok && fx.value == "3" && fx.where.kind == Dbg::CWhere::Kind::Cpu && fx.where.cpu == static_cast<uint16_t>(fp - 2) && !u1(fx) &&
                       gat && cvv(g, 0, "a") == "7" && cvv(g, 0, "b") == "2" && cvv(g, 0, "y") == "5" && pat && u1(p.dbg->read_c_value(0, "a")) && u1(p.dbg->read_c_value(0, "b")) &&
-                      cvv(p, 0, "y") == "5" && cat && ca.ok && ca.value == "7" && !u1(ca) && note80(ca.notes) && cb.ok && !u1(cb) && note80(cb.notes) && cb.value == "5" && cvv(c, 0, "y") == "5",
+                      cvv(p, 0, "y") == "5" && cat && ca.ok && ca.value == "7" && !u1(ca) && note80(ca.notes) && cb.ok && !u1(cb) && note80(cb.notes) && cb.value == "5" && cvv(c, 0, "y") == "5" &&
+                      has_note(cb, jnext::dbg::c_shares_note("y").c_str()) && has_note(c.dbg->read_c_value(0, "y"), jnext::dbg::c_shares_note("b").c_str()) && !has_note(ca, "shares its stack slot"),
                   "x=" + (fx.ok ? fx.value : fx.why) + " b80=" + (cb.ok ? cb.value : cb.why));
         }
         {   // SRCDBG-ZB-04
@@ -8628,6 +8629,47 @@ int main() {
                                   "master 80cc) mark lo, mid, hi and neg U2 and read tag = 66 'B', and refuse g_one; the 80cc locals carry the 80cc note, nothing else does",
                   ok, seen);
         }
+        {   // SRCDBG-ZB-07
+            // blocks.c (f: t; an `if` block p; a `for` with i; blocks u, v, z / g2: q, a `for (;;)` body w / h: m, a `for` with j) at the first hit of each line, on every sccz80:
+            // the C program computes t = 3 -> 9 -> 12 -> 24, u = 12, v = 12, z = 13, w = 4, h's t = 5 -> 6, m = 5, j = 0. A name listed with a value that is not its own carries `shares`
+            struct Bz { const char* fx; const char* tag; bool fixed; };
+            std::string seen;
+            bool ok = true;
+            const auto shares_of = [&](Machine& m, const char* name) {
+                for (const auto& n : m.dbg->read_c_value(0, name).notes)
+                    if (n.find("shares its stack slot with ") == 0) return n;
+                return std::string();
+            };
+            const auto listed = [&](Machine& m, const char* name) { return row_of(m.dbg->c_locals(0).rows, name) != nullptr; };
+            for (const Bz& c : {Bz{"v2.4/sccz80-blocks", "zb07a", false}, Bz{"master/sccz80-blocks", "zb07b", false}, Bz{"master-fixed/sccz80-blocks", "zb07c", true}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                cv_load(m, c.fx, c.tag);
+                const bool f8 = cv_starts_at(m, "blocks.c:8", 0x8CB4) && cv_run_to(m, 0x8CB4);
+                const bool a8 = cvv(m, 0, "t") == "3" && cvv(m, 0, "p") == "6" && (c.fixed ? !listed(m, "i") : (listed(m, "i") && shares_of(m, "p") == jnext::dbg::c_shares_note("i") && shares_of(m, "i") == jnext::dbg::c_shares_note("p")));
+                const bool f11 = cv_starts_at(m, "blocks.c:11", 0x8CDD) && cv_run_to(m, 0x8CDD);
+                const bool a11 = cvv(m, 0, "t") == "9" && (c.fixed ? cvv(m, 0, "i") == "0" && !listed(m, "p") : (!listed(m, "i") && !listed(m, "p")));
+                const bool f17 = cv_starts_at(m, "blocks.c:17", 0x8CF7) && cv_run_to(m, 0x8CF7);
+                const bool a17 = cvv(m, 0, "t") == "12" && cvv(m, 0, "u") == "12" && cvv(m, 0, "v") == "12" &&
+                                 (c.fixed ? shares_of(m, "v") == jnext::dbg::c_shares_note("z") && shares_of(m, "z") == jnext::dbg::c_shares_note("v") : (shares_of(m, "v").empty() && !listed(m, "z")));
+                const bool f20 = cv_starts_at(m, "blocks.c:20", 0x8D0E) && cv_run_to(m, 0x8D0E);
+                const bool a20 = cvv(m, 0, "t") == "24" && cvv(m, 0, "u") == "12" && !listed(m, "v") && (c.fixed ? cvv(m, 0, "z") == "13" && shares_of(m, "z").empty() : !listed(m, "z"));
+                const bool g32 = cv_starts_at(m, "blocks.c:32", 0x8D42) && cv_run_to(m, 0x8D42);
+                const bool ag = cvv(m, 0, "w") == "4" && !listed(m, "q");
+                const bool h42 = cv_starts_at(m, "blocks.c:42", 0x8D7A) && cv_run_to(m, 0x8D7A);
+                const bool ah = cvv(m, 0, "t") == "5" && cvv(m, 0, "m") == "5" && cvv(m, 0, "j") == "0";
+                const bool h44 = cv_starts_at(m, "blocks.c:44", 0x8D90) && cv_run_to(m, 0x8D90);
+                const bool ah2 = cvv(m, 0, "t") == "6" && cvv(m, 0, "m") == "5" && !listed(m, "j");
+                if (!(f8 && a8 && f11 && a11 && f17 && a17 && f20 && a20 && g32 && ag && h42 && ah && h44 && ah2)) {
+                    ok = false;
+                    seen += std::string(" ") + c.fx + ":" + (f8 ? "" : "!f8") + (a8 ? "" : "!a8") + (f11 ? "" : "!f11") + (a11 ? "" : "!a11") + (f17 ? "" : "!f17") + (a17 ? "" : "!a17") + (f20 ? "" : "!f20") +
+                            (a20 ? "" : "!a20") + (g32 ? "" : "!g32") + (ag ? "" : "!ag") + (h42 ? "" : "!h42") + (ah ? "" : "!ah") + (h44 ? "" : "!h44") + (ah2 ? "" : "!ah2");
+                }
+            }
+            check("SRCDBG-ZB-07", "blocks.c at the first hit of f:8 (t 3, p 6), f:11 (t 9), f:17 (t, u, v = 12, 12, 12), f:20 (t 24, u 12), g2:32 (w 4, not q), h:42 (t 5, m 5, j 0) and h:44 (t 6, m 5, no j) on v2.4, "
+                                  "master and master-fixed sccz80: v2.4 and master list `i` at f:8 sharing p's slot (both marked, neither hidden) and not at f:11 or f:20's z; master-fixed lists i = 0 at f:11, z = 13 "
+                                  "at f:20 and marks v/z at f:17",
+                  ok, seen);
+        }
         {   // SRCDBG-ZB-08
             // fm.c at main's `while (1);`: ls = "loc", static ss = "stat", file static fs = "file", global gs = "glob", each with its NUL
             const auto txt = [&](Machine& m, const char* name) { const Dbg::CValueResult r = m.dbg->read_c_value(0, name); return r.ok ? r.value : "!" + r.why; };
@@ -8675,15 +8717,25 @@ int main() {
             };
             auto mbf = float_map("zb09m.map", "__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n");
             auto m32 = float_map("zb09n.map", "__code_fp_math32_size = $001D ; const, public, def, , ,\n");
+            // the guard binds the writer: b's record (-2) is y's slot on 80cc, v and z share one in master-fixed's blocks.c; a write to either is refused, the other keeps its value
+            Machine sb(false, MachineType::ZXN_ISSUE2);
+            const bool sbat = zb_at(sb, "master/80cc-fm", "zb09d", "fm.c:7", 0x8C68);
+            const CwTry bw = attempt(sb, 0, "b", "9");
+            Machine sz(false, MachineType::ZXN_ISSUE2);
+            const bool szat = zb_at(sz, "master-fixed/sccz80-blocks", "zb09e", "blocks.c:17", 0x8CF7);
+            const CwTry zw = attempt(sz, 0, "z", "5");
+            const CwTry vw = attempt(sz, 0, "v", "5");
             Machine ul(false, MachineType::ZXN_ISSUE2);
             const bool uat = zb_at(ul, "master/sccz80-fc", "zb09c", "fc.c:3", 0x8C62);
             const CwTry u1w = attempt(ul, 0, "x", "5");
             check("SRCDBG-ZB-09", "write t := 1000 at master 80cc vars.c:41 succeeds and its CWriteResult.notes holds the 80cc note, and t reads back 1000; the same write on sccz80 succeeds with no "
                                   "note; the readers' refusals bind the writer: a float global of an mbf32 map is refused and its bytes stay, in a math32 map the value lands as IEEE (00 00 C0 3F), "
-                                  "and ffast's x with no listing (entry evidence) is refused with U1",
+                                  "and ffast's x with no listing (entry evidence) is refused with U1; a variable that shares its stack slot is refused (80cc b with y, master-fixed's z with v) and the other keeps its value",
                   at && w.ok() && note80(w.notes) && w.value == "1000" && cvv(m, 0, "t") == "1000" && sat && sw.ok() && sw.notes.empty() &&
                       refused_with(std::get<1>(mbf), "float format mbf32 is not read") && cpk(*std::get<0>(mbf), 0x9000, 4) == std::get<2>(mbf) && std::get<1>(m32).w.ok() &&
-                      cpk(*std::get<0>(m32), 0x9000, 4) == Bytes{0, 0, 0xC0, 0x3F} && uat && refused_with(u1w, "location unknown (z88dk U1"));
+                      cpk(*std::get<0>(m32), 0x9000, 4) == Bytes{0, 0, 0xC0, 0x3F} && uat && refused_with(u1w, "location unknown (z88dk U1") &&
+                      sbat && refused_with(bw, "shares its stack slot with y") && cvv(sb, 0, "y") == "5" && szat && refused_with(zw, "shares its stack slot with v") && refused_with(vw, "shares its stack slot with z") &&
+                      cvv(sz, 0, "v") == "12");
         }
     }
 
