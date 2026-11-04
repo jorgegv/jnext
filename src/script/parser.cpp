@@ -485,7 +485,7 @@ private:
     ExprPtr parse_lvalue() {
         static const char* const WHAT =
             "expected a variable, a register, a flag, IFF1, IFF2, IM, AUDIO_MUTE, "
-            "mem[], mem16[], phys[] or nextreg[]";
+            "mem[], mem16[], phys[], nextreg[] or cvar()";
         const Token& tk = cur();
         auto node = std::make_shared<Expr>();
         node->pos = tk.pos;
@@ -521,6 +521,11 @@ private:
                 expect(Tok::RBracket, "to close the index");
                 return sealed(std::move(node));
             }
+            case Tok::CVar:   // GH #437: `set cvar(PATH) = v` writes a C variable of frame 0
+                node->kind = ExprKind::CVar;
+                node->text = tk.text;
+                take();
+                return node;
             case Tok::PhysL: {
                 node->kind = ExprKind::Phys;
                 take();

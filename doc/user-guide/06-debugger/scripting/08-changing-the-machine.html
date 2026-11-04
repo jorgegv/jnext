@@ -3124,6 +3124,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="set">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#set-cvarpath" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set cvar(PATH)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -4231,8 +4248,21 @@ changes is as repeatable as one that does not.</p>
 <td><code>AUDIO_MUTE</code></td>
 <td>the host-side mute mask (not the machine; never saved in a snapshot)</td>
 </tr>
+<tr>
+<td><code>cvar(PATH)</code></td>
+<td>a C variable of the frame the CPU is in (see below)</td>
+</tr>
 </tbody>
 </table>
+<h3 id="set-cvarpath"><code>set cvar(PATH)</code><a class="headerlink" href="#set-cvarpath" title="Permanent link">&para;</a></h3>
+<p><code>set cvar(g_int) = 10</code> writes a C variable of frame 0, where the CPU is, with the path grammar of
+<a href="04-reading-the-machine.html#c-variables-cvar">reading</a>. The value is the language's 32-bit integer: a 4-byte variable
+takes its bit pattern (<code>set cvar(g_ulong) = 0xCAFEBABE</code>), a smaller one must hold the value (<code>set cvar(g_uint) = -1</code> is
+refused, never truncated), a pointer takes 0 to 65535, and a float or an 8-byte variable is refused (use GDB or ZRCP, which
+take text). Every refusal is a run-time error: <code>set cvar(g_uint)` was refused (...)</code> with the reason, the rule is disabled and
+the run exits 1. A register variable, a struct, an out-of-scope local and the other cases of
+<a href="../source-debugger/10-limits-and-troubleshooting.html#limits">Limits and troubleshooting</a> cannot be written. A write is a
+<code>MUTATE</code> line like any other.</p>
 <h2 id="out"><code>out</code><a class="headerlink" href="#out" title="Permanent link">&para;</a></h2>
 <pre><code>out 0xFE 0x02
 </code></pre>

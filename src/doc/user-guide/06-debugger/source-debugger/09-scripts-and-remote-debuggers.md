@@ -178,10 +178,11 @@ that line, and an unclosed `CVAR(` does not parse. A failed read has no reason i
 
 ### Changing a C variable
 
-A C variable can be written over GDB and over ZRCP, in the frame the CPU is in or (over GDB) in one of its callers:
+A C variable can be written from a script, over GDB and over ZRCP, in the frame the CPU is in or (over GDB) in one of its callers:
 
 | Over | Form | Frame |
 |---|---|---|
+| a script | `set cvar(PATH) = v` (a 32-bit integer; [details](../scripting/08-changing-the-machine.md#set-cvarpath)) | 0 |
 | GDB | `monitor set var [FRAME] PATH = VALUE` | `FRAME`, 0 by default |
 | ZRCP | `set-register CVAR(path)=value` | 0 |
 

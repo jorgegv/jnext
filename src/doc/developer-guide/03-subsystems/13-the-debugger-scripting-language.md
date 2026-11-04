@@ -77,7 +77,7 @@ followed by `(` as one `Tok::CVar` and `lex_cvar()` (`lexer.cpp:195`) captures t
 a `(`, a `"`, a missing `)` and an empty path are lexical errors, and `cvar` is a reserved word (`RESERVED` in `names.cpp`, as `depth` and `changed` are), so `var cvar` is refused at load. The word was
 not free before: `dump_mem` and `out` take two expressions side by side, so `dump_mem cvar(4)` with a `var cvar` was two operands; it
 now fails to load, loudly, rather than meaning something else. Inside a `${...}` interpolation a `::` is not the format separator. `parse_primary()` makes an
-`ExprKind::CVar` whose `text` is the path (`parse_lvalue()` refuses it like any other read-only name, so `set cvar(x) = 1` is an error).
+`ExprKind::CVar` whose `text` is the path (`parse_lvalue()` also accepts it as a `set` target, GH #437: `ActionKind::Set` calls `write_c_value(cid_, 0, path, int32)`, and a refusal is `fail()` with the facade's reason).
 `check_script()` checks the syntax with `c_parse_path()` at load, in every scope (it reads the machine, like `mem[]`); what the path
 names is looked up at each evaluation, by `eval_int()`, as `read_c_value(0, path)` then `c_int32_scalar()`. Every refusal is an
 `EvalError` carrying the facade's reason, which in a `when` disables the rule; none is a 0. The `-Werror=switch` of `jnext_script`

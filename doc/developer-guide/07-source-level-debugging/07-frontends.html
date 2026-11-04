@@ -3402,7 +3402,8 @@ rest of the language are in <a href="../03-subsystems/13-the-debugger-scripting-
 <p><code>cvar(PATH)</code> (GH #436) is the one atom that reads a C variable: <code>eval_int()</code> (<code>evaluator.cpp:276</code>) calls
 <code>read_c_value(0, path)</code> (frame 0, where the CPU is) and <code>c_int32_scalar()</code> (<a href="10-c-frames-and-values.html">7.10</a>) and returns
 the int32. The store is looked up at each evaluation, so a script compiled before the program loaded works once the sidecars
-attach, and every refusal is an <code>EvalError</code>, never a 0.</p>
+attach, and every refusal is an <code>EvalError</code>, never a 0.
+<code>set cvar(PATH) = v</code> (GH #437) is the write: <code>parse_lvalue()</code> makes it an <code>ExprKind::CVar</code> target and the <code>Set</code> action of <code>script_engine.cpp</code> calls <code>write_c_value()</code> in frame 0 with the int32 as <code>CNewValue::From::Int32</code>; a refusal is <code>fail()</code> with the facade's reason.</p>
 <p><strong>Reading C variables inside a delivery.</strong> A predicate runs inside the loops over the event table, and <code>cvar()</code> is the first
 reader there that runs <code>recheck()</code> (<code>c_frames()</code> and <code>read_c_value()</code> do): the first <code>cvar()</code> after a verdict the verify hook
 recorded in guest execution (<code>verify_due</code>, a tape program running its code) runs <code>apply_deferred()</code> and <code>sync_call_stack()</code> in the

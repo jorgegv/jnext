@@ -172,7 +172,7 @@ What it gives:
 - **What is refused:** a struct or an array (name a member or an element), a float (the language has no floats), and an
   integer wider than 32 bits. The message names the type.
 - **A global in a banked page** is read from its own page whether or not that page is mapped now.
-- **It reads, it never writes.** `set cvar(x) = 1` is a load error.
+- **`cvar()` reads.** `set cvar(x) = v` writes: see [Changing the machine](08-changing-the-machine.md#set-cvarpath).
 
 The path is checked when the script loads: `cvar(a.)` is an error at the `cvar`, with the reason. What it *names* is looked
 up each time the expression runs, because the map may attach after the script loads. So **every other refusal is a run-time

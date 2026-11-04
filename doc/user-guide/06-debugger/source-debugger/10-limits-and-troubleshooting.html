@@ -4270,7 +4270,7 @@ the two pragmas: see <a href="02-building-with-z88dk.html#banked-code">Building 
 <li><strong>C variables beyond their names</strong> (types, locals, structs) are read by scripts
   (<code>cvar()</code>), over GDB and over ZRCP, never over DeZog's protocol (DZRP): see
   <a href="09-scripts-and-remote-debuggers.html#c-variables">Scripts and remote debuggers</a>.</li>
-<li><strong>Some C variables cannot be written</strong> (over GDB and ZRCP; each refusal says why):
+<li><strong>Some C variables cannot be written</strong> (from a script, over GDB and ZRCP; each refusal says why):
   a variable the compiler keeps in a register (zsdcc), and anything reached through a pointer held in a register (the
   debug record gives no live range, so the register may hold something else by then); a whole struct or array (write a
   member or an element); sccz80's fastcall parameter (z88dk U1) and a member of an overlapping bitfield struct

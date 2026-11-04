@@ -368,6 +368,7 @@ rest of the language are in [3.10.6](../03-subsystems/13-the-debugger-scripting-
 `read_c_value(0, path)` (frame 0, where the CPU is) and `c_int32_scalar()` ([7.10](10-c-frames-and-values.md)) and returns
 the int32. The store is looked up at each evaluation, so a script compiled before the program loaded works once the sidecars
 attach, and every refusal is an `EvalError`, never a 0.
+`set cvar(PATH) = v` (GH #437) is the write: `parse_lvalue()` makes it an `ExprKind::CVar` target and the `Set` action of `script_engine.cpp` calls `write_c_value()` in frame 0 with the int32 as `CNewValue::From::Int32`; a refusal is `fail()` with the facade's reason.
 
 **Reading C variables inside a delivery.** A predicate runs inside the loops over the event table, and `cvar()` is the first
 reader there that runs `recheck()` (`c_frames()` and `read_c_value()` do): the first `cvar()` after a verdict the verify hook

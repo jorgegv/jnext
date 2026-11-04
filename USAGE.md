@@ -2759,8 +2759,12 @@ checked when the script loads. Every other refusal (no C variables, an
 unknown name, a variable out of scope or optimised out, a null pointer,
 an index past the end) is a run-time error, never a zero: in a `when` it
 disables the rule and the run exits 1, so put the rule on a line where
-the variable is in scope. A `cvar()` is read-only: `set cvar(x) = 1` is
-refused.
+the variable is in scope. `set cvar(`*PATH*`) =` *value* writes one
+(frame 0): the value is a 32-bit integer, a 4-byte integer takes its bit
+pattern, a smaller one must fit its type (never truncated), and a float,
+a struct, an array, a register variable and the other things a C
+variable cannot be written to (see the user guide) are run-time errors
+that name the reason.
 
 **Source lines.** With a source map loaded, `on execute main.c:19` (or
 `on execute "dir with space/main.c:19"`) breaks on every place the

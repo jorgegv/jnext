@@ -4475,7 +4475,7 @@ SCRIPT loaded cv.jds: 1 rules [client 2]
 <li><strong>What is refused:</strong> a struct or an array (name a member or an element), a float (the language has no floats), and an
   integer wider than 32 bits. The message names the type.</li>
 <li><strong>A global in a banked page</strong> is read from its own page whether or not that page is mapped now.</li>
-<li><strong>It reads, it never writes.</strong> <code>set cvar(x) = 1</code> is a load error.</li>
+<li><strong><code>cvar()</code> reads.</strong> <code>set cvar(x) = v</code> writes: see <a href="08-changing-the-machine.html#set-cvarpath">Changing the machine</a>.</li>
 </ul>
 <p>The path is checked when the script loads: <code>cvar(a.)</code> is an error at the <code>cvar</code>, with the reason. What it <em>names</em> is looked
 up each time the expression runs, because the map may attach after the script loads. So <strong>every other refusal is a run-time

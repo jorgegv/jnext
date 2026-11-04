@@ -3408,8 +3408,12 @@ scope or optimised out, a null pointer, an index past the end) is a
 run\-time error, never a zero: in a \f[CR]when\f[R] it disables the rule
 and the run exits 1, so put the rule on a line where the variable is in
 scope.
-A \f[CR]cvar()\f[R] is read\-only: \f[CR]set cvar(x) = 1\f[R] is
-refused.
+\f[CR]set cvar(\f[R]\f[I]PATH\f[R]\f[CR]) =\f[R] \f[I]value\f[R] writes
+one (frame 0): the value is a 32\-bit integer, a 4\-byte integer takes
+its bit pattern, a smaller one must fit its type (never truncated), and
+a float, a struct, an array, a register variable and the other things a
+C variable cannot be written to (see the user guide) are run\-time
+errors that name the reason.
 .PP
 \f[B]Source lines.\f[R] With a source map loaded,
 \f[CR]on execute main.c:19\f[R] (or

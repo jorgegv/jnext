@@ -4319,7 +4319,7 @@ Error parsing
 that line, and an unclosed <code>CVAR(</code> does not parse. A failed read has no reason in ZRCP, as ZEsarUX's reply has none;
 <code>monitor print</code> and a script show it. <code>CVAR</code> takes the same paths as <code>cvar()</code> and gives integers and pointers.</p>
 <h3 id="changing-a-c-variable">Changing a C variable<a class="headerlink" href="#changing-a-c-variable" title="Permanent link">&para;</a></h3>
-<p>A C variable can be written over GDB and over ZRCP, in the frame the CPU is in or (over GDB) in one of its callers:</p>
+<p>A C variable can be written from a script, over GDB and over ZRCP, in the frame the CPU is in or (over GDB) in one of its callers:</p>
 <table>
 <thead>
 <tr>
@@ -4329,6 +4329,11 @@ that line, and an unclosed <code>CVAR(</code> does not parse. A failed read has 
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>a script</td>
+<td><code>set cvar(PATH) = v</code> (a 32-bit integer; <a href="../scripting/08-changing-the-machine.html#set-cvarpath">details</a>)</td>
+<td>0</td>
+</tr>
 <tr>
 <td>GDB</td>
 <td><code>monitor set var [FRAME] PATH = VALUE</code></td>
