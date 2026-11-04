@@ -708,6 +708,7 @@ void test_rows() {
         f.load("master/sccz80-cvars", "q27");
         const bool at = f.run_to(kS41);
         f.vp()->set_paused(false);   // the machine runs: a choice is ignored
+        f.frames()->setCurrentIndex(1);   // what a click on the selector does first
         emit f.frames()->activated(1);
         f.cs_table()->setCurrentCell(0, 0);
         QApplication::processEvents();

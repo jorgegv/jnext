@@ -2530,7 +2530,14 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
 - **Memory hex editor** - full 64K, hex and ASCII, inline editing,
   page/bank selector
 - **Stack** - SP-relative word view, SP row highlighted
-- **Call stack** - CALL/RST/INT/RET tracking, with symbol resolution
+- **Call stack** - CALL/RST/INT/RET tracking, with symbol resolution; a
+  click on a row chooses the C frame the Variables tab shows
+- **Variables** - with a z88dk `-debug` source map, the C variables of a
+  call frame (chosen in a selector or in the Call stack) and the globals
+  and statics, as a tree that opens onto struct members, array elements
+  and what a pointer points at; the type, the value (or why there is
+  none) and where it is; read only, paused only. Right-click a row to
+  watch it
 - **Breakpoints** - execution, read, write and I/O watchpoints, in one
   panel. An I/O watchpoint address of **00**-**FF** matches any port
   with that low byte (**FE** catches every ULA access, whatever the high
@@ -2545,7 +2552,9 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
   execute breakpoint is drawn in the gutter as a hollow ring rather than
   a filled dot
 - **Watch expressions** - byte, word or long at arbitrary addresses,
-  with custom labels
+  with custom labels; and C variables pinned from the Variables tab (a
+  local follows its function and says so when it is out of scope; read
+  at each stop)
 - **Video panels** - All layers (the real composite, through the live
   compositor), ULA (primary and shadow), Layer 2 (active and shadow),
   Sprites, Tilemap, Background (the NR 0x4A fallback colour);

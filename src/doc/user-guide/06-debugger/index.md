@@ -77,7 +77,7 @@ sessions; `--set debugger.physical_addresses=true` applies it to one run.
 
 The layout is fixed: video-related tabs on the top left, disassembly in the
 centre, CPU registers and MMU down the right, and memory/stack tabs and
-watch/breakpoint tabs along the bottom. The splitters between the areas can be
+watch, variables and breakpoint tabs along the bottom. The splitters between the areas can be
 dragged.
 
 The window itself can be made smaller than the panels need. When it is, the
@@ -87,7 +87,7 @@ into a **»** overflow menu at its right-hand end. The size is remembered
 between sessions, and is clamped to the screen it reopens on, so a window saved
 on a large monitor never comes back unreachable on a small one.
 
-Four panels — CPU Registers, Disassembly, Stack and Call Stack — only show data
+Five panels — CPU Registers, Disassembly, Stack, Call Stack and Variables — only show data
 while the machine is **paused**, and are greyed out while it runs. That is
 deliberate: reading them every frame would slow the emulation down for no
 benefit, since the values would be a blur. The rest refresh about four times a
