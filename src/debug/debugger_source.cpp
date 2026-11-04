@@ -454,6 +454,11 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
                                                   bool verify_at_first_execution,
                                                   bool dot_only) {
     impl_->recheck();   // a writer first: a pending landing must not undo it later
+    // GH #434: the call-stack tracker follows the store, whichever way this returns.
+    struct SyncOnExit {
+        Impl* impl;
+        ~SyncOnExit() { impl->sync_call_stack(); }
+    } sync_on_exit{impl_.get()};
     SourceMapLoad out;
     SourceMap candidate;
     SymbolTable labels;
@@ -558,6 +563,7 @@ Result Debugger::clear_source_map() {
     impl_->user_sources_stale = false;
     impl_->pause_verify_user  = false;
     impl_->source_reason.clear();
+    impl_->sync_call_stack();   // GH #434
     impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
@@ -648,6 +654,11 @@ const SourceLocation* Debugger::source_location() const {
 Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program_path) {
     namespace fs = std::filesystem;
     using Owner = Impl::StoreOwner;
+    // GH #434: the call-stack tracker follows the store, whichever way this returns.
+    struct SyncOnExit {
+        Impl* impl;
+        ~SyncOnExit() { impl->sync_call_stack(); }
+    } sync_on_exit{impl_.get()};
     SidecarLoad out;
     const fs::path program(program_path);
     auto log = Log::debugger();
@@ -966,6 +977,11 @@ void Debugger::Impl::recheck() {
     if (!landing_pending && !ring_pending && !pause_verify_sidecar && !pause_verify_user &&
         !verify_due)
         return;
+    recheck_pending();
+    sync_call_stack();   // GH #434: a landing or a verdict can attach, restore or drop the store
+}
+
+void Debugger::Impl::recheck_pending() {
     // GH #344 stage 3 - the verdicts the verify hook recorded in guest execution come
     // first: a landing below is judged against the map as that verdict left it.
     if (verify_due) apply_deferred();

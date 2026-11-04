@@ -2233,6 +2233,8 @@
       
         
       
+        
+      
     
     
     
@@ -2966,6 +2968,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3325,9 +3355,9 @@ read through it) and ZRCP <code>cpu-step-over</code>
 used; a name prints its tag when it is paged. <code>monitor mmu</code> (<code>monitor_mmu()</code>, <code>rsp_server.cpp:893</code>) prints each slot's <code>now</code> tag and,
 on the Next, the physical text of the slot's first byte. The server's own symbol and source verbs are
 described in <a href="../03-subsystems/11-the-gdb-rsp-server.html">3.10.4</a>.</p>
-<p><strong>ZRCP.</strong> <code>smartload "file"</code> (<code>ZrcpServer::cmd_smartload</code>, <code>zrcp_server.cpp:2625</code>) calls
-<code>Debugger::load()</code> (<code>debugger_reconstruct.cpp:464</code>), which calls <code>load_program_sidecars()</code> after a successful load
-(<code>load_program_sidecars()</code>, <code>debugger_reconstruct.cpp:527-531</code>), so a program loaded over ZRCP gets its symbols and
+<p><strong>ZRCP.</strong> <code>smartload "file"</code> (<code>ZrcpServer::cmd_smartload</code>, <code>zrcp_server.cpp:2623</code>) calls
+<code>Debugger::load()</code> (<code>debugger_reconstruct.cpp:465</code>), which calls <code>load_program_sidecars()</code> after a successful load
+(<code>load_program_sidecars()</code>, <code>debugger_reconstruct.cpp:528-532</code>), so a program loaded over ZRCP gets its symbols and
 source map like <code>--load</code>, and a refused sidecar is logged to every client as a Warn line.
 <code>get-memory-pages</code> (<code>memory_pages()</code>, <code>zrcp_format.cpp</code>) names the eight slots of a Next from what each
 reads now (<code>SlotInfo::now</code>): <code>RO</code> the boot ROM, <code>O&lt;n&gt;</code> the 8 KB ROM page <code>2*image + half</code>, <code>A&lt;n&gt;</code> RAM,

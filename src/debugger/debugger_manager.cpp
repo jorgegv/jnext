@@ -97,13 +97,13 @@ void DebuggerManager::attach_backend() {
     // INS-12 — call-stack tracking while the window is open, as before; through
     // the backend it is also re-applied across a cold boot (CTL-12 rule 2), where
     // the direct `call_stack().set_enabled()` it replaces was silently lost.
-    dbg_.set_call_stack_enabled(true);
+    dbg_.set_call_stack_enabled(client_, true);
     set_panels_client();
 }
 
 void DebuggerManager::detach_backend() {
     if (client_ == jnext::dbg::CLIENT_NONE) return;
-    dbg_.set_call_stack_enabled(false);
+    dbg_.set_call_stack_enabled(client_, false);
     // SES-01 — removes this client's subscriptions (a Step Over or Run to Here
     // target still in flight goes with the window) and its live-raster request.
     // It resumes nothing here: set_enabled(false) has already resumed a paused

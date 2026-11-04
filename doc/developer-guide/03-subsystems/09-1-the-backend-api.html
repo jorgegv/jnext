@@ -2442,6 +2442,8 @@
       
         
       
+        
+      
     
     
     
@@ -3012,6 +3014,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3342,7 +3372,7 @@ and follow the contract of <a href="09-2-event-delivery-and-mutation.html">3.9.2
 <tr>
 <td>call stack and trace</td>
 <td><code>call_stack()</code>, <code>trace_entries()</code>, <code>trace_export(path)</code></td>
-<td><code>set_call_stack_enabled</code>, <code>set_trace_enabled</code>, <code>trace_clear</code>, <code>trace_resize</code></td>
+<td><code>set_call_stack_enabled(by, on)</code> (a per-client request, <a href="../07-source-level-debugging/10-c-frames-and-values.html">7.10</a>); C variables: <code>c_frames()</code>, <code>c_locals(frame)</code>, <code>c_globals()</code>, <code>read_c_value(frame, path)</code>, <code>c_variables_status()</code> (all <code>const</code>, none bumps the revision), <code>set_trace_enabled</code>, <code>trace_clear</code>, <code>trace_resize</code></td>
 </tr>
 <tr>
 <td>coverage</td>

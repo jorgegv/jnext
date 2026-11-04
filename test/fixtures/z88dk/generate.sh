@@ -22,7 +22,7 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c)$'
+MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c|cross_c|floats_c)$'
 
 trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT), $3 = for a dot command, the groups that have a prog_<G>.bin; stdout = kept lines, original order
     awk -v MODS="$MODS" -v CRT="${2:-}" -v BINS="${3:-}" -v EXTRA="${KEEP_EXTRA:-}" '
@@ -62,6 +62,8 @@ BAD=0
 #          cvars  : vars.c other.c (GH #431: C variables of every type, -debug records)
 #          extern : ext_use.c ext_def.c (GH #433: `extern int g;` in one module, `int g` in the other)
 #          cbanked: bk.c -c with code, const and data in PAGE_20, then bkmain.c bk.o (GH #431)
+#          (GH #434: the floats builds use single:floats.c, float constants whose bytes are the value formatter's oracle)
+#          (GH #434: the cross builds use single:cross.c, a function whose body crosses an 8 KB slot)
 #          (GH #431: the fc builds use single:fc.c, a __z88dk_fastcall and a __z88dk_callee function)
 build() {
     local Z=$1 inst=$2 name=$3 kind=$4; shift 4
@@ -172,6 +174,10 @@ build "$Z24" v2.4 sccz80-cvars        cvars   -clib=new -debug
 EXPECT_FAIL=1 build "$Z24" v2.4 sdcc-cvars cvars -clib=sdcc_iy -debug
 build "$Z24" v2.4 sccz80-cvars-banked cbanked -clib=new -debug $RUN
 build "$Z24" v2.4 sccz80-fc           single:fc.c -clib=new -debug
+# GH #434: cross() is 8 KB of code, so its tail is in the next 8 KB slot (F-A)
+build "$Z24" v2.4 sccz80-cross        single:cross.c -clib=new -debug
+# GH #434 stage 2: float constants in z88dk's 48-bit format
+build "$Z24" v2.4 sccz80-floats       single:floats.c -clib=new -debug
 
 provenance "$ZM" master
 build "$ZM" master sccz80-debug plain          -clib=new -debug
@@ -205,6 +211,13 @@ build "$ZM" master sdcc-extern       extern  -clib=sdcc_iy -debug
 build "$ZM" master sccz80-fc           single:fc.c -clib=new -debug
 build "$ZM" master sdcc-fc             single:fc.c -clib=sdcc_iy -debug
 build "$ZM" master 80cc-fc             single:fc.c -clib=new -compiler=80cc -debug
+build "$ZM" master sccz80-cross        single:cross.c -clib=new -debug
+build "$ZM" master sdcc-cross          single:cross.c -clib=sdcc_iy -debug
+build "$ZM" master 80cc-cross          single:cross.c -clib=new -compiler=80cc -debug
+build "$ZM" master sccz80-floats       single:floats.c -clib=new -debug
+build "$ZM" master sdcc-floats         single:floats.c -clib=sdcc_iy -debug
+# GH #434 stage 3 (P1): zcc -O0 keeps zsdcc's C_LINE records but drops every __CDBINFO__ record
+build "$ZM" master sdcc-cvars-O0       cvars   -clib=sdcc_iy -debug -O0
 
 # every file the rows hash: sources, this script, derive-scopes.py, the outputs (README.md and the manifest itself excluded)
 (cd "$DEST" && find src generate.sh derive-scopes.py v2.4 v2.4-dotn master -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"

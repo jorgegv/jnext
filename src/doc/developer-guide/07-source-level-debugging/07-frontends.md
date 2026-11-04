@@ -316,9 +316,9 @@ used; a name prints its tag when it is paged. `monitor mmu` (`monitor_mmu()`, `r
 on the Next, the physical text of the slot's first byte. The server's own symbol and source verbs are
 described in [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md).
 
-**ZRCP.** `smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2625`) calls
-`Debugger::load()` (`debugger_reconstruct.cpp:464`), which calls `load_program_sidecars()` after a successful load
-(`load_program_sidecars()`, `debugger_reconstruct.cpp:527-531`), so a program loaded over ZRCP gets its symbols and
+**ZRCP.** `smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2623`) calls
+`Debugger::load()` (`debugger_reconstruct.cpp:465`), which calls `load_program_sidecars()` after a successful load
+(`load_program_sidecars()`, `debugger_reconstruct.cpp:528-532`), so a program loaded over ZRCP gets its symbols and
 source map like `--load`, and a refused sidecar is logged to every client as a Warn line.
 `get-memory-pages` (`memory_pages()`, `zrcp_format.cpp`) names the eight slots of a Next from what each
 reads now (`SlotInfo::now`): `RO` the boot ROM, `O<n>` the 8 KB ROM page `2*image + half`, `A<n>` RAM,

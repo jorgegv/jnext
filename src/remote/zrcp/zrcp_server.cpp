@@ -729,7 +729,6 @@ void ZrcpServer::end_session() {
     // WP-5 — the machine-wide switches this session turned on go off with it;
     // one that was already on when it asked stays on. The view state goes too.
     if (hist_.owned) dbg_.set_trace_enabled(false);
-    if (xstack_.owned) dbg_.set_call_stack_enabled(false);
     if (cov_.owned) dbg_.coverage_enable(false);
     hist_ = xstack_ = cov_ = Owned{};
     hist_started_ = ign_halt_ = ign_ldxr_ = false;
@@ -2481,17 +2480,16 @@ void ZrcpServer::cmd_extended_stack(const Cmd& c) {
         if (is_yes(value)) {
             if (xstack_.on) out = "Error. Already enabled";
             else {
+                // GH #434 F-B: this session's own request. The backend derives the machine's
+                // state from every client's, so another client switching tracking off (the
+                // debugger window closing) no longer takes this one's away.
                 xstack_.on = true;
-                if (!dbg_.call_stack_enabled()) {
-                    dbg_.set_call_stack_enabled(true);
-                    xstack_.owned = true;
-                }
+                dbg_.set_call_stack_enabled(cid_, true);
             }
         } else {
             if (!xstack_.on) out = "Error. Already disabled";
             xstack_.on = false;
-            if (xstack_.owned) dbg_.set_call_stack_enabled(false);
-            xstack_.owned = false;
+            dbg_.set_call_stack_enabled(cid_, false);
         }
         return reply(out);
     }

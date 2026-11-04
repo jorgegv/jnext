@@ -41,6 +41,16 @@ struct Z88dkListing {
 /// for a file that is not a z80asm listing.
 std::optional<Z88dkListing> parse_z88dk_listing(const std::string& path, std::string& why);
 
+/// A C function a listing names in its `; Function <name> flags 0x<hex> ...` comment (sccz80 and
+/// 80cc write the flags, zsdcc only the name), and whether the flags say `__z88dk_fastcall`
+/// (GH #434, OD-14: the evidence for z88dk U1, sccz80 recording a fastcall parameter at its
+/// nominal stack slot).
+struct Z88dkListedFunction {
+    std::string name;
+    bool fastcall = false;
+};
+std::vector<Z88dkListedFunction> z88dk_listing_functions(const Z88dkListing& listing);
+
 /// Where `place` puts a (section, value) pair: the memory space and the 16-bit
 /// address in it, or the reason it cannot be put anywhere.
 struct Z88dkPlacement {

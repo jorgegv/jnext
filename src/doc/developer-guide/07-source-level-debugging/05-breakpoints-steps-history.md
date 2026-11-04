@@ -88,16 +88,17 @@ the pause ownership and stop evidence exactly as `step_into()` sets them.
 | `Out` | there is a location **and** `depth < start_depth` |
 
   `Over` and `Out` measure depth with the call-stack tracker, so they need it on
-  (`set_call_stack_enabled`).
+  (`set_call_stack_enabled`, a per-client request; with a C variable store and a non-observer client
+  attached it is on by itself, [7.10](10-c-frames-and-values.md)).
 - **The loop**, per iteration: `debugger_step()`, then `pause()`; stop if an event
   stop is latched, or the magic or watch stop fired; stop if `reached()`; stop at a
   `HALT` with interrupts disabled (`Warn`: "Source step stopped at a HALT with
   interrupts disabled"), because each Step there would spend two frames learning
   that only an NMI or a reset ends it; stop when the machine clock has advanced by
-  `SOURCE_STEP_FRAME_LIMIT` frames (100, `SOURCE_STEP_FRAME_LIMIT`, `debugger.h:1323`) since the start
+  `SOURCE_STEP_FRAME_LIMIT` frames (100, `SOURCE_STEP_FRAME_LIMIT`, `debugger.h:1424`) since the start
   (`Warn`); then the delivery below.
 - **The limit.** After `SOURCE_STEP_LIMIT` instructions (1,000,000,
-  `SOURCE_STEP_LIMIT`, `debugger.h:1319`) the step ends with a `Warn`.
+  `SOURCE_STEP_LIMIT`, `debugger.h:1420`) the step ends with a `Warn`.
 - **The delivery.** `debugger_step()` delivers no `Execute` event, because `run_frame()`
   does that before each instruction and a Step does not run through it. So between
   instructions the loop gives the next PC `run_frame()`'s treatment itself, in its

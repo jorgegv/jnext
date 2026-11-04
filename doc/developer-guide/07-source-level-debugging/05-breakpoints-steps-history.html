@@ -2233,6 +2233,8 @@
       
         
       
+        
+      
     
     
     
@@ -2939,6 +2941,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3079,16 +3109,17 @@ the pause ownership and stop evidence exactly as <code>step_into()</code> sets t
 </tbody>
 </table>
 <p><code>Over</code> and <code>Out</code> measure depth with the call-stack tracker, so they need it on
-  (<code>set_call_stack_enabled</code>).
+  (<code>set_call_stack_enabled</code>, a per-client request; with a C variable store and a non-observer client
+  attached it is on by itself, <a href="10-c-frames-and-values.html">7.10</a>).
 - <strong>The loop</strong>, per iteration: <code>debugger_step()</code>, then <code>pause()</code>; stop if an event
   stop is latched, or the magic or watch stop fired; stop if <code>reached()</code>; stop at a
   <code>HALT</code> with interrupts disabled (<code>Warn</code>: "Source step stopped at a HALT with
   interrupts disabled"), because each Step there would spend two frames learning
   that only an NMI or a reset ends it; stop when the machine clock has advanced by
-  <code>SOURCE_STEP_FRAME_LIMIT</code> frames (100, <code>SOURCE_STEP_FRAME_LIMIT</code>, <code>debugger.h:1323</code>) since the start
+  <code>SOURCE_STEP_FRAME_LIMIT</code> frames (100, <code>SOURCE_STEP_FRAME_LIMIT</code>, <code>debugger.h:1424</code>) since the start
   (<code>Warn</code>); then the delivery below.
 - <strong>The limit.</strong> After <code>SOURCE_STEP_LIMIT</code> instructions (1,000,000,
-  <code>SOURCE_STEP_LIMIT</code>, <code>debugger.h:1319</code>) the step ends with a <code>Warn</code>.
+  <code>SOURCE_STEP_LIMIT</code>, <code>debugger.h:1420</code>) the step ends with a <code>Warn</code>.
 - <strong>The delivery.</strong> <code>debugger_step()</code> delivers no <code>Execute</code> event, because <code>run_frame()</code>
   does that before each instruction and a Step does not run through it. So between
   instructions the loop gives the next PC <code>run_frame()</code>'s treatment itself, in its

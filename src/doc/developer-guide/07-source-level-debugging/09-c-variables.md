@@ -12,7 +12,7 @@ address is in. Reading a value, a frame or a type is not here (last section).
 
 ## What the store holds
 
-`VariableStore` (`class VariableStore`, `src/debug/variable_store.h:72`) is immutable once
+`VariableStore` (`class VariableStore`, `src/debug/variable_store.h:117`) is immutable once
 built. Its five vectors:
 
 | Accessor | Holds |
@@ -51,7 +51,7 @@ code of its own: the store is attached with the map, dropped with it, made stale
 with it, cached and restored with it, and the copies share one object, so the
 cache costs nothing more.
 
-The facade is `Debugger::variables()` (`variables`, `src/debug/debugger_source.cpp:572`):
+The facade is `Debugger::variables()` (`variables`, `src/debug/debugger_source.cpp:578`):
 it runs `recheck()` first, like every reader, and returns the live source map's
 store, or null when there is no live map or it carries none (an SLD). A z88dk map
 with lines but no record carries an **empty** store, so "this program has no C
@@ -61,15 +61,15 @@ no store, because it replaces nothing. `Load MAP` (symbols only) never has one.
 ## How it is filled
 
 `load_z88dk_source_map()` reads the map once. Pass 1 keeps a `const` line that
-starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:502`),
+starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:584`),
 and the parser gained `Z88dkMapLine::is_public` (the scope field). The line records
 of code sections are copied to `scope_records` right after they are placed and
-**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:565`):
+**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:647`):
 a listing's `C_LINE` keeps only the file, so the scope can come only from the map.
 Just before `map.replace()`, `build_variable_store()`
-(`src/debug/z88dk_source_map.cpp:381`)
+(`src/debug/z88dk_source_map.cpp:444`)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:791`),
+space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:876`),
 shared by the extent code and the store, so no rule is kept twice.
 
 ## The joins
@@ -105,11 +105,13 @@ reason.
 ## The scope table
 
 Each function has a table of the scopes its code is in, built from the map's own
-`C_LINE` records (`fill_scopes()`, `src/debug/z88dk_source_map.cpp:319`). Records
+`C_LINE` records (`fill_scopes()`, `src/debug/z88dk_source_map.cpp:376`). Records
 at one address are grouped, and the highest line owns the address (the rule the
 line ranges use). Equal-line owners that disagree make the entry unknown, so no
 order of the map can change the answer. The entry is filed under the function of
-the same module and space whose entry address is the greatest one at or below it.
+the same module and section whose entry map VALUE is the greatest one at or below it (never by comparing
+spaces: a function that crosses an 8 KB slot lives in two, [7.10](10-c-frames-and-values.md)), with its
+`offset` from that entry.
 
 The compilers write the scope differently:
 
@@ -143,7 +145,7 @@ debugging. Every `__CDBINFO__` line of a map ends up in exactly one of
 ## Canonical order
 
 The vectors are sorted by the record's text (then module), and a function's scope
-table by address, so the store is the same whatever order the map lists its lines
+table by offset, so the store is the same whatever order the map lists its lines
 in (`Z88CDB-20`). No map line number is kept. `VariableStore`'s constructor
 (`VariableStore::VariableStore()`, `src/debug/variable_store.cpp:20`) sorts the functions and
 remaps each variable's `function` to the sorted index.
@@ -160,12 +162,14 @@ remaps each variable's `function` to the sorted index.
 
 ## Not here
 
-Frames, values, the "location unknown" of sccz80's fastcall parameter, the text
-that says why no variables are shown, and the type lookup are the next stage of
-the epic. The store gives them the records, the storage and the scopes.
+Frames, the extents they stand on and the rule that keeps the tracker running are in
+[7.10](10-c-frames-and-values.md). Values, the "location unknown" of sccz80's fastcall
+parameter, the text that says why no variables are shown, and the type lookup are the next
+stage of the epic. The store gives them the records, the storage and the scopes.
 
 ## Rows
 
+(`Z88CDB-41` to `-50` and `SRCDBG-CVAL-01` to `-58`: [7.10](10-c-frames-and-values.md).)
 `Z88CDB-01` to `-26` in `z88dk_map_test` (the joins, scope tables, order,
 refusals, banked and dot storage, hidden records, listings), `SRCVAR-01` in
 `source_map_test` (the member), and `SRCDBG-VAR-01` to `-12` in

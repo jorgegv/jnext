@@ -14,6 +14,8 @@
         <link rel="prev" href="08-tests-and-new-producers.html">
       
       
+        <link rel="next" href="10-c-frames-and-values.html">
+      
       
         
       
@@ -2231,6 +2233,8 @@
       
         
       
+        
+      
     
     
     
@@ -2969,6 +2973,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3007,7 +3039,7 @@ joins those records to the map's symbols, so that a later consumer can ask where
 a C variable lives, which function a local belongs to and which scope a code
 address is in. Reading a value, a frame or a type is not here (last section).</p>
 <h2 id="what-the-store-holds">What the store holds<a class="headerlink" href="#what-the-store-holds" title="Permanent link">&para;</a></h2>
-<p><code>VariableStore</code> (<code>class VariableStore</code>, <code>src/debug/variable_store.h:72</code>) is immutable once
+<p><code>VariableStore</code> (<code>class VariableStore</code>, <code>src/debug/variable_store.h:117</code>) is immutable once
 built. Its five vectors:</p>
 <table>
 <thead>
@@ -3063,7 +3095,7 @@ misses its map. Inside it, every rule of <a href="06-lifetime.html">7.6</a> appl
 code of its own: the store is attached with the map, dropped with it, made stale
 with it, cached and restored with it, and the copies share one object, so the
 cache costs nothing more.</p>
-<p>The facade is <code>Debugger::variables()</code> (<code>variables</code>, <code>src/debug/debugger_source.cpp:572</code>):
+<p>The facade is <code>Debugger::variables()</code> (<code>variables</code>, <code>src/debug/debugger_source.cpp:578</code>):
 it runs <code>recheck()</code> first, like every reader, and returns the live source map's
 store, or null when there is no live map or it carries none (an SLD). A z88dk map
 with lines but no record carries an <strong>empty</strong> store, so "this program has no C
@@ -3071,15 +3103,15 @@ information" is told from "there is no z88dk map". A map with no lines at all ge
 no store, because it replaces nothing. <code>Load MAP</code> (symbols only) never has one.</p>
 <h2 id="how-it-is-filled">How it is filled<a class="headerlink" href="#how-it-is-filled" title="Permanent link">&para;</a></h2>
 <p><code>load_z88dk_source_map()</code> reads the map once. Pass 1 keeps a <code>const</code> line that
-starts <code>__CDBINFO__</code> in <code>cdb_lines</code> (<code>src/debug/z88dk_source_map.cpp:502</code>),
+starts <code>__CDBINFO__</code> in <code>cdb_lines</code> (<code>src/debug/z88dk_source_map.cpp:584</code>),
 and the parser gained <code>Z88dkMapLine::is_public</code> (the scope field). The line records
 of code sections are copied to <code>scope_records</code> right after they are placed and
-<strong>before</strong> a listing replaces its module's lines (<code>scope_records</code>, <code>src/debug/z88dk_source_map.cpp:565</code>):
+<strong>before</strong> a listing replaces its module's lines (<code>scope_records</code>, <code>src/debug/z88dk_source_map.cpp:647</code>):
 a listing's <code>C_LINE</code> keeps only the file, so the scope can come only from the map.
 Just before <code>map.replace()</code>, <code>build_variable_store()</code>
-(<code>src/debug/z88dk_source_map.cpp:381</code>)
+(<code>src/debug/z88dk_source_map.cpp:444</code>)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, <code>place_symbol</code> (<code>src/debug/z88dk_source_map.cpp:791</code>),
+space by one lambda, <code>place_symbol</code> (<code>src/debug/z88dk_source_map.cpp:876</code>),
 shared by the extent code and the store, so no rule is kept twice.</p>
 <h2 id="the-joins">The joins<a class="headerlink" href="#the-joins" title="Permanent link">&para;</a></h2>
 <p>The key is the <strong>module</strong>, not the file name (z88dk issue 3222, a wrong
@@ -3144,11 +3176,13 @@ A DIV section or an unplaceable 24-bit value is unresolved with the placement's
 reason.</p>
 <h2 id="the-scope-table">The scope table<a class="headerlink" href="#the-scope-table" title="Permanent link">&para;</a></h2>
 <p>Each function has a table of the scopes its code is in, built from the map's own
-<code>C_LINE</code> records (<code>fill_scopes()</code>, <code>src/debug/z88dk_source_map.cpp:319</code>). Records
+<code>C_LINE</code> records (<code>fill_scopes()</code>, <code>src/debug/z88dk_source_map.cpp:376</code>). Records
 at one address are grouped, and the highest line owns the address (the rule the
 line ranges use). Equal-line owners that disagree make the entry unknown, so no
 order of the map can change the answer. The entry is filed under the function of
-the same module and space whose entry address is the greatest one at or below it.</p>
+the same module and section whose entry map VALUE is the greatest one at or below it (never by comparing
+spaces: a function that crosses an 8 KB slot lives in two, <a href="10-c-frames-and-values.html">7.10</a>), with its
+<code>offset</code> from that entry.</p>
 <p>The compilers write the scope differently:</p>
 <ul>
 <li>sccz80 and 80cc: <code>file::&lt;func&gt;::&lt;level&gt;::&lt;block&gt;:&lt;line&gt;</code>. The level is the
@@ -3177,7 +3211,7 @@ debugging. Every <code>__CDBINFO__</code> line of a map ends up in exactly one o
 (<code>Z88CDB-01</code>).</p>
 <h2 id="canonical-order">Canonical order<a class="headerlink" href="#canonical-order" title="Permanent link">&para;</a></h2>
 <p>The vectors are sorted by the record's text (then module), and a function's scope
-table by address, so the store is the same whatever order the map lists its lines
+table by offset, so the store is the same whatever order the map lists its lines
 in (<code>Z88CDB-20</code>). No map line number is kept. <code>VariableStore</code>'s constructor
 (<code>VariableStore::VariableStore()</code>, <code>src/debug/variable_store.cpp:20</code>) sorts the functions and
 remaps each variable's <code>function</code> to the sorted index.</p>
@@ -3192,11 +3226,13 @@ remaps each variable's <code>function</code> to the sorted index.</p>
   hand-loaded z88dk map attaches no symbols, so the next stage adds them to this same pass.</li>
 </ul>
 <h2 id="not-here">Not here<a class="headerlink" href="#not-here" title="Permanent link">&para;</a></h2>
-<p>Frames, values, the "location unknown" of sccz80's fastcall parameter, the text
-that says why no variables are shown, and the type lookup are the next stage of
-the epic. The store gives them the records, the storage and the scopes.</p>
+<p>Frames, the extents they stand on and the rule that keeps the tracker running are in
+<a href="10-c-frames-and-values.html">7.10</a>. Values, the "location unknown" of sccz80's fastcall
+parameter, the text that says why no variables are shown, and the type lookup are the next
+stage of the epic. The store gives them the records, the storage and the scopes.</p>
 <h2 id="rows">Rows<a class="headerlink" href="#rows" title="Permanent link">&para;</a></h2>
-<p><code>Z88CDB-01</code> to <code>-26</code> in <code>z88dk_map_test</code> (the joins, scope tables, order,
+<p>(<code>Z88CDB-41</code> to <code>-50</code> and <code>SRCDBG-CVAL-01</code> to <code>-58</code>: <a href="10-c-frames-and-values.html">7.10</a>.)
+<code>Z88CDB-01</code> to <code>-26</code> in <code>z88dk_map_test</code> (the joins, scope tables, order,
 refusals, banked and dot storage, hidden records, listings), <code>SRCVAR-01</code> in
 <code>source_map_test</code> (the member), and <code>SRCDBG-VAR-01</code> to <code>-12</code> in
 <code>source_debug_test</code> (the lifetime). <code>Z88CDB-40</code> compares every function's scope table on 12 maps with a golden that
