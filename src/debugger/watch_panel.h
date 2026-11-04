@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QStringList>
 #include <QWidget>
 #include <QTableWidget>
 
@@ -9,6 +10,15 @@
 #include <string>
 
 namespace jnext { namespace dbg { class Debugger; } }
+
+/// GH #435 - a C variable a watch follows: the facade path (it round-trips through `read_c_value`), and for a parameter or local the
+/// function it lives in (name and CDB module, so two static functions of one name stay apart). `function` empty: a global, a file static
+/// or a static local, read in any frame by a path no local can shadow.
+struct CVarWatch {
+    std::string path;
+    std::string function;
+    std::string module;
+};
 
 /// Watch panel showing memory values at watched addresses.
 ///
@@ -28,6 +38,10 @@ public:
 
     /// GH #360 - Friendly or Physical in the Memory column.
     void set_address_style(jnext::dbg::AddressStyle st) { style_ = st; }
+
+    /// GH #435 - watch a C variable. Its row is read only while paused (`set_paused`): a running machine leaves the text of the last stop.
+    void add_c_watch(const CVarWatch& w);
+    void set_paused(bool paused) { paused_ = paused; }
 
     /// Refresh all watch values from current emulator memory state.
     void refresh();
@@ -60,10 +74,16 @@ private:
     enum WatchType { BYTE = 0, WORD = 1, LONG = 2 };
 
     struct WatchEntry {
-        uint16_t addr;
+        uint16_t addr = 0;
         std::string label;
-        WatchType type;
+        WatchType type = BYTE;
+        enum class Kind { Memory, CVariable } kind = Kind::Memory;
+        CVarWatch cvar;   // CVariable
+        QStringList shown = QStringList({QString(), QString(), QString(), QString(), QString()});   // CVariable: the columns as last read
+        bool refused = false;   // CVariable: the Value is text, not a value
     };
+    void refresh_c_row(int row, const WatchEntry& w);
+    bool paused_ = false;
 
     std::vector<WatchEntry> watches_;
 };

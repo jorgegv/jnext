@@ -1504,7 +1504,13 @@ void DebuggerWindow::create_panels() {
     // GH #435 - the frame is chosen in either place and the other follows. The mapping (Call Stack row i is C frame i + 1) is
     // written once, in VariablesPanel; select_row() does not emit, so there is no loop.
     connect(callstack_panel_, &CallStackPanel::call_selected, variables_panel_,
-            [this](int row) { variables_panel_->select_frame(VariablesPanel::frame_of_call_row(row)); });
+            [this](int row) {
+                variables_panel_->select_frame(VariablesPanel::frame_of_call_row(row));
+                // a choice select_frame() ignored (the machine runs) leaves the Call Stack on the frame the tree shows
+                callstack_panel_->select_row(variables_panel_->call_stack_row());
+            });
+    // GH #435 - Watch on a variable: a row of the Watches tab, which stays where it is
+    connect(variables_panel_, &VariablesPanel::watch_requested, watch_panel_, &WatchPanel::add_c_watch);
     connect(variables_panel_, &VariablesPanel::frame_changed, callstack_panel_,
             [this](int) { callstack_panel_->select_row(variables_panel_->call_stack_row()); });
 

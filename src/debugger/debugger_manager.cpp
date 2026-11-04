@@ -127,6 +127,8 @@ void DebuggerManager::set_panels_paused(bool paused) {
         debugger_window_->callstack_panel()->set_paused(paused);
     if (debugger_window_->variables_panel())
         debugger_window_->variables_panel()->set_paused(paused);
+    if (debugger_window_->watch_panel())
+        debugger_window_->watch_panel()->set_paused(paused);
 }
 
 void DebuggerManager::set_panels_client() {

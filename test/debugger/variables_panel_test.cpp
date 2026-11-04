@@ -26,6 +26,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/variables_panel.h"
+#include "debugger/watch_panel.h"
 #include "platform/emulator_boot.h"
 
 #include <QApplication>
@@ -37,6 +38,7 @@
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 #include <QTreeWidget>
 
 #include <cctype>
@@ -205,6 +207,15 @@ std::string esc(const std::string& t) {
 // Append records (`S:G$...`) and symbols to a copy of the fixture's map.
 void add_to_map(const fs::path& d, const std::string& text) { std::ofstream(d / "prog.map", std::ios::app) << text; }
 const char* const kScope = " = $0001 ; const, public, , vars_c, code_compiler, vars.c::main::1::6:66\n";
+
+QTableWidget* wtable(Fix& f) { return f.dbg()->watch_panel()->findChild<QTableWidget*>(); }
+QString wcell(Fix& f, int row, int col) {
+    QTableWidgetItem* it = wtable(f)->item(row, col);
+    return it ? it->text() : QStringLiteral("<no cell>");
+}
+std::string wrow(Fix& f, int row) {
+    return s(wcell(f, row, 0) + "|" + wcell(f, row, 1) + "|" + wcell(f, row, 2) + "|" + wcell(f, row, 3) + "|" + wcell(f, row, 4));
+}
 
 // vars.c:41, sum's first call (sccz80, master): the stop every row starts from.
 constexpr uint16_t kS41 = 0x8D3E;
@@ -571,6 +582,141 @@ void test_rows() {
               at && big && ranges == "[0..99] [100..199] [200..299]" && elems && first && first->childCount() == 100 && first->child(0)->text(0) == "[0]" &&
                   first->child(0)->text(2) == "1",
               s(ranges) + " " + detail_of(last));
+    }
+
+    {   // QVAR-16
+        Fix f;
+        f.load("master/sccz80-cvars", "q16");
+        const bool at = f.run_to(kS41);
+        const bool pinned = f.vp()->watch_item(child(locals(f), "t"));
+        const bool first = wtable(f)->rowCount() == 1 && wcell(f, 0, 1) == "t (in sum)" && wcell(f, 0, 2) == "int" && wcell(f, 0, 3) == "122" &&
+                           wcell(f, 0, 0).startsWith("$") && !wcell(f, 0, 4).isEmpty();
+        const bool at2 = f.run_to(kS41);
+        const bool second = wcell(f, 0, 3) == "123";
+        const bool at3 = f.run_to(0x8E1F);   // main's loop: sum is not on the call stack
+        check("QVAR-16", "Watch on sum's local t adds a Watches row `t (in sum)`, int, 122 with its address and memory; at the second vars.c:41 it is 123; at vars.c:64 (sum is "
+                         "not on the call stack) it says `out of scope: sum is not on the call stack` with empty Address and Memory",
+              at && pinned && first && at2 && second && at3 && wcell(f, 0, 3) == "out of scope: sum is not on the call stack" && wcell(f, 0, 0).isEmpty() &&
+                  wcell(f, 0, 4).isEmpty(),
+              wrow(f, 0));
+    }
+
+    {   // QVAR-17
+        Fix f;
+        f.load("master/sccz80-cvars", "q17");
+        const bool at = f.run_to(kS41);
+        f.vp()->select_frame(1);
+        const bool pinned = f.vp()->watch_item(child(locals(f), "i"));
+        const bool first = wcell(f, 0, 1) == "i (in main)" && wcell(f, 0, 3) == "0";   // read in main's frame while sum is frame 0
+        const bool at2 = f.run_to(kS41);
+        const bool second = wcell(f, 0, 3) == "1";
+        const bool at3 = f.run_to(0x8E1F);   // main is frame 0 now; the loop ended with i = 4
+        check("QVAR-17", "Watch on main's i (chosen in frame 1 while sum runs) is 0, then 1 at the second vars.c:41, then 4 at vars.c:64 where main is frame 0: a local follows its "
+                         "function, not a frame index",
+              at && pinned && first && at2 && second && at3 && wcell(f, 0, 3) == "4", wrow(f, 0));
+    }
+
+    {   // QVAR-18
+        Fix f;
+        f.load("master/sccz80-cvars", "q18");
+        const bool at = f.run_to(kS41);
+        const bool p1 = f.vp()->watch_item(global(f, "vars.c", "s_dup"));
+        const bool p2 = f.vp()->watch_item(child(locals(f), "calls"));   // a static local of sum, pinned from Locals
+        const bool first = wcell(f, 0, 3) == "0" && wcell(f, 1, 1) == "sum::calls" && wcell(f, 1, 3) == "1";
+        const bool at2 = f.run_to(0x8E49);   // inside other(): a bare s_dup there is other.c's, 4
+        const bool inside = wcell(f, 0, 3) == "0" && wcell(f, 1, 3) == "4";
+        const bool at3 = f.run_to(0x8E1F);
+        check("QVAR-18", "a file static is not shadowed: Watch on vars.c's s_dup is 0 at vars.c:41, still 0 inside other() (where a bare s_dup is other.c's 4) and 178 at vars.c:64; a "
+                         "static local pinned from Locals (sum::calls) is unbound: 1, then 4 at vars.c:64 where sum is not running",
+              at && p1 && p2 && first && at2 && inside && at3 && wcell(f, 0, 3) == "178" && wcell(f, 1, 3) == "4", wrow(f, 0) + " / " + wrow(f, 1));
+    }
+
+    {   // QVAR-19
+        Fix f;
+        f.load("master/sccz80-cvars", "q19");
+        const bool at = f.run_to(0x8E1F);
+        f.vp()->watch_item(global(f, "vars.c", "g_int"));
+        f.dbg()->watch_panel()->add_watch(0x903E, "", 1);   // the same word, an address watch: the independent reader
+        const QString c_before = wcell(f, 0, 3);
+        const QString w_before = wcell(f, 1, 3);
+        f.backend->run(f.me);
+        f.mgr->check_breakpoint_hit();
+        for (int i = 0; i < 5; ++i) {
+            f.emu.run_frame();
+            f.dbg()->refresh_panels();
+        }
+        const bool moved = wcell(f, 1, 3) != w_before;
+        const bool kept = wcell(f, 0, 3) == c_before;
+        f.backend->pause(f.me);
+        f.settle();
+        const QString w_now = wcell(f, 1, 3);   // "$XXXX (Nd)"
+        bool okhex = false;
+        const int v = w_now.mid(1, 4).toInt(&okhex, 16);
+        const QString want = QString::number(static_cast<int16_t>(v));
+        check("QVAR-19", "running: a C watch on g_int and a Word address watch on $903E, five frames with refresh ticks: the address watch's value moves and the C row keeps -5; after "
+                         "the pause the C row is the address watch's value as a signed 16-bit number",
+              at && c_before == "-5" && moved && kept && okhex && wcell(f, 0, 3) == want && want != "-5", s(wcell(f, 0, 3)) + " vs " + s(want) + " (" + s(w_now) + ")");
+    }
+
+    {   // QVAR-20
+        Fix f;
+        f.load("master/sccz80-cvars", "q20");
+        const bool at = f.run_to(kS41);
+        f.vp()->watch_item(child(locals(f), "t"));
+        f.dbg()->watch_panel()->add_watch(0x903E, "mem", 1);
+        wtable(f)->setCurrentCell(0, 0);
+        bool dialog = false;
+        QTimer closer;
+        QObject::connect(&closer, &QTimer::timeout, [&]() {
+            if (auto* d = QApplication::activeModalWidget()) {
+                dialog = true;
+                d->close();
+            }
+        });
+        closer.start(20);
+        f.dbg()->watch_panel()->on_edit_watch();
+        QTest::qWait(60);
+        closer.stop();
+        const bool kept = !dialog && wcell(f, 0, 1) == "t (in sum)" && wcell(f, 0, 3) == "122";
+        f.dbg()->watch_panel()->remove_selected();   // the C row is the current one
+        check("QVAR-20", "Edit with a C row selected opens no dialog and the row stays a C row; Remove deletes it and the address row beside it is unchanged",
+              at && kept && wtable(f)->rowCount() == 1 && wcell(f, 0, 1) == "mem" && wcell(f, 0, 2) == "Word", wrow(f, 0));
+    }
+
+    {   // QVAR-21
+        Fix f;
+        f.load("master/sccz80-cvars", "q21");
+        const bool at = f.run_to(kS41);
+        f.vp()->watch_item(child(locals(f), "t"));
+        f.vp()->watch_item(global(f, "vars.c", "g_int"));
+        const bool had = wcell(f, 0, 3) == "122" && wcell(f, 1, 3) == "-5";
+        const std::string map = (f.dir / "prog.map").string();
+        f.backend->clear_source_map();
+        f.dbg()->refresh_panels();
+        const std::string why = f.backend->c_variables_status().why;
+        const bool gone = !why.empty() && wcell(f, 0, 3) == QString::fromStdString(why) && wcell(f, 1, 3) == QString::fromStdString(why) &&
+                          locals(f)->childCount() == 0 && globals(f)->childCount() == 0;
+        f.backend->load_source_map(map, true);
+        f.dbg()->refresh_panels();
+        check("QVAR-21", "when the store goes the C rows show the status text, never the last value, and both Variables sections are empty; when the map is loaded again the rows bind "
+                         "again (t = 122, g_int = -5)",
+              at && had && gone && wcell(f, 0, 3) == "122" && wcell(f, 1, 3) == "-5", wrow(f, 0) + " / " + wrow(f, 1));
+    }
+
+    {   // QVAR-27
+        Fix f;
+        f.load("master/sccz80-cvars", "q27");
+        const bool at = f.run_to(kS41);
+        f.vp()->set_paused(false);   // the machine runs: a choice is ignored
+        emit f.frames()->activated(1);
+        f.cs_table()->setCurrentCell(0, 0);
+        QApplication::processEvents();
+        const bool ignored = f.vp()->selected_frame() == 0 && f.frames()->currentIndex() == 0 && f.cs_table()->currentRow() == -1;
+        f.vp()->set_paused(true);
+        check("QVAR-27", "a frame chosen in the selector or in the Call Stack while the machine runs is ignored, and both go back to the frame the tree shows (selector on frame 0, no "
+                         "Call Stack row selected)",
+              at && ignored, "frame=" + std::to_string(f.vp()->selected_frame()) + " combo=" + std::to_string(f.frames()->currentIndex()) +
+                                 " row=" + std::to_string(f.cs_table()->currentRow()));
     }
 
     {   // QVAR-23

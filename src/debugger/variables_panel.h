@@ -11,6 +11,7 @@
 
 #include "debug/debugger.h"
 #include "debug/long_address.h"
+#include "debugger/watch_panel.h"
 
 /// GH #435 (epic #353) - the Variables tab: the C variables of one call frame, and the globals and statics, as a tree.
 ///
@@ -43,13 +44,19 @@ public:
 
     QSize sizeHint() const override { return QSize(400, 300); }
 
+    /// GH #435 - pin `item` (a variable, member, element or pointee; not a group, range or message) as a C watch: emits `watch_requested`.
+    /// A Locals item is bound to the frame's function; a global, file static or static local is not (it is read by a path no local can shadow).
+    /// This is the right-click menu's one action.
+    bool watch_item(QTreeWidgetItem* item);
+
     /// What a tree item carries (the tests read it): its kind, the facade path, a range's first element.
     enum { KindGroup = 0, KindVar = 1, KindRange = 2, KindMessage = 3 };
-    enum { RoleKind = Qt::UserRole, RolePath, RoleFirst, RoleKey, RoleExpandable };
+    enum { RoleKind = Qt::UserRole, RolePath, RoleFirst, RoleKey, RoleExpandable, RoleRowKind };
 
 signals:
     /// The user (or `select_frame`) chose another frame.
     void frame_changed(int k);
+    void watch_requested(const CVarWatch& w);
 
 private:
     // What one tree row is, before it becomes an item.
@@ -60,10 +67,12 @@ private:
         int first = 0;               ///< KindRange: the first element
         QStringList cols;            ///< Name, Type, Value, Address
         QString tip;
+        int row_kind = 0;            ///< KindVar: the facade row's `CValueRow::Kind` (a child has its root's)
         bool placeholder = false;    ///< the Value is a refusal: drawn in the placeholder colour
         bool expandable = false;     ///< an aggregate or a pointer: gets the indicator, children on expand
         std::vector<Node> kids;      ///< KindGroup: its rows, built eagerly
     };
+    void on_context_menu(const QPoint& pos);
     Node node_of(const jnext::dbg::Debugger::CValueRow& row, const QString& key_prefix, const QString& parent_name) const;
     Node message(const QString& text) const;
     std::vector<Node> locals_nodes() const;

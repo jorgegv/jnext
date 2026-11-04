@@ -4,6 +4,7 @@
 
 #include <QFont>
 #include <QHeaderView>
+#include <QMenu>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -60,6 +61,8 @@ VariablesPanel::VariablesPanel(const Debugger* dbg, QWidget* parent)
     locals_->setExpanded(true);
     globals_->setExpanded(true);
 
+    tree_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(tree_, &QTreeWidget::customContextMenuRequested, this, &VariablesPanel::on_context_menu);
     connect(frames_, QOverload<int>::of(&QComboBox::activated), this, [this](int i) { select_frame(i); });
     connect(tree_, &QTreeWidget::itemExpanded, this, &VariablesPanel::on_expanded);
     connect(tree_, &QTreeWidget::itemCollapsed, this, &VariablesPanel::on_collapsed);
@@ -93,6 +96,7 @@ VariablesPanel::Node VariablesPanel::node_of(const Debugger::CValueRow& row, con
 {
     Node n;
     n.kind = KindVar;
+    n.row_kind = static_cast<int>(row.kind);
     n.path = QString::fromStdString(row.path);
     n.key = key_prefix + n.path;
     QString name = QString::fromStdString(row.name);
@@ -216,6 +220,7 @@ void VariablesPanel::apply(QTreeWidgetItem* item, const Node& n)
     item->setData(0, RoleFirst, n.first);
     item->setData(0, RoleKey, n.key);
     item->setData(0, RoleExpandable, n.expandable);
+    item->setData(0, RoleRowKind, n.row_kind);
     if (n.placeholder)
         item->setForeground(2, palette().color(QPalette::PlaceholderText));
     else
@@ -253,6 +258,37 @@ void VariablesPanel::sync(QTreeWidgetItem* parent, const std::vector<Node>& node
             qDeleteAll(item->takeChildren());
         }
     }
+}
+
+void VariablesPanel::on_context_menu(const QPoint& pos)
+{
+    QTreeWidgetItem* item = tree_->itemAt(pos);
+    if (!item || item->data(0, RoleKind).toInt() != KindVar) return;
+    QMenu menu;
+    QAction* watch = menu.addAction(tr("Watch"));
+    if (menu.exec(tree_->viewport()->mapToGlobal(pos)) == watch) watch_item(item);
+}
+
+bool VariablesPanel::watch_item(QTreeWidgetItem* item)
+{
+    if (!dbg_ || !item || item->data(0, RoleKind).toInt() != KindVar) return false;
+    CVarWatch w;
+    w.path = item->data(0, RolePath).toString().toStdString();
+    if (key_of(item).startsWith("L:")) {
+        const auto store = dbg_->variables();
+        const auto frames = dbg_->c_frames();
+        const int f = static_cast<size_t>(frame_) < frames.size() ? frames[static_cast<size_t>(frame_)].function : -1;
+        if (!store || f < 0 || static_cast<size_t>(f) >= store->functions().size()) return false;
+        const auto& fn = store->functions()[static_cast<size_t>(f)];
+        if (item->data(0, RoleRowKind).toInt() == static_cast<int>(Debugger::CValueRow::Kind::StaticLocal)) {
+            w.path = fn.name + "::" + w.path;   // a static local lives in its function, not in a frame: unbound
+        } else {
+            w.function = fn.name;
+            w.module = fn.module;
+        }
+    }
+    emit watch_requested(w);
+    return true;
 }
 
 void VariablesPanel::on_expanded(QTreeWidgetItem* item)
@@ -303,7 +339,14 @@ void VariablesPanel::select_frame(int k)
 {
     // not while running: the frame list is the last stop's, and a read now would show values that belong to neither (the next paused
     // refresh decides)
-    if (!dbg_ || !paused_ || k < 0 || k >= frames_->count() || k == frame_) return;
+    if (!dbg_ || k < 0 || k >= frames_->count() || k == frame_) return;
+    if (!paused_) {
+        // ignored: the selector shows the frame the tree shows
+        frames_->blockSignals(true);
+        frames_->setCurrentIndex(frame_);
+        frames_->blockSignals(false);
+        return;
+    }
     frame_ = k;
     frames_->blockSignals(true);
     frames_->setCurrentIndex(k);
