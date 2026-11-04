@@ -101,8 +101,8 @@ struct CPathStep {
     uint32_t index = 0;   ///< Index
 };
 
-/// `path := ['*'] primary { '.' name | '->' name | '[' index ']' }`, `primary := name | fn '::' name | file '::' name`
-/// (`file` contains a '.'), `index := decimal | 0x<hex> | $<hex>` (no sign). Whitespace is allowed between tokens.
+/// `path := ['*'] primary { '.' name | '->' name | '[' index ']' }`, `primary := name | fn '::' name | file '::' name |
+/// file '::' fn '::' name` (`file` contains a '.'), `index := decimal | 0x<hex> | $<hex>` (no sign). Whitespace is allowed between tokens.
 struct CPath {
     bool ok = false;
     std::string why;
@@ -110,6 +110,7 @@ struct CPath {
     enum class Primary : uint8_t { Name, Function, File };
     Primary primary = Primary::Name;
     std::string qualifier;   ///< the function or file of `fn::x` / `file.c::x`
+    std::string file;        ///< `file.c::fn::x`: the file that names which `fn` (two modules can each have a static function of that name)
     std::string name;
     std::vector<CPathStep> steps;
 };
@@ -121,6 +122,7 @@ struct CLoc {
     uint32_t addr = 0;
     std::string note;   ///< e.g. a member of a bitfield-like struct (z88dk U2)
     uint32_t end = 0;   ///< exclusive end of the enclosing object (0: none); a read is clamped to it and zero-extended
+    std::optional<uint16_t> ptr_value;   ///< a pointer whose VALUE is given (a register local): followed without reading memory for it
     bool rooted = false;   ///< `addr` is in the root object's own view (`CFormatCtx::read_root`); a followed pointer clears it
 };
 struct CEval {

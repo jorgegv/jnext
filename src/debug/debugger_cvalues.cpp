@@ -199,18 +199,27 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
         }
         const CRegRead rr = c_read_register_local(cv, rp);
         if (!rr.ok) return refused(rr.why);
-        if (deref || !steps.empty()) return refused("a register value has no address");
-        const CFormatted f = c_format_value(ctx, cv.type, rr.bytes.data(), rr.bytes.size());
-        if (!f.ok) return refused(f.why);
-        out.ok = true;
-        out.value = f.text;
-        out.notes = f.notes;
-        out.notes.push_back(rr.note);
-        out.where.kind = Debugger::CWhere::Kind::Register;
-        out.where.regs = rr.note.substr(3, rr.note.find(';') - 3);
-        out.integer = c_integer_value(cv.type, rr.bytes.data(), rr.bytes.size());
-        out.real = c_float_value(cv.type, rr.bytes.data(), rr.bytes.size());
-        return out;
+        // a pointer held in a register can be followed (`*p`, `p->x`, `p[i]`): its VALUE is the register's; a member or an element of a
+        // register-held aggregate has no address
+        const bool follows = !cv.type.chain.empty() && cv.type.chain[0].kind == CdbTypeKind::Pointer && rr.bytes.size() >= 2 &&
+                             (deref || (!steps.empty() && steps[0].kind != CPathStep::Kind::Dot));
+        if (follows) {
+            root.ptr_value = static_cast<uint16_t>(rr.bytes[0] | rr.bytes[1] << 8);
+            out.notes.push_back(rr.note);
+        } else {
+            if (deref || !steps.empty()) return refused("a register value has no address");
+            const CFormatted f = c_format_value(ctx, cv.type, rr.bytes.data(), rr.bytes.size());
+            if (!f.ok) return refused(f.why);
+            out.ok = true;
+            out.value = f.text;
+            out.notes = f.notes;
+            out.notes.push_back(rr.note);
+            out.where.kind = Debugger::CWhere::Kind::Register;
+            out.where.regs = rr.note.substr(3, rr.note.find(';') - 3);
+            out.integer = c_integer_value(cv.type, rr.bytes.data(), rr.bytes.size());
+            out.real = c_float_value(cv.type, rr.bytes.data(), rr.bytes.size());
+            return out;
+        }
     } else {
         return refused("no location is recorded for it");
     }
@@ -239,6 +248,9 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
     }
     if (!f.ok) {
         out.why = f.why;
+        if (ev.loc.rooted && cv.space == 'E' && ev.loc.type.size > 0 &&
+            space_offset(v.storage.at.space, static_cast<uint16_t>(ev.loc.addr)) + static_cast<uint32_t>(ev.loc.type.size) > space_size(v.storage.at.space.kind))
+            out.why = "the value crosses a page boundary";
         return out;
     }
     out.ok = true;
@@ -299,12 +311,12 @@ Found find_var(const Env& e, size_t k, const CPath& p)
     if (p.primary == CPath::Primary::Function) {
         int f = -1, n = 0;
         for (size_t i = 0; i < e.store->functions().size(); ++i)
-            if (e.store->functions()[i].name == p.qualifier) {
+            if (e.store->functions()[i].name == p.qualifier && (p.file.empty() || file_matches(e, e.store->functions()[i].module, p.file))) {
                 if (cur >= 0 && static_cast<int>(i) == cur) { f = static_cast<int>(i); n = 1; break; }
                 f = static_cast<int>(i);
                 ++n;
             }
-        if (n == 0) { out.why = "no function '" + p.qualifier + "'"; return out; }
+        if (n == 0) { out.why = "no function '" + p.qualifier + "'" + (p.file.empty() ? std::string() : " in " + p.file); return out; }
         if (n > 1) { out.why = "function '" + p.qualifier + "' is ambiguous: name its file"; return out; }
         for (const CVariable& v : vars)
             if (visible(v) && v.function == f && v.c_name == p.name && v.record.var.space == 'E') {
@@ -464,7 +476,10 @@ std::vector<Debugger::CValueRow> Debugger::c_globals() const
         std::string path;
         Row::Kind kind;
         if (static_local) {
-            path = e.store->functions()[static_cast<size_t>(v.function)].name + "::" + v.c_name;
+            const std::string& fname = e.store->functions()[static_cast<size_t>(v.function)].name;
+            const bool unique = std::count_if(e.store->functions().begin(), e.store->functions().end(),
+                                              [&](const CFunction& f) { return f.name == fname; }) == 1;
+            path = (unique ? std::string() : file + "::") + fname + "::" + v.c_name;   // the file only when the function name repeats
             kind = Row::Kind::StaticLocal;
         } else {
             path = file + "::" + v.c_name;

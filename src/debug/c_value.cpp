@@ -348,7 +348,9 @@ bool deref_loc(const CFormatCtx& ctx, const CLoc& in, CLoc* out, std::string* wh
         return false;
     }
     uint16_t p = 0;
-    if (!read16(reader_for(ctx, in.rooted), in.addr, &p)) {
+    if (in.ptr_value) {
+        p = *in.ptr_value;
+    } else if (!read16(reader_for(ctx, in.rooted), in.addr, &p)) {
         *why = "unreadable memory at $" + hexw(in.addr, 4);
         return false;
     }
@@ -603,14 +605,27 @@ CPath c_parse_path(std::string_view s)
         ++i;
         ws();
     }
-    // a qualifier is a run of name characters (and '.', '/', '-') followed by "::"
-    {
+    // a qualifier is a run of name characters (and '.', '/', '-') followed by "::"; `file.c::fn::name` has two
+    const auto qualifier = [&](std::string* out) {
         size_t j = i;
         while (j < s.size() && (ident_char(s[j]) || s[j] == '.' || s[j] == '/' || s[j] == '-')) ++j;
         if (j > i && j + 1 < s.size() && s[j] == ':' && s[j + 1] == ':') {
-            p.qualifier = std::string(s.substr(i, j - i));
-            p.primary = p.qualifier.find('.') != std::string::npos ? CPath::Primary::File : CPath::Primary::Function;
+            *out = std::string(s.substr(i, j - i));
             i = j + 2;
+            return true;
+        }
+        return false;
+    };
+    std::string q1, q2;
+    if (qualifier(&q1)) {
+        if (qualifier(&q2)) {
+            if (q1.find('.') == std::string::npos) return bad("`" + q1 + "::" + q2 + "::`: a file name (with its extension) comes first");
+            p.file = q1;
+            p.qualifier = q2;
+            p.primary = CPath::Primary::Function;
+        } else {
+            p.qualifier = q1;
+            p.primary = q1.find('.') != std::string::npos ? CPath::Primary::File : CPath::Primary::Function;
         }
     }
     if (!ident(&p.name)) return bad("expected a variable name");
