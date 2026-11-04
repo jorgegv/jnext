@@ -3135,7 +3135,7 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 </tr>
 <tr>
 <td><code>SF</code> <code>{6}</code></td>
-<td>z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by <code>$80</code>; 12 significant digits (<code>c_format_float48()</code>, <code>c_value.cpp:420</code>). Oracle: the bytes z88dk compiled in <code>*-floats</code></td>
+<td>z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by <code>$80</code>; 12 significant digits (<code>c_format_float48()</code>, <code>c_value.cpp:416</code>). Oracle: the bytes z88dk compiled in <code>*-floats</code></td>
 </tr>
 <tr>
 <td><code>SF</code> <code>{4}</code></td>
@@ -3155,7 +3155,7 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 </tr>
 <tr>
 <td>array</td>
-<td>the count is the <code>DA&lt;n&gt;</code>, never the byte size (a <code>DA4x,SI</code> is 8 bytes and 4 elements); at most 16 elements, then <code>...</code>; a char array is a string when every byte that is not a NUL is text (GDB's null-stop off, GH #437: a NUL inside prints as <code>\0</code>, the padding after the last text byte is dropped, so <code>"hi\0lo"</code> and <code>"hi"</code>), else (<code>uint8_t btable[4]</code>, a table that starts at 0; the CDB cannot tell it from a <code>char</code> array) it is a list of numbers</td>
+<td>the count is the <code>DA&lt;n&gt;</code>, never the byte size (a <code>DA4x,SI</code> is 8 bytes and 4 elements); at most 16 elements, then <code>...</code>; a char array is a string when every byte that is not a NUL is text (GDB's null-stop off, GH #437): every byte is shown and a NUL prints as <code>\0</code>, trailing ones too (<code>{'h', 'i', 0, 0}</code> is <code>"hi\0\0"</code>), else (<code>uint8_t btable[4]</code>, a table that starts at 0; the CDB cannot tell it from a <code>char</code> array) it is a list of numbers</td>
 </tr>
 <tr>
 <td>struct</td>
@@ -3171,10 +3171,10 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 </tr>
 </tbody>
 </table>
-<p><code>c_find_type()</code> (<code>c_value.cpp:507</code>) finds a struct's <code>T:</code> record: the records of the variable's own scope first (zsdcc's
+<p><code>c_find_type()</code> (<code>c_value.cpp:503</code>) finds a struct's <code>T:</code> record: the records of the variable's own scope first (zsdcc's
 copy per module), then those of its module, then a tag that is unique across all records (sccz80 and 80cc: one per
 header). Different definitions at the deciding step are ambiguous, never first-wins. <code>c_type_text()</code>
-(<code>c_value.cpp:500</code>) prints <code>char</code>, <code>unsigned int</code>, <code>struct node *</code>, <code>int [2][3]</code>, <code>int (*)()</code>; the CDB has no
+(<code>c_value.cpp:496</code>) prints <code>char</code>, <code>unsigned int</code>, <code>struct node *</code>, <code>int [2][3]</code>, <code>int (*)()</code>; the CDB has no
 union marker, so a union is <code>struct word</code>, and no typedef name survives. A zsdcc padding member (<code>__00000000</code>) is
 not shown.</p>
 <p><strong>A struct's size</strong> is a declared object's when there is one: an <code>S:</code> record, or a struct member, whose chain is
@@ -3185,13 +3185,13 @@ overstates the size and is not used: with no declared object it is refused as <c
 such a member (the whole struct, a member path, a pointer, an element <code>p[1]</code>, a member of a nested struct) clamps its
 read to the struct that holds it and zero-fills the overhang, so <code>hi</code> is 200 for the bytes <code>8D C8</code> whichever way it is
 reached, and no read goes past that struct.</p>
-<p><code>c_parse_path()</code> (<code>c_value.cpp:590</code>) parses the C paths: <code>['*'] primary {'.' name | '-&gt;' name | '[' index ']'}</code>,
+<p><code>c_parse_path()</code> (<code>c_value.cpp:586</code>) parses the C paths: <code>['*'] primary {'.' name | '-&gt;' name | '[' index ']'}</code>,
 the primary a name, <code>fn::name</code>, <code>file.c::name</code> or <code>file.c::fn::name</code> (the file names which <code>fn</code> when two modules have a function of that name), the index decimal, <code>0x&lt;hex&gt;</code> or <code>$&lt;hex&gt;</code> with no sign. As in C the
 postfix operators bind tighter than the <code>*</code>: <code>*x[1]</code> is <code>*(x[1])</code> and <code>*head-&gt;next</code> is <code>*(head-&gt;next)</code>.
-<code>c_eval_path()</code> (<code>c_value.cpp:691</code>) walks the steps over a typed location (an array index is checked against its
+<code>c_eval_path()</code> (<code>c_value.cpp:687</code>) walks the steps over a typed location (an array index is checked against its
 count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
 refused), then applies the <code>*</code>, and <code>c_read_loc()</code> reads and formats it. Every refusal says why.</p>
-<p><code>c_visible_locals()</code> (<code>c_value.cpp:790</code>) lists which locals show at a PC: the parameters (ordered by stack position),
+<p><code>c_visible_locals()</code> (<code>c_value.cpp:786</code>) lists which locals show at a PC: the parameters (ordered by stack position),
 the locals, the static locals. A parameter is a record of level 0 (sccz80, 80cc), at a stack offset &gt;= 4, or (zsdcc) in
 a block below the body's first block (the entry scope's), where its register and fastcall parameters sit. Parameters
 and level-1 locals are always visible; a local of level &gt;= 2 is visible iff its block is the open block or one of its
@@ -3201,9 +3201,9 @@ block just opened is the last opened one). The open block is the greatest known 
 the scope's block, which turns sccz80's "last opened block" into the block that is open and keeps a closed sibling's
 locals hidden; its ancestors are found over the same set. With no block data (80cc) or an unknown scope, every block
 local is shown, marked.
-<code>c_read_register_local()</code> (<code>c_value.cpp:871</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
+<code>c_read_register_local()</code> (<code>c_value.cpp:867</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
 that it may be stale), refuses <code>[]</code> as optimised out and an outer frame as not available.
-<code>c_param_location_unknown()</code> (<code>c_value.cpp:911</code>) marks a listed <code>__z88dk_fastcall</code> parameter recorded at an offset</p>
+<code>c_param_location_unknown()</code> (<code>c_value.cpp:907</code>) marks a listed <code>__z88dk_fastcall</code> parameter recorded at an offset</p>
 <blockquote>
 <p>= 0 (z88dk U1).</p>
 </blockquote>
@@ -3258,7 +3258,7 @@ StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code
 locals, the file's statics, the globals. A local that exists but is hidden is <code>out of scope at &lt;file&gt;:&lt;line&gt;</code>. <code>fn::name</code> names a static
 local from any frame, and a local of <code>fn</code> only from a frame of <code>fn</code>; <code>file.c::name</code> names that file's statics and globals.</p>
 <h2 id="the-int32-atom-c_int32_scalar-gh-436">The int32 atom: <code>c_int32_scalar()</code> (GH #436)<a class="headerlink" href="#the-int32-atom-c_int32_scalar-gh-436" title="Permanent link">&para;</a></h2>
-<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:952</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
+<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:948</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
 and, through its translation, ZRCP's <code>CVAR()</code> both reach it through the evaluator, so there is nothing to keep in step. It reads
 <code>loc.type</code> (the head of the chain and the size) and <code>loc.note</code>, so a register-held value (no address) passes a <code>CLoc</code> with just its
 type, which <code>read_c_value()</code> fills for it. <code>integer</code> is the facade's <code>CValueResult::integer</code>.</p>
@@ -3347,7 +3347,7 @@ refusal decided before it is <code>RefusedUnavailable</code> with the reason in 
 <code>DivMmcRam</code>, which <code>poke()</code> refuses (<code>identity_only()</code>, INS-02-30), so it is <code>Unsupported</code> with <code>DivMMC RAM bank 2 cannot be written by the
 debugger (unsupported)</code>. After an <code>Ok</code> the object is read back into <code>CWriteResult::value</code>. A <code>Page</code> object cannot half-land: the read already
 refused a page crossing.</p>
-<p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1243</code>) is pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
+<p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1239</code>) is pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
 independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRCP, GDB) or a script's 32-bit value:</p>
 <table>
 <thead>
@@ -3380,7 +3380,7 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 <tr>
 <td><code>{6}SF</code> (z88dk 48-bit)</td>
-<td>rounded to nearest; refused when the exponent leaves 1..255 (<code>encode_float48()</code>, <code>c_value.cpp:1178</code>)</td>
+<td>rounded to nearest; refused when the exponent leaves 1..255 (<code>encode_float48()</code>, <code>c_value.cpp:1174</code>)</td>
 <td>refused: <code>float is not an integer</code></td>
 </tr>
 <tr>
@@ -3390,7 +3390,7 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 <tr>
 <td><code>S6</code> (binary16)</td>
-<td>through float, nearest even, refused when it rounds to infinity or to zero (<code>encode_float16()</code>, <code>c_value.cpp:1209</code>)</td>
+<td>through float, nearest even, refused when it rounds to infinity or to zero (<code>encode_float16()</code>, <code>c_value.cpp:1205</code>)</td>
 <td>refused</td>
 </tr>
 <tr>
@@ -3400,15 +3400,15 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 </tbody>
 </table>
-<p>A text is trimmed, then an optional sign and decimal, <code>0x</code> or <code>$</code> digits (<code>parse_int_text()</code>, <code>c_value.cpp:1050</code>), or a <code>'c'</code> character, or for a
-float type a decimal number (<code>float_from_text()</code>, <code>c_value.cpp:1133</code>: its syntax is checked first, then the text is read by an <code>istringstream</code> imbued with the classic
+<p>A text is trimmed, then an optional sign and decimal, <code>0x</code> or <code>$</code> digits (<code>parse_int_text()</code>, <code>c_value.cpp:1046</code>), or a <code>'c'</code> character, or for a
+float type a decimal number (<code>float_from_text()</code>, <code>c_value.cpp:1129</code>: its syntax is checked first, then the text is read by an <code>istringstream</code> imbued with the classic
 locale, because <code>QApplication</code> calls <code>setlocale(LC_ALL, "")</code> and a comma host would read <code>1.5</code> as <code>1</code>; <code>std::from_chars</code> for floating point is
 missing from libc++ before LLVM 20, so the macOS build could not use it). <code>nan</code> and <code>inf</code> are refused.
 A value out of range is refused, never truncated: a person typing <code>-1</code> into an unsigned long made a mistake, not
 a bit pattern, which is why only a script's int32 is a pattern. <strong>The 48-bit encoder rounds to nearest because the compiler does:</strong> the constants z88dk
 compiled into <code>master/sccz80-floats</code> are <code>0.1</code> = <code>CD CC CC CC 4C 7D</code> and <code>1e-10</code> = <code>BE CE FE E6 5B 5F</code>, which truncation gets wrong (<code>CC ...</code>
 and <code>BD ...</code>), and <code>CVW-05</code> reads those bytes from the fixture at run time, never from a copy. A bitfield reads its unit's bytes, replaces its
-bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:1151</code>, is its range check, on the field's width).</p>
+bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:1147</code>, is its range check, on the field's width).</p>
 <p><strong>F1, found while planning:</strong> the reader ignored a bitfield's sign. <code>c_format_value()</code> and <code>c_integer_value()</code> returned the unsigned field for
 <code>SB&lt;s&gt;$&lt;w&gt;:S</code>, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so <code>CVW-10</code>
 uses a synthetic record.</p>

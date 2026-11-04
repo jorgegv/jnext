@@ -310,10 +310,10 @@ int main() {
         std::vector<uint8_t> ints(40);
         for (size_t i = 0; i < 20; ++i) ints[2 * i] = static_cast<uint8_t>(i);
         const CFormatted d = c_format_value(plain, ty("{40}DA20x,SI:S"), ints.data(), ints.size());
-        check("CVALF-16", "at most 16 elements are shown, then `...`; a char array of text up to its NUL is a string (`\"hi\"`), a 4-byte array with no NUL shows all four, an array of "
+        check("CVALF-16", "at most 16 elements are shown, then `...`; a char array of text is a string with every byte shown (`{'h', 'i', 0}` is `\"hi\\0\"`), a 4-byte array with no NUL shows all four, an array of "
                           "non-text bytes ({10, 20, 30, 40}) is a list of numbers, and so are the bytes 0..39 (a leading 0 no longer hides what follows)",
               d.ok && d.text == "{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, ...}" && c.ok && c.text == "{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, ...}" &&
-                  text_of(plain, "{3}DA3x,SC:S", {'h', 'i', 0}) == "\"hi\"" && text_of(plain, "{4}DA4x,SC:S", {'a', 'b', 'c', 'd'}) == "\"abcd\"" &&
+                  text_of(plain, "{3}DA3x,SC:S", {'h', 'i', 0}) == "\"hi\\0\"" && text_of(plain, "{4}DA4x,SC:S", {'a', 'b', 'c', 'd'}) == "\"abcd\"" &&
                   text_of(plain, "{4}DA4x,SC:U", {10, 20, 30, 40}) == "{10, 20, 30, 40}");
     }
 
@@ -323,14 +323,14 @@ int main() {
         // after the last text byte dropped; anything else -> a list. Oracle: GDB's `set print null-stop off` output, and vars.c (`table[] = {0, 1, 4, 9}`)
         const std::string embedded = text_of(plain, "{8}DA8x,SC:S", {'h', 'i', 0, 'l', 'o', 0, 0, 0});
         const std::string padded = text_of(plain, "{4}DA4x,SC:S", {'h', 'i', 0, 0});
-        check("CVALF-16a", "a char array with a NUL inside shows the bytes after it: {'h','i',0,'l','o',0,0,0} is \"hi\\0lo\" (the embedded NUL as \\0, the padding after the last "
-                           "text byte dropped), and a padded string {'h','i',0,0} is still \"hi\"",
-              embedded == "\"hi\\0lo\"" && padded == "\"hi\"");
+        check("CVALF-16a", "a char array with a NUL inside shows the bytes after it: {'h','i',0,'l','o',0,0,0} is \"hi\\0lo\\0\\0\\0\" (every byte shown, a NUL as \\0, "
+                           "the trailing ones too), and a padded string {'h','i',0,0} is \"hi\\0\\0\"",
+              embedded == "\"hi\\0lo\\0\\0\\0\"" && padded == "\"hi\\0\\0\"");
         check("CVALF-16b", "a table that starts at 0 is a list, not an empty string: {0, 1, 4, 9, 16} (an unsigned char array of numbers) prints as a list, and so does a "
                            "string-like array holding one non-text byte after its NUL ({'a', 0, 7})",
               text_of(plain, "{5}DA5x,SC:U", {0, 1, 4, 9, 16}) == "{0, 1, 4, 9, 16}" && text_of(plain, "{3}DA3x,SC:U", {'a', 0, 7}) == "{97, 0, 7}");
-        check("CVALF-16c", "an unchanged plain string: {'h','i',0} is \"hi\", an all-zero array is the empty string, and an array with no NUL is whole",
-              text_of(plain, "{3}DA3x,SC:S", {'h', 'i', 0}) == "\"hi\"" && text_of(plain, "{4}DA4x,SC:S", {0, 0, 0, 0}) == "\"\"" &&
+        check("CVALF-16c", "a plain NUL-terminated string shows its NUL: {'h','i',0} is \"hi\\0\", an all-zero array is four \\0, and an array with no NUL is whole",
+              text_of(plain, "{3}DA3x,SC:S", {'h', 'i', 0}) == "\"hi\\0\"" && text_of(plain, "{4}DA4x,SC:S", {0, 0, 0, 0}) == "\"\\0\\0\\0\\0\"" &&
                   text_of(plain, "{4}DA4x,SC:S", {'a', 'b', 'c', 'd'}) == "\"abcd\"");
     }
     {
@@ -339,7 +339,7 @@ int main() {
         const CFormatted f = rect ? c_format_value(csc, rect->record.var.type, b.data(), b.size()) : CFormatted{};
         const CVariable* rz = global_var(*sd.store, "g_rect");
         const CFormatted g = rz ? c_format_value(csd, rz->record.var.type, b.data(), b.size()) : CFormatted{};
-        const std::string want = "{a = {x = 1, y = 2, tag = 3}, b = {x = 4, y = 5, tag = 6}, name = \"hi\"}";
+        const std::string want = "{a = {x = 1, y = 2, tag = 3}, b = {x = 4, y = 5, tag = 6}, name = \"hi\\0\\0\"}";
         check("CVALF-17", "struct rect (two struct points and a char name[4]) prints nested, on sccz80's header-scoped and zsdcc's module-scoped T: records",
               f.ok && f.text == want && g.ok && g.text == want);
     }
