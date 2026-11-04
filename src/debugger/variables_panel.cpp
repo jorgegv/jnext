@@ -4,6 +4,8 @@
 
 #include <QFont>
 #include <QHeaderView>
+#include <QLineEdit>
+#include <QStyledItemDelegate>
 #include <QMenu>
 #include <QVBoxLayout>
 
@@ -14,9 +16,32 @@ using jnext::dbg::Debugger;
 
 namespace {
 constexpr size_t kChunk = 100;   // children read per expansion; more are offered as ranges of this many
+
+// The Value column's editor (GH #437): a line edit holding the item's RoleEditText, not the cell's text (which carries notes and
+// the char of a char). It never writes the model: what is typed goes to the panel, which asks the debugger, and the cell shows
+// whatever the next read says.
+class ValueDelegate : public QStyledItemDelegate {
+public:
+    ValueDelegate(QTreeWidget* tree, VariablesPanel* panel) : QStyledItemDelegate(tree), tree_(tree), panel_(panel) {}
+    QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
+        auto* e = new QLineEdit(parent);
+        e->setFrame(false);
+        return e;
+    }
+    void setEditorData(QWidget* editor, const QModelIndex& index) const override {
+        static_cast<QLineEdit*>(editor)->setText(index.data(VariablesPanel::RoleEditText).toString());
+    }
+    void setModelData(QWidget* editor, QAbstractItemModel*, const QModelIndex& index) const override {
+        QTreeWidgetItem* item = tree_->itemFromIndex(index);
+        if (item) panel_->commit_edit(item, static_cast<QLineEdit*>(editor)->text());
+    }
+private:
+    QTreeWidget* tree_;
+    VariablesPanel* panel_;
+};
 }
 
-VariablesPanel::VariablesPanel(const Debugger* dbg, QWidget* parent)
+VariablesPanel::VariablesPanel(Debugger* dbg, QWidget* parent)
     : QWidget(parent)
     , dbg_(dbg)
 {
@@ -32,6 +57,12 @@ VariablesPanel::VariablesPanel(const Debugger* dbg, QWidget* parent)
     status_->hide();
     layout->addWidget(status_);
 
+    message_ = new QLabel(this);
+    message_->setObjectName("variables_message");
+    message_->setWordWrap(true);
+    message_->hide();
+    layout->addWidget(message_);
+
     frames_ = new QComboBox(this);
     frames_->setObjectName("variables_frame");
     layout->addWidget(frames_);
@@ -41,7 +72,7 @@ VariablesPanel::VariablesPanel(const Debugger* dbg, QWidget* parent)
     tree_->setFont(mono);
     tree_->setColumnCount(4);
     tree_->setHeaderLabels({tr("Name"), tr("Type"), tr("Value"), tr("Address")});
-    tree_->setEditTriggers(QAbstractItemView::NoEditTriggers);   // read-only (editing is GH #437)
+    tree_->setEditTriggers(QAbstractItemView::NoEditTriggers);   // an editor opens only through edit_item() (a double-click on a Value, paused)
     tree_->setSelectionBehavior(QAbstractItemView::SelectRows);
     tree_->setSelectionMode(QAbstractItemView::SingleSelection);
     tree_->setUniformRowHeights(true);
@@ -64,6 +95,10 @@ VariablesPanel::VariablesPanel(const Debugger* dbg, QWidget* parent)
     tree_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(tree_, &QTreeWidget::customContextMenuRequested, this, &VariablesPanel::on_context_menu);
     connect(frames_, QOverload<int>::of(&QComboBox::activated), this, [this](int i) { select_frame(i); });
+    tree_->setItemDelegateForColumn(2, new ValueDelegate(tree_, this));
+    connect(tree_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
+        if (col == 2) edit_item(item);
+    });
     connect(tree_, &QTreeWidget::itemExpanded, this, &VariablesPanel::on_expanded);
     connect(tree_, &QTreeWidget::itemCollapsed, this, &VariablesPanel::on_collapsed);
 }
@@ -127,6 +162,9 @@ VariablesPanel::Node VariablesPanel::node_of(const Debugger::CValueRow& row, con
     n.tip = tip;
     // a pointer to something (not `void *`, whose type text ends the same way but has nothing to look at) opens onto its pointee
     n.expandable = row.aggregate || (row.ok && !row.type.empty() && row.type.back() == '*' && row.type != "void *");
+    // GH #437: a scalar or a pointer that was read can be written; its editor holds the first word of the facade's value (string slicing, not number formatting)
+    n.editable = row.ok && !row.aggregate;
+    if (n.editable) n.edit_text = QString::fromStdString(row.value).section(' ', 0, 0);
     return n;
 }
 
@@ -223,6 +261,9 @@ void VariablesPanel::apply(QTreeWidgetItem* item, const Node& n)
     item->setData(0, RoleExpandable, n.expandable);
     item->setData(0, RoleRowKind, n.row_kind);
     item->setData(0, RoleFile, n.file);
+    item->setData(0, RoleEditText, n.edit_text);
+    item->setData(2, RoleEditText, n.edit_text);
+    item->setFlags(n.editable ? item->flags() | Qt::ItemIsEditable : item->flags() & ~Qt::ItemFlags(Qt::ItemIsEditable));
     if (n.placeholder)
         item->setForeground(2, palette().color(QPalette::PlaceholderText));
     else
@@ -268,7 +309,10 @@ void VariablesPanel::on_context_menu(const QPoint& pos)
     if (!item || item->data(0, RoleKind).toInt() != KindVar || !paused_) return;
     QMenu menu;
     QAction* watch = menu.addAction(tr("Watch"));
-    if (menu.exec(tree_->viewport()->mapToGlobal(pos)) == watch) watch_item(item);
+    QAction* edit = (item->flags() & Qt::ItemIsEditable) ? menu.addAction(tr("Edit Value")) : nullptr;   // GH #437: only where a value can be written
+    QAction* chosen = menu.exec(tree_->viewport()->mapToGlobal(pos));
+    if (chosen == watch) watch_item(item);
+    else if (edit && chosen == edit) edit_item(item);
 }
 
 bool VariablesPanel::watch_item(QTreeWidgetItem* item)
@@ -296,6 +340,31 @@ bool VariablesPanel::watch_item(QTreeWidgetItem* item)
     }
     emit watch_requested(w);
     return true;
+}
+
+bool VariablesPanel::edit_item(QTreeWidgetItem* item)
+{
+    if (!dbg_ || !paused_ || !item || item->data(0, RoleKind).toInt() != KindVar || !(item->flags() & Qt::ItemIsEditable)) return false;
+    tree_->editItem(item, 2);
+    return true;
+}
+
+void VariablesPanel::commit_edit(QTreeWidgetItem* item, const QString& text)
+{
+    if (!dbg_ || !paused_ || !item || item->data(0, RoleKind).toInt() != KindVar) return;
+    if (text == item->data(2, RoleEditText).toString()) return;   // unchanged: no write, no MUTATE line, no revision bump
+    jnext::dbg::CNewValue v;
+    v.text = text.toStdString();
+    const QString path = item->data(0, RolePath).toString();
+    const Debugger::CWriteResult w = dbg_->write_c_value(client_, static_cast<size_t>(frame_), path.toStdString(), v);
+    if (w.ok()) {
+        // the write bumped the backend's revision: the manager's next paused tick redraws every panel, this one with the value read back
+        message_->hide();
+        return;
+    }
+    message_->setText(path + ": " + QString::fromStdString(w.why));
+    message_->show();
+    refresh();   // nothing changed, so the manager will not redraw: the cell must get its value back
 }
 
 void VariablesPanel::on_expanded(QTreeWidgetItem* item)
@@ -384,7 +453,10 @@ void VariablesPanel::refresh()
         return;
     }
     const uint64_t cycle = dbg_->time().master_cycle;
-    if (!have_cycle_ || cycle != last_cycle_) frame_ = 0;   // a new stop: back to where the CPU is
+    if (!have_cycle_ || cycle != last_cycle_) {
+        frame_ = 0;   // a new stop: back to where the CPU is
+        message_->hide();
+    }
     have_cycle_ = true;
     last_cycle_ = cycle;
     slots_ = dbg_->mmu_slots();
