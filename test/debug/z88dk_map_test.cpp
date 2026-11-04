@@ -3022,29 +3022,29 @@ main cross_c AC97
                   of("master/sdcc-xmod", "xm") == "xm_c:zsdcc" && of("master/sdcc-xmod", "first") == "_1st_c:zsdcc");
     }
     {   // Z88ZB-08
-        // a module whose path is absolute: z80asm names it X_home_u_g_u_x_c; the three maps differ only in the M: record and the C_LINE file
+        // a module whose path is absolute: z80asm names it X_srv_u_g_u_x_c; the three maps differ only in the M: record and the C_LINE file
         const auto synthetic = [&](const char* name, const char* line_file, const char* m_record, const char* where = "::f::0::1:1") {
             std::string text =
-                rec("__C_LINE_1_u_2dx_2ec", 0x9000, "X_home_u_g_u_x_c", "code_compiler", (std::string(line_file) + where).c_str()) +
-                rec("_f", 0x9000, "X_home_u_g_u_x_c", "code_compiler", (std::string(line_file) + where).c_str()) +
+                rec("__C_LINE_1_u_2dx_2ec", 0x9000, "X_srv_u_g_u_x_c", "code_compiler", (std::string(line_file) + where).c_str()) +
+                rec("_f", 0x9000, "X_srv_u_g_u_x_c", "code_compiler", (std::string(line_file) + where).c_str()) +
                 "__code_compiler_tail = $9010 ; const, public, def, , ,\n" +
-                "__CDBINFO__" + cdb_escape("F:G$f$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , X_home_u_g_u_x_c, code_compiler, x.c:1\n";
+                "__CDBINFO__" + cdb_escape("F:G$f$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , X_srv_u_g_u_x_c, code_compiler, x.c:1\n";
             std::string out = text;
             const std::string pub = "_f = $9000 ; addr, local";
             const size_t at = out.find(pub);
             out.replace(at, pub.size(), "_f = $9000 ; addr, public");
-            if (*m_record) out += "__CDBINFO__" + cdb_escape(m_record) + " = $0001 ; const, public, , X_home_u_g_u_x_c, code_compiler, x.c:1\n";
+            if (*m_record) out += "__CDBINFO__" + cdb_escape(m_record) + " = $0001 ; const, public, , X_srv_u_g_u_x_c, code_compiler, x.c:1\n";
             SourceMap m;
             load(m, synth(name, out));
             const VariableStore* st = store_of(m);
             return st && st->functions().size() == 1 ? st->functions()[0].compiler : jnext::dbg::CCompiler::Unknown;
         };
-        check("Z88ZB-08", "synthetic maps, module X_home_u_g_u_x_c with F:G$f: M:/home/u/g/u-x.c beside C_LINE records of file /home/u/g/u-x.c is 80cc (the M: name equals the "
+        check("Z88ZB-08", "synthetic maps, module X_srv_u_g_u_x_c with F:G$f: M:/srv/u/g/u-x.c beside C_LINE records of file /srv/u/g/u-x.c is 80cc (the M: name equals the "
                           "file field); the same M: with C_LINE file u-x.c is zsdcc (zsdcc writes M:<module> against <module>.c, never a match), and so is a matching M: with C_LINE records in zsdcc's `x`+TAB form; no M: record is sccz80",
-              synthetic("z88zb08a.map", "/home/u/g/u-x.c", "M:/home/u/g/u-x.c") == jnext::dbg::CCompiler::Cc80 &&
-                  synthetic("z88zb08b.map", "u-x.c", "M:/home/u/g/u-x.c") == jnext::dbg::CCompiler::Zsdcc &&
-                  synthetic("z88zb08c.map", "/home/u/g/u-x.c", "") == jnext::dbg::CCompiler::Sccz80 &&
-                  synthetic("z88zb08d.map", "/home/u/g/u-x.c", "M:/home/u/g/u-x.c", "::x::10000::7\t:1") == jnext::dbg::CCompiler::Zsdcc);
+              synthetic("z88zb08a.map", "/srv/u/g/u-x.c", "M:/srv/u/g/u-x.c") == jnext::dbg::CCompiler::Cc80 &&
+                  synthetic("z88zb08b.map", "u-x.c", "M:/srv/u/g/u-x.c") == jnext::dbg::CCompiler::Zsdcc &&
+                  synthetic("z88zb08c.map", "/srv/u/g/u-x.c", "") == jnext::dbg::CCompiler::Sccz80 &&
+                  synthetic("z88zb08d.map", "/srv/u/g/u-x.c", "M:/srv/u/g/u-x.c", "::x::10000::7\t:1") == jnext::dbg::CCompiler::Zsdcc);
     }
 
     fs::remove_all(dir);
