@@ -8658,9 +8658,32 @@ int main() {
             Machine s(false, MachineType::ZXN_ISSUE2);
             const bool sat = at41({kSccz80_41.fixture, "zb09b", kSccz80_41.pc}, s);
             const Dbg::CWriteResult sw = wr(s, 0, "t", "1000");
+            // the writer of the readers' refusals: a float of an mbf32 map is refused (bytes unchanged), of a math32 map stored as IEEE; U1 with no listing is refused too
+            const auto float_map = [&](const char* name, const char* lib_line) {
+                auto fmp = std::make_unique<Machine>(false, MachineType::ZXN_ISSUE2);
+                Machine& fm = *fmp;
+                const std::string map = (z / name).string();
+                write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                                "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                                "__code_compiler_tail = $8040 ; const, public, def, , ,\n" + std::string(lib_line) +
+                                "_gf = $9000 ; addr, public, , t_c, data_compiler, t.c:3\n" +
+                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gf$0_0$0({4}SF:S),E,0,0", "t_c"));
+                fm.dbg->load_source_map(map, true);
+                const Bytes before = cpk(fm, 0x9000, 4);
+                const CwTry t = attempt(fm, 0, "gf", "1.5");
+                return std::make_tuple(std::move(fmp), t, before);
+            };
+            auto mbf = float_map("zb09m.map", "__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n");
+            auto m32 = float_map("zb09n.map", "__code_fp_math32_size = $001D ; const, public, def, , ,\n");
+            Machine ul(false, MachineType::ZXN_ISSUE2);
+            const bool uat = zb_at(ul, "master/sccz80-fc", "zb09c", "fc.c:3", 0x8C62);
+            const CwTry u1w = attempt(ul, 0, "x", "5");
             check("SRCDBG-ZB-09", "write t := 1000 at master 80cc vars.c:41 succeeds and its CWriteResult.notes holds the 80cc note, and t reads back 1000; the same write on sccz80 succeeds with no "
-                                  "note",
-                  at && w.ok() && note80(w.notes) && w.value == "1000" && cvv(m, 0, "t") == "1000" && sat && sw.ok() && sw.notes.empty());
+                                  "note; the readers' refusals bind the writer: a float global of an mbf32 map is refused and its bytes stay, in a math32 map 1.5 lands as IEEE (00 00 C0 3F), "
+                                  "and ffast's x with no listing (entry evidence) is refused with U1",
+                  at && w.ok() && note80(w.notes) && w.value == "1000" && cvv(m, 0, "t") == "1000" && sat && sw.ok() && sw.notes.empty() &&
+                      refused_with(std::get<1>(mbf), "float format mbf32 is not read") && cpk(*std::get<0>(mbf), 0x9000, 4) == std::get<2>(mbf) && std::get<1>(m32).w.ok() &&
+                      cpk(*std::get<0>(m32), 0x9000, 4) == Bytes{0, 0, 0xC0, 0x3F} && uat && refused_with(u1w, "location unknown (z88dk U1"));
         }
     }
 
