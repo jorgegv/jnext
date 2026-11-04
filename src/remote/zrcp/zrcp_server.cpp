@@ -20,6 +20,7 @@ namespace zrcp {
 using jnext::dbg::Action;
 using jnext::dbg::ClientInfo;
 using jnext::dbg::ClientKind;
+using jnext::dbg::CNewValue;
 using jnext::dbg::CLIENT_NONE;
 using jnext::dbg::MemSpace;
 using jnext::dbg::PauseReason;
@@ -503,7 +504,8 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
     U("set-memory-zone", "|smz"),
     {"set-register", "|sr", "register=value",
      "Changes register value. Example: set-register DE=3344H. Divergence from ZEsarUX 12.0: IM "
-     "can be set too",
+     "can be set too, and jnext's CVAR(path)=value writes a C variable of frame 0 "
+     "(e.g. set-register CVAR(g_int)=10)",
      CommandClass::Served, &ZrcpServer::cmd_set_register},
     U("set-text-brightness", nullptr),
     U("set-ui-io-ports", nullptr),
@@ -1188,6 +1190,31 @@ void ZrcpServer::cmd_get_registers(const Cmd&) {
 void ZrcpServer::cmd_set_register(const Cmd& c) {
     // `NAME=VALUE`, one register (ZEsarUX `debug_change_register`). Every
     // failure is ZEsarUX's one text; the value is a number (§1.1).
+    // GH #437: `CVAR(path)=value` writes a C variable of frame 0 (a jnext extension of this one assignment verb: a new command
+    // would break the table's census of ZEsarUX's). ZEsarUX's one failure text, whatever the reason.
+    std::size_t first = c.params.find_first_not_of(" \t");
+    if (first != std::string::npos && c.params.size() - first >= 5 && iequals(c.params.substr(first, 5), "CVAR(")) {
+        const std::size_t close = c.params.find(')', first);
+        const std::size_t sign  = close == std::string::npos ? close : c.params.find_first_not_of(" \t", close + 1);
+        std::string       value;
+        if (sign != std::string::npos && c.params[sign] == '=') {
+            const std::size_t vb = c.params.find_first_not_of(" \t", sign + 1);
+            const std::size_t ve = c.params.find_last_not_of(" \t");
+            if (vb != std::string::npos) value = c.params.substr(vb, ve - vb + 1);
+        }
+        std::uint32_t hex = 0;
+        if (!value.empty() && parse_number(value, hex)) value = std::to_string(hex);   // ZRCP's decimal and nnnnH forms
+        const std::string path = close == std::string::npos ? std::string() : c.params.substr(first + 5, close - first - 5);
+        CNewValue         nv;
+        nv.text = value;
+        if (value.empty() || path.find_first_not_of(" \t") == std::string::npos ||
+            !dbg_.write_c_value(cid_, 0, path, nv).ok()) {
+            reply("Error changing register");
+            return;
+        }
+        reply(register_line(dbg_.registers(), dbg_.mmu_slots(), dbg_.machine().type));
+        return;
+    }
     const std::size_t eq = c.params.find('=');
     RegId             id;
     std::uint32_t     v = 0;

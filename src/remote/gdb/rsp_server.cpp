@@ -831,6 +831,12 @@ void GdbServer::pkt_monitor(const std::string& body) {
     bool ok = true;
     if (verb == "help")         monitor_help();
     else if (verb == "regs")    ok = monitor_regs(args);
+    else if (verb == "set" && !args.empty() && lower(args[0]) == "var") {
+        // GH #437: the raw rest after `set var`, as `print` takes it (a path may hold spaces).
+        const std::size_t v = text.find_first_not_of(" \t\r\n", text.find_first_of(" \t\r\n", text.find_first_not_of(" \t\r\n")));
+        const std::size_t e = text.find_first_of(" \t\r\n", v);
+        ok = monitor_set_var(e == std::string::npos ? std::string() : text.substr(e));
+    }
     else if (verb == "set")     ok = monitor_set(args);
     else if (verb == "mmu")     ok = monitor_mmu(args);
     else if (verb == "nextreg") ok = monitor_nextreg(args);
@@ -863,6 +869,7 @@ void GdbServer::monitor_help() {
         "jnext monitor commands (numbers: 0x.., $.. or decimal):",
         "  regs                       I R IFF1 IFF2 IM HALT MEMPTR and the pairs",
         "  set i|r|iff1|iff2|im VAL   write one of those",
+        "  set var [FRAME] PATH = VAL write one C value (integer, 'c', float, pointer) of FRAME (default 0)",
         "  mmu                        the eight slots, the memory each reads now, and the paging ports",
         "  mmu SLOT PAGE              map NR page PAGE at SLOT (as NEXTREG 0x50+SLOT)",
         "  nextreg [REG [VAL]]        all NextREGs, one, or write one",
@@ -1195,6 +1202,38 @@ bool GdbServer::monitor_print(const std::string& rest) {
     }
     monitor_line("(" + printable(r.type, 80) + ") " + printable(path, 120) + " = " + printable(r.value, 400));
     for (const auto& note : r.notes) monitor_line("  [" + printable(note, 200) + "]");
+    return true;
+}
+
+// `monitor set var [FRAME] PATH = VALUE` (GH #437): write one C value of frame FRAME (default 0). The word `var` keeps C
+// names (`i`, `r`, `im`) apart from `monitor set`'s registers. FRAME is a leading decimal word (a C path cannot start with a
+// digit); the path is everything before the first `=`, spaces and all. A refusal is `refused: <why>` and E01, as `monitor set`
+// answers; a wrong argument is E01 with no line.
+bool GdbServer::monitor_set_var(const std::string& rest) {
+    std::size_t b = rest.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos) return false;
+    std::uint32_t frame = 0;
+    if (std::isdigit(static_cast<unsigned char>(rest[b]))) {
+        const std::size_t e = rest.find_first_of(" \t\r\n", b);
+        if (!parse_decimal(rest.substr(b, e == std::string::npos ? std::string::npos : e - b), frame)) return false;
+        b = e == std::string::npos ? e : rest.find_first_not_of(" \t\r\n", e);
+        if (b == std::string::npos) return false;
+    }
+    const std::size_t eq = rest.find('=', b);
+    if (eq == std::string::npos) return false;
+    const std::size_t pe = rest.find_last_not_of(" \t\r\n", eq - 1);
+    const std::size_t vb = rest.find_first_not_of(" \t\r\n", eq + 1);
+    if (pe == std::string::npos || pe < b || vb == std::string::npos) return false;
+    const std::string path = rest.substr(b, pe - b + 1);
+    const std::size_t ve   = rest.find_last_not_of(" \t\r\n");
+    jnext::dbg::CNewValue nv;
+    nv.text = rest.substr(vb, ve - vb + 1);
+    const auto w = dbg_.write_c_value(cid_, frame, path, nv);
+    if (!w.ok()) {
+        monitor_line("refused: " + printable(w.why, 200));
+        return false;
+    }
+    monitor_line(c_row_text(w.type, path, true, w.value, std::string()));
     return true;
 }
 

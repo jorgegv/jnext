@@ -977,6 +977,127 @@ int main() {
                   has(none, "no integer value was read"));
     }
 
+    // ── CVW-01..12 (GH #437): the bytes a written value stores (c_encode_value) ────────────────────────────
+    // Oracles: the C types' ranges and little-endian layout (as the reader), the bytes z88dk compiled for floats.c (sccz80's
+    // 48-bit and zsdcc's binary32: the compiler is the oracle, read from the fixture at run time), IEEE 754 binary16's table,
+    // and the CDB bitfield records zsdcc wrote. A number that is a whole string literal is ID-shaped for the dup-ids gate, so
+    // those are spelled in two pieces.
+    {
+        const auto enc = [](const char* chain, const std::string& text, std::vector<uint8_t> cur = {}) {
+            CNewValue nv;
+            nv.text = text;
+            return c_encode_value(ty(chain), nv, cur.data(), cur.size());
+        };
+        const auto enc32 = [](const char* chain, int32_t v) {
+            CNewValue nv;
+            nv.from = CNewValue::From::Int32;
+            nv.int32 = v;
+            return c_encode_value(ty(chain), nv, nullptr, 0);
+        };
+        const auto is = [](const CEncoded& e, std::vector<uint8_t> want) { return e.ok && e.bytes == want; };
+        const auto no = [](const CEncoded& e, const char* needle) {
+            return !e.ok && e.bytes.empty() && e.why.find(needle) != std::string::npos;
+        };
+        const std::string k01 = std::string("0") + ".1", k25 = std::string("2") + ".5";
+
+        check("CVW-01", "integers by width and sign are stored little-endian and range-checked, never truncated: char -128..127 and unsigned char 0..255, "
+                        "int16 -32768..32767, uint16 0..65535 (-1 refused), int32 and uint32 at their bounds (a negative into uint32 refused), 8-byte "
+                        "bounds, 18446744073709551616 refused",
+              is(enc("{1}SC:S", "-128"), {0x80}) && is(enc("{1}SC:S", "127"), {0x7F}) &&
+                  no(enc("{1}SC:S", "-129"), "out of range for char (-128..127)") && no(enc("{1}SC:S", "128"), "out of range") &&
+                  is(enc("{1}SC:U", "0"), {0}) && is(enc("{1}SC:U", "255"), {0xFF}) && no(enc("{1}SC:U", "256"), "out of range") &&
+                  is(enc("{2}SI:S", "-32768"), {0x00, 0x80}) && is(enc("{2}SI:S", "32767"), {0xFF, 0x7F}) && no(enc("{2}SI:S", "32768"), "out of range") &&
+                  is(enc("{2}SI:U", "65535"), {0xFF, 0xFF}) && no(enc("{2}SI:U", "-1"), "out of range for unsigned int (0..65535)") &&
+                  is(enc("{2}SI:U", "258"), {0x02, 0x01}) &&
+                  is(enc("{4}SL:S", "-2147483648"), {0, 0, 0, 0x80}) && no(enc("{4}SL:S", "2147483648"), "out of range") &&
+                  is(enc("{4}SL:U", "4294967295"), {0xFF, 0xFF, 0xFF, 0xFF}) && no(enc("{4}SL:U", "4294967296"), "out of range") &&
+                  no(enc("{4}SL:U", "-1"), "out of range") &&
+                  is(enc("{8}SL:S", "-9223372036854775808"), {0, 0, 0, 0, 0, 0, 0, 0x80}) && no(enc("{8}SL:S", "9223372036854775808"), "out of range") &&
+                  is(enc("{8}SL:U", "18446744073709551615"), {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}) &&
+                  no(enc("{8}SL:U", "18446744073709551616"), "out of range") && no(enc("{8}SL:U", "-1"), "out of range"));
+        check("CVW-02", "number syntax: 0x1F, $1F, -0x10, +5 and a blank-padded 7 are accepted; an empty text, 0x, $, 12ab, --1 and `0x10 1` are not "
+                        "numbers; a decimal fraction into an integer is not an integer",
+              is(enc("{2}SI:S", "0x1F"), {0x1F, 0}) && is(enc("{2}SI:S", "$1F"), {0x1F, 0}) && is(enc("{2}SI:S", "-0x10"), {0xF0, 0xFF}) &&
+                  is(enc("{2}SI:S", "+5"), {5, 0}) && is(enc("{2}SI:S", " 7 "), {7, 0}) && no(enc("{2}SI:S", ""), "is not a number") &&
+                  no(enc("{2}SI:S", "0x"), "is not a number") && no(enc("{2}SI:S", "$"), "is not a number") &&
+                  no(enc("{2}SI:S", "12ab"), "is not a number") && no(enc("{2}SI:S", "--1"), "is not a number") &&
+                  no(enc("{2}SI:S", "0x10 1"), "is not a number") && no(enc("{2}SI:S", k15), "is not an integer") &&
+                  no(enc("{2}SI:S", "1e3"), "is not an integer"));
+        check("CVW-03", "char literals: 'Z' is 5A and ' ' is 20; an empty literal, two characters, a lone backslash and an unclosed literal are refused",
+              is(enc("{1}SC:S", "'Z'"), {0x5A}) && is(enc("{1}SC:S", "' '"), {0x20}) && !enc("{1}SC:S", "''").ok && !enc("{1}SC:S", "'ab'").ok &&
+                  !enc("{1}SC:S", "'\\'").ok && !enc("{1}SC:S", "'A").ok);
+        check("CVW-04", "pointers: 0, $8D21 and 65535 give two little-endian bytes; -1 and 65536 are out of range",
+              is(enc("{2}DG,SC:S", "0"), {0, 0}) && is(enc("{2}DG,SC:S", "$8D21"), {0x21, 0x8D}) && is(enc("{2}DG,SC:S", "65535"), {0xFF, 0xFF}) &&
+                  no(enc("{2}DG,SC:S", "-1"), "out of range") && no(enc("{2}DG,SC:S", "65536"), "out of range"));
+        {
+            // Oracle: the bytes z88dk compiled for floats.c; the fixture is read here, never copied into the test
+            const struct { const char* sym; std::string text; } kCases[] = {
+                {"_f_15", k15}, {"_f_m25", "-" + k25}, {"_f_01", k01}, {"_f_1e10", "1e10"}, {"_f_1em10", "1e-10"}, {"_f_0", "0"}};
+            bool ok48 = true, ok32 = true;
+            for (const auto& c : kCases) {
+                const std::vector<uint8_t> b6 = symbol_bytes("master/sccz80-floats", c.sym, 6);
+                const std::vector<uint8_t> b4 = symbol_bytes("master/sdcc-floats", c.sym, 4);
+                const CEncoded e6 = enc("{6}SF:S", c.text), e4 = enc("{4}SF:S", c.text);
+                ok48 = ok48 && b6.size() == 6 && is(e6, b6);
+                ok32 = ok32 && b4.size() == 4 && is(e4, b4);
+            }
+            check("CVW-05", "48-bit float (sccz80): 1.5, -2.5, 0.1, 1e10, 1e-10 and 0 encode to exactly the bytes z88dk compiled for them (round to nearest: "
+                            "0.1 and 1e-10 tell truncation apart); 3 is 00 00 00 00 40 82, an integer text is accepted",
+                  ok48 && is(enc("{6}SF:S", "3"), {0, 0, 0, 0, 0x40, 0x82}) && is(enc("{6}SF:S", "0x10"), {0, 0, 0, 0, 0x00, 0x85}));
+            check("CVW-06", "binary32 (zsdcc): the same six texts encode to the bytes z88dk compiled", ok32);
+        }
+        check("CVW-07", "float refusals, in 48-bit and binary32: 1e39 is out of range, 1e-50 underflows, nan, inf and -inf are not finite, abc is not a "
+                        "number: never an infinity, a NaN or a 0",
+              [&] {
+                  for (const char* chain : {"{6}SF:S", "{4}SF:S"})
+                      if (!(!enc(chain, "1e39").ok && !enc(chain, "1e-50").ok && no(enc(chain, "nan"), "not a finite number") &&
+                            no(enc(chain, "inf"), "not a finite number") && no(enc(chain, "-inf"), "not a finite number") &&
+                            no(enc(chain, "abc"), "is not a number") && !enc(chain, "1.5x").ok))
+                          return false;
+                  return no(enc("{6}SF:S", "1e39"), "out of range for float (z88dk 48-bit)");
+              }());
+        check("CVW-08", "binary16: 1.5 is 00 3E, 65504 is FF 7B, -2 is 00 C0; 65520 rounds to infinity and is refused",
+              is(enc("{2}S6:S", k15), {0x00, 0x3E}) && is(enc("{2}S6:S", "65504"), {0xFF, 0x7B}) && is(enc("{2}S6:S", "-2"), {0x00, 0xC0}) &&
+                  !enc("{2}S6:S", "65520").ok);
+        check("CVW-09", "zsdcc bitfields are read-modify-write: from 00, lo = 5 then mid = 17 give 8D, hi = 200 (its own unit) gives C8, the bytes the zsdcc "
+                        "bitfield decode row reads back; from FF, mid = 0 gives 07 (the other bits kept); lo = 8 and mid = 32 are refused",
+              [&] {
+                  const CEncoded lo = enc("{1}SB0$3:U", "5", {0x00});
+                  const CEncoded mid = enc("{1}SB3$5:U", "17", lo.bytes);
+                  const CEncoded hi = enc("{1}SB0$8:U", "200", {0x00});
+                  return is(lo, {0x05}) && is(mid, {0x8D}) && is(hi, {0xC8}) && is(enc("{1}SB3$5:U", "0", {0xFF}), {0x07}) &&
+                         is(enc("{1}SB0$3:U", "0", {0xFF}), {0xF8}) && no(enc("{1}SB0$3:U", "8", {0}), "out of range") &&
+                         no(enc("{1}SB3$5:U", "32", {0}), "out of range") && no(enc("{1}SB3$5:U", "1", {}), "shorter");
+              }());
+        {
+            const CdbType sb = ty("{1}SB0$3:S"), sb5 = ty("{1}SB3$5:S");
+            const uint8_t seven[1] = {0x07}, f8[1] = {0xF8}, three[1] = {0x03};
+            CFormatCtx none;
+            const CFormatted f = c_format_value(none, sb, seven, 1);
+            check("CVW-10", "signed bitfields: a 3-bit :S field accepts -4..3 (-1 stores 07, 4 and -5 refused), and the reader sign-extends it: 07 reads -1, "
+                            "03 reads 3, a 5-bit field at bit 3 holding 31 reads -1 (the read fix)",
+                  is(enc("{1}SB0$3:S", "-1", {0}), {0x07}) && is(enc("{1}SB0$3:S", "-4", {0}), {0x04}) && is(enc("{1}SB0$3:S", "3", {0}), {0x03}) &&
+                      no(enc("{1}SB0$3:S", "4", {0}), "out of range") && no(enc("{1}SB0$3:S", "-5", {0}), "out of range") && f.ok && f.text == "-1" &&
+                      c_integer_value(sb, seven, 1) == std::optional<int64_t>(-1) && c_integer_value(sb, three, 1) == std::optional<int64_t>(3) &&
+                      c_integer_value(sb5, f8, 1) == std::optional<int64_t>(-1) && c_format_value(none, sb, three, 1).text == "3");
+        }
+        check("CVW-11", "a script's int32: a 4-byte integer takes the 32-bit pattern whatever its sign (-889275714 is BE BA FE CA in uint32 and int32), a "
+                        "smaller one its range (uint16 -1 refused, unsigned char 255 ok and 256 refused), an 8-byte integer does not fit, a float is not "
+                        "an integer, a pointer takes 0..65535",
+              is(enc32("{4}SL:U", -889275714), {0xBE, 0xBA, 0xFE, 0xCA}) && is(enc32("{4}SL:S", -889275714), {0xBE, 0xBA, 0xFE, 0xCA}) &&
+                  is(enc32("{4}SL:S", -2), {0xFE, 0xFF, 0xFF, 0xFF}) && no(enc32("{2}SI:U", -1), "out of range") && is(enc32("{1}SC:U", 255), {0xFF}) &&
+                  no(enc32("{1}SC:U", 256), "out of range") && no(enc32("{8}SL:S", 1), "does not fit the script's 32 bits") &&
+                  no(enc32("{8}SL:U", 1), "does not fit the script's 32 bits") && no(enc32("{6}SF:S", 1), "is not an integer") &&
+                  no(enc32("{4}SF:S", 1), "is not an integer") && is(enc32("{2}DG,SC:S", 0xFFFF), {0xFF, 0xFF}) && no(enc32("{2}DG,SC:S", -1), "out of range") &&
+                  no(enc32("{2}DG,SC:S", 65536), "out of range"));
+        check("CVW-12", "what has no scalar value is refused with its reason and no bytes: a struct and an array are aggregates (a member or an element is "
+                        "written), void and a function are not values, a fixed-point layout is not decoded, a size of 0 or -1 is not known",
+              no(enc("{5}STpoint:S", "1"), "struct point is an aggregate: write a member or an element") &&
+                  no(enc("{8}DA4x,SI:S", "1"), "is an aggregate: write a member or an element") && no(enc("{0}SV:S", "1"), "not a value") &&
+                  no(enc("{2}DF,SI:S", "1"), "not a value") && no(enc("{4}SQ:S", "1"), "fixed-point layout not decoded") &&
+                  no(enc("{0}SI:S", "1"), "size of the object is not known") && no(enc("{-1}SI:S", "1"), "size of the object is not known"));
+    }
+
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
 }

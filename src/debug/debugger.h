@@ -1313,6 +1313,24 @@ public:
     std::vector<CValueRow> c_globals() const;
     /// A C path (`['*'] name | fn::name | file.c::name`, then `.m`, `->m`, `[i]`) read in frame `frame`.
     CValueResult read_c_value(size_t frame, std::string_view path) const;
+
+    /// GH #437 - what `write_c_value()` did. `status`: Ok, a poke() refusal (RefusedRzx, RefusedReadOnly, InvalidPage, Unsupported),
+    /// or RefusedUnavailable for every refusal decided before a byte is written; `why` is set whenever it is not Ok.
+    struct CWriteResult {
+        Result status = Result::RefusedUnavailable;
+        std::string why;
+        std::string type;        ///< the type text of the object (when it could be read)
+        std::string old_value;   ///< the value text before the write (when it could be read)
+        std::string value;       ///< Ok: the value read back after it
+        CWhere where;
+        size_t landed = 0;       ///< bytes that landed (a RefusedReadOnly partial write reports it)
+        bool ok() const { return status == Result::Ok; }
+    };
+    /// GH #437 - write the C object `path` names in frame `frame`: the place is `read_c_value()`'s own, so whatever a read refuses
+    /// a write refuses too, plus a register variable, an aggregate, a member of an overlapping struct (z88dk U2) and a local whose
+    /// scope is unknown. A mutation by `by`: exactly one poke() on success (one MUTATE line, one state_revision() bump) and none on
+    /// a refusal. A value out of the type's range is refused, never truncated (`c_encode_value()`).
+    CWriteResult write_c_value(ClientId by, size_t frame, std::string_view path, const CNewValue& value);
     CVariablesStatus c_variables_status() const;
 
     /// CAP-SRC — the primary source position of `addr` as it is mapped NOW (what

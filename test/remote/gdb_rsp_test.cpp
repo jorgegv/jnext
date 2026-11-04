@@ -2478,6 +2478,101 @@ static void cvar_rows() {
     }
 }
 
+// ── GDB-CVW: monitor set var [FRAME] PATH = VALUE (GH #437) ───────────────────────────────────────────
+// Oracle: vars.c at the vars.c:41 stop of the first call (g_int = -5 at $903E, g_uint = 40000 at $9040, main's c = 'x'
+// = 120, p = &lp, p->x = 3, g_float = 1.5), the map's addresses, and the RSP `m` packet read back independently of the
+// facade. A refusal is `refused: <why>` plus E01, as `monitor set` answers one.
+static void cvw_rows() {
+    const std::string nex = JNEXT_Z88DK_FIXTURE_DIR "/master/sccz80-cvars/prog.nex";
+    const std::string k225 = std::string("2") + ".25";
+    {   // GDB-CVW-01
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const bool loaded = emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0x8D3E);
+        std::string f1, f2, f3, f4, f5, f6;
+        const auto a = c.monitor("set var g_int = 10", f1);
+        const std::string mem = c.cmd("m903e,2");
+        const auto b = c.monitor("set var 1 c = 100", f2);
+        const auto d = c.monitor("set var p -> x = 10", f3);
+        const auto e = c.monitor("set var g_float = " + k225, f4);
+        const auto pc1 = c.monitor("print 1 c", f5);
+        const auto px = c.monitor("print p->x", f6);
+        check("GDB-CVW-01", "monitor set var g_int = 10 prints the value line `g_int = 10` and OK, and the memory packet m903e,2 reads 0a00; a leading FRAME "
+                            "writes that frame (`set var 1 c = 100`: main's c reads 100 'd'); the path keeps its spaces (`p -> x = 10` reads back 10 "
+                            "through the pointer); a float is read back (g_float = 2.25)",
+              loaded && at && f1 == "OK" && cvar_val(a, "g_int", "10") && mem == "0a00" && f2 == "OK" && cvar_val(b, "c", "100 'd'") &&
+                  cvar_has(pc1, ") c = 100 'd'\n") && f3 == "OK" && cvar_val(d, "p -> x", "10") && cvar_has(px, ") p->x = 10\n") && f4 == "OK" &&
+                  cvar_val(e, "g_float", k225),
+              join(a) + join(b) + join(d) + join(e) + " " + mem);
+    }
+    {   // GDB-CVW-02
+        Rig rig(MachineType::ZXN_ISSUE2);
+        emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0x8D3E);
+        std::string f1, f2, f3, f4;
+        const auto inner = c.monitor("set var inner = 1", f1);
+        const auto agg = c.monitor("set var g_pt = 1", f2);
+        const auto neg = c.monitor("set var g_uint = -1", f3);
+        const auto no_frame = c.monitor("set var 7 g_int = 1", f4);
+        const bool one = inner.size() == 1 && agg.size() == 1 && neg.size() == 1 && no_frame.size() == 1;
+        // zsdcc: `t` lives in BC (a register variable: not written); no map: the status text
+        Rig z(MachineType::ZXN_ISSUE2);
+        const std::string snex = JNEXT_Z88DK_FIXTURE_DIR "/master/sdcc-cvars/prog.nex";
+        emulator_apply_load(z.emu, snex, false);
+        z.dbg->load_program_sidecars(snex);
+        Client cz(z);
+        open_session(cz);
+        const bool zat = cvar_stop_at(z, cz, 0x8C97);
+        const std::uint16_t bc = z.emu.cpu().get_registers().BC;
+        std::string fz, fn;
+        const auto reg = cz.monitor("set var t = 1", fz);
+        Rig nm(MachineType::ZXN_ISSUE2);
+        Client cn(nm);
+        open_session(cn);
+        const auto none = cn.monitor("set var t = 1", fn);
+        check("GDB-CVW-02", "a refused write is one `refused: <why>` line and E01 with the facade's reason (out of scope, an aggregate, out of range, no such "
+                            "frame, a zsdcc register local naming BC, no map: the status text) and the memory unchanged (g_uint still 40000, g_int -5, BC)",
+              at && zat && one && f1 == "E01" && f2 == "E01" && f3 == "E01" && f4 == "E01" && inner[0].rfind("refused: out of scope at vars.c:41", 0) == 0 &&
+                  agg[0].find("is an aggregate: write a member or an element") != std::string::npos &&
+                  neg[0].find("is out of range for unsigned int (0..65535)") != std::string::npos &&
+                  no_frame[0].rfind("refused: no frame 7 (there are ", 0) == 0 && c.cmd("m9040,2") == "409c" && c.cmd("m903e,2") == "fbff" &&
+                  reg.size() == 1 && fz == "E01" && reg[0].find("a register variable cannot be written") != std::string::npos &&
+                  reg[0].find("(in BC)") != std::string::npos && z.emu.cpu().get_registers().BC == bc && none.size() == 1 && fn == "E01" &&
+                  none[0] == "refused: " + nm.dbg->c_variables_status().why + "\n",
+              join(inner) + join(agg) + join(neg) + join(no_frame) + join(reg) + join(none));
+    }
+    {   // GDB-CVW-03
+        Rig rig(MachineType::ZXN_ISSUE2);
+        emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0x8D3E);
+        std::string f1, f2, f3, f4, f5, f6;
+        const auto e1 = c.monitor("set var", f1);
+        const auto e2 = c.monitor("set var g_int", f2);
+        const auto e3 = c.monitor("set var = 5", f3);
+        const auto e4 = c.monitor("set var g_int =", f4);
+        const auto e5 = c.monitor("set var 1", f5);
+        const std::string untouched = c.cmd("m903e,2");
+        const auto reg = c.monitor("set i 5", f6);
+        const auto help = c.monitor("help", f1);
+        bool listed = false;
+        for (const auto& l : help) listed = listed || l.rfind("  set var [FRAME] PATH = VAL", 0) == 0;
+        check("GDB-CVW-03", "argument errors are E01 with no line and no write: `set var`, `set var g_int`, `set var = 5`, `set var g_int =`, `set var 1`; "
+                            "the register form `monitor set i 5` still works; monitor help lists `set var [FRAME] PATH = VAL`",
+              at && e1.empty() && e2.empty() && e3.empty() && e4.empty() && e5.empty() && untouched == "fbff" && reg.empty() && f6 == "OK" &&
+                  rig.emu.cpu().get_registers().I == 5 && listed,
+              join(e1) + join(e2) + join(e3) + join(e4) + join(e5));
+    }
+}
+
 // ── GDB-UNS — unsupported, honestly (§2 rows 26-33) ────────────────────────
 
 static void unsupported_rows() {
@@ -2713,6 +2808,7 @@ int main() {
     stop_rows();
     monitor_rows();
     cvar_rows();
+    cvw_rows();
     unsupported_rows();
     generic_rows();
     session_rows();

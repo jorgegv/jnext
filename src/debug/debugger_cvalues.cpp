@@ -268,6 +268,7 @@ struct Found {
     const CVariable* v = nullptr;
     Row::Kind kind = Row::Kind::Local;
     std::string why;
+    bool scope_unknown = false;   // shown because the block at the PC is not known (80cc): a note for a read, a refusal for a write
 };
 
 std::string where_text(const Env& e, size_t k)
@@ -291,6 +292,7 @@ Found find_local(const Env& e, size_t k, int f, const std::string& name)
         if (r.var->c_name == name) {
             out.v = r.var;
             out.kind = kind_of_local(r.kind);
+            out.scope_unknown = r.scope_unknown;
             return out;
         }
     for (const CVariable& v : e.store->variables())
@@ -504,6 +506,78 @@ Debugger::CValueResult Debugger::read_c_value(size_t frame, std::string_view pat
     const Found f = find_var(e, frame, p);
     if (!f.v) return refused(f.why);
     return eval_var(e, frame, *f.v, p.deref, p.steps);
+}
+
+// `in BC; may be stale ...` -> `BC`: the registers a register local (or the pointer a path followed from one) lives in.
+static std::string registers_of(const Debugger::CValueResult& r)
+{
+    if (r.where.kind == Debugger::CWhere::Kind::Register) return r.where.regs;
+    for (const std::string& n : r.notes)
+        if (n.compare(0, 3, "in ") == 0) return n.substr(3, n.find(';') == std::string::npos ? std::string::npos : n.find(';') - 3);
+    return "registers";
+}
+
+Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::string_view path, const CNewValue& value)
+{
+    CWriteResult out;
+    const auto refuse = [&out](const std::string& why) {
+        out.status = Result::RefusedUnavailable;
+        out.why = why;
+        return out;
+    };
+    const Env e = make_env(*this);
+    if (!e.store) return refuse(c_variables_status().why);
+    const CPath p = c_parse_path(path);
+    if (!p.ok) return refuse(p.why);
+    if (frame >= e.frames.size())
+        return refuse("no frame " + std::to_string(frame) + " (there are " + std::to_string(e.frames.size()) + ")");
+    const Found f = find_var(e, frame, p);
+    if (!f.v) return refuse(f.why);
+    if (f.scope_unknown)
+        return refuse("scope unknown: the block at the PC is not known (80cc), so the slot may hold another variable");
+    // the place is the read's: a write needs a successful read of the same path
+    const CValueResult r = eval_var(e, frame, *f.v, p.deref, p.steps);
+    out.where = r.where;
+    if (!r.ok) return refuse(r.why);
+    out.type = r.type;
+    out.old_value = r.value;
+    if (f.v->record.var.space == 'R')
+        return refuse("a register variable cannot be written: its debug record gives no live range (in " + registers_of(r) + ")");
+    if (r.aggregate) return refuse(r.type + " is an aggregate: write a member or an element");
+    if (!r.loc.note.empty()) return refuse(r.loc.note);
+    if (r.where.kind != CWhere::Kind::Page && r.where.kind != CWhere::Kind::Cpu) return refuse("the object has no address");
+
+    const MemSpace space = r.where.kind == CWhere::Kind::Page ? r.where.source.space : MemSpace::cpu();
+    const uint32_t at = r.where.kind == CWhere::Kind::Page ? space_offset(space, r.where.source.address) : r.where.cpu;
+    const size_t n = static_cast<size_t>(std::max(1, r.loc.type.size));
+    std::vector<uint8_t> cur(n, 0);
+    const auto pk = peek(space, at, n, cur.data());
+    if (pk.status != Result::Ok || pk.value != n) return refuse("the object cannot be read back for the write");
+    const CEncoded enc = c_encode_value(r.loc.type, value, cur.data(), cur.size());
+    if (!enc.ok) return refuse(enc.why);
+
+    const auto w = poke(by, space, at, enc.bytes.size(), enc.bytes.data());   // the ONE poke: one MUTATE line, one revision bump
+    out.landed = w.value;
+    out.status = w.status;
+    if (w.status == Result::RefusedReadOnly) {
+        out.why = std::to_string(w.value) + " of " + std::to_string(enc.bytes.size()) + " bytes landed (the rest is read-only)";
+        return out;
+    }
+    if (w.status != Result::Ok) {
+        out.why = space.kind == MemSpace::Kind::DivMmcRam
+                      ? "DivMMC RAM bank " + std::to_string(space.index) + " cannot be written by the debugger (unsupported)"
+                      : std::string("the write was refused (") + result_name(w.status) + ")";
+        return out;
+    }
+    const Env e2 = make_env(*this);
+    if (e2.store) {
+        const CValueResult back = eval_var(e2, frame, *f.v, p.deref, p.steps);
+        if (back.ok) {
+            out.value = back.value;
+            out.where = back.where;
+        }
+    }
+    return out;
 }
 
 }  // namespace dbg

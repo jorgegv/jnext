@@ -154,6 +154,26 @@ struct CInt32 {
 };
 CInt32 c_int32_scalar(const CLoc& loc, std::optional<int64_t> integer);
 
+/// GH #437: what a write stores. Text is what a person typed (the Qt panel, ZRCP, GDB); Int32 is a script's 32-bit value.
+struct CNewValue {
+    enum class From : uint8_t { Text, Int32 };
+    From from = From::Text;
+    std::string text;     ///< From::Text
+    int32_t int32 = 0;    ///< From::Int32
+};
+struct CEncoded {
+    bool ok = false;
+    std::string why;             ///< !ok: "'-1' is out of range for unsigned int (0..65535)", "float is not an integer", ...
+    std::vector<uint8_t> bytes;  ///< the object's new bytes (a bitfield: its whole storage unit)
+};
+/// The bytes `type` (its head and size) stores for `v`, never a truncated or wrapped value: a value out of the type's range is
+/// refused. Text: surrounding blanks trimmed, then an optional sign and decimal / `0x` / `$` hex digits, or a `'c'` literal, or
+/// (float types) a decimal float through std::from_chars, all of it. Int32 (a script): the type's range, except a 4-byte
+/// integer, which takes the 32-bit pattern (the mirror of c_int32_scalar); a float and an 8-byte integer are refused. A 48-bit
+/// float is rounded to nearest (z88dk does). `current` / `avail` are the object's present bytes: only a bitfield reads them,
+/// to keep its unit's other bits. No printf, no ostream: locale independent.
+CEncoded c_encode_value(const CdbType& type, const CNewValue& v, const uint8_t* current, size_t avail);
+
 /// Read `loc.type.size` bytes at `loc.addr` and format them, with `loc.note` among the notes.
 CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc, std::vector<uint8_t>* bytes = nullptr);
 
