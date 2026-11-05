@@ -280,6 +280,8 @@ CdbHidden classify(const CdbRecord& rec) {
     auto digits_after = [&](std::string_view prefix) {
         return starts_with(n, prefix) && all_digits(std::string_view(n).substr(prefix.size()));
     };
+    // 80cc names its CSE and LICM temporaries `1cse_<n>` / `1licm_<n>`: a leading digit, so the name cannot collide with a C identifier (ast_opt.c)
+    if (!n.empty() && n[0] >= '0' && n[0] <= '9') return CdbHidden::Temporary;
     if (digits_after("sloc") || digits_after("__str_") || digits_after("__")) return CdbHidden::Temporary;
     const auto& chain = rec.var.type.chain;
     if (chain.empty()) return CdbHidden::EmptyType;

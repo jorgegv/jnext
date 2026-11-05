@@ -1860,7 +1860,7 @@ int main() {
     struct Var4 { const char* name; int level, block, off; };
     struct Sc3 { int line, level, block; };
     // The rows of one function: the listing's scopes in order (the flag `scopes_from_listing` set), `name?` for a local flagged `scope unknown`, a hidden local absent
-    const auto cc80_rows = [](const std::vector<Rec4>& trail, const std::vector<Var4>& vars, const std::vector<Sc3>& scopes) {
+    const auto cc80_rows = [](const std::vector<Rec4>& trail, const std::vector<Var4>& vars, const std::vector<Sc3>& scopes, bool* plain_block = nullptr) {
         std::vector<CVariable> vs;
         for (const Var4& v : vars) {
             CVariable cv;
@@ -1896,8 +1896,10 @@ int main() {
         std::string out;
         for (const CScope& sc : st.functions()[0].scopes) {
             std::vector<std::string> n;
-            for (const CLocalRef& r : c_visible_locals(st, 0, &sc))
+            for (const CLocalRef& r : c_visible_locals(st, 0, &sc)) {
                 if (r.kind != CVarKind::Param) n.push_back(r.var->c_name + (r.scope_unknown ? "?" : ""));
+                if (plain_block && r.kind == CVarKind::Local && r.var->record.var.level >= 2 && !r.scope_unknown) *plain_block = true;
+            }
             std::sort(n.begin(), n.end());
             std::string row;
             for (const std::string& x : n) row += (row.empty() ? "" : " ") + x;
@@ -1905,6 +1907,7 @@ int main() {
         }
         return out;
     };
+    bool any_plain_block_local = false;   // CVZB-16 and CVZB-20: an 80cc block local is never listed plain
     {   // CVZB-16
         // The records and the variables are those 80cc (upstream 96c0efaddd, PR #3243) wrote for eight functions of our own programs (f3254.c, f2.c, blocks.c, t1.c: a `for` with a
         // declaration, sibling `for`s, nested blocks, a brace-less inner `for`, `for(;;)`, a `__stdc` function), read through jnext's adapter. The expected text is the C scope of each line:
@@ -1912,24 +1915,85 @@ int main() {
         // under a `for`: f2.c's second `for` has the records of one `for`, k2 the records of a `for` body, g2 the records of two nested blocks).
         struct Case { const char* name; std::vector<Rec4> trail; std::vector<Var4> vars; std::vector<Sc3> scopes; const char* expect; };
         const std::vector<Case> cases = {
-        {"f3254_f", {{0,3,0,0},{19,4,1,1},{23,5,1,1},{27,6,2,2},{33,7,2,2},{37,9,2,1},{63,10,4,3},{72,11,4,3},{75,13,1,1},{140,12,2,1}}, {{"a",0,0,4},{"i",2,1,-4},{"j",4,3,-2},{"p",2,2,-6},{"t",1,1,-8}}, {{3,0,0},{4,1,1},{5,1,1},{6,2,2},{7,2,2},{9,2,1},{10,4,3},{11,4,3},{13,1,1},{12,2,1}}, "3=t|4=t|5=t|6=p t|7=p t|9=i? t|10=i? j? t|11=i? j? t|13=t|12=i? t"},
-        {"f2_h", {{0,3,0,0},{13,4,1,1},{20,6,2,1},{46,7,3,3},{56,8,3,3},{73,9,2,1},{76,10,2,1},{87,11,3,4},{98,12,3,4},{105,13,2,1},{108,15,2,5},{116,16,2,5},{120,18,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"k",3,3,-6},{"m",3,4,-4},{"t",1,1,-12},{"u",2,5,-2},{"z",2,2,-10}}, {{3,0,0},{4,1,1},{6,2,1},{7,3,3},{8,3,3},{9,2,1},{10,2,1},{11,3,4},{12,3,4},{13,2,1},{15,2,5},{16,2,5},{18,1,1}}, "3=t|4=t|6=i? t|7=i? k? t z?|8=i? k? t z?|9=i? t|10=i? t|11=i? m? t z?|12=i? m? t z?|13=i? t|15=t u|16=t u|18=t"},
-        {"blocks_f", {{0,4,0,0},{19,5,1,1},{23,6,1,1},{34,7,2,2},{41,8,2,2},{45,10,2,1},{71,11,3,3},{88,12,2,1},{91,14,2,4},{99,16,3,5},{105,17,3,5},{109,19,2,4},{122,20,2,4},{126,22,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"p",2,2,-10},{"t",1,1,-12},{"u",2,4,-6},{"v",3,5,-4},{"z",2,4,-2}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{10,2,1},{11,3,3},{12,2,1},{14,2,4},{16,3,5},{17,3,5},{19,2,4},{20,2,4},{22,1,1}}, "4=t|5=t|6=t|7=p t|8=p t|10=i? t|11=i? t|12=i? t|14=t u z|16=t u v z|17=t u v z|19=t u z|20=t u z|22=t"},
-        {"blocks_g2", {{0,25,0,0},{16,26,1,6},{20,27,2,7},{24,28,2,7},{27,31,3,8},{36,32,3,8},{40,34,1,6}}, {{"a",0,0,4},{"q",2,7,-4},{"w",3,8,-2}}, {{25,0,0},{26,1,6},{27,2,7},{28,2,7},{31,3,8},{32,3,8},{34,1,6}}, "25=|26=|27=q|28=q|31=q? w?|32=q? w?|34="},
-        {"blocks_h", {{0,37,0,0},{13,38,1,9},{21,40,2,10},{27,41,3,10},{53,42,4,11},{70,43,3,10},{73,44,2,10},{82,46,1,9}}, {{"a",0,0,4},{"j",3,10,-2},{"m",2,10,-4},{"t",1,9,-6}}, {{37,0,0},{38,1,9},{40,2,10},{41,3,10},{42,4,11},{43,3,10},{44,2,10},{46,1,9}}, "37=t|38=t|40=m t|41=j? m t|42=j? m t|43=j? m t|44=m t|46=t"},
-        {"t1_k1", {{0,4,0,0},{19,5,1,1},{23,6,1,1},{34,7,2,2},{41,8,2,2},{41,12,2,2},{58,9,3,3},{64,10,3,3},{68,11,3,3},{78,14,2,1},{87,17,2,1},{104,15,3,4},{110,16,3,4},{130,18,2,1},{156,19,3,5},{162,20,3,5},{179,21,2,1},{182,22,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"j",2,1,-4},{"r",2,2,-12},{"t",1,1,-14},{"w",3,3,-10},{"x",3,4,-6},{"y",3,5,-2}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{9,3,3},{10,3,3},{11,3,3},{14,2,1},{15,3,4},{16,3,4},{17,2,1},{18,2,1},{19,3,5},{20,3,5},{21,2,1},{22,1,1}}, "4=t|5=t|6=t|7=r t|8=r t|9=r t w|10=r t w|11=r t w|14=i? j? t|15=i? j? t x?|16=i? j? t x?|17=i? j? t|18=i? j? t|19=i? j? t y?|20=i? j? t y?|21=i? j? t|22=t"},
+        {"f3254_f", {{0,3,0,0},{19,4,1,1},{23,5,1,1},{27,6,2,2},{33,7,2,2},{37,9,2,1},{63,10,4,3},{72,11,4,3},{75,13,1,1},{140,12,2,1}}, {{"a",0,0,4},{"i",2,1,-4},{"j",4,3,-2},{"p",2,2,-6},{"t",1,1,-8}}, {{3,0,0},{4,1,1},{5,1,1},{6,2,2},{7,2,2},{9,2,1},{10,4,3},{11,4,3},{13,1,1},{12,2,1}}, "3=t|4=t|5=t|6=p? t|7=p? t|9=i? t|10=i? j? t|11=i? j? t|13=t|12=i? t"},
+        {"f2_h", {{0,3,0,0},{13,4,1,1},{20,6,2,1},{46,7,3,3},{56,8,3,3},{73,9,2,1},{76,10,2,1},{87,11,3,4},{98,12,3,4},{105,13,2,1},{108,15,2,5},{116,16,2,5},{120,18,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"k",3,3,-6},{"m",3,4,-4},{"t",1,1,-12},{"u",2,5,-2},{"z",2,2,-10}}, {{3,0,0},{4,1,1},{6,2,1},{7,3,3},{8,3,3},{9,2,1},{10,2,1},{11,3,4},{12,3,4},{13,2,1},{15,2,5},{16,2,5},{18,1,1}}, "3=t|4=t|6=i? t|7=i? k? t z?|8=i? k? t z?|9=i? t|10=i? t|11=i? m? t z?|12=i? m? t z?|13=i? t|15=t u?|16=t u?|18=t"},
+        {"blocks_f", {{0,4,0,0},{19,5,1,1},{23,6,1,1},{34,7,2,2},{41,8,2,2},{45,10,2,1},{71,11,3,3},{88,12,2,1},{91,14,2,4},{99,16,3,5},{105,17,3,5},{109,19,2,4},{122,20,2,4},{126,22,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"p",2,2,-10},{"t",1,1,-12},{"u",2,4,-6},{"v",3,5,-4},{"z",2,4,-2}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{10,2,1},{11,3,3},{12,2,1},{14,2,4},{16,3,5},{17,3,5},{19,2,4},{20,2,4},{22,1,1}}, "4=t|5=t|6=t|7=p? t|8=p? t|10=i? t|11=i? t|12=i? t|14=t u? z?|16=t u? v? z?|17=t u? v? z?|19=t u? z?|20=t u? z?|22=t"},
+        {"blocks_g2", {{0,25,0,0},{16,26,1,6},{20,27,2,7},{24,28,2,7},{27,31,3,8},{36,32,3,8},{40,34,1,6}}, {{"a",0,0,4},{"q",2,7,-4},{"w",3,8,-2}}, {{25,0,0},{26,1,6},{27,2,7},{28,2,7},{31,3,8},{32,3,8},{34,1,6}}, "25=|26=|27=q?|28=q?|31=q? w?|32=q? w?|34="},
+        {"blocks_h", {{0,37,0,0},{13,38,1,9},{21,40,2,10},{27,41,3,10},{53,42,4,11},{70,43,3,10},{73,44,2,10},{82,46,1,9}}, {{"a",0,0,4},{"j",3,10,-2},{"m",2,10,-4},{"t",1,9,-6}}, {{37,0,0},{38,1,9},{40,2,10},{41,3,10},{42,4,11},{43,3,10},{44,2,10},{46,1,9}}, "37=t|38=t|40=m? t|41=j? m? t|42=j? m? t|43=j? m? t|44=m? t|46=t"},
+        {"t1_k1", {{0,4,0,0},{19,5,1,1},{23,6,1,1},{34,7,2,2},{41,8,2,2},{41,12,2,2},{58,9,3,3},{64,10,3,3},{68,11,3,3},{78,14,2,1},{87,17,2,1},{104,15,3,4},{110,16,3,4},{130,18,2,1},{156,19,3,5},{162,20,3,5},{179,21,2,1},{182,22,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"j",2,1,-4},{"r",2,2,-12},{"t",1,1,-14},{"w",3,3,-10},{"x",3,4,-6},{"y",3,5,-2}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{9,3,3},{10,3,3},{11,3,3},{14,2,1},{15,3,4},{16,3,4},{17,2,1},{18,2,1},{19,3,5},{20,3,5},{21,2,1},{22,1,1}}, "4=t|5=t|6=t|7=r? t|8=r? t|9=r? t w?|10=r? t w?|11=r? t w?|14=i? j? t|15=i? j? t x?|16=i? j? t x?|17=i? j? t|18=i? j? t|19=i? j? t y?|20=i? j? t y?|21=i? j? t|22=t"},
         {"t1_k2", {{0,25,0,0},{19,26,1,6},{23,27,1,6},{27,28,3,7},{36,29,3,7},{39,35,1,6},{83,30,3,7},{109,31,4,8},{116,32,4,8},{133,33,3,7}}, {{"a",0,0,4},{"i",3,7,-6},{"j",3,7,-4},{"q",4,8,-2},{"t",1,6,-8}}, {{25,0,0},{26,1,6},{27,1,6},{28,3,7},{29,3,7},{35,1,6},{30,3,7},{31,4,8},{32,4,8},{33,3,7}}, "25=t|26=t|27=t|28=i? j? t|29=i? j? t|35=t|30=i? j? t|31=i? j? q? t|32=i? j? q? t|33=i? j? t"},
-        {"t1_k3", {{0,38,0,9},{13,39,1,10},{18,41,2,11},{30,43,3,12},{37,45,4,13},{44,46,4,13},{48,51,2,14},{56,52,2,14},{60,54,1,10}}, {{"a",0,9,4},{"t",1,10,-10},{"u",2,11,-8},{"v",3,12,-6},{"w",4,13,-4},{"z",2,14,-2}}, {{38,0,9},{39,1,10},{41,2,11},{43,3,12},{45,4,13},{46,4,13},{51,2,14},{52,2,14},{54,1,10}}, "38=t|39=t|41=t u|43=t u? v?|45=t u? v? w?|46=t u? v? w?|51=t z|52=t z|54=t"},
+        {"t1_k3", {{0,38,0,9},{13,39,1,10},{18,41,2,11},{30,43,3,12},{37,45,4,13},{44,46,4,13},{48,51,2,14},{56,52,2,14},{60,54,1,10}}, {{"a",0,9,4},{"t",1,10,-10},{"u",2,11,-8},{"v",3,12,-6},{"w",4,13,-4},{"z",2,14,-2}}, {{38,0,9},{39,1,10},{41,2,11},{43,3,12},{45,4,13},{46,4,13},{51,2,14},{52,2,14},{54,1,10}}, "38=t|39=t|41=t u?|43=t u? v?|45=t u? v? w?|46=t u? v? w?|51=t z?|52=t z?|54=t"},
         };
         bool ok = true;
         std::string seen;
         for (const Case& c : cases) {
-            const std::string got = cc80_rows(c.trail, c.vars, c.scopes);
+            const std::string got = cc80_rows(c.trail, c.vars, c.scopes, &any_plain_block_local);
             if (got != c.expect) { ok = false; seen += std::string(" ") + c.name + ": " + got; }
         }
-        check("CVZB-16", "80cc with PR #3243's records and the listing's scopes: eight functions (f3254 f, f2 h, blocks f, g2, h, t1 k1, k2, k3 (`__stdc`)) give at every listed scope exactly the locals the C program "
-                         "has in scope (plain), none that are closed or not yet open (absent), and `scope unknown` for a `for` variable, a local under a `for` and an outer block whose code ends with the inner one",
-              ok && cases.size() == 8, seen);
+        check("CVZB-16", "80cc with PR #3243's records and the listing's scopes (GH #438 S4b: never plain): eight functions (f3254 f, f2 h, blocks f, g2, h, t1 k1, k2, k3 (`__stdc`)) give at every listed scope "
+                         "the block locals that are not provably closed as `scope unknown` (`name?`), and none that are provably closed (absent); level-1 locals are plain; no block local is ever plain",
+              ok && cases.size() == 8 && !any_plain_block_local, seen);
+    }
+    {   // CVZB-20
+        // GH #438 S4b (review 7 F1): 80cc stamps some code with the scope of a block the code is not in, so a block local is never plain. The records are those of 14 functions of our own programs,
+        // built with 80cc 0f0a1cf70e: r1 f1 / r3 f3 / r4 f4 (if/else chains, loops, a shadowing inner block, an else body on one line), c1 c1..c6 (epilogue after a trailing block, `for`, `switch`,
+        // nested else), d1..d4 (hoisted loop code, `switch`), r2 f2 (`__stdc`, nested ifs, `switch`, `while`), c9 k9 (a brace-less then-branch). The expected text hides what the stamp proves closed
+        // and flags the rest; at the then-branch's closing jump (r1 line 11, r3 line 25, c9 line 10, r4 line 10) the else local is `q?`, not plain, and at c1's epilogue (line 9) `q?`
+        struct Case { const char* name; std::vector<Rec4> trail; std::vector<Var4> vars; std::vector<Sc3> scopes; const char* expect; };
+        const std::vector<Case> cases = {
+        {"r1_f1", {{0,4,0,0},{13,5,1,1},{21,6,1,1},{38,7,2,2},{47,8,2,2},{50,11,2,3},{53,10,2,3},{65,13,1,1},{78,14,2,4},{85,15,2,4},{92,18,2,5},{100,19,2,5},{127,20,1,1},{141,22,2,6},{150,23,2,6},{160,25,1,1},{163,26,1,1},{175,27,2,7},{181,28,2,7},{196,31,2,8},{199,29,1,1},{205,30,2,8},{227,33,1,1}}, {{"a",0,0,4},{"d",2,5,-8},{"e",2,7,-4},{"h",2,8,-2},{"p",2,2,-14},{"q",2,3,-12},{"t",1,1,-16},{"t",2,6,-6},{"w",2,4,-10}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{11,2,3},{10,2,3},{13,1,1},{14,2,4},{15,2,4},{18,2,5},{19,2,5},{20,1,1},{22,2,6},{23,2,6},{25,1,1},{26,1,1},{27,2,7},{28,2,7},{31,2,8},{29,1,1},{30,2,8},{33,1,1}}, "4=t|5=t|6=t|7=p? t|8=p? t|11=q? t|10=q? t|13=t|14=t w?|15=t w?|18=d? t|19=d? t|20=t|22=t t?|23=t t?|25=t|26=t|27=e? t|28=e? t|31=h? t|29=t|30=h? t|33=t"},
+        {"r3_f3", {{0,4,0,0},{13,5,1,1},{21,6,1,1},{38,7,2,2},{47,8,2,2},{50,14,3,4},{53,10,2,3},{62,11,2,3},{65,13,3,4},{85,17,1,1},{97,18,2,5},{103,19,2,5},{118,25,2,7},{121,20,1,1},{127,21,2,6},{134,22,2,6},{146,24,2,7},{169,27,1,1},{182,28,2,8},{188,29,2,8},{192,30,3,9},{198,31,3,9},{202,34,3,10},{205,33,3,10},{217,38,2,11},{225,39,2,11},{252,40,1,1},{266,41,1,1}}, {{"a",0,0,4},{"d",2,11,-2},{"e",2,5,-14},{"h",2,6,-12},{"k",2,7,-10},{"p",2,2,-20},{"q",2,3,-18},{"r",3,4,-16},{"t",1,1,-22},{"u",3,9,-6},{"v",3,10,-4},{"w",2,8,-8}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{14,3,4},{10,2,3},{11,2,3},{13,3,4},{17,1,1},{18,2,5},{19,2,5},{25,2,7},{20,1,1},{21,2,6},{22,2,6},{24,2,7},{27,1,1},{28,2,8},{29,2,8},{30,3,9},{31,3,9},{34,3,10},{33,3,10},{38,2,11},{39,2,11},{40,1,1},{41,1,1}}, "4=t|5=t|6=t|7=p? t|8=p? t|14=p? q? r? t|10=q? t|11=q? t|13=p? q? r? t|17=t|18=e? t|19=e? t|25=k? t|20=t|21=h? t|22=h? t|24=k? t|27=t|28=t w?|29=t w?|30=t u? w?|31=t u? w?|34=t v? w?|33=t v? w?|38=d? t|39=d? t|40=t|41=t"},
+        {"r4_f4", {{0,4,0,0},{13,5,1,1},{21,6,1,1},{38,7,2,2},{47,8,2,2},{50,10,2,3},{65,12,1,1}}, {{"a",0,0,4},{"p",2,2,-4},{"q",2,3,-2},{"t",1,1,-6}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{10,2,3},{12,1,1}}, "4=t|5=t|6=t|7=p? t|8=p? t|10=q? t|12=t"},
+        {"c1_c1", {{0,4,0,0},{10,5,1,1},{18,6,1,1},{21,7,1,1},{38,8,2,2},{50,9,2,2}}, {{"a",0,0,4},{"q",2,2,-2},{"t",1,1,-4}}, {{4,0,0},{5,1,1},{6,1,1},{7,1,1},{8,2,2},{9,2,2}}, "4=t|5=t|6=t|7=t|8=q? t|9=q? t"},
+        {"c1_c2", {{0,13,0,0},{13,14,1,3},{21,15,2,3},{47,16,3,4},{56,17,3,4},{75,18,4,5},{88,19,4,5},{115,21,2,3},{118,22,1,3}}, {{"a",0,0,4},{"b",3,4,-4},{"i",2,3,-6},{"q",4,5,-2},{"t",1,3,-8}}, {{13,0,0},{14,1,3},{15,2,3},{16,3,4},{17,3,4},{18,4,5},{19,4,5},{21,2,3},{22,1,3}}, "13=t|14=t|15=i? t|16=b? i? t|17=b? i? t|18=b? i? q? t|19=b? i? q? t|21=i? t|22=t"},
+        {"c1_c3", {{0,25,0,0},{10,26,1,6},{18,36,1,6},{29,32,2,7},{42,33,3,8},{52,34,3,8},{58,29,2,7},{63,37,1,6}}, {{"a",0,0,4},{"q",3,8,-2},{"t",1,6,-4}}, {{25,0,0},{26,1,6},{36,1,6},{32,2,7},{33,3,8},{34,3,8},{29,2,7},{37,1,6}}, "25=t|26=t|36=t|32=t|33=q? t|34=q? t|29=t|37=t"},
+        {"c1_c5", {{0,40,0,0},{13,41,1,9},{21,42,1,9},{38,43,2,10},{47,44,2,10},{50,49,3,12},{53,46,2,11},{62,47,2,11},{73,48,3,12},{83,52,1,9}}, {{"a",0,0,4},{"p",2,10,-6},{"q",3,12,-2},{"t",1,9,-8},{"z",2,11,-4}}, {{40,0,0},{41,1,9},{42,1,9},{43,2,10},{44,2,10},{49,3,12},{46,2,11},{47,2,11},{48,3,12},{52,1,9}}, "40=t|41=t|42=t|43=p? t|44=p? t|49=p? q? t z?|46=t z?|47=t z?|48=p? q? t z?|52=t"},
+        {"c1_c6", {{0,55,0,0},{13,56,1,13},{21,57,1,13},{34,58,2,14},{40,59,2,14},{44,60,3,15},{51,61,3,15},{58,65,2,16},{66,66,2,16},{71,67,3,17},{77,68,3,17},{83,70,1,13},{97,71,1,13}}, {{"a",0,0,4},{"d",2,16,-4},{"q",3,15,-6},{"r",3,17,-2},{"t",1,13,-10},{"w",2,14,-8}}, {{55,0,0},{56,1,13},{57,1,13},{58,2,14},{59,2,14},{60,3,15},{61,3,15},{65,2,16},{66,2,16},{67,3,17},{68,3,17},{70,1,13},{71,1,13}}, "55=t|56=t|57=t|58=t w?|59=t w?|60=q? t w?|61=q? t w?|65=d? t|66=d? t|67=d? r? t w?|68=d? r? t w?|70=t|71=t"},
+        {"c7_d1", {{0,4,0,0},{13,5,2,1},{31,6,3,2},{41,7,3,2},{60,8,4,3},{73,9,4,3},{79,11,2,1}}, {{"a",0,0,4},{"b",3,2,-4},{"i",2,1,-6},{"q",4,3,-2}}, {{4,0,0},{5,2,1},{6,3,2},{7,3,2},{8,4,3},{9,4,3},{11,2,1}}, "4=|5=i?|6=b? i?|7=b? i?|8=b? i? q?|9=b? i? q?|11=i?"},
+        {"c7_d2", {{0,14,0,0},{13,15,1,4},{18,16,2,4},{27,17,3,5},{77,18,3,5},{102,19,2,4},{105,20,1,4}}, {{"1licm_0",0,0,-4},{"a",0,0,6},{"c",0,0,4},{"i",2,4,-6},{"k",3,5,-2},{"t",1,4,-8}}, {{14,0,0},{15,1,4},{16,2,4},{17,3,5},{18,3,5},{19,2,4},{20,1,4}}, "14=t|15=t|16=i? t|17=i? k? t|18=i? k? t|19=i? t|20=t"},
+        {"c7_d3", {{0,23,0,0},{10,24,1,6},{20,25,2,7},{23,26,2,7},{34,27,3,8},{41,28,3,8},{44,31,1,6}}, {{"a",0,0,4},{"q",3,8,-2},{"r",2,7,-4}}, {{23,0,0},{24,1,6},{25,2,7},{26,2,7},{27,3,8},{28,3,8},{31,1,6}}, "23=|24=|25=r?|26=r?|27=q? r?|28=q? r?|31="},
+        {"c7_d4", {{0,34,0,0},{9,44,1,9},{20,40,2,10},{37,41,3,11},{43,42,3,11},{49,37,2,10}}, {{"a",0,0,4},{"q",3,11,-2}}, {{34,0,0},{44,1,9},{40,2,10},{41,3,11},{42,3,11},{37,2,10}}, "34=|44=|40=|41=q?|42=q?|37="},
+        {"r2_f2", {{0,4,0,1},{13,5,1,2},{21,6,1,2},{31,7,2,3},{43,8,2,3},{53,9,3,4},{62,10,3,4},{68,12,2,3},{82,14,1,2},{92,15,2,5},{101,19,2,5},{104,30,1,2},{115,29,2,7},{124,16,2,5},{148,17,3,6},{160,18,3,6},{177,20,2,5},{189,24,3,8},{198,25,3,8},{204,32,2,9},{213,34,3,10},{222,35,3,10},{228,38,1,2}}, {{"a",0,1,4},{"b",0,1,6},{"n",3,10,-2},{"o",2,9,-4},{"s",3,8,-6},{"t",1,2,-16},{"x",2,3,-14},{"x",3,4,-12},{"y",2,5,-10},{"z",3,6,-8}}, {{4,0,1},{5,1,2},{6,1,2},{7,2,3},{8,2,3},{9,3,4},{10,3,4},{12,2,3},{14,1,2},{15,2,5},{19,2,5},{30,1,2},{29,2,7},{16,2,5},{17,3,6},{18,3,6},{20,2,5},{24,3,8},{25,3,8},{32,2,9},{34,3,10},{35,3,10},{38,1,2}}, "4=t|5=t|6=t|7=t x?|8=t x?|9=t x? x?|10=t x? x?|12=t x?|14=t|15=t y?|19=t y?|30=t|29=t|16=t y?|17=t y? z?|18=t y? z?|20=t y?|24=s? t|25=s? t|32=o? t|34=n? o? t|35=n? o? t|38=t"},
+        {"c9_k9", {{0,4,0,0},{10,5,1,1},{18,6,1,1},{35,7,1,1},{41,10,2,2},{44,9,2,2},{56,12,1,1}}, {{"a",0,0,4},{"q",2,2,-2},{"t",1,1,-4}}, {{4,0,0},{5,1,1},{6,1,1},{7,1,1},{10,2,2},{9,2,2},{12,1,1}}, "4=t|5=t|6=t|7=t|10=q? t|9=q? t|12=t"},
+        };
+        bool ok = true;
+        std::string seen;
+        for (const Case& c : cases) {
+            const std::string got = cc80_rows(c.trail, c.vars, c.scopes, &any_plain_block_local);
+            if (got != c.expect) { ok = false; seen += std::string(" ") + c.name + ": " + got; }
+        }
+        check("CVZB-20", "80cc, the stale-stamp cases of review 7: fourteen functions give at every listed scope block locals that are `scope unknown` or absent, never plain; at the jump that ends a then-branch "
+                         "(r1 f1 line 11, r3 f3 line 25, r4 f4 line 10, c9 k9 line 10) and in an epilogue after a trailing block (c1 line 9) the else or trailing local is `q?`; the property holds across CVZB-16 and CVZB-20; "
+                         "80cc's leading-digit temporary `1licm_0` is not a parameter or a local",
+              ok && cases.size() == 14 && !any_plain_block_local, seen);
+    }
+    {   // CVZB-18
+        // F3's upper bound is strict (review 7 M06): trail (5,1,1) (6,2,2) (8,1,1) (8,3,3), y in block 2, w in block 3, PC scope (8,3,3). An entry of the lower block 1 on the PC's own line (8) closes
+        // nothing: block 3 can be a child of block 2 (the same line holds both), so y stays `y?`; hiding it would be unsound
+        const std::string r = cc80_rows({{0, 5, 1, 1}, {1, 6, 2, 2}, {2, 8, 1, 1}, {3, 8, 3, 3}}, {{"t", 1, 1, -2}, {"y", 2, 2, -4}, {"w", 3, 3, -6}}, {{8, 3, 3}});
+        check("CVZB-18", "an entry of a lower block on the PC's own line does not close the block before it: with trail (5,1,1) (6,2,2) (8,1,1) (8,3,3) at (8,3,3), y (block 2) and w (block 3) are `scope unknown`", r == "8=t w? y?", r);
+    }
+    {   // CVZB-19
+        // c_pick_local: the innermost declaration of a name wins (the greatest level, then block), as gdb does; `certain` is false when a candidate is flagged `scope unknown`
+        const auto mk = [](const char* name, int level, int block, bool unknown) {
+            static std::vector<std::unique_ptr<CVariable>> keep;
+            auto v = std::make_unique<CVariable>();
+            v->record = cdb_decode(std::string("S:Lt.c.f$") + name + "$" + std::to_string(level) + "_0$" + std::to_string(block) + "({2}SI:S),B,1,-2").record;
+            v->c_name = name;
+            CLocalRef r;
+            r.var = v.get();
+            r.scope_unknown = unknown;
+            keep.push_back(std::move(v));
+            return r;
+        };
+        const CLocalRef t1 = mk("t", 1, 1, false), t6 = mk("t", 2, 6, false), t6u = mk("t", 2, 6, true), par = mk("a", 0, 0, false), loc = mk("a", 2, 3, false), t7 = mk("t", 2, 7, false);
+        const std::vector<CLocalRef> va = {t1, t6}, vb = {t1, t6u}, vc = {par, loc}, vd = {t1}, ve = {t6, t7};   // the picks point into these
+        const CPicked a = c_pick_local(va, "t"), b = c_pick_local(vb, "t"), c = c_pick_local(vc, "a"), d = c_pick_local(vd, "t"), e = c_pick_local(ve, "t"), none = c_pick_local(vd, "zz");
+        check("CVZB-19", "c_pick_local: (a) t at level 1 and level 2 block 6 pick block 6, certain, one other; (b) the inner one flagged `scope unknown`: still block 6, not certain; (c) a parameter and a block local "
+                         "of one name pick the local; (d) a single candidate is certain with no others; (e) two at one level pick the greater block; no candidate picks nothing; the ambiguous note names the count and the pick",
+              a.chosen && a.chosen->var->record.var.block == 6 && a.certain && a.others.size() == 1 && b.chosen && b.chosen->var->record.var.block == 6 && !b.certain && c.chosen && c.chosen->var->record.var.level == 2 &&
+                  d.chosen && d.certain && d.others.empty() && e.chosen && e.chosen->var->record.var.block == 7 && !none.chosen &&
+                  c_ambiguous_note(b) == "ambiguous: 2 variables named t may be in scope here; this is the innermost (level 2, block 6)");
     }
     {   // CVZB-17
         // The line proofs are strict, and beta is the lowest block. Expected values: the three-valued rule applied by hand to each trail (the programs would be hand-written C of these shapes)
@@ -1937,8 +2001,8 @@ int main() {
         const std::string c2 = cc80_rows({{0, 5, 1, 1}, {1, 8, 2, 2}, {2, 9, 2, 2}, {3, 9, 3, 3}, {4, 10, 3, 3}, {5, 11, 1, 1}}, {{"t", 1, 1, -2}, {"y", 2, 2, -4}, {"w", 3, 3, -6}}, {{10, 3, 3}});
         const std::string c3 = cc80_rows({{0, 3, 2, 2}, {1, 4, 2, 2}, {2, 5, 2, 3}, {3, 6, 2, 3}}, {{"x", 2, 2, -2}, {"y", 2, 3, -4}}, {{3, 2, 2}, {5, 2, 3}});
         check("CVZB-17", "the proofs are strict: an outer entry on y's own line closes nothing (y stays `?` at lines 9 and 10 beside w); a line shared by two blocks makes no parent (y never plain, w `?`); with no level-1 data beta is "
-                         "the lowest block, so at the first block's line x is `?` and y absent, and at the second's x is absent and y plain",
-              c1 == "9=t w? y?|10=t w? y?" && c2 == "10=t w? y?" && c3 == "3=x?|5=y", c1 + " || " + c2 + " || " + c3);
+                         "the lowest block, so at the first block's line x is `?` and y absent, and at the second's x is absent and y `?` (S4b: never plain)",
+              c1 == "9=t w? y?|10=t w? y?" && c2 == "10=t w? y?" && c3 == "3=x?|5=y?", c1 + " || " + c2 + " || " + c3);
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

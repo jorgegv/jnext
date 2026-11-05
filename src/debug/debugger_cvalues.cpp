@@ -312,6 +312,7 @@ struct Found {
     std::string why;
     bool scope_unknown = false;   // shown because the block at the PC is not known (80cc): a note for a read, a refusal for a write
     std::string shares;           // GH #438: the visible stack variables whose slot this one shares: a note for a read, a refusal for a write
+    std::string ambiguous;        // GH #438 S4b: other variables of this name may be in scope and this one may not be (c_pick_local): a note for a read, a refusal for a write
 };
 
 std::string where_text(const Env& e, size_t k)
@@ -331,14 +332,15 @@ Found find_local(const Env& e, size_t k, int f, const std::string& name)
     Found out;
     const auto loc = k < e.frames.size() ? e.store->locate(e.frames[k].pc) : std::nullopt;
     const CScope* scope = loc ? e.store->scope_at(f, loc->offset) : nullptr;
-    for (const CLocalRef& r : c_visible_locals(*e.store, f, scope))
-        if (r.var->c_name == name) {
-            out.v = r.var;
-            out.kind = kind_of_local(r.kind);
-            out.scope_unknown = r.scope_unknown;
-            out.shares = r.shares;
-            return out;
-        }
+    const std::vector<CLocalRef> rows = c_visible_locals(*e.store, f, scope);
+    if (const CPicked pk = c_pick_local(rows, name); pk.chosen) {
+        out.v = pk.chosen->var;
+        out.kind = kind_of_local(pk.chosen->kind);
+        out.scope_unknown = pk.chosen->scope_unknown;
+        out.shares = pk.chosen->shares;
+        if (!pk.certain) out.ambiguous = c_ambiguous_note(pk);
+        return out;
+    }
     for (const CVariable& v : e.store->variables())
         if (v.function == f && v.c_name == name && v.record.hidden == CdbHidden::None) {
             out.why = "out of scope at " + where_text(e, k);
@@ -501,10 +503,14 @@ Debugger::CLocalsResult Debugger::c_locals(size_t frame) const
     }
     const auto loc = e.store->locate(fr.pc);
     const CScope* scope = loc ? e.store->scope_at(fr.function, loc->offset) : nullptr;
-    for (const CLocalRef& r : c_visible_locals(*e.store, fr.function, scope)) {
+    const std::vector<CLocalRef> visible = c_visible_locals(*e.store, fr.function, scope);
+    for (const CLocalRef& r : visible) {
         Row row = to_row(e, frame, *r.var, kind_of_local(r.kind), r.var->c_name);
         if (r.scope_unknown) row.notes.push_back("scope unknown: shown whatever block the PC is in");
         if (!r.shares.empty()) row.notes.push_back(c_shares_note(r.shares));
+        // a name that another visible variable also has: the innermost is the one `print` means, the others are marked
+        if (const CPicked pk = c_pick_local(visible, r.var->c_name); pk.chosen && pk.chosen != &r)
+            row.notes.push_back(pk.certain ? kCShadowedNote : kCMayBeShadowedNote);
         out.rows.push_back(row);
     }
     out.ok = true;
@@ -553,6 +559,7 @@ Debugger::CValueResult Debugger::read_c_value(size_t frame, std::string_view pat
     CValueResult r = eval_var(e, frame, *f.v, p.deref, p.steps);
     if (r.ok && f.scope_unknown) r.notes.push_back("scope unknown: shown whatever block the PC is in");
     if (r.ok && !f.shares.empty()) r.notes.push_back(c_shares_note(f.shares));
+    if (r.ok && !f.ambiguous.empty()) r.notes.push_back(f.ambiguous);
     return r;
 }
 
@@ -583,6 +590,8 @@ Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::s
     if (!f.v) return refuse(f.why);
     if (f.scope_unknown)
         return refuse("scope unknown: the block at the PC is not known (80cc), so the slot may hold another variable");
+    if (!f.ambiguous.empty())
+        return refuse(f.ambiguous + ", and the choice is not certain, so a write may land in the wrong one");
     if (!f.shares.empty())
         return refuse(c_shares_note(f.shares) + ", so a write may land in the other's value");
     // the place is the read's: a write needs a successful read of the same path

@@ -208,6 +208,19 @@ struct CLocalRef {
     /// one of them holds the slot's value, and nothing says which.
     std::string shares;
 };
+/// GH #438 S4b: the variable a name means among the visible locals `rows` (c_visible_locals()): the innermost declaration wins, the greatest level and then the greatest block,
+/// as in gdb. `others` are the other candidates of that name (shadowed). `certain` is false when some candidate is flagged `scope unknown`: the innermost may not be in scope
+/// at all, so a read is noted and a write refused. A parameter and a block local of one name pick the local.
+struct CPicked {
+    const CLocalRef* chosen = nullptr;
+    std::vector<const CLocalRef*> others;
+    bool certain = true;
+};
+CPicked c_pick_local(const std::vector<CLocalRef>& rows, const std::string& name);
+/// The note of a read whose pick is not certain, and the row notes of the candidates a pick did not choose.
+std::string c_ambiguous_note(const CPicked& p);
+inline constexpr const char* kCShadowedNote = "shadowed";
+inline constexpr const char* kCMayBeShadowedNote = "may be shadowed";
 /// How many trail records of `function` name a block that the replay's stack does not hold at the record's level (GH #438): the replay then
 /// keeps its stack. 0 on every map whose block numbers are exact (z88dk#3227 and later), more on sccz80 before it.
 int c_trail_disagreements(const VariableStore& store, int function);

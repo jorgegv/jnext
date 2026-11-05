@@ -1,0 +1,4 @@
+# z88dk 0f0a1cf70e48856af8191af6f86096d2e1362482 (master-fixed-zsdcc)
++ zcc +zxn -clib=sdcc_iy -debug -m --list -subtype=nex -o prog -create-app stub1.c stub2.c
+stub2.c:1: warning 85: in function p unreferenced function parameter : 'a'
+rc=0

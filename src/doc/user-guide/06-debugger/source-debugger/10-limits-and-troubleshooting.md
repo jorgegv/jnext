@@ -63,8 +63,7 @@ the two pragmas: see [Building programs with z88dk](02-building-with-z88dk.md#ba
   a variable the compiler keeps in a register (zsdcc), and anything reached through a pointer held in a register (the
   debug record gives no live range, so the register may hold something else by then); a whole struct or array (write a
   member or an element); sccz80's fastcall parameter (z88dk U1) and a member of an overlapping bitfield struct
-  (z88dk U2), whose places are not certain; an 80cc block local whose block is not known (`scope unknown`: the slot
-  may hold another variable); a variable that shares its stack slot with another listed one (`shares its stack slot with ...`: the write
+  (z88dk U2), whose places are not certain; any 80cc block local (`scope unknown`: the slot may hold another variable, and 80cc's block stamps cannot prove it in scope); a name that two visible variables share when the innermost is `scope unknown` (`ambiguous`); a variable that shares its stack slot with another listed one (`shares its stack slot with ...`: the write
   would land in the other); a variable not allocated yet or out of scope; a global of a dot command, which lives in
   DivMMC RAM, where the debugger cannot write; and anything in ROM.
 - **A step is synchronous and bounded.** A step that never reaches another

@@ -942,18 +942,23 @@ void replay_trail(const CFunction& fn, const std::map<int, int>& blev, uint32_t 
 
 namespace {
 
-enum class Cc80Verdict { Hidden, Plain, Unknown };
+enum class Cc80Verdict { Hidden, Unknown };
 
-// GH #438 S4a: whether the 80cc block local `v` (level >= 2) is open at scope `s`, from 80cc's PR #3243 records, three-valued: proven open, proven closed, or neither.
-// Sound, not complete: 80cc opens no block for a `for` (the `for` raises the level only) and writes one C_LINE per source line, so some questions cannot be answered
-// from the records (design 14). `trail` is the function's map trail (only its known entries of level >= 1 are read), `locals` the (level, block) of every block-scope
-// local. Rules, with b a block, lv a level, s = (line l_s, level L_s, block B_s):
+// GH #438 S4b: whether the 80cc block local `v` (level >= 2) can be hidden at scope `s`, from 80cc's PR #3243 records and the listing's scopes. Never "plain": 80cc stamps some
+// code with the scope of a block the code is not in, so no record can prove a block local in scope. Three ways (z88dk 0f0a1cf70e, src/80cc/ir_build.c):
+//  H-a  an `if`/`else`'s then-branch ends with a jump emitted after the else part was built (late join, :8418), which carries the last statement of the else part: an else local would
+//       look open at the end of the then-branch (even when the then-branch has no braces, so the else block has no earlier sibling);
+//  H-b  the code after a construct (the fall-off-end `ret` :8669, the switch exit :8352, a countdown step :8258) carries the last statement inside it: a trailing `if` block's local
+//       would look open in the epilogue;
+//  H-c  CSE/LICM hoisting (ast_opt.c:4116, :4190, :4615) puts code before a loop with the loop body's scope.
+// What the stamp proves closed is closed also for the place the code really is (checked on every program of the rows), except at an H-a jump, where the then-branch's own local can be
+// hidden: the Source tab shows that jump on the else line too. So the answer is Hidden or Unknown (the row is listed, flagged, and a write is refused). `trail` is the function's map
+// trail (only its known entries of level >= 1 are read), `locals` the (level, block) of every block-scope local. Rules, with b a block, lv a level, s = (line l_s, level L_s, block B_s):
 //  F1  b > B_s is not open (a block opened after B_s, while B_s is innermost);
 //  F2  b == B_s and lv > L_s: a `for` variable whose `for` is not open;
 //  F3  b closed before s: a line x of b, an entry of a lower-numbered block at a line strictly between x and l_s (not for beta);
-//  F4  a < b is an ancestor of b when some line of a is strictly after some line of b; beta, the lowest block, is an ancestor of every block;
-//  F5  v is outside its scope when an open block a (B_s or an ancestor of it) is numbered above b and has a level <= lv (what lies inside v's scope is deeper than lv);
-//  F6  v is declared directly in b, hence open, when lv is the lowest level b can have: 1 for beta, 1 + its ancestors otherwise.
+//  F5  v is outside its scope when an open block a (B_s or an ancestor of it) is numbered above b and has a level <= lv (what lies inside v's scope is deeper than lv).
+//  An ancestor a < b of b: beta (the lowest block) is every block's, and a is also when some line of a is strictly after some line of b.
 Cc80Verdict cc80_verdict(const std::vector<CScope>& trail, const std::vector<std::pair<int, int>>& locals, int lv, int bv, const CScope& s)
 {
     struct E { int line, level, block; };
@@ -974,7 +979,7 @@ Cc80Verdict cc80_verdict(const std::vector<CScope>& trail, const std::vector<std
         for (const int a : blocks) {
             if (a >= b) break;
             bool is = a == beta;
-            for (const int x : lines[a]) for (const int y : lines[b]) is = is || x > y;   // F4
+            for (const int x : lines[a]) for (const int y : lines[b]) is = is || x > y;
             if (is) out.insert(a);
         }
         return out;
@@ -991,10 +996,7 @@ Cc80Verdict cc80_verdict(const std::vector<CScope>& trail, const std::vector<std
         for (const int a : open)
             if (a > bv && m.count(a) && m[a] <= lv) return Cc80Verdict::Hidden;          // F5
     }
-    const std::set<int> anc_s = ancestors(s.block);
-    const bool held = bv == s.block || anc_s.count(bv);
-    const int low = bv == beta ? 1 : 1 + static_cast<int>(ancestors(bv).size());         // F6
-    return held && lv == low ? Cc80Verdict::Plain : Cc80Verdict::Unknown;
+    return Cc80Verdict::Unknown;
 }
 
 }  // namespace
@@ -1106,7 +1108,7 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
                 if (cc80_exact) {
                     const Cc80Verdict d = cc80_verdict(fn.trail, cc80_locals, cv.level, cv.block, *scope);
                     if (d == Cc80Verdict::Hidden) continue;
-                    r.scope_unknown = d == Cc80Verdict::Unknown;
+                    r.scope_unknown = true;
                 } else if (unknown) r.scope_unknown = true;
                 else if (use_walk ? !walk_visible(cv) : !open.count({cv.level, cv.block})) continue;
             }
@@ -1148,6 +1150,32 @@ int c_trail_disagreements(const VariableStore& store, int function)
     int n = 0;
     replay_trail(fn, blev, UINT32_MAX, stack, &n);
     return n;
+}
+
+CPicked c_pick_local(const std::vector<CLocalRef>& rows, const std::string& name)
+{
+    CPicked out;
+    std::vector<const CLocalRef*> cand;
+    for (const CLocalRef& r : rows)
+        if (r.var->c_name == name) cand.push_back(&r);
+    if (cand.empty()) return out;
+    const auto key = [](const CLocalRef* r) { return std::make_pair(r->var->record.var.level, r->var->record.var.block); };
+    out.chosen = cand.front();
+    for (const CLocalRef* c : cand)
+        if (key(c) > key(out.chosen)) out.chosen = c;
+    for (const CLocalRef* c : cand) {
+        if (c != out.chosen) out.others.push_back(c);
+        if (c->scope_unknown) out.certain = false;
+    }
+    if (out.others.empty()) out.certain = true;
+    return out;
+}
+
+std::string c_ambiguous_note(const CPicked& p)
+{
+    const CdbVar& v = p.chosen->var->record.var;
+    return "ambiguous: " + std::to_string(p.others.size() + 1) + " variables named " + p.chosen->var->c_name + " may be in scope here; this is the innermost (level " +
+           std::to_string(v.level) + ", block " + std::to_string(v.block) + ")";
 }
 
 std::string c_shares_note(const std::string& others)

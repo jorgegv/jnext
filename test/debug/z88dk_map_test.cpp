@@ -3298,6 +3298,60 @@ main cross_c AC97
                   f->scopes[0].block == 1 && f->scopes[1].offset == 1 && f->scopes[1].line == 7 && f->scopes[1].level == 2 && f->scopes[1].block == 3);
     }
 
+    {   // Z88ZB-14
+        // a directive inside f that names ANOTHER function gives an unknown scope there (review 7 M13): the listing's second occurrence is `t.c::g::2::2`, so it is not known and f's block locals are
+        // flagged at it. Same synthetic module as Z88ZB-13
+        const auto lrow = [](int line, const char* addr, const char* bytes, const std::string& text) {
+            char buf[64];
+            std::snprintf(buf, sizeof buf, "%6d  ", line);
+            std::string out = buf;
+            if (addr) {
+                std::snprintf(buf, sizeof buf, "%s  %-16s  ", addr, bytes);
+                out += buf;
+            } else {
+                out += std::string(24, ' ');
+            }
+            return out + text + "\n";
+        };
+        const fs::path d = dir / "z88zb14";
+        fs::create_directories(d);
+        write_text(d / "t.c.lis", std::string("t.c:\n") + lrow(1, nullptr, nullptr, " MODULE t_c") + lrow(2, nullptr, nullptr, " SECTION code_user") + lrow(3, nullptr, nullptr, "_f:") +
+                                      lrow(4, nullptr, nullptr, " C_LINE 5,\"t.c::f::1::1\"") + lrow(5, "0000", "00", " nop") +
+                                      lrow(6, nullptr, nullptr, " C_LINE 6,\"t.c::g::2::2\"") + lrow(7, "0001", "00", " nop") + lrow(8, "0002", "c9", " ret"));
+        write_text(d / "t.map",
+            "__code_user_head                = $9000 ; const, public, def, , ,\n__code_user_size                = $0003 ; const, public, def, , ,\n"
+            "__code_user_tail                = $9003 ; const, public, def, , ,\n" +
+                std::string("_f                              = $9000 ; addr, public, , t_c, code_user, t.c:3\n") + rec("__C_LINE_5_t_2ec_3a_3af_3a_3a1_3a_3a1", 0x9000, "t_c", "code_user", "t.c::f::1::1:5") +
+                rec("__C_LINE_6_t_2ec_3a_3ag_3a_3a2_3a_3a2", 0x9001, "t_c", "code_user", "t.c::g::2::2:6") + zb_cdb("F:G$f$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + zb_cdb("M:t.c"));
+        SourceMap m;
+        load_z88dk_source_map(m, (d / "t.map").string(), nex_space, Z88dkListings::Beside);
+        const VariableStore* st = m.variables().get();
+        const CFunction* f = st ? fn_named(*st, "f") : nullptr;
+        check("Z88ZB-14", "an 80cc function whose listing has a directive naming another function (`t.c::g::2::2` inside f): the listing's scope table is [L5 1/1 known at +0, L6 not known at +1], the flag is set",
+              f && f->compiler == jnext::dbg::CCompiler::Cc80 && f->scopes_from_listing && f->scopes.size() == 2 && f->scopes[0].known && f->scopes[0].level == 1 && !f->scopes[1].known && f->scopes[1].line == 6);
+    }
+    {   // Z88ZB-15
+        // review 7 F3: a zsdcc module whose only function has an empty body has one level-0 `x` record with no TAB and `M:z2.c` (since z88dk#3265). Oracle: the listing banners (SDCC) and the C sources
+        // (stub2.c is `void p(int a) {}`, stub1.c a normal main); `p` and `main` are zsdcc, not 80cc
+        SourceMap m;
+        load_z88dk_source_map(m, (kFixtures / "master-fixed-zsdcc/sdcc-stub" / "prog.map").string(), nex_space, Z88dkListings::Beside);
+        const VariableStore* st = m.variables().get();
+        const CFunction* p = st ? fn_named(*st, "p") : nullptr;
+        const CFunction* mn = st ? fn_named(*st, "main") : nullptr;
+        check("Z88ZB-15", "master-fixed-zsdcc sdcc-stub (stub2.c: `void p(int a) {}`): p, whose module has only level-0 x records, and main are Zsdcc",
+              p && mn && p->compiler == jnext::dbg::CCompiler::Zsdcc && mn->compiler == jnext::dbg::CCompiler::Zsdcc && p->module != mn->module);
+    }
+    {   // Z88ZB-16
+        // the guard of the F3 clause: a module that really has a function named `x` is 80cc (x.c: `int x(int a) {...}`, 80cc writes `x` for it with an `F:` record), not the zsdcc placeholder
+        SourceMap m;
+        load_z88dk_source_map(m, (kFixtures / "master-fixed-80cc/80cc-x" / "prog.map").string(), nex_space, Z88dkListings::Beside);
+        const VariableStore* st = m.variables().get();
+        const CFunction* x = st ? fn_named(*st, "x") : nullptr;
+        const CFunction* mn = st ? fn_named(*st, "main") : nullptr;
+        check("Z88ZB-16", "master-fixed-80cc 80cc-x (a function named x): x and main are Cc80, the placeholder rule does not fire when the module has an `F:x`",
+              x && mn && x->compiler == jnext::dbg::CCompiler::Cc80 && mn->compiler == jnext::dbg::CCompiler::Cc80);
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

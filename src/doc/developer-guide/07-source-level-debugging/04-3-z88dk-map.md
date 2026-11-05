@@ -178,9 +178,9 @@ as an unpaged label, and the source half refuses a line record in it.
    `$0200` (dotx) or `$0300` (dotn) and `__CODE_head` is `$2000`. No `startupoffset`, or another
    value, is not a dot and has no reason; a dot whose `__CODE_head` is not `$2000` is not a dot
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
-   (`dot_why`, `z88dk_source_map.cpp:736-738`), while the symbol half places the map as any other
+   (`dot_why`, `z88dk_source_map.cpp:739-741`), while the symbol half places the map as any other
    (`z88dk_dot_command()`, `symbol_table.cpp:82`, no reason asked). Both halves read the
-   `__<s>_head`/`_tail` constants and `startupoffset` (`z88dk_source_map.cpp:724`; the symbol half keeps every constant). For a dot,
+   `__<s>_head`/`_tail` constants and `startupoffset` (`z88dk_source_map.cpp:727`; the symbol half keeps every constant). For a dot,
    `z88dk_section_space()` takes it as a last argument, after rules 1 to 3 (a value above `0xFFFF` in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:
    - an unnumbered section at `$2000`-`$3FFF` is `DivMmcRam{kNextZxosDotBank}`, bank 2

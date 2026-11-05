@@ -62,15 +62,15 @@ no store, because it replaces nothing. `Load MAP` (symbols only) never has one.
 ## How it is filled
 
 `load_z88dk_source_map()` reads the map once. Pass 1 keeps a `const` line that
-starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:716`),
+starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:719`),
 and the parser gained `Z88dkMapLine::is_public` (the scope field). The line records
 of code sections are copied to `scope_records` right after they are placed and
-**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:783`):
-a listing's `C_LINE` keeps only the file, so the scope can come only from the map.
+**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:786`):
+a listing's `C_LINE` keeps only the file, so the scope comes from the map; for an 80cc function the table is replaced by the listing's own occurrences (`fill_listing_scopes()`, S4a).
 Just before `map.replace()`, `build_variable_store()`
-(`src/debug/z88dk_source_map.cpp:554`)
+(`src/debug/z88dk_source_map.cpp:557`)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:1024`),
+space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:1027`),
 shared by the extent code and the store, so no rule is kept twice.
 
 ## The joins
@@ -118,7 +118,7 @@ The compilers write the scope differently:
 
 - sccz80 and 80cc: `file::<func>::<level>::<block>:<line>`. The level is the
   compiler's, the block is the last one opened, not the current one, and 80cc has
-  level 0 everywhere and no block structure. Since PR #3243 80cc counts blocks per file in parse order (a `__stdc` function takes one more for its parameters), writes the open compounds plus the open `for` headers as the level and the innermost open compound as the block: a `for` raises the level and opens no block (D-for), and `emit_op_cline()` skips a op whose line equals the previous one's, so a line holding code of two blocks carries only the first block's scope (D-line). The named function must be the
+  level 0 everywhere and no block structure. Since PR #3243 80cc counts blocks per file in parse order (a `__stdc` function takes one more for its parameters), writes the open compounds plus the open `for` headers as the level and the innermost open compound as the block: a `for` raises the level and opens no block (D-for), and `emit_op_cline()` skips an op whose line equals the previous one's, so a line holding code of two blocks carries only the first block's scope (D-line). The named function must be the
   function at the address, or the entry is unknown. This is the line-44 gap: `int
   main(void)` is scoped `sum::0::2` at `_main`, and the same address holds line 45
   (`main::0::3`), which owns it; were line 44 alone there, the cross-check makes it
@@ -143,6 +143,9 @@ A location that names only a file and a line, with no scope, is unknown. Visibil
 - **The `x` placeholder.** zsdcc writes the literal `x` where it names no function. Since z88dk#3262 drops the TAB that used to follow it, `x` is read as "no function"
   with or without the TAB (`parse_location()`), so the alias rule keeps asking `later_function_entry()` instead of comparing "x" with "x" (`Z88ZB-09`). A zsdcc function really named
   `x` is told by its level (`level_raw >= 10000`); an sccz80 function named `x` by its name.
+- **Stale stamps (GH #438 S4b).** 80cc keeps one global emit location (`ir_set_emit_loc()`, `src/80cc/ir_build.c:7931` once per statement, and `src/80cc/ir_build.c:8397` for an `if` condition); code a construct emits after building its children, with no statement of its own, carries the location of the last statement built. H-a: an `if`/`else` closes the then-branch after the else part is built (`src/80cc/ir_build.c:8415-8420`), so the then-branch's last jump carries the else part's last statement, even when the then-branch has no braces. H-b: the fall-off-end `ret` (`src/80cc/ir_build.c:8669-8673`), the switch exit (`src/80cc/ir_build.c:8352-8356`) and a countdown step (`src/80cc/ir_build.c:8258-8268`) carry the last statement inside the construct. H-c: CSE and LICM insert a `1cse_<n>` / `1licm_<n>` declaration before the loop with the hoisted expression's scope (`src/80cc/ast_opt.c:4116`, `src/80cc/ast_opt.c:4190`, `src/80cc/ast_opt.c:4615`). No record excludes any of them for a given block, so an 80cc block local is never listed plain (design 14).
+- **80cc temporaries.** `1cse_<n>` and `1licm_<n>` start with a digit, so no C name can be one: `classify()` hides a leading-digit name as `Temporary` (`CDB-55`), which keeps the level-0 `1licm_0` out of the parameters.
+- **The `x` placeholder, again.** `fill_compilers()` also takes a level-0 `x` record as zsdcc's when the module has no function named `x` (sccz80 and 80cc write `x` only for a function really called `x`, which has an `F:` record): a zsdcc module whose functions have empty bodies has no TAB and no level above 0 (`Z88ZB-15`, `Z88ZB-16`). Undecidable, and left: a zsdcc module whose only function is named `x` and has an empty body.
 - **Enum records (z88dk#3241).** sccz80 and 80cc write an `N:` (the enum) and an `E:` (an enum-typed object) record; `cdb_decode()` returns them as `CdbKind::Enum`, checked for shape and
   dropped by `build_variable_store()`: the object's `S:` record is still written with the integer type, which is what the Variables tab reads, so a value shows as its number (`CDB-53`, `Z88ZB-11`).
 - **Unsized arrays.** The decoder classes every `{-1}DA-1x` record as hidden (sccz80 and 80cc write it first, then the sized one). `build_variable_store()` unhides one that has no

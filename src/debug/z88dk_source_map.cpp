@@ -527,13 +527,16 @@ void fill_compilers(std::vector<CFunction>& fns, const std::vector<CRecord>& mod
                     const std::vector<Record>& scope_records)
 {
     std::map<std::string, std::set<std::string>> m_names, line_files;
-    std::set<std::string> zsdcc_form;
+    std::set<std::string> zsdcc_form, fn_named_x;
+    for (const CFunction& f : fns) if (f.name == "x") fn_named_x.insert(f.module);
     for (const CRecord& m : modules) m_names[m.module].insert(m.record.var.name);
     for (const Record& r : scope_records) {
         line_files[r.module].insert(r.loc.file);
         // zsdcc writes the function as the literal `x`: with a TAB until z88dk#3262, and without one since; a level of 10000 or more
         // (level * 10000 + sub) is then what tells it from a sccz80 or 80cc function really named `x`
-        if (r.loc.scope_given && r.loc.func == "x" && (r.loc.tab || r.loc.level_raw >= 10000)) zsdcc_form.insert(r.module);
+        // ... or a module with no function really named `x` (GH #438 S4b): sccz80 and 80cc write `x` only for a function named x, which has an `F:` record; a zsdcc module whose functions
+        // have empty bodies has only level-0 `x` records and no TAB. (Undecidable: a zsdcc module whose only function is named `x` and has an empty body.)
+        if (r.loc.scope_given && r.loc.func == "x" && (r.loc.tab || r.loc.level_raw >= 10000 || !fn_named_x.count(r.module))) zsdcc_form.insert(r.module);
     }
     for (CFunction& f : fns) {
         const auto m = m_names.find(f.module);

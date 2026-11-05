@@ -12,10 +12,10 @@ z88dk, hence committed outputs and a hash check (rows Z88FIX-01/02 in `source_ma
 |-----|--------|----------|-------|
 | `v2.4/` | `4d530b6eb779ad0f2a1d13c0bb670cf717477501` | v2.4 | 4.5.0 #15242 |
 | `master/` | `97731e4e2988543e2c849cd1ae1d0aeddf372fcd` | v2.4-2883-g97731e4e29 | 4.6.0 #16639 pr3093 Nov 3 2026 |
-| `master-fixed/`, `master-fixed-zsdcc/`, `master-fixed-80cc/` | `0f0a1cf70e48856af8191af6f86096d2e1362482` | v2.4-2954-g0f0a1cf70e | 4.6.0 #16639 pr3093 Nov 5 2026 |
+| `master-fixed/`, `master-fixed-zsdcc/`, `master-fixed-80cc/`, `master-fixed-sccz80/` | `0f0a1cf70e48856af8191af6f86096d2e1362482` | v2.4-2954-g0f0a1cf70e | 4.6.0 #16639 pr3093 Nov 5 2026 |
 
 `master/` is master BEFORE the debug-record fixes that merged on 2026-11-04 and 2026-11-05 (z88dk PRs #3227, #3229, #3230, #3231, #3237,
-#3238, #3241, #3242, #3243, #3244, #3250 to #3253, #3257, #3258, #3260 to #3265; #3240, floats, is not merged); `master-fixed/`, `master-fixed-zsdcc/` and `master-fixed-80cc/`
+#3238, #3241, #3242, #3243, #3244, #3250 to #3253, #3257, #3258, #3260 to #3265; #3240, floats, is not merged); `master-fixed/`, `master-fixed-zsdcc/`, `master-fixed-80cc/` and `master-fixed-sccz80/`
 are master with them (GH #438), the tip of z88dk master when the owner rebuilt `-latest` on 2026-11-05. The name `master-fixed` is kept from the days
 when the fixed install was a hand-patched `a52baaf7d9` (the first six fixes only); it now means "real master after the fixes". `master-fixed-zsdcc/`
 holds the zsdcc builds (own directory: the rows that walk every map of `master-fixed/` count sccz80 and 80cc modules).
@@ -85,6 +85,10 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | master-fixed/{sccz80,80cc}-cvars, master-fixed/sccz80-fc | as the `master/` builds of the same name | ok | GH #438: the records after the fixes (sccz80 and 80cc also write the `N:` / `E:` enum records of z88dk#3241) |
 | master-fixed-zsdcc/sdcc-{cvars,blocks,xmod,debug} | `-clib=sdcc_iy -debug`: `vars.c other.c`, `blocks.c`, `./xm.c 1st.c`, `main.c util.c asmfn.asm` | ok | GH #438: zsdcc after z88dk#3262 (no TAB after the `x` of a C_LINE) and #3265 (the `-debug` modules are named by the whole path: `__xm_c`, `blocks_c` with the `.c` in its `M:` and local-scope records) |
 | master-fixed-80cc/80cc-scope | `f3254.c` only: `-clib=new -compiler=80cc -debug` | ok | GH #438 S4a: our own program (z88dk issue 3254's shape): an `if` block, a `for` that declares `i`, a brace-less inner `for` over `j`, loop-rotated code; 80cc writes PR #3243's levels and blocks, with `C_LINE 10` three times. Own directory: the rows that walk `master-fixed/` count its modules |
+| master-fixed-80cc/80cc-ifelse | `ifelse.c` only: `-clib=new -compiler=80cc -debug` | ok | GH #438 S4b (review 7 F1): `f1` (if/else chains, loops, a shadowing block), `k9` (brace-less then-branch), `c1` (a trailing `if` block), `d2` (a hoisted multiply, the temporary `1licm_0`): the places where 80cc stamps code with another block's scope |
+| master-fixed-80cc/80cc-x | `x.c`: a function really named `x` | ok | GH #438 S4b: the module is 80cc, not zsdcc's `x` placeholder |
+| master-fixed-80cc/80cc-shadow, master-fixed-sccz80/sccz80-shadow, master-fixed-zsdcc/sdcc-shadow | `shadow.c`: an inner `{ int16_t t = 5; g += t; }` over the function's `t` | ok | GH #438 S4b: shadowed names (zsdcc keeps the outer t in DE and records the inner t as `[]`) |
+| master-fixed-zsdcc/sdcc-stub | `stub1.c stub2.c`: `-clib=sdcc_iy -debug`; `void p(int a) {}` | ok | GH #438 S4b (review 7 F3): a zsdcc module with only level-0 `x` records |
 
 The dot builds (`dot:<subtype>` in `generate.sh`) compile `dot.c dutil.c` with `-subtype=dot|dotx|dotn`
 instead of `-subtype=nex`. Classic dot is not built: `-debug` fails (Z1) and without it there are no lines.

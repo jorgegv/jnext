@@ -552,6 +552,16 @@ int main() {
               n("master/80cc-cvars", CdbHidden::EmptyType) == 3 && n("master/80cc-cvars", CdbHidden::IncompleteArray) == 1);
     }
 
+    // CDB-55 (GH #438 S4b): 80cc names its CSE / LICM temporaries with a leading digit (`1cse_0`, `1licm_0`, `2licm_1`), so the name cannot be a C identifier: hidden as Temporary
+    {
+        const auto hid = [](const char* name, const char* level) {
+            return cdb_decode(std::string("S:Ld2.d2$") + name + "$" + level + "_0$0({2}SI:S),B,1,-4").record.hidden;
+        };
+        check("CDB-55", "a local named with a leading digit (`1licm_0`, `1cse_0`, `2licm_1`, `9x`) is hidden as Temporary, whatever its level; `licm1`, `_1x` and `t1` are not",
+              hid("1licm_0", "0") == CdbHidden::Temporary && hid("1cse_0", "1") == CdbHidden::Temporary && hid("2licm_1", "0") == CdbHidden::Temporary && hid("9x", "2") == CdbHidden::Temporary &&
+                  hid("licm1", "1") == CdbHidden::None && hid("_1x", "1") == CdbHidden::None && hid("t1", "1") == CdbHidden::None);
+    }
+
     // CDB-53 .. CDB-54: the N: and E: records of z88dk#3241 (sccz80, 80cc). Oracle: the records of master-fixed/sccz80-cvars (types.h's enum colour) and the PR's grammar.
     {
         const CdbDecoded n = cdb_decode("N:Ftypes.h$colour({2}SI:S)[(RED$0)(GREEN$5)(BLUE$6)]");

@@ -8815,9 +8815,9 @@ int main() {
             };
             const std::string l6 = at("zb12a", 0x8C68, true), loop = at("zb12b", 0x8CBE, true), l13 = at("zb12c", 0x8C9A, true);
             const std::string n6 = at("zb12d", 0x8C68, false), nloop = at("zb12e", 0x8CBE, false), n13 = at("zb12f", 0x8C9A, false);
-            check("SRCDBG-ZB-12", "master-fixed-80cc f3254.c with the listing beside the map: at `t += p` p and t are listed plain; in the inner loop (third `C_LINE 10`) i and j are listed flagged `scope unknown`, t plain, "
+            check("SRCDBG-ZB-12", "master-fixed-80cc f3254.c with the listing beside the map (GH #438 S4b: an 80cc block local is never plain): at `t += p` p is listed flagged `scope unknown` and t plain; in the inner loop (third `C_LINE 10`) i and j are listed flagged `scope unknown`, t plain, "
                                   "p absent; at `return t` only t is. With no listing at the same three stops every block local is flagged (i? j? p?) and t is plain",
-                  l6 == "p t" && loop == "i? j? t" && l13 == "t" && n6 == "i? j? p? t" && nloop == "i? j? p? t" && n13 == "i? j? p? t", got);
+                  l6 == "p? t" && loop == "i? j? t" && l13 == "t" && n6 == "i? j? p? t" && nloop == "i? j? p? t" && n13 == "i? j? p? t", got);
         }
         {   // SRCDBG-ZB-13
             // writes, same fixture and stops: p at `t += p` is proven in scope, so p := 5 succeeds and carries the 80cc frame-slot note; i in the inner loop is `scope unknown`, so i := 1 is refused
@@ -8827,12 +8827,105 @@ int main() {
             z88_load(m, d / "prog.nex");
             m.dbg->load_program_sidecars((d / "prog.nex").string());
             const bool at6 = cv_run_to(m, 0x8C68);
-            const Dbg::CWriteResult w = wr(m, 0, "p", "5");
+            const CwTry wp = attempt(m, 0, "p", "5");
             Machine l(false, MachineType::ZXN_ISSUE2);
             const bool atl = lz(l, "zb13b", 0x8CBE, true);
             const CwTry wi = attempt(l, 0, "i", "1");
-            check("SRCDBG-ZB-13", "master-fixed-80cc f3254.c with the listing: at `t += p` p := 5 succeeds, carries the 80cc note and reads back 5; in the inner loop i := 1 is refused `scope unknown`",
-                  at6 && w.ok() && note80(w.notes) && w.value == "5" && atl && refused_with(wi, "scope unknown"));
+            check("SRCDBG-ZB-13", "master-fixed-80cc f3254.c with the listing (GH #438 S4b: an 80cc block local is never plain): at `t += p` p := 5 is refused `scope unknown` (nothing is written) and the read of p carries the "
+                  "`scope unknown` note; in the inner loop i := 1 is refused the same way",
+                  at6 && refused_with(wp, "scope unknown") && has_note(m.dbg->read_c_value(0, "p"), "scope unknown") && atl && refused_with(wi, "scope unknown"));
+        }
+        // S4b fixtures: load a fixture (with its listings when `lis`) and run to `pc`
+        const auto lzf = [&](Machine& m, const char* fixture, const char* tag, uint16_t pc, bool lis) {
+            const fs::path d = var_dir(tag, fixture);
+            if (lis) z88_copy_lis(fixture, d);
+            else z88_copy(fixture, d);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            return cv_run_to(m, pc);
+        };
+        const auto trows = [&](Machine& m, const char* name) {
+            std::vector<Dbg::CValueRow> out;
+            for (const auto& r : m.dbg->c_locals(0).rows)
+                if (r.name == name) out.push_back(r);
+            return out;
+        };
+        const auto row_has = [](const Dbg::CValueRow& r, const char* part) {
+            for (const auto& n : r.notes)
+                if (n.find(part) != std::string::npos) return true;
+            return false;
+        };
+        {   // SRCDBG-ZB-14
+            // shadowing, sccz80 (master-fixed-sccz80/sccz80-shadow, shadow.c): at `g += t` (line 8, $8C76) the inner t (block 2) is 5 and the outer t is 3. The innermost wins, as in gdb
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = lzf(m, "master-fixed-sccz80/sccz80-shadow", "zb14", 0x8C76, true);
+            const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
+            const auto rows = trows(m, "t");
+            const bool two = rows.size() == 2;
+            const bool marked = two && (row_has(rows[0], "shadowed") != row_has(rows[1], "shadowed"));
+            const Dbg::CValueRow* outer = two ? (row_has(rows[0], "shadowed") ? &rows[0] : &rows[1]) : nullptr;
+            const Dbg::CValueRow* inner = two ? (outer == &rows[0] ? &rows[1] : &rows[0]) : nullptr;
+            const Dbg::CWriteResult w = wr(m, 0, "t", "7");
+            const auto after = trows(m, "t");
+            const bool wrote = after.size() == 2 && ((after[0].value == "7" && after[1].value == "3") || (after[0].value == "3" && after[1].value == "7"));
+            check("SRCDBG-ZB-14", "sccz80 shadow.c at `g += t`: read t is 5 (the inner one) with no ambiguity or scope note; c_locals has two t rows, the outer (3) marked `shadowed` and the inner (5) not; t := 7 writes the inner one "
+                                  "(the rows read 7 and 3 afterwards)",
+                  at && rd.ok && rd.value == "5" && !has_note(rd, "ambiguous") && !has_note(rd, "scope unknown") && marked && outer && inner && outer->value == "3" && inner->value == "5" && w.ok() && wrote);
+        }
+        {   // SRCDBG-ZB-15
+            // the same, 80cc ($8C64): the inner t is a block local, never certain, so the read is noted `ambiguous` and `scope unknown`, the outer row is `may be shadowed`, and t := 7 is refused
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = lzf(m, "master-fixed-80cc/80cc-shadow", "zb15", 0x8C64, true);
+            const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
+            const auto rows = trows(m, "t");
+            int may = 0, unk = 0;
+            for (const auto& r : rows) {
+                may += row_has(r, "may be shadowed");
+                unk += row_has(r, "scope unknown");
+            }
+            const CwTry w = attempt(m, 0, "t", "7");
+            check("SRCDBG-ZB-15", "80cc shadow.c at `g += t`: read t is ok with the notes `ambiguous: 2 variables named t ...` and `scope unknown`; of the two t rows one is `may be shadowed` and one `scope unknown`; "
+                                  "t := 7 is refused (`scope unknown`, nothing written)",
+                  at && rd.ok && has_note(rd, "ambiguous: 2 variables named t") && has_note(rd, "scope unknown") && rows.size() == 2 && may == 1 && unk == 1 && refused_with(w, "scope unknown"));
+        }
+        {   // SRCDBG-ZB-16
+            // zsdcc ($8C56, shadow.c line 8): zsdcc keeps the outer t in DE and records the inner t (5, a constant) as `[]`, optimised out. The innermost still wins: t reads `optimised out`, not the outer's value
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = lzf(m, "master-fixed-zsdcc/sdcc-shadow", "zb16", 0x8C56, true);
+            const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
+            const auto rows = trows(m, "t");
+            int shadowed = 0;
+            for (const auto& r : rows) shadowed += row_has(r, "shadowed") && !row_has(r, "may be shadowed");
+            const CwTry w = attempt(m, 0, "t", "7");
+            check("SRCDBG-ZB-16", "zsdcc shadow.c at `g += t`: two t rows, the outer (register DE) marked `shadowed`; read t is the inner one, `optimised out`; t := 7 is refused",
+                  at && rows.size() == 2 && shadowed == 1 && !rd.ok && rd.why == "optimised out" && !w.w.ok());
+        }
+        {   // SRCDBG-ZB-17
+            // review 7 F1: 80cc stamps code with the scope of a block the code is not in (master-fixed-80cc/80cc-ifelse, ifelse.c, listing beside the map). The oracle is the C program: at the PCs below
+            // only t (and i, k, t in d2) is in scope or maybe, and q is NOT in scope. (1) f1: the jump that ends the then-branch ($8C91, listed on the else line, block 3); (2) k9: the jump that ends a
+            // brace-less then-branch ($8D72); (3) c1: the epilogue after a trailing block ($8DBD); (4) d2: the multiply hoisted before the loop ($8DDD). No block local is plain; q is flagged, a read
+            // of q carries `scope unknown` and q := 1 is refused; d2's parameters are a and c, 80cc's temporary 1licm_0 is not listed
+            const auto names = [&](Machine& m, bool params) {
+                std::vector<std::string> v;
+                for (const auto& r : m.dbg->c_locals(0).rows) {
+                    if ((r.kind == Dbg::CValueRow::Kind::Param) != params) continue;
+                    v.push_back(r.name + (row_has(r, "scope unknown") ? "?" : ""));
+                }
+                std::sort(v.begin(), v.end());
+                std::string out;
+                for (const auto& x : v) out += (out.empty() ? "" : " ") + x;
+                return out;
+            };
+            Machine m1(false, MachineType::ZXN_ISSUE2), m2(false, MachineType::ZXN_ISSUE2), m3(false, MachineType::ZXN_ISSUE2), m4(false, MachineType::ZXN_ISSUE2);
+            const bool a1 = lzf(m1, "master-fixed-80cc/80cc-ifelse", "zb17a", 0x8C91, true), a2 = lzf(m2, "master-fixed-80cc/80cc-ifelse", "zb17b", 0x8D72, true),
+                       a3 = lzf(m3, "master-fixed-80cc/80cc-ifelse", "zb17c", 0x8DBD, true), a4 = lzf(m4, "master-fixed-80cc/80cc-ifelse", "zb17d", 0x8DDD, true);
+            const std::string n1 = names(m1, false), n2 = names(m2, false), n3 = names(m3, false), n4 = names(m4, false), p4 = names(m4, true);
+            const Dbg::CValueResult rq = m1.dbg->read_c_value(0, "q");
+            const CwTry wq = attempt(m1, 0, "q", "1");
+            check("SRCDBG-ZB-17", "master-fixed-80cc ifelse.c with the listing, at the jump that ends f1's then-branch, k9's brace-less then-branch jump, c1's epilogue and d2's hoisted multiply: the block locals are "
+                                  "`q? t`, `q? t`, `q? t` and `i? k? t` (never plain); read q carries `scope unknown` and q := 1 is refused; d2's parameters are `a c` and nothing is named 1licm_0",
+                  a1 && a2 && a3 && a4 && n1 == "q? t" && n2 == "q? t" && n3 == "q? t" && n4 == "i? k? t" && p4 == "a c" && rq.ok && has_note(rq, "scope unknown") && refused_with(wq, "scope unknown"),
+                  n1 + " | " + n2 + " | " + n3 + " | " + n4 + " | " + p4);
         }
     }
 

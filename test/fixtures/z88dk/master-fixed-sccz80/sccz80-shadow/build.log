@@ -1,0 +1,3 @@
+# z88dk 0f0a1cf70e48856af8191af6f86096d2e1362482 (master-fixed-sccz80)
++ zcc +zxn -clib=new -debug -m --list -subtype=nex -o prog -create-app shadow.c
+rc=0
