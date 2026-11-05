@@ -4180,11 +4180,16 @@ script from the keyboard with the host keys.</p>
 </tr>
 </tbody>
 </table>
-<p>All three land at the <strong>next frame edge</strong>: a key pressed during frame <em>N</em> is
-seen by the guest from frame <em>N</em>+1, and by nothing in frame <em>N</em>. The guest
-never sees the keyboard change in the middle of a frame, which is what keeps a
-scripted run repeatable. It also means a <code>press</code> from an <code>on write</code> rule lands
-at the same instant as one from an <code>on frame</code> rule.</p>
+<p>All three land at the <strong>next frame edge</strong>, and the guest sees the change from
+the <strong>interrupt of the frame after it</strong>: a key pressed during frame <em>N</em> is seen
+by the guest from frame <em>N</em>+1's interrupt onwards, and by nothing before it. A
+program polling the keyboard in its main code therefore cannot act on a new key
+before its interrupt routine has run, as on an emulator that delivers host
+input just after the interrupt (FUSE does). The guest never sees a keyboard
+change at any other moment, which is what keeps a scripted run repeatable. It
+also means a <code>press</code> from an <code>on write</code> rule lands at the same instant as one
+from an <code>on frame</code> rule. This holds for the keyboard and the extended keys;
+joystick and mouse changes are seen from the start of the frame.</p>
 <p>A pulse is the same press <code>--delayed-keypress-frames</code> makes: <code>press "KEY" for
 5</code> in an <code>on frame N</code> rule is exactly <code>--delayed-keypress-frames N KEY</code>. The
 guest sees it for <code>n</code>−1 frames, and a 4-frame gap with everything released
