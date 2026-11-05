@@ -121,11 +121,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source maps + symbols |      130 |      130 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (skoolkit/Ghidra export) |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
-| z88dk -debug map adapter |      141 |      141 |      0 |       0 |    100% | 🟢 All tests pass. |
+| z88dk -debug map adapter |      142 |      142 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk --list listing adapter |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk CDB record decoder |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| C value formatting (frames and values) |       92 |       92 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source debugging (backend) |      518 |      518 |      0 |       0 |    100% | 🟢 All tests pass. |
+| C value formatting (frames and values) |       93 |       93 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (backend) |      521 |      521 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Backend (GH #276) |     1567 |     1567 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -186,6 +186,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      271 |      271 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **15692**| **15692**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **15697**| **15697**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
