@@ -100,7 +100,7 @@ std::string float_refusal(const CFormatCtx& ctx)
     if (!ctx.store) return "";
     const std::string& lib = ctx.store->float_library();
     if (lib == "mbf32" || lib == "mbf64" || lib == "bbc" || lib == "dai32")
-        return "float format " + lib + " is not read: the record does not say it (z88dk#3236)";
+        return "float format " + lib + " is not read: the record does not say it";
     return "";
 }
 

@@ -86,7 +86,7 @@ records. A map made stale by a different program in memory is shown as stale.
 A value the compiler's records cannot be fully trusted for is shown with a note in brackets after it, in the Value column and in the tooltip;
 the same notes reach the Watches tab and GDB's `monitor locals`, `print` and `set var`. A note never hides the variable.
 
-- **`80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)`**: on every
+- **`80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's`**: on every
   stack variable (a local or a parameter, in any frame, and the members or elements of it) of a function built with the 80cc compiler. 80cc can
   keep a local in a register and never write its slot, and it records a register-passed parameter at the slot of another variable. A static or
   a global never has it. In z88dk master the locals are fixed from 2026-11-04 and the parameters from 2026-11-05. JNEXT cannot tell a fixed build from an old one, so the note stays on every 80cc stack variable.
@@ -99,15 +99,14 @@ the same notes reach the Watches tab and GDB's `monitor locals`, `print` and `se
 The words `U1` and `U2` in the messages are JNEXT's names for two z88dk record bugs (a fastcall parameter's slot, a bitfield written as an `int`).
 
 Refusals instead of a value: `location unknown (z88dk U1...)` for a `__z88dk_fastcall` parameter that sccz80 recorded where it is not;
-`an array of unknown length: its debug record has no size`; `float format mbf32 is not read: the record does not say it (z88dk#3236)` (also
+`an array of unknown length: its debug record has no size`; `float format mbf32 is not read: the record does not say it` (also
 `mbf64`, `bbc` and `dai32`) when the map shows the program links one of those float libraries.
 
 ## What each z88dk can show
 
 These are limits of what the compilers record, not of the debugger. One row per version and compiler. The last column is the date from which
 z88dk master contains the fix (a release that contains it is not tracked here); `not fixed yet` means master does not have it. Every fix listed
-with a date is in z88dk master at `0f0a1cf70e` (2026-11-05). No z88dk nightly up to `z88dk-20261105-ddfed0b200` has them all: that one has the fixes merged by about 00:10 UTC on 2026-11-05 and lacks those merged after 07:00 UTC
-(enumerators, the zsdcc records, the 80cc parameters). Nightlies from `z88dk-20261106-*` on have all of them, and so does z88dk master built from source.
+with a date is in z88dk master from `0f0a1cf70e` (2026-11-05). To get all of them, use a nightly named `z88dk-20261106-*` or later, or z88dk master built from source; z88dk 2.4 works with the limits below.
 
 | z88dk, compiler | What the compiler records wrongly or not at all | How JNEXT shows it | Fixed in z88dk master from |
 |---|---|---|---|

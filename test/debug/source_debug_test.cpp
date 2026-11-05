@@ -8471,7 +8471,7 @@ int main() {
         // ── GH #438 (E353-08) S1: the markers. Oracle: the C sources of the fixtures (fc.c, fm.c, u5.c, bits.c, vars.c), their maps and listings
         // (addresses; `call l_debug_push_frame; push hl`; u5.c's `add a,a`), the ABI of the program the machine runs (bytes read independently
         // of the facade) and z88dk's own issues (#3229, #3231, #3233). Stops are asserted against the map's own line records.
-        const std::string k3233 = "z88dk#3233";
+        const std::string k3233 = "80cc may not keep it in the frame slot";   // the part of the 80cc note that names it
         const auto zb_at = [&](Machine& m, const char* fixture, const char* tag, const char* line, uint16_t pc, bool lis = false) {
             const fs::path d = var_dir(tag, fixture);
             if (lis) z88_copy_lis(fixture, d);
@@ -8532,7 +8532,7 @@ int main() {
                 for (const auto& r : o.dbg->c_locals(0).rows) { others = others && !note80(r.notes); ++n; }
                 others = others && !note80(o.dbg->read_c_value(1, "lp").notes);
             }
-            check("SRCDBG-ZB-01", "master 80cc-cvars at vars.c:41: a, b, p, k, t, acc and inner carry the 80cc note (z88dk#3233) in c_locals(0), t does in read_c_value(0, \"t\") and frame 1's lp "
+            check("SRCDBG-ZB-01", "master 80cc-cvars at vars.c:41: a, b, p, k, t, acc and inner carry the 80cc note in c_locals(0), t does in read_c_value(0, \"t\") and frame 1's lp "
                                   "does; read_c_value of the block local inner also says `scope unknown`; sum::calls, g_int and every global do not; no sccz80 or zsdcc local does",
                   all && calls && !note80(calls->notes) && t.ok && note80(t.notes) && has_note(m.dbg->read_c_value(0, "inner"), "scope unknown") && !has_note(t, "scope unknown") && lp.ok && note80(lp.notes) && g.ok && !note80(g.notes) && sc.ok && !note80(sc.notes) && globals && others && n > 12,
                   seen + " n=" + std::to_string(n));

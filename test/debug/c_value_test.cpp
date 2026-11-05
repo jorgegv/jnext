@@ -1492,7 +1492,7 @@ int main() {
             CFormatCtx ctx;
             ctx.store = &st;
             const CFormatted f = c_format_value(ctx, f4, ieee.data(), 4);
-            return !f.ok && f.why == std::string("float format ") + lib + " is not read: the record does not say it (z88dk#3236)";
+            return !f.ok && f.why == std::string("float format ") + lib + " is not read: the record does not say it";
         };
         const auto lib_reads = [&](const char* lib) {
             const VariableStore st({}, {}, {}, {}, {}, {}, {}, lib);
@@ -1501,10 +1501,9 @@ int main() {
             const CFormatted f = c_format_value(ctx, f4, ieee.data(), 4);
             return f.ok && f.text == "-3.25";
         };
-        check("CVZB-11", "float format from the map's library: master classic-mbf32 (`{4}SF`, bytes 00 00 D0 82) is refused `float format mbf32 is not read: the record does not say it "
-                         "(z88dk#3236)`; classic-math32's 00 00 50 C0 is -3.25; mbf64, bbc and dai32 are refused like mbf32; am9511 and math48 read by size; a map that names no "
+        check("CVZB-11", "float format from the map's library: master classic-mbf32 (`{4}SF`, bytes 00 00 D0 82) is refused `float format mbf32 is not read: the record does not say it`; classic-math32's 00 00 50 C0 is -3.25; mbf64, bbc and dai32 are refused like mbf32; am9511 and math48 read by size; a map that names no "
                          "library reads by size as before (-3.25, and 00 00 D0 82 as IEEE, the silent wrong value the refusal exists for)",
-              mb.first == "mbf32" && !rm.ok && rm.why == "float format mbf32 is not read: the record does not say it (z88dk#3236)" && m3.first == "math32" && r3.ok && r3.text == "-3.25" &&
+              mb.first == "mbf32" && !rm.ok && rm.why == "float format mbf32 is not read: the record does not say it" && m3.first == "math32" && r3.ok && r3.text == "-3.25" &&
                   none.ok && none.text == "-3.25" && c_format_value(CFormatCtx{}, f4, mbf.data(), 4).ok && lib_refuses("mbf64") && lib_refuses("bbc") && lib_refuses("dai32") &&
                   lib_reads("am9511") && lib_reads("math48") && lib_reads("math32"));
     }

@@ -151,7 +151,7 @@ CFormatCtx var_ctx(const Env& e, const CVariable& v)
 // z88dk#3233: 80cc may leave a local in a register, and records a register-passed parameter at its nominal slot, which can be
 // another variable's. A stack variable of an 80cc function is therefore shown with this note, whatever its offset.
 const char* const k80ccSlot =
-    "80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)";
+    "80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's";
 
 // OD-A (GH #438): with no listing beside the map nothing flags a function `__z88dk_fastcall`, but its ENTRY says so: sccz80 calls
 // `l_debug_push_frame` and then pushes the register parameter (`call l_debug_push_frame; push hl`, or `push de` first for a
@@ -513,7 +513,7 @@ Debugger::CVariablesStatus Debugger::c_variables_status() const
         if (!vs->refused().empty())
             st.why = "all " + std::to_string(vs->refused().size()) + " C variable records were refused: " + vs->refused().front();
         else if (!vs->no_record_facts().c_line_records)
-            st.why = "the map has no C debug records: build with zcc -debug (z88dk 2.4's zsdcc fails with -debug, z88dk#3172)";
+            st.why = "the map has no C debug records: build with zcc -debug (z88dk 2.4's zsdcc fails with -debug)";
         else if (vs->no_record_facts().zsdcc_form)
             st.why = "zsdcc wrote no C variable records for this build (zcc -O0 writes none)";
         else

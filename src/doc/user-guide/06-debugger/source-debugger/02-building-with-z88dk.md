@@ -10,6 +10,8 @@ Every command line here was run with z88dk 2.4 (commit 4d530b6eb7, sdcc 4.5.0)
 and with a master build (commit 0f0a1cf70e, v2.4-2954, sdcc 4.6.0), unless a
 table says one of them is different.
 
+For everything that z88dk master has fixed in its debug records, install a nightly named `z88dk-20261106-*` or later, or build z88dk master from source; z88dk 2.4 works with the limits listed in [C variables](11-c-variables.md#what-each-z88dk-can-show).
+
 ## The recommended build
 
 ```

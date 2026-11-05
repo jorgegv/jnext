@@ -200,7 +200,7 @@ Where an object is read from (`eval_var()`, `debugger_cvalues.cpp:178`):
   entry bytes `call l_debug_push_frame; push hl` (or `push de; push hl`), `CD <lo hi> E5`, `l_debug_push_frame` being the helper the store resolved, read through the entry's own page
   (`peek`, no side effect). KNOWN LIMITATION: a `float` or `long long` fastcall argument is pushed by other helpers (`gen_push_float`, `llpush`), so with no listing a function that takes
   one is read from the nominal slot, a wrong value; with a listing it is refused.
-- **A stack variable of an 80cc function** carries the note `80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)`, in every
+- **A stack variable of an 80cc function** carries the note `80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's`, in every
   frame and on members and elements (`CCompiler::Cc80`). It is always on: nothing in the map says whether the build has z88dk master's 2026-11-04 fix, and a parameter the function reassigns is still wrong after it.
 - **A float** of a map whose float library is `mbf32`, `mbf64`, `bbc` or `dai32` is refused (`float format <lib> is not read: ...`): the record says only `{4}SF`. `math32`, `am9511`, `math48` and a map that names none decide by size.
 - **A bitfield's type text** is `int :N` for an `SB..:S` record and `unsigned int :N` for `:U` (a plain `int` bitfield is `:U` in sccz80 and 80cc, `:S` in zsdcc). An `{-1}` array is refused `an array of unknown length: its debug record has no size`.

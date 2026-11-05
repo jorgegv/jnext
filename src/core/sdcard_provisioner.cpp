@@ -852,7 +852,7 @@ bool patch_image_fat32(const std::string& image_path, std::string& err,
     if (double_known_zx81_rom(tree, zx81_known_sha256)) {
         Log::emulator()->info(
             "sdcard: doubled the 16 KB /MACHINES/NEXT/zx81.rom to 32 KB so the "
-            "firmware boot menu can load the ZX81 entry (GH #284)");
+            "firmware boot menu can load the ZX81 entry");
     }
 
     // Reformat the partition in place to a spec-valid FAT32 with 8 KB clusters

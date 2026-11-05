@@ -1445,7 +1445,7 @@ void test_rows() {
         Fix f;
         f.load("master/80cc-cvars", "zb02");
         const bool at = f.run_to(0x8CCA);
-        const QString note = "80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)";
+        const QString note = "80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's";
         const bool pinned = f.vp()->watch_item(child(locals(f), "t"));
         const QString cell = wcell(f, 0, 3);
         Fix g;
@@ -1460,7 +1460,7 @@ void test_rows() {
         Fix f;
         f.load("master/80cc-cvars", "zb01");
         const bool at = f.run_to(0x8CCA);
-        const QString note = "80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)";
+        const QString note = "80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's";
         QTreeWidgetItem* t = child(locals(f), "t");
         QTreeWidgetItem* calls = child(locals(f), "calls");
         const bool row = t && val(t).endsWith("  (" + note + ")") && t->toolTip(2).contains(note);
@@ -1471,7 +1471,7 @@ void test_rows() {
         g.load("master/sccz80-cvars", "zb01b");
         const bool gat = g.run_to(kS41);
         g.vp()->commit_edit(child(locals(g), "t"), "1000");
-        check("QVARZB-01", "master 80cc-cvars at vars.c:41: the row t ends `  (80cc may not keep it ... (z88dk#3233))`, its tooltip has the note and the static local calls has none; an "
+        check("QVARZB-01", "master 80cc-cvars at vars.c:41: the row t ends `  (80cc may not keep it ...)`, its tooltip has the note and the static local calls has none; an "
                            "edit of t succeeds and the message says `t: <the note>`; the same edit on sccz80 leaves the message hidden",
               at && row && plain && fb && gat && message(g)->isHidden(), detail_of(t) + " msg=" + s(message(f)->text()));
     }

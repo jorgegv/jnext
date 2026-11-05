@@ -4326,7 +4326,7 @@ records. A map made stale by a different program in memory is shown as stale.</p
 <p>A value the compiler's records cannot be fully trusted for is shown with a note in brackets after it, in the Value column and in the tooltip;
 the same notes reach the Watches tab and GDB's <code>monitor locals</code>, <code>print</code> and <code>set var</code>. A note never hides the variable.</p>
 <ul>
-<li><strong><code>80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)</code></strong>: on every
+<li><strong><code>80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's</code></strong>: on every
   stack variable (a local or a parameter, in any frame, and the members or elements of it) of a function built with the 80cc compiler. 80cc can
   keep a local in a register and never write its slot, and it records a register-passed parameter at the slot of another variable. A static or
   a global never has it. In z88dk master the locals are fixed from 2026-11-04 and the parameters from 2026-11-05. JNEXT cannot tell a fixed build from an old one, so the note stays on every 80cc stack variable.</li>
@@ -4338,13 +4338,12 @@ the same notes reach the Watches tab and GDB's <code>monitor locals</code>, <cod
 </ul>
 <p>The words <code>U1</code> and <code>U2</code> in the messages are JNEXT's names for two z88dk record bugs (a fastcall parameter's slot, a bitfield written as an <code>int</code>).</p>
 <p>Refusals instead of a value: <code>location unknown (z88dk U1...)</code> for a <code>__z88dk_fastcall</code> parameter that sccz80 recorded where it is not;
-<code>an array of unknown length: its debug record has no size</code>; <code>float format mbf32 is not read: the record does not say it (z88dk#3236)</code> (also
+<code>an array of unknown length: its debug record has no size</code>; <code>float format mbf32 is not read: the record does not say it</code> (also
 <code>mbf64</code>, <code>bbc</code> and <code>dai32</code>) when the map shows the program links one of those float libraries.</p>
 <h2 id="what-each-z88dk-can-show">What each z88dk can show<a class="headerlink" href="#what-each-z88dk-can-show" title="Permanent link">&para;</a></h2>
 <p>These are limits of what the compilers record, not of the debugger. One row per version and compiler. The last column is the date from which
 z88dk master contains the fix (a release that contains it is not tracked here); <code>not fixed yet</code> means master does not have it. Every fix listed
-with a date is in z88dk master at <code>0f0a1cf70e</code> (2026-11-05). No z88dk nightly up to <code>z88dk-20261105-ddfed0b200</code> has them all: that one has the fixes merged by about 00:10 UTC on 2026-11-05 and lacks those merged after 07:00 UTC
-(enumerators, the zsdcc records, the 80cc parameters). Nightlies from <code>z88dk-20261106-*</code> on have all of them, and so does z88dk master built from source.</p>
+with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get all of them, use a nightly named <code>z88dk-20261106-*</code> or later, or z88dk master built from source; z88dk 2.4 works with the limits below.</p>
 <table>
 <thead>
 <tr>
