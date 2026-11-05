@@ -49,10 +49,12 @@
 #include "platform/emulator_boot.h"
 #include "platform/host_key_latch.h"
 #include "port/nextreg.h"
+#include "core/saveable.h"
 
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -1873,6 +1875,445 @@ static void test_gh386_rom_keys() {
     }
 }
 
+// -- HIC: when the guest sees a key change (GH #450) -------------------------
+//
+// ORACLE. The commit POSITION is the VHDL interrupt position
+// (c_int_h, c_int_v), zxula_timing.vhd:551 with the per-timing constants at
+// :155/:163 (Pentagon), :187/:199 (128K), :189/:199 (+3, Next), :257/:265
+// (48K). Hardware has no input phase at all: membrane.vhd:99-155 scans the
+// keys continuously, so a real key change is asynchronous to the frame. The
+// POLICY of committing at the interrupt, rather than at the frame boundary, is
+// a host policy, and its oracle is FUSE 1.5.7 spectrum.c:91-103: the frame
+// event runs z80_interrupt() FIRST and ui_event() (host input) after it, so a
+// key lands after the interrupt has been entered. A program polling the keys
+// therefore cannot act on a key before its ISR has run. Ms. Nam-Pac pages a
+// bank holding its music with interrupts enabled as soon as it sees a key; a
+// key shown 292 T BEFORE the interrupt made that window straddle the
+// interrupt and the guest jumped to $0000.
+//
+// The guest is our own hand-assembled code (no third-party bytes), in
+// uncontended bank 2 at $8000 so every timing below is the interrupt's alone.
+namespace gh450_hic {
+
+constexpr uint16_t TICK = 0x9000, SEEN = 0x9001, ISR_READ = 0x9002,
+                   ISR_PREV = 0x9003, LASTMAIN = 0x9004, DONE = 0x9005,
+                   MARKER = 0x9006, SEEN_ITER = 0x9008;
+
+// Subroutines that leave A != 0 exactly when the watched key is down.
+const std::vector<uint8_t> kReadSpace = {      // port $7FFE bit 0, active low
+    0x01, 0xFE, 0x7F,   // LD BC,$7FFE
+    0xED, 0x78,         // IN A,(C)
+    0x2F,               // CPL
+    0xE6, 0x01,         // AND 1
+    0xC9 };
+const std::vector<uint8_t> kReadCaps = {       // port $FEFE bit 0, active low
+    0x01, 0xFE, 0xFE, 0xED, 0x78, 0x2F, 0xE6, 0x01, 0xC9 };
+const std::vector<uint8_t> kReadNrB0Up = {     // NR $B0 bit 3 (UP), active high
+    0x01, 0x3B, 0x24,   // LD BC,$243B
+    0x3E, 0xB0,         // LD A,$B0
+    0xED, 0x79,         // OUT (C),A
+    0x01, 0x3B, 0x25,   // LD BC,$253B
+    0xED, 0x78,         // IN A,(C)
+    0xE6, 0x08,         // AND 8
+    0xC9 };
+
+struct Rig {
+    Emulator emu;
+    bool ok = false;
+};
+
+std::string sd_image() {
+    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
+    const char* home = std::getenv("HOME");
+    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+}
+
+void put(Emulator& emu, uint16_t at, const std::vector<uint8_t>& b) {
+    for (size_t i = 0; i < b.size(); ++i)
+        emu.mmu().write(static_cast<uint16_t>(at + i), b[i]);
+}
+
+bool init(Rig& r, MachineType t, int rewind_frames = 0) {
+    EmulatorConfig cfg;
+    cfg.type = t;
+    cfg.rewind_buffer_frames = rewind_frames;
+    cfg.sd_card_image = sd_image();
+    cfg.sd_card_readonly = true;
+    r.ok = r.emu.init(cfg);
+    return r.ok;
+}
+
+void start_at_8000(Emulator& emu) {
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000;
+    emu.cpu().set_registers(regs);
+}
+
+// The polling program: IM 2 (I=$BE, table $BE00-$BF00 = $BF, JP at $BFBF),
+// ISR at $8200, the read subroutine at $8300.
+//   main:  loop: CALL read; LD (LASTMAIN),A; INC HL; OR A; JR Z,loop
+//          then SEEN_ITER = HL, SEEN = tick, DONE = 1, spin.
+//   ISR:   ISR_PREV = LASTMAIN (the main loop's last read before the ISR),
+//          ISR_READ = its own read, tick++.
+void build_poller(Rig& r, const std::vector<uint8_t>& read, bool ei) {
+    Emulator& emu = r.emu;
+    put(emu, 0x8000, {
+        0x31, 0x00, 0x8F,       // LD SP,$8F00
+        0x3E, 0xBE, 0xED, 0x47, // LD A,$BE ; LD I,A
+        0xED, 0x5E,             // IM 2
+        0x21, 0x00, 0x00,       // LD HL,0
+        static_cast<uint8_t>(ei ? 0xFB : 0xF3),   // EI / DI
+        // loop = $800D
+        0xCD, 0x00, 0x83,       // CALL $8300
+        0x32, 0x04, 0x90,       // LD (LASTMAIN),A
+        0x23,                   // INC HL
+        0xB7,                   // OR A
+        0x28, 0xF6,             // JR Z,loop
+        0x22, 0x08, 0x90,       // LD (SEEN_ITER),HL
+        0x3A, 0x00, 0x90,       // LD A,(TICK)
+        0x32, 0x01, 0x90,       // LD (SEEN),A
+        0x3E, 0x01,             // LD A,1
+        0x32, 0x05, 0x90,       // LD (DONE),A
+        0x18, 0xFE });          // JR $
+    put(emu, 0x8200, {
+        0xF5, 0xC5,             // PUSH AF ; PUSH BC
+        0x3A, 0x04, 0x90,       // LD A,(LASTMAIN)
+        0x32, 0x03, 0x90,       // LD (ISR_PREV),A
+        0xCD, 0x00, 0x83,       // CALL $8300
+        0x32, 0x02, 0x90,       // LD (ISR_READ),A
+        0x3A, 0x00, 0x90, 0x3C, 0x32, 0x00, 0x90,   // tick++
+        0xC1, 0xF1, 0xFB, 0xC9 });                  // POP BC ; POP AF ; EI ; RET
+    put(emu, 0x8300, read);
+    for (uint16_t a = 0xBE00; a <= 0xBF00; ++a) emu.mmu().write(a, 0xBF);
+    put(emu, 0xBFBF, { 0xC3, 0x00, 0x82 });         // JP $8200
+    for (uint16_t a = TICK; a <= 0x900F; ++a) emu.mmu().write(a, 0);
+    start_at_8000(emu);
+}
+
+struct Obs {
+    uint8_t  t = 0, seen = 0, done = 0, isr_read = 0, isr_prev = 0xEE, tick = 0;
+    uint16_t seen_iter = 0;
+};
+
+uint8_t pk(Emulator& e, uint16_t a) { return e.mmu().peek(a); }
+
+Obs collect(Emulator& e, uint8_t t) {
+    Obs o;
+    o.t = t;
+    o.seen = pk(e, SEEN);
+    o.done = pk(e, DONE);
+    o.isr_read = pk(e, ISR_READ);
+    o.isr_prev = pk(e, ISR_PREV);
+    o.tick = pk(e, TICK);
+    o.seen_iter = static_cast<uint16_t>(pk(e, SEEN_ITER) | (pk(e, SEEN_ITER + 1) << 8));
+    return o;
+}
+
+void warm(Emulator& e, int frames = 4) { for (int i = 0; i < frames; ++i) e.run_frame(); }
+
+// A host key change between frame N and frame N+1, then frame N+1.
+Obs host_press_then_frame(Emulator& e, std::function<void(Emulator&)> press) {
+    const uint8_t t = pk(e, TICK);
+    press(e);
+    e.run_frame();
+    return collect(e, t);
+}
+
+// The "key seen by the main loop only after the ISR that follows the commit
+// (`n` ticks after the key was set), that ISR reads it, and the main loop's last
+// read before that ISR did not".
+bool fuse_order(const Obs& o, int n = 1) {
+    return o.done == 1 && o.seen == static_cast<uint8_t>(o.t + n) &&
+           o.isr_read != 0 && o.isr_prev == 0;
+}
+
+std::string obs_str(const Obs& o) {
+    char b[160];
+    std::snprintf(b, sizeof(b), "t=%u seen=%u done=%u isr_read=%u isr_prev=%u tick=%u",
+                  o.t, o.seen, o.done, o.isr_read, o.isr_prev, o.tick);
+    return b;
+}
+
+void press_space(Emulator& e) { e.keyboard().set_key(SDL_SCANCODE_SPACE, true); }
+
+}  // namespace gh450_hic
+
+static void test_gh450_hic() {
+    set_group("HIC");
+    using namespace gh450_hic;
+
+    // HIC-01 - 128K: the main loop first sees a key set between frames only
+    // after frame N+1's interrupt (FUSE spectrum.c:91-103: input after
+    // z80_interrupt()). Before the fix it saw it at the edge, tick unchanged.
+    // HIC-02 - and the ISR of frame N+1 reads it down, and the main loop's last
+    // read before that ISR saw it up (nothing sneaks in between).
+    {
+        Rig r;
+        Obs o;
+        if (init(r, MachineType::ZX128K)) {
+            build_poller(r, kReadSpace, true);
+            warm(r.emu);
+            o = host_press_then_frame(r.emu, press_space);
+        }
+        check("HIC-01", "128K: a key set between frames is first seen by the main loop after frame N+1's ISR",
+              r.ok && o.done == 1 && o.seen == static_cast<uint8_t>(o.t + 1),
+              obs_str(o));
+        check("HIC-02", "128K: ISR of N+1 reads the key down; the main loop's last read before it read up (FUSE order)",
+              r.ok && o.isr_read != 0 && o.isr_prev == 0,
+              obs_str(o));
+    }
+
+    // HIC-03 - 48K: INT at (116,0) = 58.5 T into the frame; the same order.
+    {
+        Rig r;
+        Obs o;
+        if (init(r, MachineType::ZX48K)) {
+            build_poller(r, kReadSpace, true);
+            warm(r.emu);
+            o = host_press_then_frame(r.emu, press_space);
+        }
+        check("HIC-03", "48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265)",
+              r.ok && fuse_order(o),
+              obs_str(o));
+    }
+
+    // HIC-04 - Pentagon: INT at (439,319), 5 T before the frame boundary, so the
+    // commit is the LAST thing of frame N+1 and the ISR that reads the key runs
+    // at the start of frame N+2 (the ISR of N, accepted after the boundary,
+    // runs first and still sees the old state). The main loop polls the whole
+    // of frame N+1 and does not see the key: seen = t + 2.
+    {
+        Rig r;
+        Obs o;
+        if (init(r, MachineType::PENTAGON)) {
+            build_poller(r, kReadSpace, true);
+            warm(r.emu);
+            const uint8_t t = pk(r.emu, TICK);
+            press_space(r.emu);
+            r.emu.run_frame();
+            r.emu.run_frame();
+            o = collect(r.emu, t);
+        }
+        check("HIC-04",
+              "Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163)",
+              r.ok && fuse_order(o, 2),
+              obs_str(o));
+    }
+
+    // HIC-05 - the Ms. Nam-Pac mechanism. IM2 table in bank 0 at $C000, music
+    // bank 6 paged with EI for ~420 T as soon as the key is seen. In bank 6
+    // the vector word is $8F8F: a routine that writes $DE to MARKER (the
+    // crash). Passing needs the key to be seen AFTER the interrupt, so the
+    // window ends long before the next one.
+    {
+        Rig r;
+        bool done = false;
+        uint8_t marker = 0xEE;
+        if (init(r, MachineType::ZX128K)) {
+            Emulator& e = r.emu;
+            put(e, 0x8000, {
+                0x31, 0x00, 0x8F,       // LD SP,$8F00
+                0x3E, 0xC0, 0xED, 0x47, // LD A,$C0 ; LD I,A
+                0xED, 0x5E,             // IM 2
+                0x01, 0xFE, 0x7F,       // LD BC,$7FFE
+                0xFB,                   // EI
+                // loop = $800D
+                0xED, 0x78,             // IN A,(C)
+                0xCB, 0x47,             // BIT 0,A
+                0x20, 0xFA,             // JR NZ,loop
+                0x01, 0xFD, 0x7F,       // LD BC,$7FFD
+                0x3E, 0x16,             // LD A,$16
+                0xED, 0x79,             // OUT (C),A   bank 6 at $C000
+                0x06, 0x20,             // LD B,32
+                0x10, 0xFE,             // DJNZ $      ~420 T with EI
+                0x01, 0xFD, 0x7F,       // LD BC,$7FFD
+                0x3E, 0x10,             // LD A,$10
+                0xED, 0x79,             // OUT (C),A   bank 0 back
+                0x3E, 0x01,             // LD A,1
+                0x32, 0x05, 0x90,       // LD (DONE),A
+                0x18, 0xFE });          // JR $
+            put(e, 0x8200, { 0xF5, 0x3A, 0x00, 0x90, 0x3C, 0x32, 0x00, 0x90, 0xF1, 0xFB, 0xC9 });
+            put(e, 0x8F8F, { 0x3E, 0xDE, 0x32, 0x06, 0x90, 0x18, 0xFE });  // FAIL: marker=$DE
+            // Bank 0 table and JP at $8181, then bank 6's $C0FF/$C100.
+            e.port().out(0x7FFD, 0x10);
+            for (uint16_t a = 0xC000; a <= 0xC100; ++a) e.mmu().write(a, 0x81);
+            put(e, 0x8181, { 0xC3, 0x00, 0x82 });
+            e.port().out(0x7FFD, 0x16);
+            e.mmu().write(0xC0FF, 0x8F);
+            e.mmu().write(0xC100, 0x8F);
+            e.port().out(0x7FFD, 0x10);
+            for (uint16_t a = TICK; a <= 0x900F; ++a) e.mmu().write(a, 0);
+            start_at_8000(e);
+            warm(e);
+            press_space(e);
+            for (int i = 0; i < 3; ++i) e.run_frame();
+            done   = pk(e, DONE) == 1;
+            marker = pk(e, MARKER);
+        }
+        check("HIC-05", "128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0)",
+              r.ok && done && marker == 0,
+              detail("done=%d marker=0x%02X", done, marker));
+    }
+
+    // HIC-06 - the same through the injection path (--delayed-keypress): a
+    // pulse is pressed at the edge ending frame N, so it commits at frame N+1's
+    // interrupt, like a host key.
+    {
+        Rig r;
+        Obs o;
+        if (init(r, MachineType::ZX128K)) {
+            build_poller(r, kReadSpace, true);
+            warm(r.emu);
+            r.emu.keyboard().queue_auto_type({ { 7, 0, -1, -1, 5 } });
+            r.emu.run_frame();                       // frame N: the edge presses it
+            const uint8_t t = pk(r.emu, TICK);
+            r.emu.run_frame();                       // frame N+1
+            o = collect(r.emu, t);
+        }
+        check("HIC-06", "128K: a queued key pulse commits at the next frame's interrupt, like a host key",
+              r.ok && fuse_order(o),
+              obs_str(o));
+    }
+
+    // HIC-07 - Next: the extended keys (NR $B0) commit at the same point.
+    {
+        Rig r;
+        Obs o;
+        if (init(r, MachineType::ZXN_ISSUE2)) {
+            build_poller(r, kReadNrB0Up, true);
+            warm(r.emu);
+            o = host_press_then_frame(r.emu, [](Emulator& e) {
+                e.keyboard().set_extended_key(static_cast<int>(Keyboard::ExtKey::UP), true);
+            });
+        }
+        check("HIC-07", "Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208)",
+              r.ok && fuse_order(o),
+              obs_str(o));
+    }
+
+    // HIC-08 - the commit is a raster position, not the interrupt: with the ULA
+    // interrupt DISABLED (NR 0x22 bit 2) and DI, the polling loop still sees the
+    // key from the interrupt position on and not before. The loop's iteration
+    // count (HL, reset at the frame edge) places the first sighting.
+    {
+        Rig r;
+        double iter = -1, expect = -2, per_frame = 0;
+        bool ok = false;
+        if (init(r, MachineType::ZXN_ISSUE2)) {
+            Emulator& e = r.emu;
+            build_poller(r, kReadSpace, false);
+            nr_write(e, 0x22, 0x04);                     // ULA interrupt off
+            warm(e);
+            // Calibrate: iterations in one frame with no key.
+            auto reset_hl = [&e]() {
+                auto g = e.cpu().get_registers();
+                g.HL = 0;
+                e.cpu().set_registers(g);
+            };
+            reset_hl();
+            e.run_frame();
+            per_frame = e.cpu().get_registers().HL;
+            reset_hl();
+            press_space(e);
+            e.run_frame();
+            iter = static_cast<double>(pk(e, SEEN_ITER) | (pk(e, SEEN_ITER + 1) << 8));
+            const double edge = static_cast<double>(e.video_timing().frame_int_master_cycle_offset() + 4);
+            expect = per_frame * edge / static_cast<double>(e.timing().master_cycles_per_frame);
+            ok = pk(e, DONE) == 1;
+        }
+        check("HIC-08", "Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge",
+              r.ok && ok && iter >= expect - 1.0 && iter <= expect + 2.0,
+              std::string("iter=") + std::to_string(iter) + " expect=" + std::to_string(expect) +
+              " per_frame=" + std::to_string(per_frame));
+    }
+
+    // HIC-09 - the guest's view is machine state: a boundary snapshot carrying
+    // a pending host change replays the same way (ring rewind, and a state
+    // save/load into a fresh machine).
+    {
+        Rig r;
+        Obs o_rewind, o_load;
+        bool rewound = false;
+        if (init(r, MachineType::ZX128K, 6)) {
+            Emulator& e = r.emu;
+            build_poller(r, kReadSpace, true);
+            warm(e);
+            const uint8_t t = pk(e, TICK);
+            press_space(e);
+            const uint32_t k = e.frame_num();
+            // Boundary snapshot with the key pending, for the fresh machine.
+            StateWriter measure;
+            e.save_state(measure);
+            std::vector<uint8_t> buf(measure.position(), 0);
+            StateWriter w(buf.data(), buf.size());
+            e.save_state(w);
+            e.run_frame();                                   // frame N+1
+            rewound = e.rewind_to_frame(k);
+            e.run_frame();                                   // replay of N+1
+            o_rewind = collect(e, t);
+
+            Rig r2;
+            if (init(r2, MachineType::ZX128K)) {
+                StateReader rd(buf.data(), buf.size());
+                r2.emu.load_state(rd);
+                r2.emu.run_frame();
+                o_load = collect(r2.emu, t);
+            }
+        }
+        check("HIC-09", "a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt",
+              r.ok && rewound && fuse_order(o_rewind) && fuse_order(o_load),
+              obs_str(o_rewind) + " | " + obs_str(o_load));
+    }
+
+    // HIC-10 - Caps Shift: released between frames, the guest still sees CS
+    // down until the interrupt, and the membrane's extra-scan hold
+    // (membrane.vhd:178) then runs from the committed state, so the first scan
+    // after the commit still shows it and a later one does not.
+    {
+        Rig r;
+        uint8_t before = 0xEE, after_first = 0xEE, after_later = 0xEE;
+        if (init(r, MachineType::ZX128K)) {
+            Emulator& e = r.emu;
+            build_poller(r, kReadCaps, true);
+            e.keyboard().set_key(SDL_SCANCODE_LSHIFT, true);
+            warm(e);
+            // Guest-visible CS is down (A != 0 in ISR_READ).
+            e.keyboard().set_key(SDL_SCANCODE_LSHIFT, false);
+            e.run_frame();
+            // The ISR of this frame read the committed state.
+            before = pk(e, ISR_PREV);
+            after_first = pk(e, ISR_READ);
+            e.run_frame();
+            after_later = pk(e, ISR_READ);
+        }
+        check("HIC-10", "Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after",
+              r.ok && before != 0 && after_first != 0 && after_later == 0,
+              detail("prev=%d first=%d", before, after_first) + detail(" later=%d", after_later));
+    }
+
+    // HIC-11 - outside run_frame nothing is held: a read made by the TEST (no
+    // guest running), the raw accessors the debugger uses, and the guest-side
+    // NR 0xB0 byte all show a key at once. A guest never runs here.
+    {
+        Rig r;
+        bool port_sees = false, dbg_sees = false;
+        if (init(r, MachineType::ZX128K)) {
+            Emulator& e = r.emu;
+            build_poller(r, kReadSpace, true);
+            warm(e);
+            press_space(e);
+            port_sees = (e.port().in(0x7FFE) & 0x01) == 0;
+            e.keyboard().set_extended_key(static_cast<int>(Keyboard::ExtKey::UP), true);
+            dbg_sees = e.keyboard().matrix_row(7) == 0xFE &&
+                       (e.keyboard().live_extended_keys() & 0x08) != 0 &&
+                       (e.keyboard().nr_b0_byte() & 0x08) != 0;
+        }
+        check("HIC-11", "between frames the port, the raw accessors and NR 0xB0 see a key at once (nothing is held outside run_frame)",
+              r.ok && port_sees && dbg_sees,
+              detail("port=%d dbg=%d", port_sees, dbg_sees));
+    }
+}
+
 int main() {
     std::printf("Input Subsystem Integration Tests (port 0xFE assembly)\n");
     std::printf("======================================================\n\n");
@@ -1907,6 +2348,9 @@ int main() {
 
     test_gh386_rom_keys();
     std::printf("  Group: ROMKB   - done\n");
+
+    test_gh450_hic();
+    std::printf("  Group: HIC     - done\n");
 
     test_gamepad_host_real_device();
     std::printf("  Group: GPH     — done\n");

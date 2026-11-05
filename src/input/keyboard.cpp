@@ -309,6 +309,14 @@ void Keyboard::release_all_keys() {
     ex_matrix_     = 0x0000;
     shift_hist_[0] = 0xFF;
     shift_hist_[1] = 0xFF;
+    std::memset(guest_matrix_, 0xFF, sizeof(guest_matrix_));
+    guest_ex_matrix_ = 0x0000;
+    guest_view_held_ = false;
+}
+
+void Keyboard::latch_guest_view() {
+    std::memcpy(guest_matrix_, matrix_, sizeof(guest_matrix_));
+    guest_ex_matrix_ = ex_matrix_;
 }
 
 void Keyboard::reset() {
@@ -324,6 +332,9 @@ void Keyboard::reset() {
     // Shift-hysteresis scan buffers — initial "all released" state.
     shift_hist_[0]   = 0xFF;
     shift_hist_[1]   = 0xFF;
+    std::memset(guest_matrix_, 0xFF, sizeof(guest_matrix_));
+    guest_ex_matrix_ = 0x0000;
+    guest_view_held_ = false;
     // Task 77 — host Alt modifier state. Clearing alt_held_ is load-bearing:
     // a reset taken with Alt physically down would otherwise keep resolving
     // Alt variants afterwards (covered by T77K-17).
@@ -449,8 +460,9 @@ uint8_t Keyboard::read_rows(uint8_t addr_high) const {
     //     hysteresis layer, not the ext-fold layer.
 
     // --- (1) Hysteresis: hold-extend bit 0 of row 0 + bit 1 of row 7. -
-    uint8_t row0_eff = matrix_[0];
-    uint8_t row7_eff = matrix_[7];
+    const uint8_t* const mx = rd_matrix();
+    uint8_t row0_eff = mx[0];
+    uint8_t row7_eff = mx[7];
     const uint8_t cs_prev  = shift_hist_[0] & 0x01u;
     row0_eff = (row0_eff & ~0x01u) | ((row0_eff & 0x01u) & cs_prev);
     const uint8_t sym_prev = shift_hist_[0] & 0x02u;
@@ -464,7 +476,7 @@ uint8_t Keyboard::read_rows(uint8_t addr_high) const {
     // so NR 0xB0/0xB1 still report the raw keys: that combination is the
     // entire purpose of the bit.
     uint8_t ext_rowmask[8] = {0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F};
-    const uint16_t ex = cancel_extended_ ? 0x0000u : ex_matrix_;
+    const uint16_t ex = cancel_extended_ ? 0x0000u : rd_ex();
     auto clear_if = [&](int id, int row, int col) {
         if (ex & (1u << id)) {
             ext_rowmask[row] &= static_cast<uint8_t>(~(1u << col));
@@ -527,7 +539,7 @@ uint8_t Keyboard::read_rows(uint8_t addr_high) const {
     uint8_t result = 0x1F;
     for (int row = 0; row < 8; ++row) {
         if (!(addr_high & (1 << row))) {
-            uint8_t r = matrix_[row];
+            uint8_t r = mx[row];
             if      (row == 0) r = row0_eff;   // (1) hysteresis
             else if (row == 7) r = row7_eff;
             r = static_cast<uint8_t>(r & ext_rowmask[row]);  // (2) ext fold
@@ -705,8 +717,8 @@ void Keyboard::tick_scan() {
     //
     // Snapshot the CURRENT membrane state into shift_hist_[0] and
     // push the previous shift_hist_[0] into shift_hist_[1].
-    const uint8_t cs_now  = (matrix_[0] & 0x01u) ? 0x01u : 0x00u;   // active-low
-    const uint8_t sym_now = (matrix_[7] & 0x02u) ? 0x02u : 0x00u;   // active-low
+    const uint8_t cs_now  = (rd_matrix()[0] & 0x01u) ? 0x01u : 0x00u;   // active-low
+    const uint8_t sym_now = (rd_matrix()[7] & 0x02u) ? 0x02u : 0x00u;   // active-low
     const uint8_t snap = 0xFCu | cs_now | sym_now;  // bits 2..7 stay 1
     shift_hist_[1] = shift_hist_[0];
     shift_hist_[0] = snap;
@@ -738,7 +750,7 @@ uint8_t Keyboard::nr_b0_byte() const {
     //   & (1) & (15 downto 13)                          // UP DOWN LEFT RIGHT
     // Mapped 1:1 onto ExtKey IDs 7..0 (SEMICOLON..RIGHT), so the low
     // byte of ex_matrix_ IS the NR 0xB0 byte (active-high).
-    return static_cast<uint8_t>(ex_matrix_ & 0x00FFu);
+    return static_cast<uint8_t>(rd_ex() & 0x00FFu);
 }
 
 uint8_t Keyboard::nr_b1_byte() const {
@@ -747,7 +759,7 @@ uint8_t Keyboard::nr_b1_byte() const {
     //   // DELETE EDIT BREAK INV TRU GRAPH CAPSLOCK EXTEND
     // Mapped 1:1 onto ExtKey IDs 15..8 (DELETE..EXTEND), so the high
     // byte of ex_matrix_ IS the NR 0xB1 byte (active-high).
-    return static_cast<uint8_t>((ex_matrix_ >> 8) & 0x00FFu);
+    return static_cast<uint8_t>((rd_ex() >> 8) & 0x00FFu);
 }
 
 // ---------------------------------------------------------------------------
@@ -916,6 +928,19 @@ void Keyboard::describe_state(jnext::save::StateDesc& d)
     // so it travels with the snapshot. Declared LAST, where the hand-written
     // pair appended it.
     d.boolean("cancel_extended", cancel_extended_);
+    // The guest's view of the membrane (see latch_guest_view()). Appended, each
+    // with a declared default equal to its reset() value, so a .jns written
+    // before these fields existed still loads (as "nothing held").
+    d.boolean("guest_view_held", guest_view_held_, false);
+    d.u16("guest_ex_matrix", guest_ex_matrix_, 0x0000);
+    d.u8("guest_matrix_0", guest_matrix_[0], 0xFF);
+    d.u8("guest_matrix_1", guest_matrix_[1], 0xFF);
+    d.u8("guest_matrix_2", guest_matrix_[2], 0xFF);
+    d.u8("guest_matrix_3", guest_matrix_[3], 0xFF);
+    d.u8("guest_matrix_4", guest_matrix_[4], 0xFF);
+    d.u8("guest_matrix_5", guest_matrix_[5], 0xFF);
+    d.u8("guest_matrix_6", guest_matrix_[6], 0xFF);
+    d.u8("guest_matrix_7", guest_matrix_[7], 0xFF);
 }
 
 void Keyboard::save_state(StateWriter& w) const
