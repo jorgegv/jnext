@@ -8577,7 +8577,7 @@ int main() {
             // z88dk#3231: with start/width records the bitfields of g_flags are exact. g_flags poked 8D C8: lo = 5, mid = 17 (byte 0), hi = 200 (byte 1)
             std::string seen;
             bool ok = true;
-            for (const SumAt& c : {SumAt{"master-fixed/sccz80-cvars", "zb05a", 0x8D3E}, SumAt{"master-fixed/80cc-cvars", "zb05b", 0x8CCA}}) {
+            for (const SumAt& c : {SumAt{"master-fixed/sccz80-cvars", "zb05a", 0x8D3E}, SumAt{"master-fixed/80cc-cvars", "zb05b", 0x8CB0}}) {
                 Machine m(false, MachineType::ZXN_ISSUE2);
                 const bool at = at41(c, m);
                 const Dbg::CValueResult r0 = m.dbg->read_c_value(0, "g_flags");

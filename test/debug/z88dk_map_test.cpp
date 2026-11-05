@@ -2940,8 +2940,8 @@ main cross_c AC97
         std::printf("  Z88ZB-03: v2.4 [%s] master [%s] fixed [%s] 80cc [%s] 80cc-fixed [%s]\n", pre.c_str(), mas.c_str(), fix.c_str(), c80.c_str(), c80f.c_str());
         check("Z88ZB-03", "unsized arrays (fm.c): v2.4 and master sccz80 list ls, ss and fs with count -1 (their only record) and hide gs's -1 twin (a 5 record "
                           "is listed); master-fixed has four sized records and no twin; master 80cc has ls {4} and ss and fs {-1} listed, gs's twin hidden "
-                          "(80cc's -1 records are still written after z88dk#3229, so master-fixed 80cc says the same)",
-              pre == "-1 | -1 | -1 | -1h 5" && mas == pre && fix == "4 | 5 | 5 | 5" && c80 == "4 | -1 | -1 | -1h 5" && c80f == c80 && synthetic_twins);
+                          "(80cc keeps its -1 records until z88dk#3257, which sizes them on real master: master-fixed 80cc has four sized records and no twin)",
+              pre == "-1 | -1 | -1 | -1h 5" && mas == pre && fix == "4 | 5 | 5 | 5" && c80 == "4 | -1 | -1 | -1h 5" && c80f == "4 | 5 | 5 | 5" && synthetic_twins);
     }
     {   // Z88ZB-04
         // the first NON-ZERO __code_fp_<lib>_size names the library (a zero size is a library not linked)
