@@ -2048,6 +2048,47 @@ int main() {
                          "80cc with the listing's scopes lists it flagged (`ts?`) at line 11 and hides it at 13 and 15 (block 3 > block 2, F1), its block locals flagged",
               exact == "5=ks t|7=ks t u|11=ks t ts u|13=ks t u|15=ks t" && c80 == "5=ks t|7=ks t u?|11=ks t ts? u?|13=ks t u?|15=ks t", exact + " || " + c80);
     }
+    {   // CVZB-22
+        // review 9 H1: a LEVEL-2 block static (an `else` or a bare block directly in the function body) out-picks a parameter or a level-1 local of its name only inside its block. Function f: parameter a,
+        // local t (1/1), `static a` and `static t` both at 2/2. Exact blocks: at line 7 (2/2) the statics are listed and win the pick (kind StaticLocal, the others are the shadowed candidates); at
+        // lines 5 and 9 (1/1) they are hidden and the name means the parameter and the local, which is where a write goes
+        std::vector<CVariable> vs;
+        const auto add = [&](const std::string& rec, const char* name) {
+            CVariable v;
+            v.record = cdb_decode(rec).record;
+            v.c_name = name;
+            v.function = 0;
+            vs.push_back(v);
+        };
+        add("S:Lt.c.f$a$0_0$0({2}SI:S),B,1,4", "a");
+        add("S:Lt.c.f$t$1_0$1({2}SI:S),B,1,-2", "t");
+        add("S:Ft.c$st_f_a$2_0$2({2}SI:S),E,0,0", "a");
+        add("S:Ft.c$st_f_t$2_0$2({2}SI:S),E,0,0", "t");
+        CFunction f;
+        f.name = "f";
+        f.compiler = CCompiler::Zsdcc;
+        for (const Sc3 sc : {Sc3{5, 1, 1}, Sc3{7, 2, 2}, Sc3{9, 1, 1}}) {
+            CScope c;
+            c.offset = static_cast<uint32_t>(f.scopes.size());
+            c.line = sc.line;
+            c.level = sc.level;
+            c.block = sc.block;
+            c.known = true;
+            f.scopes.push_back(c);
+        }
+        f.trail = f.scopes;
+        const VariableStore st({f}, vs, {}, {}, {});
+        const auto kind_of = [&](size_t scope_index, const char* name) {
+            const std::vector<CLocalRef> vis = c_visible_locals(st, 0, &st.functions()[0].scopes[scope_index]);
+            const CPicked pk = c_pick_local(vis, name);
+            return pk.chosen ? static_cast<int>(pk.chosen->kind) + 10 * static_cast<int>(vis.size()) : -1;
+        };
+        // kind 0 Param, 1 Local, 2 StaticLocal; + 10 * the number of visible rows (4 inside the block, 2 outside)
+        check("CVZB-22", "a level-2 block static (static a, static t at block 2) wins the pick over the parameter a and the level-1 local t inside its block (line 7: StaticLocal, four rows) and is hidden outside it "
+                         "(lines 5 and 9: the pick is the Param a and the Local t, two rows)",
+              kind_of(0, "a") == 20 + 0 && kind_of(0, "t") == 20 + 1 && kind_of(1, "a") == 40 + 2 && kind_of(1, "t") == 40 + 2 && kind_of(2, "a") == 20 + 0 && kind_of(2, "t") == 20 + 1,
+              std::to_string(kind_of(0, "a")) + " " + std::to_string(kind_of(1, "a")) + " " + std::to_string(kind_of(2, "t")));
+    }
     {   // CVZB-17
         // The line proofs are strict, and beta is the lowest block. Expected values: the three-valued rule applied by hand to each trail (the programs would be hand-written C of these shapes)
         const std::string c1 = cc80_rows({{0, 5, 1, 1}, {1, 8, 1, 1}, {2, 8, 2, 2}, {3, 9, 3, 3}, {4, 10, 3, 3}}, {{"t", 1, 1, -2}, {"y", 2, 2, -4}, {"w", 3, 3, -6}}, {{9, 3, 3}, {10, 3, 3}});
