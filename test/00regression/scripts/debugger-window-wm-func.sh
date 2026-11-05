@@ -18,7 +18,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #     GR-08 pin both sides deterministically; NOECHO, NOECHOPASS, NOEND are their
 #     mutants); under openbox the size test's DW-11/DW-12 and the grow test's
 #     GR-02/03/05 are what the race breaks;
-#   - a USER resize during the fit still ends it (Q131-05; NOUSER);
+#   - a USER resize during the fit still ends it (GR-09, in the unit suite on a window with no
+#     manager; NOUSER); Q131-05 here is end to end: Quit persists a resize made after the opening;
+#   - each late answer counts once against kMaxFitEchoes (GR-10; ECHO2X), and a stalled loop does not
+#     end the fit between a pass and the one it queued (GR-11; NOPENDING);
 #   - the height decoration is the manager's real one, not the style's estimate
 #     (OLDDECO: DW-12 `frame 771 tall`).
 # This row runs the same test binaries with JNEXT_TEST_KEEP_QPA set (they keep

@@ -184,8 +184,8 @@ in the writers' files:
 ### Qt: Map ▸ Import and Export
 
 The Qt debugger offers the four verbs in its Map menu, after the annotation entries of 7.4.6:
-`import_menu` (`debugger_window.cpp:899`) and
-`export_menu` (`debugger_window.cpp:904`), each with
+`import_menu` (`debugger_window.cpp:909`) and
+`export_menu` (`debugger_window.cpp:914`), each with
 `&skoolkit Control Files...` and `&Ghidra Symbols...` (`I` and `E` are free in the Map popup, `S` and `G`
 are unique in each submenu; `DACC-05` pins the new popups and mnemonics). The slots are
 `on_import_skoolkit` (`debugger_manager.cpp:852`),

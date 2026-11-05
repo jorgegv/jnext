@@ -130,18 +130,20 @@ is in [2.3](../02-architecture/03-a-frame-end-to-end.md).
 
 **The window's opening size (GH #114, #360).** A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_natural()`,
-`debugger_window.cpp:499`, queued from the first `showEvent()`); a size restored from the config file is left
+`debugger_window.cpp:508`, queued from the first `showEvent()`); a size restored from the config file is left
 alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' `sizeHint()` lack, using the share of a widening the splitter really gave
 it on the previous pass (`fit_last_add_`, `fit_last_lacking_`; bounded by `kMaxInitialFitPasses` = 4
-(`kMaxInitialFitPasses`, `debugger_window.h:201`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:226`)). The frame, not the client area, must fit the screen
+(`kMaxInitialFitPasses`, `debugger_window.h:201`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:228`)). The frame, not the client area, must fit the screen
 (`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
-at most `kMaxFitEchoes` = 6 times (`resizeEvent()`, `debugger_window.cpp:486-497`); any other size is the user's and ends the fit
+at most `kMaxFitEchoes` = 6 times: the answer queues a pass, and the pass asks again and counts it, once
+(`resizeEvent()`, `debugger_window.cpp:495-506`); any other size is the user's and ends the fit
 (`end_fit_()`, `debugger_window.cpp:479`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
-pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:523-527`), after which every size is the user's and the remembered sizes are
-dropped. Rows: `GR-06` (a stale answer inside the grace window is asked again), `GR-07` (after it every size is the user's) and `GR-08` (an earlier request landing while a pass is queued), in `debugger_window_grow_test`.
+pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:531-537`), after which every size is the user's and the remembered sizes are
+dropped; the grace does not end the fit while a pass is still queued (`fit_passes_queued_`, `queue_fit_pass_()`), so a stalled event loop cannot
+cut the fit short between a pass and the one it queued. Rows: `GR-06` (a stale answer inside the grace window is asked again), `GR-07` (after it every size is the user's), `GR-08` (an earlier request landing while a pass is queued), `GR-09` (a user resize while the fit runs stands), `GR-10` (each late answer counts once: the 7th stands) and `GR-11` (a loop stalled past the grace window does not end the fit), in `debugger_window_grow_test`; `GR-09` to `GR-11` use a window no window manager sees.
 
 **The breakpoint views follow the model.** The Breakpoints list and the
 disassembly gutter follow `BreakpointModel::changed(kinds)`, so a breakpoint
