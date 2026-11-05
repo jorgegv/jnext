@@ -588,6 +588,7 @@ int main(int argc, char** argv)
             bw.win->installEventFilter(&late);
             settle(300);
             bw.win->removeEventFilter(&late);
+            settle(300);   // the 7th answer and the pass queued by the re-ask may still be pending: read after them
             fired = late.fired;
             now = bw.win->size();
         }
