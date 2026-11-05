@@ -1139,13 +1139,6 @@ bool c_fastcall_records_nominal(const VariableStore& store, int function, bool p
     return any;
 }
 
-std::string c_param_location_unknown(CConv conv, const CdbVar& var)
-{
-    if (conv == CConv::ListedFastcall && var.space == 'B' && var.stack_offset() >= 0)
-        return kCU1Text;
-    return "";
-}
-
 }  // namespace dbg
 }  // namespace jnext
 

@@ -140,7 +140,7 @@ z88dk nightly has them all yet: the latest one when this was written, `z88dk-202
 More, in short:
 - A plain `int` bitfield (`int s:4;`) is **unsigned** in sccz80 and 80cc and signed in zsdcc, so the value shown is each program's own reading; a `signed int` field is signed everywhere.
 - On a `for` line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80 and 80cc: those lines are recorded in the enclosing block. It is listed in the body, and again from the next line.
-- A source path that contains a `$` (`game$v2/main.c`) makes JNEXT unable to tell that an 80cc module is 80cc: its stack variables then show no 80cc note. Avoid `$` in the paths of 80cc sources until this is fixed.
+- A source path that contains a `$` (`game$v2/main.c`): sccz80 and 80cc write the path into each local's and static's record, and `$` separates the record's fields, so JNEXT cannot read the records of that file and does not list its parameters, locals or file statics (its globals are listed). zcc itself needs the `$` escaped and cannot write `--list` listings for such a path. Keep `$` out of source paths.
 - Not a display limit, but wrong values in the program itself: a bitfield initialiser across two bytes written as one (#3234, fixed by PR #3242), and the 80cc code-generation bugs #3245 to #3247 (fixed by PRs #3250 to #3252; #3246 only on the Game Boy target).
 - Not JNEXT: z88dk's own debuggers (#3230, #3237, #3238, #3248 and ticks' float reading in #3240; PRs #3253 for #3248).
 - No C variables at all: zsdcc on 2.4 (`-debug` does not build, #3172), and the classic library on the Next with 2.4 (`-debug` fails, PR #3198; it works on master).

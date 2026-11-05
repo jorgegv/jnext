@@ -645,21 +645,36 @@ int main() {
                   ra.why == "optimised out" && !ro.ok && ro.why == "not available (register, outer frame)" && !rb.ok && rb.why.find("zz") != std::string::npos);
     }
 
-    // ── CVALF-30: the sccz80 fastcall marker ───────────────────────────────────
+    // ── CVALF-30: the per-function U1 rule, its boundary cases ─────────────────────
+    // Oracle: the definition of U1 (z88dk#3229): before the fix sccz80 records every parameter of a fastcall function at its nominal slot (>= 0); after it, the register
+    // parameter is recorded below the frame. One synthetic function `ffast`, parameters (level 0, space B) and a local (level 1) given as record texts.
     {
-        const CdbDecoded nominal = cdb_decode("S:Lfc.ffast$x$1_0$1({2}SI:U),B,1,4");
-        const CdbDecoded correct = cdb_decode("S:Lfc.ffast$x$1_0$1({2}SI:U),B,1,-2");
-        const CdbDecoded zero = cdb_decode("S:Lfc.ffast$x$1_0$1({2}SI:U),B,1,0");
-        const CdbDecoded reg = cdb_decode("S:Lfc.ffast$x$1_0$1({2}SI:U),R,0,0,[l,h]");
-        const std::string u1 = c_param_location_unknown(CConv::ListedFastcall, nominal.record.var);
-        check("CVALF-30", "OD-14: a listed fastcall parameter recorded at a stack offset >= 0 is `location unknown (z88dk U1...)`; at a negative offset (80cc's correct "
-                          "record) or with no listing evidence (a plain or unlisted function) it is read as written; a register record is never marked",
-              u1.find("location unknown") != std::string::npos && u1.find("U1") != std::string::npos &&
-                  !c_param_location_unknown(CConv::ListedFastcall, zero.record.var).empty() &&
-                  c_param_location_unknown(CConv::ListedFastcall, correct.record.var).empty() &&
-                  c_param_location_unknown(CConv::Listed, nominal.record.var).empty() &&
-                  c_param_location_unknown(CConv::Unlisted, nominal.record.var).empty() &&
-                  c_param_location_unknown(CConv::ListedFastcall, reg.record.var).empty());
+        const auto nominal = [](CConv conv, bool prologue, const std::vector<std::pair<std::string, bool>>& recs) {
+            std::vector<CVariable> vs;
+            for (const auto& [text, hidden] : recs) {
+                CVariable v;
+                v.record = cdb_decode(text).record;
+                v.record.hidden = hidden ? CdbHidden::IncompleteArray : CdbHidden::None;
+                v.c_name = v.record.var.name;
+                v.function = 0;
+                vs.push_back(v);
+            }
+            CFunction f;
+            f.name = "ffast";
+            f.conv = conv;
+            const VariableStore st({f}, vs, {}, {}, {});
+            return c_fastcall_records_nominal(st, 0, prologue);
+        };
+        const std::string p4 = "S:Lfc.ffast$x$0_0$0({2}SI:U),B,1,4", p0 = "S:Lfc.ffast$x$0_0$0({2}SI:U),B,1,0", pm2 = "S:Lfc.ffast$y$0_0$0({2}SI:U),B,1,-2",
+                          loc = "S:Lfc.ffast$t$1_0$1({2}SI:U),B,1,-4", reg = "S:Lfc.ffast$x$0_0$0({2}SI:U),R,0,0,[l,h]";
+        const bool c1 = nominal(CConv::ListedFastcall, false, {{p4, false}, {loc, false}}), c2 = nominal(CConv::ListedFastcall, false, {{p0, false}}),
+                   c3 = nominal(CConv::ListedFastcall, false, {{p4, false}, {pm2, false}}), c4 = nominal(CConv::ListedFastcall, false, {{pm2, true}, {p4, false}}),
+                   c5 = nominal(CConv::ListedFastcall, false, {{reg, false}}), c6 = nominal(CConv::Listed, true, {{p4, false}}),
+                   c7n = nominal(CConv::Unlisted, false, {{p4, false}}), c7y = nominal(CConv::Unlisted, true, {{p4, false}});
+        check("CVALF-30", "c_fastcall_records_nominal, the boundary cases of U1: a fastcall function whose only parameter is at +4 is nominal even beside a level-1 local at -4; a parameter at +0 is nominal; "
+                          "one at +4 with another at -2 is not; a hidden parameter record at -2 is ignored; a function with only an R-space parameter is not; a listing that names it without the "
+                          "flag wins over the prologue; an unlisted function is nominal only when the caller read a fastcall prologue",
+              c1 && c2 && !c3 && c4 && !c5 && !c6 && !c7n && c7y);
     }
 
     // ── CVALF-31: sccz80's struct flags (U2): every view agrees and none reads past the object ─────────────────

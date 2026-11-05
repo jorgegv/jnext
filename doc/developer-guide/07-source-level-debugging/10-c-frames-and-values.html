@@ -3217,8 +3217,7 @@ and level-1 locals are always visible. Which block is open depends on the compil
 that it may be stale), refuses <code>[]</code> as optimised out and an outer frame as not available.
 <code>c_fastcall_records_nominal()</code> is the U1 rule, per function (GH #438): true iff the function is fastcall and none of its parameters (level 0, space B) is recorded at a negative offset,
 that is, the records are the pre-z88dk#3229 ones, every parameter at its nominal slot, where none of them is. Fastcall is <code>CConv::ListedFastcall</code> (a listing flags it), or the caller's
-<code>prologue_fastcall</code> for a function no listing names (a listing that names it without the flag wins). <code>c_param_location_unknown()</code> is the older per-record form; the read path no longer calls it
-(its row, <code>CVALF-30</code>, still pins it).</p>
+<code>prologue_fastcall</code> for a function no listing names (a listing that names it without the flag wins). <code>CVALF-30</code> pins the rule's boundary cases on a synthetic function: a level-1 local at a negative offset does not count, offset 0 is nominal, a hidden record is ignored, an R-space parameter alone is not nominal, and a listing that names the function without the flag wins over the prologue.</p>
 <h2 id="reading-values-the-facade">Reading values: the facade<a class="headerlink" href="#reading-values-the-facade" title="Permanent link">&para;</a></h2>
 <p><code>Debugger</code> has six CAP-SRC readers (<code>debugger.h</code>), all <code>const</code>, all running <code>recheck()</code> first (through <code>variables()</code> and
 <code>c_frames()</code>) and bumping nothing themselves, so a panel redrawing on <code>state_revision()</code> does not redraw on a read:</p>
@@ -3283,7 +3282,7 @@ StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code
 locals, the file's statics, the globals. A local that exists but is hidden is <code>out of scope at &lt;file&gt;:&lt;line&gt;</code>. <code>fn::name</code> names a static
 local from any frame, and a local of <code>fn</code> only from a frame of <code>fn</code>; <code>file.c::name</code> names that file's statics and globals.</p>
 <h2 id="the-int32-atom-c_int32_scalar-gh-436">The int32 atom: <code>c_int32_scalar()</code> (GH #436)<a class="headerlink" href="#the-int32-atom-c_int32_scalar-gh-436" title="Permanent link">&para;</a></h2>
-<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1183</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
+<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1176</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
 and, through its translation, ZRCP's <code>CVAR()</code> both reach it through the evaluator, so there is nothing to keep in step. It reads
 <code>loc.type</code> (the head of the chain and the size) and <code>loc.note</code>, so a register-held value (no address) passes a <code>CLoc</code> with just its
 type, which <code>read_c_value()</code> fills for it. <code>integer</code> is the facade's <code>CValueResult::integer</code>.</p>
@@ -3377,7 +3376,7 @@ refusal decided before it is <code>RefusedUnavailable</code> with the reason in 
 <code>DivMmcRam</code>, which <code>poke()</code> refuses (<code>identity_only()</code>, INS-02-30), so it is <code>Unsupported</code> with <code>DivMMC RAM bank 2 cannot be written by the
 debugger (unsupported)</code>. After an <code>Ok</code> the object is read back into <code>CWriteResult::value</code>. <code>CWriteResult::notes</code> holds the notes of the read that preceded the write (the 80cc frame-slot note, a <code>not mapped</code> note): the Qt edit message and GDB <code>monitor set var</code> print them. A <code>Page</code> object cannot half-land: the read already
 refused a page crossing.</p>
-<p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1474</code>) is pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
+<p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1467</code>) is pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
 independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRCP, GDB) or a script's 32-bit value:</p>
 <table>
 <thead>
@@ -3410,7 +3409,7 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 <tr>
 <td><code>{6}SF</code> (z88dk 48-bit)</td>
-<td>rounded to nearest; refused when the exponent leaves 1..255 (<code>encode_float48()</code>, <code>c_value.cpp:1409</code>)</td>
+<td>rounded to nearest; refused when the exponent leaves 1..255 (<code>encode_float48()</code>, <code>c_value.cpp:1402</code>)</td>
 <td>refused: <code>float is not an integer</code></td>
 </tr>
 <tr>
@@ -3420,7 +3419,7 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 <tr>
 <td><code>S6</code> (binary16)</td>
-<td>through float, nearest even, refused when it rounds to infinity or to zero (<code>encode_float16()</code>, <code>c_value.cpp:1440</code>)</td>
+<td>through float, nearest even, refused when it rounds to infinity or to zero (<code>encode_float16()</code>, <code>c_value.cpp:1433</code>)</td>
 <td>refused</td>
 </tr>
 <tr>
@@ -3430,15 +3429,15 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 </tbody>
 </table>
-<p>A text is trimmed, then an optional sign and decimal, <code>0x</code> or <code>$</code> digits (<code>parse_int_text()</code>, <code>c_value.cpp:1281</code>), or a <code>'c'</code> character, or for a
-float type a decimal number (<code>float_from_text()</code>, <code>c_value.cpp:1364</code>: its syntax is checked first, then the text is read by an <code>istringstream</code> imbued with the classic
+<p>A text is trimmed, then an optional sign and decimal, <code>0x</code> or <code>$</code> digits (<code>parse_int_text()</code>, <code>c_value.cpp:1274</code>), or a <code>'c'</code> character, or for a
+float type a decimal number (<code>float_from_text()</code>, <code>c_value.cpp:1357</code>: its syntax is checked first, then the text is read by an <code>istringstream</code> imbued with the classic
 locale, because <code>QApplication</code> calls <code>setlocale(LC_ALL, "")</code> and a comma host would read <code>1.5</code> as <code>1</code>; <code>std::from_chars</code> for floating point is
 missing from libc++ before LLVM 20, so the macOS build could not use it). <code>nan</code> and <code>inf</code> are refused.
 A value out of range is refused, never truncated: a person typing <code>-1</code> into an unsigned long made a mistake, not
 a bit pattern, which is why only a script's int32 is a pattern. <strong>The 48-bit encoder rounds to nearest because the compiler does:</strong> the constants z88dk
 compiled into <code>master/sccz80-floats</code> are <code>0.1</code> = <code>CD CC CC CC 4C 7D</code> and <code>1e-10</code> = <code>BE CE FE E6 5B 5F</code>, which truncation gets wrong (<code>CC ...</code>
 and <code>BD ...</code>), and <code>CVW-05</code> reads those bytes from the fixture at run time, never from a copy. A bitfield reads its unit's bytes, replaces its
-bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:1382</code>, is its range check, on the field's width).</p>
+bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:1375</code>, is its range check, on the field's width).</p>
 <p><strong>F1, found while planning:</strong> the reader ignored a bitfield's sign. <code>c_format_value()</code> and <code>c_integer_value()</code> returned the unsigned field for
 <code>SB&lt;s&gt;$&lt;w&gt;:S</code>, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so <code>CVW-10</code>
 uses a synthetic record.</p>

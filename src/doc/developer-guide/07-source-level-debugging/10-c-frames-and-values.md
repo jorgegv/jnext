@@ -161,8 +161,7 @@ and level-1 locals are always visible. Which block is open depends on the compil
 that it may be stale), refuses `[]` as optimised out and an outer frame as not available.
 `c_fastcall_records_nominal()` is the U1 rule, per function (GH #438): true iff the function is fastcall and none of its parameters (level 0, space B) is recorded at a negative offset,
 that is, the records are the pre-z88dk#3229 ones, every parameter at its nominal slot, where none of them is. Fastcall is `CConv::ListedFastcall` (a listing flags it), or the caller's
-`prologue_fastcall` for a function no listing names (a listing that names it without the flag wins). `c_param_location_unknown()` is the older per-record form; the read path no longer calls it
-(its row, `CVALF-30`, still pins it).
+`prologue_fastcall` for a function no listing names (a listing that names it without the flag wins). `CVALF-30` pins the rule's boundary cases on a synthetic function: a level-1 local at a negative offset does not count, offset 0 is nominal, a hidden record is ignored, an R-space parameter alone is not nominal, and a listing that names the function without the flag wins over the prologue.
 
 ## Reading values: the facade
 
@@ -212,7 +211,7 @@ local from any frame, and a local of `fn` only from a frame of `fn`; `file.c::na
 
 ## The int32 atom: `c_int32_scalar()` (GH #436)
 
-`c_int32_scalar(loc, integer)` (`c_value.cpp:1183`) is the one rule for what a C value is as a 32-bit integer; the script atom `cvar()`
+`c_int32_scalar(loc, integer)` (`c_value.cpp:1176`) is the one rule for what a C value is as a 32-bit integer; the script atom `cvar()`
 and, through its translation, ZRCP's `CVAR()` both reach it through the evaluator, so there is nothing to keep in step. It reads
 `loc.type` (the head of the chain and the size) and `loc.note`, so a register-held value (no address) passes a `CLoc` with just its
 type, which `read_c_value()` fills for it. `integer` is the facade's `CValueResult::integer`.
@@ -258,7 +257,7 @@ refusal decided before it is `RefusedUnavailable` with the reason in `why`. Ther
 debugger (unsupported)`. After an `Ok` the object is read back into `CWriteResult::value`. `CWriteResult::notes` holds the notes of the read that preceded the write (the 80cc frame-slot note, a `not mapped` note): the Qt edit message and GDB `monitor set var` print them. A `Page` object cannot half-land: the read already
 refused a page crossing.
 
-`c_encode_value(type, CNewValue, current, avail)` (`c_value.cpp:1474`) is pure, with no printf or ostream (the `c_value.h` rule: locale
+`c_encode_value(type, CNewValue, current, avail)` (`c_value.cpp:1467`) is pure, with no printf or ostream (the `c_value.h` rule: locale
 independent). `CNewValue` is a text a person typed (the Qt panel, ZRCP, GDB) or a script's 32-bit value:
 
 | Type | Text | Int32 (a script) |
@@ -267,20 +266,20 @@ independent). `CNewValue` is a text a person typed (the Qt panel, ZRCP, GDB) or 
 | the same, 4 bytes | the strict range | any int32, as its 32-bit pattern (the mirror of `c_int32_scalar()`) |
 | the same, 8 bytes | the int64 / uint64 range | refused: `does not fit the script's 32 bits` |
 | Pointer | 0..65535 | 0..65535 |
-| `{6}SF` (z88dk 48-bit) | rounded to nearest; refused when the exponent leaves 1..255 (`encode_float48()`, `c_value.cpp:1409`) | refused: `float is not an integer` |
+| `{6}SF` (z88dk 48-bit) | rounded to nearest; refused when the exponent leaves 1..255 (`encode_float48()`, `c_value.cpp:1402`) | refused: `float is not an integer` |
 | `{4}SF` (binary32) | the C library's `strtof` through an `istringstream` (correctly rounded), out of range refused | refused |
-| `S6` (binary16) | through float, nearest even, refused when it rounds to infinity or to zero (`encode_float16()`, `c_value.cpp:1440`) | refused |
+| `S6` (binary16) | through float, nearest even, refused when it rounds to infinity or to zero (`encode_float16()`, `c_value.cpp:1433`) | refused |
 | `SQ` | refused: `fixed-point layout not decoded` | refused |
 
-A text is trimmed, then an optional sign and decimal, `0x` or `$` digits (`parse_int_text()`, `c_value.cpp:1281`), or a `'c'` character, or for a
-float type a decimal number (`float_from_text()`, `c_value.cpp:1364`: its syntax is checked first, then the text is read by an `istringstream` imbued with the classic
+A text is trimmed, then an optional sign and decimal, `0x` or `$` digits (`parse_int_text()`, `c_value.cpp:1274`), or a `'c'` character, or for a
+float type a decimal number (`float_from_text()`, `c_value.cpp:1357`: its syntax is checked first, then the text is read by an `istringstream` imbued with the classic
 locale, because `QApplication` calls `setlocale(LC_ALL, "")` and a comma host would read `1.5` as `1`; `std::from_chars` for floating point is
 missing from libc++ before LLVM 20, so the macOS build could not use it). `nan` and `inf` are refused.
 A value out of range is refused, never truncated: a person typing `-1` into an unsigned long made a mistake, not
 a bit pattern, which is why only a script's int32 is a pattern. **The 48-bit encoder rounds to nearest because the compiler does:** the constants z88dk
 compiled into `master/sccz80-floats` are `0.1` = `CD CC CC CC 4C 7D` and `1e-10` = `BE CE FE E6 5B 5F`, which truncation gets wrong (`CC ...`
 and `BD ...`), and `CVW-05` reads those bytes from the fixture at run time, never from a copy. A bitfield reads its unit's bytes, replaces its
-bits and writes the whole unit back (`int_fits()`, `c_value.cpp:1382`, is its range check, on the field's width).
+bits and writes the whole unit back (`int_fits()`, `c_value.cpp:1375`, is its range check, on the field's width).
 
 **F1, found while planning:** the reader ignored a bitfield's sign. `c_format_value()` and `c_integer_value()` returned the unsigned field for
 `SB<s>$<w>:S`, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so `CVW-10`
