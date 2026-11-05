@@ -3115,14 +3115,14 @@ exact commands are the <code>+ zcc ...</code> lines of each <code>build.log</cod
 </tr>
 <tr>
 <td><code>test/fixtures/z88dk/master-fixed/</code>, <code>master-fixed-zsdcc/</code></td>
-<td><code>z88dk master</code> after them (GH #438), <code>~/src/spectrum/z88dk-original-latest</code></td>
+<td><code>z88dk master</code> after them, <code>~/src/spectrum/z88dk-original-latest</code></td>
 <td><code>0f0a1cf70e48856af8191af6f86096d2e1362482</code> (v2.4-2954-g0f0a1cf70e)</td>
 </tr>
 </tbody>
 </table>
 <p>A map built without <code>-debug</code> has symbols and no source lines. Several
 <code>-debug</code> builds do not exist: 2.4's sdcc <code>-debug</code> fails to assemble
-(<code>defc Gcounter0_00==.</code> syntax errors, z88dk issue 3172, fixed on master) and the
+(<code>defc Gcounter0_00==.</code> syntax errors, fixed on z88dk master) and the
 classic <code>+zxn</code> banked <code>-debug</code> is not producible on 2.4 (<code>Unknown option2
 --hardware-keyboard</code>; master builds it since v2.4-2883). <code>test/fixtures/z88dk/README.md</code> records both.</p>
 <h2 id="2-the-producers-writer">2. The producer's writer<a class="headerlink" href="#2-the-producers-writer" title="Permanent link">&para;</a></h2>
@@ -3203,7 +3203,7 @@ symbols.</p>
 <ol>
 <li>Names starting <code>__C_LINE_</code>, <code>__ASM_LINE_</code> or <code>__CDBINFO__</code> are skipped: they
    are not symbols, and sorted by name they would otherwise win the address of the
-   function label (GH #352).</li>
+   function label.</li>
 <li>A <code>const</code> line goes to a table of constants (first wins, 64-bit; the page heads
    come from it) and, when the value fits 16 bits, becomes a <strong>name-only value</strong>
    (<code>add_value()</code>): <code>lookup_name()</code> and <code>@name</code> resolve it, but it never names an
@@ -3212,7 +3212,7 @@ symbols.</p>
    wins. A value above <code>0xFFFFFF</code> is skipped. Otherwise <code>z88dk_section_space()</code>
    (below) decides: a <em>paged</em> label; a label bound at load; an <em>unpaged</em> label
    (only if the value fits 16 bits); or nothing.</li>
-<li><strong>C symbols (GH #424).</strong> An <code>addr</code> symbol whose name starts with <code>_</code> and a
+<li><strong>C symbols.</strong> An <code>addr</code> symbol whose name starts with <code>_</code> and a
    second character other than <code>_</code>, and whose module ends in <code>_c</code>, is a C
    symbol: zcc's compilers write every C identifier with a leading <code>_</code>, and
    <code>__x</code> names are runtime internals. <code>add_label(..., c_symbol=true)</code> records its
@@ -3258,7 +3258,7 @@ The rules, in order of the section name:</p>
 <li><strong><code>PAGE_&lt;n&gt;</code></strong> and <code>&lt;KIND&gt;_PAGE_&lt;n&gt;</code> (KIND is <code>CODE</code>, <code>RODATA</code>, <code>DATA</code> or
    <code>BSS</code>): a section that starts in page <code>n</code> and may run into the next ones. The
    head is <code>z88dk_page_head()</code>: the <em>low 16 bits</em> of the constant <code>__PAGE_&lt;n&gt;_head</code>
-   (newlib puts the page in bits 16-23, which are not read; GH #345). The page is
+   (newlib puts the page in bits 16-23, which are not read). The page is
    <code>n + (((head &amp; 0x1FFF) + (addr16 - head)) &gt;&gt; 13)</code>. With no such constant, an
    address below the head, or a result past page 223, the value is <em>unpaged</em>.</li>
 <li><strong><code>BANK_&lt;n&gt;</code></strong> and <code>&lt;KIND&gt;_&lt;n&gt;</code>, with <code>_L</code> or <code>_H</code>, and for <code>RODATA</code>/<code>DATA</code> also
@@ -3283,7 +3283,7 @@ bank is the one the program, or a dotn command's allocator, chooses when it runs
 the program's to choose, so the map cannot say it. The symbol half keeps a 16-bit symbol of it
 as an unpaged label, and the source half refuses a line record in it.</p>
 <ol>
-<li><strong>A dot command (GH #351).</strong> NextZXOS copies a dot command's file into a DivMMC RAM bank and
+<li><strong>A dot command.</strong> NextZXOS copies a dot command's file into a DivMMC RAM bank and
    runs it from <code>$2000</code> there; the map names no bank. <code>z88dk_dot_command(consts, &amp;why)</code>
    (<code>z88dk_space.cpp:136</code>) says whether a map is one: the constant <code>startupoffset</code> is <code>$0100</code> (dot),
    <code>$0200</code> (dotx) or <code>$0300</code> (dotn) and <code>__CODE_head</code> is <code>$2000</code>. No <code>startupoffset</code>, or another

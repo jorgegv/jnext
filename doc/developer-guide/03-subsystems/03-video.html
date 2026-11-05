@@ -3060,7 +3060,7 @@ is <code>hc_ula == 0xC</code> (<code>zxula.vhd:43-46</code>). The twelve-tick ga
 prefetch lead, and it is why the fetch window and the visible paper area are
 <em>not</em> the same span of a line.</p>
 <p><code>src/debug/raster_state.h</code> is the one place that spells all four out together,
-for the debugger's raster indicator (GH #22). It classifies the beam's region
+for the debugger's raster indicator. It classifies the beam's region
 (<code>blank_n</code> from <code>zxula_timing.vhd:348-357</code>, <code>border_active</code> from
 <code>zxula.vhd:415</code>) and the ULA's fetch phase (<code>vram_a</code>/<code>vram_rd</code> on
 <code>zxula.vhd:226-263</code> — bit 1 of <code>hc_ula</code> selects bitmap vs attribute, gated by
@@ -3076,13 +3076,13 @@ an <code>IN</code> <code>clock_</code> is still the instruction's start.
 in the instruction — <code>Z80Cpu::io_clock_into_instruction()</code>, counted on the FUSE
 counter the bus cycles advance, contention stretches included — and places the
 read where the VHDL latches it: for port 0x253B, the CLK_CPU falling edge of the
-I/O cycle's third clock (GH #265). A read made outside an instruction (a test, the debugger) samples at
+I/O cycle's third clock. A read made outside an instruction (a test, the debugger) samples at
 <code>clock_</code> itself. The floating bus below uses the same helper.</p>
 <p><code>cvc</code>'s offset is NR 0x64, but not <em>live</em>. The counter loads the register once
 per frame, at <code>hc_ula == 0</code> of the <code>c_min_vactive</code> line
 (<code>zxula_timing.vhd:457-462</code>), and only increments everywhere else, so a
 mid-frame NR 0x64 write reaches the readback, the line interrupt and the Copper
-at the next frame's reload (GH #290). <code>VideoTiming::cu_offset()</code> is that
+at the next frame's reload. <code>VideoTiming::cu_offset()</code> is that
 reloaded value, not the register, which <code>Copper::offset()</code> holds for the
 readback. <code>Emulator::reload_cvc_offset_()</code> performs the reload as a scheduler
 event at <code>VideoTiming::cvc_reload_master_cycle_offset()</code> and re-derives the
@@ -3128,7 +3128,7 @@ Timex arm, its NR 0x82 b0 gate, and the per-machine gate that delivers ULA
 content only under 48K/128K timing. <code>ula_floating_bus_active_arm</code> evaluates
 the ULA's reload schedule (<code>zxula.vhd:319-340</code>) in <code>hc_ula</code>/<code>vc_ula</code> — the same
 counters contention uses — at the instant the CPU latches the byte, T3's falling
-edge after every stretch (<code>io_read_sample_cycle</code>, GH #265), and reads the byte
+edge after every stretch (<code>io_read_sample_cycle</code>), and reads the byte
 the ULA fetched there, through <code>Ula::fetch_vram()</code>: Timex mode, ULA scroll and
 the 128K shadow screen all move it. The +3's separate latch lives on the
 <code>Mmu</code>.</p>
@@ -3330,9 +3330,9 @@ physically lands part-way through a scanline is applied from the <strong>beginni
 of that row. Hardware samples those latches per pixel and would change only the
 pixels after the write.</p>
 <p>Three logs do better. <code>AttributeMux</code> was the first (Nirvana-class attribute
-rewrites; since GH #305 it covers the pixel bytes too, so a frame can no longer
-show new glyphs on old attributes; since GH #362 the tilemap and LoRes read
-through it, and <code>SramBeamLog</code> does the same for Layer 2's bitmap), and GH #270 added the Layer 2 <strong>bank</strong> (NR 0x12/0x13) and <strong>scroll</strong>
+rewrites; it covers the pixel bytes too, so a frame can no longer
+show new glyphs on old attributes; the tilemap and LoRes read
+through it, and <code>SramBeamLog</code> does the same for Layer 2's bitmap), and a later change added the Layer 2 <strong>bank</strong> (NR 0x12/0x13) and <strong>scroll</strong>
 (NR 0x16/0x17/0x71) logs. Those two carry an <code>hpos</code> beside the line tag,
 <code>Layer2::apply_changes_for_line</code> merges them into one per-row list of render
 segments ordered by column, and <code>render_scanline</code> draws the row as one span per
@@ -3351,7 +3351,7 @@ and carries the VHDL derivation of those two constants.</p>
 <p><strong>For every other log the row-granular approximation stands</strong>, and the bound
 once claimed for it does not: an effect can appear up to a row early, but a line
 carrying <em>two</em> writes to the same register loses the first one outright, which
-is a horizontal error with no vertical component at all. That is what GH #270
+is a horizontal error with no vertical component at all. That is what was
 reported for the Layer 2 bank. Closing it for the remaining logs needs the same
 treatment or the cycle-accurate rendering refactor, which has been assessed and
 declined.</p>

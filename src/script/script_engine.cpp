@@ -410,13 +410,13 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
             } else {
                 int32_t lo = 0, hi = 0;
                 range(ev.lo, ev.hi, 0xFFFF, "port", lo, hi);
-                // GH #222 (§2.1 `port_spec`): a 0x00xx port decodes on its LOW
+                // (§2.1 `port_spec`): a 0x00xx port decodes on its LOW
                 // byte, any other exactly — for a single port and a range
                 // alike. A range straddling 0xFF would need both at once.
                 const bool low = hi <= 0xFF;
                 if (!bad && !low && lo <= 0xFF) {
                     errors.push_back(Diagnostic{ev.lo->pos,
-                        "a port range lies wholly in 0x00..0xFF (decoded on the low byte, GH #222) or "
+                        "a port range lies wholly in 0x00..0xFF (decoded on the low byte) or "
                         "wholly above it"});
                     bad = true;
                 } else if (lo == hi) {

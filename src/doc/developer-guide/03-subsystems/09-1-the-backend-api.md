@@ -292,7 +292,7 @@ other loaders are 7.4.1, 7.4.2 and 7.4.5.
 
 ### User labels and comments — CAP-ANN
 
-A second layer beside the toolchain's symbols: the user's labels and comments (GH #387), keyed by memory and
+A second layer beside the toolchain's symbols: the user's labels and comments, keyed by memory and
 address. `symbols()`, `lookup()` and `lookup_name()` return the composition of the two layers, the user's first,
 so no consumer merges them. The store has no lifetime: loads, resets, state loads and rewinds leave it alone, and
 it is not in `.jns`.
@@ -350,7 +350,7 @@ INS-20 coverage is recorded in `step_one_instruction()`, the one body that
 and only for a slot that fetched the opcode at PC. An NMI or INT acknowledge
 does not run it. Switched off it costs one pointer test per instruction.
 
-**INS-21, memory coverage by execute, read and write** (GH #388, CAP-INS-21) is
+**INS-21, memory coverage by execute, read and write** (CAP-INS-21) is
 the physical-memory counterpart, with a separate switch: INS-20 holds 16-bit
 logical PCs (ZRCP `cpu-code-coverage` returns them, and the logical address a page
 ran at cannot be rebuilt from a physical byte), INS-21 holds one byte of flags
@@ -388,7 +388,7 @@ column after it (`space_tag()` of `fetch_space()`, never the GUI's address style
 
 ### Reverse-engineering exports — CAP-REX
 
-`export_skoolkit(dir, report, why)` and `export_ghidra(dir, report, why)` (GH #389) write the
+`export_skoolkit(dir, report, why)` and `export_ghidra(dir, report, why)` write the
 labels the disassembly shows, and for skoolkit the `mem_coverage()` code/data map, into a
 directory, as skoolkit control files and Ghidra symbol files. They are reads (`peek()`, coverage
 and the symbol table are side-effect free): no machine state changes, and they are allowed while

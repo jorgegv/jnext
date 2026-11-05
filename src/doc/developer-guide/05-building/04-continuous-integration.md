@@ -71,7 +71,7 @@ from the day the man page landed. Matching the distribution removes the whole
 class of problem, instead of pinning tool by tool and waiting for the next one.
 
 The container tracks the `updates` repository of fedora:44, so CI can receive a newer
-package than a developer host that has not upgraded yet: GH #415 was `unit-test-win` red on
+package than a developer host that has not upgraded yet: `unit-test-win` was once red on
 CI under wine 11.20 and green on a host with 11.0. To see CI's package set locally, build an
 image from `ci.yml`'s two install lists (the test dependencies, and the MinGW and wine
 packages), and run the same make targets in it against a separate detached worktree, with
@@ -82,7 +82,7 @@ wine. This is a documented local check, not a CI step.
 ## The jobs in `ci.yml`
 
 **`test`** is the main job: one definition, a matrix of five legs that run in
-parallel on runners of their own (GH #295). Every leg installs the same
+parallel on runners of their own. Every leg installs the same
 dependency set and checks out the repository with submodules; then
 
 - **`build-matrix`** runs `make build-matrix`;
@@ -91,7 +91,7 @@ dependency set and checks out the repository with submodules; then
   generator validates every VHDL citation against the real source tree and
   produces different bytes without it — and runs `make clean && make
   gui-release`, `make unit-test` and `make unit-test-sdl`;
-- **`unit-win`** (GH #214) installs the MinGW cross toolchain and wine and runs
+- **`unit-win`** installs the MinGW cross toolchain and wine and runs
   `make unit-test-win`: the SDL-only suites as Windows executables under wine. It
   builds no PGO binary, so on an SD-image cache miss `make unit-test-win`
   provisions the image itself (`make sdcard-image`);
@@ -128,12 +128,12 @@ run (locally too — the old CI-only `$CI` split is gone), so a row that has
 quietly stopped running cannot read as a pass. The Flatpak build is not a row of
 this job; the `flatpak` job below builds it, and only the tool-free
 `flatpak-manifest` contract runs here. After `make package-test` passes the job
-uploads each package it built as a run artifact (GH #359); the steps are
+uploads each package it built as a run artifact; the steps are
 `uses:` steps, so the make-target rule is untouched.
 
 **`macos`** runs `make package-macos` on a real `macos-latest` runner and
 uploads the `.dmg`,
-**`macos-unit`** (GH #214) runs `make unit-test-sdl` on one, with Homebrew's
+**`macos-unit`** runs `make unit-test-sdl` on one, with Homebrew's
 `bash`, `coreutils` and `grep` installed because the unit harness needs them
 (macOS ships bash 3.2 and BSD tools), and uploads the suites' logs on failure,
 and
@@ -147,14 +147,14 @@ point of having them.
 
 The permission check came with the consolidation and is not incidental. This
 job used to be `release.yml`'s copied near-verbatim, minus that step, so from
-the day GH #271 was fixed a bundle that stopped carrying `--share=network`
+the day that defect was fixed a bundle that stopped carrying `--share=network`
 would still have passed here on every push — which is exactly the defect the
 gate was written for. One body, one gate, three callers.
 
 ## Testing a run's packages
 
 Every green `ci.yml` run leaves its builds on the run's Summary page, under
-**Artifacts**, so a tester can try a build without a release (GH #359). Upload is
+**Artifacts**, so a tester can try a build without a release. Upload is
 by `uses: actions/upload-artifact@v6` steps (no `run:`). The `package` and
 `macos` uploads come after their job's tests, so they happen only on success; the
 Flatpak is uploaded by its action BEFORE the permission check, so it can be
@@ -232,7 +232,7 @@ is still possible — it means restoring `continue-on-error` on that one job in
 that one commit, which makes it an explicit and visible decision each time
 rather than a standing one.
 
-## The regression suite on other operating systems (GH #319)
+## The regression suite on other operating systems
 
 Two more blocking jobs run a portable subset of the regression suite, with the
 same plain make targets a developer types. The **`regression-win`** leg of the

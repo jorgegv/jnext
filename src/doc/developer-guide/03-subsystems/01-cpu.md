@@ -135,7 +135,7 @@ stretch, because the T80 latches the data bus only on the falling edge of T3;
 strobe acts as soon as IORQ and WR go low. The order matters to any read whose
 value depends on time — the floating bus, NR 0x1E/0x1F, the tape EAR bit — and
 `Z80Cpu::io_clock_into_instruction()` tells those reads where each clock of the
-cycle began, stretches included (GH #265).
+cycle began, stretches included.
 
 `derive_hc_vc()` only gives the right answer if the FUSE counter and the master
 clock agree: counter × CPU divisor = clock − frame start, at every instruction
@@ -189,7 +189,7 @@ pulse width", for callers without a timeline. `rebase_fuse_tstates_()` moves
 the window, and FUSE's EI stamp, with the counter whenever it re-bases it — at
 each frame, and at a CPU-speed change, where the window keeps its distance in
 CPU T-states because the pulse counts CPU clock edges (the IM2 fabric re-places
-its own pulse edges, `Im2Controller::set_cpu_divisor()`) (GH #265). A snapshot
+its own pulse edges, `Im2Controller::set_cpu_divisor()`). A snapshot
 stores the window relative to the counter, which a load re-seeds, and the EI
 stamp as whether its grace is pending at the saved boundary. `execute()` also replicates FUSE's EI-grace rejection *before*
 calling `on_int_ack`, so the daisy chain is not advanced by an acknowledge cycle
@@ -212,7 +212,7 @@ RETI/RETN and IM-mode changes out of the M1 byte stream, the legacy pulse-mode
 It is ticked once per instruction, at the *end* of the instruction's slot
 (`Emulator::finish_slot_interrupts()`), after the devices and the interrupt
 events have raised that instruction's requests, and it runs on the CLK_28
-timeline (GH #265): each request carries the edge it was raised on
+timeline: each request carries the edge it was raised on
 (`raise_req(dev, edge)`), and the tick resolves them in edge order — the status
 and `im2_int_req` latches set on the edge after the request
 (`im2_peripheral.vhd:154-178`), the pulse falling on the CLK_28 falling edge

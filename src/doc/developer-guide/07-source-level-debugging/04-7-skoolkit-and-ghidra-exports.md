@@ -1,6 +1,6 @@
 # 7.4.7 The skoolkit and Ghidra exports and imports
 
-The other pages of 7.4 are inputs. This one is the reverse direction (GH #389, E23-26):
+The other pages of 7.4 are inputs. This one is the reverse direction:
 `Debugger::export_skoolkit()` and `export_ghidra()` write what the disassembly shows, and for
 skoolkit the code/data map that `--coverage` recorded, into a directory, as the files the two
 reverse-engineering tools read; `import_skoolkit()` and `import_ghidra()` (stage B) read such files back
@@ -44,7 +44,7 @@ plain structs of `src/debug/reexport.h`.
   the header, `@ start` / `@ org`, the block directives (`block_letter()` (`skoolkit_ctl.cpp:137`)),
   the labels, the `B`/`C` sub-blocks and the closing `i`. A Z80N instruction or a clipped one is a `B`
   sub-block, and so is each piece of an instruction a key falls in.
-- **One name, one key** (GH #349). z88dk's module-local labels repeat across routines (`end_x`
+- **One name, one key**. z88dk's module-local labels repeat across routines (`end_x`
   at `$80CA` and `$8103` in `asm_zx_cls_wc_attr` / `asm_zx_cls_wc_pix`); `skool2asm.py` refuses a label
   defined twice, and both importers (and `UserAnnotations`, one key per name) refuse a name at two keys.
   So `unique_names()` (`reexport.cpp`) runs first in `build()` of each writer: of the exportable labels sharing

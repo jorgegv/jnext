@@ -7,8 +7,7 @@
   That is a deliberate trade, not an oversight — so if a report comes in, treat
   it as the verification that was deferred, and FIX the route in place rather
   than adding a second, still-untested alternative beside it. The macOS page's
-  single instruction silently stopped working on macOS 15, which is how GH #55
-  arose; this page is one Microsoft dialog change away from the same.
+  single instruction silently stopped working on macOS 15; this page is one Microsoft dialog change away from the same.
 
   The weakest claim, if you are triaging a report: that unblocking the zip
   BEFORE extraction suppresses the prompt for the extracted jnext.exe (route

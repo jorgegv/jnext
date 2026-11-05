@@ -59,7 +59,7 @@ $ make regression
 No FAIL and no SKIP anywhere: a SKIP is a row that was not tested, and the
 harnesses exit non-zero on one. Commit before
 `make regression`: a green run on a tree with no uncommitted non-doc change
-leaves a **stamp** (GH #295), and a dirty tree gets none.
+leaves a **stamp**, and a dirty tree gets none.
 
 Starting with `make clean` is deliberate, not caution. The regression suite runs
 `build/gui-release/jnext`, and a stale binary produces both false FAILs — it

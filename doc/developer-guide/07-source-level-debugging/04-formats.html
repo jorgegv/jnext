@@ -3005,7 +3005,7 @@ other tool.</p>
 <code>@name</code>, the GDB server's <code>monitor sym</code> and <code>--map</code> all read it, so a symbol loaded by one client shows
 in every other. How the formats differ is only in what they put in it.</p>
 <ul>
-<li><strong>Keyed by memory and address (GH #375).</strong> <code>add_label(name, addr, space, bind_at_load, c_symbol)</code>
+<li><strong>Keyed by memory and address.</strong> <code>add_label(name, addr, space, bind_at_load, c_symbol)</code>
   stores a label that is <em>paged</em> (assembled for one <code>FetchSource</code> such as <code>Page{20}</code>, naming the address
   only while that memory supplies it) or <em>unpaged</em> (naming it in every memory: the sjasmplus EQU,
   Simple and NextBuild loaders make these). There is no address-only lookup:

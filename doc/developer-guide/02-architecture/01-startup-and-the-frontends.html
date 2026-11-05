@@ -681,10 +681,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#light-and-dark-gh-363" class="md-nav__link">
+  <a href="#light-and-dark" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Light and dark (GH #363)
+        Light and dark
       
     </span>
   </a>
@@ -3006,7 +3006,7 @@ not a style preference — it buys three separate guarantees:</p>
 throw on <code>x</code>, which aborts the process, and read <code>5x</code> as 5. A value that is not
 a whole number in the option's range is a usage error: <code>main.cpp</code> prints the
 option and the offending value and exits 1.</p>
-<p><code>--set SECTION.KEY=VALUE</code> (GH #417) is one more row of the table, and its value
+<p><code>--set SECTION.KEY=VALUE</code> is one more row of the table, and its value
 is checked at parse time against a second table, <code>config_keys::KEYS</code> in
 <code>src/platform/config_keys.h</code>: the keys of <code>jnext.conf</code>. A key with a dedicated
 flag (<code>--cpu-speed</code>, <code>--scale</code>, <code>--crt</code>, <code>--silent</code>, <code>--machine</code>, ...) and the
@@ -3069,7 +3069,7 @@ compile-time arm:</p>
 }
 </code></pre>
 <p>The frontends are heap-allocated on purpose: each holds the 1.17 MB <code>Emulator</code>
-by value, so as automatic variables they were <code>main()</code>'s stack frame (GH #308).</p>
+by value, so as automatic variables they were <code>main()</code>'s stack frame.</p>
 <p><code>configure_and_run</code> is a generic lambda, and that is what lets a single body
 drive three classes that share no base class. They implement the same informal
 interface — <code>set_config</code>, <code>init</code>, <code>run</code>, <code>shutdown</code>, <code>emulator</code>, <code>exit_code</code> —
@@ -3095,7 +3095,7 @@ the command-line one reached the disk — at exit or at any earlier point, since
 <code>QtApp</code> calls it before an automatic exit's <code>quit()</code> too: <code>quit()</code> closes the
 main window, and <code>MainWindow::closeEvent()</code> reports a recording it has to stop
 in a modal dialog that an unattended run would wait on forever.</p>
-<p><strong>Quit signals (GH #364).</strong> SDL3's <code>SDL_Init</code> installs a persistent
+<p><strong>Quit signals.</strong> SDL3's <code>SDL_Init</code> installs a persistent
 SIGINT/SIGTERM handler that only queues <code>SDL_EVENT_QUIT</code>; <code>QtApp</code> never reads
 that event, so the Qt GUI swallowed both signals, and the SDL frontend exited
 with status 0. <code>quit_signal</code> (<code>src/platform/quit_signal.h</code>) takes the signals
@@ -3132,7 +3132,7 @@ was terminated BY the signal, plus headless held paused by a DZRP client) and
 <li><strong><code>HeadlessApp</code></strong> (<code>src/platform/headless_app.h</code>) owns nothing but the
   <code>Emulator</code>. Its <code>run()</code> is a bare <code>run_frame()</code> loop with no sleep in it.</li>
 </ul>
-<h2 id="light-and-dark-gh-363">Light and dark (GH #363)<a class="headerlink" href="#light-and-dark-gh-363" title="Permanent link">&para;</a></h2>
+<h2 id="light-and-dark">Light and dark<a class="headerlink" href="#light-and-dark" title="Permanent link">&para;</a></h2>
 <p>The Qt frontend follows the desktop's light/dark preference, at start and
 live. The decision is the pure <code>src/gui/color_scheme_policy.h</code>; the glue is
 <code>src/gui/desktop_color_scheme.{h,cpp}</code> (its D-Bus signal receiver is

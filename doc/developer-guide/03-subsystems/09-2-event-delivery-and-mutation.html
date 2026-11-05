@@ -3174,7 +3174,7 @@ other kind is delivered at an instruction boundary:</p>
 <p>The "≤1 instruction" entries are all one fact. The boundary drain runs
 <strong>before</strong> <code>tick_devices_after_instruction()</code>, and that is where the Copper and
 the deferred CPU NextREG queue run. Moving the drain behind the device cluster
-would change the GH #265 early-return contract for every data breakpoint, so
+would change the early-return contract for every data breakpoint, so
 the delay is accepted and stated instead. A CPU <code>NextRegWrite</code>'s payload still
 names the writer's PC.</p>
 <p>DMA is <em>not</em> late. A burst runs from <code>dma_.execute_burst()</code> inside
@@ -3190,8 +3190,7 @@ instruction slot, so every event one instruction raises carries that slot's
 start cycle. Two <code>Mem{Write}</code>s from one <code>LD (nn),HL</code> are indistinguishable by
 <code>cycle</code>. <code>Scanline</code> is exact, because the site hands the latch the line's own
 boundary cycle. Its <code>cvc</code> comes from the line number rather than from a cycle,
-because <code>cvc</code> steps at raw <code>hc == hc_ula_zero_raw_hc()</code> and not at raw <code>hc</code> 0
-(GH #257).</p>
+because <code>cvc</code> steps at raw <code>hc == hc_ula_zero_raw_hc()</code> and not at raw <code>hc</code> 0.</p>
 <h2 id="the-delivery">The delivery<a class="headerlink" href="#the-delivery" title="Permanent link">&para;</a></h2>
 <p><code>Debugger::Impl::drain_boundary()</code> (<code>debugger_events.cpp</code>) walks the ring in
 order. For each entry it builds an <code>Event</code> (<code>build_event()</code>), then for each
