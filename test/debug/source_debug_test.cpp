@@ -8776,6 +8776,64 @@ int main() {
             }
             check("SRCDBG-ZB-11", "master-fixed sccz80-cvars and 80cc-cvars at vars.c:41 (maps with N: and E: enum records): g_colour reads 6 (BLUE) from its S: record, with g_int and g_byte as before", ok, seen);
         }
+        // master-fixed-80cc/80cc-scope: load the fixture (with its listings when `lis`) and run to `pc`
+        const auto lz = [&](Machine& m, const char* tag, uint16_t pc, bool lis) {
+            const fs::path d = var_dir(tag, "master-fixed-80cc/80cc-scope");
+            if (lis) z88_copy_lis("master-fixed-80cc/80cc-scope", d);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            return cv_run_to(m, pc);
+        };
+        {   // SRCDBG-ZB-12
+            // 80cc with PR #3243 (master-fixed-80cc/80cc-scope, f3254.c; f is entered at $8C49). Oracle: the C program's own scopes. f's locals: t (level 1), p (inside the `if`), i (the outer `for`), j (the inner,
+            // brace-less `for`). At L6 (`t += p`, $8C68) p is in scope and i, j are not; in the inner loop (the third `C_LINE 10` of the listing, `j++`, $8CBE) i and j are in scope
+            // and p is not; at `return t` (L13, $8C9A) only t is. Without the listing beside the map no scope is exact, and every block local is flagged
+            const auto names = [&](Machine& m) {
+                std::string out;
+                const auto loc = m.dbg->c_locals(0);
+                for (const auto& r : loc.rows) {
+                    if (r.kind == Dbg::CValueRow::Kind::Param) continue;
+                    bool unk = false;
+                    for (const auto& n : r.notes) unk = unk || n.find("scope unknown") != std::string::npos;
+                    out += (out.empty() ? "" : " ") + r.name + (unk ? "?" : "");
+                }
+                return out;
+            };
+            std::string got;
+            const auto at = [&](const char* tag, uint16_t pc, bool lis) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool ok = lz(m, tag, pc, lis);
+                const std::string n = names(m);
+                std::vector<std::string> v;
+                std::istringstream is(n);
+                for (std::string w; is >> w;) v.push_back(w);
+                std::sort(v.begin(), v.end());
+                std::string row;
+                for (const auto& w : v) row += (row.empty() ? "" : " ") + w;
+                got += std::string(ok ? "" : "[no stop]") + row + "|";
+                return row;
+            };
+            const std::string l6 = at("zb12a", 0x8C68, true), loop = at("zb12b", 0x8CBE, true), l13 = at("zb12c", 0x8C9A, true);
+            const std::string n6 = at("zb12d", 0x8C68, false), nloop = at("zb12e", 0x8CBE, false), n13 = at("zb12f", 0x8C9A, false);
+            check("SRCDBG-ZB-12", "master-fixed-80cc f3254.c with the listing beside the map: at `t += p` p and t are listed plain; in the inner loop (third `C_LINE 10`) i and j are listed flagged `scope unknown`, t plain, "
+                                  "p absent; at `return t` only t is. With no listing at the same three stops every block local is flagged (i? j? p?) and t is plain",
+                  l6 == "p t" && loop == "i? j? t" && l13 == "t" && n6 == "i? j? p? t" && nloop == "i? j? p? t" && n13 == "i? j? p? t", got);
+        }
+        {   // SRCDBG-ZB-13
+            // writes, same fixture and stops: p at `t += p` is proven in scope, so p := 5 succeeds and carries the 80cc frame-slot note; i in the inner loop is `scope unknown`, so i := 1 is refused
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const fs::path d = var_dir("zb13a", "master-fixed-80cc/80cc-scope");
+            z88_copy_lis("master-fixed-80cc/80cc-scope", d);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const bool at6 = cv_run_to(m, 0x8C68);
+            const Dbg::CWriteResult w = wr(m, 0, "p", "5");
+            Machine l(false, MachineType::ZXN_ISSUE2);
+            const bool atl = lz(l, "zb13b", 0x8CBE, true);
+            const CwTry wi = attempt(l, 0, "i", "1");
+            check("SRCDBG-ZB-13", "master-fixed-80cc f3254.c with the listing: at `t += p` p := 5 succeeds, carries the 80cc note and reads back 5; in the inner loop i := 1 is refused `scope unknown`",
+                  at6 && w.ok() && note80(w.notes) && w.value == "5" && atl && refused_with(wi, "scope unknown"));
+        }
     }
 
     // ── GH #344 stage 3: a tape program's maps ───────────────────────────────

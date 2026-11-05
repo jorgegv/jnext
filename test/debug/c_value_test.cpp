@@ -1851,8 +1851,94 @@ int main() {
         for (const char* l : {"3", "4", "5", "6", "7", "9", "10", "11", "13", "12"}) expect3254 += std::string(expect3254.empty() ? "" : "|") + l + "=" + (std::string(l) == "3" || std::string(l) == "4" || std::string(l) == "5" ? "i? j? p? t" : every);
         for (const char* l : {"3", "4", "6", "7", "8", "9", "10", "11", "12", "13", "15", "16", "18"}) expect2 += std::string(expect2.empty() ? "" : "|") + l + "=i? k? m? t u? z?";
         check("CVZB-15", "80cc with PR #3243's block records (levels and blocks, code out of source order): every block local of f3254 and f2 stays listed and flagged `scope unknown` at every scope entry "
-                         "(never hidden, never shown without the flag), t (level 1) is plain; JNEXT does not read 80cc's new block records yet",
+                         "(never hidden, never shown without the flag), t (level 1) is plain: a store whose scopes do not come from the listing (no listing beside the map) is not exact enough for the three-valued reading (CVZB-16)",
               f3254 == expect3254 && f2 == expect2, f3254 + " || " + f2);
+    }
+
+    // ── GH #438 S4a: 80cc's PR #3243 block records read three-valued, with the listing's scopes ─────────────
+    struct Rec4 { uint32_t off; int line, level, block; };
+    struct Var4 { const char* name; int level, block, off; };
+    struct Sc3 { int line, level, block; };
+    // The rows of one function: the listing's scopes in order (the flag `scopes_from_listing` set), `name?` for a local flagged `scope unknown`, a hidden local absent
+    const auto cc80_rows = [](const std::vector<Rec4>& trail, const std::vector<Var4>& vars, const std::vector<Sc3>& scopes) {
+        std::vector<CVariable> vs;
+        for (const Var4& v : vars) {
+            CVariable cv;
+            cv.record = cdb_decode(std::string("S:Lt.c.f$") + v.name + "$" + std::to_string(v.level) + "_0$" + std::to_string(v.block) + "({2}SI:S),B,1," + std::to_string(v.off)).record;
+            cv.c_name = v.name;
+            cv.function = 0;
+            vs.push_back(cv);
+        }
+        CFunction f;
+        f.name = "f";
+        f.compiler = CCompiler::Cc80;
+        f.scopes_from_listing = true;
+        for (const Rec4& r : trail) {
+            CScope c;
+            c.offset = r.off;
+            c.line = r.line;
+            c.level = r.level;
+            c.block = r.block;
+            c.known = true;
+            f.trail.push_back(c);
+        }
+        uint32_t off = 0;
+        for (const Sc3& sc : scopes) {
+            CScope c;
+            c.offset = off++;
+            c.line = sc.line;
+            c.level = sc.level;
+            c.block = sc.block;
+            c.known = true;
+            f.scopes.push_back(c);
+        }
+        const VariableStore st({f}, vs, {}, {}, {});
+        std::string out;
+        for (const CScope& sc : st.functions()[0].scopes) {
+            std::vector<std::string> n;
+            for (const CLocalRef& r : c_visible_locals(st, 0, &sc))
+                if (r.kind != CVarKind::Param) n.push_back(r.var->c_name + (r.scope_unknown ? "?" : ""));
+            std::sort(n.begin(), n.end());
+            std::string row;
+            for (const std::string& x : n) row += (row.empty() ? "" : " ") + x;
+            out += (out.empty() ? "" : "|") + std::to_string(sc.line) + "=" + row;
+        }
+        return out;
+    };
+    {   // CVZB-16
+        // The records and the variables are those 80cc (upstream 96c0efaddd, PR #3243) wrote for eight functions of our own programs (f3254.c, f2.c, blocks.c, t1.c: a `for` with a
+        // declaration, sibling `for`s, nested blocks, a brace-less inner `for`, `for(;;)`, a `__stdc` function), read through jnext's adapter. The expected text is the C scope of each line:
+        // a name is plain only where the program's block holds it, absent where its block is closed or not yet opened, and `?` where the records cannot tell (a `for` variable, a block
+        // under a `for`: f2.c's second `for` has the records of one `for`, k2 the records of a `for` body, g2 the records of two nested blocks).
+        struct Case { const char* name; std::vector<Rec4> trail; std::vector<Var4> vars; std::vector<Sc3> scopes; const char* expect; };
+        const std::vector<Case> cases = {
+        {"f3254_f", {{0,3,0,0},{19,4,1,1},{23,5,1,1},{27,6,2,2},{33,7,2,2},{37,9,2,1},{63,10,4,3},{72,11,4,3},{75,13,1,1},{140,12,2,1}}, {{"a",0,0,4},{"i",2,1,-4},{"j",4,3,-2},{"p",2,2,-6},{"t",1,1,-8}}, {{3,0,0},{4,1,1},{5,1,1},{6,2,2},{7,2,2},{9,2,1},{10,4,3},{11,4,3},{13,1,1},{12,2,1}}, "3=t|4=t|5=t|6=p t|7=p t|9=i? t|10=i? j? t|11=i? j? t|13=t|12=i? t"},
+        {"f2_h", {{0,3,0,0},{13,4,1,1},{20,6,2,1},{46,7,3,3},{56,8,3,3},{73,9,2,1},{76,10,2,1},{87,11,3,4},{98,12,3,4},{105,13,2,1},{108,15,2,5},{116,16,2,5},{120,18,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"k",3,3,-6},{"m",3,4,-4},{"t",1,1,-12},{"u",2,5,-2},{"z",2,2,-10}}, {{3,0,0},{4,1,1},{6,2,1},{7,3,3},{8,3,3},{9,2,1},{10,2,1},{11,3,4},{12,3,4},{13,2,1},{15,2,5},{16,2,5},{18,1,1}}, "3=t|4=t|6=i? t|7=i? k? t z?|8=i? k? t z?|9=i? t|10=i? t|11=i? m? t z?|12=i? m? t z?|13=i? t|15=t u|16=t u|18=t"},
+        {"blocks_f", {{0,4,0,0},{19,5,1,1},{23,6,1,1},{34,7,2,2},{41,8,2,2},{45,10,2,1},{71,11,3,3},{88,12,2,1},{91,14,2,4},{99,16,3,5},{105,17,3,5},{109,19,2,4},{122,20,2,4},{126,22,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"p",2,2,-10},{"t",1,1,-12},{"u",2,4,-6},{"v",3,5,-4},{"z",2,4,-2}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{10,2,1},{11,3,3},{12,2,1},{14,2,4},{16,3,5},{17,3,5},{19,2,4},{20,2,4},{22,1,1}}, "4=t|5=t|6=t|7=p t|8=p t|10=i? t|11=i? t|12=i? t|14=t u z|16=t u v z|17=t u v z|19=t u z|20=t u z|22=t"},
+        {"blocks_g2", {{0,25,0,0},{16,26,1,6},{20,27,2,7},{24,28,2,7},{27,31,3,8},{36,32,3,8},{40,34,1,6}}, {{"a",0,0,4},{"q",2,7,-4},{"w",3,8,-2}}, {{25,0,0},{26,1,6},{27,2,7},{28,2,7},{31,3,8},{32,3,8},{34,1,6}}, "25=|26=|27=q|28=q|31=q? w?|32=q? w?|34="},
+        {"blocks_h", {{0,37,0,0},{13,38,1,9},{21,40,2,10},{27,41,3,10},{53,42,4,11},{70,43,3,10},{73,44,2,10},{82,46,1,9}}, {{"a",0,0,4},{"j",3,10,-2},{"m",2,10,-4},{"t",1,9,-6}}, {{37,0,0},{38,1,9},{40,2,10},{41,3,10},{42,4,11},{43,3,10},{44,2,10},{46,1,9}}, "37=t|38=t|40=m t|41=j? m t|42=j? m t|43=j? m t|44=m t|46=t"},
+        {"t1_k1", {{0,4,0,0},{19,5,1,1},{23,6,1,1},{34,7,2,2},{41,8,2,2},{41,12,2,2},{58,9,3,3},{64,10,3,3},{68,11,3,3},{78,14,2,1},{87,17,2,1},{104,15,3,4},{110,16,3,4},{130,18,2,1},{156,19,3,5},{162,20,3,5},{179,21,2,1},{182,22,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"j",2,1,-4},{"r",2,2,-12},{"t",1,1,-14},{"w",3,3,-10},{"x",3,4,-6},{"y",3,5,-2}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{9,3,3},{10,3,3},{11,3,3},{14,2,1},{15,3,4},{16,3,4},{17,2,1},{18,2,1},{19,3,5},{20,3,5},{21,2,1},{22,1,1}}, "4=t|5=t|6=t|7=r t|8=r t|9=r t w|10=r t w|11=r t w|14=i? j? t|15=i? j? t x?|16=i? j? t x?|17=i? j? t|18=i? j? t|19=i? j? t y?|20=i? j? t y?|21=i? j? t|22=t"},
+        {"t1_k2", {{0,25,0,0},{19,26,1,6},{23,27,1,6},{27,28,3,7},{36,29,3,7},{39,35,1,6},{83,30,3,7},{109,31,4,8},{116,32,4,8},{133,33,3,7}}, {{"a",0,0,4},{"i",3,7,-6},{"j",3,7,-4},{"q",4,8,-2},{"t",1,6,-8}}, {{25,0,0},{26,1,6},{27,1,6},{28,3,7},{29,3,7},{35,1,6},{30,3,7},{31,4,8},{32,4,8},{33,3,7}}, "25=t|26=t|27=t|28=i? j? t|29=i? j? t|35=t|30=i? j? t|31=i? j? q? t|32=i? j? q? t|33=i? j? t"},
+        {"t1_k3", {{0,38,0,9},{13,39,1,10},{18,41,2,11},{30,43,3,12},{37,45,4,13},{44,46,4,13},{48,51,2,14},{56,52,2,14},{60,54,1,10}}, {{"a",0,9,4},{"t",1,10,-10},{"u",2,11,-8},{"v",3,12,-6},{"w",4,13,-4},{"z",2,14,-2}}, {{38,0,9},{39,1,10},{41,2,11},{43,3,12},{45,4,13},{46,4,13},{51,2,14},{52,2,14},{54,1,10}}, "38=t|39=t|41=t u|43=t u? v?|45=t u? v? w?|46=t u? v? w?|51=t z|52=t z|54=t"},
+        };
+        bool ok = true;
+        std::string seen;
+        for (const Case& c : cases) {
+            const std::string got = cc80_rows(c.trail, c.vars, c.scopes);
+            if (got != c.expect) { ok = false; seen += std::string(" ") + c.name + ": " + got; }
+        }
+        check("CVZB-16", "80cc with PR #3243's records and the listing's scopes: eight functions (f3254 f, f2 h, blocks f, g2, h, t1 k1, k2, k3 (`__stdc`)) give at every listed scope exactly the locals the C program "
+                         "has in scope (plain), none that are closed or not yet open (absent), and `scope unknown` for a `for` variable, a local under a `for` and an outer block whose code ends with the inner one",
+              ok && cases.size() == 8, seen);
+    }
+    {   // CVZB-17
+        // The line proofs are strict, and beta is the lowest block. Expected values: the three-valued rule applied by hand to each trail (the programs would be hand-written C of these shapes)
+        const std::string c1 = cc80_rows({{0, 5, 1, 1}, {1, 8, 1, 1}, {2, 8, 2, 2}, {3, 9, 3, 3}, {4, 10, 3, 3}}, {{"t", 1, 1, -2}, {"y", 2, 2, -4}, {"w", 3, 3, -6}}, {{9, 3, 3}, {10, 3, 3}});
+        const std::string c2 = cc80_rows({{0, 5, 1, 1}, {1, 8, 2, 2}, {2, 9, 2, 2}, {3, 9, 3, 3}, {4, 10, 3, 3}, {5, 11, 1, 1}}, {{"t", 1, 1, -2}, {"y", 2, 2, -4}, {"w", 3, 3, -6}}, {{10, 3, 3}});
+        const std::string c3 = cc80_rows({{0, 3, 2, 2}, {1, 4, 2, 2}, {2, 5, 2, 3}, {3, 6, 2, 3}}, {{"x", 2, 2, -2}, {"y", 2, 3, -4}}, {{3, 2, 2}, {5, 2, 3}});
+        check("CVZB-17", "the proofs are strict: an outer entry on y's own line closes nothing (y stays `?` at lines 9 and 10 beside w); a line shared by two blocks makes no parent (y never plain, w `?`); with no level-1 data beta is "
+                         "the lowest block, so at the first block's line x is `?` and y absent, and at the second's x is absent and y plain",
+              c1 == "9=t w? y?|10=t w? y?" && c2 == "10=t w? y?" && c3 == "3=x?|5=y", c1 + " || " + c2 + " || " + c3);
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

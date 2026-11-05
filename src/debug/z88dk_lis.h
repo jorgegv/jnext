@@ -79,11 +79,23 @@ struct Z88dkListedRange {
     std::string section;
 };
 
+/// A `C_LINE n,"<file>::<func>::<level>::<block>"` directive, placed at the first byte row after it (the last directive
+/// before that row owns it): the scope the compiler wrote for that code, once per occurrence (GH #438, S4a). The map keeps
+/// only the first `__C_LINE_` symbol of each (line, scope) key, so it cannot place 80cc's repeated lines.
+struct Z88dkListedScope {
+    std::string text;         // `<file>::<func>::<level>::<block>:<line>`, the map's own location form
+    uint64_t value = 0;       // the map value of the byte row
+    std::string section;
+    jnext::dbg::FetchSource space;
+    uint16_t lo = 0;
+};
+
 struct Z88dkListingResult {
     bool used = false;                          // false: dropped or ignored, `notes` say why
     std::string module;
     std::vector<Z88dkListedRange> ranges;
     std::vector<SourceAlias> aliases;           // `range` indexes `ranges`
+    std::vector<Z88dkListedScope> scopes;       // C modes: every C_LINE directive with a scope operand, placed
     std::map<std::string, std::vector<std::string>> texts;   // `.m4` files: lines[i] is line i + 1
     int checks = 0;                             // map line records compared
     int disagreements = 0;                      // ... that the listing places elsewhere

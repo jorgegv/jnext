@@ -3223,6 +3223,81 @@ main cross_c AC97
               ok && pre_enumerators == 3);
     }
 
+    {   // Z88ZB-12
+        // 80cc with PR #3243's records, master-fixed-80cc/80cc-scope (f3254.c). Oracle: the listing's own C_LINE directives (f3254.c.lis; f's first byte is offset 0): L13 at +$51 (1/1), the inner loop's first
+        // C_LINE 10 (4/3) at +$58, its third (`j++`) at +$75, then L9 (2/1) at +$85 and L12 at +$92
+        const fs::path map = kFixtures / "master-fixed-80cc/80cc-scope" / "prog.map";
+        SourceMap with, without;
+        load_z88dk_source_map(with, map.string(), nex_space, Z88dkListings::Beside);
+        load_z88dk_source_map(without, map.string(), nex_space, Z88dkListings::None);
+        const auto fn_idx = [](const VariableStore& st, const char* name) {
+            for (size_t i = 0; i < st.functions().size(); ++i)
+                if (st.functions()[i].name == name) return static_cast<int>(i);
+            return -1;
+        };
+        const VariableStore* sw = with.variables().get();
+        const VariableStore* so = without.variables().get();
+        bool ok = sw && so;
+        if (ok) {
+            const int f = fn_idx(*sw, "f"), fo = fn_idx(*so, "f");
+            const auto sc = [&](const VariableStore& st, int fi, uint32_t off) { return fi >= 0 ? st.scope_at(fi, off) : nullptr; };
+            const jnext::dbg::CScope* a = sc(*sw, f, 0x75);
+            const jnext::dbg::CScope* b = sc(*sw, f, 0x58);
+            const jnext::dbg::CScope* c = sc(*sw, f, 0x51);
+            const jnext::dbg::CScope* d = sc(*sw, f, 0x92);
+            const jnext::dbg::CScope* z = sc(*so, fo, 0x75);
+            ok = f >= 0 && fo >= 0 && sw->functions()[static_cast<size_t>(f)].scopes_from_listing && !so->functions()[static_cast<size_t>(fo)].scopes_from_listing &&
+                 a && a->line == 10 && a->level == 4 && a->block == 3 && a->known && b && b->line == 10 && b->block == 3 && c && c->line == 13 && c->level == 1 && c->block == 1 &&
+                 d && d->line == 12 && d->level == 2 && d->block == 1 && z && z->line == 13 && z->level == 1;
+            // before PR #3243 80cc writes level 0 everywhere: master/80cc-cvars has listings beside its map and no function takes the listing's scopes
+            SourceMap pre;
+            load_z88dk_source_map(pre, (kFixtures / "master/80cc-cvars" / "prog.map").string(), nex_space, Z88dkListings::Beside);
+            const VariableStore* sp = pre.variables().get();
+            bool any_from_listing = !sp || sp->functions().empty();
+            if (sp) for (const CFunction& pf : sp->functions()) any_from_listing = any_from_listing || pf.scopes_from_listing;
+            ok = ok && !any_from_listing;
+        }
+        check("Z88ZB-12", "master-fixed-80cc f3254.c: with the listing beside the map f's scope table holds every C_LINE occurrence (at +$75 L10 4/3, at +$58 L10 4/3, +$51 L13 1/1, +$92 L12 2/1); with Z88dkListings::None the flag is off and +$75 resolves to L13 (1/1), the map's one symbol per scope; the pre-#3243 master/80cc-cvars, listings beside it, has no function with the flag",
+              ok);
+    }
+
+    {   // Z88ZB-13
+        // The last C_LINE directive before a byte row owns it (z80asm puts the earlier ones on the same address; here a block opens and a statement follows with no code between). A synthetic 80cc
+        // module t_c, function f: `C_LINE 5` (1/1) owns the first nop at $9000; `C_LINE 6` (2/2) then `C_LINE 7` (2/3) come before the second nop at $9001, which line 7 (block 3) owns
+        const auto lrow = [](int line, const char* addr, const char* bytes, const std::string& text) {
+            char buf[64];
+            std::snprintf(buf, sizeof buf, "%6d  ", line);
+            std::string out = buf;
+            if (addr) {
+                std::snprintf(buf, sizeof buf, "%s  %-16s  ", addr, bytes);
+                out += buf;
+            } else {
+                out += std::string(24, ' ');
+            }
+            return out + text + "\n";
+        };
+        const fs::path d = dir / "z88zb13";
+        fs::create_directories(d);
+        write_text(d / "t.c.lis", std::string("t.c:\n") + lrow(1, nullptr, nullptr, " MODULE t_c") + lrow(2, nullptr, nullptr, " SECTION code_user") + lrow(3, nullptr, nullptr, "_f:") +
+                                      lrow(4, nullptr, nullptr, " C_LINE 5,\"t.c::f::1::1\"") + lrow(5, "0000", "00", " nop") +
+                                      lrow(6, nullptr, nullptr, " C_LINE 6,\"t.c::f::2::2\"") + lrow(7, nullptr, nullptr, " C_LINE 7,\"t.c::f::2::3\"") +
+                                      lrow(8, "0001", "00", " nop") + lrow(9, "0002", "c9", " ret"));
+        write_text(d / "t.map",
+            "__code_user_head                = $9000 ; const, public, def, , ,\n__code_user_size                = $0003 ; const, public, def, , ,\n"
+            "__code_user_tail                = $9003 ; const, public, def, , ,\n" +
+                std::string("_f                              = $9000 ; addr, public, , t_c, code_user, t.c:3\n") + rec("__C_LINE_5_t_2ec_3a_3af_3a_3a1_3a_3a1", 0x9000, "t_c", "code_user", "t.c::f::1::1:5") +
+                rec("__C_LINE_6_t_2ec_3a_3af_3a_3a2_3a_3a2", 0x9001, "t_c", "code_user", "t.c::f::2::2:6") + rec("__C_LINE_7_t_2ec_3a_3af_3a_3a2_3a_3a3", 0x9001, "t_c", "code_user", "t.c::f::2::3:7") +
+                zb_cdb("F:G$f$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + zb_cdb("M:t.c"));
+        SourceMap m;
+        load_z88dk_source_map(m, (d / "t.map").string(), nex_space, Z88dkListings::Beside);
+        const VariableStore* st = m.variables().get();
+        const CFunction* f = st ? fn_named(*st, "f") : nullptr;
+        check("Z88ZB-13", "an 80cc function with `C_LINE 5` (1/1), then two directives (`C_LINE 6` 2/2 and `C_LINE 7` 2/3) before one byte row: the listing's scope table is [L5 1/1 at +0, L7 2/3 at +1] "
+                          "(the last directive owns the row), the flag is set and the compiler is 80cc",
+              f && f->compiler == jnext::dbg::CCompiler::Cc80 && f->scopes_from_listing && f->scopes.size() == 2 && f->scopes[0].offset == 0 && f->scopes[0].line == 5 && f->scopes[0].level == 1 &&
+                  f->scopes[0].block == 1 && f->scopes[1].offset == 1 && f->scopes[1].line == 7 && f->scopes[1].level == 2 && f->scopes[1].block == 3);
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

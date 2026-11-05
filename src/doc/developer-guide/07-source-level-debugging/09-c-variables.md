@@ -12,7 +12,7 @@ address is in. Reading a value, a frame or a type is not here (last section).
 
 ## What the store holds
 
-`VariableStore` (`class VariableStore`, `src/debug/variable_store.h:125`) is immutable once
+`VariableStore` (`class VariableStore`, `src/debug/variable_store.h:128`) is immutable once
 built. Its five vectors:
 
 | Accessor | Holds |
@@ -62,15 +62,15 @@ no store, because it replaces nothing. `Load MAP` (symbols only) never has one.
 ## How it is filled
 
 `load_z88dk_source_map()` reads the map once. Pass 1 keeps a `const` line that
-starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:677`),
+starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:716`),
 and the parser gained `Z88dkMapLine::is_public` (the scope field). The line records
 of code sections are copied to `scope_records` right after they are placed and
-**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:744`):
+**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:783`):
 a listing's `C_LINE` keeps only the file, so the scope can come only from the map.
 Just before `map.replace()`, `build_variable_store()`
-(`src/debug/z88dk_source_map.cpp:516`)
+(`src/debug/z88dk_source_map.cpp:554`)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:973`),
+space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:1024`),
 shared by the extent code and the store, so no rule is kept twice.
 
 ## The joins
@@ -118,7 +118,7 @@ The compilers write the scope differently:
 
 - sccz80 and 80cc: `file::<func>::<level>::<block>:<line>`. The level is the
   compiler's, the block is the last one opened, not the current one, and 80cc has
-  level 0 everywhere and no block structure. The named function must be the
+  level 0 everywhere and no block structure. Since PR #3243 80cc counts blocks per file in parse order (a `__stdc` function takes one more for its parameters), writes the open compounds plus the open `for` headers as the level and the innermost open compound as the block: a `for` raises the level and opens no block (D-for), and `emit_op_cline()` skips a op whose line equals the previous one's, so a line holding code of two blocks carries only the first block's scope (D-line). The named function must be the
   function at the address, or the entry is unknown. This is the line-44 gap: `int
   main(void)` is scoped `sum::0::2` at `_main`, and the same address holds line 45
   (`main::0::3`), which owns it; were line 44 alone there, the cross-check makes it

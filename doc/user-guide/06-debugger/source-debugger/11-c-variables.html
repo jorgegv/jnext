@@ -4335,7 +4335,7 @@ the same notes reach the Watches tab and GDB's <code>monitor locals</code>, <cod
   overlap, each naming the other (several names are separated by commas). Two blocks that reuse one slot can both look open when the compiler's
   block numbers cannot tell which is, and 80cc's parameter record can name another variable's slot. Neither variable is hidden. Writing either
   is refused (the value would land in the other). A member of a shared struct or array shows no note of its own, but writing it is refused too.</li>
-<li><strong><code>scope unknown: shown whatever block the PC is in</code></strong>: JNEXT does not know which block this line is in (every 80cc block local, whether or not the compiler records blocks), so every block local is listed, flagged, and none is hidden. Writing one is refused.</li>
+<li><strong><code>scope unknown: shown whatever block the PC is in</code></strong>: JNEXT cannot place this local's block, so it is listed, flagged, and not hidden. Writing one is refused. With 80cc that is a <code>for</code> variable, a local of a block under a <code>for</code>, an outer block's local where the records cannot tell, and every 80cc block local when there is no <code>--list</code> listing beside the map or the build predates PR #3243.</li>
 </ul>
 <p>The words <code>U1</code> and <code>U2</code> in the messages are JNEXT's names for two z88dk record bugs (a fastcall parameter's slot, a bitfield written as an <code>int</code>).</p>
 <p>Refusals instead of a value: <code>location unknown (z88dk U1...)</code> for a <code>__z88dk_fastcall</code> parameter that sccz80 recorded where it is not;
@@ -4490,9 +4490,9 @@ z88dk nightly has them all yet: the latest one when this was written, <code>z88d
 <tr>
 <td>master, 80cc</td>
 <td><code>C_LINE</code> has no level and no block; with PR #3243 it has both, in an order JNEXT does not read right</td>
-<td>every block local <code>scope unknown</code>, also with PR #3243: JNEXT does not read 80cc's new block records yet</td>
+<td>with PR #3243 and the <code>--list</code> listings beside the map, a block local is listed when its block is provably open, hidden when provably closed, <code>scope unknown</code> otherwise; without the listings, or before PR #3243, every block local is <code>scope unknown</code></td>
 <td><a href="https://github.com/z88dk/z88dk/issues/3228">#3228</a></td>
-<td>PR #3243, merged (JNEXT's side: not done)</td>
+<td>PR #3243, merged</td>
 <td>2026-11-04</td>
 </tr>
 <tr>
@@ -4522,7 +4522,7 @@ z88dk nightly has them all yet: the latest one when this was written, <code>z88d
 <tr>
 <td>master, 80cc</td>
 <td>a <code>for (int i ...)</code> variable's block</td>
-<td>every block local <code>scope unknown</code> (above)</td>
+<td>a <code>for</code> opens no block on 80cc, so its variable and anything under the <code>for</code> stay <code>scope unknown</code> (above)</td>
 <td>#3254</td>
 <td>not fixed for 80cc yet</td>
 <td>not yet</td>
@@ -4547,8 +4547,9 @@ z88dk nightly has them all yet: the latest one when this was written, <code>z88d
 </table>
 <p>More, in short:
 - A plain <code>int</code> bitfield (<code>int s:4;</code>) is <strong>unsigned</strong> in sccz80 and 80cc and signed in zsdcc, so the value shown is each program's own reading; a <code>signed int</code> field is signed everywhere.
-- On a <code>for</code> line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80 and 80cc: those lines are recorded in the enclosing block. It is listed in the body, and again from the next line.
+- On a <code>for</code> line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80 and 80cc: those lines are recorded in the enclosing block. It is listed in the body, and again from the next line. With 80cc the loop variable is listed on its <code>for</code> line too, flagged <code>scope unknown</code>, because 80cc opens no block for a <code>for</code>.
 - A source path that contains a <code>$</code> (<code>game$v2/main.c</code>): sccz80 and 80cc write the path into each local's and static's record, and <code>$</code> separates the record's fields, so JNEXT cannot read the records of that file and does not list its parameters, locals or file statics (its globals are listed). zcc itself needs the <code>$</code> escaped and cannot write <code>--list</code> listings for such a path. Keep <code>$</code> out of source paths.
+- 80cc writes one scope per source line. On a line that holds code of two blocks (<code>if (a) { int y = 1; g = y; }</code> written on one line) the locals listed are those of the block 80cc wrote first: <code>y</code> is never listed there, even while <code>g = y</code> runs, and in <code>g = y; } t++;</code> <code>y</code> is listed plain while <code>t++</code> runs and shows its last value. Keep a block's statements on lines of their own.
 - Not a display limit, but wrong values in the program itself: a bitfield initialiser across two bytes written as one (#3234, fixed by PR #3242), and the 80cc code-generation bugs #3245 to #3247 (fixed by PRs #3250 to #3252; #3246 only on the Game Boy target).
 - Not JNEXT: z88dk's own debuggers (#3230, #3237, #3238, #3248 and ticks' float reading in #3240; PRs #3253 for #3248).
 - No C variables at all: zsdcc on 2.4 (<code>-debug</code> does not build, #3172), and the classic library on the Next with 2.4 (<code>-debug</code> fails, PR #3198; it works on master).

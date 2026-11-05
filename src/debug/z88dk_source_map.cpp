@@ -480,6 +480,44 @@ void fill_scopes(std::vector<CFunction>& fns, const std::vector<FnEntry>& entrie
         });
 }
 
+// 80cc with PR #3243's block records (some known scope of level > 0 in the map) and a listing beside the map (GH #438 S4a): the function's scope table is
+// every `C_LINE` occurrence of the listing, each at the first byte row after it, instead of the map's one symbol per (line, scope). Offsets are from the entry,
+// known iff the directive names this function, as fill_scopes() reads an 80cc record. Called after fill_compilers().
+void fill_listing_scopes(std::vector<CFunction>& fns, const std::vector<FnEntry>& entries, const std::vector<Record>& listed)
+{
+    for (size_t k = 0; k < fns.size(); ++k) {
+        CFunction& f = fns[k];
+        if (f.compiler != jnext::dbg::CCompiler::Cc80 || !f.entry.resolved || !entries[k].sym) continue;
+        const bool block_data = std::any_of(f.scopes.begin(), f.scopes.end(), [](const CScope& c) { return c.known && c.level > 0; });
+        if (!block_data) continue;
+        std::vector<CScope> out;
+        for (const Record& r : listed) {
+            if (r.module != f.module || r.section != entries[k].sym->section || r.value < entries[k].sym->value) continue;
+            // the function of the module and section with the greatest entry value at or below the occurrence
+            bool mine = true;
+            for (size_t j = 0; j < fns.size(); ++j)
+                if (j != k && fns[j].entry.resolved && entries[j].sym && fns[j].module == r.module && entries[j].sym->section == r.section &&
+                    entries[j].sym->value <= r.value && (entries[j].sym->value > entries[k].sym->value || (entries[j].sym->value == entries[k].sym->value && fns[j].text < f.text)))
+                    mine = false;
+            if (!mine) continue;
+            CScope cs;
+            cs.at = {r.space, r.lo};
+            cs.line = r.loc.line;
+            cs.offset = static_cast<uint32_t>(r.value - entries[k].sym->value);
+            if (r.loc.scope_given && r.loc.func == f.name) {
+                cs.known = true;
+                cs.level = r.loc.level_raw;
+                cs.block = r.loc.block;
+            }
+            out.push_back(cs);
+        }
+        if (out.empty()) continue;
+        std::stable_sort(out.begin(), out.end(), [](const CScope& a, const CScope& b) { return a.offset < b.offset; });
+        f.scopes = std::move(out);
+        f.scopes_from_listing = true;
+    }
+}
+
 // Which compiler wrote each function's records (GH #438, plan 1.2), from the map alone: the `M:` module records of the
 // compilers differ. 80cc writes `M:<file>` into the module with the file name as `C_LINE` carries it (`M:./m.c` beside
 // `./m.c::main::...`); zsdcc writes `M:<module>` against `C_LINE` file `<module>.c`, so it never matches; sccz80 writes
@@ -517,7 +555,7 @@ std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
     const std::vector<CdbLine>& cdb_lines, const std::vector<Z88dkMapLine>& symbols,
     const std::vector<Record>& scope_records, const PlaceSymbol& place,
     const std::map<std::string, uint64_t>& bounds, const ListedFunctions& listed,
-    const std::string& float_library)
+    const std::string& float_library, const std::vector<Record>& listing_scopes)
 {
     SymbolIndex idx;
     for (const Z88dkMapLine& s : symbols) {
@@ -604,6 +642,7 @@ std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
     fill_extents(fns, entries, symbols, scope_records, bounds, place);
     fill_scopes(fns, entries, scope_records);
     fill_compilers(fns, modules, scope_records);
+    fill_listing_scopes(fns, entries, listing_scopes);
 
     // An `{-1}` array record is the twin of a sized one (an array sized by its initialiser: sccz80 and 80cc write the
     // unsized record first). With no sized twin of the same scope, name and function it is the variable's only record: it
@@ -821,6 +860,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     std::set<std::string> listed_modules;
     std::vector<std::string> notes;
     ListedFunctions listed_functions;
+    std::vector<Record> listing_scopes;   // every C_LINE occurrence of every used listing (GH #438 S4a)
     int listings_used = 0;
     int checks = 0;
     int disagreements = 0;
@@ -939,6 +979,17 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
                 if (examples.size() < 3) examples.push_back(std::move(e));
             const size_t base = listed_ranges.size();
             for (Z88dkListedRange& lr : r.ranges) listed_ranges.push_back(std::move(lr));
+            for (const Z88dkListedScope& sc : r.scopes)
+                if (const auto loc = parse_location(sc.text)) {
+                    Record lr;
+                    lr.value = sc.value;
+                    lr.module = r.module;
+                    lr.section = sc.section;
+                    lr.loc = *loc;
+                    lr.space = sc.space;
+                    lr.lo = sc.lo;
+                    listing_scopes.push_back(std::move(lr));
+                }
             for (SourceAlias& a : r.aliases) {
                 a.range += base;
                 listed_aliases.push_back(std::move(a));
@@ -1128,6 +1179,6 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     map.replace(std::move(ranges), std::move(aliases), std::move(identity), loaded, "z88dk",
                 std::move(listed_texts), dot != nullptr,
                 build_variable_store(cdb_lines, symbols, scope_records, place_symbol, bounds,
-                                     listed_functions, float_library));
+                                     listed_functions, float_library, listing_scopes));
     return result;
 }

@@ -3050,8 +3050,8 @@ all three compilers, and the <code>B</code> records of a variable are offsets fr
 </tbody>
 </table>
 <p>The helpers (<code>__debug_framepointer</code>, <code>l_debug_push_frame</code>, <code>l_debug_pop_frame</code>) are joined by
-public name in <code>CFrameHelpers</code> (<code>struct CFrameHelpers</code>, <code>variable_store.h:107</code>), by the adapter
-(<code>helpers.framepointer</code>, <code>z88dk_source_map.cpp:624</code>), never from the symbol table: a
+public name in <code>CFrameHelpers</code> (<code>struct CFrameHelpers</code>, <code>variable_store.h:110</code>), by the adapter
+(<code>helpers.framepointer</code>, <code>z88dk_source_map.cpp:663</code>), never from the symbol table: a
 hand-loaded map attaches no symbols. They are unresolved, with a reason, in a zsdcc map.</p>
 <h2 id="which-function-a-pc-is-in">Which function a PC is in<a class="headerlink" href="#which-function-a-pc-is-in" title="Permanent link">&para;</a></h2>
 <p>A function's <strong>extent</strong> is a list of pieces (<code>CPiece</code>, <code>variable_store.h:56</code>). <code>fill_extents()</code>
@@ -3199,9 +3199,8 @@ and level-1 locals are always visible. Which block is open depends on the compil
 <li><strong>zsdcc</strong> (and a synthetic store): a local of level &gt;= 2 is visible iff its block is the open block or one of its ancestors. A block's level is its locals' own;
   a block that holds no local takes the level of the first scope entry, in offset order, that names it. The open block is the greatest known block at the scope's level at or
   below the scope's block. With no block data or an unknown scope, every block local is shown, marked <code>scope unknown</code>.</li>
-<li><strong>80cc</strong>: <code>unknown</code> in <code>c_visible_locals()</code> is true for every 80cc function, so every block local (level &gt;= 2) is listed, flagged <code>scope unknown</code> (a note on reads, a refusal on writes) and never hidden,
-  also when the records carry levels and blocks (z88dk PR #3243). Measured on 80cc built at upstream <code>96c0efaddd</code>: its code is laid out out of source order and its <code>for</code> variable is <code>$2_0$1</code>, which neither the
-  block rule nor the sccz80 replay reads right (a closed sibling shown, the variable in scope hidden, no note); <code>CVZB-15</code> pins the flag on that compiler's own records. Reading them is later work.</li>
+<li><strong>80cc</strong> (GH #438 S4a): <code>cc80_verdict()</code> answers three-valued, only when <code>CFunction::scopes_from_listing</code> is set (the function's records carry levels, PR #3243, and a listing covers it) and the PC's scope is known; otherwise every block local (level &gt;= 2) is listed, flagged <code>scope unknown</code> (a note on reads, a refusal on writes) and never hidden. <code>fill_listing_scopes()</code> replaces the function's scope table with every <code>C_LINE</code> directive of the listing, each at the first byte row after it (the last directive before the row owns it; <code>Z88ZB-12</code>, <code>Z88ZB-13</code>), because the map keeps one symbol per (line, scope) and 80cc repeats lines in loops. The rule (E = the trail's known entries of level &gt;= 1, s = the PC's line, level, block): F1 b &gt; B_s is closed; F2 b == B_s and lv &gt; L_s is closed; F3 a line x of b, then an entry of a lower block strictly between x and l_s, closes b; F4 a &lt; b is an ancestor of b when a line of a is after a line of b (the lowest block, beta, is every block's ancestor); F5 an open block numbered above b with a level &lt;= lv puts v outside its scope; F6 v is declared directly in b, so plain, when lv is 1 for beta or 1 + its ancestors, and b is B_s or an ancestor of it. Everything else is <code>scope unknown</code>: a <code>for</code> variable and the locals under a <code>for</code> (80cc opens no block for a <code>for</code>), and an outer block whose code ends with the inner one. No heuristic is used (taking the least level of a block as its own shows <code>i</code> plain inside <code>j</code>'s loop, a silent wrong value); <code>CVZB-16</code> pins eight functions, <code>CVZB-17</code> the strictness.
+  Without exact scopes the generic rules are wrong on 80cc (measured on 80cc built at upstream <code>96c0efaddd</code>: a closed sibling shown, the variable in scope hidden, no note), which <code>CVZB-15</code> pins.</li>
 <li><strong>sccz80 with a trail</strong> (GH #438, <code>replay_trail()</code>): the trail is replayed up to the PC's offset as a stack of open blocks, <code>stack[level] = block | SKIP</code>. A record at a level drops
   every level above it. A record that names a block higher than any seen fills the unset levels below it with the greatest unseen block of that level in between (a block opened and
   closed without a line of its own, or the block a <code>for</code> opened: it is named by nothing but its header variable's <code>S:</code> record), else SKIP; a record that names a lower block than the
@@ -3213,7 +3212,7 @@ and level-1 locals are always visible. Which block is open depends on the compil
 <li><strong>The guard</strong> (<code>CLocalRef::shares</code>, <code>c_shares_note()</code>): every pair of visible B-space variables whose byte ranges overlap is marked, each naming the other, and neither is hidden.
   <code>c_locals</code> rows and <code>read_c_value</code> carry the note; a write is refused. <code>c_children</code> rows do not carry it (a member of a shared aggregate shows no note, but its write is refused).</li>
 </ul>
-<p><code>c_read_register_local()</code> (<code>c_value.cpp:1086</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
+<p><code>c_read_register_local()</code> (<code>c_value.cpp:1158</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
 that it may be stale), refuses <code>[]</code> as optimised out and an outer frame as not available.
 <code>c_fastcall_records_nominal()</code> is the U1 rule, per function (GH #438): true iff the function is fastcall and none of its parameters (level 0, space B) is recorded at a negative offset,
 that is, the records are the pre-z88dk#3229 ones, every parameter at its nominal slot, where none of them is. Fastcall is <code>CConv::ListedFastcall</code> (a listing flags it), or the caller's
@@ -3282,7 +3281,7 @@ StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code
 locals, the file's statics, the globals. A local that exists but is hidden is <code>out of scope at &lt;file&gt;:&lt;line&gt;</code>. <code>fn::name</code> names a static
 local from any frame, and a local of <code>fn</code> only from a frame of <code>fn</code>; <code>file.c::name</code> names that file's statics and globals.</p>
 <h2 id="the-int32-atom-c_int32_scalar-gh-436">The int32 atom: <code>c_int32_scalar()</code> (GH #436)<a class="headerlink" href="#the-int32-atom-c_int32_scalar-gh-436" title="Permanent link">&para;</a></h2>
-<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1176</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
+<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1248</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
 and, through its translation, ZRCP's <code>CVAR()</code> both reach it through the evaluator, so there is nothing to keep in step. It reads
 <code>loc.type</code> (the head of the chain and the size) and <code>loc.note</code>, so a register-held value (no address) passes a <code>CLoc</code> with just its
 type, which <code>read_c_value()</code> fills for it. <code>integer</code> is the facade's <code>CValueResult::integer</code>.</p>
@@ -3343,7 +3342,7 @@ storage). The write adds six refusals, in this order:</p>
 <tbody>
 <tr>
 <td><code>scope unknown</code> (<code>Found::scope_unknown</code>, copied from <code>CLocalRef</code> in <code>find_local()</code>)</td>
-<td>JNEXT does not know which block an 80cc line is in (80cc's records carried none, and with z88dk PR #3243 they carry some that JNEXT does not read yet), so the slot of a block local may hold another variable: a note for a read (<code>read_c_value()</code> adds <code>scope unknown: ...</code> beside the row's), a refusal for a write</td>
+<td>JNEXT cannot place the block of an 80cc local (a <code>for</code> variable, a local under a <code>for</code>, a case the records cannot tell, or no listing beside the map, or a build before z88dk PR #3243), so the slot of a block local may hold another variable: a note for a read (<code>read_c_value()</code> adds <code>scope unknown: ...</code> beside the row's), a refusal for a write</td>
 </tr>
 <tr>
 <td><code>shares its stack slot with &lt;name&gt;: ...</code> (<code>Found::shares</code>, from <code>CLocalRef</code> in <code>find_local()</code>)</td>
@@ -3376,7 +3375,7 @@ refusal decided before it is <code>RefusedUnavailable</code> with the reason in 
 <code>DivMmcRam</code>, which <code>poke()</code> refuses (<code>identity_only()</code>, INS-02-30), so it is <code>Unsupported</code> with <code>DivMMC RAM bank 2 cannot be written by the
 debugger (unsupported)</code>. After an <code>Ok</code> the object is read back into <code>CWriteResult::value</code>. <code>CWriteResult::notes</code> holds the notes of the read that preceded the write (the 80cc frame-slot note, a <code>not mapped</code> note): the Qt edit message and GDB <code>monitor set var</code> print them. A <code>Page</code> object cannot half-land: the read already
 refused a page crossing.</p>
-<p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1467</code>) is pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
+<p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1539</code>) is pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
 independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRCP, GDB) or a script's 32-bit value:</p>
 <table>
 <thead>
@@ -3409,7 +3408,7 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 <tr>
 <td><code>{6}SF</code> (z88dk 48-bit)</td>
-<td>rounded to nearest; refused when the exponent leaves 1..255 (<code>encode_float48()</code>, <code>c_value.cpp:1402</code>)</td>
+<td>rounded to nearest; refused when the exponent leaves 1..255 (<code>encode_float48()</code>, <code>c_value.cpp:1474</code>)</td>
 <td>refused: <code>float is not an integer</code></td>
 </tr>
 <tr>
@@ -3419,7 +3418,7 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 <tr>
 <td><code>S6</code> (binary16)</td>
-<td>through float, nearest even, refused when it rounds to infinity or to zero (<code>encode_float16()</code>, <code>c_value.cpp:1433</code>)</td>
+<td>through float, nearest even, refused when it rounds to infinity or to zero (<code>encode_float16()</code>, <code>c_value.cpp:1505</code>)</td>
 <td>refused</td>
 </tr>
 <tr>
@@ -3429,15 +3428,15 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 </tbody>
 </table>
-<p>A text is trimmed, then an optional sign and decimal, <code>0x</code> or <code>$</code> digits (<code>parse_int_text()</code>, <code>c_value.cpp:1274</code>), or a <code>'c'</code> character, or for a
-float type a decimal number (<code>float_from_text()</code>, <code>c_value.cpp:1357</code>: its syntax is checked first, then the text is read by an <code>istringstream</code> imbued with the classic
+<p>A text is trimmed, then an optional sign and decimal, <code>0x</code> or <code>$</code> digits (<code>parse_int_text()</code>, <code>c_value.cpp:1346</code>), or a <code>'c'</code> character, or for a
+float type a decimal number (<code>float_from_text()</code>, <code>c_value.cpp:1429</code>: its syntax is checked first, then the text is read by an <code>istringstream</code> imbued with the classic
 locale, because <code>QApplication</code> calls <code>setlocale(LC_ALL, "")</code> and a comma host would read <code>1.5</code> as <code>1</code>; <code>std::from_chars</code> for floating point is
 missing from libc++ before LLVM 20, so the macOS build could not use it). <code>nan</code> and <code>inf</code> are refused.
 A value out of range is refused, never truncated: a person typing <code>-1</code> into an unsigned long made a mistake, not
 a bit pattern, which is why only a script's int32 is a pattern. <strong>The 48-bit encoder rounds to nearest because the compiler does:</strong> the constants z88dk
 compiled into <code>master/sccz80-floats</code> are <code>0.1</code> = <code>CD CC CC CC 4C 7D</code> and <code>1e-10</code> = <code>BE CE FE E6 5B 5F</code>, which truncation gets wrong (<code>CC ...</code>
 and <code>BD ...</code>), and <code>CVW-05</code> reads those bytes from the fixture at run time, never from a copy. A bitfield reads its unit's bytes, replaces its
-bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:1375</code>, is its range check, on the field's width).</p>
+bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:1447</code>, is its range check, on the field's width).</p>
 <p><strong>F1, found while planning:</strong> the reader ignored a bitfield's sign. <code>c_format_value()</code> and <code>c_integer_value()</code> returned the unsigned field for
 <code>SB&lt;s&gt;$&lt;w&gt;:S</code>, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so <code>CVW-10</code>
 uses a synthetic record.</p>

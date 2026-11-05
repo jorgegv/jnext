@@ -1964,7 +1964,7 @@ records, the frame helpers, the float library the map names. The compiler of a m
 **Frames (OD-1, OD-2).** The frame base is tracked from `__debug_framepointer` when the call-stack tracker runs, from the prologue otherwise, and a frame is a call of the tracker's stack or a link
 found by following saved frame pointers. A function that crosses an 8 KB slot has several pieces.
 
-**Scope.** zsdcc: exact blocks, a `for` has its own. 80cc: every block local is `scope unknown`, also with the block data z88dk PR #3243 adds (its code is out of source order and its numbering fits neither rule; reading it is later work). sccz80: the trail replay (`replay_trail()`), which is right on the three
+**Scope.** zsdcc: exact blocks, a `for` has its own. 80cc: read three-valued (S4a): with PR #3243's levels and the listing's own `C_LINE` occurrences (the map keeps one per line and scope, and 80cc's code is out of source order) a block local is plain when its block is provably open, hidden when provably closed, `scope unknown` otherwise (a `for` variable, a local under a `for`, an outer block's local where the records cannot tell: 80cc opens no block for a `for`, and writes one scope per source line); without the listing, or before #3243, every block local is `scope unknown`. sccz80: the trail replay (`replay_trail()`), which is right on the three
 generations of its records (block number = last block opened; = the block being parsed, z88dk#3227; a `for` that opens a block, z88dk#3254). A guard marks variables whose slots overlap (`shares`), on every compiler.
 
 **Values.** The pure layer formats from the type chain (integers, chars, 48-bit and IEEE floats, pointers, arrays, structs, bitfields), with refusals that say why: `location unknown (z88dk U1)`,

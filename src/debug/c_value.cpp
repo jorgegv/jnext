@@ -940,6 +940,65 @@ void replay_trail(const CFunction& fn, const std::map<int, int>& blev, uint32_t 
     }
 }
 
+namespace {
+
+enum class Cc80Verdict { Hidden, Plain, Unknown };
+
+// GH #438 S4a: whether the 80cc block local `v` (level >= 2) is open at scope `s`, from 80cc's PR #3243 records, three-valued: proven open, proven closed, or neither.
+// Sound, not complete: 80cc opens no block for a `for` (the `for` raises the level only) and writes one C_LINE per source line, so some questions cannot be answered
+// from the records (design 14). `trail` is the function's map trail (only its known entries of level >= 1 are read), `locals` the (level, block) of every block-scope
+// local. Rules, with b a block, lv a level, s = (line l_s, level L_s, block B_s):
+//  F1  b > B_s is not open (a block opened after B_s, while B_s is innermost);
+//  F2  b == B_s and lv > L_s: a `for` variable whose `for` is not open;
+//  F3  b closed before s: a line x of b, an entry of a lower-numbered block at a line strictly between x and l_s (not for beta);
+//  F4  a < b is an ancestor of b when some line of a is strictly after some line of b; beta, the lowest block, is an ancestor of every block;
+//  F5  v is outside its scope when an open block a (B_s or an ancestor of it) is numbered above b and has a level <= lv (what lies inside v's scope is deeper than lv);
+//  F6  v is declared directly in b, hence open, when lv is the lowest level b can have: 1 for beta, 1 + its ancestors otherwise.
+Cc80Verdict cc80_verdict(const std::vector<CScope>& trail, const std::vector<std::pair<int, int>>& locals, int lv, int bv, const CScope& s)
+{
+    struct E { int line, level, block; };
+    std::vector<E> ent;
+    for (const CScope& e : trail)
+        if (e.known && e.level >= 1) ent.push_back({e.line, e.level, e.block});
+    std::set<int> blocks;
+    std::map<int, std::set<int>> lines;
+    std::map<int, int> m;
+    const auto note_level = [&](int b, int l) { const auto it = m.find(b); m[b] = it == m.end() ? l : std::min(it->second, l); };
+    for (const E& e : ent) { blocks.insert(e.block); lines[e.block].insert(e.line); note_level(e.block, e.level); }
+    for (const auto& [l, b] : locals) if (l >= 1) { blocks.insert(b); note_level(b, l); }
+    if (s.level == 0 || bv > s.block) return Cc80Verdict::Hidden;                       // F1
+    if (blocks.empty()) return Cc80Verdict::Unknown;
+    const int beta = *blocks.begin();
+    const auto ancestors = [&](int b) {
+        std::set<int> out;
+        for (const int a : blocks) {
+            if (a >= b) break;
+            bool is = a == beta;
+            for (const int x : lines[a]) for (const int y : lines[b]) is = is || x > y;   // F4
+            if (is) out.insert(a);
+        }
+        return out;
+    };
+    if (bv == s.block) {
+        if (lv > s.level) return Cc80Verdict::Hidden;                                    // F2
+    } else {
+        if (bv != beta)
+            for (const int x : lines[bv])                                                 // F3
+                for (const E& e : ent)
+                    if (e.block < bv && x < e.line && e.line < s.line) return Cc80Verdict::Hidden;
+        std::set<int> open = ancestors(s.block);
+        open.insert(s.block);
+        for (const int a : open)
+            if (a > bv && m.count(a) && m[a] <= lv) return Cc80Verdict::Hidden;          // F5
+    }
+    const std::set<int> anc_s = ancestors(s.block);
+    const bool held = bv == s.block || anc_s.count(bv);
+    const int low = bv == beta ? 1 : 1 + static_cast<int>(ancestors(bv).size());         // F6
+    return held && lv == low ? Cc80Verdict::Plain : Cc80Verdict::Unknown;
+}
+
+}  // namespace
+
 std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function, const CScope* scope)
 {
     std::vector<CLocalRef> params, locals, statics;
@@ -977,9 +1036,18 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
         block_data = block_data || sc.level > 0;
         if (sc.level > 0) level_of.emplace(sc.block, sc.level);
     }
-    // 80cc: every block local stays `scope unknown`, even when its records carry levels and blocks (z88dk PR #3243): 80cc lays its code out of source order and its blocks are
-    // neither pre-order (the sccz80 replay) nor zsdcc's exact ones, so either rule shows a closed sibling and hides the variable in scope, with no note (GH #438 S3 review 4)
-    const bool unknown = !scope || !scope->known || (deep_local && !block_data) || fn.compiler == CCompiler::Cc80;
+    // 80cc: its blocks are neither pre-order (the sccz80 replay) nor zsdcc's exact ones and its code is out of source order, so neither rule is used (a closed sibling shown, the
+    // variable in scope hidden, with no note: GH #438 S3 review 4). With PR #3243's levels and the listing's occurrences cc80_verdict() answers what the records can answer.
+    // Only with the listing's own occurrences (fn.scopes_from_listing) is the PC's scope exact enough for the three-valued rule (cc80_verdict()); the map keeps one C_LINE symbol per
+    // (line, scope), so 80cc's repeated lines would resolve to the wrong scope. Without them, or before #3243 (no levels), every 80cc block local stays `scope unknown`.
+    const bool cc80_exact = fn.compiler == CCompiler::Cc80 && fn.scopes_from_listing && block_data && scope && scope->known;
+    const bool unknown = !scope || !scope->known || (deep_local && !block_data) || (fn.compiler == CCompiler::Cc80 && !cc80_exact);
+    std::vector<std::pair<int, int>> cc80_locals;
+    if (cc80_exact)
+        for (const CVariable* v : mine) {
+            const CdbVar& cv = v->record.var;
+            if (cv.space != 'E' && !is_param(cv)) cc80_locals.push_back({cv.level, cv.block});
+        }
 
     // GH #438: an sccz80 function with a trail: the open blocks are the replay of the trail up to the PC's (replay_trail()).
     constexpr int kSkip = kSkipBlock;
@@ -1035,7 +1103,11 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
         } else {
             r.kind = CVarKind::Local;
             if (cv.level >= 2) {
-                if (unknown) r.scope_unknown = true;
+                if (cc80_exact) {
+                    const Cc80Verdict d = cc80_verdict(fn.trail, cc80_locals, cv.level, cv.block, *scope);
+                    if (d == Cc80Verdict::Hidden) continue;
+                    r.scope_unknown = d == Cc80Verdict::Unknown;
+                } else if (unknown) r.scope_unknown = true;
                 else if (use_walk ? !walk_visible(cv) : !open.count({cv.level, cv.block})) continue;
             }
             locals.push_back(r);

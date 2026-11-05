@@ -20,7 +20,7 @@ zcc +zxn -clib=new -debug -m --list -subtype=nex -create-app -o prog main.c util
 |---|---|
 | `-debug` | the C line records in the map (`__C_LINE_` symbols). With sccz80 and 80cc it also changes the program: see below |
 | `-m` | writes `prog.map`, the file JNEXT reads |
-| `--list` | writes `prog.lis` and one `<source>.lis` beside each source: every assembly line, every address of a C line, exact extents, and the text of the start-up code |
+| `--list` | writes `prog.lis` and one `<source>.lis` beside each source: every assembly line, every address of a C line, exact extents, and the text of the start-up code. With 80cc it is also what lets JNEXT tell which block locals are in scope (the map keeps one scope per line, the listing every occurrence) |
 | `-subtype=nex` and `-create-app` | write `prog.nex`, the loadable file (see the targets below) |
 | `-clib=new` | the sccz80 compiler with the new library. A bare `zcc +zxn` uses sdcc: `zxn.cfg` sets `-clib=sdcc_iy -O2 -SO2` |
 

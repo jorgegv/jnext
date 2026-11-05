@@ -77,6 +77,9 @@ struct CFunction {
     std::string module;        ///< the module of the entry symbol (the CDB line's when there is none)
     CStorage entry;
     std::vector<CScope> scopes;   ///< sorted by offset
+    /// 80cc with PR #3243's block records, and a listing beside the map: `scopes` holds EVERY `C_LINE` occurrence of the listing (the map keeps one
+    /// per line and scope), which makes the PC's scope exact (GH #438 S4a). False: the map's own scopes.
+    bool scopes_from_listing = false;
     /// Every C_LINE record of the extent, owners and the lower lines that share an owner's address, as CScope in (offset, line)
     /// order (GH #438: the block walk of sccz80 modules reads the whole trail). Empty for a synthetic store.
     std::vector<CScope> trail;
