@@ -646,7 +646,16 @@ CPath c_parse_path(std::string_view s)
             p.primary = q1.find('.') != std::string::npos ? CPath::Primary::File : CPath::Primary::Function;
         }
     }
-    if (!ident(&p.name)) return bad("expected a variable name");
+    if (i < s.size() && s[i] == '#' && p.qualifier.empty()) {
+        ++i;
+        const size_t b = i;
+        while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) ++i;
+        if (i == b || i - b > 9) return bad("expected a variable handle number after '#'");
+        p.primary = CPath::Primary::Handle;
+        p.handle = static_cast<size_t>(std::stoul(std::string(s.substr(b, i - b))));
+    } else if (!ident(&p.name)) {
+        return bad("expected a variable name");
+    }
     for (;;) {
         ws();
         if (i >= s.size()) break;

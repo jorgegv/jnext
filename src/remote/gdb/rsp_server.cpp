@@ -1151,7 +1151,8 @@ bool GdbServer::monitor_locals(const std::vector<std::string>& args) {
 }
 
 // `monitor globals`: every C global, file static and static local, named by the path that reads it back
-// (`g_int`, `vars.c::s_dup`, `sum::calls`), with the memory the variable lives in.
+// (`g_int`, `vars.c::s_dup`, `sum::calls`), with the memory the variable lives in. Two block statics of one name share their
+// path and neither reads back: those entries are marked `(ambiguous path)`.
 bool GdbServer::monitor_globals(const std::vector<std::string>& args) {
     if (!args.empty()) return false;
     const auto status = dbg_.c_variables_status();
@@ -1162,7 +1163,9 @@ bool GdbServer::monitor_globals(const std::vector<std::string>& args) {
     const auto rows = dbg_.c_globals();
     if (rows.empty()) monitor_line("  (no globals)");
     for (const auto& row : rows) {
-        std::string line = c_row_text(row.type, row.path, row.ok, row.value, row.why);
+        std::string line = c_row_text(row.type, row.name_path, row.ok, row.value, row.why);
+        // two block statics of one name in a function (zsdcc) share the path: a typed read of it is refused, so the entry says so
+        if (row.ambiguous_path) line += "  (ambiguous path)";
         if (row.where.kind == jnext::dbg::Debugger::CWhere::Kind::Page)
             line += strf("  $%04X ", row.where.source.address) + jnext::dbg::space_tag(row.where.source.space);
         monitor_line(line);

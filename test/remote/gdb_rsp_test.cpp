@@ -2635,6 +2635,24 @@ static void cvw_rows() {
         check("GDB-ZB-02", "monitor print t at sccz80 shadow.c `g += t` prints the inner t (5); monitor locals lists both t rows, the outer (3) followed by `  [shadowed]` and the inner (5) not",
               loaded && at && f1 == "OK" && f2 == "OK" && cvar_has(print, ") t = 5") && t_rows == 2 && outer_marked && !inner_marked, join(print) + join(locals));
     }
+    {   // GDB-ZB-03
+        // GH #353 review F2: zsdcc shadowagg.c has two block statics n in f (7 and 100). `monitor globals` lists both as `f::n`, each marked `(ambiguous path)`, because the path reads neither back;
+        // `monitor print f::n` refuses with the reason
+        const std::string nexs = JNEXT_Z88DK_FIXTURE_DIR "/master-fixed-zsdcc/sdcc-shadowagg/prog.nex";
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const bool loaded = emulator_apply_load(rig.emu, nexs, false);
+        rig.dbg->load_program_sidecars(nexs);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0x8C8B);
+        std::string f1, f2;
+        const auto globals = c.monitor("globals", f1);
+        const auto print = c.monitor("print f::n", f2);
+        int marked = 0;
+        for (const auto& l : globals) marked += l.find(") f::n = ") != std::string::npos && l.find("(ambiguous path)") != std::string::npos;
+        check("GDB-ZB-03", "monitor globals at zsdcc shadowagg.c lists f::n twice, each marked `(ambiguous path)`; monitor print f::n says `ambiguous: 2 statics named n in f`",
+              loaded && at && f1 == "OK" && marked == 2 && cvar_has(print, "ambiguous: 2 statics named n in f"), join(globals) + join(print));
+    }
 }
 
 // ── GDB-UNS — unsupported, honestly (§2 rows 26-33) ────────────────────────

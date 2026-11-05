@@ -2089,6 +2089,14 @@ int main() {
               kind_of(0, "a") == 20 + 0 && kind_of(0, "t") == 20 + 1 && kind_of(1, "a") == 40 + 2 && kind_of(1, "t") == 40 + 2 && kind_of(2, "a") == 20 + 0 && kind_of(2, "t") == 20 + 1,
               std::to_string(kind_of(0, "a")) + " " + std::to_string(kind_of(1, "a")) + " " + std::to_string(kind_of(2, "t")));
     }
+    {   // CVZB-23
+        // the debugger's own handle paths (`#12`, then the usual steps): a row of a shadowed variable or of one of two same-named block statics names its own record, not the name
+        const CPath a = c_parse_path("#12"), b = c_parse_path("#7.x[2]->y"), c = c_parse_path("*#3"), d = c_parse_path("#"), e = c_parse_path("#x"), f = c_parse_path("fn::#3"),
+                    g = c_parse_path("t");
+        check("CVZB-23", "c_parse_path: `#12` is a handle (index 12), `#7.x[2]->y` a handle with three steps, `*#3` a dereferenced handle; `#`, `#x` and `fn::#3` are refused; a name is still a name",
+              a.ok && a.primary == CPath::Primary::Handle && a.handle == 12 && a.steps.empty() && b.ok && b.primary == CPath::Primary::Handle && b.handle == 7 && b.steps.size() == 3 && c.ok && c.deref &&
+                  c.primary == CPath::Primary::Handle && c.handle == 3 && !d.ok && !e.ok && !f.ok && g.ok && g.primary == CPath::Primary::Name && g.name == "t");
+    }
     {   // CVZB-17
         // The line proofs are strict, and beta is the lowest block. Expected values: the three-valued rule applied by hand to each trail (the programs would be hand-written C of these shapes)
         const std::string c1 = cc80_rows({{0, 5, 1, 1}, {1, 8, 1, 1}, {2, 8, 2, 2}, {3, 9, 3, 3}, {4, 10, 3, 3}}, {{"t", 1, 1, -2}, {"y", 2, 2, -4}, {"w", 3, 3, -6}}, {{9, 3, 3}, {10, 3, 3}});

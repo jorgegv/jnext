@@ -3342,9 +3342,11 @@ memory of an address), \f[CR]time\f[R],
 map: \f[CR]monitor locals\f[R] [\f[I]FRAME\f[R]] (the parameters and
 locals of a C frame, 0 is where the CPU is), \f[CR]monitor globals\f[R]
 (every global, file static and static local, with the memory it lives
-in) and \f[CR]monitor print\f[R] [\f[I]FRAME\f[R]] \f[I]PATH\f[R] (one
-value: \f[CR]p\->x\f[R], \f[CR]*p\f[R], \f[CR]g_matrix[1][2]\f[R],
-\f[CR]fn::x\f[R], \f[CR]file.c::x\f[R]).
+in; two block statics of one name in a function share their path, are
+marked \f[CR](ambiguous path)\f[R] and are refused by
+\f[CR]monitor print\f[R]) and \f[CR]monitor print\f[R] [\f[I]FRAME\f[R]]
+\f[I]PATH\f[R] (one value: \f[CR]p\->x\f[R], \f[CR]*p\f[R],
+\f[CR]g_matrix[1][2]\f[R], \f[CR]fn::x\f[R], \f[CR]file.c::x\f[R]).
 They read the right module\(cqs file statics, z88dk\(cqs 48\-bit floats,
 array counts and paged globals, which z88dk\-gdb\(cqs own
 \f[CR]info locals\f[R] / \f[CR]print\f[R] can get wrong.

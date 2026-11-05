@@ -7723,6 +7723,32 @@ int main() {
                   lr.count > 0 && round && rows[0].path == "a.c::init::done" && rows[0].value == "7" && rows[1].path == "b.c::init::done" && rows[1].value == "9" &&
                       !bare.ok && bare.why.find("is ambiguous") != std::string::npos);
         }
+        {   // SRCDBG-CVAL-59
+            // the preference of a bare `fn::name` for the function the CPU is in (GH #353 review F3): with two modules' `init`, `init::done` is a.c's 7 while the PC is in a.c's init and b.c's 9 in b.c's
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const std::string map = (z / "c59.map").string();
+            write_text(map, "_init = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                            "_init = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
+                            "__C_LINE_1_a_2ec = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                            "__C_LINE_1_b_2ec = $8010 ; addr, local, , b_c, code_compiler, b.c::init::0::0:1\n"
+                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                            "_st_init_done = $9000 ; addr, local, , a_c, bss_compiler, a.c:2\n"
+                            "_st_init_done = $9010 ; addr, local, , b_c, bss_compiler, b.c:2\n" +
+                                s3_rec("F:Fa.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "a_c") + s3_rec("F:Fb.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "b_c") +
+                                s3_rec("S:Fa.c$st_init_done$1_0$1({2}SI:S),E,0,0", "a_c") + s3_rec("S:Fb.c$st_init_done$1_0$1({2}SI:S),E,0,0", "b_c"));
+            const auto lr = m.dbg->load_source_map(map, true);
+            m.emu.mmu().write(0x9000, 7);
+            m.emu.mmu().write(0x9010, 9);
+            m.set_pc(0x8000);
+            const Dbg::CValueResult in_a = m.dbg->read_c_value(0, "init::done");
+            m.set_pc(0x8010);
+            const Dbg::CValueResult in_b = m.dbg->read_c_value(0, "init::done");
+            m.set_pc(0x7000);
+            const Dbg::CValueResult none = m.dbg->read_c_value(0, "init::done");
+            check("SRCDBG-CVAL-59", "with two modules' static `init` each holding `done`, a bare `init::done` is a.c's 7 while the PC is in a.c's init, b.c's 9 in b.c's, and ambiguous in neither",
+                  lr.count > 0 && in_a.ok && in_a.value == "7" && in_b.ok && in_b.value == "9" && !none.ok && none.why.find("is ambiguous") != std::string::npos,
+                  (in_a.ok ? in_a.value : in_a.why) + " | " + (in_b.ok ? in_b.value : in_b.why));
+        }
         {   // SRCDBG-CVAL-58
             // a pointer local held in HL (zsdcc `R,0,0,[l,h]`) is followed through the CPU view; a member of a register-held aggregate has no address
             Machine m(false, MachineType::ZXN_ISSUE2);
@@ -8965,7 +8991,63 @@ int main() {
                   a1 && a2 && a3 && rin.size() == 2 && shadowed == 1 && page == 1 && ri.ok && ri.where.kind == Dbg::CWhere::Kind::Page && r2.ok && r2.where.kind == Dbg::CWhere::Kind::Page && rout.size() == 1 &&
                       rout[0].where.kind != Dbg::CWhere::Kind::Page);
         }
+        {   // SRCDBG-ZB-21
+            // two block statics named n in one function (zsdcc, shadowagg.c: n = 7 in one block, n = 100 in the next; sccz80 rejects the program): the typed path f::n is refused for a read and a write
+            // with `ambiguous: 2 statics named n in f`; each Globals row's own path (a handle) reads its own static and writes it alone; monitor-style listing marks the rows
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = lzf(m, "master-fixed-zsdcc/sdcc-shadowagg", "zb21", 0x8C8B, true);
+            std::vector<Dbg::CValueRow> rows;
+            for (const auto& r : m.dbg->c_globals())
+                if (r.name == "n") rows.push_back(r);
+            const Dbg::CValueResult typed = m.dbg->read_c_value(0, "f::n");
+            const CwTry wt = attempt(m, 0, "f::n", "1");
+            bool distinct = rows.size() == 2 && rows[0].path != rows[1].path && rows[0].path[0] == '#' && rows[1].path[0] == '#';
+            std::set<std::string> vals;
+            for (const auto& r : rows) {
+                distinct = distinct && r.ambiguous_path && r.name_path == "f::n" && m.dbg->read_c_value(0, r.path).ok && m.dbg->read_c_value(0, r.path).value == r.value;
+                vals.insert(r.value);
+            }
+            const Dbg::CWriteResult w = rows.size() == 2 ? wr(m, 0, rows[1].path.c_str(), "55") : Dbg::CWriteResult{};
+            const std::string first_after = rows.size() == 2 ? m.dbg->read_c_value(0, rows[0].path).value : "";
+            const std::string second_after = rows.size() == 2 ? m.dbg->read_c_value(0, rows[1].path).value : "";
+            check("SRCDBG-ZB-21", "zsdcc shadowagg.c with two block statics n: c_globals() has two n rows with distinct handle paths, name_path f::n and ambiguous_path; they read 7 and 100; `f::n` is refused for a read and a write "
+                                  "(`ambiguous: 2 statics named n in f`); writing one row's handle changes that static only",
+                  at && distinct && vals == std::set<std::string>({"7", "100"}) && !typed.ok && typed.why == "ambiguous: 2 statics named n in f" && refused_with(wt, "ambiguous: 2 statics named n in f") && w.ok() &&
+                      second_after == "55" && first_after == rows[0].value,
+                  "rows=" + std::to_string(rows.size()) + " typed=" + (typed.ok ? typed.value : typed.why) + " w=" + w.why + " after=" + first_after + "/" + second_after + (rows.size() == 2 ? " paths=" + rows[0].path + "," + rows[1].path + " v=" + rows[0].value + "," + rows[1].value + " amb=" + std::to_string(rows[0].ambiguous_path) + " np=" + rows[0].name_path : std::string()));
+        }
+        {   // SRCDBG-ZB-22
+            // the notes of a variable ride on its children (GH #353 review F5): 80cc shadowagg.c at `g += s.x + s.y` ($8C7D), the inner struct s (block 2, level 2) is a flagged block local and the outer s
+            // (level 1) is `may be shadowed`. c_children("s") (the name picks the inner) carries `scope unknown` and `ambiguous` on its members, as read_c_value("s.x") does; the outer row's own
+            // path (a handle) has neither and lists the outer's members
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = lzf(m, "master-fixed-80cc/80cc-shadowagg", "zb22", 0x8C7D, true);
+            std::vector<Dbg::CValueRow> srows;
+            for (const auto& r : m.dbg->c_locals(0).rows)
+                if (r.name == "s") srows.push_back(r);
+            const Dbg::CValueResult rd = m.dbg->read_c_value(0, "s.x");
+            const Dbg::CChildRows inner = m.dbg->c_children(0, "s", 0, 16);
+            bool inner_notes = inner.ok && inner.rows.size() == 2;
+            const auto vhas = [](const std::vector<std::string>& v, const char* part) {
+                for (const auto& n : v)
+                    if (n.find(part) != std::string::npos) return true;
+                return false;
+            };
+            for (const auto& r : inner.rows) inner_notes = inner_notes && vhas(r.notes, "scope unknown") && vhas(r.notes, "ambiguous");
+            const Dbg::CValueRow* outer = nullptr;
+            for (const auto& r : srows)
+                if (r.path[0] == '#') outer = &r;
+            Dbg::CChildRows oc;
+            if (outer) oc = m.dbg->c_children(0, outer->path, 0, 16);
+            bool outer_clean = outer && oc.ok && oc.rows.size() == 2;
+            for (const auto& r : oc.rows) outer_clean = outer_clean && !vhas(r.notes, "scope unknown") && !vhas(r.notes, "ambiguous") && r.name_path.empty();
+            check("SRCDBG-ZB-22", "80cc shadowagg.c in the inner block: two s rows (the outer, level 1, with a handle path and `may be shadowed`); children of the name `s` carry `scope unknown` and `ambiguous` like the read of s.x; "
+                                  "children of the outer's handle path carry neither note and no name path",
+                  at && srows.size() == 2 && outer && has_note(rd, "scope unknown") && inner_notes && outer_clean,
+                  "at=" + std::to_string(at) + " srows=" + std::to_string(srows.size()) + " outer=" + std::to_string(outer != nullptr) + " rd=" + std::to_string(has_note(rd, "scope unknown")) + " inner_notes=" + std::to_string(inner_notes) + " inner.ok=" + std::to_string(inner.ok) + "/" + std::to_string(inner.rows.size()) + " outer_clean=" + std::to_string(outer_clean) + " oc=" + oc.why);
+        }
         {   // SRCDBG-ZB-17
+
             // review 7 F1: 80cc stamps code with the scope of a block the code is not in (master-fixed-80cc/80cc-ifelse, ifelse.c, listing beside the map). The oracle is the C program: at the PCs below
             // only t (and i, k, t in d2) is in scope or maybe, and q is NOT in scope. (1) f1: the jump that ends the then-branch ($8C91, listed on the else line, block 3); (2) k9: the jump that ends a
             // brace-less then-branch ($8D72); (3) c1: the epilogue after a trailing block ($8DBD); (4) d2: the multiply hoisted before the loop ($8DDD). No block local is plain; q is flagged, a read

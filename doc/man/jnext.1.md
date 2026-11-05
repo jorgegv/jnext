@@ -2511,7 +2511,8 @@ z88dk-gdb -h 127.0.0.1 -p 3333 -x mygame.map
 - **C variables** of a program built with a z88dk `-debug` map: `monitor
   locals` [*FRAME*] (the parameters and locals of a C frame, 0 is where the CPU
   is), `monitor globals` (every global, file static and static local, with the
-  memory it lives in) and `monitor print` [*FRAME*] *PATH* (one value:
+  memory it lives in; two block statics of one name in a function share their
+  path, are marked `(ambiguous path)` and are refused by `monitor print`) and `monitor print` [*FRAME*] *PATH* (one value:
   `p->x`, `*p`, `g_matrix[1][2]`, `fn::x`, `file.c::x`). They read
   the right module's file statics, z88dk's 48-bit floats, array counts and
   paged globals, which z88dk-gdb's own `info locals` / `print` can get wrong.

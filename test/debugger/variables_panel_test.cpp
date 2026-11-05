@@ -1274,6 +1274,112 @@ void test_rows() {
         check("QVARW-12", "committing an editor that was open when the machine resumed writes nothing: no MUTATE line and no revision bump",
               at && opened && quiet, log);
     }
+    {   // QVARSH-01
+        // GH #353 review F1: sccz80-shadow at `g += t` ($8C76): the outer t (3, marked `shadowed`) and the inner t (5). A row acts on the variable it shows: editing the shadowed row changes the outer, not the
+        // inner; the two rows have two keys; a Watch is a name, so the shadowed row cannot be watched (and says why), while the inner row's Watch is `t`
+        Fix f;
+        f.load("master-fixed-sccz80/sccz80-shadow", "sh01", [](const fs::path& d) {
+            fs::copy_file(kFixtures / "master-fixed-sccz80/sccz80-shadow" / "shadow.c.lis", d / "shadow.c.lis", fs::copy_options::overwrite_existing);
+        });
+        const bool at = f.run_to(0x8C76);
+        const auto find = [&](bool shadowed) -> QTreeWidgetItem* {
+            QTreeWidgetItem* L = locals(f);
+            for (int i = 0; L && i < L->childCount(); ++i)
+                if (L->child(i)->text(0) == "t" && L->child(i)->text(2).contains("shadowed") == shadowed) return L->child(i);
+            return nullptr;
+        };
+        QTreeWidgetItem* outer = find(true);
+        QTreeWidgetItem* inner = find(false);
+        const bool two = outer && inner && outer != inner;
+        const bool keys = two && outer->data(0, Qt::UserRole + 3).toString() != inner->data(0, Qt::UserRole + 3).toString();
+        const bool before = two && outer->text(2).startsWith("3") && inner->text(2).startsWith("5");
+        QSignalSpy spy(f.vp(), &VariablesPanel::watch_requested);
+        const bool no_watch = two && !f.vp()->watch_item(outer) && spy.count() == 0 && !outer->data(0, Qt::UserRole + 9).toString().isEmpty();
+        const bool watch_inner = two && f.vp()->watch_item(inner) && spy.count() == 1 && spy.at(0).at(0).value<CVarWatch>().path == "t";
+        if (two) f.vp()->commit_edit(outer, "9");
+        f.settle();
+        outer = find(true);
+        inner = find(false);
+        check("QVARSH-01", "sccz80 shadow.c at `g += t`: the shadowed t row (3) and the inner row (5) have two keys; editing the shadowed row writes THAT variable (it reads 9, the inner still 5); Watch on the shadowed row is "
+                           "refused with a reason, Watch on the inner row is the name t",
+              at && two && keys && before && no_watch && watch_inner && outer && inner && outer->text(2).startsWith("9") && inner->text(2).startsWith("5"), detail_of(outer) + " | " + detail_of(inner));
+    }
+    {   // QVARSH-02
+        // aggregates: zsdcc shadowagg.c at line 9 (inside the inner block, $8C8B): the outer `s` {x = 3, y = 1} (marked `shadowed`) and the inner `s` {x = 50, y = 60}. Expanding the shadowed row
+        // lists ITS members, not the inner's
+        Fix f;
+        f.load("master-fixed-zsdcc/sdcc-shadowagg", "sh02");
+        const bool at = f.run_to(0x8C8B);
+        QTreeWidgetItem* outer = nullptr;
+        QTreeWidgetItem* inner = nullptr;
+        QTreeWidgetItem* L = locals(f);
+        for (int i = 0; L && i < L->childCount(); ++i)
+            if (L->child(i)->text(0) == "s") (L->child(i)->text(2).contains("shadowed") ? outer : inner) = L->child(i);
+        expand(outer);
+        expand(inner);
+        const bool two = outer && inner;
+        check("QVARSH-02", "zsdcc shadowagg.c: expanding the shadowed struct s lists its own members (x 3, y 1), the inner s lists x 50 and y 60; the two rows have two keys",
+              at && two && val(child(outer, "x")).startsWith("3") && val(child(outer, "y")).startsWith("1") && val(child(inner, "x")).startsWith("50") && val(child(inner, "y")).startsWith("60") &&
+                  outer->data(0, Qt::UserRole + 3).toString() != inner->data(0, Qt::UserRole + 3).toString(),
+              detail_of(child(outer, "x")) + " | " + detail_of(child(inner, "x")));
+    }
+    {   // QVARSH-03
+        // block statics (sccz80 statics.c, inside f's innermost block at `g = t + u`, $8C9F): the stack t is the shadowed row and the static (a data page) is the other. Editing the shadowed stack row writes
+        // the stack variable; the static row keeps its value; Watch on the shadowed row is refused. The same on 80cc ($8C75), where the plain level-1 local is `may be shadowed`
+        std::string seen;
+        bool ok = true;
+        struct Case { const char* fx; const char* tag; uint16_t pc; const char* mark; };
+        for (const Case& c : {Case{"master-fixed-sccz80/sccz80-static", "sh03a", 0x8C9F, "shadowed"}, Case{"master-fixed-80cc/80cc-static", "sh03b", 0x8C75, "may be shadowed"}}) {
+            Fix f;
+            f.load(c.fx, c.tag, [&](const fs::path& d) {
+                for (const auto& e : fs::directory_iterator(kFixtures / c.fx))
+                    if (e.path().extension() == ".lis") fs::copy_file(e.path(), d / e.path().filename(), fs::copy_options::overwrite_existing);
+            });
+            const bool at = f.run_to(c.pc);
+            QTreeWidgetItem* marked = nullptr;
+            QTreeWidgetItem* other = nullptr;
+            QTreeWidgetItem* L = locals(f);
+            for (int i = 0; L && i < L->childCount(); ++i)
+                if (L->child(i)->text(0) == "t") (L->child(i)->text(2).contains(c.mark) ? marked : other) = L->child(i);
+            const bool two = marked && other;
+            const QString static_before = two ? other->text(2) : QString();
+            QSignalSpy spy(f.vp(), &VariablesPanel::watch_requested);
+            const bool no_watch = two && !f.vp()->watch_item(marked) && spy.count() == 0;
+            if (two) f.vp()->commit_edit(marked, "42");
+            f.settle();
+            marked = nullptr;
+            other = nullptr;
+            L = locals(f);
+            for (int i = 0; L && i < L->childCount(); ++i)
+                if (L->child(i)->text(0) == "t") (L->child(i)->text(2).contains(c.mark) ? marked : other) = L->child(i);
+            const bool good = at && two && no_watch && marked && other && marked->text(2).startsWith("42") && other->text(2) == static_before;
+            ok = ok && good;
+            seen += std::string(c.tag) + "[" + detail_of(marked) + " | " + detail_of(other) + "] ";
+        }
+        check("QVARSH-03", "block statics shadowing a stack t, on sccz80 (`shadowed`) and 80cc (`may be shadowed`): editing the marked row writes that row's stack variable (42) and leaves the static row's text as it was; "
+                           "Watch on the marked row is refused",
+              ok, seen);
+    }
+    {   // QVARSH-04
+        // two block statics named n in one function (zsdcc shadowagg.c): Globals has two `f::n` rows with two keys; each reads its own static (7 and 100) and neither can be watched by its (shared) path
+        Fix f;
+        f.load("master-fixed-zsdcc/sdcc-shadowagg", "sh04");
+        const bool at = f.run_to(0x8C8B);
+        QTreeWidgetItem* G = globals(f);
+        std::vector<QTreeWidgetItem*> ns;
+        for (int g = 0; G && g < G->childCount(); ++g)
+            for (int i = 0; i < G->child(g)->childCount(); ++i)
+                if (G->child(g)->child(i)->text(0) == "f::n") ns.push_back(G->child(g)->child(i));
+        QSignalSpy spy(f.vp(), &VariablesPanel::watch_requested);
+        const bool two = ns.size() == 2;
+        const bool keys = two && ns[0]->data(0, Qt::UserRole + 3).toString() != ns[1]->data(0, Qt::UserRole + 3).toString();
+        QStringList vals;
+        for (auto* n : ns) vals << n->text(2).section(' ', 0, 0);
+        vals.sort();
+        const bool no_watch = two && !f.vp()->watch_item(ns[0]) && !f.vp()->watch_item(ns[1]) && spy.count() == 0;
+        check("QVARSH-04", "zsdcc shadowagg.c Globals: two rows named f::n with two keys, reading 100 and 7 (each its own static), and a Watch on either is refused (the path names both)",
+              at && two && keys && vals == QStringList({"100", "7"}) && no_watch, two ? detail_of(ns[0]) + " | " + detail_of(ns[1]) : std::string("rows=") + std::to_string(ns.size()));
+    }
     {   // QVARZB-02
         // GH #438 review note: a C watch shows the facade's notes, the 80cc frame-slot one included
         Fix f;

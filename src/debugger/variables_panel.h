@@ -57,7 +57,7 @@ public:
 
     /// What a tree item carries (the tests read it): its kind, the facade path, a range's first element.
     enum { KindGroup = 0, KindVar = 1, KindRange = 2, KindMessage = 3 };
-    enum { RoleKind = Qt::UserRole, RolePath, RoleFirst, RoleKey, RoleExpandable, RoleRowKind, RoleFile, RoleEditText };
+    enum { RoleKind = Qt::UserRole, RolePath, RoleFirst, RoleKey, RoleExpandable, RoleRowKind, RoleFile, RoleEditText, RoleWatchPath, RoleWatchTip };
 
     /// GH #437 - open the Value editor of `item` (as a double-click does). False, and no editor, unless the machine is paused and the item
     /// is editable (a variable, member, element or pointee whose facade row is ok and not an aggregate).
@@ -86,6 +86,8 @@ private:
         bool expandable = false;     ///< an aggregate or a pointer: gets the indicator, children on expand
         bool editable = false;       ///< GH #437: an ok row that is not an aggregate
         QString edit_text;           ///< what the editor holds: the first word of the facade's value (`120 'x'` is `120`)
+        QString watch_path;          ///< the name expression a Watch would hold (`CValueRow::name_path`); empty: no name reaches this exact variable, so Watch is disabled
+        QString watch_tip;           ///< why: the tooltip of the disabled Watch
         std::vector<Node> kids;      ///< KindGroup: its rows, built eagerly
     };
     void on_context_menu(const QPoint& pos);

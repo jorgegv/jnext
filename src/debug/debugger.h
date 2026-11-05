@@ -1266,6 +1266,10 @@ public:
     struct CValueRow {
         std::string name;
         std::string path;       ///< round-trips through `read_c_value(frame, path)`
+        /// The path a user types to reach THIS variable by name, `path` unless `path` is a handle (`#12`, used when the name would reach another variable: a shadowed local, two block
+        /// statics of one name in a function). Empty: no typed name reaches it (a shadowed local). A Watch is a name expression, so it is offered only when this is not empty.
+        std::string name_path;
+        bool ambiguous_path = false;   ///< `name_path` names more than one variable (two block statics `f::n`): a typed read or write of it is refused
         std::string file;       ///< the source file (`vars.c`) of a file-level or static variable, else the function's
         std::string type;       ///< `c_type_text()` of the variable
         enum class Kind : uint8_t { Param, Local, StaticLocal, FileStatic, Global };
