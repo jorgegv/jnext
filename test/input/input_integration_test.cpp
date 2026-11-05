@@ -1898,7 +1898,7 @@ namespace gh450_hic {
 
 constexpr uint16_t TICK = 0x9000, SEEN = 0x9001, ISR_READ = 0x9002,
                    ISR_PREV = 0x9003, LASTMAIN = 0x9004, DONE = 0x9005,
-                   MARKER = 0x9006, SEEN_ITER = 0x9008;
+                   MARKER = 0x9006, ISR_A = 0x9007, SEEN_ITER = 0x9008;
 
 // Subroutines that leave A != 0 exactly when the watched key is down.
 const std::vector<uint8_t> kReadSpace = {      // port $7FFE bit 0, active low
@@ -1956,27 +1956,43 @@ void start_at_8000(Emulator& emu) {
 //          then SEEN_ITER = HL, SEEN = tick, DONE = 1, spin.
 //   ISR:   ISR_PREV = LASTMAIN (the main loop's last read before the ISR),
 //          ISR_READ = its own read, tick++.
-void build_poller(Rig& r, const std::vector<uint8_t>& read, bool ei) {
+void build_poller(Rig& r, const std::vector<uint8_t>& read, bool ei, int inline_pad = -1) {
     Emulator& emu = r.emu;
-    put(emu, 0x8000, {
+    std::vector<uint8_t> main_code = {
         0x31, 0x00, 0x8F,       // LD SP,$8F00
         0x3E, 0xBE, 0xED, 0x47, // LD A,$BE ; LD I,A
         0xED, 0x5E,             // IM 2
         0x21, 0x00, 0x00,       // LD HL,0
-        static_cast<uint8_t>(ei ? 0xFB : 0xF3),   // EI / DI
+        static_cast<uint8_t>(ei ? 0xFB : 0xF3) };   // EI / DI
+    if (inline_pad < 0) {
         // loop = $800D
-        0xCD, 0x00, 0x83,       // CALL $8300
-        0x32, 0x04, 0x90,       // LD (LASTMAIN),A
-        0x23,                   // INC HL
-        0xB7,                   // OR A
-        0x28, 0xF6,             // JR Z,loop
+        main_code.insert(main_code.end(), {
+            0xCD, 0x00, 0x83,       // CALL $8300
+            0x32, 0x04, 0x90,       // LD (LASTMAIN),A
+            0x23,                   // INC HL
+            0xB7,                   // OR A
+            0x28, 0xF6 });          // JR Z,loop
+    } else {
+        // The bare poll, `inline_pad` NOPs then IN A,(C) ; BIT 0,A ; JR NZ: no
+        // instruction after the IN changes A, so A at the ISR's first
+        // instruction IS the value the last IN of the main loop read.
+        main_code.insert(main_code.end(), { 0x01, 0xFE, 0x7F });   // LD BC,$7FFE
+        main_code.insert(main_code.end(), static_cast<size_t>(inline_pad), 0x00);
+        main_code.insert(main_code.end(), {
+            0xED, 0x78,             // IN A,(C)
+            0xCB, 0x47,             // BIT 0,A
+            0x20, static_cast<uint8_t>(256 - (inline_pad + 6)) });   // JR NZ,loop
+    }
+    main_code.insert(main_code.end(), {
         0x22, 0x08, 0x90,       // LD (SEEN_ITER),HL
         0x3A, 0x00, 0x90,       // LD A,(TICK)
         0x32, 0x01, 0x90,       // LD (SEEN),A
         0x3E, 0x01,             // LD A,1
         0x32, 0x05, 0x90,       // LD (DONE),A
         0x18, 0xFE });          // JR $
+    put(emu, 0x8000, main_code);
     put(emu, 0x8200, {
+        0x32, 0x07, 0x90,       // LD (ISR_A),A  (A as the interrupted code left it)
         0xF5, 0xC5,             // PUSH AF ; PUSH BC
         0x3A, 0x04, 0x90,       // LD A,(LASTMAIN)
         0x32, 0x03, 0x90,       // LD (ISR_PREV),A
@@ -1992,7 +2008,7 @@ void build_poller(Rig& r, const std::vector<uint8_t>& read, bool ei) {
 }
 
 struct Obs {
-    uint8_t  t = 0, seen = 0, done = 0, isr_read = 0, isr_prev = 0xEE, tick = 0;
+    uint8_t  t = 0, seen = 0, done = 0, isr_read = 0, isr_prev = 0xEE, tick = 0, isr_a = 0xEE;
     uint16_t seen_iter = 0;
 };
 
@@ -2005,6 +2021,7 @@ Obs collect(Emulator& e, uint8_t t) {
     o.done = pk(e, DONE);
     o.isr_read = pk(e, ISR_READ);
     o.isr_prev = pk(e, ISR_PREV);
+    o.isr_a = pk(e, ISR_A);
     o.tick = pk(e, TICK);
     o.seen_iter = static_cast<uint16_t>(pk(e, SEEN_ITER) | (pk(e, SEEN_ITER + 1) << 8));
     return o;
@@ -2059,8 +2076,8 @@ static void test_gh450_hic() {
         check("HIC-01", "128K: a key set between frames is first seen by the main loop after frame N+1's ISR",
               r.ok && o.done == 1 && o.seen == static_cast<uint8_t>(o.t + 1),
               obs_str(o));
-        // HIC-02 is run over 48 loop phases on one machine: each extra NOP in the
-        // read routine moves the main loop's IN 4 T against the interrupt, so
+        // HIC-02 is run over 48 loop phases on one machine: each extra NOP before
+        // the main loop's IN moves it 4 T against the interrupt, so
         // some phase puts an IN that BEGINS before the edge with its bus cycle
         // AFTER it (an eight-T window), and some put the last IN a few T before
         // it. Neither may see the key.
@@ -2069,12 +2086,12 @@ static void test_gh450_hic() {
             for (int pad = 0; pad < 48; ++pad) {
                 r.emu.keyboard().set_key(SDL_SCANCODE_SPACE, false);
                 warm(r.emu, 2);   // the release commits at the interrupt too
-                std::vector<uint8_t> rd(static_cast<size_t>(pad), 0x00);   // NOPs
-                rd.insert(rd.end(), kReadSpace.begin(), kReadSpace.end());
-                build_poller(r, rd, true);
+                build_poller(r, kReadSpace, true, pad);
                 warm(r.emu);
                 const Obs op = host_press_then_frame(r.emu, press_space);
-                if (!(op.isr_read != 0 && op.isr_prev == 0))
+                // The ISR reads it down; the last main-loop IN before it read it
+                // up (A at the ISR's first instruction, bit 0 set = released).
+                if (!(op.isr_read != 0 && (op.isr_a & 1) != 0))
                     bad_pads += std::to_string(pad) + " ";
             }
         }
