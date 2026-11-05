@@ -1785,6 +1785,61 @@ int main() {
               f3254 + " || " + f2);
     }
 
+    {   // CVZB-15
+        // 80cc with z88dk PR #3243 (80cc built at upstream 96c0efaddd, issue_3254.t's program and f2.c): C_LINE records carry levels and blocks, in source-unordered code (f3254's line 12 is
+        // at +140, after line 13 at +75), `for` variables `i$2_0$1`. Neither the sccz80 replay nor the block rule reads them right (a closed sibling shown, the variable in scope hidden), so every
+        // block local stays `scope unknown`: listed, flagged, never hidden. Numbers: (offset, line, level, block) and (name, level, block, stack offset) of that compiler's map
+        struct Rec { uint32_t off; int line, level, block; };
+        struct Var { const char* name; int level, block, off; };
+        const auto rows = [](const std::vector<Rec>& trail, const std::vector<Var>& vars) {
+            std::vector<CVariable> vs;
+            for (const Var& v : vars) {
+                CVariable cv;
+                cv.record = cdb_decode(std::string("S:Lt.c.f$") + v.name + "$" + std::to_string(v.level) + "_0$" + std::to_string(v.block) + "({2}SI:S),B,1," + std::to_string(v.off)).record;
+                cv.c_name = v.name;
+                cv.function = 0;
+                vs.push_back(cv);
+            }
+            CFunction f;
+            f.name = "f";
+            f.compiler = CCompiler::Cc80;
+            for (const Rec& r : trail) {
+                CScope c;
+                c.offset = r.off;
+                c.line = r.line;
+                c.level = r.level;
+                c.block = r.block;
+                c.known = true;
+                f.trail.push_back(c);
+            }
+            f.scopes = f.trail;
+            const VariableStore st({f}, vs, {}, {}, {});
+            std::string out;
+            for (const CScope& sc : st.functions()[0].scopes) {
+                std::vector<std::string> n;
+                for (const CLocalRef& r : c_visible_locals(st, 0, &sc))
+                    if (r.kind != CVarKind::Param) n.push_back(r.var->c_name + (r.scope_unknown ? "?" : ""));
+                std::sort(n.begin(), n.end());
+                std::string row;
+                for (const std::string& x : n) row += (row.empty() ? "" : " ") + x;
+                out += (out.empty() ? "" : "|") + std::to_string(sc.line) + "=" + row;
+            }
+            return out;
+        };
+        const std::string f3254 = rows({{0, 3, 0, 0}, {19, 4, 1, 1}, {23, 5, 1, 1}, {27, 6, 2, 2}, {33, 7, 2, 2}, {37, 9, 2, 1}, {63, 10, 4, 3}, {72, 11, 4, 3}, {75, 13, 1, 1}, {140, 12, 2, 1}},
+                                       {{"a", 0, 0, 4}, {"i", 2, 1, -4}, {"j", 4, 3, -2}, {"p", 2, 2, -6}, {"t", 1, 1, -8}});
+        const std::string f2 = rows({{0, 3, 0, 0}, {13, 4, 1, 1}, {20, 6, 2, 1}, {46, 7, 3, 3}, {56, 8, 3, 3}, {73, 9, 2, 1}, {76, 10, 2, 1}, {87, 11, 3, 4}, {98, 12, 3, 4}, {105, 13, 2, 1}, {108, 15, 2, 5},
+                                     {116, 16, 2, 5}, {120, 18, 1, 1}},
+                                    {{"a", 0, 0, 4}, {"i", 2, 1, -8}, {"k", 3, 3, -6}, {"m", 3, 4, -4}, {"t", 1, 1, -12}, {"u", 2, 5, -2}, {"z", 2, 2, -10}});
+        const std::string every = "i? j? p? t";
+        std::string expect3254, expect2;
+        for (const char* l : {"3", "4", "5", "6", "7", "9", "10", "11", "13", "12"}) expect3254 += std::string(expect3254.empty() ? "" : "|") + l + "=" + (std::string(l) == "3" || std::string(l) == "4" || std::string(l) == "5" ? "i? j? p? t" : every);
+        for (const char* l : {"3", "4", "6", "7", "8", "9", "10", "11", "12", "13", "15", "16", "18"}) expect2 += std::string(expect2.empty() ? "" : "|") + l + "=i? k? m? t u? z?";
+        check("CVZB-15", "80cc with PR #3243's block records (levels and blocks, code out of source order): every block local of f3254 and f2 stays listed and flagged `scope unknown` at every scope entry "
+                         "(never hidden, never shown without the flag), t (level 1) is plain; JNEXT does not read 80cc's new block records yet",
+              f3254 == expect3254 && f2 == expect2, f3254 + " || " + f2);
+    }
+
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
 }

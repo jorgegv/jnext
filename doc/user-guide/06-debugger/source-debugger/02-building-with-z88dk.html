@@ -4237,7 +4237,7 @@ files must end up where, which compilers and libraries work on which z88dk,
 and what changes for tape builds and banked code. <a href="01-a-first-session.html">A first session</a>
 uses the first line below.</p>
 <p>Every command line here was run with z88dk 2.4 (commit 4d530b6eb7, sdcc 4.5.0)
-and with a master build of 2026-10-16 (commit 39421a01cd, sdcc 4.6.0; the table below names the later master, 97731e4e29), unless a
+and with a master build (commit 97731e4e29, v2.4-2883, sdcc 4.6.0), unless a
 table says one of them is different.</p>
 <h2 id="the-recommended-build">The recommended build<a class="headerlink" href="#the-recommended-build" title="Permanent link">&para;</a></h2>
 <pre><code>zcc +zxn -clib=new -debug -m --list -subtype=nex -create-app -o prog main.c util.c asmfn.asm
@@ -4278,7 +4278,7 @@ the example program that is 46 source lines instead of 281 with <code>--list</co
 <pre><code>Loaded 332 z88dk symbols from '/home/you/prog/prog.map'
 Loaded 281 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 </code></pre>
-<p>and 333 symbols with the same 281 lines on the master build.</p>
+<p>and 330 symbols and 286 lines on the master build (97731e4e29).</p>
 <h2 id="what-must-be-beside-what">What must be beside what<a class="headerlink" href="#what-must-be-beside-what" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -4331,7 +4331,7 @@ there. The map records <code>../src/main.c</code>, and the Source tab finds the 
 <thead>
 <tr>
 <th>Build</th>
-<th>z88dk 2.4</th>
+<th>z88dk 2.4 (4d530b6eb7)</th>
 <th>z88dk master (97731e4e29, v2.4-2883)</th>
 <th>C variables (<a href="11-c-variables.html">the Variables tab</a>)</th>
 </tr>
@@ -4340,8 +4340,8 @@ there. The map records <code>../src/main.c</code>, and the Source tab finds the 
 <tr>
 <td>sccz80, newlib: <code>+zxn -clib=new -debug -m --list</code></td>
 <td>works: 281 lines. Part of a statement can show on the next line</td>
-<td>works: 281 lines</td>
-<td>yes, with limits on 2.4 and on master before the fixes of the table there</td>
+<td>works: 286 lines</td>
+<td>yes, with the limits listed in <a href="11-c-variables.html#what-each-z88dk-can-show">C variables</a></td>
 </tr>
 <tr>
 <td>sdcc, newlib: <code>+zxn -clib=sdcc_iy -debug -m --list</code></td>
@@ -4358,30 +4358,31 @@ there. The map records <code>../src/main.c</code>, and the Source tab finds the 
 <tr>
 <td>80cc: <code>+zxn -clib=new -compiler=80cc -debug -m --list</code></td>
 <td>not available</td>
-<td>works: 234 lines. Some lines are shared</td>
-<td>yes, with the frame-slot note (<a href="https://github.com/z88dk/z88dk/issues/3233">z88dk#3233</a>)</td>
+<td>works: 231 lines. Some lines are shared</td>
+<td>yes, with the 80cc note (<a href="https://github.com/z88dk/z88dk/issues/3233">z88dk#3233</a>)</td>
 </tr>
 <tr>
 <td>classic on the Next: <code>+zxn -clib=classic -debug</code></td>
 <td><strong>fails</strong>: <code>Unknown option2 --hardware-keyboard</code></td>
-<td>works since v2.4-2883 (PR #3198)</td>
-<td>2.4: no. Master: records are written, with the float library named in the map</td>
+<td>works: 187 lines (PR #3198)</td>
+<td>2.4: no. Master: yes</td>
 </tr>
 <tr>
 <td>classic on the Next, no <code>-debug</code>: <code>+zxn -clib=classic -m --list</code></td>
 <td>builds: 171 lines, from the listings. No <code>prog_CODE.bin</code>, so the identity is not verified</td>
-<td>builds: 171 lines, same</td>
+<td>builds: 173 lines, same</td>
 <td>no</td>
 </tr>
 <tr>
 <td>classic on the 48K Spectrum: <code>+zx -debug -m --list</code> (no <code>-clib</code>: classic is the default)</td>
 <td>works: 251 lines. No <code>prog_CODE.bin</code>: <code>(program identity not verified: no section binaries beside it)</code></td>
-<td>works</td>
+<td>works: 254 lines, same</td>
 <td>yes</td>
 </tr>
 </tbody>
 </table>
-<p>The line counts were measured for an earlier table and have not been re-measured against 97731e4e29 (JNEXT's own count of the attached ranges for the committed test fixtures is a different, smaller number, so the two are not comparable); treat them as an order of magnitude.</p>
+<p>A line count is the number JNEXT logs when it loads the map (<code>Loaded N z88dk source lines from ... and 4 listings</code>), for the example program of this page (<code>main.c</code>, <code>util.c</code>,
+<code>asmfn.asm</code>) built with the commands in the table, with each of the two z88dk versions named in the header. A newer z88dk gives other numbers.</p>
 <p>Notes:</p>
 <ul>
 <li>On <code>+zx</code> classic is the default library; do not pass <code>-clib=classic</code> there

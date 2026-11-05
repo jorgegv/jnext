@@ -4335,8 +4335,9 @@ the same notes reach the Watches tab and GDB's <code>monitor locals</code>, <cod
   overlap, each naming the other (several names are separated by commas). Two blocks that reuse one slot can both look open when the compiler's
   block numbers cannot tell which is, and 80cc's parameter record can name another variable's slot. Neither variable is hidden. Writing either
   is refused (the value would land in the other). A member of a shared struct or array shows no note of its own, but writing it is refused too.</li>
-<li><strong><code>scope unknown: shown whatever block the PC is in</code></strong>: the compiler gave no block structure for this line (80cc before PR #3243).</li>
+<li><strong><code>scope unknown: shown whatever block the PC is in</code></strong>: JNEXT does not know which block this line is in (every 80cc block local, whether or not the compiler records blocks), so every block local is listed, flagged, and none is hidden. Writing one is refused.</li>
 </ul>
+<p>The words <code>U1</code> and <code>U2</code> in the messages are JNEXT's names for two z88dk record bugs (a fastcall parameter's slot, a bitfield written as an <code>int</code>).</p>
 <p>Refusals instead of a value: <code>location unknown (z88dk U1...)</code> for a <code>__z88dk_fastcall</code> parameter that sccz80 recorded where it is not;
 <code>an array of unknown length: its debug record has no size</code>; <code>float format mbf32 is not read: the record does not say it (z88dk#3236)</code> (also
 <code>mbf64</code>, <code>bbc</code> and <code>dai32</code>) when the map shows the program links one of those float libraries.</p>
@@ -4358,15 +4359,15 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <tbody>
 <tr>
 <td>2.4, sccz80</td>
-<td>a <code>__z88dk_fastcall</code> function's parameters at their nominal slots, where they are not</td>
-<td>each parameter <code>location unknown (z88dk U1...)</code>, with a listing beside the map or (no listing) from the function's entry bytes <code>call l_debug_push_frame; push hl</code>. Not recognised without a listing: a <code>float</code> or <code>long long</code> fastcall argument, which is pushed by other helpers (its parameter is read from the nominal slot: a wrong value)</td>
+<td>a <code>__z88dk_fastcall</code> function's parameters are recorded at the stack slot they would have without <code>__z88dk_fastcall</code>, where they are not</td>
+<td>each parameter <code>location unknown (z88dk U1...)</code>, with a listing beside the map or (no listing) recognised from the function's first instructions. Without a listing a <code>float</code> or <code>long long</code> fastcall parameter is not recognised and is read from the recorded slot: a wrong value</td>
 <td>none</td>
 <td>PR #3229, merged</td>
 <td>to be confirmed</td>
 </tr>
 <tr>
 <td>2.4, sccz80</td>
-<td>an array or static sized by its initialiser (<code>char s[] = "x";</code>) has no size</td>
+<td>a local or static array sized by its initialiser (<code>char s[] = "x";</code>) has no size; a global one is shown correctly</td>
 <td><code>an array of unknown length: its debug record has no size</code></td>
 <td>none</td>
 <td>PR #3229, merged</td>
@@ -4375,7 +4376,7 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <tr>
 <td>2.4, sccz80</td>
 <td>bitfields as whole <code>int</code>s</td>
-<td>members marked <code>bitfield layout unknown (z88dk U2)</code>; a lone field that shares no byte with another member is shown as its whole <code>int</code>, so it is wrong when the padding bits are not 0</td>
+<td>members marked <code>bitfield layout unknown (z88dk U2)</code>. A lone field in a struct smaller than an <code>int</code> is refused, <code>member '&lt;name&gt;' lies beyond the object</code>; a lone field that fits the struct is shown as its whole <code>int</code>: wrong when the padding bits are not 0, and for a <code>signed int</code> field</td>
 <td>none</td>
 <td>PR #3231, merged</td>
 <td>to be confirmed</td>
@@ -4478,11 +4479,11 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 </tr>
 <tr>
 <td>master, 80cc</td>
-<td><code>C_LINE</code> has no level and no block</td>
-<td>every block local <code>scope unknown</code></td>
+<td><code>C_LINE</code> has no level and no block; with PR #3243 it has both, in an order JNEXT does not read right</td>
+<td>every block local <code>scope unknown</code>, also with PR #3243: JNEXT does not read 80cc's new block records yet</td>
 <td><a href="https://github.com/z88dk/z88dk/issues/3228">#3228</a></td>
-<td>PR #3243, merged</td>
-<td>to be confirmed (JNEXT is then expected to scope block locals as it does zsdcc's; not yet checked on a rebuilt map)</td>
+<td>PR #3243, merged (JNEXT's side: not done)</td>
+<td>to be confirmed</td>
 </tr>
 <tr>
 <td>master, 80cc</td>
@@ -4511,9 +4512,9 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <tr>
 <td>master, 80cc</td>
 <td>a <code>for (int i ...)</code> variable's block</td>
-<td>as sccz80</td>
+<td>every block local <code>scope unknown</code> (above)</td>
 <td>#3254</td>
-<td>the 80cc half follows PR #3258</td>
+<td>not fixed for 80cc yet</td>
 <td>not yet</td>
 </tr>
 <tr>
@@ -4529,9 +4530,9 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <p>More, in short:
 - A plain <code>int</code> bitfield (<code>int s:4;</code>) is <strong>unsigned</strong> in sccz80 and 80cc and signed in zsdcc, so the value shown is each program's own reading; a <code>signed int</code> field is signed everywhere.
 - On a <code>for</code> line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80 and 80cc: those lines are recorded in the enclosing block. It is listed in the body, and again from the next line.
-- A path that contains a <code>$</code> (<code>game$v2/main.c</code>) makes the 80cc frame-slot note disappear for that module: JNEXT cannot read the module's name. This is open for the owner to decide.
-- Not a display limit: a bitfield initialiser across two bytes written as one (#3234, fixed by PR #3242), and the 80cc code-generation bugs #3245 to #3248 (fixed by PRs #3250 to #3253).
-- Not JNEXT: z88dk's own debuggers (#3230, #3237, #3238 and ticks' float reading in #3240).
+- A source path that contains a <code>$</code> (<code>game$v2/main.c</code>) makes JNEXT unable to tell that an 80cc module is 80cc: its stack variables then show no 80cc note. Avoid <code>$</code> in the paths of 80cc sources until this is fixed.
+- Not a display limit, but wrong values in the program itself: a bitfield initialiser across two bytes written as one (#3234, fixed by PR #3242), and the 80cc code-generation bugs #3245 to #3247 (fixed by PRs #3250 to #3252; #3246 only on the Game Boy target).
+- Not JNEXT: z88dk's own debuggers (#3230, #3237, #3238, #3248 and ticks' float reading in #3240; PRs #3253 for #3248).
 - No C variables at all: zsdcc on 2.4 (<code>-debug</code> does not build, #3172), and the classic library on the Next with 2.4 (<code>-debug</code> fails, PR #3198; it works on master).
 - Enumerations show their number, not their name; a <code>union</code> is shown as a <code>struct</code>.
 - Before a function has set up its frame, its locals are <code>not allocated</code>; a variable at an offset below the stack the frame owns, too.

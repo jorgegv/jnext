@@ -977,7 +977,9 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
         block_data = block_data || sc.level > 0;
         if (sc.level > 0) level_of.emplace(sc.block, sc.level);
     }
-    const bool unknown = !scope || !scope->known || (deep_local && !block_data);
+    // 80cc: every block local stays `scope unknown`, even when its records carry levels and blocks (z88dk PR #3243): 80cc lays its code out of source order and its blocks are
+    // neither pre-order (the sccz80 replay) nor zsdcc's exact ones, so either rule shows a closed sibling and hides the variable in scope, with no note (GH #438 S3 review 4)
+    const bool unknown = !scope || !scope->known || (deep_local && !block_data) || fn.compiler == CCompiler::Cc80;
 
     // GH #438: an sccz80 function with a trail: the open blocks are the replay of the trail up to the PC's (replay_trail()).
     constexpr int kSkip = kSkipBlock;
