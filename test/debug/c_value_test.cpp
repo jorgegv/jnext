@@ -1718,11 +1718,71 @@ int main() {
         const VariableStore pst({pf}, pv, {}, {}, {});
         std::string prow;
         for (const CLocalRef& r : c_visible_locals(pst, 0, &pst.functions()[0].scopes[2])) prow += r.var->c_name + " ";
-        check("CVZB-13", "records where a `for` opens a block (z88dk#3254): in the `if` block t p (i, k and u are not open), in the for header t i, in the for body t i k, after the loop t, in the "
-                         "next block t u: the walk needs no special case for it; and the walk is sccz80's only: the same trail on a zsdcc function keeps the block rule (shows q, block 5), on sccz80 the "
+        check("CVZB-13", "a trail that names the `for` block in its own records (a shape sccz80 does not write: its header line stays in the enclosing block, see CVZB-14; this is the "
+                         "walk's general case): in the `if` block t p (i, k and u are not open), in a header recorded inside the for block t i, in the for body t i k, after the loop t, in the "
+                         "next block t u; and the walk is sccz80's only: the same trail on a zsdcc function keeps the block rule (shows q, block 5), on sccz80 the "
                          "replay keeps block 7 (shows p); before z88dk#3227 a `for` in the function body (records at level 3 naming block 1, no level 2 ever seen) shows its i",
               at(10) == "p t" && at(24) == "i t" && at(30) == "i k t" && at(40) == "i t" && at(50) == "t" && at(55) == "t u" && zrow == "q " && srow == "p " && prow == "t i ",
               at(10) + " | " + at(24) + " | " + at(30) + " | " + at(40) + " | " + at(55) + " | z=" + zrow + " s=" + srow + " p=" + prow);
+    }
+
+    {   // CVZB-14
+        // The records sccz80 writes once a `for` opens a block (z88dk#3254, PR #3258; sccz80 built at upstream 96c0efaddd from issue_3254.t's program and a second program): the `for`
+        // line stays in the ENCLOSING block, the body sits at level + 2 with the next block number, and NO record names the for block: it is known only from the header variable's
+        // `S:` record (`i$2_0$3`). Numbers below are that compiler's own map: (offset, line, level, block) and (name, level, block, stack offset).
+        struct Rec { uint32_t off; int line, level, block; };
+        struct Var { const char* name; int level, block, off; };
+        const auto visible = [](const std::vector<Rec>& trail, const std::vector<Var>& vars) {
+            std::vector<CVariable> vs;
+            for (const Var& v : vars) {
+                CVariable cv;
+                cv.record = cdb_decode(std::string("S:Lt.c.f$") + v.name + "$" + std::to_string(v.level) + "_0$" + std::to_string(v.block) + "({2}SI:S),B,1," + std::to_string(v.off)).record;
+                cv.c_name = v.name;
+                cv.function = 0;
+                vs.push_back(cv);
+            }
+            CFunction f;
+            f.name = "f";
+            f.compiler = CCompiler::Sccz80;
+            for (const Rec& r : trail) {
+                CScope c;
+                c.offset = r.off;
+                c.line = r.line;
+                c.level = r.level;
+                c.block = r.block;
+                c.known = true;
+                f.trail.push_back(c);
+            }
+            // scopes: the owner of each address (the highest line)
+            for (size_t i = 0; i < f.trail.size(); ++i)
+                if (i + 1 == f.trail.size() || f.trail[i + 1].offset != f.trail[i].offset) f.scopes.push_back(f.trail[i]);
+            const VariableStore st({f}, vs, {}, {}, {});
+            std::string out;
+            for (const CScope& sc : st.functions()[0].scopes) {
+                std::vector<std::string> n;
+                for (const CLocalRef& r : c_visible_locals(st, 0, &sc))
+                    if (r.kind != CVarKind::Param) n.push_back(r.var->c_name);
+                std::sort(n.begin(), n.end());
+                std::string row;
+                for (const std::string& x : n) row += (row.empty() ? "" : " ") + x;
+                out += (out.empty() ? "" : "|") + std::to_string(sc.line) + "=" + row;
+            }
+            return out;
+        };
+        // issue_3254.t's program: f(a) { t = a; if (a) { p = t; t += p; } for (int i...) { for (int j...) t += i + j; } return t; }; i and p share slot -4
+        const std::string f3254 = visible({{0, 3, 0, 0}, {3, 4, 1, 1}, {7, 5, 1, 1}, {15, 6, 2, 2}, {18, 7, 2, 2}, {34, 8, 2, 2}, {35, 9, 1, 1}, {59, 10, 3, 4}, {83, 11, 4, 5}, {113, 12, 3, 4}, {117, 13, 1, 1}},
+                                         {{"a", 0, 0, 4}, {"t", 1, 1, -2}, {"p", 2, 2, -4}, {"i", 2, 3, -4}, {"j", 4, 5, -6}});
+        // an empty sibling block `{ int z; }` (block 2, slot -4) before a `for (int i...)` (block 3, the same slot), whose body (3/4) holds k; then a `for` with NO declaration (its block, 5, is
+        // named by nothing), whose body is 3/6 with m; then a block u (2/7). K: the fill must take the greatest candidate (i, block 3, not z), and skip the unnamed block
+        const std::string f2 = visible({{0, 3, 0, 0}, {3, 4, 1, 1}, {7, 6, 1, 1}, {31, 7, 3, 4}, {43, 8, 3, 4}, {61, 9, 3, 4}, {66, 10, 1, 1}, {102, 11, 3, 6}, {106, 12, 3, 6}, {122, 13, 3, 6}, {126, 14, 1, 1},
+                                        {126, 15, 2, 7}, {129, 16, 2, 7}, {145, 17, 2, 7}, {146, 18, 1, 1}},
+                                       {{"a", 0, 0, 4}, {"t", 1, 1, -2}, {"z", 2, 2, -4}, {"i", 2, 3, -4}, {"k", 3, 4, -6}, {"m", 3, 6, -4}, {"u", 2, 7, -4}});
+        check("CVZB-14", "the records sccz80 writes once a `for` opens a block (z88dk#3254, built from upstream 96c0efaddd): the `for` line is in the enclosing block, the body is level + 2 with the next "
+                         "block number, no record names the for block; issue_3254.t's program shows L4-5 t, L6-8 p t, L9 t, L10 i t, L11 i j t, L12 i t, L13 t (the nested brace-less for's j at 4/5); with an "
+                         "empty sibling block `{ int z; }` before the `for` (z and i share slot -4) L7-9 show i k t and never z, and a `for` with no declaration shows m t at L11-13 (the unnamed block is "
+                         "skipped), then t u at L15-17",
+              f3254 == "3=t|4=t|5=t|6=p t|7=p t|8=p t|9=t|10=i t|11=i j t|12=i t|13=t" && f2 == "3=t|4=t|6=t|7=i k t|8=i k t|9=i k t|10=t|11=m t|12=m t|13=m t|15=t u|16=t u|17=t u|18=t",
+              f3254 + " || " + f2);
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

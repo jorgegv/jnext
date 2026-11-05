@@ -420,7 +420,8 @@ void fill_scopes(std::vector<CFunction>& fns, const std::vector<FnEntry>& entrie
             // zcc's peephole rule writes zsdcc's C_LINE as `<file>::x::<level * 10000 + sub>::<block>`
             // (lib/sdcc/sdcc_opt.1:313): the function is the literal `x`. A TAB marks it, or the
             // function at the address is not itself named `x`.
-            const bool zsdcc = owner.loc.func == "x" && (owner.loc.tab || fn->name != "x");
+            // (a zsdcc function really named `x`, with no TAB: its level is level * 10000 + sub, so 10000 and up is zsdcc's)
+            const bool zsdcc = owner.loc.func == "x" && (owner.loc.tab || fn->name != "x" || owner.loc.level_raw >= 10000);
             if (zsdcc) {
                 cs.known = true;
                 cs.level = owner.loc.level_raw / 10000;
@@ -460,7 +461,7 @@ void fill_scopes(std::vector<CFunction>& fns, const std::vector<FnEntry>& entrie
         cs.line = r.loc.line;
         cs.offset = static_cast<uint32_t>(r.value - fn_entry);
         if (r.loc.scope_given) {
-            if (r.loc.func == "x" && (r.loc.tab || fn->name != "x")) {
+            if (r.loc.func == "x" && (r.loc.tab || fn->name != "x" || r.loc.level_raw >= 10000)) {
                 cs.known = true;
                 cs.level = r.loc.level_raw / 10000;
                 cs.sub = r.loc.level_raw % 10000;

@@ -3150,10 +3150,18 @@ main cross_c AC97
             if (!is_cdb_line(l)) kept.push_back(strip_tabs(l));
         SourceMap bare;
         load(bare, synth("z88zb09e.map", join_lines(kept)));
+        // a zsdcc function really named `x`, records without the TAB: its scope entry is level 1 / block 8 (level_raw 10000 = level 1, sub 0), not level 10000
+        SourceMap xf;
+        load(xf, synth("z88zb09f.map",
+            "_x = $9000 ; addr, public, , t_c, code_compiler, t.c:3\n__code_compiler_tail = $9020 ; const, public, def, , ,\n" +
+            rec("__C_LINE_3_t_2ec_3", 0x9000, "t_c", "code_compiler", "t.c::x::10000::8:3") + rec("__C_LINE_0_t_2ec_0", 0x0, "t_c", "", "t.c:0") +
+            "__CDBINFO__" + cdb_escape("F:G$x$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n"));
+        const CFunction* xfn = store_of(xf) ? fn_named(*store_of(xf), "x", "t_c") : nullptr;
+        const bool x_level = xfn && xfn->scopes.size() == 1 && xfn->scopes[0].known && xfn->scopes[0].level == 1 && xfn->scopes[0].block == 8 && xfn->trail.size() == 1 && xfn->trail[0].level == 1;
         check("Z88ZB-09", "zsdcc's `x` is no function with or without the trailing TAB: master/sdcc-cvars with its TABs removed gives the same store as the original and the same starts for vars.c:41; "
                           "two functions' lines at one address ($9000, `x::...:3` and `x::...:4`, `_fb` the later entry) are not aliased either way (line 3 has no start of its own, line 4 has "
-                          "one); a record-less zsdcc map without TABs still says `zsdcc_form`",
-              same_store && starts41(with) == starts41(without) && starts41(with) == 1 && t1.first == 0 && t1.second == 1 && t0 == t1 && store_of(bare) && store_of(bare)->no_record_facts().zsdcc_form);
+                          "one); a record-less zsdcc map without TABs still says `zsdcc_form`; a zsdcc function really named `x` without the TAB keeps zsdcc's level (1, not 10000)",
+              same_store && starts41(with) == starts41(without) && starts41(with) == 1 && t1.first == 0 && t1.second == 1 && t0 == t1 && store_of(bare) && store_of(bare)->no_record_facts().zsdcc_form && x_level);
     }
 
     fs::remove_all(dir);
