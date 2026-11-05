@@ -2581,9 +2581,10 @@ static void cvw_rows() {
         Client c(rig);
         open_session(c);
         const bool at = cvar_stop_at(rig, c, 0x8CCA);
-        std::string f1, f2, f3;
+        std::string f1, f2, f3, f4;
         const auto locals = c.monitor("locals", f1);
         const auto print = c.monitor("print t", f2);
+        const auto print_inner = c.monitor("print inner", f4);
         const auto set = c.monitor("set var t=1000", f3);
         // the note follows each of a, b, p, k, t, acc and inner, and not `calls` (a static local)
         const auto noted = [&](const std::string& name) {
@@ -2602,10 +2603,11 @@ static void cvw_rows() {
         for (const auto& l : print) in_print += (l == note || l == note + "\n");
         for (const auto& l : set) in_set += (l == note || l == note + "\n");
         check("GDB-ZB-01", "monitor locals at master 80cc-cvars vars.c:41 prints `  [80cc may not keep it in the frame slot its record names: the value shown can be stale or another "
-                           "variable's (z88dk#3233)]` after a, b, p, k, t, acc and inner and not after calls; monitor print t prints it once; monitor set var t=1000 prints it once, "
+                           "variable's (z88dk#3233)]` after a, b, p, k, t, acc and inner and not after calls; monitor print t prints it once and monitor print inner (a block local, scope unknown) prints that note; monitor set var t=1000 prints it once, "
                            "after the value line",
               loaded && at && f1 == "OK" && f2 == "OK" && f3 == "OK" && noted("a") && noted("b") && noted("p") && noted("k") && noted("t") && noted("acc") && noted("inner") &&
-                  not_noted("calls") && in_print == 1 && in_set == 1 && cvar_val(set, "t", "1000"),
+                  not_noted("calls") && in_print == 1 && in_set == 1 && cvar_val(set, "t", "1000") && f4 == "OK" &&
+                  cvar_has(print_inner, "  [scope unknown: shown whatever block the PC is in]"),
               join(locals) + join(print) + join(set));
     }
 }

@@ -175,7 +175,7 @@ that is, the records are the pre-z88dk#3229 ones, every parameter at its nominal
 | `c_locals(frame)` (`debugger_cvalues.cpp:481`) | the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a `CValueRow`; refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known |
 | `c_globals()` (`debugger_cvalues.cpp:514`) | every global, file static and static local, ordered by file then name, with a `path` no local can shadow: `vars.c::s_dup`, `sum::calls` (`a.c::init::done` when two modules have a function `init`) |
 | `read_c_value(frame, path)` (`debugger_cvalues.cpp:544`) | the object a C path names in that frame: `ok` or `why`, the type text, the value text, `notes`, the typed location `loc`, `where`, `integer` (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and `real` (the floats) |
-| `c_children(frame, path, first, max)` (`debugger_cvalues.cpp:633`) | what a tree lists under an object: a struct's members, an array's elements `first`..`first + max` (`total` is the element COUNT), a pointer's pointee (a struct's members as `p->x`, anything else as `p[0]`, named `*`); `void *`, a function pointer and a scalar have none (`ok`, `total` 0). Each row's `path` is the parent's plus a suffix and round-trips through `read_c_value` (for a `*E` path the base is `E[0]`, since the grammar applies a leading `*` after the postfix steps: `*p` + `.x` would read `*(p.x)`); a row is read, placed and noted exactly as `read_c_value` would, so a banked global's elements carry its page. `!ok` gives `read_c_value`'s own reason, or `null pointer` / the unreadable address |
+| `c_children(frame, path, first, max)` (`debugger_cvalues.cpp:634`) | what a tree lists under an object: a struct's members, an array's elements `first`..`first + max` (`total` is the element COUNT), a pointer's pointee (a struct's members as `p->x`, anything else as `p[0]`, named `*`); `void *`, a function pointer and a scalar have none (`ok`, `total` 0). Each row's `path` is the parent's plus a suffix and round-trips through `read_c_value` (for a `*E` path the base is `E[0]`, since the grammar applies a leading `*` after the postfix steps: `*p` + `.x` would read `*(p.x)`); a row is read, placed and noted exactly as `read_c_value` would, so a banked global's elements carry its page. `!ok` gives `read_c_value`'s own reason, or `null pointer` / the unreadable address |
 
 The children come from the pure `c_children()` (`c_value.cpp:809`; `CChild`, `CChildren`): a struct's visible named members in record order
 (an unnamed C11 member has no path and is left out), an array's elements scaled by the element size, one pointee for a pointer.
@@ -233,7 +233,7 @@ fixture has an 8-byte integer, a binary16 or an `_Accum` global.
 
 ## Writing a value (GH #437)
 
-`write_c_value(by, frame, path, CNewValue)` (`debugger_cvalues.cpp:567`) is the one write, and it takes its place from the read:
+`write_c_value(by, frame, path, CNewValue)` (`debugger_cvalues.cpp:568`) is the one write, and it takes its place from the read:
 a write needs a successful `eval_var()` of the same path, and its bytes are that read's `loc` and `where`, so
 there is no second resolver to drift from the first. Whatever a read refuses a write refuses with the read's own words (U1, a frame
 base that is not known, `not allocated`, `optimised out`, a null pointer, an index past the end, a page crossing, an unresolved
@@ -241,7 +241,7 @@ storage). The write adds six refusals, in this order:
 
 | Refusal | Why |
 |---|---|
-| `scope unknown` (`Found::scope_unknown`, copied from `CLocalRef` in `find_local()`) | 80cc writes no block structure, so the slot of a block local may hold another variable: a note for a read, a refusal for a write |
+| `scope unknown` (`Found::scope_unknown`, copied from `CLocalRef` in `find_local()`) | JNEXT does not know which block an 80cc line is in (80cc's records carried none, and with z88dk PR #3243 they carry some that JNEXT does not read yet), so the slot of a block local may hold another variable: a note for a read (`read_c_value()` adds `scope unknown: ...` beside the row's), a refusal for a write |
 | `shares its stack slot with <name>: ...` (`Found::shares`, from `CLocalRef` in `find_local()`) | the variable's slot overlaps another listed variable's: the write would land in the other |
 | `a register variable cannot be written` | a root with record space `R`, and a path that follows a register-held pointer: the record gives no live range, so the register may hold another value by then; `registers_of()` names them |
 | `<type> is an aggregate: write a member or an element` | a struct or an array, char arrays included (no string assignment: its read-back would depend on how a string with a NUL prints) |

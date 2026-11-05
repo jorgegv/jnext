@@ -3247,7 +3247,7 @@ that is, the records are the pre-z88dk#3229 ones, every parameter at its nominal
 <td>the object a C path names in that frame: <code>ok</code> or <code>why</code>, the type text, the value text, <code>notes</code>, the typed location <code>loc</code>, <code>where</code>, <code>integer</code> (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and <code>real</code> (the floats)</td>
 </tr>
 <tr>
-<td><code>c_children(frame, path, first, max)</code> (<code>debugger_cvalues.cpp:633</code>)</td>
+<td><code>c_children(frame, path, first, max)</code> (<code>debugger_cvalues.cpp:634</code>)</td>
 <td>what a tree lists under an object: a struct's members, an array's elements <code>first</code>..<code>first + max</code> (<code>total</code> is the element COUNT), a pointer's pointee (a struct's members as <code>p-&gt;x</code>, anything else as <code>p[0]</code>, named <code>*</code>); <code>void *</code>, a function pointer and a scalar have none (<code>ok</code>, <code>total</code> 0). Each row's <code>path</code> is the parent's plus a suffix and round-trips through <code>read_c_value</code> (for a <code>*E</code> path the base is <code>E[0]</code>, since the grammar applies a leading <code>*</code> after the postfix steps: <code>*p</code> + <code>.x</code> would read <code>*(p.x)</code>); a row is read, placed and noted exactly as <code>read_c_value</code> would, so a banked global's elements carry its page. <code>!ok</code> gives <code>read_c_value</code>'s own reason, or <code>null pointer</code> / the unreadable address</td>
 </tr>
 </tbody>
@@ -3329,7 +3329,7 @@ type, which <code>read_c_value()</code> fills for it. <code>integer</code> is th
 how far to trust a value that is shown. The rule is a pure function, so <code>CVINT-01</code> and <code>CVINT-02</code> reach every arm with synthetic types; no
 fixture has an 8-byte integer, a binary16 or an <code>_Accum</code> global.</p>
 <h2 id="writing-a-value-gh-437">Writing a value (GH #437)<a class="headerlink" href="#writing-a-value-gh-437" title="Permanent link">&para;</a></h2>
-<p><code>write_c_value(by, frame, path, CNewValue)</code> (<code>debugger_cvalues.cpp:567</code>) is the one write, and it takes its place from the read:
+<p><code>write_c_value(by, frame, path, CNewValue)</code> (<code>debugger_cvalues.cpp:568</code>) is the one write, and it takes its place from the read:
 a write needs a successful <code>eval_var()</code> of the same path, and its bytes are that read's <code>loc</code> and <code>where</code>, so
 there is no second resolver to drift from the first. Whatever a read refuses a write refuses with the read's own words (U1, a frame
 base that is not known, <code>not allocated</code>, <code>optimised out</code>, a null pointer, an index past the end, a page crossing, an unresolved
@@ -3344,7 +3344,7 @@ storage). The write adds six refusals, in this order:</p>
 <tbody>
 <tr>
 <td><code>scope unknown</code> (<code>Found::scope_unknown</code>, copied from <code>CLocalRef</code> in <code>find_local()</code>)</td>
-<td>80cc writes no block structure, so the slot of a block local may hold another variable: a note for a read, a refusal for a write</td>
+<td>JNEXT does not know which block an 80cc line is in (80cc's records carried none, and with z88dk PR #3243 they carry some that JNEXT does not read yet), so the slot of a block local may hold another variable: a note for a read (<code>read_c_value()</code> adds <code>scope unknown: ...</code> beside the row's), a refusal for a write</td>
 </tr>
 <tr>
 <td><code>shares its stack slot with &lt;name&gt;: ...</code> (<code>Found::shares</code>, from <code>CLocalRef</code> in <code>find_local()</code>)</td>

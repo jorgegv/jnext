@@ -551,6 +551,7 @@ Debugger::CValueResult Debugger::read_c_value(size_t frame, std::string_view pat
     const Found f = find_var(e, frame, p);
     if (!f.v) return refused(f.why);
     CValueResult r = eval_var(e, frame, *f.v, p.deref, p.steps);
+    if (r.ok && f.scope_unknown) r.notes.push_back("scope unknown: shown whatever block the PC is in");
     if (r.ok && !f.shares.empty()) r.notes.push_back(c_shares_note(f.shares));
     return r;
 }

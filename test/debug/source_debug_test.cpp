@@ -8507,8 +8507,8 @@ int main() {
                 others = others && !note80(o.dbg->read_c_value(1, "lp").notes);
             }
             check("SRCDBG-ZB-01", "master 80cc-cvars at vars.c:41: a, b, p, k, t, acc and inner carry the 80cc note (z88dk#3233) in c_locals(0), t does in read_c_value(0, \"t\") and frame 1's lp "
-                                  "does; sum::calls, g_int and every global do not; no sccz80 or zsdcc local does",
-                  all && calls && !note80(calls->notes) && t.ok && note80(t.notes) && lp.ok && note80(lp.notes) && g.ok && !note80(g.notes) && sc.ok && !note80(sc.notes) && globals && others && n > 12,
+                                  "does; read_c_value of the block local inner also says `scope unknown`; sum::calls, g_int and every global do not; no sccz80 or zsdcc local does",
+                  all && calls && !note80(calls->notes) && t.ok && note80(t.notes) && has_note(m.dbg->read_c_value(0, "inner"), "scope unknown") && !has_note(t, "scope unknown") && lp.ok && note80(lp.notes) && g.ok && !note80(g.notes) && sc.ok && !note80(sc.notes) && globals && others && n > 12,
                   seen + " n=" + std::to_string(n));
         }
         {   // SRCDBG-ZB-02
