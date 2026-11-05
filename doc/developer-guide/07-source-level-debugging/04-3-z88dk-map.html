@@ -3286,7 +3286,7 @@ as an unpaged label, and the source half refuses a line record in it.</p>
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
    (<code>dot_why</code>, <code>z88dk_source_map.cpp:693-695</code>), while the symbol half places the map as any other
    (<code>z88dk_dot_command()</code>, <code>symbol_table.cpp:82</code>, no reason asked). Both halves read the
-   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:680</code>; the symbol half keeps every constant). For a dot,
+   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:681</code>; the symbol half keeps every constant). For a dot,
    <code>z88dk_section_space()</code> takes it as a last argument, after rules 1 to 3 (a value above <code>0xFFFF</code> in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:</li>
 <li>an unnumbered section at <code>$2000</code>-<code>$3FFF</code> is <code>DivMmcRam{kNextZxosDotBank}</code>, bank 2

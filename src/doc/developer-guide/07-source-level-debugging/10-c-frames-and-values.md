@@ -21,7 +21,7 @@ all three compilers, and the `B` records of a variable are offsets from `fp`.
 
 The helpers (`__debug_framepointer`, `l_debug_push_frame`, `l_debug_pop_frame`) are joined by
 public name in `CFrameHelpers` (`struct CFrameHelpers`, `variable_store.h:107`), by the adapter
-(`helpers.framepointer`, `z88dk_source_map.cpp:619`), never from the symbol table: a
+(`helpers.framepointer`, `z88dk_source_map.cpp:620`), never from the symbol table: a
 hand-loaded map attaches no symbols. They are unresolved, with a reason, in a zsdcc map.
 
 ## Which function a PC is in
