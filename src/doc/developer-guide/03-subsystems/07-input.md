@@ -143,15 +143,16 @@ How it is built (`Keyboard`, `Emulator::begin_new_frame()`):
   Shift history latches what the guest saw) and the NR `0xB0`/`0xB1` readbacks use
   the copy.
 - **Which side of the instruction the commit lands on.** The interrupt request is
-  raised in `irq_scheduler_`, which a port read also drains mid-instruction, and
-  accepted at the end of the instruction under way. The release is in
-  `scheduler_`, drained only at instruction boundaries. So an `IN` that begins
-  before the edge reads the old state even when its bus cycle falls after it, and
-  the first instruction after the edge reads the new one: the ISR's first
-  instruction when the interrupt is accepted there, which is FUSE's order (the
-  interrupt entered, then the input). With interrupts disabled (or the ULA
-  interrupt off, NR `0x22` bit 2) the release still fires at the same position:
-  the commit is a raster position, not the interrupt.
+  raised in `irq_scheduler_` and accepted at the end of the instruction the edge
+  falls in. The release is in `scheduler_`, drained only at instruction
+  boundaries (`irq_scheduler_` is also drained mid-instruction by the reads that
+  call `sync_io_devices_to()`; the keyboard read is not one of them). So an `IN`
+  that begins before the edge reads the old state, and the first instruction
+  after the edge reads the new one: the ISR's first instruction when the
+  interrupt is accepted there, which is FUSE's order (the interrupt entered, then
+  the input). With interrupts disabled (or the ULA interrupt off, NR `0x22` bit
+  2) the release still fires at the same position: the commit is a raster
+  position, not the interrupt.
 - Nothing is held outside `run_frame()`. No guest instruction runs between
   frames, so the test or debugger panel that reads between them sees the live
   state: `matrix_row()` and `live_extended_keys()` (what `input_state()` reports)

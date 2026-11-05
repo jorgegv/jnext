@@ -9229,11 +9229,13 @@ void Emulator::begin_new_frame()
     // Keyboard commit point: the guest is shown the keyboard as of the frame
     // edge until this same cycle, and the live state from here on. The release
     // is in scheduler_, which only drains at instruction boundaries
-    // (run_scheduled_until), not in irq_scheduler_, which a port read drains
-    // mid-instruction. So an IN that begins before the edge sees the old state
-    // and the first instruction after the edge sees the new one: the ISR's
-    // first read when the interrupt is accepted there, the next main-code
-    // instruction when it is not. FUSE spectrum.c:91-103 is the order being
+    // (run_scheduled_until), not in irq_scheduler_, which the reads that call
+    // sync_io_devices_to() drain mid-instruction (the keyboard read does not
+    // today; this keeps it so whatever a later change does). So an IN that
+    // begins before the edge sees the old state and the first instruction after
+    // the edge sees the new one: the ISR's first read when the interrupt is
+    // accepted there (the request is raised at the end of the instruction the
+    // edge falls in), the next main-code instruction when it is not. FUSE spectrum.c:91-103 is the order being
     // matched: z80_interrupt() runs first and ui_event() (host input) after
     // it, so input lands after the interrupt is entered. Unconditional (not
     // under !ula_int_disabled_): the commit is a raster position.

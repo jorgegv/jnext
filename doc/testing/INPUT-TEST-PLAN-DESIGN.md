@@ -837,7 +837,7 @@ loop's last read before it, and counts ticks.
 | ID | Machine | Stimulus | Expected (pre-fix in brackets) | Cite |
 |----|---------|----------|--------------------------------|------|
 | HIC-01 | 128K | `set_key(SPACE)` between frames N and N+1 | the main loop first sees it after frame N+1's ISR: `seen_tick == t+1` [`t`] | FUSE `spectrum.c:91-103`; `zxula_timing.vhd:187/:199` |
-| HIC-02 | 128K | same | the ISR of N+1 reads SPACE down AND the main loop's last read before that ISR read it up (the FUSE order) [main read it down] | FUSE `spectrum.c:91-103` |
+| HIC-02 | 128K | same, over 48 loop phases (0..47 NOPs before the main loop's `IN`) | the ISR of N+1 reads SPACE down as its very first instruction AND the last `IN` of the main loop before that ISR (A at ISR entry) read it up: the FUSE order [main read it down] | FUSE `spectrum.c:91-103` |
 | HIC-03 | 48K | same, INT at `(116,0)`: a 58.5 T window | same as HIC-01 and HIC-02 together | `zxula_timing.vhd:257/:265` |
 | HIC-04 | Pentagon | same, INT at `(439,319)`: the commit is the last 5 T of the frame; the ISR that reads the key runs in frame N+2 | the main loop polls all of frame N+1 and does not see it; `seen_tick == t+2` | `zxula_timing.vhd:155/:163` |
 | HIC-05 | 128K | the Ms. Nam-Pac mechanism: IM 2 table at `$C000` in bank 0, bank 6 `$C0FF/$C100` = `$8F8F` (a routine writing `$DE` to a marker); on a key the main loop pages bank 6 with EI for ~420 T | `done == 1`, `marker == 0` [`marker == $DE`: the vector was read from bank 6] | FUSE `spectrum.c:91-103` |
@@ -854,7 +854,10 @@ release at frame end or never, M3 a hard-coded commit offset, M4 latch after
 live matrix, M7 release gated on the ULA interrupt enable, M8 guest view not in
 `describe_state`, M9 held from the frame edge, M10 `input_state()` reports the
 guest view, M11 the commit drained mid-instruction (`irq_scheduler_`) instead of
-at the boundary. Joystick and mouse input commit at the frame boundary, by
+at the boundary (EQUIVALENT today: the port `0xFE` and NR `0xB0` reads never
+drain `irq_scheduler_` mid-instruction, so a read cannot tell; kept as the
+stated reason for `scheduler_`), M12 the commit 300 T late, M13 25 T early,
+M14 50 T late (after the ISR's first instruction). Joystick and mouse input commit at the frame boundary, by
 decision (2026-11-05): no program in hand needs it.
 
 ---
