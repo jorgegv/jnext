@@ -269,6 +269,7 @@ std::vector<VariablesPanel::Node> VariablesPanel::child_nodes(QTreeWidgetItem* i
             Node n;
             n.kind = KindRange;
             n.path = path;
+            n.root_label = item->data(0, RoleRootLabel).toString();   // a range's elements are named by the root variable's label
             n.first = static_cast<int>(f);
             n.key = key + "#" + QString::number(f);
             n.cols = QStringList{"[" + QString::number(f) + ".." + QString::number(last) + "]", QString(), QString(), QString()};

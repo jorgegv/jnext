@@ -1440,6 +1440,51 @@ void test_rows() {
               loaded && xs.size() == 3 && level1 && middle && m1.startsWith("x (may be shadowed, in init): ") && m1.contains("shares its stack slot") && m2.startsWith("x (may be shadowed, in init): ") && m2.contains("scope unknown") &&
                   !m1.contains('#') && !m2.contains('#'), s(m1) + " | " + s(m2) + " | " + std::to_string(xs.size()));
     }
+    {   // QVARSH-08
+        // the success-with-a-note branch of the edit message (80cc shadow.c at `g += t`, $8C64): the level-1 t is `may be shadowed`, a write to it succeeds and carries the 80cc note; the message names the variable
+        Fix f;
+        f.load("master-fixed-80cc/80cc-shadow", "sh08", [](const fs::path& d) {
+            fs::copy_file(kFixtures / "master-fixed-80cc/80cc-shadow" / "shadow.c.lis", d / "shadow.c.lis", fs::copy_options::overwrite_existing);
+        });
+        const bool at = f.run_to(0x8C64);
+        QTreeWidgetItem* marked = nullptr;
+        QTreeWidgetItem* L = locals(f);
+        for (int i = 0; L && i < L->childCount(); ++i)
+            if (L->child(i)->text(0) == "t" && L->child(i)->text(2).contains("may be shadowed")) marked = L->child(i);
+        if (marked) f.vp()->commit_edit(marked, "9");
+        const QString msg = message(f) ? message(f)->text() : QString("<none>");
+        check("QVARSH-08", "80cc shadow.c: editing the `may be shadowed` t to 9 succeeds with the 80cc note, and the message reads `t (may be shadowed, in f): 80cc may not keep it ...` with no `#`",
+              at && marked && msg.startsWith("t (may be shadowed, in f): 80cc may not keep it") && !msg.contains('#'), s(msg));
+    }
+    {   // QVARSH-09
+        // range items under a handle row (synthetic: init has x[150] of int at level 1, shadowed by a scalar x of level 2): expanding the shadowed array lists the ranges [0..99] and [100..149], and a refused edit
+        // of element 100 names the variable (`x (shadowed, in init)[100]: ...`), not `[100] (shadowed, in init)[100]`
+        Fix f;
+        f.dir = fs::path(g_tmp->path().toStdString()) / "sh09";
+        fs::create_directories(f.dir);
+        const std::string map = (f.dir / "syn.map").string();
+        std::ofstream(map) << "_init = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                              "__C_LINE_1_a_2ec = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                              "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                           << syn_rec("F:Fa.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "a_c") << syn_rec("S:La.c.init$x$1_0$1({300}DA150x,SI:S),B,1,-302", "a_c")
+                           << syn_rec("S:La.c.init$x$2_0$2({2}SI:S),B,1,-2", "a_c");
+        const uint8_t pro[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39, 0x21, 0xD0, 0xFE, 0x39, 0xF9};   // push ix; ld ix,0; add ix,sp; ld hl,-304; add hl,sp; ld sp,hl
+        for (size_t i = 0; i < sizeof pro; ++i) f.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), pro[i]);
+        const bool loaded = f.backend->load_source_map(map, true).count > 0;
+        syn_enter(f, 0x8000, 0xFE00, 6);
+        QTreeWidgetItem* L = locals(f);
+        QTreeWidgetItem* arr = nullptr;
+        for (int i = 0; L && i < L->childCount(); ++i)
+            if (L->child(i)->text(0) == "x" && L->child(i)->text(2).contains("shadowed")) arr = L->child(i);
+        expand(arr);
+        QTreeWidgetItem* second = arr && arr->childCount() == 2 ? arr->child(1) : nullptr;
+        expand(second);
+        QTreeWidgetItem* el = second ? child(second, "[100]") : nullptr;
+        if (el) f.vp()->commit_edit(el, "99999");
+        const QString msg = message(f) ? message(f)->text() : QString("<none>");
+        check("QVARSH-09", "a refused edit of element 100 of the shadowed array x (two range items) reads `x (may be shadowed, in init)[100]: ...`",
+              loaded && arr && second && el && msg.startsWith("x (may be shadowed, in init)[100]: ") && !msg.contains('#'), s(msg));
+    }
     {   // QVARZB-02
         // GH #438 review note: a C watch shows the facade's notes, the 80cc frame-slot one included
         Fix f;

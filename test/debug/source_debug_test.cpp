@@ -9004,14 +9004,15 @@ int main() {
             bool distinct = rows.size() == 2 && rows[0].path != rows[1].path && rows[0].path[0] == '#' && rows[1].path[0] == '#';
             std::set<std::string> vals;
             for (const auto& r : rows) {
-                distinct = distinct && r.ambiguous_path && r.name_path == "f::n" && m.dbg->read_c_value_row(0, r.path).ok && m.dbg->read_c_value_row(0, r.path).value == r.value;
+                distinct = distinct && r.ambiguous_path && r.name_path == "f::n" && r.ok;
                 vals.insert(r.value);
             }
             jnext::dbg::CNewValue nv55;
             nv55.text = "55";
             const Dbg::CWriteResult w = rows.size() == 2 ? m.dbg->write_c_value_row(m.a, 0, rows[1].path, nv55) : Dbg::CWriteResult{};
-            const std::string first_after = rows.size() == 2 ? m.dbg->read_c_value_row(0, rows[0].path).value : "";
-            const std::string second_after = rows.size() == 2 ? m.dbg->read_c_value_row(0, rows[1].path).value : "";
+            std::string first_after, second_after;   // the Globals rows again: the row with the first handle, the row with the second
+            for (const auto& r : m.dbg->c_globals())
+                if (rows.size() == 2 && r.name == "n") (r.path == rows[0].path ? first_after : second_after) = r.value;
             check("SRCDBG-ZB-21", "zsdcc shadowagg.c with two block statics n: c_globals() has two n rows with distinct handle paths, name_path f::n and ambiguous_path; they read 7 and 100; `f::n` is refused for a read and a write "
                                   "(`ambiguous: 2 statics named n in f`); writing one row's handle changes that static only",
                   at && distinct && vals == std::set<std::string>({"7", "100"}) && !typed.ok && typed.why == "ambiguous: 2 statics named n in f" && refused_with(wt, "ambiguous: 2 statics named n in f") && w.ok() &&
@@ -9061,10 +9062,9 @@ int main() {
             const Dbg::CValueResult typed = m.dbg->read_c_value(0, handle + ".x");
             const Dbg::CWriteResult tw = m.dbg->write_c_value(m.a, 0, handle + ".x", nv);
             const Dbg::CChildRows tc = m.dbg->c_children(0, handle, 0, 16);
-            const Dbg::CValueResult via_row = m.dbg->read_c_value_row(0, handle + ".x");
             const Dbg::CChildRows rc = m.dbg->c_children_row(0, handle, 0, 16);
-            check("SRCDBG-ZB-23", "shadowagg.c:9, the shadowed struct s has a handle path: read_c_value, write_c_value and c_children refuse it (and write nothing), while the row functions read s.x = 3 and list two members",
-                  at && handle.size() > 1 && !typed.ok && !tw.ok() && !tc.ok && via_row.ok && via_row.value == "3" && rc.ok && rc.rows.size() == 2 && m.dbg->read_c_value_row(0, handle + ".x").value == "3");
+            check("SRCDBG-ZB-23", "shadowagg.c:9, the shadowed struct s has a handle path: read_c_value, write_c_value and c_children refuse it (and write nothing), while c_children_row lists its two members (x = 3, y = 1)",
+                  at && handle.size() > 1 && !typed.ok && !tw.ok() && !tc.ok && rc.ok && rc.rows.size() == 2 && rc.rows[0].value == "3" && rc.rows[1].value == "1");
         }
         {   // SRCDBG-ZB-24
             // a handle is judged where the CPU is: at shadowagg.c:14 (zsdcc) the inner struct s's block is closed. Its handle reads and writes `out of scope`; the outer s (visible) reads through its handle
@@ -9078,12 +9078,14 @@ int main() {
             }
             jnext::dbg::CNewValue nv;
             nv.text = "5";
-            const Dbg::CValueResult ri = m.dbg->read_c_value_row(0, inner + ".x"), ro = m.dbg->read_c_value_row(0, outer + ".x");
-            const Dbg::CWriteResult wi = m.dbg->write_c_value_row(m.a, 0, inner + ".x", nv);
-            const Dbg::CValueResult other_frame = m.dbg->read_c_value_row(1, outer + ".x");   // frame 1 is main: f's variable is not one of its locals
-            check("SRCDBG-ZB-24", "shadowagg.c:14: the closed inner s read and written through its handle is refused `out of scope`, the visible outer s reads (x = 3) through its; in main's frame the handle of f's s is "
+            jnext::dbg::CNewValue nv0;
+            nv0.text = "5";
+            const Dbg::CChildRows ci = m.dbg->c_children_row(0, inner, 0, 16), co = m.dbg->c_children_row(0, outer, 0, 16);
+            const Dbg::CWriteResult wi = m.dbg->write_c_value_row(m.a, 0, inner + ".x", nv0);
+            const Dbg::CChildRows other_frame = m.dbg->c_children_row(1, outer, 0, 16);   // frame 1 is main: f's variable is not one of its locals
+            check("SRCDBG-ZB-24", "shadowagg.c:14: the closed inner s is refused `out of scope` when its children are listed and when it is written through its handle; the visible outer s lists x = 3 through its; in main's frame the handle of f's s is "
                                   "refused as a local of another function",
-                  at && !inner.empty() && !outer.empty() && !ri.ok && ri.why.find("out of scope") != std::string::npos && !wi.ok() && wi.why.find("out of scope") != std::string::npos && ro.ok && ro.value == "3" &&
+                  at && !inner.empty() && !outer.empty() && !ci.ok && ci.why.find("out of scope") != std::string::npos && !wi.ok() && wi.why.find("out of scope") != std::string::npos && co.ok && co.rows.size() == 2 && co.rows[0].value == "3" &&
                       !other_frame.ok && other_frame.why.find("a local of another function") != std::string::npos, other_frame.why);
         }
         {   // SRCDBG-ZB-25
@@ -9096,10 +9098,9 @@ int main() {
                 if (r.name == "t" && r.path[0] == '#') handle = r.path;
             jnext::dbg::CNewValue nv;
             nv.text = "9";
-            const Dbg::CValueResult rd = m.dbg->read_c_value_row(0, handle);
             const Dbg::CWriteResult w = m.dbg->write_c_value_row(m.a, 0, handle, nv);
-            check("SRCDBG-ZB-25", "80cc statics.c f2 at `g = t`: the shadowed block-local t has a handle path; its row read carries `scope unknown` and a write through the handle is refused `scope unknown`",
-                  at && handle.size() > 1 && rd.ok && has_note(rd, "scope unknown") && !w.ok() && w.why.find("scope unknown") != std::string::npos, w.why);
+            check("SRCDBG-ZB-25", "80cc statics.c f2 at `g = t`: the shadowed block-local t has a handle path and a write through it is refused `scope unknown`",
+                  at && handle.size() > 1 && !w.ok() && w.why.find("scope unknown") != std::string::npos, w.why);
         }
         {   // SRCDBG-ZB-17
 

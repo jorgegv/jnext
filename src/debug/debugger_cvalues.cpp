@@ -614,14 +614,11 @@ std::vector<Debugger::CValueRow> Debugger::c_globals() const
     return rows;
 }
 
-Debugger::CValueResult Debugger::read_c_value(size_t frame, std::string_view path) const { return read_c_value_impl(frame, path, false); }
-Debugger::CValueResult Debugger::read_c_value_row(size_t frame, std::string_view row_path) const { return read_c_value_impl(frame, row_path, true); }
-
-Debugger::CValueResult Debugger::read_c_value_impl(size_t frame, std::string_view path, bool rows) const
+Debugger::CValueResult Debugger::read_c_value(size_t frame, std::string_view path) const
 {
     const Env e = make_env(*this);
     if (!e.store) return refused(c_variables_status().why);
-    const CPath p = c_parse_path(path, rows);
+    const CPath p = c_parse_path(path);
     if (!p.ok) return refused(p.why);
     if (frame >= e.frames.size()) return refused("no frame " + std::to_string(frame) + " (there are " + std::to_string(e.frames.size()) + ")");
     const Found f = find_var(e, frame, p);
