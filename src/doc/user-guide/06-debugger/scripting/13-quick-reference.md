@@ -61,7 +61,7 @@ end
 | `enable L`, `disable L` | switch a labelled rule |
 | `screenshot "f.png"` or `"f.scr"`, `save_snapshot "f"` | at the next frame edge |
 | `compare_scr "f.scr" "…"` | at the next frame edge; mismatch = failed assert |
-| `press "K" [for N]`, `release "K"` | keys, at the next frame edge |
+| `press "K" [for N]`, `release "K"` | keys, at the next frame edge; the guest sees them from the following interrupt |
 | `joystick N BITS` | connector N (1 or 2), 12 bits, at the next frame edge |
 | `set VAR = EXPR` | a variable |
 | `set TARGET = EXPR` | change the machine (logged `MUTATE`); TARGET is a register, a flag, `IFF1`, `IFF2`, `IM`, `mem[]`, `mem16[]`, `phys[]`, `nextreg[]` or `AUDIO_MUTE` |

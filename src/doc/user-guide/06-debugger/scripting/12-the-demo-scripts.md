@@ -312,10 +312,10 @@ Headless, `--script-key 560 1`:
 | buggy | no | 0 | `PASS hostkey: never armed` — nothing armed, nothing seen |
 | good | yes | 0 | `PASS hostkey: armed 40 frames, nothing tripped` |
 
-## `replay_edge.jds`: input lands at the frame edge
+## `replay_edge.jds`: input lands at the frame interrupt
 
-A key pressed during frame *N* is seen from frame *N*+1 — never later in frame
-*N*, never at *N*+2. The program polls Q in its main loop after `main_loop`,
+A key pressed during frame *N* is seen from frame *N*+1's interrupt — never in
+frame *N*, never at *N*+2. The program polls Q in its main loop after `main_loop`,
 and latches its frame counter at the first Q it sees:
 
 ```

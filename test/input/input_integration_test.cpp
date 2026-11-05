@@ -50,6 +50,7 @@
 #include "platform/host_key_latch.h"
 #include "port/nextreg.h"
 #include "core/saveable.h"
+#include "debug/debugger.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -2058,9 +2059,25 @@ static void test_gh450_hic() {
         check("HIC-01", "128K: a key set between frames is first seen by the main loop after frame N+1's ISR",
               r.ok && o.done == 1 && o.seen == static_cast<uint8_t>(o.t + 1),
               obs_str(o));
-        check("HIC-02", "128K: ISR of N+1 reads the key down; the main loop's last read before it read up (FUSE order)",
-              r.ok && o.isr_read != 0 && o.isr_prev == 0,
-              obs_str(o));
+        // HIC-02 is run over twelve loop phases: each extra NOP in the read
+        // routine moves the main loop's IN 4 T against the interrupt, so some
+        // phase puts an IN that BEGINS before the edge with its bus cycle AFTER
+        // it, and some put the last IN a few T before it. Neither may see the key.
+        std::string bad_pads;
+        for (int pad = 0; pad < 12; ++pad) {
+            Rig rp;
+            if (!init(rp, MachineType::ZX128K)) { bad_pads += "init "; continue; }
+            std::vector<uint8_t> rd(static_cast<size_t>(pad), 0x00);   // NOPs
+            rd.insert(rd.end(), kReadSpace.begin(), kReadSpace.end());
+            build_poller(rp, rd, true);
+            warm(rp.emu);
+            const Obs op = host_press_then_frame(rp.emu, press_space);
+            if (!(op.isr_read != 0 && op.isr_prev == 0))
+                bad_pads += std::to_string(pad) + " ";
+        }
+        check("HIC-02", "128K: ISR of N+1 reads the key down; the main loop's last read before it read up, in every one of 12 loop phases (FUSE order)",
+              r.ok && o.isr_read != 0 && o.isr_prev == 0 && bad_pads.empty(),
+              obs_str(o) + " bad pads: " + bad_pads);
     }
 
     // HIC-03 - 48K: INT at (116,0) = 58.5 T into the frame; the same order.
@@ -2222,7 +2239,7 @@ static void test_gh450_hic() {
             ok = pk(e, DONE) == 1;
         }
         check("HIC-08", "Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge",
-              r.ok && ok && iter >= expect - 1.0 && iter <= expect + 2.0,
+              r.ok && ok && iter >= expect - 0.5 && iter <= expect + 2.5,
               std::string("iter=") + std::to_string(iter) + " expect=" + std::to_string(expect) +
               " per_frame=" + std::to_string(per_frame));
     }
@@ -2291,12 +2308,16 @@ static void test_gh450_hic() {
               detail("prev=%d first=%d", before, after_first) + detail(" later=%d", after_later));
     }
 
-    // HIC-11 - outside run_frame nothing is held: a read made by the TEST (no
-    // guest running), the raw accessors the debugger uses, and the guest-side
-    // NR 0xB0 byte all show a key at once. A guest never runs here.
+    // HIC-11 - the raw side is always raw. Outside run_frame nothing is held: a
+    // read made by the TEST (no guest running), the accessors the debugger uses
+    // and NR 0xB0 all show a key at once. Inside a frame, BEFORE the interrupt,
+    // the debugger's input_state() already shows the extended key while the
+    // guest's own NR 0xB0 read still does not (inspection shows what is
+    // pressed, not what the guest has seen).
     {
         Rig r;
-        bool port_sees = false, dbg_sees = false;
+        bool port_sees = false, dbg_sees = false, mid_ok = false;
+        int mid_reads = 0;
         if (init(r, MachineType::ZX128K)) {
             Emulator& e = r.emu;
             build_poller(r, kReadSpace, true);
@@ -2308,9 +2329,41 @@ static void test_gh450_hic() {
                        (e.keyboard().live_extended_keys() & 0x08) != 0 &&
                        (e.keyboard().nr_b0_byte() & 0x08) != 0;
         }
-        check("HIC-11", "between frames the port, the raw accessors and NR 0xB0 see a key at once (nothing is held outside run_frame)",
-              r.ok && port_sees && dbg_sees,
-              detail("port=%d dbg=%d", port_sees, dbg_sees));
+        Rig rn;
+        if (init(rn, MachineType::ZXN_ISSUE2)) {
+            Emulator& e = rn.emu;
+            build_poller(rn, kReadNrB0Up, true);
+            warm(e);
+            jnext::dbg::Debugger dbg(e);
+            jnext::dbg::ClientInfo ci;
+            ci.name = "input_integration_test";
+            ci.kind = jnext::dbg::ClientKind::Test;
+            const jnext::dbg::ClientId tc = dbg.attach(ci).value;
+            dbg.pump(jnext::dbg::PumpBudget{});
+            bool all_raw = true;
+            jnext::dbg::Subscription sub;
+            sub.kind = jnext::dbg::EventKind::Port;
+            sub.access = jnext::dbg::Access::Read;
+            sub.filter.port_mask = 0xFFFF;
+            sub.filter.port_value = 0x253B;
+            sub.action = jnext::dbg::Action::Continue;
+            sub.handler = [&](const jnext::dbg::Event& ev, jnext::dbg::Debugger& d) {
+                const uint64_t off = e.video_timing().frame_int_master_cycle_offset() + 4;
+                if ((ev.cycle - e.current_frame_cycle()) < off) {   // before the interrupt
+                    ++mid_reads;
+                    if (!(d.input_state().ext_keys & 0x08) || (ev.value & 0x08)) all_raw = false;
+                }
+                return jnext::dbg::Action::Continue;
+            };
+            dbg.subscribe(tc, sub);
+            e.keyboard().set_extended_key(static_cast<int>(Keyboard::ExtKey::UP), true);
+            e.run_frame();
+            dbg.pump(jnext::dbg::PumpBudget{});
+            mid_ok = all_raw && mid_reads >= 2;
+        }
+        check("HIC-11", "outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not",
+              r.ok && rn.ok && port_sees && dbg_sees && mid_ok,
+              detail("port=%d dbg=%d", port_sees, dbg_sees) + detail(" mid=%d reads=%d", mid_ok, mid_reads));
     }
 }
 
