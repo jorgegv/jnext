@@ -2797,7 +2797,7 @@ static int test_s5_descriptor_layout()
               "pre-migration golden's sentinel map measures");
     }
 
-    // ── keyboard — the head of the input block: 342 bytes ──
+    // ── keyboard — the head of the input block: 353 bytes (342 + 11, GH #450) ──
     {
         static const char* const want[] = {
             "bytes matrix 8",
@@ -2887,6 +2887,16 @@ static int test_s5_descriptor_layout()
             "i32 auto_frame_count 4",
             "bool auto_gap 1",
             "bool cancel_extended 1",
+            "bool guest_view_held 1",
+            "u16 guest_ex_matrix 2",
+            "u8 guest_matrix_0 1",
+            "u8 guest_matrix_1 1",
+            "u8 guest_matrix_2 1",
+            "u8 guest_matrix_3 1",
+            "u8 guest_matrix_4 1",
+            "u8 guest_matrix_5 1",
+            "u8 guest_matrix_6 1",
+            "u8 guest_matrix_7 1",
         };
         s3::RecordDesc rec;
         emu.keyboard().describe_state(rec);
@@ -2897,9 +2907,10 @@ static int test_s5_descriptor_layout()
         check("S5-DECL-KEYBOARD", d.empty(),
               "the declaration walks exactly the fields the golden's block "
               "carries, in that order");
-        check("S5-WIDTH-KEYBOARD", rec.width() == 342u,
+        check("S5-WIDTH-KEYBOARD", rec.width() == 353u,
               "the declaration is exactly as wide as the block the "
-              "pre-migration golden's sentinel map measures");
+              "pre-migration golden's sentinel map measures, plus the 11 "
+              "bytes of the guest's keyboard view that GH #450 appended");
     }
 
     // ── joystick — the input block: 7 bytes ──
@@ -3073,10 +3084,11 @@ static int test_s5_descriptor_layout()
                     sum += std::stoul(f.substr(f.rfind(' ') + 1));
             }
         }
-        if (sum != 450) fprintf(stderr, "  S5-INPUT-BLOCK: sum is %zu\n", sum);
-        check("S5-INPUT-BLOCK", sum == 450,
+        if (sum != 461) fprintf(stderr, "  S5-INPUT-BLOCK: sum is %zu\n", sum);
+        check("S5-INPUT-BLOCK", sum == 461,
               "the six input declarations sum to the 450 bytes the golden's "
-              "sentinel map measures for the input block");
+              "sentinel map measures for the input block, plus the 11 bytes "
+              "of the guest's keyboard view that GH #450 appended");
     }
 
     return 0;
@@ -4316,8 +4328,8 @@ static int test_s5_restore_behaviour()
 
         uint32_t cnt = 0;
         std::memcpy(&cnt, b.data() + 12, sizeof(cnt));
-        check("S5-KB-COUNT-OFFSET", b.size() == 342 && cnt == 2,
-              "bytes 12-15 of Keyboard's 342-byte block are the auto-type "
+        check("S5-KB-COUNT-OFFSET", b.size() == 353 && cnt == 2,
+              "bytes 12-15 of Keyboard's 353-byte block are the auto-type "
               "queue count — the field the next row forges, proved by an "
               "honest save of a two-key queue");
 
@@ -4332,13 +4344,13 @@ static int test_s5_restore_behaviour()
 
         uint32_t restored = 0;
         std::memcpy(&restored, again.data() + 12, sizeof(restored));
-        check("S5-KB-COUNT", restored == 16 && again.size() == 342,
+        check("S5-KB-COUNT", restored == 16 && again.size() == 353,
               "a forged auto-type count of 2^30 restores clamped to the "
               "sixteen slots the stream actually carries — the rebuild loop "
               "is bounded by the DECLARED capacity, so it can neither index "
               "past the staging array nor resize the block");
-        check("S5-KB-COUNT-POS", r.position() == 342,
-              "…and the restore consumed exactly the declared 342 bytes, so "
+        check("S5-KB-COUNT-POS", r.position() == 353,
+              "…and the restore consumed exactly the declared 353 bytes, so "
               "the forged count did not move the stream either");
 
         // The hazard S5 INTRODUCED, as opposed to moved. One declaration has
@@ -4400,10 +4412,10 @@ static int test_s5b_duplicated_ram_removed()
     // backing, so that array IS the store and still travels (§4.3(2)).
     {
         struct { MachineType type; const char* name; size_t want; } cases[] = {
-            { MachineType::ZXN_ISSUE2, "next",   2154296 },
-            { MachineType::ZX48K,      "48k",    2162488 },
-            { MachineType::ZX128K,     "128k",   2162488 },
-            { MachineType::ZX_PLUS3,   "plus3",  2162488 },
+            { MachineType::ZXN_ISSUE2, "next",   2154307 },
+            { MachineType::ZX48K,      "48k",    2162499 },
+            { MachineType::ZX128K,     "128k",   2162499 },
+            { MachineType::ZX_PLUS3,   "plus3",  2162499 },
         };
         bool all_ok = true;
         std::string detail;
@@ -4423,7 +4435,7 @@ static int test_s5b_duplicated_ram_removed()
         }
         if (!all_ok) fprintf(stderr, "  JNSX-S5B-LENGTHS: %s\n", detail.c_str());
         check("JNSX-S5B-LENGTHS", all_ok,
-              "the stream is 2 154 296 bytes on the Next and 2 162 488 on "
+              "the stream is 2 154 307 bytes on the Next and 2 162 499 on "
               "48K/128K/+3 — every deliberate change to the byte stream is a "
               "number in a test rather than a fact in a commit message, and "
               "the machine-dependence is exactly the Multiface array and "
@@ -4431,7 +4443,9 @@ static int test_s5b_duplicated_ram_removed()
               "removing the duplicated RAM; S6 adds 594: mf_type (1 byte, "
               "§10.2 P13) and the SD card's SPI FSM (589 + its 4-byte "
               "sentinel, §10.2 P1); GH #290 adds 1: the tail block's "
-              "cvc_offset_delta. All three deltas are machine-independent, so "
+              "cvc_offset_delta; GH #450 adds 11: the keyboard's guest view "
+              "(held flag, extended copy, eight matrix rows). All four deltas "
+              "are machine-independent, so "
               "the 8 192-byte gap between the two numbers is unchanged");
     }
 
