@@ -151,7 +151,7 @@ CFormatCtx var_ctx(const Env& e, const CVariable& v)
 // z88dk#3233: 80cc may leave a local in a register, and records a register-passed parameter at its nominal slot, which can be
 // another variable's. A stack variable of an 80cc function is therefore shown with this note, whatever its offset.
 const char* const k80ccSlot =
-    "80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)";
+    "80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's";
 
 // OD-A (GH #438): with no listing beside the map nothing flags a function `__z88dk_fastcall`, but its ENTRY says so: sccz80 calls
 // `l_debug_push_frame` and then pushes the register parameter (`call l_debug_push_frame; push hl`, or `push de` first for a
@@ -357,6 +357,36 @@ Found find_var(const Env& e, size_t k, const CPath& p)
     const auto module_of_cur = [&] { return cur >= 0 ? e.store->functions()[static_cast<size_t>(cur)].module : std::string(); };
     const auto visible = [](const CVariable& v) { return v.record.hidden == CdbHidden::None; };
 
+    if (p.primary == CPath::Primary::Handle) {
+        // the debugger's own rows: exactly the variable the row shows (GH #353 review F1/F2)
+        if (p.handle >= vars.size() || !visible(vars[p.handle])) { out.why = "no variable with handle #" + std::to_string(p.handle); return out; }
+        const CVariable& v = vars[p.handle];
+        const bool stat = v.record.var.space == 'E';
+        if (v.function >= 0 && v.function == cur) {
+            const auto loc = k < e.frames.size() ? e.store->locate(e.frames[k].pc) : std::nullopt;
+            const CScope* scope = loc ? e.store->scope_at(cur, loc->offset) : nullptr;
+            for (const CLocalRef& r : c_visible_locals(*e.store, cur, scope))
+                if (r.var == &v) {
+                    out.v = &v;
+                    out.kind = kind_of_local(r.kind);
+                    out.scope_unknown = r.scope_unknown;
+                    out.shares = r.shares;
+                    return out;
+                }
+            if (!stat) {
+                out.why = "out of scope at " + where_text(e, k);
+                return out;
+            }
+            // a static local reads wherever the CPU is (the Globals rows name it by handle when its path is shared): no scope test
+        }
+        if (stat) {
+            out.v = &v;
+            out.kind = v.function >= 0 ? Row::Kind::StaticLocal : v.record.scope == CdbScope::Global ? Row::Kind::Global : Row::Kind::FileStatic;
+            return out;
+        }
+        out.why = "'" + v.c_name + "' is a local of another function, which frame " + std::to_string(k) + " is not";
+        return out;
+    }
     if (p.primary == CPath::Primary::Function) {
         int f = -1, n = 0;
         for (size_t i = 0; i < e.store->functions().size(); ++i)
@@ -367,12 +397,25 @@ Found find_var(const Env& e, size_t k, const CPath& p)
             }
         if (n == 0) { out.why = "no function '" + p.qualifier + "'" + (p.file.empty() ? std::string() : " in " + p.file); return out; }
         if (n > 1) { out.why = "function '" + p.qualifier + "' is ambiguous: name its file"; return out; }
-        for (const CVariable& v : vars)
-            if (visible(v) && v.function == f && v.c_name == p.name && v.record.var.space == 'E') {
-                out.v = &v;
+        {
+            // two block statics of one name in a function (zsdcc) share `f::n`: refused, not the first one (GH #353 review F2)
+            const CVariable* st = nullptr;
+            int count = 0;
+            for (const CVariable& v : vars)
+                if (visible(v) && v.function == f && v.c_name == p.name && v.record.var.space == 'E') {
+                    if (!st) st = &v;
+                    ++count;
+                }
+            if (count > 1) {
+                out.why = "ambiguous: " + std::to_string(count) + " statics named " + p.name + " in " + p.qualifier;
+                return out;
+            }
+            if (st) {
+                out.v = st;
                 out.kind = Row::Kind::StaticLocal;
                 return out;
             }
+        }
         if (cur == f) {
             out = find_local(e, k, f, p.name);
             if (!out.v && out.why.empty()) out.why = "no variable '" + p.name + "' in " + p.qualifier;
@@ -428,6 +471,7 @@ Row to_row(const Env& e, size_t k, const CVariable& v, Row::Kind kind, const std
     Row r;
     r.name = v.c_name;
     r.path = path;
+    r.name_path = path;
     r.kind = kind;
     r.type = c_type_text(v.record.var.type);
     r.aggregate = is_aggregate(v.record.var.type);
@@ -469,7 +513,7 @@ Debugger::CVariablesStatus Debugger::c_variables_status() const
         if (!vs->refused().empty())
             st.why = "all " + std::to_string(vs->refused().size()) + " C variable records were refused: " + vs->refused().front();
         else if (!vs->no_record_facts().c_line_records)
-            st.why = "the map has no C debug records: build with zcc -debug (z88dk 2.4's zsdcc fails with -debug, z88dk#3172)";
+            st.why = "the map has no C debug records: build with zcc -debug (z88dk 2.4's zsdcc fails with -debug)";
         else if (vs->no_record_facts().zsdcc_form)
             st.why = "zsdcc wrote no C variable records for this build (zcc -O0 writes none)";
         else
@@ -508,9 +552,20 @@ Debugger::CLocalsResult Debugger::c_locals(size_t frame) const
         Row row = to_row(e, frame, *r.var, kind_of_local(r.kind), r.var->c_name);
         if (r.scope_unknown) row.notes.push_back("scope unknown: shown whatever block the PC is in");
         if (!r.shares.empty()) row.notes.push_back(c_shares_note(r.shares));
-        // a name that another visible variable also has: the innermost is the one `print` means, the others are marked
-        if (const CPicked pk = c_pick_local(visible, r.var->c_name); pk.chosen && pk.chosen != &r)
+        // a name that another visible variable also has: the innermost is the one `print` means, the others are marked. A marked row's own path is its handle, so that edit and expand act on
+        // the variable the row shows and not on the innermost one; no typed name reaches it, so it is not watchable (GH #353 review F1)
+        // a block static whose `function::name` also names another static of the function: the typed path is refused, so no Watch (the Globals rows say the same)
+        if (r.kind == CVarKind::StaticLocal) {
+            const long same = std::count_if(e.store->variables().begin(), e.store->variables().end(), [&](const CVariable& o) {
+                return o.function == r.var->function && o.c_name == r.var->c_name && o.record.var.space == 'E' && o.record.hidden == CdbHidden::None;
+            });
+            row.ambiguous_path = same > 1;
+        }
+        if (const CPicked pk = c_pick_local(visible, r.var->c_name); pk.chosen && pk.chosen != &r) {
             row.notes.push_back(pk.certain ? kCShadowedNote : kCMayBeShadowedNote);
+            row.path = "#" + std::to_string(static_cast<size_t>(r.var - e.store->variables().data()));
+            row.name_path.clear();
+        }
         out.rows.push_back(row);
     }
     out.ok = true;
@@ -539,7 +594,19 @@ std::vector<Debugger::CValueRow> Debugger::c_globals() const
             path = file + "::" + v.c_name;
             kind = v.record.scope == CdbScope::Global ? Row::Kind::Global : Row::Kind::FileStatic;
         }
-        rows.push_back(to_row(e, 0, v, kind, path));
+        CValueRow row = to_row(e, 0, v, kind, path);
+        if (static_local) {
+            // two block statics of one name in a function share `fn::name`: the typed path is refused, so the row's own path is its handle (GH #353 review F2)
+            const long same = std::count_if(e.store->variables().begin(), e.store->variables().end(), [&](const CVariable& o) {
+                return o.function == v.function && o.c_name == v.c_name && o.record.var.space == 'E' && o.record.hidden == CdbHidden::None;
+            });
+            if (same > 1) {
+                row.path = "#" + std::to_string(static_cast<size_t>(&v - e.store->variables().data()));
+                row.name_path = path;
+                row.ambiguous_path = true;
+            }
+        }
+        rows.push_back(row);
     }
     std::sort(rows.begin(), rows.end(), [](const CValueRow& a, const CValueRow& b) {
         return a.file != b.file ? a.file < b.file : a.name != b.name ? a.name < b.name : a.path < b.path;
@@ -572,7 +639,10 @@ static std::string registers_of(const Debugger::CValueResult& r)
     return "registers";
 }
 
-Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::string_view path, const CNewValue& value)
+Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::string_view path, const CNewValue& value) { return write_c_value_impl(by, frame, path, value, false); }
+Debugger::CWriteResult Debugger::write_c_value_row(ClientId by, size_t frame, std::string_view row_path, const CNewValue& value) { return write_c_value_impl(by, frame, row_path, value, true); }
+
+Debugger::CWriteResult Debugger::write_c_value_impl(ClientId by, size_t frame, std::string_view path, const CNewValue& value, bool rows)
 {
     CWriteResult out;
     const auto refuse = [&out](const std::string& why) {
@@ -582,7 +652,7 @@ Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::s
     };
     const Env e = make_env(*this);
     if (!e.store) return refuse(c_variables_status().why);
-    const CPath p = c_parse_path(path);
+    const CPath p = c_parse_path(path, rows);
     if (!p.ok) return refuse(p.why);
     if (frame >= e.frames.size())
         return refuse("no frame " + std::to_string(frame) + " (there are " + std::to_string(e.frames.size()) + ")");
@@ -640,7 +710,10 @@ Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::s
     return out;
 }
 
-Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, size_t first, size_t max) const
+Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, size_t first, size_t max) const { return c_children_impl(frame, path, first, max, false); }
+Debugger::CChildRows Debugger::c_children_row(size_t frame, std::string_view row_path, size_t first, size_t max) const { return c_children_impl(frame, row_path, first, max, true); }
+
+Debugger::CChildRows Debugger::c_children_impl(size_t frame, std::string_view path, size_t first, size_t max, bool rows) const
 {
     CChildRows out;
     const Env e = make_env(*this);
@@ -648,7 +721,7 @@ Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, s
         out.why = c_variables_status().why;
         return out;
     }
-    const CPath p = c_parse_path(path);
+    const CPath p = c_parse_path(path, rows);
     if (!p.ok) {
         out.why = p.why;
         return out;
@@ -692,7 +765,7 @@ Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, s
     }
     for (const CChild& c : ch.items) {
         const std::string child_path = base + c.suffix;
-        const CPath cp = c_parse_path(child_path);
+        const CPath cp = c_parse_path(child_path, rows);
         CValueResult r = cp.ok ? eval_var(e, frame, *f.v, cp.deref, cp.steps) : refused(cp.why);
         Row row;
         row.name = c.label;
@@ -706,6 +779,13 @@ Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, s
         row.why = r.why;
         row.aggregate = r.ok ? r.aggregate : is_aggregate(c.loc.type);
         row.notes = r.notes;
+        // the notes of the root variable ride on every child, as on `read_c_value()` (GH #353 review F5)
+        if (r.ok) {
+            if (f.scope_unknown) row.notes.push_back("scope unknown: shown whatever block the PC is in");
+            if (!f.shares.empty()) row.notes.push_back(c_shares_note(f.shares));
+            if (!f.ambiguous.empty()) row.notes.push_back(f.ambiguous);
+        }
+        row.name_path = child_path.compare(0, 1, "#") == 0 ? std::string() : child_path;
         out.rows.push_back(row);
     }
     return out;

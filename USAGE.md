@@ -2706,18 +2706,19 @@ line) and connect to jnext’s port:
 - **C variables** of a program built with a z88dk `-debug` map:
   `monitor locals` \[*FRAME*\] (the parameters and locals of a C frame,
   0 is where the CPU is), `monitor globals` (every global, file static
-  and static local, with the memory it lives in) and `monitor print`
-  \[*FRAME*\] *PATH* (one value: `p->x`, `*p`, `g_matrix[1][2]`,
-  `fn::x`, `file.c::x`). They read the right module’s file statics,
-  z88dk’s 48-bit floats, array counts and paged globals, which
-  z88dk-gdb’s own `info locals` / `print` can get wrong. A refusal (no
-  map, an unknown name, a variable the compiler optimised out) prints
-  its reason. `monitor set var` \[*FRAME*\] *PATH* `=` *VALUE* writes
-  one (an integer, a `'c'` character, a float for a float variable, an
-  address for a pointer; a value out of the type’s range is refused,
-  never truncated); a refusal prints `refused:` and its reason and the
-  reply is `E01`. Only z88dk-gdb versions that have `monitor` can send
-  them.
+  and static local, with the memory it lives in; two block statics of
+  one name in a function share their path, are marked `(ambiguous path)`
+  and are refused by `monitor print`) and `monitor print` \[*FRAME*\]
+  *PATH* (one value: `p->x`, `*p`, `g_matrix[1][2]`, `fn::x`,
+  `file.c::x`). They read the right module’s file statics, z88dk’s
+  48-bit floats, array counts and paged globals, which z88dk-gdb’s own
+  `info locals` / `print` can get wrong. A refusal (no map, an unknown
+  name, a variable the compiler optimised out) prints its reason.
+  `monitor set var` \[*FRAME*\] *PATH* `=` *VALUE* writes one (an
+  integer, a `'c'` character, a float for a float variable, an address
+  for a pointer; a value out of the type’s range is refused, never
+  truncated); a refusal prints `refused:` and its reason and the reply
+  is `E01`. Only z88dk-gdb versions that have `monitor` can send them.
 - **Either side may pause or resume**, as with DeZog: the client is told
   the machine stopped when something else stops it while the client has
   it running.

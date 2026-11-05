@@ -100,7 +100,7 @@ std::string float_refusal(const CFormatCtx& ctx)
     if (!ctx.store) return "";
     const std::string& lib = ctx.store->float_library();
     if (lib == "mbf32" || lib == "mbf64" || lib == "bbc" || lib == "dai32")
-        return "float format " + lib + " is not read: the record does not say it (z88dk#3236)";
+        return "float format " + lib + " is not read: the record does not say it";
     return "";
 }
 
@@ -596,7 +596,7 @@ CFormatted c_format_value(const CFormatCtx& ctx, const CdbType& type, const uint
 
 // -- paths -------------------------------------------------------------------
 
-CPath c_parse_path(std::string_view s)
+CPath c_parse_path(std::string_view s, bool allow_handle)
 {
     CPath p;
     size_t i = 0;
@@ -646,7 +646,16 @@ CPath c_parse_path(std::string_view s)
             p.primary = q1.find('.') != std::string::npos ? CPath::Primary::File : CPath::Primary::Function;
         }
     }
-    if (!ident(&p.name)) return bad("expected a variable name");
+    if (allow_handle && i < s.size() && s[i] == '#' && p.qualifier.empty()) {
+        ++i;
+        const size_t b = i;
+        while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) ++i;
+        if (i == b || i - b > 9) return bad("expected a variable handle number after '#'");
+        p.primary = CPath::Primary::Handle;
+        p.handle = static_cast<size_t>(std::stoul(std::string(s.substr(b, i - b))));
+    } else if (!ident(&p.name)) {
+        return bad("expected a variable name");
+    }
     for (;;) {
         ws();
         if (i >= s.size()) break;

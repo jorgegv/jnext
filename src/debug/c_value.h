@@ -102,19 +102,22 @@ struct CPathStep {
 };
 
 /// `path := ['*'] primary { '.' name | '->' name | '[' index ']' }`, `primary := name | fn '::' name | file '::' name |
-/// file '::' fn '::' name` (`file` contains a '.'), `index := decimal | 0x<hex> | $<hex>` (no sign). Whitespace is allowed between tokens.
+/// file '::' fn '::' name | '#' index` (`file` contains a '.'), `index := decimal | 0x<hex> | $<hex>` (no sign). Whitespace is allowed between tokens.
 struct CPath {
     bool ok = false;
     std::string why;
     bool deref = false;
-    enum class Primary : uint8_t { Name, Function, File };
+    enum class Primary : uint8_t { Name, Function, File, Handle };
     Primary primary = Primary::Name;
     std::string qualifier;   ///< the function or file of `fn::x` / `file.c::x`
     std::string file;        ///< `file.c::fn::x`: the file that names which `fn` (two modules can each have a static function of that name)
     std::string name;
+    size_t handle = 0;       ///< Handle: the index into VariableStore::variables() (`#12`, then the usual steps): the debugger's own rows name a variable this way when its C name would reach another one (a shadowed local, two same-named block statics)
     std::vector<CPathStep> steps;
 };
-CPath c_parse_path(std::string_view text);
+/// `allow_handle`: also accept the debugger's internal row handle (`#12`, an index into VariableStore::variables()), which only the Variables panel's own rows use, through the `*_row` entry points of the
+/// facade; every typed surface (watches, scripts, ZRCP, GDB) parses with the default and so refuses a leading `#`.
+CPath c_parse_path(std::string_view text, bool allow_handle = false);
 
 /// A typed place (a struct's size is a declared object's, never its members' extent: "size unknown (z88dk U2)" when there is none): `type.chain` is the chain of THIS object (the outer elements already peeled), `type.size` its size.
 struct CLoc {

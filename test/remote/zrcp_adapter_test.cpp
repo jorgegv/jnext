@@ -5024,6 +5024,10 @@ static void cvar_rows() {
         Rig nm(MachineType::ZXN_ISSUE2);
         Zc  c2(nm);
         const std::string nomap = c2.cmd("evaluate CVAR(t)");
+        // ZRCP-CVAR-04 (same stop): a row handle is internal to the Variables panel; CVAR(#4) is refused like any bad path and CVAR(t) still reads
+        const std::string hnd = c.cmd("evaluate CVAR(#4)"), hnd2 = c.cmd("evaluate CVAR(#4.x)");
+        check("ZRCP-CVAR-04", "CVAR(#4) and CVAR(#4.x) are not read (the reply has no value), CVAR(t) is still 122: a handle is not a typed path",
+              hnd.find("122") == std::string::npos && hnd2.find("Error") != std::string::npos && hnd.find("Error") != std::string::npos && t == "122", esc(hnd) + " | " + esc(hnd2));
         check("ZRCP-CVAR-02", "a CVAR() that cannot be read answers ZEsarUX's `Error evaluating parsed string: <canonical>` with no reason: "
                               "CVAR(inner) (out of scope), CVAR(*p) (an aggregate), CVAR(t) on a Next with no map; what does not tokenise "
                               "(an unclosed `CVAR(p->x`, an empty `CVAR()`, a nested `CVAR((x))`, a quote `CVAR(\"x\")`) is `Error parsing`",

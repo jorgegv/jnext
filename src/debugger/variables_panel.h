@@ -57,7 +57,7 @@ public:
 
     /// What a tree item carries (the tests read it): its kind, the facade path, a range's first element.
     enum { KindGroup = 0, KindVar = 1, KindRange = 2, KindMessage = 3 };
-    enum { RoleKind = Qt::UserRole, RolePath, RoleFirst, RoleKey, RoleExpandable, RoleRowKind, RoleFile, RoleEditText };
+    enum { RoleKind = Qt::UserRole, RolePath, RoleFirst, RoleKey, RoleExpandable, RoleRowKind, RoleFile, RoleEditText, RoleWatchPath, RoleWatchTip, RoleRootLabel };
 
     /// GH #437 - open the Value editor of `item` (as a double-click does). False, and no editor, unless the machine is paused and the item
     /// is editable (a variable, member, element or pointee whose facade row is ok and not an aggregate).
@@ -86,10 +86,14 @@ private:
         bool expandable = false;     ///< an aggregate or a pointer: gets the indicator, children on expand
         bool editable = false;       ///< GH #437: an ok row that is not an aggregate
         QString edit_text;           ///< what the editor holds: the first word of the facade's value (`120 'x'` is `120`)
+        QString watch_path;          ///< the name expression a Watch would hold (`CValueRow::name_path`); empty: no name reaches this exact variable, so Watch is disabled
+        QString watch_tip;           ///< why: the tooltip of the disabled Watch
+        QString root_label;          ///< a row whose path starts with an internal handle: how its message names the variable (`t (shadowed, in f)`, `f::n (static)`); a child inherits its root's
         std::vector<Node> kids;      ///< KindGroup: its rows, built eagerly
     };
     void on_context_menu(const QPoint& pos);
-    Node node_of(const jnext::dbg::Debugger::CValueRow& row, const QString& key_prefix, const QString& parent_name) const;
+    Node node_of(const jnext::dbg::Debugger::CValueRow& row, const QString& key_prefix, const QString& parent_name, const QString& parent_root_label = QString()) const;
+    QString display_path(QTreeWidgetItem* item) const;   ///< the item's path with a leading handle replaced by its root label
     Node message(const QString& text) const;
     std::vector<Node> locals_nodes() const;
     std::vector<Node> globals_nodes() const;

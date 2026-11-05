@@ -1492,7 +1492,7 @@ int main() {
             CFormatCtx ctx;
             ctx.store = &st;
             const CFormatted f = c_format_value(ctx, f4, ieee.data(), 4);
-            return !f.ok && f.why == std::string("float format ") + lib + " is not read: the record does not say it (z88dk#3236)";
+            return !f.ok && f.why == std::string("float format ") + lib + " is not read: the record does not say it";
         };
         const auto lib_reads = [&](const char* lib) {
             const VariableStore st({}, {}, {}, {}, {}, {}, {}, lib);
@@ -1501,10 +1501,9 @@ int main() {
             const CFormatted f = c_format_value(ctx, f4, ieee.data(), 4);
             return f.ok && f.text == "-3.25";
         };
-        check("CVZB-11", "float format from the map's library: master classic-mbf32 (`{4}SF`, bytes 00 00 D0 82) is refused `float format mbf32 is not read: the record does not say it "
-                         "(z88dk#3236)`; classic-math32's 00 00 50 C0 is -3.25; mbf64, bbc and dai32 are refused like mbf32; am9511 and math48 read by size; a map that names no "
+        check("CVZB-11", "float format from the map's library: master classic-mbf32 (`{4}SF`, bytes 00 00 D0 82) is refused `float format mbf32 is not read: the record does not say it`; classic-math32's 00 00 50 C0 is -3.25; mbf64, bbc and dai32 are refused like mbf32; am9511 and math48 read by size; a map that names no "
                          "library reads by size as before (-3.25, and 00 00 D0 82 as IEEE, the silent wrong value the refusal exists for)",
-              mb.first == "mbf32" && !rm.ok && rm.why == "float format mbf32 is not read: the record does not say it (z88dk#3236)" && m3.first == "math32" && r3.ok && r3.text == "-3.25" &&
+              mb.first == "mbf32" && !rm.ok && rm.why == "float format mbf32 is not read: the record does not say it" && m3.first == "math32" && r3.ok && r3.text == "-3.25" &&
                   none.ok && none.text == "-3.25" && c_format_value(CFormatCtx{}, f4, mbf.data(), 4).ok && lib_refuses("mbf64") && lib_refuses("bbc") && lib_refuses("dai32") &&
                   lib_reads("am9511") && lib_reads("math48") && lib_reads("math32"));
     }
@@ -2088,6 +2087,15 @@ int main() {
                          "(lines 5 and 9: the pick is the Param a and the Local t, two rows)",
               kind_of(0, "a") == 20 + 0 && kind_of(0, "t") == 20 + 1 && kind_of(1, "a") == 40 + 2 && kind_of(1, "t") == 40 + 2 && kind_of(2, "a") == 20 + 0 && kind_of(2, "t") == 20 + 1,
               std::to_string(kind_of(0, "a")) + " " + std::to_string(kind_of(1, "a")) + " " + std::to_string(kind_of(2, "t")));
+    }
+    {   // CVZB-23
+        // the debugger's own row handles (`#12`, then the usual steps) parse only when the caller says so (the Variables panel's rows); a typed surface parses without it and refuses a leading `#`
+        const CPath a = c_parse_path("#12", true), b = c_parse_path("#7.x[2]->y", true), c = c_parse_path("*#3", true), d = c_parse_path("#", true), e = c_parse_path("#x", true), f = c_parse_path("fn::#3", true),
+                    g = c_parse_path("t"), h = c_parse_path("#12"), i = c_parse_path("*#3"), j = c_parse_path("#7.x");
+        check("CVZB-23", "c_parse_path with allow_handle: `#12` is a handle (index 12), `#7.x[2]->y` a handle with three steps, `*#3` a dereferenced handle; `#`, `#x` and `fn::#3` are refused; without it (every typed "
+                         "surface) `#12`, `*#3` and `#7.x` are refused like any bad path; a name is a name either way",
+              a.ok && a.primary == CPath::Primary::Handle && a.handle == 12 && a.steps.empty() && b.ok && b.primary == CPath::Primary::Handle && b.handle == 7 && b.steps.size() == 3 && c.ok && c.deref &&
+                  c.primary == CPath::Primary::Handle && c.handle == 3 && !d.ok && !e.ok && !f.ok && g.ok && g.primary == CPath::Primary::Name && g.name == "t" && !h.ok && !i.ok && !j.ok);
     }
     {   // CVZB-17
         // The line proofs are strict, and beta is the lowest block. Expected values: the three-valued rule applied by hand to each trail (the programs would be hand-written C of these shapes)

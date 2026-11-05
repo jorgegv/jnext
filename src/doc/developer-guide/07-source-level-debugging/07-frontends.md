@@ -287,7 +287,7 @@ of a store, and it **formats nothing**: every value, type, refusal and note is t
   style switch) keeps the choice, so a frame picked in an older caller survives everything but moving the machine.
 - **One mapping.** The Call Stack panel lists the tracked CALLs newest first, with no row for frame 0 or for a frame found through
   the saved-frame-pointer chain; `c_frames()` takes frame k's PC from the CALL `tracked[n-k]`, so **Call Stack row i is C frame i + 1**.
-  That is written once, in `VariablesPanel::call_stack_row()` (`variables_panel.cpp:110`) and `frame_of_call_row()`. `CallStackPanel::call_selected(row)` (emitted
+  That is written once, in `VariablesPanel::call_stack_row()` (`variables_panel.cpp:117`) and `frame_of_call_row()`. `CallStackPanel::call_selected(row)` (emitted
   only for the user's choice: a refresh and `select_row()` set a guard) goes to `select_frame(row + 1)`, and `frame_changed(k)` goes back to
   `select_row(call_stack_row())`, which emits nothing, so there is no loop. After each refresh the window re-selects the row the chosen
   frame maps to (-1 clears it), because a refresh may have rebuilt the Call Stack's rows.
@@ -295,6 +295,7 @@ of a store, and it **formats nothing**: every value, type, refusal and note is t
   Expanding it calls `c_children(frame, path, 0, 100)`; when `total` exceeds 100 the children are **range items** `[0..99]`, `[100..199]`, ...,
   each read with its own `first`. A refused expansion (`null pointer`, an unreadable pointer) is one placeholder item with the facade's
   reason. The panel never decodes a type.
+- **Rows act on themselves.** A row that another visible variable of its name shadows, and a Globals row whose `function::name` is shared by two block statics, has an internal handle as its `path` (`#<n>`, never typed or shown). Edit and expand go through `write_c_value_row()` and `c_children_row()` with that path, so they act on the variable the row shows and not on the innermost one the name reaches; the keys are `prefix + path`, so the two rows have two keys. A message about such a row names the variable (`t (shadowed, in f)`, `f::n (static)`), built from the row's root label (`RoleRootLabel`, inherited by its children). **Watch** is a name expression: it uses `CValueRow::name_path`, and where that is empty (a shadowed row) or ambiguous (a shared static path, also in Locals) the action is disabled and its tooltip says why. `itemFromIndex()` is protected in Qt5, so the delegate reaches it through `VarTree::item_of()`.
 - **In-place refresh.** Every item has a key (a path, a range, a file group, prefixed by the section and, for Locals, the function).
   `sync()` compares a parent's children with the new rows by key: unchanged keys are updated in place, so the selection, the scroll
   position and the expansion stay; changed keys rebuild that parent and re-open the items whose key the user had open (`expanded_`).
@@ -380,12 +381,12 @@ on the Next, the physical text of the slot's first byte. The server's own symbol
 described in [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md).
 
 The C variables are three more verbs over the facade of [7.10](10-c-frames-and-values.md), read-only; the write
-is a fourth, `monitor set var [FRAME] PATH = VALUE` (`monitor_set_var()`, `rsp_server.cpp:1212`), over `write_c_value()`: `OK` and the value read back, or
+is a fourth, `monitor set var [FRAME] PATH = VALUE` (`monitor_set_var()`, `rsp_server.cpp:1215`), over `write_c_value()`: `OK` and the value read back, or
 `refused: <why>` and `E01`.
 `monitor_locals()` (`rsp_server.cpp:1107`) prints the header of frame N (`frame 0: main at main.c:21, fp $FF51 (prologue)`, from
 `c_frames()`), then one `(type) name = value` line per `c_locals()` row, and a `[note]` line under a row that has notes.
-`monitor_globals()` (`rsp_server.cpp:1155`) prints one line per `c_globals()` row named by its `path`, so a name pastes into
-`print`, with the memory the variable lives in (`$903E P04`). `monitor_print()` (`rsp_server.cpp:1176`) takes the raw rest of
+`monitor_globals()` (`rsp_server.cpp:1156`) prints one line per `c_globals()` row named by its `name_path` (the typed path, never an internal handle), so a name pastes into
+`print`, and marks `(ambiguous path)` the entries whose path names more than one static (`print` refuses those), with the memory the variable lives in (`$903E P04`). `monitor_print()` (`rsp_server.cpp:1179`) takes the raw rest of
 the line, not the split words, because a C path may hold spaces (`p -> y`); a leading decimal word is the frame (a C path cannot
 start with a digit). A refusal (no C variables, an unknown name, no such frame) is text and `OK`, as `monitor src` does; a
 wrong argument is `E01`. They exist for any RSP client and for what `z88dk-gdb` gets wrong on its own: it resolves a file

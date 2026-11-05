@@ -17,12 +17,19 @@ using jnext::dbg::Debugger;
 namespace {
 constexpr size_t kChunk = 100;   // children read per expansion; more are offered as ranges of this many
 
+// itemFromIndex() is protected in Qt5 and public in Qt6: the delegate reaches it through this subclass, which builds on both
+class VarTree : public QTreeWidget {
+public:
+    using QTreeWidget::QTreeWidget;
+    QTreeWidgetItem* item_of(const QModelIndex& i) const { return itemFromIndex(i); }
+};
+
 // The Value column's editor (GH #437): a line edit holding the item's RoleEditText, not the cell's text (which carries notes and
 // the char of a char). It never writes the model: what is typed goes to the panel, which asks the debugger, and the cell shows
 // whatever the next read says.
 class ValueDelegate : public QStyledItemDelegate {
 public:
-    ValueDelegate(QTreeWidget* tree, VariablesPanel* panel) : QStyledItemDelegate(tree), tree_(tree), panel_(panel) {}
+    ValueDelegate(VarTree* tree, VariablesPanel* panel) : QStyledItemDelegate(tree), tree_(tree), panel_(panel) {}
     QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex&) const override {
         auto* e = new QLineEdit(parent);
         e->setFrame(false);
@@ -36,11 +43,11 @@ public:
         editor->setProperty("filled", true);
     }
     void setModelData(QWidget* editor, QAbstractItemModel*, const QModelIndex& index) const override {
-        QTreeWidgetItem* item = tree_->itemFromIndex(index);
+        QTreeWidgetItem* item = tree_->item_of(index);
         if (item) panel_->commit_edit(item, static_cast<QLineEdit*>(editor)->text());
     }
 private:
-    QTreeWidget* tree_;
+    VarTree* tree_;
     VariablesPanel* panel_;
 };
 }
@@ -71,7 +78,7 @@ VariablesPanel::VariablesPanel(Debugger* dbg, QWidget* parent)
     frames_->setObjectName("variables_frame");
     layout->addWidget(frames_);
 
-    tree_ = new QTreeWidget(this);
+    tree_ = new VarTree(this);
     tree_->setObjectName("variables_tree");
     tree_->setFont(mono);
     tree_->setColumnCount(4);
@@ -99,7 +106,7 @@ VariablesPanel::VariablesPanel(Debugger* dbg, QWidget* parent)
     tree_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(tree_, &QTreeWidget::customContextMenuRequested, this, &VariablesPanel::on_context_menu);
     connect(frames_, QOverload<int>::of(&QComboBox::activated), this, [this](int i) { select_frame(i); });
-    tree_->setItemDelegateForColumn(2, new ValueDelegate(tree_, this));
+    tree_->setItemDelegateForColumn(2, new ValueDelegate(static_cast<VarTree*>(tree_), this));
     connect(tree_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
         if (col == 2) edit_item(item);
     });
@@ -131,7 +138,7 @@ QString VariablesPanel::address_text(const Debugger::CWhere& w) const
 }
 
 VariablesPanel::Node VariablesPanel::node_of(const Debugger::CValueRow& row, const QString& key_prefix,
-                                             const QString& parent_name) const
+                                             const QString& parent_name, const QString& parent_root_label) const
 {
     Node n;
     n.kind = KindVar;
@@ -139,11 +146,33 @@ VariablesPanel::Node VariablesPanel::node_of(const Debugger::CValueRow& row, con
     n.file = QString::fromStdString(row.file);
     n.path = QString::fromStdString(row.path);
     n.key = key_prefix + n.path;
+    if (n.path.contains('#')) {
+        n.root_label = parent_root_label;
+        if (n.root_label.isEmpty()) {
+            // a root row named by an internal handle: the message names the variable
+            if (row.ambiguous_path) {
+                n.root_label = QString::fromStdString(row.name_path) + " (static)";
+            } else {
+                bool may = false;
+                for (const std::string& note : row.notes) may = may || note == "may be shadowed";
+                QString where;
+                const auto frames = dbg_->c_frames();
+                const auto store = dbg_->variables();
+                if (static_cast<size_t>(frame_) < frames.size() && store && frames[static_cast<size_t>(frame_)].function >= 0)
+                    where = ", in " + QString::fromStdString(store->functions()[static_cast<size_t>(frames[static_cast<size_t>(frame_)].function)].name);
+                n.root_label = QString::fromStdString(row.name) + (may ? " (may be shadowed" : " (shadowed") + where + ")";
+            }
+        }
+    }   // a shadowed local's path is its handle, so the two `t` rows have two keys (GH #353 review F1)
+    if (!row.ambiguous_path) n.watch_path = QString::fromStdString(row.name_path);
+    if (n.watch_path.isEmpty())
+        n.watch_tip = row.ambiguous_path ? tr("More than one static of this name exists in the function, so a Watch could not tell them apart")
+                                         : tr("A Watch is a name, and the name %1 reaches the innermost declaration, not this one").arg(QString::fromStdString(row.name));
     QString name = QString::fromStdString(row.name);
     if (name == "*") name += parent_name;   // the dereference of a pointer: `*p`
     if (row.kind == Debugger::CValueRow::Kind::StaticLocal) {
         // `sum::calls`, so two statics of one name stay apart: the path without a leading `<file>::` (which only a repeated function name has)
-        name = n.path;
+        name = row.name_path.empty() ? QString::fromStdString(row.name) : QString::fromStdString(row.name_path);   // not the handle a shared path is replaced by
         const QString file = QString::fromStdString(row.file) + "::";
         if (name.startsWith(file)) name = name.mid(file.size());
     }
@@ -162,7 +191,7 @@ VariablesPanel::Node VariablesPanel::node_of(const Debugger::CValueRow& row, con
         n.placeholder = true;
         tip = value;
     }
-    n.cols = {name, QString::fromStdString(row.type), value, address_text(row.where)};
+    n.cols = QStringList{name, QString::fromStdString(row.type), value, address_text(row.where)};
     n.tip = tip;
     // a pointer to something (not `void *`, whose type text ends the same way but has nothing to look at) opens onto its pointee
     n.expandable = row.aggregate || (row.ok && !row.type.empty() && row.type.back() == '*' && row.type != "void *");
@@ -177,7 +206,7 @@ VariablesPanel::Node VariablesPanel::message(const QString& text) const
     Node n;
     n.kind = KindMessage;
     n.key = "#msg";
-    n.cols = {QString(), QString(), text, QString()};
+    n.cols = QStringList{QString(), QString(), text, QString()};
     n.tip = text;
     n.placeholder = true;
     return n;
@@ -207,7 +236,7 @@ std::vector<VariablesPanel::Node> VariablesPanel::globals_nodes() const
             Node grp;
             grp.kind = KindGroup;
             grp.key = "G:" + QString::fromStdString(row.file);
-            grp.cols = {QString::fromStdString(row.file), QString(), QString(), QString()};
+            grp.cols = QStringList{QString::fromStdString(row.file), QString(), QString(), QString()};
             out.push_back(grp);
             g = out.size() - 1;
             at[row.file] = g;
@@ -227,7 +256,7 @@ std::vector<VariablesPanel::Node> VariablesPanel::child_nodes(QTreeWidgetItem* i
     const QString path = item->data(0, RolePath).toString();
     const QString key = key_of(item);
     const size_t first = kind == KindRange ? static_cast<size_t>(item->data(0, RoleFirst).toInt()) : 0;
-    const Debugger::CChildRows r = dbg_->c_children(static_cast<size_t>(frame_), path.toStdString(), first, kChunk);
+    const Debugger::CChildRows r = dbg_->c_children_row(static_cast<size_t>(frame_), path.toStdString(), first, kChunk);
     if (!r.ok) {
         out.push_back(message(QString::fromStdString(r.why)));
         return out;
@@ -240,16 +269,17 @@ std::vector<VariablesPanel::Node> VariablesPanel::child_nodes(QTreeWidgetItem* i
             Node n;
             n.kind = KindRange;
             n.path = path;
+            n.root_label = item->data(0, RoleRootLabel).toString();   // a range's elements are named by the root variable's label
             n.first = static_cast<int>(f);
             n.key = key + "#" + QString::number(f);
-            n.cols = {"[" + QString::number(f) + ".." + QString::number(last) + "]", QString(), QString(), QString()};
+            n.cols = QStringList{"[" + QString::number(f) + ".." + QString::number(last) + "]", QString(), QString(), QString()};
             n.expandable = true;
             out.push_back(n);
         }
         return out;
     }
     const QString parent_name = item->text(0);
-    for (const Debugger::CValueRow& row : r.rows) out.push_back(node_of(row, prefix, parent_name));
+    for (const Debugger::CValueRow& row : r.rows) out.push_back(node_of(row, prefix, parent_name, item->data(0, RoleRootLabel).toString()));
     return out;
 }
 
@@ -266,6 +296,9 @@ void VariablesPanel::apply(QTreeWidgetItem* item, const Node& n)
     item->setData(0, RoleRowKind, n.row_kind);
     item->setData(0, RoleFile, n.file);
     item->setData(0, RoleEditText, n.edit_text);
+    item->setData(0, RoleWatchPath, n.watch_path);
+    item->setData(0, RoleRootLabel, n.root_label);
+    item->setData(0, RoleWatchTip, n.watch_tip);
     item->setData(2, RoleEditText, n.edit_text);
     item->setFlags(n.editable ? item->flags() | Qt::ItemIsEditable : item->flags() & ~Qt::ItemFlags(Qt::ItemIsEditable));
     if (n.placeholder)
@@ -313,6 +346,11 @@ void VariablesPanel::on_context_menu(const QPoint& pos)
     if (!item || item->data(0, RoleKind).toInt() != KindVar || !paused_) return;
     QMenu menu;
     QAction* watch = menu.addAction(tr("Watch"));
+    if (item->data(0, RoleWatchPath).toString().isEmpty()) {
+        watch->setEnabled(false);   // no name reaches this exact variable
+        watch->setToolTip(item->data(0, RoleWatchTip).toString());
+        menu.setToolTipsVisible(true);
+    }
     QAction* edit = (item->flags() & Qt::ItemIsEditable) ? menu.addAction(tr("Edit Value")) : nullptr;   // GH #437: only where a value can be written
     QAction* chosen = menu.exec(tree_->viewport()->mapToGlobal(pos));
     if (chosen == watch) watch_item(item);
@@ -323,7 +361,8 @@ bool VariablesPanel::watch_item(QTreeWidgetItem* item)
 {
     if (!dbg_ || !paused_ || !item || item->data(0, RoleKind).toInt() != KindVar) return false;
     CVarWatch w;
-    w.path = item->data(0, RolePath).toString().toStdString();
+    if (item->data(0, RoleWatchPath).toString().isEmpty()) return false;   // a Watch is a name expression: this row's name reaches another variable
+    w.path = item->data(0, RoleWatchPath).toString().toStdString();
     if (key_of(item).startsWith("L:")) {
         const auto store = dbg_->variables();
         const auto frames = dbg_->c_frames();
@@ -353,6 +392,17 @@ bool VariablesPanel::edit_item(QTreeWidgetItem* item)
     return true;
 }
 
+QString VariablesPanel::display_path(QTreeWidgetItem* item) const
+{
+    QString p = item->data(0, RolePath).toString();
+    const QString root = item->data(0, RoleRootLabel).toString();
+    const int h = p.indexOf('#');
+    if (h < 0 || root.isEmpty()) return p;
+    int e = h + 1;
+    while (e < p.size() && p[e].isDigit()) ++e;
+    return p.left(h) + root + p.mid(e);
+}
+
 void VariablesPanel::commit_edit(QTreeWidgetItem* item, const QString& text)
 {
     if (!dbg_ || !paused_ || !item || item->data(0, RoleKind).toInt() != KindVar) return;
@@ -360,7 +410,7 @@ void VariablesPanel::commit_edit(QTreeWidgetItem* item, const QString& text)
     jnext::dbg::CNewValue v;
     v.text = text.toStdString();
     const QString path = item->data(0, RolePath).toString();
-    const Debugger::CWriteResult w = dbg_->write_c_value(client_, static_cast<size_t>(frame_), path.toStdString(), v);
+    const Debugger::CWriteResult w = dbg_->write_c_value_row(client_, static_cast<size_t>(frame_), path.toStdString(), v);
     if (w.ok()) {
         // the write bumped the backend's revision: the manager's next paused tick redraws every panel, this one with the value read back
         // (GH #438: a note the object's read carries, 80cc's frame-slot one, says here that the write may not be what the program sees)
@@ -369,12 +419,12 @@ void VariablesPanel::commit_edit(QTreeWidgetItem* item, const QString& text)
         } else {
             QStringList notes;
             for (const std::string& n : w.notes) notes << QString::fromStdString(n);
-            message_->setText(path + ": " + notes.join("; "));
+            message_->setText(display_path(item) + ": " + notes.join("; "));
             message_->show();
         }
         return;
     }
-    message_->setText(path + ": " + QString::fromStdString(w.why));
+    message_->setText(display_path(item) + ": " + QString::fromStdString(w.why));
     message_->show();
     // nothing changed and nothing needs a redraw: the delegate never wrote the model, so the cell still shows the value it had
 }
