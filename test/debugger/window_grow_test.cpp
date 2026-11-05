@@ -554,6 +554,115 @@ int main(int argc, char** argv)
                   now.height()));
     }
 
+    // GR-12 (GH #451 review) -- the bound holds on the PASS path too. The 6th re-ask queues its follow-up
+    // pass; the 7th late answer lands BEFORE that pass runs (posted from the re-ask's resize event), when
+    // resizeEvent can no longer queue. The pass is then the only bound: the 7th answer stands, it is
+    // not asked again. Oracle: the developer guide's "asked again, at most kMaxFitEchoes = 6 times".
+    {
+        clear_saved_geometry(dir.path());
+        BareWindow bw;
+        QSize P, now;
+        int fired = 0;
+        if (bw.ok) {
+            bw.win->show();
+            bw.wait_passes_done();
+            P = bw.win->size();
+            for (int k = 1; k <= 5; ++k) {
+                bw.win->resize(1170, kDefaultHeight);
+                settle(100);
+            }
+            struct Late : QObject {
+                QSize P; bool armed = true; int fired = 0;
+                bool eventFilter(QObject* o, QEvent* e) override {
+                    if (e->type() != QEvent::Resize || !o->inherits("DebuggerWindow") || !armed) return false;
+                    if (static_cast<QResizeEvent*>(e)->size() == P) {
+                        armed = false; ++fired;
+                        QWidget* w = static_cast<QWidget*>(o);
+                        QTimer::singleShot(0, w, [w]() { w->resize(1170, kDefaultHeight); });
+                    }
+                    return false;
+                }
+            } late;
+            late.P = P;
+            bw.win->resize(1170, kDefaultHeight);   // 6th answer: the pass re-asks P; the filter posts the 7th
+            bw.win->installEventFilter(&late);
+            settle(300);
+            bw.win->removeEventFilter(&late);
+            fired = late.fired;
+            now = bw.win->size();
+        }
+        check("GR-12",
+              "a 7th late answer landing before the pass queued by the 6th re-ask runs is not asked again: "
+              "the bound holds on the pass's own path",
+              bw.ok && fired == 1 && P != QSize(1170, kDefaultHeight) && now == QSize(1170, kDefaultHeight),
+              fmt("fired %d, P %dx%d, now %dx%d", fired, P.width(), P.height(), now.width(), now.height()));
+    }
+
+    // GR-13 (GH #451 review) -- the grace does not end the fit while the pass queued by a RE-ASK is
+    // pending. The loop stalls 1200 ms (> the grace window) inside the resize event of the re-ask, before
+    // its follow-up pass is queued-and-run; a second late answer afterwards must still be asked again.
+    {
+        clear_saved_geometry(dir.path());
+        BareWindow bw;
+        QSize P, now;
+        bool stalled = false;
+        if (bw.ok) {
+            bw.win->show();
+            bw.wait_passes_done();
+            P = bw.win->size();
+            struct StallOnP : QObject {
+                QSize P; bool armed = true;
+                bool eventFilter(QObject* o, QEvent* e) override {
+                    if (e->type() == QEvent::Resize && armed && o->inherits("DebuggerWindow") &&
+                        static_cast<QResizeEvent*>(e)->size() == P) { armed = false; QThread::msleep(1200); }
+                    return false;
+                }
+            } f;
+            f.P = P;
+            bw.win->installEventFilter(&f);
+            bw.win->resize(1170, kDefaultHeight);
+            settle(400);
+            bw.win->removeEventFilter(&f);
+            stalled = !f.armed;
+            bw.win->resize(1170, kDefaultHeight);
+            settle(300);
+            now = bw.win->size();
+        }
+        check("GR-13",
+              "a loop stalled past the grace window while the pass queued by a re-ask is pending does not end "
+              "the fit: a later late answer is still asked again",
+              bw.ok && stalled && P != QSize(1170, kDefaultHeight) && now == P,
+              fmt("stalled %d, P %dx%d, now %dx%d", int(stalled), P.width(), P.height(), now.width(), now.height()));
+    }
+
+    // GR-14 (GH #451 review) -- the same for the pass queued by a late answer in resizeEvent. A late
+    // answer is delivered in the timer phase, in the same batch as the overdue grace timer (a callback
+    // registers a 5 ms timer for it, then stalls 1200 ms); the pass it queued runs after that batch.
+    // The size is read only after a settle that was started AFTER the stall.
+    {
+        clear_saved_geometry(dir.path());
+        BareWindow bw;
+        QSize P, now;
+        if (bw.ok) {
+            bw.win->show();
+            bw.wait_passes_done();
+            P = bw.win->size();
+            DebuggerWindow* w = bw.win.get();
+            QTimer::singleShot(0, w, [w]() {
+                QTimer::singleShot(5, w, [w]() { w->resize(1170, kDefaultHeight); });
+                QThread::msleep(1200);
+            });
+            settle(400);
+            settle(300);
+            now = bw.win->size();
+        }
+        check("GR-14",
+              "a late answer delivered together with a grace timer that is overdue is asked again: the grace "
+              "does not end the fit while the pass that answer queued is pending",
+              bw.ok && P != QSize(1170, kDefaultHeight) && now == P,
+              fmt("P %dx%d, now %dx%d", P.width(), P.height(), now.width(), now.height()));
+    }
+
     // GR-04 — the gate on the other side: a size the user saved is NOT grown,
     // even on a screen with all the room in the world. A debugger deliberately
     // kept small must stay small, which is the reason the grow is restricted to
