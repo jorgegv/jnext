@@ -28,8 +28,8 @@ output.
 | *Source map not verified yet: it is checked when the dot command runs* (Source tab) | a dot command's map, attached before `.prog` has been typed | nothing; the log says `Verified z88dk source map ...` when it runs |
 | *The dot command started in DivMMC RAM bank 2 is not the one source map ... describes; it stays pending* (log) | another dot command ran from the same bank | nothing: the map is not dropped. Type the command it describes |
 | `Cannot break on 'main.c:19'` (z88dk-gdb) | a map built by master's sdcc (`-clib=sdcc_iy -debug -m --list`), with the 2.4 and the master clients (the 2026-10-16 master) | use an address or a symbol in the client, or build with sccz80 |
-| `Segmentation fault` of z88dk-gdb (the 2026-10-16 master client, on the 2.4 and the master banked `-run` maps) | the map has a 24-bit `__C_LINE_` value | debug it in JNEXT's own Source tab. z88dk PR #3218 (merged 2026-10-31) is said to fix it; not run here |
-| `Unknown option2 --hardware-keyboard` (z88dk, at build) | `+zxn -clib=classic -debug` | use `-clib=new`, or `+zx` with the default classic library. Fixed upstream (PR #3198), not in a release |
+| `Segmentation fault` of z88dk-gdb (the 2026-10-16 master client, on the 2.4 and the master banked `-run` maps) | the map has a 24-bit `__C_LINE_` value | debug it in JNEXT's own Source tab. z88dk master from 2026-10-31 is said to fix it; not run here |
+| `Unknown option2 --hardware-keyboard` (z88dk, at build) | `+zxn -clib=classic -debug` | use `-clib=new`, or `+zx` with the default classic library. Fixed upstream (z88dk master from 2026-10-23), not in a release |
 | `defc Gcounter0_00==.` syntax error (z88dk 2.4, at build) | sdcc with `-debug` on 2.4 | use `--c-code-in-asm --list` instead of `-debug`, or master |
 
 A source map that is found and refused says why. The reasons: the SLD or map was

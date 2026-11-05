@@ -4345,7 +4345,7 @@ there. The map records <code>../src/main.c</code>, and the Source tab finds the 
 </tr>
 <tr>
 <td>sdcc, newlib: <code>+zxn -clib=sdcc_iy -debug -m --list</code></td>
-<td><strong>does not build</strong>: <code>main.c:224: error: syntax error ^---- defc Gcounter0_00==.</code> (z88dk issue 3172). Use <code>--c-code-in-asm</code> instead (next row)</td>
+<td><strong>does not build</strong>: <code>main.c:224: error: syntax error ^---- defc Gcounter0_00==.</code>. Use <code>--c-code-in-asm</code> instead (next row)</td>
 <td>works: 222 lines. Code from a header can show under the wrong line</td>
 <td>2.4: no. Master: yes</td>
 </tr>
@@ -4359,12 +4359,12 @@ there. The map records <code>../src/main.c</code>, and the Source tab finds the 
 <td>80cc: <code>+zxn -clib=new -compiler=80cc -debug -m --list</code></td>
 <td>not available</td>
 <td>works: 240 lines. Some lines are shared</td>
-<td>yes, with the 80cc note (<a href="https://github.com/z88dk/z88dk/issues/3233">z88dk#3233</a>)</td>
+<td>yes, with the 80cc note</td>
 </tr>
 <tr>
 <td>classic on the Next: <code>+zxn -clib=classic -debug</code></td>
 <td><strong>fails</strong>: <code>Unknown option2 --hardware-keyboard</code></td>
-<td>works: 187 lines (PR #3198)</td>
+<td>works: 187 lines</td>
 <td>2.4: no. Master: yes</td>
 </tr>
 <tr>
@@ -4392,8 +4392,7 @@ there. The map records <code>../src/main.c</code>, and the Source tab finds the 
 <li>sdcc writes its C lines into the listings only with <code>--c-code-in-asm</code>. With
   <code>--list</code> but without it, JNEXT says so and uses the map alone:
   <code>z88dk listings for 'prog.map': main.c.lis: it has no line information (sdcc writes it with --c-code-in-asm)</code>.</li>
-<li>The <code>--hardware-keyboard</code> failure is a z88dk bug that is fixed upstream (PR
-  #3198, merged 2026-10-23); master builds from v2.4-2883 have it fixed, a release may not.</li>
+<li>The <code>--hardware-keyboard</code> failure is a z88dk bug that is fixed upstream (in z88dk master from 2026-10-23); master builds from v2.4-2883 have it fixed, a release may not.</li>
 <li>A <code>.lis</code> file from a different build is detected and dropped with a warning;
   see <a href="10-limits-and-troubleshooting.html">Limits and troubleshooting</a>.</li>
 </ul>
@@ -4459,8 +4458,8 @@ zcc +zxn -clib=new -debug -DUSE_BANKED_KW -pragma-define:CRT_ORG_PAGE_20=0x14C00
 <p>Give both pragmas. <code>CRT_ORG_PAGE_20</code> carries the page in its top byte
 (<code>0x14C000</code> is page 20 at <code>$C000</code>) and <code>REGISTER_SP=0xC000</code> keeps the stack below the
 banking window. Without them the program itself calls page 0 or loses its stack,
-so it cannot run. A newer z88dk (PR #3217, merged 2026-10-31) makes the page the
-default and documents the stack; its description says the pragma gives identical
+so it cannot run. A newer z88dk (master from 2026-10-31) makes the page the
+default and documents the stack; the change's description says the pragma gives identical
 output, so it is harmless there. Only 2.4 and the 2026-10-16 master were run for
 this page; on anything newer, build the example and look.</p>
 <p>The build writes <code>prog_CODE.bin</code> and <code>prog_PAGE_20.bin</code>, and JNEXT checks both:</p>

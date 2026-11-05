@@ -75,8 +75,7 @@ array of 256 entries is filled as the frame runs: `Emulator::on_scanline()`
 calls `renderer_.snapshot_fallback_for_line(row)` and its siblings, and
 `render_row()` later reads `fallback_per_line_[row]`. This covers NR 0x4A, the
 ULA enable, the NR 0x68 stencil and blend bits, NR 0x14, the NR 0x1A clip, the
-LoRes registers, the ULA border, the tilemap scroll and fetch bases, and — since
-GH #256 — the tilemap's output-stage inputs (the NR 0x1B clip and the NR 0x4C
+LoRes registers, the ULA border, the tilemap scroll and fetch bases, and the tilemap's output-stage inputs (the NR 0x1B clip and the NR 0x4C
 transparency index), the sprite engine's render controls (the NR 0x19 clip,
 NR 0x15 bits 6, 5 and 1, and the NR 0x4B transparency index), the ULA's ULA+ and
 ULAnext enables, the NR 0x42 ULAnext format and the shadow-screen bank, and the
@@ -85,7 +84,7 @@ carry an "active" flag that `init_*_per_line()` sets at frame start and a
 hard `reset()` / `load_state()` clear, so until the first frame of a run they fall
 back to the live registers — which is also what a unit test that renders one
 row directly sees. The older arrays have no flag; `load_state()` refills them
-from the registers it has just loaded instead (GH #261). The NR 0x4A fallback
+from the registers it has just loaded instead. The NR 0x4A fallback
 and the border arrays are the exceptions: they travel in the snapshot.
 
 **Change logs with rewind and replay** handle state whose whole *object* has to
@@ -131,25 +130,25 @@ the per-line snapshots pick the reset values up on their own from the reset
 row down. Memory with no reset port (palette RAM, sprite attribute and
 pattern RAM) is not touched by a soft reset at all, and `Z80Cpu` keeps its
 frame-relative T-state count, which scaled by the divisor is the beam position
-the VRAM mux tags each write with. Until GH #263 the two
-mechanisms failed in opposite directions: `PaletteManager::reset()` changed
-the live RAM without the log, so the render replayed the old palette over it,
-while the other classes wiped their history and repainted the rows above the
+the VRAM mux tags each write with. The two
+mechanisms would otherwise fail in opposite directions: `PaletteManager::reset()` changing
+the live RAM without the log would make the render replay the old palette over it,
+while the other classes wiping their history would repaint the rows above the
 reset with reset values.
 
 Five details reliably bite newcomers:
 
 - **A register in neither mechanism is read at its end-of-frame value.** Nothing
-  enforces coverage: GH #256 found the tilemap and sprite transparency indices,
+  enforces coverage: an audit found the tilemap and sprite transparency indices,
   both remaining clip windows, three NR 0x15 sprite bits, the ULA+ / ULAnext
-  state and the shadow-screen bank all read live, so a Copper split of any of
+  state and the shadow-screen bank all reading live, so a Copper split of any of
   them repainted the whole frame with its last value. A snapshot only helps if
   *every* render-time reader uses it — the ULA+ enable had a snapshot array for
   months that production never filled or read.
 - **A writer that bypasses the log is worse than no log.** `rewind_to_baseline()`
   overwrites whatever a writer put straight into live state, so an unlogged
   write is not merely late — it is erased, and the next frame's baseline loses
-  it too. The NR 0xFF ULA+ palette poke did exactly that until GH #256: it never
+  it too. The NR 0xFF ULA+ palette poke did exactly that once: it never
   reached the screen at all.
 
 - **The tag is a framebuffer row, not a raw scanline.** `on_scanline` converts
@@ -161,10 +160,10 @@ Five details reliably bite newcomers:
   executes in, for every lane: the snapshots are taken at the end of each raw
   line, and the tilemap's scroll, fetch and output-stage snapshots share that
   one point so that a Copper split changing several of them switches them all
-  on the same row (GH #257; they used to be taken at the start of the line,
+  on the same row (they are not taken at the start of the line, which would be
   one row late). Two lanes DO have a representation for "from column X": the
   Layer 2 bank and scroll logs carry a column beside the line tag and the
-  renderer draws the row in segments (GH #270). For every other lane this stays
+  renderer draws the row in segments. For every other lane this stays
   an approximation, and one that is not bounded to a row: a line carrying two
   writes to the same register loses the first outright.
 - **Skipping the drain loses vblank writes forever.** `rewind_to_baseline()`

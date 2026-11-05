@@ -70,7 +70,7 @@ exit 2 when two suites assert the same ID. That kind of reuse is how
 manufactured coverage happened once: a row read `pass` because an
 identically-named row in another subsystem was vouching for it. The 29
 collisions that already existed when the gate was written were baselined in
-`test/traceability-dup-ids.conf`; GH #243 renamed one side of every one, so the
+`test/traceability-dup-ids.conf`; one side of every one was renamed, so the
 baseline is now empty and meant to stay so. A new collision fails, a baseline
 entry that no longer collides fails too, and the fix is always to rename one
 side, in the plan doc and the test source together.
@@ -90,7 +90,7 @@ The checker enumerates suites from `test/unit-tests.conf` — every one it
 declares, the `?`-prefixed GUI-gated suites included — and deliberately not
 from the matrix's own sections, because tombstoned suites have no section at
 all, so a matrix-derived audit would never see them. A declared suite it
-cannot resolve to a source file is a **refusal**, not a skip: until GH #243 it
+cannot resolve to a source file is a **refusal**, not a skip: it once
 never stripped the `?` prefix, so it silently checked 79 suites of 100 while
 reporting OK, with 13 real collisions in the rest. `make traceability-selftest`
 pins both behaviours end to end.

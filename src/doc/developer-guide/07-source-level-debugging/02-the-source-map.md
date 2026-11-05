@@ -56,7 +56,7 @@ order* and matters: it is the tie-break below.
 `loaded_file` is the adapter's absolute, lexically normalised path (built as the local `loaded`: `sld_loader.cpp:328`,
 `z88dk_source_map.cpp:1183`), which is also where the search for a source file starts ([7.7](07-frontends.md)).
 `identity`, `loaded_file`, `format` (`"SLD"` or `"z88dk"`; `clear()` resets it to
-`"SLD"`), `texts` and `dot` (`SourceMap::dot()`, GH #351: the map is a z88dk dot command's, so
+`"SLD"`), `texts` and `dot` (`SourceMap::dot()`: the map is a z88dk dot command's, so
 the backend never judges it from memory at a load, [7.6](06-lifetime.md); `clear()` resets it)
 are stored as given. Every `const SourceLocation*` the class
 returns points into `locations_` and is valid until the next `replace()` or

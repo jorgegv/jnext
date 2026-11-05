@@ -28,7 +28,7 @@ lifetime. The GUI's breakpoints are its subscriptions: single-address
 `Execute`, `Mem` and `Port` subscriptions with no condition, `once = false` and
 action `Stop`. READ, WRITE and READ_WRITE are one `Mem` subscription with an
 access mask. An I/O address `00`-`FF` is a low-byte match (`port_mask 0x00FF`);
-`0100` and up is exact (GH #222). Because the observer never detaches and arms
+`0100` and up is exact. Because the observer never detaches and arms
 nothing, a breakpoint survives closing the window, fires with the window shut
 exactly when something else arms the machine, and costs a closed window
 nothing.
@@ -97,7 +97,7 @@ reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
 
-**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:980`)
+**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:980`)
 redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:370`: ~4 Hz). Paused, it
 redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:969`; `PausedStamp`,
 `debugger_manager.h:245`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
@@ -129,7 +129,7 @@ redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window
 the framebuffer generation and the upload gate that stops a paused machine re-presenting an unchanged frame,
 is in [2.3](../02-architecture/03-a-frame-end-to-end.md).
 
-**The window's opening size (GH #114, #360).** A window opening at its default size grows to the size where
+**The window's opening size.** A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_natural()`,
 `debugger_window.cpp:500`, queued from the first `showEvent()`); a size restored from the config file is left
 alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left column
@@ -204,7 +204,7 @@ each labelled with the VHDL signal it mirrors; `cvc` is labelled as what NR
 the live `VideoTiming` by reference, so there is no second table of raster
 constants in `src/debugger/`.
 
-**Which memory an address is in (GH #360).** Every view names the memory behind an address through
+**Which memory an address is in.** Every view names the memory behind an address through
 `debug/long_address.h`, by way of `src/debugger/memory_text.h`; `DebuggerWindow` holds one
 `AddressStyle` (Debug > Physical Addresses) and hands it to each panel and to the `BreakpointModel`.
 Which space each view prints, and the columns that were added, are described in
@@ -254,7 +254,7 @@ forwarding stays at the five instruction-level keys.
 
 ## Symbols
 
-The Map menu also imports and exports skoolkit control files and Ghidra symbol files (GH #389): see [7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md).
+The Map menu also imports and exports skoolkit control files and Ghidra symbol files: see [7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md).
 
 The Map menu loads into the backend's one table with `load_map()`, and the Disassembly, Call Stack and
 Breakpoints panels read `symbols()`. A breakpoint set on a symbol keeps its name in the list, and a symbol
@@ -276,7 +276,7 @@ any other client loads shows in the panels too. What each loader reads is
   on a paused machine (rows `QMAP-05` and `QMAP-06`). A file refused rather than unreadable has the
   backend's reason appended to the failure box (`on_load_map_z88dk()`, `on_load_map_simple()`, rows `QMAP-07`).
 
-## Labels and comments of your own (GH #387)
+## Labels and comments of your own
 
 The Disassembly and the Source tab share one menu builder, `add_annotation_actions()`
 (`src/debugger/annotation_menu.cpp:77`), for Add / Rename Label…, Remove Label and Add / Edit Comment…;
@@ -290,7 +290,7 @@ The Source tab (`source_panel.*`) shows the PC's line from the backend's source 
 source-step buttons; it holds no state of its own beyond the loaded file, its modification time, where the
 view was last put, and the sidecar reason `report_sidecars()` gave it. Its refresh, the file search path, the
 highlighter and colour schemes, the gutter and breakpoint rows, the context menu, the selection sync with the
-Disassembly (GH #347) and the Debug > Source actions are described in
+Disassembly and the Debug > Source actions are described in
 [7.7](../07-source-level-debugging/07-frontends.md), with the mechanism behind each. The menu tree and the
 bindings are pinned by `debugger_accel_test` and `debugger_keymap_test`.
 

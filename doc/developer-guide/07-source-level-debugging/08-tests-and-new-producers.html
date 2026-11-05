@@ -2978,7 +2978,7 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 </tr>
 <tr>
 <td><code>cdb_record_test</code></td>
-<td>The z88dk C debug records (<code>__CDBINFO__</code>, <code>cdb_decode()</code> in <code>src/debug/cdb_record.cpp</code>; epic #353): un-escaping (<code>cdb_unescape()</code>), the scope split at the last <code>.</code>, the type chain, storage, <code>T:</code> members, what views hide (<code>CdbHidden</code>), refusals with their reasons, and every record of every committed map (<code>CDB-*</code>). Records measured from the z88dk master install are quoted in the rows with the probe and command</td>
+<td>The z88dk C debug records (<code>__CDBINFO__</code>, <code>cdb_decode()</code> in <code>src/debug/cdb_record.cpp</code>): un-escaping (<code>cdb_unescape()</code>), the scope split at the last <code>.</code>, the type chain, storage, <code>T:</code> members, what views hide (<code>CdbHidden</code>), refusals with their reasons, and every record of every committed map (<code>CDB-*</code>). Records measured from the z88dk master install are quoted in the rows with the probe and command</td>
 </tr>
 <tr>
 <td><code>source_debug_test</code></td>
@@ -3108,19 +3108,19 @@ the rules that normalise and trim the output.</p>
   address, line and section in a z88dk row comes from these files, never from the
   code under test.</li>
 </ul>
-<p>The dot-command builds (GH #351) are <code>dot:&lt;subtype&gt;</code> lines in <code>generate.sh</code>, compiled from <code>dot.c dutil.c</code>
+<p>The dot-command builds are <code>dot:&lt;subtype&gt;</code> lines in <code>generate.sh</code>, compiled from <code>dot.c dutil.c</code>
 with <code>-subtype=dot</code>, <code>dotx</code> or <code>dotn</code> instead of <code>nex</code>: <code>v2.4/sccz80-dot</code>, <code>sccz80-dotx</code>, <code>sdcc-dot</code>,
 <code>v2.4-dotn/sccz80</code> and <code>master/sccz80-dot</code>, <code>sccz80-dotx</code>, <code>sdcc-dot</code>, <code>80cc-dot</code>. The dotn lives in its own
 directory so that <code>Z88CN-10</code>'s walk over <code>v2.4/</code> and <code>master/</code> (every map shows a C name) is not tripped by
 its refused C symbols. The banked-CRT builds (<code>sccz80-banked-crt</code>, both trees) are the fixtures of the
-placement by bytes (GH #426 F4).</p>
+placement by bytes.</p>
 <p><strong><code>test/fixtures/sjasmequ/</code></strong> is made by hand with an exact command, sjasmplus
 commit and <code>sha256</code> per file (its <code>README.md</code>): <code>equlabels.asm</code> is ours, and
 <code>equlabels.sym</code>, <code>equlabels.exp</code>, <code>equlabels-win.sym</code> (a MinGW build run under
 wine), <code>equlabels-v1.17.sym</code> (a build of the v1.17.0 tag) and <code>equlabels.sld</code> are what
 sjasmplus writes for it, byte for byte.</p>
 <p><strong><code>test/fixtures/zdebugmap/</code></strong> is the trimmed 2.4 maps (<code>debug.map</code>, <code>nodebug.map</code>)
-of a small program, kept for the symbol rows <code>SYM-14</code>..<code>SYM-18</code> (GH #352); its
+of a small program, kept for the symbol rows <code>SYM-14</code>..<code>SYM-18</code>; its
 README records the trimming.</p>
 <p>There is no committed fixture for a <code>Memory.txt</code> or for the SLD identity records;
 <a href="04-5-nextbuild-memory-txt.html">7.4.5</a> and <a href="04-1-sld.html">7.4.1</a> say so and label

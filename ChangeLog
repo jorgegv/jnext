@@ -1,31 +1,49 @@
 # ChangeLog
 
-## Unreleased (2026-10-29)
+## Unreleased (2026-11-05)
 
 ### User Features
-- File > Recent Files and Reload Last File (Alt+L); load dialogs open on the last file loaded
-- macOS: host shortcuts use Command, Control acts as Symbol Shift; Command never reaches the guest
-- NextPi: extra QEMU arguments (e.g. a second telnet serial port); every NextPi setting has a --nextpi-* flag
 - Every Preferences setting can be set from the command line: --set section.key=value, plus --cpu-speed, --scale and --crt
+- NextPi: extra QEMU arguments (e.g. a second telnet serial port); every NextPi setting has a --nextpi-* flag
+- macOS: host shortcuts use Command, Control acts as Symbol Shift; Command never reaches the guest
+- File > Recent Files and Reload Last File (Alt+L); load dialogs open on the last file loaded
 
 ### Developer Features
-- Source-level debugging of z88dk C programs, banked code and dot commands; Source tab gutter, syntax colours, context menu
+- Source-level debugger for C: the Source tab follows each line; source steps, `file:line` breakpoints, Run to Here
+- C variables: Variables tab with call frames, locals, globals and watches; values editable, also from scripts, ZRCP and GDB
+- Built around z88dk: C from sccz80, 80cc and zsdcc, banked code and dot commands; per-version limits documented
+- Alongside z88dk, sjasmplus SLD maps (since v1.1.87) give source lines and breakpoints; NextBuild/Boriel Memory.txt gives symbols only
+- Disassembly columns reordered: memory, address, breakpoint column, code, then the instruction bytes and comment
+- Your own labels and comments in a .jdp project file; skoolkit and Ghidra import and export, code/data map included
 - Debugger views name the memory behind every address (P0E, ROM0, DIVROM); optional physical addresses
-- Your own labels and comments, saved in a .jdp project file; z88dk C names (counter for _counter)
-- Memory coverage by execute, read and write; skoolkit and Ghidra export and import of labels
-- skoolkit export also carries your comments and the code/data map; its import reads labels and comments back
+- Source tab: line numbers, breakpoint column, syntax colours, current-line marker and the Disassembly's context menu
+- Scripts break on source lines (on execute main.c:19); GDB gains monitor src
+- Memory coverage by execute, read and write, marked in the Disassembly, Memory and Source tabs; --coverage
+- z88dk C symbols go by their C names (counter for _counter) in every debugger view and dialog
+- Source search path: Locate File and --source-dir find sources outside the map's folder
 - Debugger Watches panel shows every integer watch in hex and decimal, e.g. $D0 (208d)
+- Debug > Source submenu; source Step Into, Over and Out are bindable keys, Ctrl+F6/F7/F8 by default
 
 ### Bug Fixes
+- Video recording looks ffmpeg up on the PATH, starting no process at launch; one installed later is found
+- TurboSound: all three AY chips always run, as on the hardware; resets, NR 0x06 hold and YM power-on match
+- NextPi: long tape loads through the Pi's audio no longer fail at random from buffer gaps
+- A paused machine no longer burns host CPU: no screen redraws or debugger panel refreshes while paused
+- NextPi enabled in Preferences no longer starts QEMU when jnext starts a non-Next machine
+- Windows build under wine 11.7+: downloads no longer freeze waiting for a slow server; progress, stall note and cancel work
+- Debugger Video panel shows the just-finished frame after Break instead of a dark placeholder
 - JNEXT no longer becomes unresponsive after loading a tape: fast load only sprints while the tape is read
 - ULA scrolling (NR 0x26/0x27/0x68) now works in Timex hi-colour and hi-res modes
 - macOS: the green full-screen button works and fills the screen; no duplicate Enter Full Screen menu item
-- Debugger Video panel shows the just-finished frame after Break instead of a dark placeholder
-- Windows build under wine 11.7+: downloads no longer freeze waiting for a slow server; progress, stall note and cancel work
-- NextPi enabled in Preferences no longer starts QEMU when jnext starts a non-Next machine
+
+### Internal JNEXT Development
+- z88dk ground-truth fixtures from 2.4 and master builds pin every source line and C variable the debugger reads
+- Developer guide chapter on the source-level debugger; docs-check verifies its code citations against the tree
+- Faster test cycle: AY mix recomputed only on change, cheaper CLI suite; mistyped regression row names are refused
+- Build warnings fixed at their causes, -Werror on test executables; the rpm links spdlog statically
 
 ### Contributors in this release
-- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj, @jattree
+- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj, @jattree, @tofro
 
 ## v1.1.87 (2026-10-24)
 

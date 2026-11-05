@@ -116,7 +116,7 @@ range decodes like a single port, so it must lie wholly in 0x00..0xFF or wholly
 above it:
 
 ```
-[debugger] [error] SCRIPT ERROR errs2.jds:1:13: a port range lies wholly in 0x00..0xFF (decoded on the low byte, GH #222) or wholly above it
+[debugger] [error] SCRIPT ERROR errs2.jds:1:13: a port range lies wholly in 0x00..0xFF (decoded on the low byte) or wholly above it
 ```
 
 With `mask M value V` a port matches when `port & M == V`.

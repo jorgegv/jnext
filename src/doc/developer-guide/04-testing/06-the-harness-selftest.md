@@ -53,7 +53,7 @@ It also reaches beyond the unit harness. Rows `HS-21`..`HS-24`, `HS-31` and
 declared functional test with no script, and a stray undeclared script — which
 is why `make harness-selftest` declares `unit-test-build`, `gui-release` and
 `sdl-release` as prerequisites, since those are the same binaries preflight
-resolves. `HS-157a`..`h` (GH #443) pin that a row name neither manifest declares, or an
+resolves. `HS-157a`..`h` pin that a row name neither manifest declares, or an
 empty one, is refused in every mode, before any row runs, and that declared screenshot and
 functional names, and a platform's absent rows, keep their treatment. Other rows assert that the lints are still *wired in* at all: that
 `make unit-test` reaches the assertion lint and reaches it first, and that an
@@ -62,7 +62,7 @@ lint. The rest cover cleanup, checking that every SD-clone cleanup script
 handles INT and TERM as well as EXIT, that each handler **exits** rather than
 resuming, and that the five real cleanup bodies are bounded and remove only
 their own run directory or clone file. Finally `HS-50`..`HS-55` pin the regression suite's
-host-load bookkeeping (GH #245): the real suite library, sourced against a fake
+host-load bookkeeping: the real suite library, sourced against a fake
 `/proc/loadavg`, must flag a FAIL on a loaded host and must not flag the same
 FAIL on an idle one, must name every failed row at the end, must never change
 the count — and the driver must still call it. `HS-68a`..`HS-68e` pin the
@@ -70,7 +70,7 @@ sourced-row counter guard: a stub row that clobbers `skip` after an earlier
 SKIP is a harness fault naming that row, a row reporting two results is one
 too, the NULL control and a filtered-out row pass, and the row runner wraps
 every functional row in the guard. `HS-69a`..`HS-69o` drive the parallel
-scheduler (GH #295) on stub rows: rows run at once and merge in declared order;
+scheduler on stub rows: rows run at once and merge in declared order;
 a row that reports twice or nothing is a harness fault; one that dies or hangs
 is a FAIL naming it while the others run on; one that writes into another
 row's directory, replaces the library's trap, or writes to the shared SD clone
@@ -87,7 +87,7 @@ none, a SKIP or FAIL is never stamped, every non-doc class of path (Makefile,
 CMake, a `.conf`, `tools/`, `.github/`, a gitlink) moves the key while
 documentation does not, the documentation a gate reads does, and the
 pending / solo-confirm path stamps only when every pending row passes. `HS-72`
-bans `xvfb-run -a`/`-n` from the test scripts. `HS-89` requires `-noreset` on every `xvfb-run` line of a script that drives the app with `xdotool` (GH #318). `HS-76a`/`b` pin that a unit suite
+bans `xvfb-run -a`/`-n` from the test scripts. `HS-89` requires `-noreset` on every `xvfb-run` line of a script that drives the app with `xdotool`. `HS-76a`/`b` pin that a unit suite
 reporting a SKIP fails the run (named, with its SKIP lines, beside a failing one
 too) and `HS-77a`..`d` that the regression driver and a standalone row do the
 same in every mode, with the control that a skip-free run still exits 0 and
@@ -96,7 +96,7 @@ on the host and wants a SKIP, `HS-79` the real `sync-version-test.sh` with
 `rpmspec` hidden, `HS-80a`..`h` the tool-missing and renderer-version-gap branches
 of the docs checks and the two snapshot verifiers (a PATH of symlinks that lacks
 the tool, or a fake renderer fingerprint), and `HS-81a`/`b` that a set-but-unusable
-`Z88DK_GDB` is an error. `HS-82`..`HS-88d` (GH #214) pin the target OS: an
+`Z88DK_GDB` is an error. `HS-82`..`HS-88d` pin the target OS: an
 os-restricted suite registered on an OS that excludes it, or missing from one
 that owns it, is a refusal; an unknown `# os:` value or target OS, or an
 os-restricted suite without the `?`, likewise; a gated-out suite is a NOTICE
@@ -145,7 +145,7 @@ sources and binaries, and then run the real refresh script against it twice, so
 that idempotence and the refusal paths are both exercised. `SELF-208`..`SELF-215`
 run `test/traceability-dup-ids.pl` and the generator's `--planned-ids` the same
 way, planting colliding IDs in `?`-prefixed suites, in one-row plan docs and in
-the baseline (GH #243). It pins `$EXPECTED_ROWS = 239` in the
+the baseline. It pins `$EXPECTED_ROWS = 239` in the
 same shape as the harness self-test, and for the same reason it cannot live in
 the unit manifest — it is a perl script with no CMake target.
 
@@ -172,7 +172,7 @@ verdict on the real tree is trusted at all:
   (`.detach()`, `->detach()`, `pthread_detach(`, and a spaced form) and a
   fixture of must-not-flag comment and identifier lines, and refuses with exit 2
   if either count is off. The harness self-test also runs it against a
-  throwaway tree to prove it fails on a stray `.detach()` (GH #328).
+  throwaway tree to prove it fails on a stray `.detach()`.
 - `test/lint-ascii-text.sh` embeds a perl lexer for string and character
   literals and checks it against one fixture file per case, each named in the
   script by its ID (`LAT-A01` and on). The em dash must be flagged in a plain, a
@@ -193,7 +193,7 @@ verdict on the real tree is trusted at all:
   throwaway trees (HS-97a to HS-97h): wired to `unit-test` and `regression`, red
   on a raw and on an escaped em dash, green when the only em dashes are in
   comments, red on an arrow, green once declared, red on a stale declaration,
-  and the `src/esp01/test/` boundary between the two rules (GH #382).
+  and the `src/esp01/test/` boundary between the two rules.
 - `test/00regression/lint-traps.sh` carries **86 pinned cases: 57 that must
   flag and 29 that must not.** There is one fixture file per case,
   deliberately, because a combined fixture still passed when a case was lost,
@@ -219,7 +219,7 @@ verdict on the real tree is trusted at all:
   The lint also counts the lines that reached its matcher and refuses the run
   unless that is every line of every in-scope file.
 
-The developer-guide cite check, `test/lint-devguide-cites.pl` (GH #430, see
+The developer-guide cite check, `test/lint-devguide-cites.pl` (see
 [4.5](05-documentation-and-cli-gates.md#the-developer-guide-cite-rule)), is not self-checking
 like those: the harness self-test runs it against throwaway trees (HS-102 to HS-156), and each
 row was shown to go red when the behaviour it pins is mutated out of the script. HS-102 pins

@@ -151,8 +151,7 @@ accepted `INT` or `NMI` by `on_interrupt()`. Frames are oldest first, up to
 (`CallType`), with `caller_pc`, `target_pc`, `sp_at_call` and the two memories of
 [7.1](01-which-memory.md).
 
-**What ends a frame.** Not just the stack pointer. `CallStack::return_to()`
-(GH #345): a taken `RET` that lands on the **newest frame's own return point**
+**What ends a frame.** Not just the stack pointer. `CallStack::return_to()`: a taken `RET` that lands on the **newest frame's own return point**
 ends exactly that frame: for a `CALL`, `caller_pc + 3`; for an `INT` or `NMI`,
 `caller_pc` (or `caller_pc + 1` when the interrupt ended a `HALT`, which the CPU had
 stepped past). Any other `RET`, and every `RST` frame (whose inline `DEFW` operands
@@ -169,7 +168,7 @@ The price is stated in the code: a routine that drops its return address and lea
 by a direct `JP nn` keeps its frame until a `RET` ends it by SP. (A routine that leaves by an
 indirect jump has its frame ended: below.)
 
-**A return with no `RET`** (GH #349). Some sccz80 runtime helpers return by an indirect jump, and
+**A return with no `RET`**. Some sccz80 runtime helpers return by an indirect jump, and
 some routines jump indirectly without returning. `CallStack::indirect_jump_to()`
 (`call_stack.cpp:96`) judges a `JP (HL)`, `JP (IX)` or `JP (IY)` when the newest frame is a
 `CALL` frame; the frame ends in two cases:

@@ -93,7 +93,7 @@ binaries' bytes). In order:
    is a Z80/Z80N mnemonic, and its source location (in `Asm` mode its own file and
    column; otherwise the current `C_LINE` or comment marker of its section).
    In `CLine` mode the walk also keeps every `C_LINE` operand (`Z88dkListedScope`): the LAST directive before a byte row owns that row, and the row's map value is the occurrence's.
-   `fill_listing_scopes()` gives an 80cc function that table instead of the map's one `__C_LINE_` symbol per (line, scope) (GH #438 S4a, `Z88ZB-12`, `Z88ZB-13`).
+   `fill_listing_scopes()` gives an 80cc function that table instead of the map's one `__C_LINE_` symbol per (line, scope) (`Z88ZB-12`, `Z88ZB-13`).
 5. **Anchors and the offset.** A label row of the walk is an *anchor* when the map
    has an `addr` symbol of that name in this module, in the same section, whose map
    location is *this very row* (`<header>:<line-number column>`). The anchor gives
@@ -104,8 +104,7 @@ binaries' bytes). In order:
    placed by its bytes (5b below). A piece with none of these, and anything inside `PHASE`,
    cannot be placed; those rows are counted and reported as "N listed lines could not be
    placed".
-   **5b. A label-less piece smaller than its section is placed by its bytes** (GH #426 F4;
-   design 9.5). Another module can put code in the same section: the banking driver shares
+   **5b. A label-less piece smaller than its section is placed by its bytes** (design 9.5). Another module can put code in the same section: the banking driver shares
    `code_crt_init` with the CRT in the banked-CRT fixtures, so the CRT's own piece has no label in
    the map and is smaller than the section. `place_z88dk_listing()` (`z88dk_lis.cpp:396`) tries
    every start `c` from `__<s>_head` to `__<s>_tail` minus the piece's size and excludes it when,

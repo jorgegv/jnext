@@ -176,7 +176,7 @@ where the loader puts the bytes.
 - **`--source-map` with a tape.** The loop owner polls `source_map_status()` once per
   tick; a map dropped by the check exits 1 ([7.3](03-loaders.md)).
 
-## A dot command's map: judged at its entry (GH #351)
+## A dot command's map: judged at its entry
 
 A z88dk dot command is not a program the emulator loads. NextZXOS copies the file into a DivMMC RAM
 bank when the command is typed and runs it from `$2000` there, so at the moment the map is attached

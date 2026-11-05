@@ -3129,7 +3129,7 @@ binaries' bytes). In order:</p>
    is a Z80/Z80N mnemonic, and its source location (in <code>Asm</code> mode its own file and
    column; otherwise the current <code>C_LINE</code> or comment marker of its section).
    In <code>CLine</code> mode the walk also keeps every <code>C_LINE</code> operand (<code>Z88dkListedScope</code>): the LAST directive before a byte row owns that row, and the row's map value is the occurrence's.
-   <code>fill_listing_scopes()</code> gives an 80cc function that table instead of the map's one <code>__C_LINE_</code> symbol per (line, scope) (GH #438 S4a, <code>Z88ZB-12</code>, <code>Z88ZB-13</code>).</li>
+   <code>fill_listing_scopes()</code> gives an 80cc function that table instead of the map's one <code>__C_LINE_</code> symbol per (line, scope) (<code>Z88ZB-12</code>, <code>Z88ZB-13</code>).</li>
 <li><strong>Anchors and the offset.</strong> A label row of the walk is an <em>anchor</em> when the map
    has an <code>addr</code> symbol of that name in this module, in the same section, whose map
    location is <em>this very row</em> (<code>&lt;header&gt;:&lt;line-number column&gt;</code>). The anchor gives
@@ -3140,8 +3140,7 @@ binaries' bytes). In order:</p>
    placed by its bytes (5b below). A piece with none of these, and anything inside <code>PHASE</code>,
    cannot be placed; those rows are counted and reported as "N listed lines could not be
    placed".
-   <strong>5b. A label-less piece smaller than its section is placed by its bytes</strong> (GH #426 F4;
-   design 9.5). Another module can put code in the same section: the banking driver shares
+   <strong>5b. A label-less piece smaller than its section is placed by its bytes</strong> (design 9.5). Another module can put code in the same section: the banking driver shares
    <code>code_crt_init</code> with the CRT in the banked-CRT fixtures, so the CRT's own piece has no label in
    the map and is smaller than the section. <code>place_z88dk_listing()</code> (<code>z88dk_lis.cpp:396</code>) tries
    every start <code>c</code> from <code>__&lt;s&gt;_head</code> to <code>__&lt;s&gt;_tail</code> minus the piece's size and excludes it when,

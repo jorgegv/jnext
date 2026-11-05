@@ -4508,7 +4508,7 @@ on io_read mask 0x00FF value 0xFE do … ; mask and value, as written
 decodes it, whatever the high byte is; a port above 0xFF is matched exactly. A
 range decodes like a single port, so it must lie wholly in 0x00..0xFF or wholly
 above it:</p>
-<pre><code>[debugger] [error] SCRIPT ERROR errs2.jds:1:13: a port range lies wholly in 0x00..0xFF (decoded on the low byte, GH #222) or wholly above it
+<pre><code>[debugger] [error] SCRIPT ERROR errs2.jds:1:13: a port range lies wholly in 0x00..0xFF (decoded on the low byte) or wholly above it
 </code></pre>
 <p>With <code>mask M value V</code> a port matches when <code>port &amp; M == V</code>.</p>
 <p>Payload: <code>PORT</code> (the full 16-bit port), <code>VALUE</code>, <code>SOURCE</code> (a DMA byte to a

@@ -2885,7 +2885,7 @@ report a verdict at all rather than quietly skipping itself. The reasoning is
 worth internalising, because it recurs throughout this project: a check that did
 not run must never read as a check that passed. The same holds for
 <strong>dbus-daemon</strong>: <code>color_scheme_test</code> starts a private one to serve a mock
-desktop portal (GH #363), and its portal rows fail without it.</p>
+desktop portal, and its portal rows fail without it.</p>
 <p><strong>The documentation toolchain is separate, and it is optional.</strong> <code>pandoc</code>
 regenerates the man page and <code>USAGE.md</code>, <code>mkdocs-material</code> renders the user and
 developer guides, and <code>graphviz</code> renders this guide's diagrams. No target that
