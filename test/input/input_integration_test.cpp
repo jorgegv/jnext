@@ -1898,7 +1898,7 @@ namespace gh450_hic {
 
 constexpr uint16_t TICK = 0x9000, SEEN = 0x9001, ISR_READ = 0x9002,
                    ISR_PREV = 0x9003, LASTMAIN = 0x9004, DONE = 0x9005,
-                   MARKER = 0x9006, ISR_A = 0x9007, SEEN_ITER = 0x9008;
+                   MARKER = 0x9006, ISR_A = 0x9007, SEEN_ITER = 0x9008, ISR_E = 0x900A;
 
 // Subroutines that leave A != 0 exactly when the watched key is down.
 const std::vector<uint8_t> kReadSpace = {      // port $7FFE bit 0, active low
@@ -1991,15 +1991,23 @@ void build_poller(Rig& r, const std::vector<uint8_t>& read, bool ei, int inline_
         0x32, 0x05, 0x90,       // LD (DONE),A
         0x18, 0xFE });          // JR $
     put(emu, 0x8000, main_code);
-    put(emu, 0x8200, {
+    // ISR. The bare-poll variant starts with its OWN IN (into E, which that main
+    // loop never uses) so the interrupt routine's very first instruction reads
+    // the key; both variants then save A as the interrupted code left it.
+    std::vector<uint8_t> isr;
+    if (inline_pad >= 0) isr.insert(isr.end(), { 0xED, 0x58 });   // IN E,(C)
+    isr.insert(isr.end(), {
         0x32, 0x07, 0x90,       // LD (ISR_A),A  (A as the interrupted code left it)
         0xF5, 0xC5,             // PUSH AF ; PUSH BC
+        0x7B,                   // LD A,E
+        0x32, 0x0A, 0x90,       // LD (ISR_E),A  (the ISR's first IN, bare variant)
         0x3A, 0x04, 0x90,       // LD A,(LASTMAIN)
         0x32, 0x03, 0x90,       // LD (ISR_PREV),A
         0xCD, 0x00, 0x83,       // CALL $8300
         0x32, 0x02, 0x90,       // LD (ISR_READ),A
         0x3A, 0x00, 0x90, 0x3C, 0x32, 0x00, 0x90,   // tick++
         0xC1, 0xF1, 0xFB, 0xC9 });                  // POP BC ; POP AF ; EI ; RET
+    put(emu, 0x8200, isr);
     put(emu, 0x8300, read);
     for (uint16_t a = 0xBE00; a <= 0xBF00; ++a) emu.mmu().write(a, 0xBF);
     put(emu, 0xBFBF, { 0xC3, 0x00, 0x82 });         // JP $8200
@@ -2008,7 +2016,7 @@ void build_poller(Rig& r, const std::vector<uint8_t>& read, bool ei, int inline_
 }
 
 struct Obs {
-    uint8_t  t = 0, seen = 0, done = 0, isr_read = 0, isr_prev = 0xEE, tick = 0, isr_a = 0xEE;
+    uint8_t  t = 0, seen = 0, done = 0, isr_read = 0, isr_prev = 0xEE, tick = 0, isr_a = 0xEE, isr_e = 0xEE;
     uint16_t seen_iter = 0;
 };
 
@@ -2022,6 +2030,7 @@ Obs collect(Emulator& e, uint8_t t) {
     o.isr_read = pk(e, ISR_READ);
     o.isr_prev = pk(e, ISR_PREV);
     o.isr_a = pk(e, ISR_A);
+    o.isr_e = pk(e, ISR_E);
     o.tick = pk(e, TICK);
     o.seen_iter = static_cast<uint16_t>(pk(e, SEEN_ITER) | (pk(e, SEEN_ITER + 1) << 8));
     return o;
@@ -2089,13 +2098,14 @@ static void test_gh450_hic() {
                 build_poller(r, kReadSpace, true, pad);
                 warm(r.emu);
                 const Obs op = host_press_then_frame(r.emu, press_space);
-                // The ISR reads it down; the last main-loop IN before it read it
-                // up (A at the ISR's first instruction, bit 0 set = released).
-                if (!(op.isr_read != 0 && (op.isr_a & 1) != 0))
+                // The ISR's FIRST instruction (an IN) reads it down; the last
+                // main-loop IN before it read it up (A at the ISR's first
+                // instruction); bit 0 clear = down, set = up.
+                if (!((op.isr_e & 1) == 0 && (op.isr_a & 1) != 0))
                     bad_pads += std::to_string(pad) + " ";
             }
         }
-        check("HIC-02", "128K: ISR of N+1 reads the key down; the main loop's last read before it read up, in every one of 48 loop phases (FUSE order)",
+        check("HIC-02", "128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order)",
               r.ok && o.isr_read != 0 && o.isr_prev == 0 && bad_pads.empty(),
               obs_str(o) + " bad pads: " + bad_pads);
     }
