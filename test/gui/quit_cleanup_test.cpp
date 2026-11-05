@@ -103,6 +103,7 @@
 #include <QApplication>
 #include <QDataStream>
 #include <QEvent>
+#include <QEventLoop>
 #include <QMessageBox>
 #include <QSettings>
 #include <QTimer>
@@ -399,6 +400,29 @@ void test_recorder_stop() {
 // and a quit reaches it only through the teardown Q131-01 covers. JNEXT_CONFIG_DIR points that at the scratch dir, so
 // no developer's real ~/.jnext is touched (the same isolation the regression
 // suite uses).
+//
+// The resize is the user's, made AFTER the debugger window's opening: under a reparenting window
+// manager (openbox) the opening fit's requests are answered late, and the attach move
+// (DebuggerManager::set_enabled -> position_next_to) re-sends the size Qt last heard from the manager,
+// so a client-side resize() made during the opening can lose to either, and no user can resize then.
+// The row therefore waits for the opening to finish before resizing, and for the manager's answer to
+// the resize before quitting. A resize DURING the fit is GR-09's (debugger_window_grow_test).
+namespace {
+void settle(int ms) {
+    QEventLoop loop;
+    QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+// Poll every 100 ms until `ok()` has held for 3 consecutive polls (at most 50 polls).
+template <typename F> void wait_stable(F ok) {
+    int held = 0;
+    for (int i = 0; i < 50 && held < 3; ++i) {
+        settle(100);
+        held = ok() ? held + 1 : 0;
+    }
+}
+} // namespace
+
 void test_geometry_persisted() {
     const fs::path conf = g_dir / "jnext.conf";
     std::error_code ec;
@@ -413,14 +437,20 @@ void test_geometry_persisted() {
 
     DebuggerManager* mgr = fx.win.debugger_manager();
     mgr->set_enabled(true);
-    QApplication::processEvents();
 
     DebuggerWindow* dbg = mgr->debugger_window_ptr();
+    if (dbg) {
+        settle(1500);   // longer than the fit's grace window (1 s)
+        QSize last = dbg->size();
+        wait_stable([&] { const bool same = dbg->size() == last; last = dbg->size(); return same; });
+    }
     // A size the loader will accept (it rejects implausibly small ones,
     // debugger_window.cpp:141) and that no default could coincidentally be.
     const int want_w = 1234, want_h = 567;
-    if (dbg) dbg->resize(want_w, want_h);
-    QApplication::processEvents();
+    if (dbg) {
+        dbg->resize(want_w, want_h);
+        wait_stable([&] { return dbg->size() == QSize(want_w, want_h); });
+    }
 
     QAction* q = quit_action(fx.win);
     if (q) q->trigger();
