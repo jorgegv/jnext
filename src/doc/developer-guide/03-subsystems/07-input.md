@@ -145,17 +145,19 @@ How it is built (`Keyboard`, `Emulator::begin_new_frame()`):
   `release_guest_view()`. Held, `read_rows()`, `tick_scan()` (so the Caps/Symbol
   Shift history latches what the guest saw) and the NR `0xB0`/`0xB1` readbacks use
   the copy.
-- **Which side of the instruction the commit lands on.** The interrupt request is
-  raised in `irq_scheduler_` and accepted at the end of the instruction the edge
-  falls in. The release is in `scheduler_`, drained only at instruction
-  boundaries (`irq_scheduler_` is also drained mid-instruction by the reads that
-  call `sync_io_devices_to()`; the keyboard read is not one of them). So an `IN`
-  that begins before the edge reads the old state, and the first instruction
-  after the edge reads the new one: the ISR's first instruction when the
-  interrupt is accepted there, which is FUSE's order (the interrupt entered, then
-  the input). With interrupts disabled (or the ULA interrupt off, NR `0x22` bit
-  2) the release still fires at the same position: the commit is a raster
-  position, not the interrupt.
+- **Which side of the instruction the commit lands on.** The interrupt request
+  and the release both sit in `irq_scheduler_`, due at the same cycle, and are
+  applied at the end of the instruction the edge falls in. The next instruction
+  is the ISR's first when the interrupt is accepted there, and it reads the new
+  state, which is FUSE's order (the interrupt entered, then the input). An `IN`
+  that begins before the edge has already read the old one. `irq_scheduler_` is
+  also drained mid-instruction by the reads that call `sync_io_devices_to()`;
+  the keyboard reads (port `0xFE`, NR `0xB0`/`0xB1`) never do, so a read cannot
+  tell the two drain points apart. The release is deliberately not on
+  `scheduler_`, the video-row queue the Copper walk splits instruction windows
+  at. With interrupts disabled (or the ULA interrupt off, NR `0x22` bit 2) the
+  release still fires at the same position: the commit is a raster position, not
+  the interrupt.
 - Nothing is held outside `run_frame()`. No guest instruction runs between
   frames, so the test or debugger panel that reads between them sees the live
   state: `matrix_row()` and `live_extended_keys()` (what `input_state()` reports)

@@ -52,6 +52,7 @@
 #include "core/saveable.h"
 #include "debug/debugger.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -1918,6 +1919,21 @@ const std::vector<uint8_t> kReadNrB0Up = {     // NR $B0 bit 3 (UP), active high
     0xE6, 0x08,         // AND 8
     0xC9 };
 
+const std::vector<uint8_t> kReadZ = {          // port $FEFE bit 1 (Z, row 0), active low
+    0x01, 0xFE, 0xFE, 0xED, 0x78, 0x2F, 0xE6, 0x02, 0xC9 };
+const std::vector<uint8_t> kReadSym = {        // port $7FFE bit 1 (Symbol Shift), active low
+    0x01, 0xFE, 0x7F, 0xED, 0x78, 0x2F, 0xE6, 0x02, 0xC9 };
+const std::vector<uint8_t> kReadUpFold = {     // port $EFFE bit 3: UP folds into row 4 col 3
+    0x01, 0xFE, 0xEF, 0xED, 0x78, 0x2F, 0xE6, 0x08, 0xC9 };
+const std::vector<uint8_t> kReadNrB1Delete = { // NR $B1 bit 7 (DELETE), active high
+    0x01, 0x3B, 0x24, 0x3E, 0xB1, 0xED, 0x79, 0x01, 0x3B, 0x25, 0xED, 0x78, 0xE6, 0x80, 0xC9 };
+// The RELEASE probes: A != 0 exactly when UP is UP (released).
+const std::vector<uint8_t> kReadNrB0UpReleased = {
+    0x01, 0x3B, 0x24, 0x3E, 0xB0, 0xED, 0x79, 0x01, 0x3B, 0x25, 0xED, 0x78,
+    0xE6, 0x08, 0xEE, 0x08, 0xC9 };            // AND 8 ; XOR 8
+const std::vector<uint8_t> kReadUpFoldReleased = {
+    0x01, 0xFE, 0xEF, 0xED, 0x78, 0xE6, 0x08, 0xC9 };
+
 struct Rig {
     Emulator emu;
     bool ok = false;
@@ -2124,7 +2140,7 @@ static void test_gh450_hic() {
               obs_str(o));
     }
 
-    // HIC-04 - Pentagon: INT at (439,319), 5 T before the frame boundary, so the
+    // HIC-04 - Pentagon: INT at (439,319), 4 T (32 master cycles) before the frame boundary, so the
     // commit is the LAST thing of frame N+1 and the ISR that reads the key runs
     // at the start of frame N+2 (the ISR of N, accepted after the boundary,
     // runs first and still sees the old state). The main loop polls the whole
@@ -2394,6 +2410,214 @@ static void test_gh450_hic() {
         check("HIC-11", "outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not",
               r.ok && rn.ok && port_sees && dbg_sees && mid_ok,
               detail("port=%d dbg=%d", port_sees, dbg_sees) + detail(" mid=%d reads=%d", mid_ok, mid_reads));
+    }
+
+    // HIC-12 - a ROW 0 key PRESSED between frames (Z, read on $FEFE). Row 0 is
+    // read through its own shift-hysteresis path, so it is pinned separately
+    // from the SPACE row of HIC-01/02 (HIC-10 only releases Caps Shift).
+    {
+        Rig r;
+        Obs o;
+        if (init(r, MachineType::ZX128K)) {
+            build_poller(r, kReadZ, true);
+            warm(r.emu);
+            o = host_press_then_frame(r.emu, [](Emulator& e) {
+                e.keyboard().set_key(SDL_SCANCODE_Z, true); });
+        }
+        check("HIC-12", "128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1",
+              r.ok && fuse_order(o), obs_str(o));
+    }
+
+    // HIC-13 - an extended key through the port 0xFE FOLD (UP = CS+7 on the
+    // 48K matrix; row 4 col 3 is bit 3 of $EFFE). The host's cursor keys,
+    // Backspace, Esc and Tab all reach the guest this way.
+    {
+        Rig r;
+        Obs o;
+        if (init(r, MachineType::ZXN_ISSUE2)) {
+            build_poller(r, kReadUpFold, true);
+            warm(r.emu);
+            o = host_press_then_frame(r.emu, [](Emulator& e) {
+                e.keyboard().set_extended_key(static_cast<int>(Keyboard::ExtKey::UP), true); });
+        }
+        check("HIC-13", "Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1",
+              r.ok && fuse_order(o), obs_str(o));
+    }
+
+    // HIC-14 - an extended key HELD across frames and RELEASED between two: it
+    // still reads down before N+1's interrupt, through NR 0xB0 and through the
+    // fold; the ISR reads it up.
+    {
+        Obs o_nr, o_fold;
+        bool ok_nr = false, ok_fold = false;
+        for (int variant = 0; variant < 2; ++variant) {
+            Rig r;
+            if (!init(r, MachineType::ZXN_ISSUE2)) continue;
+            // The key is down before the guest starts (the polling loop sights
+            // the RELEASE), and has been latched down by a few frames.
+            r.emu.keyboard().set_extended_key(static_cast<int>(Keyboard::ExtKey::UP), true);
+            warm(r.emu, 3);
+            build_poller(r, variant == 0 ? kReadNrB0UpReleased : kReadUpFoldReleased, true);
+            warm(r.emu);
+            const Obs o = host_press_then_frame(r.emu, [](Emulator& e) {
+                e.keyboard().set_extended_key(static_cast<int>(Keyboard::ExtKey::UP), false); });
+            (variant == 0 ? o_nr : o_fold) = o;
+            (variant == 0 ? ok_nr : ok_fold) = fuse_order(o);
+        }
+        check("HIC-14", "Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold",
+              ok_nr && ok_fold, obs_str(o_nr) + " | " + obs_str(o_fold));
+    }
+
+    // HIC-15 - the Symbol Shift mirror of HIC-10: down to the guest through
+    // N+1's interrupt, still down for the first scan after it (membrane.vhd:178),
+    // up a frame later. Read on $7FFE bit 1.
+    {
+        Rig r;
+        uint8_t before = 0xEE, after_first = 0xEE, after_later = 0xEE;
+        if (init(r, MachineType::ZX128K)) {
+            Emulator& e = r.emu;
+            build_poller(r, kReadSym, true);
+            e.keyboard().set_key(SDL_SCANCODE_RCTRL, true);
+            warm(e);
+            e.keyboard().set_key(SDL_SCANCODE_RCTRL, false);
+            e.run_frame();
+            before = pk(e, ISR_PREV);
+            after_first = pk(e, ISR_READ);
+            e.run_frame();
+            after_later = pk(e, ISR_READ);
+        }
+        check("HIC-15", "Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after",
+              r.ok && before != 0 && after_first != 0 && after_later == 0,
+              detail("prev=%d first=%d", before, after_first) + detail(" later=%d", after_later));
+    }
+
+    // HIC-16 - the NR 0xB1 mirror of HIC-07 (DELETE = bit 7).
+    {
+        Rig r;
+        Obs o;
+        if (init(r, MachineType::ZXN_ISSUE2)) {
+            build_poller(r, kReadNrB1Delete, true);
+            warm(r.emu);
+            o = host_press_then_frame(r.emu, [](Emulator& e) {
+                e.keyboard().set_extended_key(static_cast<int>(Keyboard::ExtKey::DELETE), true); });
+        }
+        check("HIC-16", "Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212)",
+              r.ok && fuse_order(o), obs_str(o));
+    }
+
+    // HIC-17 - a snapshot load wipes the guest's copy as well as the matrix:
+    // a key held across frames, a .jns saved there (its copy shows the key) and
+    // loaded through emulator_apply_load, then the guest program restarted:
+    // before the next interrupt it must see every key released.
+    {
+        Rig r;
+        bool loaded = false;
+        uint8_t done = 0xEE;
+        if (init(r, MachineType::ZX128K)) {
+            Emulator& e = r.emu;
+            build_poller(r, kReadSpace, true);
+            warm(e);
+            press_space(e);
+            e.run_frame();
+            e.run_frame();
+            const std::string jns = (std::filesystem::temp_directory_path() /
+                ("jnext_gh450_" + std::to_string(::getpid()) + ".jns")).string();
+            loaded = e.save_jns_file(jns) && emulator_apply_load(e, jns, false);
+            std::filesystem::remove(jns);
+            build_poller(r, kReadSpace, true);
+            e.run_frame();
+            done = pk(e, DONE);
+        }
+        check("HIC-17", "a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt",
+              r.ok && loaded && done == 0, detail("loaded=%d done=%d", loaded, done));
+    }
+
+    // HIC-18 - the same through a soft reset (Keyboard::reset()).
+    {
+        Rig r;
+        uint8_t done = 0xEE;
+        if (init(r, MachineType::ZX128K)) {
+            Emulator& e = r.emu;
+            build_poller(r, kReadSpace, true);
+            warm(e);
+            press_space(e);
+            e.run_frame();
+            e.run_frame();
+            e.soft_reset();
+            build_poller(r, kReadSpace, true);
+            e.run_frame();
+            done = pk(e, DONE);
+        }
+        check("HIC-18", "a soft reset leaves the guest seeing every key released before the next interrupt",
+              r.ok && done == 0, detail("done=%d", done));
+    }
+
+    // HIC-19 - the EXACT edge. With DI a straight-line program does ONE read of
+    // $7FFE after a delay built from NOPs (4 T), LD A,n (7), LD A,I (9) and INC HL
+    // (6), which together put that read's first T-state at every T around the
+    // interrupt position. Its start cycle comes back with the debugger's
+    // port-read event. Contract: a read whose instruction STARTS at or after
+    // offset+4 master cycles sees the key, every earlier one does not. The row
+    // also demands a read that starts within 8 master cycles before the edge and
+    // one within 8 at or after it, so the sweep cannot pass without being
+    // sensitive to a one-T shift of the commit.
+    {
+        Rig r;
+        int bad = 0, variants = 0, just_before = 0, just_after = 0;
+        if (init(r, MachineType::ZX128K)) {
+            Emulator& e = r.emu;
+            jnext::dbg::Debugger dbg(e);
+            jnext::dbg::ClientInfo ci;
+            ci.name = "input_integration_test";
+            ci.kind = jnext::dbg::ClientKind::Test;
+            const jnext::dbg::ClientId tc = dbg.attach(ci).value;
+            dbg.pump(jnext::dbg::PumpBudget{});
+            std::vector<std::pair<int64_t, uint8_t>> reads;
+            jnext::dbg::Subscription sub;
+            sub.kind = jnext::dbg::EventKind::Port;
+            sub.access = jnext::dbg::Access::Read;
+            sub.filter.port_mask = 0xFFFF;
+            sub.filter.port_value = 0x7FFE;
+            sub.action = jnext::dbg::Action::Continue;
+            sub.handler = [&](const jnext::dbg::Event& ev, jnext::dbg::Debugger&) {
+                reads.emplace_back(static_cast<int64_t>(ev.cycle - e.current_frame_cycle()), ev.value);
+                return jnext::dbg::Action::Continue;
+            };
+            dbg.subscribe(tc, sub);
+            const int64_t off = static_cast<int64_t>(e.video_timing().frame_int_master_cycle_offset() + 4);
+            const std::vector<std::vector<uint8_t>> extras = {
+                {}, {0x3E, 0x00}, {0xED, 0x57}, {0x23} };
+            warm(e, 2);
+            for (int a = 50; a <= 75; ++a) {
+                for (const auto& x : extras) {
+                    e.keyboard().set_key(SDL_SCANCODE_SPACE, false);
+                    warm(e, 2);                 // the release commits at the interrupt too
+                    std::vector<uint8_t> prog = {
+                        0x31, 0x00, 0x8F,       // LD SP,$8F00
+                        0x01, 0xFE, 0x7F,       // LD BC,$7FFE
+                        0xF3 };                 // DI
+                    prog.insert(prog.end(), static_cast<size_t>(a), 0x00);
+                    prog.insert(prog.end(), x.begin(), x.end());
+                    prog.insert(prog.end(), { 0xED, 0x78, 0x18, 0xFE });   // IN A,(C) ; JR $
+                    put(e, 0x8000, prog);
+                    start_at_8000(e);
+                    reads.clear();
+                    press_space(e);
+                    e.run_frame();
+                    dbg.pump(jnext::dbg::PumpBudget{});
+                    ++variants;
+                    if (reads.size() != 1) { ++bad; continue; }
+                    const int64_t at = reads[0].first;
+                    const bool pressed = !(reads[0].second & 1);
+                    if (pressed != (at >= off)) ++bad;
+                    if (at >= off - 8 && at < off) ++just_before;
+                    if (at >= off && at < off + 8) ++just_after;
+                }
+            }
+        }
+        check("HIC-19", "128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start",
+              r.ok && bad == 0 && just_before >= 1 && just_after >= 1,
+              detail("bad=%d variants=%d", bad, variants) + detail(" before=%d after=%d", just_before, just_after));
     }
 }
 

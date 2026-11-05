@@ -9227,23 +9227,24 @@ void Emulator::begin_new_frame()
     // irq_scheduler_ so a status read inside an instruction can fire it.
     //
     // Keyboard commit point: the guest is shown the keyboard as of the frame
-    // edge until this same cycle, and the live state from here on. The release
-    // is in scheduler_, which only drains at instruction boundaries
-    // (run_scheduled_until), not in irq_scheduler_, which the reads that call
-    // sync_io_devices_to() drain mid-instruction (the keyboard read does not
-    // today; this keeps it so whatever a later change does). So an IN that
-    // begins before the edge sees the old state and the first instruction after
-    // the edge sees the new one: the ISR's first read when the interrupt is
-    // accepted there (the request is raised at the end of the instruction the
-    // edge falls in), the next main-code instruction when it is not. FUSE spectrum.c:91-103 is the order being
-    // matched: z80_interrupt() runs first and ui_event() (host input) after
-    // it, so input lands after the interrupt is entered. Unconditional (not
-    // under !ula_int_disabled_): the commit is a raster position.
+    // edge until this same cycle, and the live state from here on. FUSE
+    // spectrum.c:91-103 is the order being matched: z80_interrupt() runs first
+    // and ui_event() (host input) after it, so input lands after the interrupt
+    // is entered. The release is queued in irq_scheduler_ beside the interrupt
+    // request (and is unconditional, not under !ula_int_disabled_: the commit is
+    // a raster position). The request is raised, and the release applied, at the
+    // end of the instruction the edge falls in; the next instruction is the
+    // ISR's first when the interrupt is accepted, and sees the new state. An IN
+    // that began before the edge read the old one. irq_scheduler_ is also
+    // drained mid-instruction by the reads that call sync_io_devices_to(), but
+    // the keyboard reads (port 0xFE, NR 0xB0/0xB1) never do, so a read cannot
+    // tell the two drain points apart. scheduler_ is NOT used: it is the
+    // video-row queue that advance_copper_across_row_boundaries() walks.
     const uint64_t int_req_edge_kb =
         frame_cycle_ + video_timing_.frame_int_master_cycle_offset() + 4;
     keyboard_.hold_guest_view();
-    scheduler_.schedule(int_req_edge_kb, EventType::INPUT_POLL,
-                        [this]() { keyboard_.release_guest_view(); });
+    irq_scheduler_.schedule(int_req_edge_kb, EventType::INPUT_POLL,
+                            [this]() { keyboard_.release_guest_view(); });
 
     if (!ula_int_disabled_) {
         const uint64_t int_fire_offset = video_timing_.frame_int_master_cycle_offset();
