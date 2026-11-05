@@ -564,25 +564,22 @@ other.c:
      5                          	C_LINE	6,"other.c::other::0::0"
 other.c::other::0::0:
      6                          ._other
-     6  0000  cd0000            	call	l_debug_push_frame
-     6  0003  f5                	push	af
-     6                          	C_LINE	8,"other.c::other::0::1"
-other.c::other::0::1:
-     8  0004  210600            	ld	hl,6
-     8  0007  39                	add	hl,sp
-     8  0008  7e23              	ld	a,(hl+)
-     8  000a  66                	ld	h,(hl)
-     8  000b  6f                	ld	l,a
-     8  000c  29                	add	hl,hl
-     8  000d  444d              	ld	bc,hl
-     8  000f  3a0000            	ld	a,(_s_dup)
-     8  0012  ed31              	add	hl,a
-     8  0014  d1                	pop	de
-     8  0015  e5                	push	hl
-     8                          	C_LINE	9,"other.c::other::0::1"
-     9  0016  f1                	pop	af
-     9  0017  cd0000            	call	l_debug_pop_frame
-     9  001a  c9                	ret
+     6  0000  dde5              	push	ix
+     6  0002  dd210000          	ld	ix,0
+     6  0006  dd39              	add	ix,sp
+     6  0008  f5                	push	af
+     6                          	C_LINE	8,"other.c::other::1::1"
+other.c::other::1::1:
+     8  0009  dd6e04dd6605      	ld	hl,(ix+4)
+     8  000f  29                	add	hl,hl
+     8  0010  3a0000            	ld	a,(_s_dup)
+     8  0013  ed31              	add	hl,a
+     8  0015  d1                	pop	de
+     8  0016  e5                	push	hl
+     8                          	C_LINE	9,"other.c::other::1::1"
+     9  0017  ddf9              	ld	sp,ix
+     9  0019  dde1              	pop	ix
+     9  001b  c9                	ret
      9                          	SECTION	bss_compiler
      9                          	SECTION	code_compiler
      9                          ; --- Start of Optimiser additions ---
@@ -619,15 +616,9 @@ other.c::other::0::1:
      9                          ; T:Ftypes.h$flags[({0}S:S$lo$0_0$0({1}SB0$3:U),Z,0,0)({0}S:S$mid$0_0$0({1}SB3$5:U),Z,0,0)({1}S:S$hi$0_0$0({1}SB0$8:U),Z,0,0)]
      9                          	PUBLIC	__CDBINFO__T_3aFtypes_2eh_24flags_5b_28_7b_30_7dS_3aS_24lo_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_33_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24mid_24_30_5f_30_24_30_28_7b_31_7dSB_33_24_35_3aU_29_2cZ_2c_30_2c_30_29_28_7b_31_7dS_3aS_24hi_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_38_3aU_29_2cZ_2c_30_2c_30_29_5d
      9                          	defc	__CDBINFO__T_3aFtypes_2eh_24flags_5b_28_7b_30_7dS_3aS_24lo_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_33_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24mid_24_30_5f_30_24_30_28_7b_31_7dSB_33_24_35_3aU_29_2cZ_2c_30_2c_30_29_28_7b_31_7dS_3aS_24hi_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_38_3aU_29_2cZ_2c_30_2c_30_29_5d = 1
-     9                          ; S:G$RED$0_0$0({0}),E,0,0
-     9                          	PUBLIC	__CDBINFO__S_3aG_24RED_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30
-     9                          	defc	__CDBINFO__S_3aG_24RED_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30 = 1
-     9                          ; S:G$GREEN$0_0$0({0}),E,0,0
-     9                          	PUBLIC	__CDBINFO__S_3aG_24GREEN_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30
-     9                          	defc	__CDBINFO__S_3aG_24GREEN_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30 = 1
-     9                          ; S:G$BLUE$0_0$0({0}),E,0,0
-     9                          	PUBLIC	__CDBINFO__S_3aG_24BLUE_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30
-     9                          	defc	__CDBINFO__S_3aG_24BLUE_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30 = 1
+     9                          ; N:Ftypes.h$colour({2}SI:S)[(RED$0)(GREEN$5)(BLUE$6)]
+     9                          	PUBLIC	__CDBINFO__N_3aFtypes_2eh_24colour_28_7b_32_7dSI_3aS_29_5b_28RED_24_30_29_28GREEN_24_35_29_28BLUE_24_36_29_5d
+     9                          	defc	__CDBINFO__N_3aFtypes_2eh_24colour_28_7b_32_7dSI_3aS_29_5b_28RED_24_30_29_28GREEN_24_35_29_28BLUE_24_36_29_5d = 1
      9                          ; F:G$other$0_0$0({0}DF,SI:S),C,0,0,0,0,0
      9                          	PUBLIC	__CDBINFO__F_3aG_24other_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
      9                          	defc	__CDBINFO__F_3aG_24other_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1

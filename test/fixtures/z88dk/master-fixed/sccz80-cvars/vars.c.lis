@@ -929,9 +929,9 @@ vars.c::main::1::4:
     55  00ed  7e                	ld	a,(hl)
     55  00ee  d604              	sub	4
     55  00f0  d22b01            	jp	nc,i_19	;
-    55                          	C_LINE	56,"vars.c::main::3::5"
-vars.c::main::3::5:
-    56                          	C_LINE	56,"vars.c::main::3::5"
+    55                          	C_LINE	56,"vars.c::main::3::6"
+vars.c::main::3::6:
+    56                          	C_LINE	56,"vars.c::main::3::6"
     56  00f3  210800            	ld	hl,8	;const
     56  00f6  39                	add	hl,sp
     56  00f7  e5                	push	hl
@@ -963,7 +963,7 @@ vars.c::main::3::5:
     56  0123  c1                	pop	bc
     56  0124  d1                	pop	de
     56  0125  cd0000            	call	l_pint
-    56                          	C_LINE	57,"vars.c::main::3::5"
+    56                          	C_LINE	57,"vars.c::main::3::6"
     57  0128  c3e400            	jp	i_18	;EOS
     57                          .i_19
     57                          	C_LINE	58,"vars.c::main::1::4"
@@ -1006,14 +1006,14 @@ vars.c::main::1::4:
     62                          	C_LINE	63,"vars.c::main::1::4"
     63                          	C_LINE	63,"vars.c::main::1::4"
     63                          .i_21
-    63                          	C_LINE	64,"vars.c::main::2::6"
-vars.c::main::2::6:
-    64                          	C_LINE	64,"vars.c::main::2::6"
+    63                          	C_LINE	64,"vars.c::main::2::7"
+vars.c::main::2::7:
+    64                          	C_LINE	64,"vars.c::main::2::7"
     64  0166  2a0000            	ld	hl,(_g_int)
     64  0169  23                	inc	hl
     64  016a  220000            	ld	(_g_int),hl
     64  016d  2b                	dec	hl
-    64                          	C_LINE	65,"vars.c::main::2::6"
+    64                          	C_LINE	65,"vars.c::main::2::7"
     65  016e  c36601            	jp	i_21	;EOS
     65                          .i_22
     65                          	C_LINE	66,"vars.c::main::1::4"
@@ -1103,15 +1103,9 @@ vars.c::main::1::4:
     66                          ; T:Ftypes.h$flags[({0}S:S$lo$0_0$0({1}SB0$3:U),Z,0,0)({0}S:S$mid$0_0$0({1}SB3$5:U),Z,0,0)({1}S:S$hi$0_0$0({1}SB0$8:U),Z,0,0)]
     66                          	PUBLIC	__CDBINFO__T_3aFtypes_2eh_24flags_5b_28_7b_30_7dS_3aS_24lo_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_33_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24mid_24_30_5f_30_24_30_28_7b_31_7dSB_33_24_35_3aU_29_2cZ_2c_30_2c_30_29_28_7b_31_7dS_3aS_24hi_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_38_3aU_29_2cZ_2c_30_2c_30_29_5d
     66                          	defc	__CDBINFO__T_3aFtypes_2eh_24flags_5b_28_7b_30_7dS_3aS_24lo_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_33_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24mid_24_30_5f_30_24_30_28_7b_31_7dSB_33_24_35_3aU_29_2cZ_2c_30_2c_30_29_28_7b_31_7dS_3aS_24hi_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_38_3aU_29_2cZ_2c_30_2c_30_29_5d = 1
-    66                          ; S:G$RED$0_0$0({0}),E,0,0
-    66                          	PUBLIC	__CDBINFO__S_3aG_24RED_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30
-    66                          	defc	__CDBINFO__S_3aG_24RED_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30 = 1
-    66                          ; S:G$GREEN$0_0$0({0}),E,0,0
-    66                          	PUBLIC	__CDBINFO__S_3aG_24GREEN_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30
-    66                          	defc	__CDBINFO__S_3aG_24GREEN_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30 = 1
-    66                          ; S:G$BLUE$0_0$0({0}),E,0,0
-    66                          	PUBLIC	__CDBINFO__S_3aG_24BLUE_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30
-    66                          	defc	__CDBINFO__S_3aG_24BLUE_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30 = 1
+    66                          ; N:Ftypes.h$colour({2}SI:S)[(RED$0)(GREEN$5)(BLUE$6)]
+    66                          	PUBLIC	__CDBINFO__N_3aFtypes_2eh_24colour_28_7b_32_7dSI_3aS_29_5b_28RED_24_30_29_28GREEN_24_35_29_28BLUE_24_36_29_5d
+    66                          	defc	__CDBINFO__N_3aFtypes_2eh_24colour_28_7b_32_7dSI_3aS_29_5b_28RED_24_30_29_28GREEN_24_35_29_28BLUE_24_36_29_5d = 1
     66                          ; F:G$other$0_0$0({0}DF,SI:S),C,0,0,0,0,0
     66                          	PUBLIC	__CDBINFO__F_3aG_24other_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
     66                          	defc	__CDBINFO__F_3aG_24other_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
@@ -1169,6 +1163,9 @@ vars.c::main::1::4:
     66                          ; S:G$g_colour$0_0$0({2}SI:S),E,0,0
     66                          	PUBLIC	__CDBINFO__S_3aG_24g_5fcolour_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cE_2c_30_2c_30
     66                          	defc	__CDBINFO__S_3aG_24g_5fcolour_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cE_2c_30_2c_30 = 1
+    66                          ; E:G$g_colour$0_0$0({2}SEFtypes.h$colour:S),E,0,0
+    66                          	PUBLIC	__CDBINFO__E_3aG_24g_5fcolour_24_30_5f_30_24_30_28_7b_32_7dSEFtypes_2eh_24colour_3aS_29_2cE_2c_30_2c_30
+    66                          	defc	__CDBINFO__E_3aG_24g_5fcolour_24_30_5f_30_24_30_28_7b_32_7dSEFtypes_2eh_24colour_3aS_29_2cE_2c_30_2c_30 = 1
     66                          ; S:G$g_byte$0_0$0({1}SC:U),E,0,0
     66                          	PUBLIC	__CDBINFO__S_3aG_24g_5fbyte_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30
     66                          	defc	__CDBINFO__S_3aG_24g_5fbyte_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30 = 1
@@ -1292,6 +1289,9 @@ vars.c::main::1::4:
     66                          ; S:G$g_colour$0_0$0({2}SI:S),E,0,0
     66                          	PUBLIC	__CDBINFO__S_3aG_24g_5fcolour_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cE_2c_30_2c_30
     66                          	defc	__CDBINFO__S_3aG_24g_5fcolour_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cE_2c_30_2c_30 = 1
+    66                          ; E:G$g_colour$0_0$0({2}SEFtypes.h$colour:S),E,0,0
+    66                          	PUBLIC	__CDBINFO__E_3aG_24g_5fcolour_24_30_5f_30_24_30_28_7b_32_7dSEFtypes_2eh_24colour_3aS_29_2cE_2c_30_2c_30
+    66                          	defc	__CDBINFO__E_3aG_24g_5fcolour_24_30_5f_30_24_30_28_7b_32_7dSEFtypes_2eh_24colour_3aS_29_2cE_2c_30_2c_30 = 1
     66                          ; S:G$g_byte$0_0$0({1}SC:U),E,0,0
     66                          	PUBLIC	__CDBINFO__S_3aG_24g_5fbyte_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30
     66                          	defc	__CDBINFO__S_3aG_24g_5fbyte_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30 = 1

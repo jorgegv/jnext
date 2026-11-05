@@ -559,33 +559,34 @@ fm.c::fm::0::0:
      4  000b  33                	inc	sp
      4  000c  33                	inc	sp
      4  000d  d5                	push	de
-     4                          	C_LINE	6,"fm.c::fm::0::1"
-fm.c::fm::0::1:
+     4                          	C_LINE	6,"fm.c::fm::1::1"
+fm.c::fm::1::1:
      6  000e  d1                	pop	de
      6  000f  d5                	push	de
      6  0010  dd6e04dd6605      	ld	hl,(ix+4)
      6  0016  a7                	and	a
      6  0017  ed52              	sbc	hl,de
      6  0019  dd75fedd74ff      	ld	(ix-2),hl
-     6                          	C_LINE	7,"fm.c::fm::0::1"
+     6                          	C_LINE	7,"fm.c::fm::1::1"
      7  001f  ddf9              	ld	sp,ix
      7  0021  dde1              	pop	ix
      7  0023  c9                	ret
-     7                          	C_LINE	9,"fm.c::fm::0::1"
+     7                          	C_LINE	9,"fm.c::fm::0::0"
+fm.c::fm::0::0:
      9                          	SECTION	data_compiler
      9                          ._gs
      9  0000  676c6f62          	defm	"glob"
      9  0004  00                	defb	0
      9                          
      9                          	SECTION	code_compiler
-     9                          	C_LINE	10,"fm.c::fm::0::1"
+     9                          	C_LINE	10,"fm.c::fm::0::0"
     10                          	SECTION	data_compiler
     10                          ._fs
     10  0005  66696c65          	defm	"file"
     10  0009  00                	defb	0
     10                          
     10                          	SECTION	code_compiler
-    10                          	C_LINE	11,"fm.c::fm::0::1"
+    10                          	C_LINE	11,"fm.c::fm::0::0"
     11                          
     11                          ; Function main flags 0x00000000 __stdc
     11                          ; int main()
@@ -610,8 +611,8 @@ fm.c::main::0::2:
     11  002c  21faff            	ld	hl,-6
     11  002f  39                	add	hl,sp
     11  0030  f9                	ld	sp,hl
-    11                          	C_LINE	11,"fm.c::main::0::3"
-fm.c::main::0::3:
+    11                          	C_LINE	11,"fm.c::main::1::3"
+fm.c::main::1::3:
     11  0031  210000            	ld	hl,0
     11  0034  39                	add	hl,sp
     11  0035  366c              	ld	(hl),108
@@ -705,24 +706,21 @@ fm.c::main::0::3:
     11                          ; S:Lfm.c.fm$a$0_0$0({2}SI:S),B,1,4
     11                          	PUBLIC	__CDBINFO__S_3aLfm_2ec_2efm_24a_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_34
     11                          	defc	__CDBINFO__S_3aLfm_2ec_2efm_24a_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_34 = 1
-    11                          ; S:Lfm.c.fm$b$0_0$0({2}SI:S),B,1,-2
-    11                          	PUBLIC	__CDBINFO__S_3aLfm_2ec_2efm_24b_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32
-    11                          	defc	__CDBINFO__S_3aLfm_2ec_2efm_24b_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32 = 1
+    11                          ; S:Lfm.c.fm$b$0_0$0({2}SI:S),B,1,-4
+    11                          	PUBLIC	__CDBINFO__S_3aLfm_2ec_2efm_24b_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34
+    11                          	defc	__CDBINFO__S_3aLfm_2ec_2efm_24b_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34 = 1
     11                          ; S:Lfm.c.fm$y$1_0$1({2}SI:S),B,1,-2
     11                          	PUBLIC	__CDBINFO__S_3aLfm_2ec_2efm_24y_24_31_5f_30_24_31_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32
     11                          	defc	__CDBINFO__S_3aLfm_2ec_2efm_24y_24_31_5f_30_24_31_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32 = 1
-    11                          ; S:G$gs$0_0$1({-1}DA-1x,SC:S),E,0,0
-    11                          	PUBLIC	__CDBINFO__S_3aG_24gs_24_30_5f_30_24_31_28_7b_2d_31_7dDA_2d_31x_2cSC_3aS_29_2cE_2c_30_2c_30
-    11                          	defc	__CDBINFO__S_3aG_24gs_24_30_5f_30_24_31_28_7b_2d_31_7dDA_2d_31x_2cSC_3aS_29_2cE_2c_30_2c_30 = 1
-    11                          ; S:Ffm.c$fs$0_0$1({-1}DA-1x,SC:S),E,0,0
-    11                          	PUBLIC	__CDBINFO__S_3aFfm_2ec_24fs_24_30_5f_30_24_31_28_7b_2d_31_7dDA_2d_31x_2cSC_3aS_29_2cE_2c_30_2c_30
-    11                          	defc	__CDBINFO__S_3aFfm_2ec_24fs_24_30_5f_30_24_31_28_7b_2d_31_7dDA_2d_31x_2cSC_3aS_29_2cE_2c_30_2c_30 = 1
-    11                          ; F:G$main$0_0$1({0}DF,SI:S),C,0,0,0,0,0
-    11                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
-    11                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
-    11                          ; S:Ffm.c$st_main_ss$1_0$3({-1}DA-1x,SC:S),E,0,0
-    11                          	PUBLIC	__CDBINFO__S_3aFfm_2ec_24st_5fmain_5fss_24_31_5f_30_24_33_28_7b_2d_31_7dDA_2d_31x_2cSC_3aS_29_2cE_2c_30_2c_30
-    11                          	defc	__CDBINFO__S_3aFfm_2ec_24st_5fmain_5fss_24_31_5f_30_24_33_28_7b_2d_31_7dDA_2d_31x_2cSC_3aS_29_2cE_2c_30_2c_30 = 1
+    11                          ; S:Ffm.c$fs$0_0$0({5}DA5x,SC:S),E,0,0
+    11                          	PUBLIC	__CDBINFO__S_3aFfm_2ec_24fs_24_30_5f_30_24_30_28_7b_35_7dDA_35x_2cSC_3aS_29_2cE_2c_30_2c_30
+    11                          	defc	__CDBINFO__S_3aFfm_2ec_24fs_24_30_5f_30_24_30_28_7b_35_7dDA_35x_2cSC_3aS_29_2cE_2c_30_2c_30 = 1
+    11                          ; F:G$main$0_0$0({0}DF,SI:S),C,0,0,0,0,0
+    11                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    11                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    11                          ; S:Ffm.c$st_main_ss$1_0$3({5}DA5x,SC:S),E,0,0
+    11                          	PUBLIC	__CDBINFO__S_3aFfm_2ec_24st_5fmain_5fss_24_31_5f_30_24_33_28_7b_35_7dDA_35x_2cSC_3aS_29_2cE_2c_30_2c_30
+    11                          	defc	__CDBINFO__S_3aFfm_2ec_24st_5fmain_5fss_24_31_5f_30_24_33_28_7b_35_7dDA_35x_2cSC_3aS_29_2cE_2c_30_2c_30 = 1
     11                          ; S:Lfm.c.main$ls$1_0$3({4}DA4x,SC:S),B,1,-6
     11                          	PUBLIC	__CDBINFO__S_3aLfm_2ec_2emain_24ls_24_31_5f_30_24_33_28_7b_34_7dDA_34x_2cSC_3aS_29_2cB_2c_31_2c_2d_36
     11                          	defc	__CDBINFO__S_3aLfm_2ec_2emain_24ls_24_31_5f_30_24_33_28_7b_34_7dDA_34x_2cSC_3aS_29_2cB_2c_31_2c_2d_36 = 1
@@ -732,12 +730,12 @@ fm.c::main::0::3:
     11                          ; F:G$fm$0_0$0({0}DF,SI:S),C,0,0,0,0,0
     11                          	PUBLIC	__CDBINFO__F_3aG_24fm_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
     11                          	defc	__CDBINFO__F_3aG_24fm_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
-    11                          ; S:G$gs$0_0$1({5}DA5x,SC:S),E,0,0
-    11                          	PUBLIC	__CDBINFO__S_3aG_24gs_24_30_5f_30_24_31_28_7b_35_7dDA_35x_2cSC_3aS_29_2cE_2c_30_2c_30
-    11                          	defc	__CDBINFO__S_3aG_24gs_24_30_5f_30_24_31_28_7b_35_7dDA_35x_2cSC_3aS_29_2cE_2c_30_2c_30 = 1
-    11                          ; F:G$main$0_0$1({0}DF,SI:S),C,0,0,0,0,0
-    11                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
-    11                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    11                          ; S:G$gs$0_0$0({5}DA5x,SC:S),E,0,0
+    11                          	PUBLIC	__CDBINFO__S_3aG_24gs_24_30_5f_30_24_30_28_7b_35_7dDA_35x_2cSC_3aS_29_2cE_2c_30_2c_30
+    11                          	defc	__CDBINFO__S_3aG_24gs_24_30_5f_30_24_30_28_7b_35_7dDA_35x_2cSC_3aS_29_2cE_2c_30_2c_30 = 1
+    11                          ; F:G$main$0_0$0({0}DF,SI:S),C,0,0,0,0,0
+    11                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    11                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
     11                          
     11                          ; --- End of Compilation ---
     11                          

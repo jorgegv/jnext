@@ -552,6 +552,27 @@ int main() {
               n("master/80cc-cvars", CdbHidden::EmptyType) == 3 && n("master/80cc-cvars", CdbHidden::IncompleteArray) == 1);
     }
 
+    // CDB-53 .. CDB-54: the N: and E: records of z88dk#3241 (sccz80, 80cc). Oracle: the records of master-fixed/sccz80-cvars (types.h's enum colour) and the PR's grammar.
+    {
+        const CdbDecoded n = cdb_decode("N:Ftypes.h$colour({2}SI:S)[(RED$0)(GREEN$5)(BLUE$6)]");
+        const CdbDecoded eg = cdb_decode("E:G$g_colour$0_0$0({2}SEFtypes.h$colour:S),E,0,0");
+        const CdbDecoded el = cdb_decode("E:Lvars.c.main$c$1_0$1({2}SEFtypes.h$colour:S),B,1,-4");
+        const CdbDecoded ef = cdb_decode("E:Fvars.c$s_col$0_0$0({2}DA2x,SEFtypes.h$colour:S),E,0,0");
+        check("CDB-53", "N: and E: decode as enum records, kept by name and scope and not interpreted: N: file types.h, tag colour; E: global g_colour, local c, file-scope s_col",
+              n.ok() && n.record.kind == CdbKind::Enum && n.record.scope == CdbScope::File && n.record.scope_name == "types.h" && n.record.var.name == "colour" &&
+                  eg.ok() && eg.record.kind == CdbKind::Enum && eg.record.scope == CdbScope::Global && eg.record.var.name == "g_colour" &&
+                  el.ok() && el.record.kind == CdbKind::Enum && el.record.scope == CdbScope::Local && el.record.var.name == "c" &&
+                  ef.ok() && ef.record.kind == CdbKind::Enum && ef.record.scope == CdbScope::File && ef.record.var.name == "s_col");
+        struct Bad { const char* rec; };
+        const Bad bad[] = {{"N:"}, {"N:Gtypes.h$colour({2}SI:S)[(RED$0)]"}, {"N:Ftypes.h$colour({2}SI:S)[(RED$0)"}, {"N:F$colour({2}SI:S)[]"},
+                           {"N:Ftypes.h$({2}SI:S)[]"}, {"E:"}, {"E:Q$g$0_0$0({2}SEFt.h$c:S),E,0,0"}, {"E:G$g_colour"}, {"E:G$$0_0$0({2}SEFt.h$c:S),E,0,0"},
+                           {"E:G$g$0_0$0"}};
+        bool all_refused = true;
+        for (const Bad& b : bad) all_refused = all_refused && !cdb_decode(b.rec).ok();
+        check("CDB-54", "malformed N: and E: records are refused: an N: with no 'F' scope, no closing ']', no file or no tag; an E: with an unknown scope, no type, or an empty name",
+              all_refused && !cdb_decode("X:G$a$0_0$0({2}SI:S),E,0,0").ok());
+    }
+
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
 }

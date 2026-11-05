@@ -8748,6 +8748,34 @@ int main() {
                       sbat && refused_with(bw, "shares its stack slot with y") && cvv(sb, 0, "y") == "5" && szat && refused_with(zw, "shares its stack slot with v") && refused_with(vw, "shares its stack slot with z") &&
                       cvv(sz, 0, "v") == "12");
         }
+        {   // SRCDBG-ZB-10
+            // z88dk#3262 + #3265 on real records: master-fixed-zsdcc/sdcc-cvars has no TAB in its C_LINE records and the -debug module names of the whole path. The program
+            // and its code are those of master/sdcc-cvars (vars.c:41 is $8C97 in both), so CVAL-30's values are the oracle
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({"master-fixed-zsdcc/sdcc-cvars", "zb10", 0x8C97}, m);
+            const Dbg::CValueResult t = m.dbg->read_c_value(0, "t");
+            const Dbg::CValueResult acc = m.dbg->read_c_value(0, "acc");
+            const Dbg::CValueResult inner = m.dbg->read_c_value(0, "inner");
+            const auto loc = m.dbg->c_locals(0);
+            check("SRCDBG-ZB-10", "master-fixed-zsdcc sdcc-cvars (C_LINE without the TAB) at vars.c:41: a=0 b=-5 k=120 'x' calls=1 *p as on master; t is 122 read from BC with the stale note; "
+                                  "acc is optimised out; `inner` is hidden (out of scope) and not listed",
+                  at && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "calls") == "1" &&
+                      cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" && t.ok && t.value == "122" && t.where.kind == Dbg::CWhere::Kind::Register &&
+                      has_note(t, "in BC; may be stale") && !acc.ok && acc.why == "optimised out" && !inner.ok &&
+                      inner.why == "out of scope at vars.c:41" && loc.ok && row_of(loc.rows, "a") && row_of(loc.rows, "k") && !row_of(loc.rows, "inner"));
+        }
+        {   // SRCDBG-ZB-11
+            // z88dk#3241: N:/E: records beside the S: record of an enum variable. g_colour is BLUE (6), read from its S: record, as on master (CVAL-34)
+            bool ok = true;
+            std::string seen;
+            for (const SumAt& c : {SumAt{"master-fixed/sccz80-cvars", "zb11a", 0x8D3E}, SumAt{"master-fixed/80cc-cvars", "zb11b", 0x8CB0}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = at41(c, m);
+                const std::string got = cvv(m, 0, "g_colour") + "/" + cvv(m, 0, "g_int") + "/" + cvv(m, 0, "g_byte");
+                if (!(at && got == "6/-5/7")) { ok = false; seen += std::string(" ") + c.fixture + ":" + got; }
+            }
+            check("SRCDBG-ZB-11", "master-fixed sccz80-cvars and 80cc-cvars at vars.c:41 (maps with N: and E: enum records): g_colour reads 6 (BLUE) from its S: record, with g_int and g_byte as before", ok, seen);
+        }
     }
 
     // ── GH #344 stage 3: a tape program's maps ───────────────────────────────

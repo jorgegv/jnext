@@ -3164,6 +3164,65 @@ main cross_c AC97
               same_store && starts41(with) == starts41(without) && starts41(with) == 1 && t1.first == 0 && t1.second == 1 && t0 == t1 && store_of(bare) && store_of(bare)->no_record_facts().zsdcc_form && x_level);
     }
 
+    {   // Z88ZB-10
+        // z88dk#3262 and #3265 on the real zsdcc records of master-fixed-zsdcc: no C_LINE carries the TAB, the -debug modules are named by the whole path (./xm.c is __xm_c)
+        bool no_tab = true, all_zsdcc = true, listed = true;
+        int fns = 0, known_scopes = 0;
+        for (const char* d : {"sdcc-cvars", "sdcc-blocks", "sdcc-xmod", "sdcc-debug"}) {
+            const fs::path map = kFixtures / "master-fixed-zsdcc" / d / "prog.map";
+            for (const std::string& l : map_lines(map)) no_tab = no_tab && l.find('\t') == std::string::npos;
+            SourceMap m;
+            load(m, map);
+            const VariableStore* st = store_of(m);
+            if (!st) { listed = false; continue; }
+            all_zsdcc = all_zsdcc && st->refused().empty() && st->no_record_facts().zsdcc_form;
+            for (const CFunction& f : st->functions()) {
+                ++fns;
+                all_zsdcc = all_zsdcc && f.compiler == jnext::dbg::CCompiler::Zsdcc;
+                for (const auto& c : f.scopes) known_scopes += c.known;
+            }
+        }
+        const auto of = [&](const char* fx, const char* fn) {
+            SourceMap m;
+            load(m, kFixtures / fx / "prog.map");
+            const VariableStore* st = store_of(m);
+            for (const CFunction& f : st ? st->functions() : std::vector<CFunction>())
+                if (f.name == fn) return f.module + (f.compiler == jnext::dbg::CCompiler::Zsdcc ? ":zsdcc" : ":?");
+            return std::string("-");
+        };
+        SourceMap cv;
+        load(cv, kFixtures / "master-fixed-zsdcc/sdcc-cvars" / "prog.map");
+        const CFunction* sum = store_of(cv) ? fn_named(*store_of(cv), "sum") : nullptr;
+        check("Z88ZB-10", "master-fixed-zsdcc (zsdcc after z88dk#3262 and #3265): no map line has a TAB; every function of the four maps is zsdcc, nothing is refused and the map is zsdcc_form; "
+                          "the scope walk reads their TAB-less C_LINE records (sum has known scopes); ./xm.c is module __xm_c and 1st.c _1st_c, both zsdcc",
+              no_tab && listed && all_zsdcc && fns > 0 && known_scopes > 0 && sum && !sum->scopes.empty() && sum->scopes.back().known &&
+                  of("master-fixed-zsdcc/sdcc-xmod", "xm") == "__xm_c:zsdcc" && of("master-fixed-zsdcc/sdcc-xmod", "first") == "_1st_c:zsdcc");
+    }
+    {   // Z88ZB-11
+        // z88dk#3241: master-fixed's sccz80 and 80cc cvars maps carry N: and E: records (the S: record of g_colour is still there) and no empty enumerator records
+        bool ok = true;
+        for (const char* fx : {"master-fixed/sccz80-cvars", "master-fixed/80cc-cvars"}) {
+            SourceMap m;
+            load(m, kFixtures / fx / "prog.map");
+            const VariableStore* st = store_of(m);
+            if (!st || !st->refused().empty()) { ok = false; continue; }
+            int colour = 0, enumerators = 0, enum_records = 0;
+            for (const CVariable& v : st->variables()) {
+                colour += v.c_name == "g_colour" && v.record.hidden == CdbHidden::None;
+                enumerators += v.c_name == "RED" || v.c_name == "GREEN" || v.c_name == "BLUE";
+            }
+            for (const std::string& l : map_lines(kFixtures / fx / "prog.map"))
+                enum_records += l.compare(0, 13, "__CDBINFO__N_") == 0 || l.compare(0, 13, "__CDBINFO__E_") == 0;
+            ok = ok && colour == 1 && enumerators == 0 && enum_records == 2;
+        }
+        SourceMap pre;
+        load(pre, kFixtures / "master/sccz80-cvars" / "prog.map");
+        int pre_enumerators = 0;
+        for (const CVariable& v : store_of(pre) ? store_of(pre)->variables() : std::vector<CVariable>()) pre_enumerators += v.c_name == "RED" || v.c_name == "GREEN" || v.c_name == "BLUE";
+        check("Z88ZB-11", "master-fixed sccz80-cvars and 80cc-cvars: one N: and one E: record each, none refused, g_colour listed once, and the three empty enumerator records of master/sccz80-cvars (RED, GREEN, BLUE) are gone",
+              ok && pre_enumerators == 3);
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

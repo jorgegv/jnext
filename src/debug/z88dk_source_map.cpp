@@ -484,7 +484,7 @@ void fill_scopes(std::vector<CFunction>& fns, const std::vector<FnEntry>& entrie
 // compilers differ. 80cc writes `M:<file>` into the module with the file name as `C_LINE` carries it (`M:./m.c` beside
 // `./m.c::main::...`); zsdcc writes `M:<module>` against `C_LINE` file `<module>.c`, so it never matches; sccz80 writes
 // no `M:` into the map at all. The name z80asm gives the module is NOT used: it prefixes `X` to a path that starts
-// with `.`, `/` or a digit. A zsdcc `x`+TAB C_LINE record rules 80cc out.
+// with `.`, `/` or a digit. A zsdcc `x` C_LINE record (TAB or level >= 10000) rules 80cc out.
 void fill_compilers(std::vector<CFunction>& fns, const std::vector<CRecord>& modules,
                     const std::vector<Record>& scope_records)
 {
@@ -493,7 +493,9 @@ void fill_compilers(std::vector<CFunction>& fns, const std::vector<CRecord>& mod
     for (const CRecord& m : modules) m_names[m.module].insert(m.record.var.name);
     for (const Record& r : scope_records) {
         line_files[r.module].insert(r.loc.file);
-        if (r.loc.scope_given && r.loc.func == "x" && r.loc.tab) zsdcc_form.insert(r.module);
+        // zsdcc writes the function as the literal `x`: with a TAB until z88dk#3262, and without one since; a level of 10000 or more
+        // (level * 10000 + sub) is then what tells it from a sccz80 or 80cc function really named `x`
+        if (r.loc.scope_given && r.loc.func == "x" && (r.loc.tab || r.loc.level_raw >= 10000)) zsdcc_form.insert(r.module);
     }
     for (CFunction& f : fns) {
         const auto m = m_names.find(f.module);
@@ -555,6 +557,8 @@ std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
         case CdbKind::Module:
             modules.push_back({std::move(decoded.record), un.text, line.module});
             break;
+        case CdbKind::Enum:
+            break;   // z88dk#3241 N:/E: records: recognised, not used (the S: record carries the integer type)
         }
     }
 

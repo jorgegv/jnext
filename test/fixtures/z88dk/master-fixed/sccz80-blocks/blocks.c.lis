@@ -647,9 +647,9 @@ blocks.c::f::1::1:
     10  003b  1f                	rra
     10  003c  de80              	sbc	128
     10  003e  d25400            	jp	nc,i_4	;
-    10                          	C_LINE	11,"blocks.c::f::3::3"
-blocks.c::f::3::3:
-    11                          	C_LINE	11,"blocks.c::f::3::3"
+    10                          	C_LINE	11,"blocks.c::f::3::4"
+blocks.c::f::3::4:
+    11                          	C_LINE	11,"blocks.c::f::3::4"
     11  0041  210200            	ld	hl,2	;const
     11  0044  cd0000            	call	l_gintspsp	;
     11  0047  c1                	pop	bc
@@ -662,29 +662,29 @@ blocks.c::f::3::3:
     11  004e  c1                	pop	bc
     11  004f  e5                	push	hl
     11  0050  d5                	push	de
-    11                          	C_LINE	12,"blocks.c::f::3::3"
+    11                          	C_LINE	12,"blocks.c::f::3::4"
     12  0051  c33000            	jp	i_3	;EOS
     12                          .i_4
     12  0054  c1                	pop	bc
     12                          	C_LINE	13,"blocks.c::f::1::1"
 blocks.c::f::1::1:
     13                          	C_LINE	13,"blocks.c::f::1::1"
-    13                          	C_LINE	14,"blocks.c::f::2::4"
-blocks.c::f::2::4:
-    14                          	C_LINE	14,"blocks.c::f::2::4"
+    13                          	C_LINE	14,"blocks.c::f::2::5"
+blocks.c::f::2::5:
+    14                          	C_LINE	14,"blocks.c::f::2::5"
     14  0055  e1                	pop	hl
     14  0056  e5                	push	hl
     14  0057  e5                	push	hl
-    14                          	C_LINE	15,"blocks.c::f::2::4"
-    15                          	C_LINE	15,"blocks.c::f::2::4"
-    15                          	C_LINE	16,"blocks.c::f::3::5"
-blocks.c::f::3::5:
-    16                          	C_LINE	16,"blocks.c::f::3::5"
+    14                          	C_LINE	15,"blocks.c::f::2::5"
+    15                          	C_LINE	15,"blocks.c::f::2::5"
+    15                          	C_LINE	16,"blocks.c::f::3::6"
+blocks.c::f::3::6:
+    16                          	C_LINE	16,"blocks.c::f::3::6"
     16  0058  e1                	pop	hl
     16  0059  e5                	push	hl
     16  005a  e5                	push	hl
-    16                          	C_LINE	17,"blocks.c::f::3::5"
-    17                          	C_LINE	17,"blocks.c::f::3::5"
+    16                          	C_LINE	17,"blocks.c::f::3::6"
+    17                          	C_LINE	17,"blocks.c::f::3::6"
     17  005b  210400            	ld	hl,4	;const
     17  005e  39                	add	hl,sp
     17  005f  e5                	push	hl
@@ -697,17 +697,17 @@ blocks.c::f::3::5:
     17  0068  19                	add	hl,de
     17  0069  d1                	pop	de
     17  006a  cd0000            	call	l_pint
-    17                          	C_LINE	18,"blocks.c::f::3::5"
+    17                          	C_LINE	18,"blocks.c::f::3::6"
     18  006d  c1                	pop	bc
-    18                          	C_LINE	19,"blocks.c::f::2::4"
-blocks.c::f::2::4:
-    19                          	C_LINE	19,"blocks.c::f::2::4"
+    18                          	C_LINE	19,"blocks.c::f::2::5"
+blocks.c::f::2::5:
+    19                          	C_LINE	19,"blocks.c::f::2::5"
     19  006e  e1                	pop	hl
     19  006f  e5                	push	hl
     19  0070  23                	inc	hl
     19  0071  e5                	push	hl
-    19                          	C_LINE	20,"blocks.c::f::2::4"
-    20                          	C_LINE	20,"blocks.c::f::2::4"
+    19                          	C_LINE	20,"blocks.c::f::2::5"
+    20                          	C_LINE	20,"blocks.c::f::2::5"
     20  0072  210400            	ld	hl,4	;const
     20  0075  39                	add	hl,sp
     20  0076  e5                	push	hl
@@ -720,7 +720,7 @@ blocks.c::f::2::4:
     20  007f  19                	add	hl,de
     20  0080  d1                	pop	de
     20  0081  cd0000            	call	l_pint
-    20                          	C_LINE	21,"blocks.c::f::2::4"
+    20                          	C_LINE	21,"blocks.c::f::2::5"
     21  0084  c1                	pop	bc
     21  0085  c1                	pop	bc
     21                          	C_LINE	22,"blocks.c::f::1::1"
@@ -745,37 +745,37 @@ blocks.c::g2::0::0:
     25                          ._g2
     25  008d  cd0000            	call	l_debug_push_frame
     25                          	C_LINE	25,"blocks.c::g2::0::0"
-    25                          	C_LINE	26,"blocks.c::g2::1::6"
-blocks.c::g2::1::6:
-    26                          	C_LINE	26,"blocks.c::g2::1::6"
+    25                          	C_LINE	26,"blocks.c::g2::1::7"
+blocks.c::g2::1::7:
+    26                          	C_LINE	26,"blocks.c::g2::1::7"
     26  0090  cd0000            	call	l_gint4sp	;
     26  0093  7c                	ld	a,h
     26  0094  b5                	or	l
     26  0095  caa200            	jp	z,i_6	;
-    26                          	C_LINE	27,"blocks.c::g2::2::7"
-blocks.c::g2::2::7:
-    27                          	C_LINE	27,"blocks.c::g2::2::7"
+    26                          	C_LINE	27,"blocks.c::g2::2::8"
+blocks.c::g2::2::8:
+    27                          	C_LINE	27,"blocks.c::g2::2::8"
     27  0098  cd0000            	call	l_gint4sp	;
     27  009b  e5                	push	hl
-    27                          	C_LINE	28,"blocks.c::g2::2::7"
-    28                          	C_LINE	28,"blocks.c::g2::2::7"
+    27                          	C_LINE	28,"blocks.c::g2::2::8"
+    28                          	C_LINE	28,"blocks.c::g2::2::8"
     28  009c  e1                	pop	hl
     28  009d  e5                	push	hl
     28  009e  220000            	ld	(_g),hl
-    28                          	C_LINE	29,"blocks.c::g2::2::7"
+    28                          	C_LINE	29,"blocks.c::g2::2::8"
     29  00a1  c1                	pop	bc
-    29                          	C_LINE	30,"blocks.c::g2::1::6"
-blocks.c::g2::1::6:
+    29                          	C_LINE	30,"blocks.c::g2::1::7"
+blocks.c::g2::1::7:
     30                          .i_6
-    30                          	C_LINE	30,"blocks.c::g2::1::6"
+    30                          	C_LINE	30,"blocks.c::g2::1::7"
     30                          .i_7
-    30                          	C_LINE	31,"blocks.c::g2::3::8"
-blocks.c::g2::3::8:
-    31                          	C_LINE	31,"blocks.c::g2::3::8"
+    30                          	C_LINE	31,"blocks.c::g2::3::10"
+blocks.c::g2::3::10:
+    31                          	C_LINE	31,"blocks.c::g2::3::10"
     31  00a2  2a0000            	ld	hl,(_g)
     31  00a5  e5                	push	hl
-    31                          	C_LINE	32,"blocks.c::g2::3::8"
-    32                          	C_LINE	32,"blocks.c::g2::3::8"
+    31                          	C_LINE	32,"blocks.c::g2::3::10"
+    32                          	C_LINE	32,"blocks.c::g2::3::10"
     32  00a6  e1                	pop	hl
     32  00a7  e5                	push	hl
     32  00a8  7c                	ld	a,h
@@ -783,14 +783,14 @@ blocks.c::g2::3::8:
     32  00aa  cab100            	jp	z,i_10	;
     32  00ad  c1                	pop	bc
     32  00ae  c3b500            	jp	i_8	;EOS
-    32                          	C_LINE	33,"blocks.c::g2::3::8"
+    32                          	C_LINE	33,"blocks.c::g2::3::10"
     33                          .i_10
     33  00b1  c1                	pop	bc
     33  00b2  c3a200            	jp	i_7	;EOS
     33                          .i_8
-    33                          	C_LINE	34,"blocks.c::g2::1::6"
-blocks.c::g2::1::6:
-    34                          	C_LINE	34,"blocks.c::g2::1::6"
+    33                          	C_LINE	34,"blocks.c::g2::1::7"
+blocks.c::g2::1::7:
+    34                          	C_LINE	34,"blocks.c::g2::1::7"
     34  00b5  2a0000            	ld	hl,(_g)
     34  00b8  cd0000            	call	l_debug_pop_frame
     34  00bb  c9                	ret
@@ -808,21 +808,21 @@ blocks.c::h::0::0:
     37                          ._h
     37  00bc  cd0000            	call	l_debug_push_frame
     37                          	C_LINE	37,"blocks.c::h::0::0"
-    37                          	C_LINE	38,"blocks.c::h::1::9"
-blocks.c::h::1::9:
-    38                          	C_LINE	38,"blocks.c::h::1::9"
+    37                          	C_LINE	38,"blocks.c::h::1::11"
+blocks.c::h::1::11:
+    38                          	C_LINE	38,"blocks.c::h::1::11"
     38  00bf  cd0000            	call	l_gint4sp	;
     38  00c2  e5                	push	hl
-    38                          	C_LINE	39,"blocks.c::h::1::9"
-    39                          	C_LINE	39,"blocks.c::h::1::9"
-    39                          	C_LINE	40,"blocks.c::h::2::10"
-blocks.c::h::2::10:
-    40                          	C_LINE	40,"blocks.c::h::2::10"
+    38                          	C_LINE	39,"blocks.c::h::1::11"
+    39                          	C_LINE	39,"blocks.c::h::1::11"
+    39                          	C_LINE	40,"blocks.c::h::2::12"
+blocks.c::h::2::12:
+    40                          	C_LINE	40,"blocks.c::h::2::12"
     40  00c3  e1                	pop	hl
     40  00c4  e5                	push	hl
     40  00c5  e5                	push	hl
-    40                          	C_LINE	41,"blocks.c::h::2::10"
-    41                          	C_LINE	41,"blocks.c::h::2::10"
+    40                          	C_LINE	41,"blocks.c::h::2::12"
+    41                          	C_LINE	41,"blocks.c::h::2::12"
     41  00c6  210000            	ld	hl,0	;const
     41  00c9  e5                	push	hl
     41  00ca  c3d000            	jp	i_13	;EOS
@@ -841,9 +841,9 @@ blocks.c::h::2::10:
     41  00d8  1f                	rra
     41  00d9  de80              	sbc	128
     41  00db  d2f300            	jp	nc,i_12	;
-    41                          	C_LINE	42,"blocks.c::h::4::11"
-blocks.c::h::4::11:
-    42                          	C_LINE	42,"blocks.c::h::4::11"
+    41                          	C_LINE	42,"blocks.c::h::4::14"
+blocks.c::h::4::14:
+    42                          	C_LINE	42,"blocks.c::h::4::14"
     42  00de  210400            	ld	hl,4	;const
     42  00e1  39                	add	hl,sp
     42  00e2  e5                	push	hl
@@ -856,13 +856,13 @@ blocks.c::h::4::11:
     42  00eb  19                	add	hl,de
     42  00ec  d1                	pop	de
     42  00ed  cd0000            	call	l_pint
-    42                          	C_LINE	43,"blocks.c::h::4::11"
+    42                          	C_LINE	43,"blocks.c::h::4::14"
     43  00f0  c3cd00            	jp	i_11	;EOS
     43                          .i_12
     43  00f3  c1                	pop	bc
-    43                          	C_LINE	44,"blocks.c::h::2::10"
-blocks.c::h::2::10:
-    44                          	C_LINE	44,"blocks.c::h::2::10"
+    43                          	C_LINE	44,"blocks.c::h::2::12"
+blocks.c::h::2::12:
+    44                          	C_LINE	44,"blocks.c::h::2::12"
     44  00f4  210200            	ld	hl,2	;const
     44  00f7  cd0000            	call	l_gintspsp	;
     44  00fa  c1                	pop	bc
@@ -875,11 +875,11 @@ blocks.c::h::2::10:
     44  0101  c1                	pop	bc
     44  0102  e5                	push	hl
     44  0103  d5                	push	de
-    44                          	C_LINE	45,"blocks.c::h::2::10"
+    44                          	C_LINE	45,"blocks.c::h::2::12"
     45  0104  c1                	pop	bc
-    45                          	C_LINE	46,"blocks.c::h::1::9"
-blocks.c::h::1::9:
-    46                          	C_LINE	46,"blocks.c::h::1::9"
+    45                          	C_LINE	46,"blocks.c::h::1::11"
+blocks.c::h::1::11:
+    46                          	C_LINE	46,"blocks.c::h::1::11"
     46  0105  e1                	pop	hl
     46  0106  e5                	push	hl
     46  0107  c1                	pop	bc
@@ -893,11 +893,11 @@ blocks.c::h::0::0:
     48                          
     48                          ; Function main flags 0x00000000 __stdc
     48                          ; int main()
-    48                          	C_LINE	48,"blocks.c::main::0::12"
-blocks.c::main::0::12:
+    48                          	C_LINE	48,"blocks.c::main::0::15"
+blocks.c::main::0::15:
     48                          ._main
     48  010c  cd0000            	call	l_debug_push_frame
-    48                          	C_LINE	48,"blocks.c::main::0::12"
+    48                          	C_LINE	48,"blocks.c::main::0::15"
     48  010f  210300            	ld	hl,3	;const
     48  0112  e5                	push	hl
     48  0113  cd0000            	call	_f
@@ -966,45 +966,45 @@ blocks.c::main::0::12:
     48                          ; S:Lblocks.c.f$p$2_0$2({2}SI:S),B,1,-4
     48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2ef_24p_24_32_5f_30_24_32_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34
     48                          	defc	__CDBINFO__S_3aLblocks_2ec_2ef_24p_24_32_5f_30_24_32_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34 = 1
-    48                          ; S:Lblocks.c.f$i$2_0$1({2}SI:S),B,1,-4
-    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2ef_24i_24_32_5f_30_24_31_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34
-    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2ef_24i_24_32_5f_30_24_31_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34 = 1
-    48                          ; S:Lblocks.c.f$u$2_0$4({2}SI:S),B,1,-4
-    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2ef_24u_24_32_5f_30_24_34_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34
-    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2ef_24u_24_32_5f_30_24_34_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34 = 1
-    48                          ; S:Lblocks.c.f$v$3_0$5({2}SI:S),B,1,-6
-    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2ef_24v_24_33_5f_30_24_35_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36
-    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2ef_24v_24_33_5f_30_24_35_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36 = 1
-    48                          ; S:Lblocks.c.f$z$2_0$4({2}SI:S),B,1,-6
-    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2ef_24z_24_32_5f_30_24_34_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36
-    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2ef_24z_24_32_5f_30_24_34_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36 = 1
+    48                          ; S:Lblocks.c.f$i$2_0$3({2}SI:S),B,1,-4
+    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2ef_24i_24_32_5f_30_24_33_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34
+    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2ef_24i_24_32_5f_30_24_33_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34 = 1
+    48                          ; S:Lblocks.c.f$u$2_0$5({2}SI:S),B,1,-4
+    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2ef_24u_24_32_5f_30_24_35_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34
+    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2ef_24u_24_32_5f_30_24_35_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34 = 1
+    48                          ; S:Lblocks.c.f$v$3_0$6({2}SI:S),B,1,-6
+    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2ef_24v_24_33_5f_30_24_36_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36
+    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2ef_24v_24_33_5f_30_24_36_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36 = 1
+    48                          ; S:Lblocks.c.f$z$2_0$5({2}SI:S),B,1,-6
+    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2ef_24z_24_32_5f_30_24_35_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36
+    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2ef_24z_24_32_5f_30_24_35_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36 = 1
     48                          ; F:G$g2$0_0$0({0}DF,SI:S),C,0,0,0,0,0
     48                          	PUBLIC	__CDBINFO__F_3aG_24g_32_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
     48                          	defc	__CDBINFO__F_3aG_24g_32_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
     48                          ; S:Lblocks.c.g2$a$0_0$0({2}SI:S),B,1,4
     48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eg_32_24a_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_34
     48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eg_32_24a_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_34 = 1
-    48                          ; S:Lblocks.c.g2$q$2_0$7({2}SI:S),B,1,-2
-    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eg_32_24q_24_32_5f_30_24_37_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32
-    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eg_32_24q_24_32_5f_30_24_37_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32 = 1
-    48                          ; S:Lblocks.c.g2$w$3_0$8({2}SI:S),B,1,-2
-    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eg_32_24w_24_33_5f_30_24_38_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32
-    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eg_32_24w_24_33_5f_30_24_38_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32 = 1
+    48                          ; S:Lblocks.c.g2$q$2_0$8({2}SI:S),B,1,-2
+    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eg_32_24q_24_32_5f_30_24_38_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32
+    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eg_32_24q_24_32_5f_30_24_38_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32 = 1
+    48                          ; S:Lblocks.c.g2$w$3_0$10({2}SI:S),B,1,-2
+    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eg_32_24w_24_33_5f_30_24_31_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32
+    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eg_32_24w_24_33_5f_30_24_31_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32 = 1
     48                          ; F:G$h$0_0$0({0}DF,SI:S),C,0,0,0,0,0
     48                          	PUBLIC	__CDBINFO__F_3aG_24h_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
     48                          	defc	__CDBINFO__F_3aG_24h_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
     48                          ; S:Lblocks.c.h$a$0_0$0({2}SI:S),B,1,4
     48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eh_24a_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_34
     48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eh_24a_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_34 = 1
-    48                          ; S:Lblocks.c.h$t$1_0$9({2}SI:S),B,1,-2
-    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eh_24t_24_31_5f_30_24_39_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32
-    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eh_24t_24_31_5f_30_24_39_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32 = 1
-    48                          ; S:Lblocks.c.h$m$2_0$10({2}SI:S),B,1,-4
-    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eh_24m_24_32_5f_30_24_31_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34
-    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eh_24m_24_32_5f_30_24_31_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34 = 1
-    48                          ; S:Lblocks.c.h$j$3_0$10({2}SI:S),B,1,-6
-    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eh_24j_24_33_5f_30_24_31_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36
-    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eh_24j_24_33_5f_30_24_31_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36 = 1
+    48                          ; S:Lblocks.c.h$t$1_0$11({2}SI:S),B,1,-2
+    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eh_24t_24_31_5f_30_24_31_31_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32
+    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eh_24t_24_31_5f_30_24_31_31_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32 = 1
+    48                          ; S:Lblocks.c.h$m$2_0$12({2}SI:S),B,1,-4
+    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eh_24m_24_32_5f_30_24_31_32_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34
+    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eh_24m_24_32_5f_30_24_31_32_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34 = 1
+    48                          ; S:Lblocks.c.h$j$3_0$13({2}SI:S),B,1,-6
+    48                          	PUBLIC	__CDBINFO__S_3aLblocks_2ec_2eh_24j_24_33_5f_30_24_31_33_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36
+    48                          	defc	__CDBINFO__S_3aLblocks_2ec_2eh_24j_24_33_5f_30_24_31_33_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_36 = 1
     48                          ; F:G$main$0_0$0({0}DF,SI:S),C,0,0,0,0,0
     48                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
     48                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1

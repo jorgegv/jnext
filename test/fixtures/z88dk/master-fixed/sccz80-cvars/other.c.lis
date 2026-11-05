@@ -671,15 +671,9 @@ other.c::other::1::1:
      9                          ; T:Ftypes.h$flags[({0}S:S$lo$0_0$0({1}SB0$3:U),Z,0,0)({0}S:S$mid$0_0$0({1}SB3$5:U),Z,0,0)({1}S:S$hi$0_0$0({1}SB0$8:U),Z,0,0)]
      9                          	PUBLIC	__CDBINFO__T_3aFtypes_2eh_24flags_5b_28_7b_30_7dS_3aS_24lo_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_33_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24mid_24_30_5f_30_24_30_28_7b_31_7dSB_33_24_35_3aU_29_2cZ_2c_30_2c_30_29_28_7b_31_7dS_3aS_24hi_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_38_3aU_29_2cZ_2c_30_2c_30_29_5d
      9                          	defc	__CDBINFO__T_3aFtypes_2eh_24flags_5b_28_7b_30_7dS_3aS_24lo_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_33_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24mid_24_30_5f_30_24_30_28_7b_31_7dSB_33_24_35_3aU_29_2cZ_2c_30_2c_30_29_28_7b_31_7dS_3aS_24hi_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_38_3aU_29_2cZ_2c_30_2c_30_29_5d = 1
-     9                          ; S:G$RED$0_0$0({0}),E,0,0
-     9                          	PUBLIC	__CDBINFO__S_3aG_24RED_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30
-     9                          	defc	__CDBINFO__S_3aG_24RED_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30 = 1
-     9                          ; S:G$GREEN$0_0$0({0}),E,0,0
-     9                          	PUBLIC	__CDBINFO__S_3aG_24GREEN_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30
-     9                          	defc	__CDBINFO__S_3aG_24GREEN_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30 = 1
-     9                          ; S:G$BLUE$0_0$0({0}),E,0,0
-     9                          	PUBLIC	__CDBINFO__S_3aG_24BLUE_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30
-     9                          	defc	__CDBINFO__S_3aG_24BLUE_24_30_5f_30_24_30_28_7b_30_7d_29_2cE_2c_30_2c_30 = 1
+     9                          ; N:Ftypes.h$colour({2}SI:S)[(RED$0)(GREEN$5)(BLUE$6)]
+     9                          	PUBLIC	__CDBINFO__N_3aFtypes_2eh_24colour_28_7b_32_7dSI_3aS_29_5b_28RED_24_30_29_28GREEN_24_35_29_28BLUE_24_36_29_5d
+     9                          	defc	__CDBINFO__N_3aFtypes_2eh_24colour_28_7b_32_7dSI_3aS_29_5b_28RED_24_30_29_28GREEN_24_35_29_28BLUE_24_36_29_5d = 1
      9                          ; F:G$other$0_0$0({0}DF,SI:S),C,0,0,0,0,0
      9                          	PUBLIC	__CDBINFO__F_3aG_24other_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
      9                          	defc	__CDBINFO__F_3aG_24other_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1

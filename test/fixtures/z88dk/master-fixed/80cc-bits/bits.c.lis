@@ -559,8 +559,8 @@ bits.c::main::0::1:
      9  0008  21f9ff            	ld	hl,-7
      9  000b  39                	add	hl,sp
      9  000c  f9                	ld	sp,hl
-     9                          	C_LINE	11,"bits.c::main::0::2"
-bits.c::main::0::2:
+     9                          	C_LINE	11,"bits.c::main::1::2"
+bits.c::main::1::2:
     11  000d  3e05              	ld	a,5
     11  000f  e607              	and	7
     11  0011  47                	ld	b,a
@@ -606,7 +606,7 @@ bits.c::main::0::2:
     11  0063  210500            	ld	hl,5
     11  0066  39                	add	hl,sp
     11  0067  3642              	ld	(hl),66
-    11                          	C_LINE	12,"bits.c::main::0::2"
+    11                          	C_LINE	12,"bits.c::main::1::2"
     12  0069  210000            	ld	hl,0
     12  006c  39                	add	hl,sp
     12  006d  110000            	ld	de,_g_bf
@@ -614,7 +614,7 @@ bits.c::main::0::2:
     12  0071  010600            	ld	bc,6
     12  0074  edb0              	ldir
     12  0076  c1                	pop	bc
-    12                          	C_LINE	13,"bits.c::main::0::2"
+    12                          	C_LINE	13,"bits.c::main::1::2"
     13  0077  210600            	ld	hl,_g_lone
     13  007a  36ff              	ld	(hl),255
     13  007c  23                	inc	hl
@@ -633,7 +633,7 @@ bits.c::main::0::2:
     13  0096  320700            	ld	(_g_lone+1),a
     13  0099  210800            	ld	hl,_g_lone+2
     13  009c  3609              	ld	(hl),9
-    13                          	C_LINE	14,"bits.c::main::0::2"
+    13                          	C_LINE	14,"bits.c::main::1::2"
     14  009e  01fdff            	ld	bc,-3
     14  00a1  210900            	ld	hl,_g_one
     14  00a4  79                	ld	a,c
@@ -644,12 +644,12 @@ bits.c::main::0::2:
     14  00af  ddb6ff            	or	(ix-1)
     14  00b2  320900            	ld	(_g_one),a
     14                          L_f1_bb_1:
-    14                          	C_LINE	15,"bits.c::main::0::2"
+    14                          	C_LINE	15,"bits.c::main::1::2"
     15  00b5  3e01              	ld	a,1
     15  00b7  b7                	or	a
     15  00b8  c2b500            	jp	nz,L_f1_bb_1
     15                          L_f1_bb_5:
-    15                          	C_LINE	16,"bits.c::main::0::2"
+    15                          	C_LINE	16,"bits.c::main::1::2"
     16  00bb  210000            	ld	hl,0
     16  00be  ddf9              	ld	sp,ix
     16  00c0  dde1              	pop	ix

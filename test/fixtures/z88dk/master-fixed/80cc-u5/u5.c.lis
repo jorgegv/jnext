@@ -549,39 +549,57 @@ u5.c:
      3                          	C_LINE	4,"u5.c::twice::0::0"
 u5.c::twice::0::0:
      4                          ._twice
-     4  0000  cd0000            	call	l_debug_push_frame
-     4  0003  3b                	dec	sp
-     4                          	C_LINE	6,"u5.c::twice::0::1"
-u5.c::twice::0::1:
-     6  0004  210500            	ld	hl,5
-     6  0007  39                	add	hl,sp
-     6  0008  7e                	ld	a,(hl)
-     6  0009  87                	add	a,a
-     6                          	C_LINE	7,"u5.c::twice::0::1"
-     7  000a  3c                	inc	a
-     7                          	C_LINE	8,"u5.c::twice::0::1"
-     8  000b  6f                	ld	l,a
-     8  000c  33                	inc	sp
-     8  000d  cd0000            	call	l_debug_pop_frame
-     8  0010  c9                	ret
-     8                          	C_LINE	10,"u5.c::twice::0::1"
+     4  0000  dde5              	push	ix
+     4  0002  dd210000          	ld	ix,0
+     4  0006  dd39              	add	ix,sp
+     4  0008  f5                	push	af
+     4                          	C_LINE	6,"u5.c::twice::1::1"
+u5.c::twice::1::1:
+     6  0009  dd7e04            	ld	a,(ix+4)	;volatile
+     6  000c  47                	ld	b,a
+     6  000d  dd7e04            	ld	a,(ix+4)	;volatile
+     6  0010  80                	add	a,b
+     6  0011  dd77ff            	ld	(ix-1),a
+     6  0014  dd77fe            	ld	(ix-2),a
+     6                          	C_LINE	7,"u5.c::twice::1::1"
+     7  0017  dd7eff            	ld	a,(ix-1)
+     7  001a  3c                	inc	a
+     7  001b  47                	ld	b,a
+     7  001c  dd77fe            	ld	(ix-2),a
+     7                          	C_LINE	8,"u5.c::twice::1::1"
+     8  001f  78                	ld	a,b
+     8  0020  6f                	ld	l,a
+     8  0021  ddf9              	ld	sp,ix
+     8  0023  dde1              	pop	ix
+     8  0025  c9                	ret
+     8                          	C_LINE	10,"u5.c::twice::0::0"
+u5.c::twice::0::0:
     10                          
     10                          ; Function main flags 0x00000000 __stdc
     10                          ; int main()
     10                          	C_LINE	11,"u5.c::main::0::2"
 u5.c::main::0::2:
     11                          ._main
-    11                          	C_LINE	13,"u5.c::main::0::3"
-u5.c::main::0::3:
-    13  0011  210300            	ld	hl,3
-    13  0014  e5                	push	hl
-    13  0015  cd0000            	call	_twice
-    13  0018  c1                	pop	bc
-    13  0019  7d                	ld	a,l
-    13  001a  320000            	ld	(_g),a
-    13                          	C_LINE	14,"u5.c::main::0::3"
-    14  001d  210000            	ld	hl,0
-    14  0020  c9                	ret
+    11  0026  dde5              	push	ix
+    11  0028  dd210000          	ld	ix,0
+    11  002c  dd39              	add	ix,sp
+    11  002e  3b                	dec	sp
+    11                          	C_LINE	12,"u5.c::main::1::3"
+u5.c::main::1::3:
+    12  002f  3e03              	ld	a,3
+    12  0031  dd77ff            	ld	(ix-1),a
+    12                          	C_LINE	13,"u5.c::main::1::3"
+    13  0034  210300            	ld	hl,3
+    13  0037  e5                	push	hl
+    13  0038  cd0000            	call	_twice
+    13  003b  c1                	pop	bc
+    13  003c  7d                	ld	a,l
+    13  003d  320000            	ld	(_g),a
+    13                          	C_LINE	14,"u5.c::main::1::3"
+    14  0040  210000            	ld	hl,0
+    14  0043  ddf9              	ld	sp,ix
+    14  0045  dde1              	pop	ix
+    14  0047  c9                	ret
     14                          	SECTION	bss_compiler
     14                          	SECTION	code_compiler
     14                          ; --- Start of Optimiser additions ---
@@ -615,21 +633,24 @@ u5.c::main::0::3:
     14                          ; S:Lu5.c.twice$v$0_0$0({1}SC:U),B,1,4
     14                          	PUBLIC	__CDBINFO__S_3aLu_35_2ec_2etwice_24v_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_34
     14                          	defc	__CDBINFO__S_3aLu_35_2ec_2etwice_24v_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_34 = 1
-    14                          ; S:Lu5.c.twice$r$1_0$1({1}SC:U),B,1,-1
-    14                          	PUBLIC	__CDBINFO__S_3aLu_35_2ec_2etwice_24r_24_31_5f_30_24_31_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31
-    14                          	defc	__CDBINFO__S_3aLu_35_2ec_2etwice_24r_24_31_5f_30_24_31_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31 = 1
-    14                          ; F:G$main$0_0$1({0}DF,SI:S),C,0,0,0,0,0
-    14                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
-    14                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    14                          ; S:Lu5.c.twice$r$1_0$1({1}SC:U),B,1,-2
+    14                          	PUBLIC	__CDBINFO__S_3aLu_35_2ec_2etwice_24r_24_31_5f_30_24_31_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_32
+    14                          	defc	__CDBINFO__S_3aLu_35_2ec_2etwice_24r_24_31_5f_30_24_31_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_32 = 1
+    14                          ; F:G$main$0_0$0({0}DF,SI:S),C,0,0,0,0,0
+    14                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    14                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    14                          ; S:Lu5.c.main$loc$1_0$3({1}SC:U),B,1,-1
+    14                          	PUBLIC	__CDBINFO__S_3aLu_35_2ec_2emain_24loc_24_31_5f_30_24_33_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31
+    14                          	defc	__CDBINFO__S_3aLu_35_2ec_2emain_24loc_24_31_5f_30_24_33_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31 = 1
     14                          ; S:G$g$0_0$0({1}SC:U),E,0,0
     14                          	PUBLIC	__CDBINFO__S_3aG_24g_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30
     14                          	defc	__CDBINFO__S_3aG_24g_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30 = 1
     14                          ; F:G$twice$0_0$0({0}DF,SC:U),C,0,0,0,0,0
     14                          	PUBLIC	__CDBINFO__F_3aG_24twice_24_30_5f_30_24_30_28_7b_30_7dDF_2cSC_3aU_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
     14                          	defc	__CDBINFO__F_3aG_24twice_24_30_5f_30_24_30_28_7b_30_7dDF_2cSC_3aU_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
-    14                          ; F:G$main$0_0$1({0}DF,SI:S),C,0,0,0,0,0
-    14                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
-    14                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    14                          ; F:G$main$0_0$0({0}DF,SI:S),C,0,0,0,0,0
+    14                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    14                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
     14                          
     14                          ; --- End of Compilation ---
     14                          

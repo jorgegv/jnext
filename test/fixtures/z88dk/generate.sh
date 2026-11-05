@@ -5,8 +5,8 @@
 #   bash test/fixtures/z88dk/generate.sh
 # Exits non-zero if a build's outcome differs from its expected one.
 #   Z88DK_24      z88dk 2.4 install  (default ~/src/spectrum/z88dk-original-2.4)
-#   Z88DK_MASTER  master install     (default ~/src/spectrum/z88dk-original-latest)
-#   Z88DK_FIXED   master + the six merged debug-record fixes, upstream a52baaf7d9 (default ~/src/spectrum/z88dk-original-fixed; GH #438)
+#   Z88DK_MASTER  master BEFORE the debug-record fixes, 97731e4e29 (default ~/src/spectrum/z88dk-original-97731e4e29)
+#   Z88DK_FIXED   master AFTER the fixes, 0f0a1cf70e (default ~/src/spectrum/z88dk-original-latest; GH #438)
 set -euo pipefail
 export LANG=C LC_ALL=C
 
@@ -14,8 +14,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 DEST=${DEST:-$HERE}
 SRC=$HERE/src
 Z24=$(realpath "${Z88DK_24:-$HOME/src/spectrum/z88dk-original-2.4}")
-ZM=$(realpath "${Z88DK_MASTER:-$HOME/src/spectrum/z88dk-original-latest}")
-ZF=$(realpath "${Z88DK_FIXED:-$HOME/src/spectrum/z88dk-original-fixed}")
+ZM=$(realpath "${Z88DK_MASTER:-$HOME/src/spectrum/z88dk-original-97731e4e29}")
+ZF=$(realpath "${Z88DK_FIXED:-$HOME/src/spectrum/z88dk-original-latest}")
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/z88fix.XXXXXX")
 
 # z80asm's symbol-name encoding of a path: [A-Za-z0-9] kept, anything else _%02x.
@@ -24,7 +24,7 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|blocks_c|bits_c|fm_c|u5_c|fl_c|X__xm_c|X1st_c|xm_c|_1st_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c|cross_c|floats_c)$'
+MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|blocks_c|bits_c|fm_c|u5_c|fl_c|X__xm_c|X1st_c|xm_c|_1st_c|__xm_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c|cross_c|floats_c)$'
 
 trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT), $3 = for a dot command, the groups that have a prog_<G>.bin; stdout = kept lines, original order
     awk -v MODS="$MODS" -v CRT="${2:-}" -v BINS="${3:-}" -v EXTRA="${KEEP_EXTRA:-}" '
@@ -140,7 +140,7 @@ provenance() {  # $1 = install, $2 = dir name
 }
 
 for z in "$Z24" "$ZM" "$ZF"; do [[ -x $z/bin/zcc ]] || { echo "no zcc in $z" >&2; exit 1; }; done
-rm -rf "${DEST:?}/v2.4" "${DEST:?}/v2.4-dotn" "${DEST:?}/master" "${DEST:?}/master-fixed"
+rm -rf "${DEST:?}/v2.4" "${DEST:?}/v2.4-dotn" "${DEST:?}/master" "${DEST:?}/master-fixed" "${DEST:?}/master-fixed-zsdcc"
 provenance "$Z24" v2.4
 build "$Z24" v2.4 sccz80-debug  plain          -clib=new -debug
 build "$Z24" v2.4 sdcc-SO0      plain          -clib=sdcc_iy -SO0 --c-code-in-asm
@@ -247,6 +247,7 @@ build "$ZM" master classic-math32 classic1:fl.c  -debug --math32
 
 # GH #438: master with the six merged fixes (upstream a52baaf7d9; no library or zsdcc change since 97731e4e29)
 provenance "$ZF" master-fixed
+provenance "$ZF" master-fixed-zsdcc
 build "$ZF" master-fixed sccz80-cvars  cvars         -clib=new -debug
 build "$ZF" master-fixed sccz80-fc     single:fc.c   -clib=new -debug
 build "$ZF" master-fixed sccz80-blocks single:blocks.c -clib=new -debug
@@ -256,8 +257,13 @@ build "$ZF" master-fixed 80cc-cvars    cvars         -clib=new -compiler=80cc -d
 build "$ZF" master-fixed 80cc-bits     single:bits.c -clib=new -compiler=80cc -debug
 build "$ZF" master-fixed 80cc-fm       single:fm.c   -clib=new -compiler=80cc -debug
 build "$ZF" master-fixed 80cc-u5       single:u5.c   -clib=new -compiler=80cc -debug
+# zsdcc after the fixes (GH #438): #3262 (no TAB after the C_LINE function name) and #3265 (the -debug module names are the whole source path)
+build "$ZF" master-fixed-zsdcc sdcc-cvars    cvars         -clib=sdcc_iy -debug
+build "$ZF" master-fixed-zsdcc sdcc-blocks   single:blocks.c -clib=sdcc_iy -debug
+build "$ZF" master-fixed-zsdcc sdcc-xmod     xmod          -clib=sdcc_iy -debug
+build "$ZF" master-fixed-zsdcc sdcc-debug    plain         -clib=sdcc_iy -debug
 
 # every file the rows hash: sources, this script, derive-scopes.py, the outputs (README.md and the manifest itself excluded)
-(cd "$DEST" && find src generate.sh derive-scopes.py v2.4 v2.4-dotn master master-fixed -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"
+(cd "$DEST" && find src generate.sh derive-scopes.py v2.4 v2.4-dotn master master-fixed master-fixed-zsdcc -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"
 if (( BAD )); then echo "unexpected build outcome; scratch kept: $WORK" >&2; exit 1; fi
 rm -rf "$WORK"

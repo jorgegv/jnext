@@ -1,5 +1,5 @@
-commit: a52baaf7d9e61f1ed96d7141224ffc740d5acfd7
-describe: v2.4-2896-ga52baaf7d9
+commit: 0f0a1cf70e48856af8191af6f86096d2e1362482
+describe: v2.4-2954-g0f0a1cf70e
 modified tracked files: 
 zcc: zcc - Frontend for the z88dk Cross-C Compiler - v23856-580777436e-20251005
-zsdcc: Build: 4.6.0 #16639 (Linux) pr3093 Nov  3 2026
+zsdcc: Build: 4.6.0 #16639 (Linux) pr3093 Nov  5 2026

@@ -357,6 +357,30 @@ CdbDecoded cdb_decode(std::string_view rec) {
         out.var.name = std::string(name);
         return d;
     }
+    if (k == 'N' || k == 'E') {
+        // z88dk#3241: `N:F<file>$<tag>({<size>}<base>)[(<name>$<value>)...]` and `E:<scope>$<name>$...({<size>}...SEF<file>$<tag>:<sign>...)`.
+        // Recognised, not read: the variable's `S:` record is still written. The name is kept; the rest must at least be non-empty.
+        out.kind = CdbKind::Enum;
+        const std::string_view body = rec.substr(2);
+        if (k == 'N') {
+            out.scope = CdbScope::File;
+            const size_t dollar = body.find('$'), open = body.find('(');
+            if (body.empty() || body[0] != 'F' || dollar == std::string_view::npos || dollar < 2 || open == std::string_view::npos ||
+                open <= dollar + 1 || body.back() != ']')
+                return refuse_text("malformed enum record");
+            out.scope_name = std::string(body.substr(1, dollar - 1));
+            out.var.name = std::string(body.substr(dollar + 1, open - dollar - 1));
+        } else {
+            const size_t d1 = body.find('$');
+            if (body.empty() || d1 == std::string_view::npos || body.find("({") == std::string_view::npos) return refuse_text("malformed enum record");
+            out.scope = body[0] == 'G' ? CdbScope::Global : body[0] == 'F' ? CdbScope::File : body[0] == 'L' ? CdbScope::Local : CdbScope::None;
+            if (out.scope == CdbScope::None) return refuse_text("unknown scope (expected G, F or L)");
+            const size_t d2 = body.find('$', d1 + 1);
+            if (d2 == std::string_view::npos || d2 == d1 + 1) return refuse_text("malformed enum record");
+            out.var.name = std::string(body.substr(d1 + 1, d2 - d1 - 1));
+        }
+        return d;
+    }
     if (k != 'F' && k != 'S' && k != 'T') return refuse_text("unknown record kind");
     r.expect(k, "kind");
     r.expect(':', "':'");
