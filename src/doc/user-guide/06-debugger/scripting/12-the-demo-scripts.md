@@ -58,7 +58,7 @@ with `dsl_demo_buggy.nex` for the buggy build.
 
 ## `range_watch.jds`: a guard on the code area
 
-The #279 code-area guard — every write into 0x0000–0x3FFF and into
+The code-area guard — every write into 0x0000–0x3FFF and into
 0x8000–`@__data_crt_head - 1` stops, naming the writer. The script is listed
 and explained in [Catching memory-corruption bugs](11-catching-memory-corruption-bugs.md#1-a-guard-on-the-code-area).
 

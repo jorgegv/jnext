@@ -441,7 +441,6 @@ and `.newt sntp 0 pool.ntp.org` works. What is not emulated there is UDP
 a packet; the emulated module answers `ERROR` rather than pretending.
 
 None of the rest has a consumer in current Next software. Widening the emulation to
-the full ESP-01 firmware specification is tracked as
-[issue #154](https://github.com/jorgegv/jnext/issues/154).
+the full ESP-01 firmware specification is not done.
 
 ---

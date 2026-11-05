@@ -66,10 +66,10 @@ there. The map records `../src/main.c`, and the Source tab finds the file.
 | Build | z88dk 2.4 (4d530b6eb7) | z88dk master (0f0a1cf70e, v2.4-2954) | C variables ([the Variables tab](11-c-variables.md)) |
 |---|---|---|---|
 | sccz80, newlib: `+zxn -clib=new -debug -m --list` | works: 281 lines. Part of a statement can show on the next line | works: 286 lines | yes, with the limits listed in [C variables](11-c-variables.md#what-each-z88dk-can-show) |
-| sdcc, newlib: `+zxn -clib=sdcc_iy -debug -m --list` | **does not build**: `main.c:224: error: syntax error ^---- defc Gcounter0_00==.` (z88dk issue 3172). Use `--c-code-in-asm` instead (next row) | works: 222 lines. Code from a header can show under the wrong line | 2.4: no. Master: yes |
+| sdcc, newlib: `+zxn -clib=sdcc_iy -debug -m --list` | **does not build**: `main.c:224: error: syntax error ^---- defc Gcounter0_00==.`. Use `--c-code-in-asm` instead (next row) | works: 222 lines. Code from a header can show under the wrong line | 2.4: no. Master: yes |
 | sdcc on 2.4: `+zxn -clib=sdcc_iy --c-code-in-asm -m --list` (no `-debug`) | works: 230 lines, from the listings alone | not needed | no (no records without `-debug`) |
-| 80cc: `+zxn -clib=new -compiler=80cc -debug -m --list` | not available | works: 240 lines. Some lines are shared | yes, with the 80cc note ([z88dk#3233](https://github.com/z88dk/z88dk/issues/3233)) |
-| classic on the Next: `+zxn -clib=classic -debug` | **fails**: `Unknown option2 --hardware-keyboard` | works: 187 lines (PR #3198) | 2.4: no. Master: yes |
+| 80cc: `+zxn -clib=new -compiler=80cc -debug -m --list` | not available | works: 240 lines. Some lines are shared | yes, with the 80cc note |
+| classic on the Next: `+zxn -clib=classic -debug` | **fails**: `Unknown option2 --hardware-keyboard` | works: 187 lines | 2.4: no. Master: yes |
 | classic on the Next, no `-debug`: `+zxn -clib=classic -m --list` | builds: 171 lines, from the listings. No `prog_CODE.bin`, so the identity is not verified | builds: 173 lines, same | no |
 | classic on the 48K Spectrum: `+zx -debug -m --list` (no `-clib`: classic is the default) | works: 251 lines. No `prog_CODE.bin`: `(program identity not verified: no section binaries beside it)` | works: 254 lines, same | yes |
 
@@ -85,8 +85,7 @@ Notes:
 - sdcc writes its C lines into the listings only with `--c-code-in-asm`. With
   `--list` but without it, JNEXT says so and uses the map alone:
   `z88dk listings for 'prog.map': main.c.lis: it has no line information (sdcc writes it with --c-code-in-asm)`.
-- The `--hardware-keyboard` failure is a z88dk bug that is fixed upstream (PR
-  #3198, merged 2026-10-23); master builds from v2.4-2883 have it fixed, a release may not.
+- The `--hardware-keyboard` failure is a z88dk bug that is fixed upstream (in z88dk master from 2026-10-23); master builds from v2.4-2883 have it fixed, a release may not.
 - A `.lis` file from a different build is detected and dropped with a warning;
   see [Limits and troubleshooting](10-limits-and-troubleshooting.md).
 
@@ -134,7 +133,7 @@ zcc +zxn -clib=new -debug -DUSE_BANKED_KW -pragma-define:CRT_ORG_PAGE_20=0x14C00
 Give both pragmas. `CRT_ORG_PAGE_20` carries the page in its top byte
 (`0x14C000` is page 20 at `$C000`) and `REGISTER_SP=0xC000` keeps the stack below the
 banking window. Without them the program itself calls page 0 or loses its stack,
-so it cannot run. A newer z88dk (PR #3217, merged 2026-10-31) makes the page the
+so it cannot run. A newer z88dk (master from 2026-10-31) makes the page the
 default and documents the stack; its description says the pragma gives identical
 output, so it is harmless there. Only 2.4 and the 2026-10-16 master were run for
 this page; on anything newer, build the example and look.
