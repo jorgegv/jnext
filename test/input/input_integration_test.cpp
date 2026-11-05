@@ -2059,23 +2059,26 @@ static void test_gh450_hic() {
         check("HIC-01", "128K: a key set between frames is first seen by the main loop after frame N+1's ISR",
               r.ok && o.done == 1 && o.seen == static_cast<uint8_t>(o.t + 1),
               obs_str(o));
-        // HIC-02 is run over twelve loop phases: each extra NOP in the read
-        // routine moves the main loop's IN 4 T against the interrupt, so some
-        // phase puts an IN that BEGINS before the edge with its bus cycle AFTER
-        // it, and some put the last IN a few T before it. Neither may see the key.
+        // HIC-02 is run over 48 loop phases on one machine: each extra NOP in the
+        // read routine moves the main loop's IN 4 T against the interrupt, so
+        // some phase puts an IN that BEGINS before the edge with its bus cycle
+        // AFTER it (an eight-T window), and some put the last IN a few T before
+        // it. Neither may see the key.
         std::string bad_pads;
-        for (int pad = 0; pad < 12; ++pad) {
-            Rig rp;
-            if (!init(rp, MachineType::ZX128K)) { bad_pads += "init "; continue; }
-            std::vector<uint8_t> rd(static_cast<size_t>(pad), 0x00);   // NOPs
-            rd.insert(rd.end(), kReadSpace.begin(), kReadSpace.end());
-            build_poller(rp, rd, true);
-            warm(rp.emu);
-            const Obs op = host_press_then_frame(rp.emu, press_space);
-            if (!(op.isr_read != 0 && op.isr_prev == 0))
-                bad_pads += std::to_string(pad) + " ";
+        if (r.ok) {
+            for (int pad = 0; pad < 48; ++pad) {
+                r.emu.keyboard().set_key(SDL_SCANCODE_SPACE, false);
+                warm(r.emu, 2);   // the release commits at the interrupt too
+                std::vector<uint8_t> rd(static_cast<size_t>(pad), 0x00);   // NOPs
+                rd.insert(rd.end(), kReadSpace.begin(), kReadSpace.end());
+                build_poller(r, rd, true);
+                warm(r.emu);
+                const Obs op = host_press_then_frame(r.emu, press_space);
+                if (!(op.isr_read != 0 && op.isr_prev == 0))
+                    bad_pads += std::to_string(pad) + " ";
+            }
         }
-        check("HIC-02", "128K: ISR of N+1 reads the key down; the main loop's last read before it read up, in every one of 12 loop phases (FUSE order)",
+        check("HIC-02", "128K: ISR of N+1 reads the key down; the main loop's last read before it read up, in every one of 48 loop phases (FUSE order)",
               r.ok && o.isr_read != 0 && o.isr_prev == 0 && bad_pads.empty(),
               obs_str(o) + " bad pads: " + bad_pads);
     }
