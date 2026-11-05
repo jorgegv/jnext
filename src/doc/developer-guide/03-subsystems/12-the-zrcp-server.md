@@ -50,7 +50,7 @@ machines segment 0 is `DIV` while slot 0 reads DivMMC. `MMU=` stays the DeZog pr
 (ROM half >= 0x8000) and does not use `now`. `cpu-step-over` reads the opcode at the PC
 through `memory_reader()`, the instruction the CPU will fetch.
 
-## `CVAR(path)`: jnext's extension of the dialect (GH #436)
+## `CVAR(path)`: jnext's extension of the dialect
 
 `evaluate` and a breakpoint condition both go through `translate_condition()`, ZEsarUX's tokeniser and grouping, and only the
 translation reaches the DSL: `cvar(...)` typed into `evaluate` was `Error parsing`. The tokeniser therefore takes one new
@@ -64,7 +64,7 @@ that fails answers `Error evaluating parsed string: CVAR(path)`, with no reason 
 `monitor print` show the reason). A condition with no `PC=` first term is checked at every instruction, so one with a `CVAR`
 builds the C frames each time: `help set-breakpoint` says to put a `PC=` term first.
 
-The write (GH #437) is the same extension on the one assignment verb: `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1190`) writes
+The write is the same extension on the one assignment verb: `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1190`) writes
 a C variable of frame 0 through `write_c_value()` ([7.10](../07-source-level-debugging/10-c-frames-and-values.md)). The table's census (`ZRCP-TAB-01`)
 pins the command names to ZEsarUX's `ls`, so no `set-cvar` could be added. Success answers the register line, and every failure (no `)` or `=`, an
 empty path or value, a refusal of the facade) is ZEsarUX's `Error changing register`, with no reason, as a failed `CVAR()` read has none.

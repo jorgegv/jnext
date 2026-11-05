@@ -3004,7 +3004,7 @@
 
 
 <h1 id="747-the-skoolkit-and-ghidra-exports-and-imports">7.4.7 The skoolkit and Ghidra exports and imports<a class="headerlink" href="#747-the-skoolkit-and-ghidra-exports-and-imports" title="Permanent link">&para;</a></h1>
-<p>The other pages of 7.4 are inputs. This one is the reverse direction (GH #389, E23-26):
+<p>The other pages of 7.4 are inputs. This one is the reverse direction:
 <code>Debugger::export_skoolkit()</code> and <code>export_ghidra()</code> write what the disassembly shows, and for
 skoolkit the code/data map that <code>--coverage</code> recorded, into a directory, as the files the two
 reverse-engineering tools read; <code>import_skoolkit()</code> and <code>import_ghidra()</code> (stage B) read such files back
@@ -3046,7 +3046,7 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
   the header, <code>@ start</code> / <code>@ org</code>, the block directives (<code>block_letter()</code> (<code>skoolkit_ctl.cpp:137</code>)),
   the labels, the <code>B</code>/<code>C</code> sub-blocks and the closing <code>i</code>. A Z80N instruction or a clipped one is a <code>B</code>
   sub-block, and so is each piece of an instruction a key falls in.</li>
-<li><strong>One name, one key</strong> (GH #349). z88dk's module-local labels repeat across routines (<code>end_x</code>
+<li><strong>One name, one key</strong>. z88dk's module-local labels repeat across routines (<code>end_x</code>
   at <code>$80CA</code> and <code>$8103</code> in <code>asm_zx_cls_wc_attr</code> / <code>asm_zx_cls_wc_pix</code>); <code>skool2asm.py</code> refuses a label
   defined twice, and both importers (and <code>UserAnnotations</code>, one key per name) refuse a name at two keys.
   So <code>unique_names()</code> (<code>reexport.cpp</code>) runs first in <code>build()</code> of each writer: of the exportable labels sharing

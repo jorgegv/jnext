@@ -22,7 +22,7 @@ once the call returns the frontend reads the finished image with
 
 The Qt tick is `frame_sequencer::Sequencer::tick()` (`src/platform/frame_sequencer.h`),
 driven by one timer and four rules that only show their worth on a host at the
-edge of real time (GH #155):
+edge of real time:
 
 - **The timer is single-shot and is re-armed from now at the end of every
   tick** (`src/gui/frame_timer.h`), whatever the interval. The deadline
@@ -60,7 +60,7 @@ the tick-entry paint was asked, and how often it found a frame to paint — ~0
 on Linux, the Windows residual elsewhere). The `frame-loop-wiring-func`
 regression row runs the real GUI binary and pins the first three.
 
-**An unchanged frame is not presented again (GH #428).** `Emulator::
+**An unchanged frame is not presented again.** `Emulator::
 framebuffer_generation()` advances at every write of the framebuffer (the
 end-of-frame render, both rewind re-renders, a cold boot); it is never reset.
 `render_policy::upload_needed()` decides, for `EmulatorWidget::update_frame()`
@@ -121,13 +121,13 @@ The visible symptom is a frame that renders flat.
    `VideoTiming::frame_int_master_cycle_offset()`, and the **line interrupt**
    via `reschedule_line_interrupt()`.
 5. Begin an RZX playback or recording frame. The Copper gets no frame-start
-   call: its mode-11 restart is at `cvc` 0, inside `Copper::execute()` (GH #293).
+   call: its mode-11 restart is at `cvc` 0, inside `Copper::execute()`.
 6. Baseline about fifteen per-scanline change logs and snapshots: the palette,
    Layer 2 scroll and bank, sprite attributes, ULA scroll, palette-select,
    Timex mode and border, tilemap scroll and fetch state and NR 0x6B, the
    attribute mux, NR 0x15, NR 0x68, NR 0x14, NR 0x4A, NR 0x1A and LoRes.
 7. Call `schedule_frame_events()`, which queues one `SCANLINE` event per line,
-   the frame's `CVC_RELOAD` (where `cvc` takes NR 0x64, GH #290) and a single
+   the frame's `CVC_RELOAD` (where `cvc` takes NR 0x64) and a single
    `VSYNC`.
 
 ## The inner loop
@@ -200,17 +200,16 @@ framebuffer row a display register write belongs to — it snapshots the row tha
 is ending and retags the per-scanline change logs — so running it late means
 attributing writes to the wrong row. The Copper writes at 28 MHz, so a burst
 released in horizontal blanking straddles a row boundary within a single Z80
-instruction; before GH #272 the whole window was stepped first and the boundary
-fired afterwards, which put writes that were physically *after* the boundary
+instruction; stepping the whole window first and firing the boundary
+afterwards would put writes that are physically *after* the boundary
 into the row *before* it, and split a burst across two rows at a point that
-drifted with the CPU's phase from frame to frame. That is a flickering line, and
-it was reported as one. `advance_copper_across_row_boundaries()` therefore walks
+drifts with the CPU's phase from frame to frame. That is a flickering line. `advance_copper_across_row_boundaries()` therefore walks
 the video-row queue across the instruction's window and crosses each boundary at
 its own master cycle, carrying the part of the deferred CPU NextREG queue that
 commits before it across with it. The walk is unconditional — not gated on the
 Copper running — so a boundary always falls at the same point in the cluster.
 
-For interrupts that is not the whole story (GH #265). Every request — frame and
+For interrupts that is not the whole story. Every request — frame and
 line interrupt, CTC ZC/TO, UART — carries the CLK_28 edge it happened on, and
 because the IM2 tick runs *after* the devices and the event queues, the fabric
 resolves the instruction's own requests on that timeline and the CPU takes an
@@ -237,7 +236,7 @@ any NEX boot hold counts down. The last visible row, 255, gets its snapshots
 taken here only when its raw line is the frame's last (60 Hz), because then no
 `on_scanline` follows it. At 50 Hz `on_scanline` has already taken them, and
 taking them again here would paint row 255 with writes made in the raw lines
-below the display, which the hardware never shows (GH #264).
+below the display, which the hardware never shows.
 
 `end_of_frame()` is a separate function rather than the tail of `run_frame()`
 for the same reason `step_one_instruction()` is: the debugger's Step needs it

@@ -59,7 +59,7 @@ prefetch lead, and it is why the fetch window and the visible paper area are
 *not* the same span of a line.
 
 `src/debug/raster_state.h` is the one place that spells all four out together,
-for the debugger's raster indicator (GH #22). It classifies the beam's region
+for the debugger's raster indicator. It classifies the beam's region
 (`blank_n` from `zxula_timing.vhd:348-357`, `border_active` from
 `zxula.vhd:415`) and the ULA's fetch phase (`vram_a`/`vram_rd` on
 `zxula.vhd:226-263` — bit 1 of `hc_ula` selects bitmap vs attribute, gated by
@@ -76,14 +76,14 @@ an `IN` `clock_` is still the instruction's start.
 in the instruction — `Z80Cpu::io_clock_into_instruction()`, counted on the FUSE
 counter the bus cycles advance, contention stretches included — and places the
 read where the VHDL latches it: for port 0x253B, the CLK_CPU falling edge of the
-I/O cycle's third clock (GH #265). A read made outside an instruction (a test, the debugger) samples at
+I/O cycle's third clock. A read made outside an instruction (a test, the debugger) samples at
 `clock_` itself. The floating bus below uses the same helper.
 
 `cvc`'s offset is NR 0x64, but not *live*. The counter loads the register once
 per frame, at `hc_ula == 0` of the `c_min_vactive` line
 (`zxula_timing.vhd:457-462`), and only increments everywhere else, so a
 mid-frame NR 0x64 write reaches the readback, the line interrupt and the Copper
-at the next frame's reload (GH #290). `VideoTiming::cu_offset()` is that
+at the next frame's reload. `VideoTiming::cu_offset()` is that
 reloaded value, not the register, which `Copper::offset()` holds for the
 readback. `Emulator::reload_cvc_offset_()` performs the reload as a scheduler
 event at `VideoTiming::cvc_reload_master_cycle_offset()` and re-derives the
@@ -135,7 +135,7 @@ Timex arm, its NR 0x82 b0 gate, and the per-machine gate that delivers ULA
 content only under 48K/128K timing. `ula_floating_bus_active_arm` evaluates
 the ULA's reload schedule (`zxula.vhd:319-340`) in `hc_ula`/`vc_ula` — the same
 counters contention uses — at the instant the CPU latches the byte, T3's falling
-edge after every stretch (`io_read_sample_cycle`, GH #265), and reads the byte
+edge after every stretch (`io_read_sample_cycle`), and reads the byte
 the ULA fetched there, through `Ula::fetch_vram()`: Timex mode, ULA scroll and
 the 128K shadow screen all move it. The +3's separate latch lives on the
 `Mmu`.
@@ -311,9 +311,9 @@ of that row. Hardware samples those latches per pixel and would change only the
 pixels after the write.
 
 Three logs do better. `AttributeMux` was the first (Nirvana-class attribute
-rewrites; since GH #305 it covers the pixel bytes too, so a frame can no longer
-show new glyphs on old attributes; since GH #362 the tilemap and LoRes read
-through it, and `SramBeamLog` does the same for Layer 2's bitmap), and GH #270 added the Layer 2 **bank** (NR 0x12/0x13) and **scroll**
+rewrites; it covers the pixel bytes too, so a frame can no longer
+show new glyphs on old attributes; the tilemap and LoRes read
+through it, and `SramBeamLog` does the same for Layer 2's bitmap), and a later one added the Layer 2 **bank** (NR 0x12/0x13) and **scroll**
 (NR 0x16/0x17/0x71) logs. Those two carry an `hpos` beside the line tag,
 `Layer2::apply_changes_for_line` merges them into one per-row list of render
 segments ordered by column, and `render_scanline` draws the row as one span per
@@ -334,7 +334,7 @@ and carries the VHDL derivation of those two constants.
 **For every other log the row-granular approximation stands**, and the bound
 once claimed for it does not: an effect can appear up to a row early, but a line
 carrying *two* writes to the same register loses the first one outright, which
-is a horizontal error with no vertical component at all. That is what GH #270
+is a horizontal error with no vertical component at all. That is what was
 reported for the Layer 2 bank. Closing it for the remaining logs needs the same
 treatment or the cycle-accurate rendering refactor, which has been assessed and
 declined.

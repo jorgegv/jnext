@@ -3144,7 +3144,7 @@ share a start share the extent. A zero-width range cannot result.</p>
 <h2 id="6-identity">6. Identity<a class="headerlink" href="#6-identity" title="Permanent link">&para;</a></h2>
 <p>sjasmplus writes no program identity. <code>||program.name</code>, <code>||program.sha256</code>,
 <code>||program.org</code> and <code>||program.size</code> are a jnext convention that a build script
-appends (introduced with the SLD identity check, PR #206); <code>grep -rn
+appends (introduced with the SLD identity check); <code>grep -rn
 program.sha256 ~/src/spectrum/sjasmplus</code> finds nothing. They are all or none:</p>
 <ul>
 <li>the SHA-256 must be exactly 64 lowercase hex digits (<code>valid_sha256()</code>), else

@@ -47,7 +47,7 @@ and AY-vs-YM mode (NR 0x06 b0). All three chips advance on every PSG tick, wheth
 TurboSound is on or the chip is selected, as in the VHDL (every ym2149 runs on the
 ungated `clock_en_i`). The enable and the selection decide only which chips reach the
 mix: with TurboSound off, the selected one. The latched 12-bit stereo pair is
-recomputed only when a chip output or a mix input changed (GH #440), and the mixer
+recomputed only when a chip output or a mix input changed, and the mixer
 only ever reads that latched pair.
 
 There are four entry points, and the differences are load-bearing. `power_on()`
@@ -157,7 +157,7 @@ the boot config, the mask in `emulator_cold_boot()`).
 ## Getting samples to the host
 
 `src/platform/sdl_audio.*` is the only place SDL audio appears. The device is
-opened in *callback* mode (GH #208): SDL's audio thread pulls samples from a
+opened in *callback* mode: SDL's audio thread pulls samples from a
 fixed-size ring buffer owned by `SdlAudio`, and `push_from_mixer()` drains the
 mixer into that ring once per frontend tick. It refuses to push when the ring
 is already past `QUEUE_MAX_MS`, and it *never* clears the ring — discarding
@@ -170,7 +170,7 @@ repeating the last *real* sample pair delivered — a DC hold, never zeros —
 so the device can never play content jnext did not choose, no matter what the
 GUI thread is doing. Before this, the queue-push model let SDL inject zeros
 whenever the queue ran dry, which over any nonzero programme content is an
-audible click train (issues #7/#208).
+audible click train.
 
 Headless opens no device at all; the mixer still synthesises and the ring buffer
 simply self-limits. `--silent` goes further and makes
@@ -198,7 +198,7 @@ consumes in roughly 23 ms chunks and that sawtooth would clip the band edges
 constantly; it feeds each intervention's effect forward so filter lag cannot
 over-correct; and it keeps two emergency guards on the raw readings, outside the
 smoothing. The estimate is also kept within one device chunk of each reading
-(GH #155): the feed-forward credits a catch-up with a frame of audio that a host
+: the feed-forward credits a catch-up with a frame of audio that a host
 too slow to keep real time never actually delivers, and unbounded the estimate
 ran away until ordinary low readings tripped the "ahead of the card" arm and
 skipped frames on an almost empty queue. The chunk is the opened device's
@@ -210,7 +210,7 @@ The header records the alternatives that were modelled and rejected, so read it
 before changing a threshold.
 
 When the host genuinely cannot keep real time, no pacing policy can conjure the
-missing samples, and two layers of last-level hold take over (GH #208). The
+missing samples, and two layers of last-level hold take over. The
 tick-side layer: `SdlAudio` pads the ring up to `QUEUE_FLOOR_MS` by repeating
 the last emitted level, because a DC hold has no discontinuity in it — a
 starved host stutters instead of clicking. Since that inserts samples the

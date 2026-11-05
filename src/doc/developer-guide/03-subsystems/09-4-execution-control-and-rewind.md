@@ -88,7 +88,7 @@ which arms a one-instruction step-off. The loop consumes it
 (`consume_step_off()`) immediately before the breakpoint test, and it
 suppresses only the first test of a resumed run. The breakpoint test sits
 before the fetch, so without it a resume with PC still on a breakpoint would
-re-match the same address and pause again having executed nothing (GH #221).
+re-match the same address and pause again having executed nothing.
 The `Execute` gate consumes the same arm. `unpause_()` raises it only on a real
 paused-to-running edge, so the PC the gate sees is the PC the resume was issued
 at. `refresh_gates_()` drops the arm when the machine is disarmed, because the
@@ -125,7 +125,7 @@ instead. While the debugger holds the machine the frontends stop calling
 `run_frame()`, so a step is the machine's only driver. `step_frame_slot()`
 begins a frame when none is in flight and calls the shared `end_of_frame()` when
 the clock reaches the frame's last cycle. Without it the ULA frame interrupt
-would stop being scheduled and a halted CPU could never be woken (GH #207). A
+would stop being scheduled and a halted CPU could never be woken. A
 step at a `HALT` therefore runs the halt out, bounded to two frames.
 
 Two consequences follow. A step that ends on a watchpoint consumes the

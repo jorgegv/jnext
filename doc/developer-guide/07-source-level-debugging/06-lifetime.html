@@ -2815,10 +2815,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#a-dot-commands-map-judged-at-its-entry-gh-351" class="md-nav__link">
+  <a href="#a-dot-commands-map-judged-at-its-entry" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A dot command's map: judged at its entry (GH #351)
+        A dot command's map: judged at its entry
       
     </span>
   </a>
@@ -3158,7 +3158,7 @@ where the loader puts the bytes.</p>
 <li><strong><code>--source-map</code> with a tape.</strong> The loop owner polls <code>source_map_status()</code> once per
   tick; a map dropped by the check exits 1 (<a href="03-loaders.html">7.3</a>).</li>
 </ul>
-<h2 id="a-dot-commands-map-judged-at-its-entry-gh-351">A dot command's map: judged at its entry (GH #351)<a class="headerlink" href="#a-dot-commands-map-judged-at-its-entry-gh-351" title="Permanent link">&para;</a></h2>
+<h2 id="a-dot-commands-map-judged-at-its-entry">A dot command's map: judged at its entry<a class="headerlink" href="#a-dot-commands-map-judged-at-its-entry" title="Permanent link">&para;</a></h2>
 <p>A z88dk dot command is not a program the emulator loads. NextZXOS copies the file into a DivMMC RAM
 bank when the command is typed and runs it from <code>$2000</code> there, so at the moment the map is attached
 nothing says whether the right command is in memory, and a landing says nothing about it either.

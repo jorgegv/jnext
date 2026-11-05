@@ -1865,10 +1865,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#platform-runs-macos-and-windows-under-wine-gh-319" class="md-nav__link">
+  <a href="#platform-runs-macos-and-windows-under-wine" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Platform runs: macOS and Windows under wine (GH #319)
+        Platform runs: macOS and Windows under wine
       
     </span>
   </a>
@@ -3109,7 +3109,7 @@ lookup instead, and the suite provisions that image for itself in the
   when the image is derived, so it cannot notice that jnext now derives a
   different image. The gate therefore also re-derives when the image's
   <code>.recipe</code> sidecar, written by jnext, does not hold the
-  <code>sdcard::kFixedImageRecipe</code> of the tree under test (GH #284).</li>
+  <code>sdcard::kFixedImageRecipe</code> of the tree under test.</li>
 <li><strong>A per-run clone</strong> points <code>JNEXT_CONFIG_DIR</code> at a private directory, so the
   run boots its own copy and every non-headless invocation starts from clean
   GUI preferences. That directory lives under <code>$HOME</code> rather than <code>/tmp</code>,
@@ -3117,9 +3117,9 @@ lookup instead, and the suite provisions that image for itself in the
   quietly degrade to a real 1 GB copy into RAM.</li>
 </ul>
 <h2 id="concurrency-one-process-per-row-in-phases">Concurrency: one process per row, in phases<a class="headerlink" href="#concurrency-one-process-per-row-in-phases" title="Permanent link">&para;</a></h2>
-<p>Until GH #295 the functional rows were <em>sourced</em> into the driver one after
-another — they shared its counters, its <code>TMP_DIR</code> and its SD clone, and that
-alone made them serial. Most of them wait on real time rather than on the CPU,
+<p>The functional rows used to be <em>sourced</em> into the driver one after
+another, sharing its counters, its <code>TMP_DIR</code> and its SD clone, which
+made them serial. Most of them wait on real time rather than on the CPU,
 so a full run spent twelve minutes on a host that was 85% idle.</p>
 <p>Now each row runs in a process of its own. <code>row-runner.sh</code> initializes the
 suite library in <em>row-process mode</em> — with the row's own <code>TMP_DIR</code>
@@ -3188,7 +3188,7 @@ HS-72 bans the racy forms.</p>
 X server regenerates whenever its last client disconnects, and the row's own
 <code>xdotool search</code> poll is such a client while the app starts, so an app
 connecting mid-regeneration is dropped (<code>SDL_Init: x11 not available</code>, no
-screenshot; GH #318; 18/1000 connections failed under load, 0/1000 with
+screenshot; 18/1000 connections failed under load, 0/1000 with
 <code>-noreset</code>). Those rows start Xvfb with <code>-noreset</code>, HS-89 enforces it, and a
 missing screenshot or non-zero app exit is a FAIL naming the run and cause (the
 solo-confirm path), never a SKIP.</p>
@@ -3208,7 +3208,7 @@ itself exits 1 on a SKIP in every mode (full, named rows, <code>confirm</code>, 
 a standalone row's <code>standalone_summary</code> too), naming the rows. A tool a row needs
 is provisioned rather than assumed: <code>make regression</code> first runs <code>make z88dk-gdb</code>
 (<code>test/provision-z88dk-gdb.sh</code>), which builds z88dk v2.4's client, sha256-pinned,
-into <code>~/.cache/jnext/tools</code> when none resolves. The two foreign readers of the reverse-engineering exports (GH #389) are provisioned
+into <code>~/.cache/jnext/tools</code> when none resolves. The two foreign readers of the reverse-engineering exports are provisioned
 the same way by <code>make skoolkit</code> and <code>make ghidra</code>; see
 <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html">7.4.7</a>. A run whose
 only FAILs are functional rows that failed on a loaded host is recorded as
@@ -3223,7 +3223,7 @@ mode, so a mistyped name can never run nothing and pass.</p>
 <h2 id="a-failure-on-a-loaded-host">A failure on a loaded host<a class="headerlink" href="#a-failure-on-a-loaded-host" title="Permanent link">&para;</a></h2>
 <p>Those two rows are examples, not the list. Rows that merely spawn short-lived
 processes have also failed under a parallel-agent load and never reproduced
-solo (<code>subsystem-gain-func</code>, GH #245), and a concurrent duplicate build once
+solo (<code>subsystem-gain-func</code>), and a concurrent duplicate build once
 failed with <code>undefined reference to main</code>. A list of sensitive rows in a
 document is therefore the wrong tool: a reader either chases a ghost, or —
 worse — waves a genuine failure through as "probably contention" because the
@@ -3307,7 +3307,7 @@ regardless of what it produced, so a genuine regression quietly becomes the new
 baseline and every future run agrees with it. Regenerate only when a rendering
 change is both intentional and understood, name the specific rows wherever you
 can, and treat a reference diff appearing in a review as a claim to be checked.</p>
-<h2 id="platform-runs-macos-and-windows-under-wine-gh-319">Platform runs: macOS and Windows under wine (GH #319)<a class="headerlink" href="#platform-runs-macos-and-windows-under-wine-gh-319" title="Permanent link">&para;</a></h2>
+<h2 id="platform-runs-macos-and-windows-under-wine">Platform runs: macOS and Windows under wine<a class="headerlink" href="#platform-runs-macos-and-windows-under-wine" title="Permanent link">&para;</a></h2>
 <p><code>regression.sh --platform</code> (<code>make regression-win</code>, <code>make regression-macos</code>) runs
 the screenshots and the functional rows an OS can run against that OS's
 binaries. It reuses the whole driver: the manifest pins, the per-row processes,
@@ -3345,7 +3345,7 @@ screenshots + the admitted rows (no lints, no stamp).</p>
    starts it from whichever client first needs the desktop, on that client's
    stderr (a row's filter pipe), and it lives while any other wine process uses
    the desktop, so a 0.1 s step could be held to its 120 s bound by another row
-   (GH #329). <code>--serve</code> therefore also starts a keeper (<code>wine start /wait cmd /c
+. <code>--serve</code> therefore also starts a keeper (<code>wine start /wait cmd /c
    pause</code>, stdio on <code>/dev/null</code>), verifies exactly one stable <code>explorer.exe</code> of
    the prefix on <code>/dev/null</code> and prints its pid; the driver records it and
    raises a harness fault if that process is not the same one at the end of the run.</li>
@@ -3365,13 +3365,13 @@ screenshots + the admitted rows (no lints, no stamp).</p>
    <code>jnext.exe</code> among the descendants (deepest one) and reads its CPU from <code>/proc</code>
    or, off Linux, <code>ps -o time=</code>.</li>
 <li>The runner sets <code>DBUS_SESSION_BUS_ADDRESS</code> and <code>DBUS_SYSTEM_BUS_ADDRESS</code> to
-    <code>disabled:</code> in every mode, next to the <code>DISPLAY</code> removal (GH #383). SDL's audio init makes
+    <code>disabled:</code> in every mode, next to the <code>DISPLAY</code> removal. SDL's audio init makes
     wine load winealsa, whose pipewire plugin makes synchronous calls to the desktop's
     xdg-desktop-portal over the inherited session bus; a slow portal stalled a Qt <code>jnext.exe</code>
     past its row's bound. CI's container has no D-Bus, so this makes a local run equal CI. Both
     are overridden, not unset (libdbus falls back to the system bus). Nothing of this exists on
     Windows.</li>
-<li>A stalled <code>jnext.exe</code> names its blocked call (GH #383). With
+<li>A stalled <code>jnext.exe</code> names its blocked call. With
     <code>JNEXT_WINE_CAPTURE_DIR</code> set (the driver exports
     <code>build/regression-artifacts/wine-stall/&lt;run&gt;/</code>) the runner's watchdog fires once on a
     process at least 20 s old whose CPU time has been flat for 10 s and totals 2 s or less, and

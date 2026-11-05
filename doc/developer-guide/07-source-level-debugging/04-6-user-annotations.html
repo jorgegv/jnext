@@ -3031,7 +3031,7 @@
 
 
 <h1 id="746-the-annotations-project-file-jdp-and-the-users-labels">7.4.6 The annotations project file (<code>.jdp</code>) and the user's labels<a class="headerlink" href="#746-the-annotations-project-file-jdp-and-the-users-labels" title="Permanent link">&para;</a></h1>
-<p>The user's own labels and comments (GH #387) are the one input of chapter 7 that
+<p>The user's own labels and comments are the one input of chapter 7 that
 no toolchain writes. JNEXT defines the file itself: plain UTF-8 text, extension
 <code>.jdp</code>, opened and saved by the user and never attached beside a program. It
 fills a third store, <code>UserAnnotations</code>, which sits beside the toolchain's
@@ -3151,7 +3151,7 @@ loaded later is not either: the user layer then wins by name.</p>
 <code>source_file_problem()</code> first (not a regular file, over 64 MiB). The verbs touch no
 machine state, so they are allowed while the machine runs, take no load generation
 and leave <code>.jns</code>, the rewind ring and the attachment cache alone; each success bumps
-<code>state_revision()</code> (<a href="../03-subsystems/09-1-the-backend-api.html">3.9.1</a>, GH #428). A verb that
+<code>state_revision()</code> (<a href="../03-subsystems/09-1-the-backend-api.html">3.9.1</a>). A verb that
 changes nothing (a rename to the same name, an identical or already-normalised comment, clearing a
 comment that is not there, replacing or loading the same store) bumps neither revision: the early
 <code>return Result::Ok</code> of <code>set_user_label()</code> (<code>Ok</code>, <code>src/debug/debugger_annotations.cpp:69</code>), of
@@ -3183,7 +3183,7 @@ an unchanged dialog never raises the unsaved-changes question.</p>
 <li><strong>The Disassembly draws it.</strong> <code>label_column_shown()</code> (<code>disasm_panel.cpp:1016</code>) is true while the symbol table
   (the composed reader, section 9) holds any label; then the <strong>Label</strong> column sits between the BP column and the
   mnemonic and every x after it moves by <code>label_width()</code> (16 characters). The columns run Mem, Addr, BP column,
-  [Label], mnemonic, opcode bytes, <code>; comment</code> (GH #448); <code>breakpoint_x()</code> (<code>:1023</code>) is the BP column's left edge,
+  [Label], mnemonic, opcode bytes, <code>; comment</code>; <code>breakpoint_x()</code> (<code>:1023</code>) is the BP column's left edge,
   <code>mnemonic_x()</code> (<code>:1025</code>) the mnemonic's (<code>breakpoint_x() + 20 + 4</code>, plus <code>label_width()</code> with a label),
   <code>mnemonic_width()</code> (<code>:1030</code>) the mnemonic column's 20 characters, and <code>bytes_x(line)</code> (<code>:1035</code>) where that line's
   bytes start: after the column, or after the mnemonic itself plus a gap when that mnemonic is wider, so a long

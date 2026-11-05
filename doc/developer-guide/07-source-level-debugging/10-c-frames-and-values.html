@@ -2936,10 +2936,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-int32-atom-c_int32_scalar-gh-436" class="md-nav__link">
+  <a href="#the-int32-atom-c_int32_scalar" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The int32 atom: c_int32_scalar() (GH #436)
+        The int32 atom: c_int32_scalar()
       
     </span>
   </a>
@@ -2947,10 +2947,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#writing-a-value-gh-437" class="md-nav__link">
+  <a href="#writing-a-value" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Writing a value (GH #437)
+        Writing a value
       
     </span>
   </a>
@@ -3155,7 +3155,7 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 </tr>
 <tr>
 <td>array</td>
-<td>the count is the <code>DA&lt;n&gt;</code>, never the byte size (a <code>DA4x,SI</code> is 8 bytes and 4 elements); at most 16 elements, then <code>...</code>; a char array is a string when every byte that is not a NUL is text (GDB's null-stop off, GH #437): every byte is shown and a NUL prints as <code>\0</code>, trailing ones too (<code>{'h', 'i', 0, 0}</code> is <code>"hi\0\0"</code>), else (<code>uint8_t btable[4]</code>, a table that starts at 0; the CDB cannot tell it from a <code>char</code> array) it is a list of numbers</td>
+<td>the count is the <code>DA&lt;n&gt;</code>, never the byte size (a <code>DA4x,SI</code> is 8 bytes and 4 elements); at most 16 elements, then <code>...</code>; a char array is a string when every byte that is not a NUL is text (GDB's null-stop off): every byte is shown and a NUL prints as <code>\0</code>, trailing ones too (<code>{'h', 'i', 0, 0}</code> is <code>"hi\0\0"</code>), else (<code>uint8_t btable[4]</code>, a table that starts at 0; the CDB cannot tell it from a <code>char</code> array) it is a list of numbers</td>
 </tr>
 <tr>
 <td>struct</td>
@@ -3199,24 +3199,24 @@ and level-1 locals are always visible. Which block is open depends on the compil
 <li><strong>zsdcc</strong> (and a synthetic store): a local of level &gt;= 2 is visible iff its block is the open block or one of its ancestors. A block's level is its locals' own;
   a block that holds no local takes the level of the first scope entry, in offset order, that names it. The open block is the greatest known block at the scope's level at or
   below the scope's block. With no block data or an unknown scope, every block local is shown, marked <code>scope unknown</code>.</li>
-<li><strong>80cc</strong> (GH #438 S4a, S4b): <code>cc80_verdict()</code> answers <code>Hidden</code> or <code>Unknown</code>, never plain, and only when <code>CFunction::scopes_from_listing</code> is set (the function's records carry levels, PR #3243, and a listing covers it) and the PC's scope is known; otherwise every block local (level &gt;= 2) is listed, flagged <code>scope unknown</code> (a note on reads, a refusal on writes) and never hidden. <code>fill_listing_scopes()</code> replaces the function's scope table with every <code>C_LINE</code> directive of the listing, each at the first byte row after it (the last directive before the row owns it; <code>Z88ZB-12</code>, <code>Z88ZB-13</code>, <code>Z88ZB-14</code>), because the map keeps one symbol per (line, scope) and 80cc repeats lines in loops. Why never plain: 80cc stamps some code with the scope of another block (H-a to H-c, 7.9), so a PC's scope does not prove its block locals in scope (<code>CVZB-20</code> pins fourteen functions). What the stamp proves closed is closed (checked on every program of the rows) and is hidden. The rule (E = the trail's known entries of level &gt;= 1, s = the PC's line, level, block): F1 b &gt; B_s is closed; F2 b == B_s and lv &gt; L_s is closed; F3 a line x of b, then an entry of a lower block strictly between x and l_s, closes b (<code>CVZB-18</code>); F5 an open block (B_s or an ancestor, the lowest block being every block's ancestor and a &lt; b one when a line of a is after a line of b) numbered above b with a level &lt;= lv puts v outside its scope. At a then-branch's closing jump, hides are relative to the else part's stamp, so a then-branch local can be hidden there; the Source tab shows that jump on the else line too. Everything else is <code>scope unknown</code>. No heuristic (taking the least level of a block as its own shows <code>i</code> plain inside <code>j</code>'s loop).
+<li><strong>80cc</strong>: <code>cc80_verdict()</code> answers <code>Hidden</code> or <code>Unknown</code>, never plain, and only when <code>CFunction::scopes_from_listing</code> is set (the function's records carry levels, as z88dk master writes them from 2026-11-04, and a listing covers it) and the PC's scope is known; otherwise every block local (level &gt;= 2) is listed, flagged <code>scope unknown</code> (a note on reads, a refusal on writes) and never hidden. <code>fill_listing_scopes()</code> replaces the function's scope table with every <code>C_LINE</code> directive of the listing, each at the first byte row after it (the last directive before the row owns it; <code>Z88ZB-12</code>, <code>Z88ZB-13</code>, <code>Z88ZB-14</code>), because the map keeps one symbol per (line, scope) and 80cc repeats lines in loops. Why never plain: 80cc stamps some code with the scope of another block (H-a to H-c, 7.9), so a PC's scope does not prove its block locals in scope (<code>CVZB-20</code> pins fourteen functions). What the stamp proves closed is closed (checked on every program of the rows) and is hidden. The rule (E = the trail's known entries of level &gt;= 1, s = the PC's line, level, block): F1 b &gt; B_s is closed; F2 b == B_s and lv &gt; L_s is closed; F3 a line x of b, then an entry of a lower block strictly between x and l_s, closes b (<code>CVZB-18</code>); F5 an open block (B_s or an ancestor, the lowest block being every block's ancestor and a &lt; b one when a line of a is after a line of b) numbered above b with a level &lt;= lv puts v outside its scope. At a then-branch's closing jump, hides are relative to the else part's stamp, so a then-branch local can be hidden there; the Source tab shows that jump on the else line too. Everything else is <code>scope unknown</code>. No heuristic (taking the least level of a block as its own shows <code>i</code> plain inside <code>j</code>'s loop).
   Without exact scopes the generic rules are wrong on 80cc (measured on 80cc built at upstream <code>96c0efaddd</code>: a closed sibling shown, the variable in scope hidden, no note), which <code>CVZB-15</code> pins.</li>
-<li><strong>Shadowing</strong> (GH #438 S4b): <code>c_pick_local()</code> picks, among the visible locals of a name, the greatest (level, block), as gdb does; <code>certain</code> is false when a candidate is <code>scope unknown</code>. <code>find_local()</code> uses it: a read of an uncertain pick carries <code>c_ambiguous_note()</code> (<code>Found::ambiguous</code>), a write to it is refused by the <code>scope unknown</code> guard (an uncertain pick is always a flagged row: only level &gt;= 2 variables are flagged and the innermost candidate has the greatest level; <code>CVZB-16</code> and <code>CVZB-20</code> assert it), and <code>c_locals</code> marks every other candidate <code>shadowed</code> (<code>may be shadowed</code> when uncertain), which <code>monitor locals</code> prints as <code>[shadowed]</code>. <code>cvar()</code> and ZRCP carry no notes and return the innermost. <code>CVZB-19</code>, <code>SRCDBG-ZB-14</code> to <code>-16</code>, <code>GDB-ZB-02</code>. A static local of level &gt;= 2 (a block static) goes through the same visibility test as a block local of its (level, block) in <code>c_visible_locals()</code>: the sccz80 walk, zsdcc's exact blocks, the 80cc rule (hidden or <code>scope unknown</code>); a level-1 static is listed at every PC (<code>CVZB-21</code>, <code>SRCDBG-ZB-18</code> to <code>-20</code>).</li>
-<li><strong>sccz80 with a trail</strong> (GH #438, <code>replay_trail()</code>): the trail is replayed up to the PC's offset as a stack of open blocks, <code>stack[level] = block | SKIP</code>. A record at a level drops
+<li><strong>Shadowing</strong>: <code>c_pick_local()</code> picks, among the visible locals of a name, the greatest (level, block), as gdb does; <code>certain</code> is false when a candidate is <code>scope unknown</code>. <code>find_local()</code> uses it: a read of an uncertain pick carries <code>c_ambiguous_note()</code> (<code>Found::ambiguous</code>), a write to it is refused by the <code>scope unknown</code> guard (an uncertain pick is always a flagged row: only level &gt;= 2 variables are flagged and the innermost candidate has the greatest level; <code>CVZB-16</code> and <code>CVZB-20</code> assert it), and <code>c_locals</code> marks every other candidate <code>shadowed</code> (<code>may be shadowed</code> when uncertain), which <code>monitor locals</code> prints as <code>[shadowed]</code>. <code>cvar()</code> and ZRCP carry no notes and return the innermost. <code>CVZB-19</code>, <code>SRCDBG-ZB-14</code> to <code>-16</code>, <code>GDB-ZB-02</code>. A static local of level &gt;= 2 (a block static) goes through the same visibility test as a block local of its (level, block) in <code>c_visible_locals()</code>: the sccz80 walk, zsdcc's exact blocks, the 80cc rule (hidden or <code>scope unknown</code>); a level-1 static is listed at every PC (<code>CVZB-21</code>, <code>SRCDBG-ZB-18</code> to <code>-20</code>).</li>
+<li><strong>sccz80 with a trail</strong> (<code>replay_trail()</code>): the trail is replayed up to the PC's offset as a stack of open blocks, <code>stack[level] = block | SKIP</code>. A record at a level drops
   every level above it. A record that names a block higher than any seen fills the unset levels below it with the greatest unseen block of that level in between (a block opened and
   closed without a line of its own, or the block a <code>for</code> opened: it is named by nothing but its header variable's <code>S:</code> record), else SKIP; a record that names a lower block than the
-  stack holds at its level leaves the stack alone (the pre-z88dk#3227 numbering, the last block opened: <code>c_trail_disagreements()</code> counts those, 0 on every fixed build). A local
-  is visible iff the stack holds its block at its level, or, when its block's level is lower than its own (a <code>for (int i ...)</code> variable on 2.4 and before z88dk PR #3258 carries the
+  stack holds at its level leaves the stack alone (the pre-2026-11-04 numbering, the last block opened: <code>c_trail_disagreements()</code> counts those, 0 on every fixed build). A local
+  is visible iff the stack holds its block at its level, or, when its block's level is lower than its own (a <code>for (int i ...)</code> variable on 2.4 and before z88dk master of 2026-11-04 carries the
   enclosing block's number), iff that block is open and every level between is SKIP. A block's level is the first trail entry that names it, else its locals'. The replay is the same on
-  records where a <code>for</code> opens a block of its own (PR #3258: the <code>for</code> line stays in the enclosing block, the body is level + 2 with the next number, <code>CVZB-14</code>): its variable is visible
+  records where a <code>for</code> opens a block of its own (z88dk master from 2026-11-04: the <code>for</code> line stays in the enclosing block, the body is level + 2 with the next number, <code>CVZB-14</code>): its variable is visible
   in the body and a closed sibling that shares its slot is not. The <code>for</code> line itself is recorded in the enclosing block, so the loop variable is hidden on that line.</li>
 <li><strong>The guard</strong> (<code>CLocalRef::shares</code>, <code>c_shares_note()</code>): every pair of visible B-space variables whose byte ranges overlap is marked, each naming the other, and neither is hidden.
   <code>c_locals</code> rows and <code>read_c_value</code> carry the note; a write is refused. <code>c_children</code> rows do not carry it (a member of a shared aggregate shows no note, but its write is refused).</li>
 </ul>
 <p><code>c_read_register_local()</code> (<code>c_value.cpp:1191</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
 that it may be stale), refuses <code>[]</code> as optimised out and an outer frame as not available.
-<code>c_fastcall_records_nominal()</code> is the U1 rule, per function (GH #438): true iff the function is fastcall and none of its parameters (level 0, space B) is recorded at a negative offset,
-that is, the records are the pre-z88dk#3229 ones, every parameter at its nominal slot, where none of them is. Fastcall is <code>CConv::ListedFastcall</code> (a listing flags it), or the caller's
+<code>c_fastcall_records_nominal()</code> is the U1 rule, per function: true iff the function is fastcall and none of its parameters (level 0, space B) is recorded at a negative offset,
+that is, the records are the pre-2026-11-04 ones, every parameter at its nominal slot, where none of them is. Fastcall is <code>CConv::ListedFastcall</code> (a listing flags it), or the caller's
 <code>prologue_fastcall</code> for a function no listing names (a listing that names it without the flag wins). <code>CVALF-30</code> pins the rule's boundary cases on a synthetic function: a level-1 local at a negative offset does not count, offset 0 is nominal, a hidden record is ignored, an R-space parameter alone is not nominal, and a listing that names the function without the flag wins over the prologue.</p>
 <h2 id="reading-values-the-facade">Reading values: the facade<a class="headerlink" href="#reading-values-the-facade" title="Permanent link">&para;</a></h2>
 <p><code>Debugger</code> has six CAP-SRC readers (<code>debugger.h</code>), all <code>const</code>, all running <code>recheck()</code> first (through <code>variables()</code> and
@@ -3273,15 +3273,15 @@ StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code
   entry bytes <code>call l_debug_push_frame; push hl</code> (or <code>push de; push hl</code>), <code>CD &lt;lo hi&gt; E5</code>, <code>l_debug_push_frame</code> being the helper the store resolved, read through the entry's own page
   (<code>peek</code>, no side effect). KNOWN LIMITATION: a <code>float</code> or <code>long long</code> fastcall argument is pushed by other helpers (<code>gen_push_float</code>, <code>llpush</code>), so with no listing a function that takes
   one is read from the nominal slot, a wrong value; with a listing it is refused.</li>
-<li><strong>A stack variable of an 80cc function</strong> carries the note <code>80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)</code>, in every
-  frame and on members and elements (<code>CCompiler::Cc80</code>). It is always on: nothing in the map says whether the build has z88dk PR #3244, and a parameter the function reassigns is still wrong after it.</li>
+<li><strong>A stack variable of an 80cc function</strong> carries the note <code>80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's</code>, in every
+  frame and on members and elements (<code>CCompiler::Cc80</code>). It is always on: nothing in the map says whether the build has the z88dk master of 2026-11-04, and a parameter the function reassigns is still wrong after it.</li>
 <li><strong>A float</strong> of a map whose float library is <code>mbf32</code>, <code>mbf64</code>, <code>bbc</code> or <code>dai32</code> is refused (<code>float format &lt;lib&gt; is not read: ...</code>): the record says only <code>{4}SF</code>. <code>math32</code>, <code>am9511</code>, <code>math48</code> and a map that names none decide by size.</li>
 <li><strong>A bitfield's type text</strong> is <code>int :N</code> for an <code>SB..:S</code> record and <code>unsigned int :N</code> for <code>:U</code> (a plain <code>int</code> bitfield is <code>:U</code> in sccz80 and 80cc, <code>:S</code> in zsdcc). An <code>{-1}</code> array is refused <code>an array of unknown length: its debug record has no size</code>.</li>
 </ul>
 <p><code>find_var()</code> (<code>debugger_cvalues.cpp:352</code>) resolves a name in frame <code>k</code>: the frame's visible locals, then its function's static
 locals, the file's statics, the globals. A local that exists but is hidden is <code>out of scope at &lt;file&gt;:&lt;line&gt;</code>. <code>fn::name</code> names a static
 local from any frame, and a local of <code>fn</code> only from a frame of <code>fn</code>; <code>file.c::name</code> names that file's statics and globals.</p>
-<h2 id="the-int32-atom-c_int32_scalar-gh-436">The int32 atom: <code>c_int32_scalar()</code> (GH #436)<a class="headerlink" href="#the-int32-atom-c_int32_scalar-gh-436" title="Permanent link">&para;</a></h2>
+<h2 id="the-int32-atom-c_int32_scalar">The int32 atom: <code>c_int32_scalar()</code><a class="headerlink" href="#the-int32-atom-c_int32_scalar" title="Permanent link">&para;</a></h2>
 <p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1281</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
 and, through its translation, ZRCP's <code>CVAR()</code> both reach it through the evaluator, so there is nothing to keep in step. It reads
 <code>loc.type</code> (the head of the chain and the size) and <code>loc.note</code>, so a register-held value (no address) passes a <code>CLoc</code> with just its
@@ -3327,7 +3327,7 @@ type, which <code>read_c_value()</code> fills for it. <code>integer</code> is th
 <p>The register-local "may be stale" and "page N is not mapped" notes are row notes, not <code>CLoc::note</code>, and do not refuse: they say
 how far to trust a value that is shown. The rule is a pure function, so <code>CVINT-01</code> and <code>CVINT-02</code> reach every arm with synthetic types; no
 fixture has an 8-byte integer, a binary16 or an <code>_Accum</code> global.</p>
-<h2 id="writing-a-value-gh-437">Writing a value (GH #437)<a class="headerlink" href="#writing-a-value-gh-437" title="Permanent link">&para;</a></h2>
+<h2 id="writing-a-value">Writing a value<a class="headerlink" href="#writing-a-value" title="Permanent link">&para;</a></h2>
 <p><code>write_c_value(by, frame, path, CNewValue)</code> (<code>debugger_cvalues.cpp:575</code>) is the one write, and it takes its place from the read:
 a write needs a successful <code>eval_var()</code> of the same path, and its bytes are that read's <code>loc</code> and <code>where</code>, so
 there is no second resolver to drift from the first. Whatever a read refuses a write refuses with the read's own words (U1, a frame
@@ -3343,7 +3343,7 @@ storage). The write adds six refusals, in this order:</p>
 <tbody>
 <tr>
 <td><code>scope unknown</code> (<code>Found::scope_unknown</code>, copied from <code>CLocalRef</code> in <code>find_local()</code>)</td>
-<td>JNEXT cannot place the block of an 80cc local (a <code>for</code> variable, a local under a <code>for</code>, a case the records cannot tell, or no listing beside the map, or a build before z88dk PR #3243), so the slot of a block local may hold another variable: a note for a read (<code>read_c_value()</code> adds <code>scope unknown: ...</code> beside the row's), a refusal for a write</td>
+<td>JNEXT cannot place the block of an 80cc local (a <code>for</code> variable, a local under a <code>for</code>, a case the records cannot tell, or no listing beside the map, or a build before z88dk master of 2026-11-04), so the slot of a block local may hold another variable: a note for a read (<code>read_c_value()</code> adds <code>scope unknown: ...</code> beside the row's), a refusal for a write</td>
 </tr>
 <tr>
 <td><code>shares its stack slot with &lt;name&gt;: ...</code> (<code>Found::shares</code>, from <code>CLocalRef</code> in <code>find_local()</code>)</td>
@@ -3368,7 +3368,7 @@ storage). The write adds six refusals, in this order:</p>
 </tbody>
 </table>
 <p>The current bytes are peeked through <code>where</code> (<code>Page</code>: <code>peek(space, space_offset(...))</code>, <code>Cpu</code>: the CPU view), the encoder
-makes the new ones, and <strong>exactly one <code>poke()</code></strong> writes them: one MUTATE line and one <code>state_revision()</code> bump (GH #428), and neither on
+makes the new ones, and <strong>exactly one <code>poke()</code></strong> writes them: one MUTATE line and one <code>state_revision()</code> bump, and neither on
 a refusal decided before the poke (it writes, logs and bumps nothing). A write that lands only some of its bytes (a 2-byte object on $3FFF, half in ROM) is <code>RefusedReadOnly</code>
 with the one MUTATE line and the one bump of the bytes that landed; a refusal by <code>poke()</code> before a byte lands (RZX, a read-only page, DivMMC RAM) has neither. The status is poke's own:
 <code>RefusedRzx</code>, <code>RefusedReadOnly</code> (with <code>landed</code>, worded <code>K of N bytes landed (the rest is read-only)</code>), <code>InvalidPage</code> or <code>Unsupported</code>; every

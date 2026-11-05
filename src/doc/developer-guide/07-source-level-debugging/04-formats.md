@@ -27,7 +27,7 @@ There is one `SymbolTable` (`src/debug/symbol_table.*`), owned by the backend. T
 `@name`, the GDB server's `monitor sym` and `--map` all read it, so a symbol loaded by one client shows
 in every other. How the formats differ is only in what they put in it.
 
-- **Keyed by memory and address (GH #375).** `add_label(name, addr, space, bind_at_load, c_symbol)`
+- **Keyed by memory and address.** `add_label(name, addr, space, bind_at_load, c_symbol)`
   stores a label that is *paged* (assembled for one `FetchSource` such as `Page{20}`, naming the address
   only while that memory supplies it) or *unpaged* (naming it in every memory: the sjasmplus EQU,
   Simple and NextBuild loaders make these). There is no address-only lookup:

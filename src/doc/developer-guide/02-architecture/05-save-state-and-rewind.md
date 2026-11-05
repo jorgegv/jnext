@@ -151,13 +151,13 @@ the save instant and file pointers are byte offsets. The member also carries
 the poll detector, the phantom typist and the recorded auto play. On load,
 `Emulator::reattach_jns_tape_()` runs last (the state round trip resets the
 detector and, like every `load_state()`, a rewind's included, closes the
-fast-load pacing window, GH #408): it re-opens the tape (from the archive when there is one), checks
+fast-load pacing window): it re-opens the tape (from the archive when there is one), checks
 the digest, and has the loader validate every value against the file before
 installing it. Any failure is ONE warning and the deck stays as it was. A file
 without the member (older jnext) is not reattached either, since attaching at
 the start would hand block 0 to a program waiting for a later one.
 
-A snapshot changes no setting (owner, GH #402). The session's mode reaches
+A snapshot changes no setting (owner). The session's mode reaches
 the core as `JnsLoadOptions::tape_realtime` (the one fast/real-time setting:
 the Tape > Fast Load toggle, which `--tape-realtime` overrides for the run in
 `main.cpp`; `QtApp::tape_realtime()` reads the toggle, SDL and headless take the
@@ -209,8 +209,7 @@ serialised, because it is empty at that instant.
 The ring is host state, so only a hard reset rebuilds it. A soft reset
 (NR 0x02 bit 0, F4) re-runs `init()` too, but leaves the ring, its size and
 `replay_mode_` alone: the reset is one more event in the history, and a rewind
-that re-executes it stays a replay. Until the GH #263 audit every soft reset
-discarded all snapshots and put back the command-line size.
+that re-executes it stays a replay.
 
 **This is also why every serialised field must be constant-width.**
 `take_snapshot()` refuses to publish a slot whose `save_state` did not write
@@ -239,7 +238,7 @@ never serialised): `begin_new_frame()` then counts the frame once, not twice,
 and a debugger can tell the boundary *before* a restored frame from an ordinary
 boundary *after* a frame. When the machine runs forward from a rewind, the
 first new slot drops every slot from its frame on — the history the rewind left
-— so the ring always holds one timeline, one slot per tag (GH #278).
+— so the ring always holds one timeline, one slot per tag.
 
 `replay_mode_` suppresses audio mixing and rendering throughout the
 fast-forward, so rewinding several seconds neither screeches through the
@@ -256,10 +255,10 @@ would rebuild it, but `rewind_to_frame()` renders before any
 registers it has just loaded, and `Emulator::load_state()` re-syncs the two
 pieces that need another subsystem: the `Ula`'s copies of the palette-bank
 selectors, from `PaletteManager`, and the attribute mux, from the restored
-VRAM. Until GH #261 it did not, and that render's `rewind_to_baseline()` wrote
+VRAM. Without them that render's `rewind_to_baseline()` would write
 the pre-rewind frame's palette, Layer 2 registers, sprite attributes and
-patterns, NR 0x6B and ULA scroll back into the live registers: the rewound
-machine carried them on.
+patterns, NR 0x6B and ULA scroll back into the live registers, and the rewound
+machine would carry them on.
 
 One category of state needs special handling: host-side state that shadows
 emulated state. The joystick and mouse dispatchers live in the platform layer

@@ -1,6 +1,6 @@
 # 7.4.6 The annotations project file (`.jdp`) and the user's labels
 
-The user's own labels and comments (GH #387) are the one input of chapter 7 that
+The user's own labels and comments are the one input of chapter 7 that
 no toolchain writes. JNEXT defines the file itself: plain UTF-8 text, extension
 `.jdp`, opened and saved by the user and never attached beside a program. It
 fills a third store, `UserAnnotations`, which sits beside the toolchain's
@@ -146,7 +146,7 @@ loaded later is not either: the user layer then wins by name.
 `source_file_problem()` first (not a regular file, over 64 MiB). The verbs touch no
 machine state, so they are allowed while the machine runs, take no load generation
 and leave `.jns`, the rewind ring and the attachment cache alone; each success bumps
-`state_revision()` ([3.9.1](../03-subsystems/09-1-the-backend-api.md), GH #428). A verb that
+`state_revision()` ([3.9.1](../03-subsystems/09-1-the-backend-api.md)). A verb that
 changes nothing (a rename to the same name, an identical or already-normalised comment, clearing a
 comment that is not there, replacing or loading the same store) bumps neither revision: the early
 `return Result::Ok` of `set_user_label()` (`Ok`, `src/debug/debugger_annotations.cpp:69`), of
@@ -180,7 +180,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
 - **The Disassembly draws it.** `label_column_shown()` (`disasm_panel.cpp:1016`) is true while the symbol table
   (the composed reader, section 9) holds any label; then the **Label** column sits between the BP column and the
   mnemonic and every x after it moves by `label_width()` (16 characters). The columns run Mem, Addr, BP column,
-  [Label], mnemonic, opcode bytes, `; comment` (GH #448); `breakpoint_x()` (`:1023`) is the BP column's left edge,
+  [Label], mnemonic, opcode bytes, `; comment`; `breakpoint_x()` (`:1023`) is the BP column's left edge,
   `mnemonic_x()` (`:1025`) the mnemonic's (`breakpoint_x() + 20 + 4`, plus `label_width()` with a label),
   `mnemonic_width()` (`:1030`) the mnemonic column's 20 characters, and `bytes_x(line)` (`:1035`) where that line's
   bytes start: after the column, or after the mnemonic itself plus a gap when that mnemonic is wider, so a long

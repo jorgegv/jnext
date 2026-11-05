@@ -3087,7 +3087,7 @@ Programming it is via NextREG <code>0x60</code>-<code>0x64</code>; there is no C
 the 7 MHz ULA pixel counter, zeroed 11 pixels before the active display — it is
 <strong>not</strong> the 28 MHz master-cycle offset into the line, and <strong>not</strong> anchored at the
 raw line start. jnext passed the raw 28 MHz offset, which put
-every <code>WAIT</code> four times too early and one row off (GH #181). <code>WAIT</code> also
+every <code>WAIT</code> four times too early and one row off. <code>WAIT</code> also
 compares <code>hc &gt;= (hpos&lt;&lt;3)+12</code> in wrapping 9-bit arithmetic, so <code>hpos=63</code> yields
 4, not 516. A threshold above the line's last <code>hc_ula</code> (455, or 447 on 48K and Pentagon
 timing) is never reached, so such a <code>WAIT</code> stalls until the next restart.</p>
@@ -3095,7 +3095,7 @@ timing) is never reached, so such a <code>WAIT</code> stalls until the next rest
 (<code>copper.vhd:80</code>); that is <code>c_min_vactive</code> lines into the raw frame, not its
 top. jnext also rewound it at the raw frame start, cutting every whole-frame
 program off <code>c_min_vactive</code> lines early: 64 at 50 Hz, 80 on Pentagon, 40 at
-60 Hz (GH #293). An NR 0x62 write that leaves the mode bits unchanged does
+60 Hz. An NR 0x62 write that leaves the mode bits unchanged does
 nothing to the Copper: only a mode change resets its PC. A stopped Copper is
 not stepped, except to latch a pending mode write, so that a stop and a
 restart (<code>00</code> then <code>01</code>/<code>11</code>) is still seen as a mode change.</p>
@@ -3114,7 +3114,7 @@ mode is latched by every access to either port, reads included
 <code>PortDispatch</code>, so a DMA-driven <code>OUT</code> re-enters the normal dispatcher — which is
 why <code>PortDispatch::write()</code> has to tolerate a nested write. A DMA port read goes
 through <code>PortDispatch::guest_read()</code>, so an RZX records and replays it like the
-CPU's <code>IN</code> (GH #283). <code>execute_burst(16)</code>
+CPU's <code>IN</code>. <code>execute_burst(16)</code>
 runs from the instruction loop, and <code>dma_holds_bus()</code> both stalls the CPU and
 silences the DMA ports. In burst mode the CPU is released during the prescaler
 wait; in continuous and byte mode it is not. The wait follows every byte, the
@@ -3125,8 +3125,7 @@ increment (<code>zxnext.vhd:1776-1777</code>, <code>dma.vhd:250-254</code>), whi
 step's CPU clocks and sets <code>set_turbo()</code> from the clock's divisor, so a
 prescaler of N spaces bytes N×32 master cycles apart. The status byte follows
 the VHDL's two flags exactly: the end of a block sets <em>end of block</em> and an
-auto-restart does not clear it, and the return to idle clears <em>at least one</em>
-(GH #300).</p>
+auto-restart does not clear it, and the return to idle clears <em>at least one</em>.</p>
 <h2 id="divmmc">DivMMC<a class="headerlink" href="#divmmc" title="Permanent link">&para;</a></h2>
 <p>DivMMC is the Next's SD-card interface, inherited from a family of third-party
 Spectrum add-ons. It is more than a card reader: it carries its own 8 KB ROM and
@@ -3175,8 +3174,8 @@ it read-only, and the card then answers CMD24 with the write-error token exactly
 as a write-protected card would. This runtime path is entirely separate from the
 host-side FAT32 reader in <code>src/core/sd_rom_extractor.{h,cpp}</code>, which pulls the
 ROM images out of the same file at startup.</p>
-<p>The card can be changed while the machine runs (<code>Emulator::change_sd_card()</code>,
-GH #93): <code>mount()</code> is a full <code>reset()</code> of the protocol state, so the guest has to
+<p>The card can be changed while the machine runs (<code>Emulator::change_sd_card()</code>):
+<code>mount()</code> is a full <code>reset()</code> of the protocol state, so the guest has to
 initialise the new card from CMD0, which is what NextZXOS's REMOUNT does after
 its "press Y". There is no card-detect line to model — the Next's SD port is five
 pins (<code>zxnext_top_issue2.vhd:60-64</code>). The ROMs are not re-extracted on a change;
@@ -3191,7 +3190,7 @@ SET_BLOCKLEN changes the transfer length only on the standard-capacity card.
 TBBlue, NextZXOS and FatFs all negotiate HCS=1, so the boot path only ever takes
 the block-addressed leg — the standard-capacity leg exists so a legacy image
 mounted by a host that asks for SDSC is addressed correctly instead of silently
-512× off (GH #94).</p>
+512× off.</p>
 <h2 id="ctc">CTC<a class="headerlink" href="#ctc" title="Permanent link">&para;</a></h2>
 <p>The CTC is the Zilog counter/timer companion to the Z80, and the Next carries
 one: four independent channels that divide down a clock or count external
@@ -3202,7 +3201,7 @@ interrupt — sample playback rates, music drivers, timed I/O.</p>
 at ports <code>0x183B</code>-<code>0x1B3B</code>, each a transcription of the VHDL five-state machine,
 and channel <em>N</em>'s ZC/TO output feeds channel <em>N</em>+1 so they can be cascaded.</p>
 <p>The model is exact to the CLK_28 edge, and the edges are where the surprises
-are (GH #265):</p>
+are:</p>
 <ul>
 <li>A time constant written from S_RESET_TC passes through S_TRIGGER for one
   edge with the prescaler held at 0, so a timer's first count lands <strong>17</strong>
@@ -3353,7 +3352,7 @@ while jnext runs neither starts nor stops it. Three pieces:</p>
   entries that do not count as a setup having been tried; a manual unpack does), and the question and the <code>[uart]</code> log both say it.
   File existence goes through <code>sdcard::regular_file_exists</code>
   (<code>std::filesystem</code>), never <code>::stat</code>: MinGW's <code>stat</code> is <code>stat64i32</code> and fails
-  with <code>EOVERFLOW</code> for files of 4 GiB or more (GH #358). The download itself is
+  with <code>EOVERFLOW</code> for files of 4 GiB or more. The download itself is
   resumable (contract and decision table: <code>08-media-and-loaders.md</code>): the
   backend keeps <code>&lt;archive&gt;.part</code>, the question offers to continue it, and only a
   finished download is renamed to the archive's name, so a partial is never
@@ -3469,8 +3468,8 @@ designed in and is checked, not one that happens to hold today.</p>
   bytes for the guest in a wire with its own short lock (held for a push or pop,
   never across a transport or sink call), and <code>ThreadedEsp::tick()</code> paces from it
   without the core lock; it try-locks the core only to frame the <em>next</em> <code>+IPD</code>,
-  once the wire has drained. Before GH #327 a lost try-lock dropped the elapsed
-  time, which under wine (worker inside a Winsock call, 1-25 ms) paused a reply
+  once the wire has drained. A lost try-lock must not drop the elapsed
+  time: under wine (worker inside a Winsock call, 1-25 ms) paused a reply
   mid-message for up to 382 018 emulated cycles, and NextSync's 20-poll window
   between <code>+IPD,&lt;n&gt;:</code> header bytes then abandoned the packet. A real ESP-01
   clocks a message out back to back; each message is pushed as one unit.</li>
@@ -3479,7 +3478,7 @@ designed in and is checked, not one that happens to hold today.</p>
   function in <code>esp_socket_platform.h</code>. On Windows it is a Win32 thread, not
   <code>std::thread::detach</code>: MinGW winpthreads recycles the descriptor of a thread
   that ended before <code>pthread_detach</code> ran while that thread's exit callback can
-  still reach it, so the <em>next</em> thread created may never run its body (GH #328).
+  still reach it, so the <em>next</em> thread created may never run its body.
   <code>test/lint-thread-detach.sh</code> fails <code>make unit-test</code> and <code>make regression</code> on any other <code>.detach()</code>.</li>
 </ul>
 <p>Everything that couples the two sides lives on <strong>jnext's</strong> side of the line:</p>

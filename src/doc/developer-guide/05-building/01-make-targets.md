@@ -46,7 +46,7 @@ which builds and then runs, and a `-clean` target; `make clean` removes all of
 them along with `build/`.
 
 `gui-release` is the binary JNEXT ships and tests, and it is a **PGO build**
-(GH #297): it depends on `gui-release-pgo-gen`, the instrumented twin, runs the
+: it depends on `gui-release-pgo-gen`, the instrumented twin, runs the
 training and then compiles `build/gui-release` with the profile — see
 [5.5](05-performance-and-optimisation.md#profile-guided-optimisation).
 `gui-release-non-pgo` is the same Release build without PGO, in its own tree;
@@ -81,7 +81,7 @@ the SDL-only configuration (its own `build/sdl-unit-test` tree, so `build/` stay
 the Qt one), and `make unit-test-dashboard` runs the unit tests and refreshes the
 committed per-subsystem status table.
 
-Two more targets run the SDL-only suites on other operating systems (GH #214).
+Two more targets run the SDL-only suites on other operating systems.
 `make unit-test-sdl` also works on macOS, where the test harness needs Homebrew's
 `bash`, `coreutils` and `grep` (`brew install bash coreutils grep`; the target
 puts them first on `PATH` for its own recipe only, and the harness refuses with
@@ -104,13 +104,13 @@ jnext's own download if it is missing. `make unit-test-win` is two steps,
 wine, no compiler needed), so the run step could later be taken over by a real
 Windows host; it is part of the merge gate for every code change.
 
-`make regression-win` (GH #319) runs the regression suite's screenshots and the
+`make regression-win` runs the regression suite's screenshots and the
 functional rows Windows can run against MinGW-built exes under wine: the Qt exe
 as shipped minus PGO (`win-release-non-pgo`, with `qoffscreen.dll` bundled into
 that test tree only), the SDL-only exe, and the native helpers from the SDL
 unit-test tree. `make regression-macos` is its macOS twin (CI `macos-regression`).
 `ROWS="..."` names rows. Neither is stamped; see
-[the regression suite](../04-testing/03-the-regression-suite.md#platform-runs-macos-and-windows-under-wine-gh-319).
+[the regression suite](../04-testing/03-the-regression-suite.md#platform-runs-macos-and-windows-under-wine).
 
 The built tree is **not yet a relocatable directory**, so there is no recipe for
 running it by hand on a real Windows machine, and none has been tried. What

@@ -57,7 +57,7 @@ restored CPU.
 
 ## Which machine a snapshot loads as
 
-A `.sna`, `.szx` or `.z80` loads on the machine it was **saved** on (GH #323),
+A `.sna`, `.szx` or `.z80` loads on the machine it was **saved** on,
 as a `.jns` always has. There is ONE table that maps a snapshot to a machine,
 `snapshot_machine()` (declared in `src/core/snapshot_machine.h`, defined in `src/core/snapshot_machine.cpp`): a `.sna` by
 size (49179 = 48K, longer = the 128K form, which libspectrum calls a Pentagon
@@ -138,7 +138,7 @@ routine is never intercepted, and real time is then the only way it will load.
 does not cost real time: `Emulator::fastload_active()` drops the frame pacing (the
 Qt frontend runs up to 200 frames per tick, the SDL one skips its delay) and the
 audio. Like FUSE's `timer_fastloading_active()`, it holds only while something is
-loading, never because a tape is merely attached (GH #408): while the phantom
+loading, never because a tape is merely attached: while the phantom
 typist waits, for at most `PhantomTypist::FASTLOAD_WAIT_FRAMES` (1000) frames, or,
 for a fast tape with blocks left, while the keyboard auto-type is typing its
 `LOAD ""` or within `FASTLOAD_TAPE_IDLE_FRAMES` (50) frames of the last block the
@@ -155,7 +155,7 @@ runs the FPGA bootloader and tbblue firmware first (`init()` overlays
 or `.wav`) and any state restore (a rewind, a debugger state load, a `.jns`)
 each close the window.
 
-**Automatic play/stop (GH #395)** is a host deck feature with no hardware
+**Automatic play/stop** is a host deck feature with no hardware
 counterpart (no Spectrum has tape motor control). The signal is
 `TapePollDetector` (`src/core/tape_poll_detector.h`): every CPU `IN` of the ULA
 port while `cpu_.executing()` (the debugger's port reads are not counted),
@@ -187,7 +187,7 @@ detect-loader fails the `xevious-deciload` tape.
   independent of the setting: a 0x2A block now stops only on a 48K machine (the
   TZX specification).
 
-**Deck position (GH #402).** Each loader can say where it is and be put back
+**Deck position.** Each loader can say where it is and be put back
 there, for a `.jns`: `deck_state()` returns a plain struct (TAP: block, phase,
 pulse and byte counters; TZX: the fast-load cursor and the whole ZOT player,
 file pointers as byte offsets and the next edge as a distance from "now"; WAV:
@@ -240,7 +240,7 @@ on hardware. All three tape formats support it. An `IN` from port 0xFE sees the
 tape level of the T-state its `port_fe_dat_0` reload falls in — in the I/O
 cycle's third clock, 2.5 T-states in after its contention stretches
 (`zxnext.vhd:3455-3464`), so T-state 9 of an uncontended `IN A,(n)` — not the
-level at the instruction's start (GH #265). The EAR signal is also routed
+level at the instruction's start. The EAR signal is also routed
 into the audio mixer, which is why you hear the loader as well as see it.
 
 Getting BASIC to *start* loading is a third mechanism again. The phantom typist
@@ -290,7 +290,7 @@ line by line, and where the two loaders genuinely disagree — the palette-block
 rule, the V1.3 delay model, the loading bar — the difference is documented as a
 deliberate divergence rather than silently reconciled.
 
-V1.3 is an **experimental format and not officially supported** (GH #228): the
+V1.3 is an **experimental format and not officially supported**: the
 user-facing entry points enforce V1.2 conformance. `Emulator::load_nex()`
 refuses a header version above V1.2 unless
 `EmulatorConfig::allow_experimental_nex_v13` is set — the CLI sets it with
@@ -319,12 +319,12 @@ written to that address (`delivers_handle_in_bc()`; `nexload2.asm:397-407`,
 `nexload.asm:560-570` and `nexload.asm:606-609`). `Emulator::load_nex()` then opens the
 host file behind the handle — the extended-NEX host bridge in the stand-in
 below — at `payload_offset()`, just after the last bank, where both loaders
-hand their own handle over (GH #267), and the program streams them. With 0, both loaders read the declared
+hand their own handle over, and the program streams them. With 0, both loaders read the declared
 banks and close the file, with no size check at all (`nexload2.asm:390-395`,
 `nexload.asm:547-551`), so the bytes are dead. jnext matches that: the program
-loads and runs, and more than 16 KB of dead bytes logs a warning (GH #250,
-found on Spectron2084). That warning replaces the refusal issue #10 added,
-which had turned such a file away. No host bridge is opened for such a file,
+loads and runs, and more than 16 KB of dead bytes logs a warning (found on
+Spectron2084). That warning replaces an earlier refusal,
+which turned such a file away. No host bridge is opened for such a file,
 so the stand-in cannot reach the bytes either: its `F_OPEN` then knows only
 the in-memory file.
 
@@ -357,7 +357,7 @@ setup) jnext does not reproduce; the list is in `apply()`.
 
 ## The warm start: applying a NEX to a machine the firmware made
 
-The warm start (GH #234, the structural fix for GH #72) replaces the synthetic
+The warm start replaces the synthetic
 machine at the top of `Emulator::load_nex()` with a recording of a real boot.
 It is Next-only and `.nex`-only, and it is **not an option**: there is no
 enable flag, because a default of "start the program on a machine hardware
@@ -377,7 +377,7 @@ load file is present — the overlay at `$0000-$1FFF` would clobber the
 program's own reset vector — so `nextboot.rom`, `TBBLUE.FW` and NextZXOS never
 run, and every `reset()` default in every subsystem becomes directly
 observable to the loaded program. Some of those defaults are states hardware
-cannot reach: GH #226's dead F4/F9/F10 came from `nr_03_config_mode` sitting
+cannot reach: dead F4/F9/F10 keys once came from `nr_03_config_mode` sitting
 at its power-on `'1'` for a whole session because nothing wrote NR `$03`.
 Fixing such defaults one at a time is a treadmill, because the reference —
 what the firmware leaves behind — exists only as a running machine.
@@ -465,7 +465,7 @@ two ROM-bank bits after the restore. Those are direct MMU calls, so they skip
 what the 0x7FFD / 0x1FFD port handlers push after paging, and of that the
 DivMMC's ROM 3 feeder (`DivMmc::rom3_active_`, VHDL `sram_rom3` into
 `sram_divmmc_automap_rom3_en`, `zxnext.vhd:2981-3008, 3138`) is the one input
-the two bits change; the handover re-syncs it (GH #301). Without that,
+the two bits change; the handover re-syncs it. Without that,
 `load_state()` left it at the recording's ROM 0, and since NextZXOS leaves NR
 0xB9 = 0x00 (RST $08 valid only with ROM 3) every ROM3-gated automap entry
 point stayed off until the program's first 0x7FFD / 0x1FFD write. It is deliberately NOT in
@@ -488,8 +488,7 @@ no-op on the synthetic path and pinned by `NEXMMU-01..07`.
 (size, mtime) read after the recording, plus a process-wide write generation
 (`SdCardDevice::host_write_generation()`, bumped by every CMD24 jnext commits):
 an own write drops the in-memory state, and a memo of the last validation
-catches an own write that left the mtime unchanged. GH #396 (owner, 2026-10-22)
-replaced the whole-image SHA-256 this used to pay (0.6-1.2 s per GB on the UI
+catches an own write that left the mtime unchanged. A memo replaces the whole-image SHA-256, which cost 0.6-1.2 s per GB on the UI
 thread at every cold boot that loads a program). **Accepted residual:** an
 image replaced or edited from outside with the same size and the same mtime
 (`cp -p`, `touch -r`) serves a stale recording; `--warm-start-regenerate` is the
@@ -511,7 +510,7 @@ number, reached through the DivMMC automap (see
 [3.6 Peripherals](06-peripherals.md#divmmc)). A direct load skips `nexload`.
 Before the warm start it skipped NextZXOS altogether, and `$0008` held the 48K
 ROM's ERROR-1 restart, so an unanswered call crashed the program: Warhawk's
-first call, `M_GETSETDRV`, ended in a DI + HALT at `$1303` that way (GH #250).
+first call, `M_GETSETDRV`, ended in a DI + HALT at `$1303` that way.
 jnext therefore answers these calls on the host,
 the way CSpect (`esxDOS.dll`) and ZEsarUX (`esxdos_handler`) always do. Neither
 emulator is an oracle for this: both fake every `RST $08`, DivMMC or not.
@@ -519,7 +518,7 @@ Since the warm start a NextZXOS is usually resident behind the program, and
 jnext's answers still come first: that is the documented design (jnext(1),
 "esxDOS calls from a directly loaded NEX"), because the NEX is a host file
 NextZXOS cannot see. A program that needs NextZXOS's own file calls is started
-from NextZXOS, or run with `--esxdos-stub-root` (GH #301).
+from NextZXOS, or run with `--esxdos-stub-root`.
 
 **Where it lives.** `Z80Cpu::execute()` (`src/cpu/z80_cpu.cpp`) checks every
 arrival at `$0008`. When the byte before the pushed return address is `$CF`
@@ -604,7 +603,7 @@ answered. The names come from `src/core/esxdos_trace.h`, transcribed from
 
 **Tests.** `test/esxdos_stub/esxdos_stub_test.cpp`: `ESX-01..10` cover the
 in-memory file and `.RUN` chaining, `ESXT-01..36` the call-name table, hook
-installation and the `$0008` trigger, and `ESXN-01..18` GH #250. Most `ESXN`
+installation and the `$0008` trigger, and `ESXN-01..18` the NEX loader's dead-byte handling. Most `ESXN`
 rows load a NEX built at test time through `load_nex()` and run it with
 `run_frame()`; the bare `--esxdos-stub` rows put the program in RAM directly
 instead, because `load_nex()` would arm the direct-load answers, and the
@@ -616,7 +615,7 @@ bridge has its own suite, `test/core/extended_nex_test.cpp` (`XNEX-*`), and
 the regression rows `extended-nex-stream-func` and `esxdos-chain-*-func` run
 real programs.
 
-## A host directory: `--esxdos-stub-root` (GH #31)
+## A host directory: `--esxdos-stub-root`
 
 `--esxdos-stub-root DIR` replaces the single in-memory buffer with a real host
 directory. It implies `--esxdos-stub`, and `--esxdos-stub-writable` is the
@@ -692,7 +691,7 @@ reason writes are behind a second flag.
 **Exact answers, or refusals.** A listing mode is served only where the answer
 is exactly NextZXOS's, and refused with `esx_enosys` everywhere else: a caller
 that asked for a filtered or sorted listing and silently got neither is worse
-off than one told no. What NextZXOS answers was measured (GH #301) with a probe
+off than one told no. What NextZXOS answers was measured with a probe
 NEX launched from its Browser, listing one directory in every mode:
 
 - `esx_mode_sf_enable` with no exclude bit and no `esx_sf_sort_enable` in C
@@ -785,7 +784,7 @@ directions. The snapshot a recording embeds is an SZX on the 128K and +3
 (`SnaSaver::save()`, where the CPU view IS the machine).
 
 **RECORDING IS REFUSED ON A NEXT** — `Emulator::rzx_refused_by_machine()`, owner
-decision 2026-09-26 (GH #274), and the derivation with its measurements lives at
+decision 2026-09-26, and the derivation with its measurements lives at
 that definition. In short, an RZX holds a classic-Spectrum snapshot AND a
 per-frame log of IN VALUES WITHOUT THE PORTS THEY CAME FROM, and a Next fails
 both halves. The snapshot: none of SNA, SZX or Z80 describes a Next, so a 48K SNA
@@ -806,7 +805,7 @@ matched the recording exactly and the same snapshot animates correctly under
 `--load`, yet from that identical PC the first port read differed. Do not assume
 `.jns` is replay-grade. Second, the DMA was outside the log: `dma_.read_io` was
 wired to `port_.read()`, which has no RZX hook, so a DMA port read was neither
-recorded nor replayed. GH #283 moved it to `PortDispatch::guest_read()`, the
+recorded nor replayed. It now goes through `PortDispatch::guest_read()`, the
 RZX-aware read the CPU's `IN` also takes (`in()` forwards to it). `read()` stays
 hook-free on purpose: it is also every tool's read — the debugger's `port_in()`
 — and a tool's read is not input. `port_in()` is refused (`RefusedRzx`) while an
@@ -856,7 +855,7 @@ nothing.
 For the same reason a playback builds the machine the recording was made on.
 The recorder names it in the RZX creator block's custom data
 (`rzx::set_recorded_machine()`, `machine=48k` — a `--machine` value), because
-the snapshot cannot always: a pre-GH #274 Next recording embeds a 48K SNA, which
+the snapshot cannot always: an older Next recording embeds a 48K SNA, which
 names no machine. `rzx::recorded_machine()`
 reads that marker first and otherwise judges a recording by its snapshot
 (`snapshot_machine()`, the same single table the snapshot loaders use: SNA size,
@@ -1011,7 +1010,7 @@ every location cannot pass by checking the first) and `pok_dialog_test`
 
 ## ZIP archives
 
-`game.tap.zip` loads (GH #392) by being turned into **an extracted file with the
+`game.tap.zip` loads by being turned into **an extracted file with the
 member's own extension at the two places a user names a program**: the
 command-line fold in `main.cpp` (right after the bare filename becomes
 `load_file`, before the RZX checks) and `MainWindow::handle_load_path()`. Every
@@ -1127,8 +1126,7 @@ Snapshot Alt+Shift+F9; the same two chords in the SDL-only build) follow the sam
 shape for `.jns`. `src/core/quick_snapshot.*` holds the folder
 (`default_quick_snapshot_dir()` = `sdcard::default_state_dir()` + `/snapshots`,
 so `$JNEXT_CONFIG_DIR` and the SD image's own state-dir resolution apply — on
-Windows it inherits the HOME → USERPROFILE fix tracked in GH #316, and until
-then a missing HOME puts it beside the SD image under `./.jnext`), the name
+Windows it depends on HOME → USERPROFILE resolution, and without it a missing HOME puts it beside the SD image under `./.jnext`), the name
 (`auto_timestamped_path()`, the one function `auto_screenshot_path()` also
 uses) and the choice of file (`latest_quick_snapshot()`: greatest modification
 time among `*.jns` regular files directly in the folder, ties to the greater
@@ -1142,7 +1140,7 @@ costs no session; and `emulator_boot_machine()` reads the `.jns` manifest's
 machine the way it reads an RZX's, so the cold boot builds the snapshot's
 machine and the frontend's `keep_machine` hook records it (otherwise a later
 reset would boot the old machine); the command-line startup does the same through `emulator_startup_machine()`, where a `.jns` wins even over an explicit `--machine`. After ANY snapshot load the frontends' `emulator_apply_load()` calls `Keyboard::release_all_keys()`: the membrane matrix in a `.jns` records the keys the host held at save time (the Shift of the Alt+Shift+F5 chord), whose release would never arrive, so the guest starts with no key down (the matrix, the extended-key register that the arrows use, and the shift scan history; the core load keeps them, the round-trip contract: QS-28..30). Debugger-initiated loads (DZRP, ZRCP, GDB) go through `emulator_apply_load()` too, so they release held keys as well. `prune_quick_snapshots()` never deletes a symbolic link. Quick Load failures (no snapshot, unreadable newest file) are a status-bar line in Qt and a log line in SDL, never a dialog; both actions act once per key press (`QuickChordTracker`, `setAutoRepeat(false)`). `.sna`, `.szx` and `.z80` switch
-machine the same way (GH #323; see "Which machine a snapshot loads as" below), and
+machine the same way (see "Which machine a snapshot loads as" below), and
 QS-25..27 pin that route. Retention: `prune_quick_snapshots()` runs after
 each Quick Save and deletes only names matching `is_quick_snapshot_name()`;
 the count is `EmulatorConfig::quick_snapshot_keep` (CLI) or
@@ -1151,12 +1149,12 @@ the CLI winning (`quick_snapshot_keep_cli`). The debugger keymap refuses
 Alt+Shift+F5/F9 by name (`validate_combo`).
 The SDL chord predicate is `platform/quick_snapshot_chord.h`; the Qt chords are
 the two QAction shortcuts in `main_window.cpp`.
-Both frontends hand the request to the key `Router` (`on_host_action()`, GH #386)
+Both frontends hand the request to the key `Router` (`on_host_action()`)
 instead of acting in the key callback, so a chord takes its turn behind the keys
 typed before it, keys typed during or after it reach the loaded machine, and
 `SdlApp::service_quick_requests()` / `QtApp::TickEffects::post_frames()` call
 `action_done()` however the action ended (see the input subsystem chapter).
-There is no whole-card read on this path (GH #396, owner 2026-10-22): a save,
+There is no whole-card read on this path (owner decision, 2026-10-22): a save,
 probe or load reads the MBR and the BPB sector (the Tier-1 identity) and nothing
 else; `.jns` has no Tier-2 `content_stamp` any more (old files carry one, it is
 ignored) and no mid-transfer refusal. jnext assumes the card is as the snapshot
@@ -1201,13 +1199,13 @@ downloads the canonical image and re-clusters a copy via `fat32_image.*`,
 because the shipped 1 GB image has too few clusters to be a spec-valid FAT32
 and the Next firmware's own FatFs — correctly — rejects it. The same pass
 writes a default `/MACHINES/NEXT/config.ini` and doubles the distribution's
-16 KB `zx81.rom` to the 32 KB the firmware boot menu loads (GH #284, as
+16 KB `zx81.rom` to the 32 KB the firmware boot menu loads (as
 upstream tbblue did after the 24.11 release), only when it is that exact file.
 That recipe is versioned (`kFixedImageRecipe`, recorded in a `.recipe` sidecar
 next to the image). jnext never rebuilds an existing image because its recipe
 is old: the image holds the user's own files.
 
-Downloads are resumable (GH #358), by one contract for every caller of
+Downloads are resumable, by one contract for every caller of
 `DownloadFn` (the SD distro zip, the NextPi archive, its `.md5`, the mirror
 listing). The default backends (libcurl, WinHTTP) write `<dest>.part`, beside a
 resume record `<dest>.part.resume` (requested URL, validator, full size), and
@@ -1230,8 +1228,7 @@ only the final rename failed) is finished with no request and never refetched; a
 Oversize or Stale one is discarded; a Resumable one is continued, appended at an
 explicit 64-bit offset.
 
-A dropped network must neither freeze the window nor take minutes to be noticed
-(GH #358). The same contract on `DownloadFn` says how both backends behave while a
+A dropped network must neither freeze the window nor take minutes to be noticed. The same contract on `DownloadFn` says how both backends behave while a
 transfer is under way. They call the `ProgressFn` at least every `tick_ms` (200),
 whatever the network does: connecting, waiting for headers, a silent body. A
 `false` from it ends the attempt within a tick (`cancelled by user`, the partial
@@ -1269,12 +1266,12 @@ the GUI thread sat inside that read for its 120 s, and Windows ghosted the windo
 completion or the next tick by the clock, and a cancel or a stall is "close the request handle and return".
 The wait is not a kernel event on purpose: under wine without ntsync every kernel-object
 wait goes through the single-threaded wineserver, which also delivers its timeout, so a
-wineserver that does not run for T seconds delays the tick by T (GH #415: a 1 s stop gave a
+wineserver that does not run for T seconds delays the tick by T (a 1 s stop gave a
 1.2 s tick gap, the CI failure of `PROV-STALL-08`). A condition-variable wait is a futex inside
 the process under wine and a kernel wait on Windows (Vista and later, so Windows 7 is covered).
 That holds only while no WinHTTP call made on that thread waits on the network.
 `WinHttpReceiveResponse` may: wine 11.7 and later read the headers inside the call, in its
-caller (GH #415: no tick, no stall note and no cancel for the whole header wait, up to
+caller (no tick, no stall note and no cancel for the whole header wait, up to
 21 s, until the server closed). Microsoft's sentence that even in async mode a function
 "can operate either synchronously or asynchronously" is on `WinHttpSendRequest` and
 `WinHttpQueryDataAvailable` too, and the waiting thread still calls those and
@@ -1326,7 +1323,7 @@ wine keeps a request object alive while a call holds it, so closing mid-call is 
 removing the handoff passes every row; it rests on Microsoft's rule and on review, and
 `PROV-STALL-11` pins the user-visible half (cancel before the server has answered). The
 tick's independence from the wineserver: it is measured by stopping the wineserver for a
-second during `PROV-STALL-08` (GH #415), not by a row, because a stalled wineserver stalls
+second during `PROV-STALL-08`, not by a row, because a stalled wineserver stalls
 every suite sharing the prefix. And TLS under asynchronous WinHTTP, and the read-fill semantics and error codes of real
 Windows (wine fills the buffer, reports a read timeout as 10060 and never reports
 more than 8 KiB available: measured over the whole provisioner suite, 8192 at most):
@@ -1339,7 +1336,7 @@ close without answering and a port refuse the connection, one per stage of the
 asynchronous sequence, and requires the transport's own reason at once, never a
 stall.
 
-What a failed fetch says is the callers' business, once (GH #385). Every failure of
+What a failed fetch says is the callers' business, once. Every failure of
 a fetch is built by `sdcard::fetch_failure(what, url, reason, next)`: `<what>:
 <reason>`, then `  URL: <url>` (exactly the string handed to the `DownloadFn`, one
 variable per fetch, so it can be pasted into a browser), then `  <what happens
@@ -1407,7 +1404,7 @@ clock. `nextpi-func` fact 12 shows it in the real binary against a mirror that
 answers after 3 s.
 
 The console. The frontends with no dialog (`--headless`, the SDL-only build) say the
-same things as text, on stderr and in the log, in the dialog's words (GH #385). One
+same things as text, on stderr and in the log, in the dialog's words. One
 class decides: `sdcard::ConsoleWait` is made for one transfer and ticked by its
 `ProgressFn`, which the backends call at least every 200 ms whatever the network does.
 When no byte has arrived for `kStallNoticeMs` (5 s) it says `stall_note()`, the

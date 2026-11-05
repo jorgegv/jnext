@@ -86,7 +86,7 @@ lookup instead, and the suite provisions that image for itself in the
   when the image is derived, so it cannot notice that jnext now derives a
   different image. The gate therefore also re-derives when the image's
   `.recipe` sidecar, written by jnext, does not hold the
-  `sdcard::kFixedImageRecipe` of the tree under test (GH #284).
+  `sdcard::kFixedImageRecipe` of the tree under test.
 - **A per-run clone** points `JNEXT_CONFIG_DIR` at a private directory, so the
   run boots its own copy and every non-headless invocation starts from clean
   GUI preferences. That directory lives under `$HOME` rather than `/tmp`,
@@ -95,9 +95,9 @@ lookup instead, and the suite provisions that image for itself in the
 
 ## Concurrency: one process per row, in phases
 
-Until GH #295 the functional rows were *sourced* into the driver one after
-another — they shared its counters, its `TMP_DIR` and its SD clone, and that
-alone made them serial. Most of them wait on real time rather than on the CPU,
+The functional rows used to be *sourced* into the driver one after
+another, sharing its counters, its `TMP_DIR` and its SD clone, which
+made them serial. Most of them wait on real time rather than on the CPU,
 so a full run spent twelve minutes on a host that was 85% idle.
 
 Now each row runs in a process of its own. `row-runner.sh` initializes the
@@ -148,7 +148,7 @@ A second Xvfb race hit the rows that poll with `xdotool`: without `-noreset` the
 X server regenerates whenever its last client disconnects, and the row's own
 `xdotool search` poll is such a client while the app starts, so an app
 connecting mid-regeneration is dropped (`SDL_Init: x11 not available`, no
-screenshot; GH #318; 18/1000 connections failed under load, 0/1000 with
+screenshot; 18/1000 connections failed under load, 0/1000 with
 `-noreset`). Those rows start Xvfb with `-noreset`, HS-89 enforces it, and a
 missing screenshot or non-zero app exit is a FAIL naming the run and cause (the
 solo-confirm path), never a SKIP.
@@ -170,7 +170,7 @@ itself exits 1 on a SKIP in every mode (full, named rows, `confirm`, `--update`;
 a standalone row's `standalone_summary` too), naming the rows. A tool a row needs
 is provisioned rather than assumed: `make regression` first runs `make z88dk-gdb`
 (`test/provision-z88dk-gdb.sh`), which builds z88dk v2.4's client, sha256-pinned,
-into `~/.cache/jnext/tools` when none resolves. The two foreign readers of the reverse-engineering exports (GH #389) are provisioned
+into `~/.cache/jnext/tools` when none resolves. The two foreign readers of the reverse-engineering exports are provisioned
 the same way by `make skoolkit` and `make ghidra`; see
 [7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md). A run whose
 only FAILs are functional rows that failed on a loaded host is recorded as
@@ -187,7 +187,7 @@ mode, so a mistyped name can never run nothing and pass.
 
 Those two rows are examples, not the list. Rows that merely spawn short-lived
 processes have also failed under a parallel-agent load and never reproduced
-solo (`subsystem-gain-func`, GH #245), and a concurrent duplicate build once
+solo (`subsystem-gain-func`), and a concurrent duplicate build once
 failed with `undefined reference to main`. A list of sensitive rows in a
 document is therefore the wrong tool: a reader either chases a ghost, or —
 worse — waves a genuine failure through as "probably contention" because the
@@ -289,7 +289,7 @@ baseline and every future run agrees with it. Regenerate only when a rendering
 change is both intentional and understood, name the specific rows wherever you
 can, and treat a reference diff appearing in a review as a claim to be checked.
 
-## Platform runs: macOS and Windows under wine (GH #319)
+## Platform runs: macOS and Windows under wine
 
 `regression.sh --platform` (`make regression-win`, `make regression-macos`) runs
 the screenshots and the functional rows an OS can run against that OS's
@@ -330,7 +330,7 @@ screenshots + the admitted rows (no lints, no stamp).
    starts it from whichever client first needs the desktop, on that client's
    stderr (a row's filter pipe), and it lives while any other wine process uses
    the desktop, so a 0.1 s step could be held to its 120 s bound by another row
-   (GH #329). `--serve` therefore also starts a keeper (`wine start /wait cmd /c
+. `--serve` therefore also starts a keeper (`wine start /wait cmd /c
    pause`, stdio on `/dev/null`), verifies exactly one stable `explorer.exe` of
    the prefix on `/dev/null` and prints its pid; the driver records it and
    raises a harness fault if that process is not the same one at the end of the run.
@@ -350,13 +350,13 @@ screenshots + the admitted rows (no lints, no stamp).
    `jnext.exe` among the descendants (deepest one) and reads its CPU from `/proc`
    or, off Linux, `ps -o time=`.
 10. The runner sets `DBUS_SESSION_BUS_ADDRESS` and `DBUS_SYSTEM_BUS_ADDRESS` to
-    `disabled:` in every mode, next to the `DISPLAY` removal (GH #383). SDL's audio init makes
+    `disabled:` in every mode, next to the `DISPLAY` removal. SDL's audio init makes
     wine load winealsa, whose pipewire plugin makes synchronous calls to the desktop's
     xdg-desktop-portal over the inherited session bus; a slow portal stalled a Qt `jnext.exe`
     past its row's bound. CI's container has no D-Bus, so this makes a local run equal CI. Both
     are overridden, not unset (libdbus falls back to the system bus). Nothing of this exists on
     Windows.
-11. A stalled `jnext.exe` names its blocked call (GH #383). With
+11. A stalled `jnext.exe` names its blocked call. With
     `JNEXT_WINE_CAPTURE_DIR` set (the driver exports
     `build/regression-artifacts/wine-stall/<run>/`) the runner's watchdog fires once on a
     process at least 20 s old whose CPU time has been flat for 10 s and totals 2 s or less, and
