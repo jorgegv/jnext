@@ -7,7 +7,7 @@ and what changes for tape builds and banked code. [A first session](01-a-first-s
 uses the first line below.
 
 Every command line here was run with z88dk 2.4 (commit 4d530b6eb7, sdcc 4.5.0)
-and with a master build (commit 97731e4e29, v2.4-2883, sdcc 4.6.0), unless a
+and with a master build (commit 0f0a1cf70e, v2.4-2954, sdcc 4.6.0), unless a
 table says one of them is different.
 
 ## The recommended build
@@ -34,7 +34,7 @@ Loaded 332 z88dk symbols from '/home/you/prog/prog.map'
 Loaded 281 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 ```
 
-and 330 symbols and 286 lines on the master build (97731e4e29).
+and 330 symbols and 286 lines on the master build (0f0a1cf70e).
 
 ## What must be beside what
 
@@ -63,12 +63,12 @@ there. The map records `../src/main.c`, and the Source tab finds the file.
 
 ## Which compiler and library work
 
-| Build | z88dk 2.4 (4d530b6eb7) | z88dk master (97731e4e29, v2.4-2883) | C variables ([the Variables tab](11-c-variables.md)) |
+| Build | z88dk 2.4 (4d530b6eb7) | z88dk master (0f0a1cf70e, v2.4-2954) | C variables ([the Variables tab](11-c-variables.md)) |
 |---|---|---|---|
 | sccz80, newlib: `+zxn -clib=new -debug -m --list` | works: 281 lines. Part of a statement can show on the next line | works: 286 lines | yes, with the limits listed in [C variables](11-c-variables.md#what-each-z88dk-can-show) |
 | sdcc, newlib: `+zxn -clib=sdcc_iy -debug -m --list` | **does not build**: `main.c:224: error: syntax error ^---- defc Gcounter0_00==.` (z88dk issue 3172). Use `--c-code-in-asm` instead (next row) | works: 222 lines. Code from a header can show under the wrong line | 2.4: no. Master: yes |
 | sdcc on 2.4: `+zxn -clib=sdcc_iy --c-code-in-asm -m --list` (no `-debug`) | works: 230 lines, from the listings alone | not needed | no (no records without `-debug`) |
-| 80cc: `+zxn -clib=new -compiler=80cc -debug -m --list` | not available | works: 231 lines. Some lines are shared | yes, with the 80cc note ([z88dk#3233](https://github.com/z88dk/z88dk/issues/3233)) |
+| 80cc: `+zxn -clib=new -compiler=80cc -debug -m --list` | not available | works: 240 lines. Some lines are shared | yes, with the 80cc note ([z88dk#3233](https://github.com/z88dk/z88dk/issues/3233)) |
 | classic on the Next: `+zxn -clib=classic -debug` | **fails**: `Unknown option2 --hardware-keyboard` | works: 187 lines (PR #3198) | 2.4: no. Master: yes |
 | classic on the Next, no `-debug`: `+zxn -clib=classic -m --list` | builds: 171 lines, from the listings. No `prog_CODE.bin`, so the identity is not verified | builds: 173 lines, same | no |
 | classic on the 48K Spectrum: `+zx -debug -m --list` (no `-clib`: classic is the default) | works: 251 lines. No `prog_CODE.bin`: `(program identity not verified: no section binaries beside it)` | works: 254 lines, same | yes |

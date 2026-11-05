@@ -1954,7 +1954,7 @@ every colour scheme).
 Written when epic #353 closed (issue #438). The design of the epic lives in its issues; this section says what the code does and which decisions shaped it. The developer guide
 (7.9 to 7.10) is the reference for the code; the user guide (11-c-variables.md) is the reference for what each z88dk can show.
 
-**Inputs.** The map's `__CDBINFO__` records (F functions, S variables, T types, M modules), decoded by `cdb_decode()`, joined to the map's symbols and scoped by the map's own `C_LINE` records
+**Inputs.** The map's `__CDBINFO__` records (F functions, S variables, T types, M modules), decoded by `cdb_decode()` (plus the `N:` and `E:` enum records of z88dk#3241, recognised and not read: the `S:` record still carries the integer type), joined to the map's symbols and scoped by the map's own `C_LINE` records
 (`VariableStore`, part of the `SourceMap` it came from, so it has the map's lifetime). The listings beside the map add one fact, which function is `__z88dk_fastcall`. Nothing is read from `.cdb` files.
 
 **The store.** An immutable object: functions (with their extent, scope table, `trail` and `CCompiler`), variables (with the storage of an E-space record), types, modules, the refused

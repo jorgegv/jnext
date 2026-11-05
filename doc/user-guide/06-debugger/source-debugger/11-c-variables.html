@@ -4343,8 +4343,10 @@ the same notes reach the Watches tab and GDB's <code>monitor locals</code>, <cod
 <code>mbf64</code>, <code>bbc</code> and <code>dai32</code>) when the map shows the program links one of those float libraries.</p>
 <h2 id="what-each-z88dk-can-show">What each z88dk can show<a class="headerlink" href="#what-each-z88dk-can-show" title="Permanent link">&para;</a></h2>
 <p>These are limits of what the compilers record, not of the debugger. One row per version and compiler. <strong>Merged</strong> means merged into z88dk's
-master; a release that contains the fix is not tracked here. The last column is filled in when <code>z88dk-latest</code> has been rebuilt: until then it
-says <code>to be confirmed</code>, and no date is guessed.</p>
+master; a release that contains the fix is not tracked here. The last column is the date the fix reached z88dk's master (the date of its merge
+commit); <code>not yet</code> is a fix that is not merged. Every PR named as merged below is in z88dk master at <code>0f0a1cf70e</code> (2026-11-05); PR #3240 (the float format) is not merged. No
+z88dk nightly has them all yet: the latest one when this was written, <code>z88dk-20261105-ddfed0b200</code>, is older than PRs #3241 and #3262 to #3265; a nightly built after
+2026-11-05 03:30 UTC (the file name carries its date and commit) contains them, and so does z88dk master built from source.</p>
 <table>
 <thead>
 <tr>
@@ -4363,7 +4365,7 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td>each parameter <code>location unknown (z88dk U1...)</code>, with a listing beside the map or (no listing) recognised from the function's first instructions. Without a listing a <code>float</code> or <code>long long</code> fastcall parameter is not recognised and is read from the recorded slot: a wrong value</td>
 <td>none</td>
 <td>PR #3229, merged</td>
-<td>to be confirmed</td>
+<td>2026-11-04</td>
 </tr>
 <tr>
 <td>2.4, sccz80</td>
@@ -4371,7 +4373,7 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td><code>an array of unknown length: its debug record has no size</code></td>
 <td>none</td>
 <td>PR #3229, merged</td>
-<td>to be confirmed</td>
+<td>2026-11-04</td>
 </tr>
 <tr>
 <td>2.4, sccz80</td>
@@ -4379,7 +4381,7 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td>members marked <code>bitfield layout unknown (z88dk U2)</code>. A lone field in a struct smaller than an <code>int</code> is refused, <code>member '&lt;name&gt;' lies beyond the object</code>; a lone field that fits the struct is shown as its whole <code>int</code>: wrong when the padding bits are not 0, and for a <code>signed int</code> field</td>
 <td>none</td>
 <td>PR #3231, merged</td>
-<td>to be confirmed</td>
+<td>2026-11-04</td>
 </tr>
 <tr>
 <td>2.4, sccz80</td>
@@ -4387,7 +4389,7 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td>a local declared after an inner block, in the same block, is not listed</td>
 <td>none</td>
 <td>PR #3227, merged</td>
-<td>to be confirmed</td>
+<td>2026-11-04</td>
 </tr>
 <tr>
 <td>2.4, sccz80</td>
@@ -4395,15 +4397,15 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td>not listed inside its loop; two listed variables that share a slot both say <code>shares its stack slot with ...</code></td>
 <td><a href="https://github.com/z88dk/z88dk/issues/3254">#3254</a></td>
 <td>PR #3258, merged</td>
-<td>to be confirmed</td>
+<td>2026-11-04</td>
 </tr>
 <tr>
 <td>2.4, sccz80</td>
 <td>enumerators have no value and no type</td>
 <td>the number, not the name</td>
 <td><a href="https://github.com/z88dk/z88dk/issues/3232">#3232</a></td>
-<td>PR #3241, open</td>
-<td>not yet</td>
+<td>PR #3241, merged</td>
+<td>2026-11-05</td>
 </tr>
 <tr>
 <td>2.4, sccz80</td>
@@ -4419,14 +4421,22 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td>the same as 2.4</td>
 <td>as above</td>
 <td>as above</td>
-<td>to be confirmed</td>
+<td>as above</td>
 </tr>
 <tr>
 <td>master, sccz80</td>
-<td>enumerators; the float format of classic <code>--math-mbf32</code> and <code>--math-dai32</code></td>
-<td>the number; <code>float format mbf32 is not read</code></td>
-<td>#3232, #3236</td>
-<td>PRs #3241, #3240, open</td>
+<td>enumerators</td>
+<td>the number (JNEXT recognises PR #3241's <code>N:</code> and <code>E:</code> records and does not read the enumerator names yet)</td>
+<td>#3232</td>
+<td>PR #3241, merged</td>
+<td>2026-11-05</td>
+</tr>
+<tr>
+<td>master, sccz80</td>
+<td>the float format of classic <code>--math-mbf32</code> and <code>--math-dai32</code></td>
+<td><code>float format mbf32 is not read</code></td>
+<td>#3236</td>
+<td>PR #3240, open</td>
 <td>not yet</td>
 </tr>
 <tr>
@@ -4458,7 +4468,7 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td>no enum information</td>
 <td>the number</td>
 <td>#3232</td>
-<td>PR #3241, open</td>
+<td>PR #3241 covers sccz80 and 80cc only</td>
 <td>not yet</td>
 </tr>
 <tr>
@@ -4466,16 +4476,16 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td><code>C_LINE</code> records end in a TAB (a line reads as -1 in z88dk's own tools); a breakpoint inside a loop has no frame in ticks; the file name is not the one given</td>
 <td>JNEXT reads the records with or without the TAB</td>
 <td><a href="https://github.com/z88dk/z88dk/issues/3222">#3222</a></td>
-<td>PRs #3262, #3263, #3265, open</td>
-<td>not yet</td>
+<td>PRs #3262, #3263, #3265, merged</td>
+<td>2026-11-05</td>
 </tr>
 <tr>
 <td>master, 80cc</td>
 <td>a local is kept in a register; a register-passed parameter is recorded at another variable's slot</td>
 <td>the value, with the 80cc note; a write is allowed and carries the note, and is refused where the slot is a listed variable's (<code>shares ...</code>)</td>
 <td>#3233</td>
-<td>locals: PR #3244, merged; parameters: PR #3264, open</td>
-<td>locals: to be confirmed; parameters: not yet</td>
+<td>locals: PR #3244, merged; parameters: PR #3264, merged</td>
+<td>locals: 2026-11-04; parameters: 2026-11-05</td>
 </tr>
 <tr>
 <td>master, 80cc</td>
@@ -4483,7 +4493,7 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td>every block local <code>scope unknown</code>, also with PR #3243: JNEXT does not read 80cc's new block records yet</td>
 <td><a href="https://github.com/z88dk/z88dk/issues/3228">#3228</a></td>
 <td>PR #3243, merged (JNEXT's side: not done)</td>
-<td>to be confirmed</td>
+<td>2026-11-04</td>
 </tr>
 <tr>
 <td>master, 80cc</td>
@@ -4491,7 +4501,7 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td>not listed</td>
 <td>#3233</td>
 <td>PR #3244, merged</td>
-<td>to be confirmed</td>
+<td>2026-11-04</td>
 </tr>
 <tr>
 <td>master, 80cc</td>
@@ -4499,7 +4509,7 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td><code>an array of unknown length</code></td>
 <td><a href="https://github.com/z88dk/z88dk/issues/3255">#3255</a></td>
 <td>PR #3257, merged</td>
-<td>to be confirmed</td>
+<td>2026-11-05</td>
 </tr>
 <tr>
 <td>master, 80cc</td>
@@ -4507,7 +4517,7 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 <td>as 2.4 sccz80</td>
 <td>none</td>
 <td>PR #3231, merged</td>
-<td>to be confirmed</td>
+<td>2026-11-04</td>
 </tr>
 <tr>
 <td>master, 80cc</td>
@@ -4519,10 +4529,18 @@ says <code>to be confirmed</code>, and no date is guessed.</p>
 </tr>
 <tr>
 <td>master, 80cc</td>
-<td>enumerators; the float format</td>
+<td>enumerators</td>
 <td>as master sccz80</td>
-<td>#3232, #3236</td>
-<td>open</td>
+<td>#3232</td>
+<td>PR #3241, merged</td>
+<td>2026-11-05</td>
+</tr>
+<tr>
+<td>master, 80cc</td>
+<td>the float format</td>
+<td>as master sccz80</td>
+<td>#3236</td>
+<td>PR #3240, open</td>
 <td>not yet</td>
 </tr>
 </tbody>

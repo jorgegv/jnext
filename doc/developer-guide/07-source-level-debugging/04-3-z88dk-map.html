@@ -3110,8 +3110,13 @@ exact commands are the <code>+ zcc ...</code> lines of each <code>build.log</cod
 </tr>
 <tr>
 <td><code>test/fixtures/z88dk/master/</code></td>
-<td><code>z88dk master</code>, <code>~/src/spectrum/z88dk-original-latest</code></td>
+<td><code>z88dk master</code> before the debug-record fixes, <code>~/src/spectrum/z88dk-original-97731e4e29</code></td>
 <td><code>97731e4e2988543e2c849cd1ae1d0aeddf372fcd</code> (v2.4-2883-g97731e4e29)</td>
+</tr>
+<tr>
+<td><code>test/fixtures/z88dk/master-fixed/</code>, <code>master-fixed-zsdcc/</code></td>
+<td><code>z88dk master</code> after them (GH #438), <code>~/src/spectrum/z88dk-original-latest</code></td>
+<td><code>0f0a1cf70e48856af8191af6f86096d2e1362482</code> (v2.4-2954-g0f0a1cf70e)</td>
 </tr>
 </tbody>
 </table>
@@ -3284,9 +3289,9 @@ as an unpaged label, and the source half refuses a line record in it.</p>
    <code>$0200</code> (dotx) or <code>$0300</code> (dotn) and <code>__CODE_head</code> is <code>$2000</code>. No <code>startupoffset</code>, or another
    value, is not a dot and has no reason; a dot whose <code>__CODE_head</code> is not <code>$2000</code> is not a dot
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
-   (<code>dot_why</code>, <code>z88dk_source_map.cpp:693-695</code>), while the symbol half places the map as any other
+   (<code>dot_why</code>, <code>z88dk_source_map.cpp:697-699</code>), while the symbol half places the map as any other
    (<code>z88dk_dot_command()</code>, <code>symbol_table.cpp:82</code>, no reason asked). Both halves read the
-   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:681</code>; the symbol half keeps every constant). For a dot,
+   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:685</code>; the symbol half keeps every constant). For a dot,
    <code>z88dk_section_space()</code> takes it as a last argument, after rules 1 to 3 (a value above <code>0xFFFF</code> in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:</li>
 <li>an unnumbered section at <code>$2000</code>-<code>$3FFF</code> is <code>DivMmcRam{kNextZxosDotBank}</code>, bank 2

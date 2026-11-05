@@ -4237,7 +4237,7 @@ files must end up where, which compilers and libraries work on which z88dk,
 and what changes for tape builds and banked code. <a href="01-a-first-session.html">A first session</a>
 uses the first line below.</p>
 <p>Every command line here was run with z88dk 2.4 (commit 4d530b6eb7, sdcc 4.5.0)
-and with a master build (commit 97731e4e29, v2.4-2883, sdcc 4.6.0), unless a
+and with a master build (commit 0f0a1cf70e, v2.4-2954, sdcc 4.6.0), unless a
 table says one of them is different.</p>
 <h2 id="the-recommended-build">The recommended build<a class="headerlink" href="#the-recommended-build" title="Permanent link">&para;</a></h2>
 <pre><code>zcc +zxn -clib=new -debug -m --list -subtype=nex -create-app -o prog main.c util.c asmfn.asm
@@ -4278,7 +4278,7 @@ the example program that is 46 source lines instead of 281 with <code>--list</co
 <pre><code>Loaded 332 z88dk symbols from '/home/you/prog/prog.map'
 Loaded 281 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 </code></pre>
-<p>and 330 symbols and 286 lines on the master build (97731e4e29).</p>
+<p>and 330 symbols and 286 lines on the master build (0f0a1cf70e).</p>
 <h2 id="what-must-be-beside-what">What must be beside what<a class="headerlink" href="#what-must-be-beside-what" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -4332,7 +4332,7 @@ there. The map records <code>../src/main.c</code>, and the Source tab finds the 
 <tr>
 <th>Build</th>
 <th>z88dk 2.4 (4d530b6eb7)</th>
-<th>z88dk master (97731e4e29, v2.4-2883)</th>
+<th>z88dk master (0f0a1cf70e, v2.4-2954)</th>
 <th>C variables (<a href="11-c-variables.html">the Variables tab</a>)</th>
 </tr>
 </thead>
@@ -4358,7 +4358,7 @@ there. The map records <code>../src/main.c</code>, and the Source tab finds the 
 <tr>
 <td>80cc: <code>+zxn -clib=new -compiler=80cc -debug -m --list</code></td>
 <td>not available</td>
-<td>works: 231 lines. Some lines are shared</td>
+<td>works: 240 lines. Some lines are shared</td>
 <td>yes, with the 80cc note (<a href="https://github.com/z88dk/z88dk/issues/3233">z88dk#3233</a>)</td>
 </tr>
 <tr>

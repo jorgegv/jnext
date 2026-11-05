@@ -18,7 +18,8 @@ exact commands are the `+ zcc ...` lines of each `build.log`):
 | Fixtures | Tree | Commit |
 |---|---|---|
 | `test/fixtures/z88dk/v2.4/` | `z88dk 2.4`, `~/src/spectrum/z88dk-original-2.4` | `4d530b6eb779ad0f2a1d13c0bb670cf717477501` (v2.4) |
-| `test/fixtures/z88dk/master/` | `z88dk master`, `~/src/spectrum/z88dk-original-latest` | `97731e4e2988543e2c849cd1ae1d0aeddf372fcd` (v2.4-2883-g97731e4e29) |
+| `test/fixtures/z88dk/master/` | `z88dk master` before the debug-record fixes, `~/src/spectrum/z88dk-original-97731e4e29` | `97731e4e2988543e2c849cd1ae1d0aeddf372fcd` (v2.4-2883-g97731e4e29) |
+| `test/fixtures/z88dk/master-fixed/`, `master-fixed-zsdcc/` | `z88dk master` after them (GH #438), `~/src/spectrum/z88dk-original-latest` | `0f0a1cf70e48856af8191af6f86096d2e1362482` (v2.4-2954-g0f0a1cf70e) |
 
 A map built without `-debug` has symbols and no source lines. Several
 `-debug` builds do not exist: 2.4's sdcc `-debug` fails to assemble
@@ -177,9 +178,9 @@ as an unpaged label, and the source half refuses a line record in it.
    `$0200` (dotx) or `$0300` (dotn) and `__CODE_head` is `$2000`. No `startupoffset`, or another
    value, is not a dot and has no reason; a dot whose `__CODE_head` is not `$2000` is not a dot
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
-   (`dot_why`, `z88dk_source_map.cpp:693-695`), while the symbol half places the map as any other
+   (`dot_why`, `z88dk_source_map.cpp:697-699`), while the symbol half places the map as any other
    (`z88dk_dot_command()`, `symbol_table.cpp:82`, no reason asked). Both halves read the
-   `__<s>_head`/`_tail` constants and `startupoffset` (`z88dk_source_map.cpp:681`; the symbol half keeps every constant). For a dot,
+   `__<s>_head`/`_tail` constants and `startupoffset` (`z88dk_source_map.cpp:685`; the symbol half keeps every constant). For a dot,
    `z88dk_section_space()` takes it as a last argument, after rules 1 to 3 (a value above `0xFFFF` in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:
    - an unnumbered section at `$2000`-`$3FFF` is `DivMmcRam{kNextZxosDotBank}`, bank 2

@@ -3107,15 +3107,15 @@ information" is told from "there is no z88dk map". A map with no lines at all ge
 no store, because it replaces nothing. <code>Load MAP</code> (symbols only) never has one.</p>
 <h2 id="how-it-is-filled">How it is filled<a class="headerlink" href="#how-it-is-filled" title="Permanent link">&para;</a></h2>
 <p><code>load_z88dk_source_map()</code> reads the map once. Pass 1 keeps a <code>const</code> line that
-starts <code>__CDBINFO__</code> in <code>cdb_lines</code> (<code>src/debug/z88dk_source_map.cpp:673</code>),
+starts <code>__CDBINFO__</code> in <code>cdb_lines</code> (<code>src/debug/z88dk_source_map.cpp:677</code>),
 and the parser gained <code>Z88dkMapLine::is_public</code> (the scope field). The line records
 of code sections are copied to <code>scope_records</code> right after they are placed and
-<strong>before</strong> a listing replaces its module's lines (<code>scope_records</code>, <code>src/debug/z88dk_source_map.cpp:740</code>):
+<strong>before</strong> a listing replaces its module's lines (<code>scope_records</code>, <code>src/debug/z88dk_source_map.cpp:744</code>):
 a listing's <code>C_LINE</code> keeps only the file, so the scope can come only from the map.
 Just before <code>map.replace()</code>, <code>build_variable_store()</code>
-(<code>src/debug/z88dk_source_map.cpp:514</code>)
+(<code>src/debug/z88dk_source_map.cpp:516</code>)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, <code>place_symbol</code> (<code>src/debug/z88dk_source_map.cpp:969</code>),
+space by one lambda, <code>place_symbol</code> (<code>src/debug/z88dk_source_map.cpp:973</code>),
 shared by the extent code and the store, so no rule is kept twice.</p>
 <h2 id="the-joins">The joins<a class="headerlink" href="#the-joins" title="Permanent link">&para;</a></h2>
 <p>The key is the <strong>module</strong>, not the file name (z88dk issue 3222, a wrong
@@ -3210,12 +3210,14 @@ spaces: a function that crosses an 8 KB slot lives in two, <a href="10-c-frames-
   A line with no code of its own (<code>for (;;) {</code>) shares its address with the next line and its record is the only one that names its block, so the owners alone are not
   enough (<code>Z88ZB-02</code>). <code>scopes</code> is unchanged.</li>
 <li><strong>The compiler of a function</strong> (<code>CCompiler</code>, <code>fill_compilers()</code>): from the map alone. 80cc writes <code>M:&lt;file&gt;</code> into its module, the file as its <code>C_LINE</code> records spell it
-  (<code>M:./m.c</code> beside <code>./m.c::main::...</code>); zsdcc writes <code>M:&lt;module&gt;</code> against the file <code>&lt;module&gt;.c</code>, so it never matches; sccz80 writes no <code>M:</code> into the map. A module is 80cc iff an <code>M:</code> record
-  names a file field of the module's own <code>C_LINE</code> records and none of them is zsdcc's <code>x</code> form; no <code>M:</code> is sccz80; any other module is zsdcc. The name z80asm gives the module is
+  (<code>M:./m.c</code> beside <code>./m.c::main::...</code>); zsdcc writes <code>M:&lt;module&gt;</code> against the file <code>&lt;module&gt;.c</code>, so it never matches (since z88dk#3265 <code>-debug</code> writes <code>M:m.c</code>, which does match: the <code>x</code> form is what rules 80cc out); sccz80 writes no <code>M:</code> into the map. A module is 80cc iff an <code>M:</code> record
+  names a file field of the module's own <code>C_LINE</code> records and none of them is zsdcc's <code>x</code> form (<code>x</code> with a TAB, or a level of 10000 or more: <code>Z88ZB-10</code>); no <code>M:</code> is sccz80; any other module is zsdcc. The name z80asm gives the module is
   not used: it prefixes <code>X</code> to a path that starts with <code>.</code>, <code>/</code> or a digit (<code>X__xm_c</code>). An <code>M:</code> name is free text: <code>( ) [ ] ,</code> are accepted; <code>$</code> is still refused by the decoder.</li>
 <li><strong>The <code>x</code> placeholder.</strong> zsdcc writes the literal <code>x</code> where it names no function. Since z88dk#3262 drops the TAB that used to follow it, <code>x</code> is read as "no function"
   with or without the TAB (<code>parse_location()</code>), so the alias rule keeps asking <code>later_function_entry()</code> instead of comparing "x" with "x" (<code>Z88ZB-09</code>). A zsdcc function really named
   <code>x</code> is told by its level (<code>level_raw &gt;= 10000</code>); an sccz80 function named <code>x</code> by its name.</li>
+<li><strong>Enum records (z88dk#3241).</strong> sccz80 and 80cc write an <code>N:</code> (the enum) and an <code>E:</code> (an enum-typed object) record; <code>cdb_decode()</code> returns them as <code>CdbKind::Enum</code>, checked for shape and
+  dropped by <code>build_variable_store()</code>: the object's <code>S:</code> record is still written with the integer type, which is what the Variables tab reads, so a value shows as its number (<code>CDB-53</code>, <code>Z88ZB-11</code>).</li>
 <li><strong>Unsized arrays.</strong> The decoder classes every <code>{-1}DA-1x</code> record as hidden (sccz80 and 80cc write it first, then the sized one). <code>build_variable_store()</code> unhides one that has no
   sized twin of the same scope kind, scope name, function, name and module, deciding every record before applying any (<code>Z88ZB-03</code>); it is then listed and refused.</li>
 </ul>

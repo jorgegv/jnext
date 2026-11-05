@@ -106,32 +106,36 @@ Refusals instead of a value: `location unknown (z88dk U1...)` for a `__z88dk_fas
 ## What each z88dk can show
 
 These are limits of what the compilers record, not of the debugger. One row per version and compiler. **Merged** means merged into z88dk's
-master; a release that contains the fix is not tracked here. The last column is filled in when `z88dk-latest` has been rebuilt: until then it
-says `to be confirmed`, and no date is guessed.
+master; a release that contains the fix is not tracked here. The last column is the date the fix reached z88dk's master (the date of its merge
+commit); `not yet` is a fix that is not merged. Every PR named as merged below is in z88dk master at `0f0a1cf70e` (2026-11-05); PR #3240 (the float format) is not merged. No
+z88dk nightly has them all yet: the latest one when this was written, `z88dk-20261105-ddfed0b200`, is older than PRs #3241 and #3262 to #3265; a nightly built after
+2026-11-05 03:30 UTC (the file name carries its date and commit) contains them, and so does z88dk master built from source.
 
 | z88dk, compiler | What the compiler records wrongly or not at all | How JNEXT shows it | z88dk issue | Fix | In z88dk master from |
 |---|---|---|---|---|---|
-| 2.4, sccz80 | a `__z88dk_fastcall` function's parameters are recorded at the stack slot they would have without `__z88dk_fastcall`, where they are not | each parameter `location unknown (z88dk U1...)`, with a listing beside the map or (no listing) recognised from the function's first instructions. Without a listing a `float` or `long long` fastcall parameter is not recognised and is read from the recorded slot: a wrong value | none | PR #3229, merged | to be confirmed |
-| 2.4, sccz80 | a local or static array sized by its initialiser (`char s[] = "x";`) has no size; a global one is shown correctly | `an array of unknown length: its debug record has no size` | none | PR #3229, merged | to be confirmed |
-| 2.4, sccz80 | bitfields as whole `int`s | members marked `bitfield layout unknown (z88dk U2)`. A lone field in a struct smaller than an `int` is refused, `member '<name>' lies beyond the object`; a lone field that fits the struct is shown as its whole `int`: wrong when the padding bits are not 0, and for a `signed int` field | none | PR #3231, merged | to be confirmed |
-| 2.4, sccz80 | block numbers name the last block opened | a local declared after an inner block, in the same block, is not listed | none | PR #3227, merged | to be confirmed |
-| 2.4, sccz80 | a `for (int i ...)` variable gets the enclosing block's number | not listed inside its loop; two listed variables that share a slot both say `shares its stack slot with ...` | [#3254](https://github.com/z88dk/z88dk/issues/3254) | PR #3258, merged | to be confirmed |
-| 2.4, sccz80 | enumerators have no value and no type | the number, not the name | [#3232](https://github.com/z88dk/z88dk/issues/3232) | PR #3241, open | not yet |
+| 2.4, sccz80 | a `__z88dk_fastcall` function's parameters are recorded at the stack slot they would have without `__z88dk_fastcall`, where they are not | each parameter `location unknown (z88dk U1...)`, with a listing beside the map or (no listing) recognised from the function's first instructions. Without a listing a `float` or `long long` fastcall parameter is not recognised and is read from the recorded slot: a wrong value | none | PR #3229, merged | 2026-11-04 |
+| 2.4, sccz80 | a local or static array sized by its initialiser (`char s[] = "x";`) has no size; a global one is shown correctly | `an array of unknown length: its debug record has no size` | none | PR #3229, merged | 2026-11-04 |
+| 2.4, sccz80 | bitfields as whole `int`s | members marked `bitfield layout unknown (z88dk U2)`. A lone field in a struct smaller than an `int` is refused, `member '<name>' lies beyond the object`; a lone field that fits the struct is shown as its whole `int`: wrong when the padding bits are not 0, and for a `signed int` field | none | PR #3231, merged | 2026-11-04 |
+| 2.4, sccz80 | block numbers name the last block opened | a local declared after an inner block, in the same block, is not listed | none | PR #3227, merged | 2026-11-04 |
+| 2.4, sccz80 | a `for (int i ...)` variable gets the enclosing block's number | not listed inside its loop; two listed variables that share a slot both say `shares its stack slot with ...` | [#3254](https://github.com/z88dk/z88dk/issues/3254) | PR #3258, merged | 2026-11-04 |
+| 2.4, sccz80 | enumerators have no value and no type | the number, not the name | [#3232](https://github.com/z88dk/z88dk/issues/3232) | PR #3241, merged | 2026-11-05 |
 | 2.4, sccz80 | the float format is not recorded | a 6-byte float is read as z88dk's 48-bit format | [#3236](https://github.com/z88dk/z88dk/issues/3236) | PR #3240, open | not yet |
-| master (before the fixes above), sccz80 | the same as 2.4 | the same as 2.4 | as above | as above | to be confirmed |
-| master, sccz80 | enumerators; the float format of classic `--math-mbf32` and `--math-dai32` | the number; `float format mbf32 is not read` | #3232, #3236 | PRs #3241, #3240, open | not yet |
+| master (before the fixes above), sccz80 | the same as 2.4 | the same as 2.4 | as above | as above | as above |
+| master, sccz80 | enumerators | the number (JNEXT recognises PR #3241's `N:` and `E:` records and does not read the enumerator names yet) | #3232 | PR #3241, merged | 2026-11-05 |
+| master, sccz80 | the float format of classic `--math-mbf32` and `--math-dai32` | `float format mbf32 is not read` | #3236 | PR #3240, open | not yet |
 | master, zsdcc | a register variable has no live range | frame 0: `in BC; may be stale`; an older frame: `not available`; a removed variable: `optimised out` | none (SDCC) | none | not applicable |
 | master, zsdcc | a `const` global has no record | not listed | [#3235](https://github.com/z88dk/z88dk/issues/3235) (SDCC bug #4243) | none in z88dk | not applicable |
 | master, zsdcc | `zcc -O0` writes no variable records | the tab says so | none | none | not applicable |
-| master, zsdcc | no enum information | the number | #3232 | PR #3241, open | not yet |
-| master, zsdcc | `C_LINE` records end in a TAB (a line reads as -1 in z88dk's own tools); a breakpoint inside a loop has no frame in ticks; the file name is not the one given | JNEXT reads the records with or without the TAB | [#3222](https://github.com/z88dk/z88dk/issues/3222) | PRs #3262, #3263, #3265, open | not yet |
-| master, 80cc | a local is kept in a register; a register-passed parameter is recorded at another variable's slot | the value, with the 80cc note; a write is allowed and carries the note, and is refused where the slot is a listed variable's (`shares ...`) | #3233 | locals: PR #3244, merged; parameters: PR #3264, open | locals: to be confirmed; parameters: not yet |
-| master, 80cc | `C_LINE` has no level and no block; with PR #3243 it has both, in an order JNEXT does not read right | every block local `scope unknown`, also with PR #3243: JNEXT does not read 80cc's new block records yet | [#3228](https://github.com/z88dk/z88dk/issues/3228) | PR #3243, merged (JNEXT's side: not done) | to be confirmed |
-| master, 80cc | some locals have no record (constant-initialised, `float`) | not listed | #3233 | PR #3244, merged | to be confirmed |
-| master, 80cc | a static or global array sized by its initialiser has no size | `an array of unknown length` | [#3255](https://github.com/z88dk/z88dk/issues/3255) | PR #3257, merged | to be confirmed |
-| master, 80cc | bitfields as whole `int`s | as 2.4 sccz80 | none | PR #3231, merged | to be confirmed |
+| master, zsdcc | no enum information | the number | #3232 | PR #3241 covers sccz80 and 80cc only | not yet |
+| master, zsdcc | `C_LINE` records end in a TAB (a line reads as -1 in z88dk's own tools); a breakpoint inside a loop has no frame in ticks; the file name is not the one given | JNEXT reads the records with or without the TAB | [#3222](https://github.com/z88dk/z88dk/issues/3222) | PRs #3262, #3263, #3265, merged | 2026-11-05 |
+| master, 80cc | a local is kept in a register; a register-passed parameter is recorded at another variable's slot | the value, with the 80cc note; a write is allowed and carries the note, and is refused where the slot is a listed variable's (`shares ...`) | #3233 | locals: PR #3244, merged; parameters: PR #3264, merged | locals: 2026-11-04; parameters: 2026-11-05 |
+| master, 80cc | `C_LINE` has no level and no block; with PR #3243 it has both, in an order JNEXT does not read right | every block local `scope unknown`, also with PR #3243: JNEXT does not read 80cc's new block records yet | [#3228](https://github.com/z88dk/z88dk/issues/3228) | PR #3243, merged (JNEXT's side: not done) | 2026-11-04 |
+| master, 80cc | some locals have no record (constant-initialised, `float`) | not listed | #3233 | PR #3244, merged | 2026-11-04 |
+| master, 80cc | a static or global array sized by its initialiser has no size | `an array of unknown length` | [#3255](https://github.com/z88dk/z88dk/issues/3255) | PR #3257, merged | 2026-11-05 |
+| master, 80cc | bitfields as whole `int`s | as 2.4 sccz80 | none | PR #3231, merged | 2026-11-04 |
 | master, 80cc | a `for (int i ...)` variable's block | every block local `scope unknown` (above) | #3254 | not fixed for 80cc yet | not yet |
-| master, 80cc | enumerators; the float format | as master sccz80 | #3232, #3236 | open | not yet |
+| master, 80cc | enumerators | as master sccz80 | #3232 | PR #3241, merged | 2026-11-05 |
+| master, 80cc | the float format | as master sccz80 | #3236 | PR #3240, open | not yet |
 
 More, in short:
 - A plain `int` bitfield (`int s:4;`) is **unsigned** in sccz80 and 80cc and signed in zsdcc, so the value shown is each program's own reading; a `signed int` field is signed everywhere.
