@@ -590,8 +590,8 @@ Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::s
     if (!f.v) return refuse(f.why);
     if (f.scope_unknown)
         return refuse("scope unknown: the block at the PC is not known (80cc), so the slot may hold another variable");
-    if (!f.ambiguous.empty())
-        return refuse(f.ambiguous + ", and the choice is not certain, so a write may land in the wrong one");
+    // an uncertain pick (c_pick_local) is always a `scope unknown` one: only level >= 2 variables are ever flagged, and the innermost of the candidates has the greatest level, so an
+    // unflagged pick has none flagged under it (CVZB-16 and CVZB-20 assert it on every scope); the refusal above is therefore the guard of an ambiguous write too
     if (!f.shares.empty())
         return refuse(c_shares_note(f.shares) + ", so a write may land in the other's value");
     // the place is the read's: a write needs a successful read of the same path

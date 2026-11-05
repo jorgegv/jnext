@@ -3352,6 +3352,39 @@ main cross_c AC97
               x && mn && x->compiler == jnext::dbg::CCompiler::Cc80 && mn->compiler == jnext::dbg::CCompiler::Cc80);
     }
 
+    {   // Z88ZB-17
+        // review 8 G3: zsdcc writes a function with a block static local's `F:` record twice (`...,C,0,-4,...` and `...,C,0,0,...`; the same on 97731e4e29). They are one function: f and f2 of
+        // statics.c are one each in the store and carry their parameter and locals (a, t, u and the static t for f; a and two t for f2); sccz80 and 80cc write one record and give the same counts
+        int one = 0;
+        bool vars = true;
+        for (const char* fx : {"master-fixed-zsdcc/sdcc-static", "master-fixed-sccz80/sccz80-static", "master-fixed-80cc/80cc-static"}) {
+            SourceMap m;
+            load_z88dk_source_map(m, (kFixtures / fx / "prog.map").string(), nex_space, Z88dkListings::Beside);
+            const VariableStore* st = m.variables().get();
+            if (!st) { vars = false; continue; }
+            int nf = 0, nf2 = 0;
+            for (const CFunction& f : st->functions()) {
+                nf += f.name == "f";
+                nf2 += f.name == "f2";
+            }
+            one += nf == 1 && nf2 == 1;
+            int fi = -1, f2i = -1;
+            for (size_t i = 0; i < st->functions().size(); ++i) {
+                if (st->functions()[i].name == "f") fi = static_cast<int>(i);
+                if (st->functions()[i].name == "f2") f2i = static_cast<int>(i);
+            }
+            int a = 0, t = 0, u = 0, a2 = 0, t2 = 0;
+            for (const CVariable& v : st->variables()) {
+                if (v.record.hidden != CdbHidden::None) continue;
+                if (v.function == fi) { a += v.c_name == "a"; t += v.c_name == "t"; u += v.c_name == "u"; }
+                if (v.function == f2i) { a2 += v.c_name == "a"; t2 += v.c_name == "t"; }
+            }
+            vars = vars && a == 1 && t == 2 && u == 1 && a2 == 1 && t2 == 2 && st->refused().empty();
+        }
+        check("Z88ZB-17", "statics.c on zsdcc (two `F:` records per function), sccz80 and 80cc: f and f2 are one function each, with a, t (the local and the static) and u, and a and two t",
+              one == 3 && vars);
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

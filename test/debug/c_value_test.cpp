@@ -1860,7 +1860,7 @@ int main() {
     struct Var4 { const char* name; int level, block, off; };
     struct Sc3 { int line, level, block; };
     // The rows of one function: the listing's scopes in order (the flag `scopes_from_listing` set), `name?` for a local flagged `scope unknown`, a hidden local absent
-    const auto cc80_rows = [](const std::vector<Rec4>& trail, const std::vector<Var4>& vars, const std::vector<Sc3>& scopes, bool* plain_block = nullptr) {
+    const auto cc80_rows = [](const std::vector<Rec4>& trail, const std::vector<Var4>& vars, const std::vector<Sc3>& scopes, bool* plain_block = nullptr, bool* bad_pick = nullptr) {
         std::vector<CVariable> vs;
         for (const Var4& v : vars) {
             CVariable cv;
@@ -1896,7 +1896,11 @@ int main() {
         std::string out;
         for (const CScope& sc : st.functions()[0].scopes) {
             std::vector<std::string> n;
-            for (const CLocalRef& r : c_visible_locals(st, 0, &sc)) {
+            const std::vector<CLocalRef> vis = c_visible_locals(st, 0, &sc);
+            if (bad_pick)
+                for (const CLocalRef& r : vis)
+                    if (const CPicked pk = c_pick_local(vis, r.var->c_name); pk.chosen && !pk.certain && !pk.chosen->scope_unknown) *bad_pick = true;
+            for (const CLocalRef& r : vis) {
                 if (r.kind != CVarKind::Param) n.push_back(r.var->c_name + (r.scope_unknown ? "?" : ""));
                 if (plain_block && r.kind == CVarKind::Local && r.var->record.var.level >= 2 && !r.scope_unknown) *plain_block = true;
             }
@@ -1907,6 +1911,7 @@ int main() {
         }
         return out;
     };
+    bool bad_pick = false;   // an uncertain pick whose chosen row is not flagged `scope unknown` (the write guard relies on there being none)
     bool any_plain_block_local = false;   // CVZB-16 and CVZB-20: an 80cc block local is never listed plain
     {   // CVZB-16
         // The records and the variables are those 80cc (upstream 96c0efaddd, PR #3243) wrote for eight functions of our own programs (f3254.c, f2.c, blocks.c, t1.c: a `for` with a
@@ -1927,12 +1932,12 @@ int main() {
         bool ok = true;
         std::string seen;
         for (const Case& c : cases) {
-            const std::string got = cc80_rows(c.trail, c.vars, c.scopes, &any_plain_block_local);
+            const std::string got = cc80_rows(c.trail, c.vars, c.scopes, &any_plain_block_local, &bad_pick);
             if (got != c.expect) { ok = false; seen += std::string(" ") + c.name + ": " + got; }
         }
         check("CVZB-16", "80cc with PR #3243's records and the listing's scopes (GH #438 S4b: never plain): eight functions (f3254 f, f2 h, blocks f, g2, h, t1 k1, k2, k3 (`__stdc`)) give at every listed scope "
-                         "the block locals that are not provably closed as `scope unknown` (`name?`), and none that are provably closed (absent); level-1 locals are plain; no block local is ever plain",
-              ok && cases.size() == 8 && !any_plain_block_local, seen);
+                         "the block locals that are not provably closed as `scope unknown` (`name?`), and none that are provably closed (absent); level-1 locals are plain; no block local is ever plain; an uncertain name pick is always a flagged row",
+              ok && cases.size() == 8 && !any_plain_block_local && !bad_pick, seen);
     }
     {   // CVZB-20
         // GH #438 S4b (review 7 F1): 80cc stamps some code with the scope of a block the code is not in, so a block local is never plain. The records are those of 14 functions of our own programs,
@@ -1959,13 +1964,13 @@ int main() {
         bool ok = true;
         std::string seen;
         for (const Case& c : cases) {
-            const std::string got = cc80_rows(c.trail, c.vars, c.scopes, &any_plain_block_local);
+            const std::string got = cc80_rows(c.trail, c.vars, c.scopes, &any_plain_block_local, &bad_pick);
             if (got != c.expect) { ok = false; seen += std::string(" ") + c.name + ": " + got; }
         }
         check("CVZB-20", "80cc, the stale-stamp cases of review 7: fourteen functions give at every listed scope block locals that are `scope unknown` or absent, never plain; at the jump that ends a then-branch "
                          "(r1 f1 line 11, r3 f3 line 25, r4 f4 line 10, c9 k9 line 10) and in an epilogue after a trailing block (c1 line 9) the else or trailing local is `q?`; the property holds across CVZB-16 and CVZB-20; "
                          "80cc's leading-digit temporary `1licm_0` is not a parameter or a local",
-              ok && cases.size() == 14 && !any_plain_block_local, seen);
+              ok && cases.size() == 14 && !any_plain_block_local && !bad_pick, seen);
     }
     {   // CVZB-18
         // F3's upper bound is strict (review 7 M06): trail (5,1,1) (6,2,2) (8,1,1) (8,3,3), y in block 2, w in block 3, PC scope (8,3,3). An entry of the lower block 1 on the PC's own line (8) closes
@@ -1994,6 +1999,54 @@ int main() {
               a.chosen && a.chosen->var->record.var.block == 6 && a.certain && a.others.size() == 1 && b.chosen && b.chosen->var->record.var.block == 6 && !b.certain && c.chosen && c.chosen->var->record.var.level == 2 &&
                   d.chosen && d.certain && d.others.empty() && e.chosen && e.chosen->var->record.var.block == 7 && !none.chosen &&
                   c_ambiguous_note(b) == "ambiguous: 2 variables named t may be in scope here; this is the innermost (level 2, block 6)");
+    }
+    {   // CVZB-21
+        // GH #438 S4b2 (review 8 G1): a block-scoped static local is in scope only in its block, like a block local of the same (level, block). Function f of statics.c: t (level 1), u (2/2),
+        // `static t` (3/3, an E-space record), then `g += t` at (13, 2/2) and `t++` at (15, 1/1) where the static is out of scope. Exact blocks (zsdcc's way): the static is listed at line 11 only;
+        // 80cc with the listing's scopes: flagged at 11, hidden outside; a level-1 static is listed everywhere
+        const auto rows = [](CCompiler cc, bool exact80) {
+            std::vector<CVariable> vs;
+            const auto add = [&](const std::string& rec, const char* name) {
+                CVariable v;
+                v.record = cdb_decode(rec).record;
+                v.c_name = name;
+                v.function = 0;
+                vs.push_back(v);
+            };
+            add("S:Ls1.c.f$t$1_0$1({2}SI:S),B,1,-2", "t");
+            add("S:Ls1.c.f$u$2_0$2({2}SI:S),B,1,-4", "u");
+            add("S:Fs1.c$st_f_t$3_0$3({2}SI:S),E,0,0", "t");
+            add("S:Fs1.c$st_f_k$1_0$1({2}SI:S),E,0,0", "k");
+            CFunction f;
+            f.name = "f";
+            f.compiler = cc;
+            f.scopes_from_listing = exact80;
+            for (const Sc3 sc : {Sc3{5, 1, 1}, Sc3{7, 2, 2}, Sc3{11, 3, 3}, Sc3{13, 2, 2}, Sc3{15, 1, 1}}) {
+                CScope c;
+                c.offset = static_cast<uint32_t>(f.scopes.size());
+                c.line = sc.line;
+                c.level = sc.level;
+                c.block = sc.block;
+                c.known = true;
+                f.scopes.push_back(c);
+            }
+            f.trail = f.scopes;
+            const VariableStore st({f}, vs, {}, {}, {});
+            std::string out;
+            for (const CScope& sc : st.functions()[0].scopes) {
+                std::vector<std::string> n;
+                for (const CLocalRef& r : c_visible_locals(st, 0, &sc)) n.push_back(r.var->c_name + (r.kind == CVarKind::StaticLocal ? "s" : "") + (r.scope_unknown ? "?" : ""));
+                std::sort(n.begin(), n.end());
+                std::string row;
+                for (const std::string& x : n) row += (row.empty() ? "" : " ") + x;
+                out += (out.empty() ? "" : "|") + std::to_string(sc.line) + "=" + row;
+            }
+            return out;
+        };
+        const std::string exact = rows(CCompiler::Zsdcc, false), c80 = rows(CCompiler::Cc80, true);
+        check("CVZB-21", "a block static (level 3, block 3) is listed where its block is open and hidden elsewhere, like a block local; a level-1 static (k) is listed at every line. Exact blocks list `ts` at line 11 only; "
+                         "80cc with the listing's scopes lists it flagged (`ts?`) at line 11 and hides it at 13 and 15 (block 3 > block 2, F1), its block locals flagged",
+              exact == "5=ks t|7=ks t u|11=ks t ts u|13=ks t u|15=ks t" && c80 == "5=ks t|7=ks t u?|11=ks t ts? u?|13=ks t u?|15=ks t", exact + " || " + c80);
     }
     {   // CVZB-17
         // The line proofs are strict, and beta is the lowest block. Expected values: the three-valued rule applied by hand to each trail (the programs would be hand-written C of these shapes)

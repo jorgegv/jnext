@@ -24,7 +24,7 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|blocks_c|bits_c|fm_c|u5_c|fl_c|X__xm_c|X1st_c|xm_c|_1st_c|__xm_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c|cross_c|floats_c|f3254_c|ifelse_c|x_c|shadow_c|stub1_c|stub2_c)$'
+MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|blocks_c|bits_c|fm_c|u5_c|fl_c|X__xm_c|X1st_c|xm_c|_1st_c|__xm_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c|cross_c|floats_c|f3254_c|ifelse_c|x_c|shadow_c|stub1_c|stub2_c|statics_c)$'
 
 trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT), $3 = for a dot command, the groups that have a prog_<G>.bin; stdout = kept lines, original order
     awk -v MODS="$MODS" -v CRT="${2:-}" -v BINS="${3:-}" -v EXTRA="${KEEP_EXTRA:-}" '
@@ -273,6 +273,10 @@ build "$ZF" master-fixed-80cc 80cc-shadow single:shadow.c -clib=new -compiler=80
 build "$ZF" master-fixed-sccz80 sccz80-shadow single:shadow.c -clib=new -debug
 build "$ZF" master-fixed-zsdcc sdcc-shadow single:shadow.c -clib=sdcc_iy -debug
 build "$ZF" master-fixed-zsdcc sdcc-stub single:stub1.c,stub2.c -clib=sdcc_iy -debug
+# GH #438 S4b2 (review 8): block-scoped static locals (G1) and zsdcc writing two F: records for a function that has one (G3)
+build "$ZF" master-fixed-sccz80 sccz80-static single:statics.c -clib=new -debug
+build "$ZF" master-fixed-80cc 80cc-static single:statics.c -clib=new -compiler=80cc -debug
+build "$ZF" master-fixed-zsdcc sdcc-static single:statics.c -clib=sdcc_iy -debug
 
 # every file the rows hash: sources, this script, derive-scopes.py, the outputs (README.md and the manifest itself excluded)
 (cd "$DEST" && find src generate.sh derive-scopes.py v2.4 v2.4-dotn master master-fixed master-fixed-zsdcc master-fixed-80cc master-fixed-sccz80 -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"

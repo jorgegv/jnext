@@ -586,9 +586,18 @@ std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
             continue;
         }
         switch (decoded.record.kind) {
-        case CdbKind::Function:
-            functions.push_back({std::move(decoded.record), un.text, line.module});
+        case CdbKind::Function: {
+            // zsdcc writes the `F:` record of a function with a block static local twice (cdbWriteFunction wrote it twice; the records differ only in the stack number, which nothing here reads;
+            // 97731e4e29 and 0f0a1cf70e): one function, the first record (GH #438 S4b2, review 8 G3)
+            // (only a record that is the same but for the numbers after the type: another type is another function, Z88CDB-30)
+            const CdbRecord& nr = decoded.record;
+            const auto upto_numbers = [](const std::string& t) { return t.substr(0, t.find("),")); };
+            const bool again = std::any_of(functions.begin(), functions.end(), [&](const Item& f) {
+                return f.module == line.module && f.record.scope == nr.scope && f.record.scope_name == nr.scope_name && f.record.var.name == nr.var.name && upto_numbers(f.text) == upto_numbers(un.text);
+            });
+            if (!again) functions.push_back({std::move(decoded.record), un.text, line.module});
             break;
+        }
         case CdbKind::Variable:
             variables.push_back({std::move(decoded.record), un.text, line.module});
             break;

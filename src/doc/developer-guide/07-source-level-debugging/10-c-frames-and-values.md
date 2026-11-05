@@ -21,7 +21,7 @@ all three compilers, and the `B` records of a variable are offsets from `fp`.
 
 The helpers (`__debug_framepointer`, `l_debug_push_frame`, `l_debug_pop_frame`) are joined by
 public name in `CFrameHelpers` (`struct CFrameHelpers`, `variable_store.h:110`), by the adapter
-(`helpers.framepointer`, `z88dk_source_map.cpp:666`), never from the symbol table: a
+(`helpers.framepointer`, `z88dk_source_map.cpp:675`), never from the symbol table: a
 hand-loaded map attaches no symbols. They are unresolved, with a reason, in a zsdcc map.
 
 ## Which function a PC is in
@@ -145,7 +145,7 @@ and level-1 locals are always visible. Which block is open depends on the compil
   below the scope's block. With no block data or an unknown scope, every block local is shown, marked `scope unknown`.
 - **80cc** (GH #438 S4a, S4b): `cc80_verdict()` answers `Hidden` or `Unknown`, never plain, and only when `CFunction::scopes_from_listing` is set (the function's records carry levels, PR #3243, and a listing covers it) and the PC's scope is known; otherwise every block local (level >= 2) is listed, flagged `scope unknown` (a note on reads, a refusal on writes) and never hidden. `fill_listing_scopes()` replaces the function's scope table with every `C_LINE` directive of the listing, each at the first byte row after it (the last directive before the row owns it; `Z88ZB-12`, `Z88ZB-13`, `Z88ZB-14`), because the map keeps one symbol per (line, scope) and 80cc repeats lines in loops. Why never plain: 80cc stamps some code with the scope of another block (H-a to H-c, 7.9), so a PC's scope does not prove its block locals in scope (`CVZB-20` pins fourteen functions). What the stamp proves closed is closed (checked on every program of the rows) and is hidden. The rule (E = the trail's known entries of level >= 1, s = the PC's line, level, block): F1 b > B_s is closed; F2 b == B_s and lv > L_s is closed; F3 a line x of b, then an entry of a lower block strictly between x and l_s, closes b (`CVZB-18`); F5 an open block (B_s or an ancestor, the lowest block being every block's ancestor and a < b one when a line of a is after a line of b) numbered above b with a level <= lv puts v outside its scope. At a then-branch's closing jump, hides are relative to the else part's stamp, so a then-branch local can be hidden there; the Source tab shows that jump on the else line too. Everything else is `scope unknown`. No heuristic (taking the least level of a block as its own shows `i` plain inside `j`'s loop).
   Without exact scopes the generic rules are wrong on 80cc (measured on 80cc built at upstream `96c0efaddd`: a closed sibling shown, the variable in scope hidden, no note), which `CVZB-15` pins.
-- **Shadowing** (GH #438 S4b): `c_pick_local()` picks, among the visible locals of a name, the greatest (level, block), as gdb does; `certain` is false when a candidate is `scope unknown`. `find_local()` uses it: a read of an uncertain pick carries `c_ambiguous_note()`, a write is refused (`Found::ambiguous`), and `c_locals` marks every other candidate `shadowed` (`may be shadowed` when uncertain), which `monitor locals` prints as `  [shadowed]`. `cvar()` and ZRCP carry no notes and return the innermost. `CVZB-19`, `SRCDBG-ZB-14` to `-16`, `GDB-ZB-02`.
+- **Shadowing** (GH #438 S4b): `c_pick_local()` picks, among the visible locals of a name, the greatest (level, block), as gdb does; `certain` is false when a candidate is `scope unknown`. `find_local()` uses it: a read of an uncertain pick carries `c_ambiguous_note()` (`Found::ambiguous`), a write to it is refused by the `scope unknown` guard (an uncertain pick is always a flagged row: only level >= 2 variables are flagged and the innermost candidate has the greatest level; `CVZB-16` and `CVZB-20` assert it), and `c_locals` marks every other candidate `shadowed` (`may be shadowed` when uncertain), which `monitor locals` prints as `  [shadowed]`. `cvar()` and ZRCP carry no notes and return the innermost. `CVZB-19`, `SRCDBG-ZB-14` to `-16`, `GDB-ZB-02`. A static local of level >= 2 (a block static) goes through the same visibility test as a block local of its (level, block) in `c_visible_locals()`: the sccz80 walk, zsdcc's exact blocks, the 80cc rule (hidden or `scope unknown`); a level-1 static is listed at every PC (`CVZB-21`, `SRCDBG-ZB-18` to `-20`).
 - **sccz80 with a trail** (GH #438, `replay_trail()`): the trail is replayed up to the PC's offset as a stack of open blocks, `stack[level] = block | SKIP`. A record at a level drops
   every level above it. A record that names a block higher than any seen fills the unset levels below it with the greatest unseen block of that level in between (a block opened and
   closed without a line of its own, or the block a `for` opened: it is named by nothing but its header variable's `S:` record), else SKIP; a record that names a lower block than the
@@ -157,7 +157,7 @@ and level-1 locals are always visible. Which block is open depends on the compil
 - **The guard** (`CLocalRef::shares`, `c_shares_note()`): every pair of visible B-space variables whose byte ranges overlap is marked, each naming the other, and neither is hidden.
   `c_locals` rows and `read_c_value` carry the note; a write is refused. `c_children` rows do not carry it (a member of a shared aggregate shows no note, but its write is refused).
 
-`c_read_register_local()` (`c_value.cpp:1186`) reads an `R` local of frame 0 (`[c,b]` is C | B << 8, with a note
+`c_read_register_local()` (`c_value.cpp:1191`) reads an `R` local of frame 0 (`[c,b]` is C | B << 8, with a note
 that it may be stale), refuses `[]` as optimised out and an outer frame as not available.
 `c_fastcall_records_nominal()` is the U1 rule, per function (GH #438): true iff the function is fastcall and none of its parameters (level 0, space B) is recorded at a negative offset,
 that is, the records are the pre-z88dk#3229 ones, every parameter at its nominal slot, where none of them is. Fastcall is `CConv::ListedFastcall` (a listing flags it), or the caller's
@@ -211,7 +211,7 @@ local from any frame, and a local of `fn` only from a frame of `fn`; `file.c::na
 
 ## The int32 atom: `c_int32_scalar()` (GH #436)
 
-`c_int32_scalar(loc, integer)` (`c_value.cpp:1276`) is the one rule for what a C value is as a 32-bit integer; the script atom `cvar()`
+`c_int32_scalar(loc, integer)` (`c_value.cpp:1281`) is the one rule for what a C value is as a 32-bit integer; the script atom `cvar()`
 and, through its translation, ZRCP's `CVAR()` both reach it through the evaluator, so there is nothing to keep in step. It reads
 `loc.type` (the head of the chain and the size) and `loc.note`, so a register-held value (no address) passes a `CLoc` with just its
 type, which `read_c_value()` fills for it. `integer` is the facade's `CValueResult::integer`.
@@ -257,7 +257,7 @@ refusal decided before it is `RefusedUnavailable` with the reason in `why`. Ther
 debugger (unsupported)`. After an `Ok` the object is read back into `CWriteResult::value`. `CWriteResult::notes` holds the notes of the read that preceded the write (the 80cc frame-slot note, a `not mapped` note): the Qt edit message and GDB `monitor set var` print them. A `Page` object cannot half-land: the read already
 refused a page crossing.
 
-`c_encode_value(type, CNewValue, current, avail)` (`c_value.cpp:1567`) is pure, with no printf or ostream (the `c_value.h` rule: locale
+`c_encode_value(type, CNewValue, current, avail)` (`c_value.cpp:1572`) is pure, with no printf or ostream (the `c_value.h` rule: locale
 independent). `CNewValue` is a text a person typed (the Qt panel, ZRCP, GDB) or a script's 32-bit value:
 
 | Type | Text | Int32 (a script) |
@@ -266,20 +266,20 @@ independent). `CNewValue` is a text a person typed (the Qt panel, ZRCP, GDB) or 
 | the same, 4 bytes | the strict range | any int32, as its 32-bit pattern (the mirror of `c_int32_scalar()`) |
 | the same, 8 bytes | the int64 / uint64 range | refused: `does not fit the script's 32 bits` |
 | Pointer | 0..65535 | 0..65535 |
-| `{6}SF` (z88dk 48-bit) | rounded to nearest; refused when the exponent leaves 1..255 (`encode_float48()`, `c_value.cpp:1502`) | refused: `float is not an integer` |
+| `{6}SF` (z88dk 48-bit) | rounded to nearest; refused when the exponent leaves 1..255 (`encode_float48()`, `c_value.cpp:1507`) | refused: `float is not an integer` |
 | `{4}SF` (binary32) | the C library's `strtof` through an `istringstream` (correctly rounded), out of range refused | refused |
-| `S6` (binary16) | through float, nearest even, refused when it rounds to infinity or to zero (`encode_float16()`, `c_value.cpp:1533`) | refused |
+| `S6` (binary16) | through float, nearest even, refused when it rounds to infinity or to zero (`encode_float16()`, `c_value.cpp:1538`) | refused |
 | `SQ` | refused: `fixed-point layout not decoded` | refused |
 
-A text is trimmed, then an optional sign and decimal, `0x` or `$` digits (`parse_int_text()`, `c_value.cpp:1374`), or a `'c'` character, or for a
-float type a decimal number (`float_from_text()`, `c_value.cpp:1457`: its syntax is checked first, then the text is read by an `istringstream` imbued with the classic
+A text is trimmed, then an optional sign and decimal, `0x` or `$` digits (`parse_int_text()`, `c_value.cpp:1379`), or a `'c'` character, or for a
+float type a decimal number (`float_from_text()`, `c_value.cpp:1462`: its syntax is checked first, then the text is read by an `istringstream` imbued with the classic
 locale, because `QApplication` calls `setlocale(LC_ALL, "")` and a comma host would read `1.5` as `1`; `std::from_chars` for floating point is
 missing from libc++ before LLVM 20, so the macOS build could not use it). `nan` and `inf` are refused.
 A value out of range is refused, never truncated: a person typing `-1` into an unsigned long made a mistake, not
 a bit pattern, which is why only a script's int32 is a pattern. **The 48-bit encoder rounds to nearest because the compiler does:** the constants z88dk
 compiled into `master/sccz80-floats` are `0.1` = `CD CC CC CC 4C 7D` and `1e-10` = `BE CE FE E6 5B 5F`, which truncation gets wrong (`CC ...`
 and `BD ...`), and `CVW-05` reads those bytes from the fixture at run time, never from a copy. A bitfield reads its unit's bytes, replaces its
-bits and writes the whole unit back (`int_fits()`, `c_value.cpp:1475`, is its range check, on the field's width).
+bits and writes the whole unit back (`int_fits()`, `c_value.cpp:1480`, is its range check, on the field's width).
 
 **F1, found while planning:** the reader ignored a bitfield's sign. `c_format_value()` and `c_integer_value()` returned the unsigned field for
 `SB<s>$<w>:S`, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so `CVW-10`

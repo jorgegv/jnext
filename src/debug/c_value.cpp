@@ -1096,22 +1096,27 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
         const CdbVar& cv = v->record.var;
         CLocalRef r;
         r.var = v;
+        // A static local of level >= 2 is declared in a block: it is in scope only there (its storage lives on, its name does not), so it is judged exactly like a block local of
+        // the same (level, block) for the compiler (GH #438 S4b2, review 8 G1). A function-scope static (level 1) is listed everywhere.
+        const auto block_visible = [&]() {
+            if (cc80_exact) {
+                const Cc80Verdict d = cc80_verdict(fn.trail, cc80_locals, cv.level, cv.block, *scope);
+                if (d == Cc80Verdict::Hidden) return false;
+                r.scope_unknown = true;
+            } else if (unknown) r.scope_unknown = true;
+            else if (use_walk ? !walk_visible(cv) : !open.count({cv.level, cv.block})) return false;
+            return true;
+        };
         if (cv.space == 'E') {
             r.kind = CVarKind::StaticLocal;
+            if (cv.level >= 2 && !block_visible()) continue;
             statics.push_back(r);
         } else if (is_param(cv)) {
             r.kind = CVarKind::Param;
             params.push_back(r);
         } else {
             r.kind = CVarKind::Local;
-            if (cv.level >= 2) {
-                if (cc80_exact) {
-                    const Cc80Verdict d = cc80_verdict(fn.trail, cc80_locals, cv.level, cv.block, *scope);
-                    if (d == Cc80Verdict::Hidden) continue;
-                    r.scope_unknown = true;
-                } else if (unknown) r.scope_unknown = true;
-                else if (use_walk ? !walk_visible(cv) : !open.count({cv.level, cv.block})) continue;
-            }
+            if (cv.level >= 2 && !block_visible()) continue;
             locals.push_back(r);
         }
     }

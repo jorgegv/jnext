@@ -62,15 +62,15 @@ no store, because it replaces nothing. `Load MAP` (symbols only) never has one.
 ## How it is filled
 
 `load_z88dk_source_map()` reads the map once. Pass 1 keeps a `const` line that
-starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:719`),
+starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:728`),
 and the parser gained `Z88dkMapLine::is_public` (the scope field). The line records
 of code sections are copied to `scope_records` right after they are placed and
-**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:786`):
+**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:795`):
 a listing's `C_LINE` keeps only the file, so the scope comes from the map; for an 80cc function the table is replaced by the listing's own occurrences (`fill_listing_scopes()`, S4a).
 Just before `map.replace()`, `build_variable_store()`
 (`src/debug/z88dk_source_map.cpp:557`)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:1027`),
+space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:1036`),
 shared by the extent code and the store, so no rule is kept twice.
 
 ## The joins
@@ -146,6 +146,7 @@ A location that names only a file and a line, with no scope, is unknown. Visibil
 - **Stale stamps (GH #438 S4b).** 80cc keeps one global emit location (`ir_set_emit_loc()`, `src/80cc/ir_build.c:7931` once per statement, and `src/80cc/ir_build.c:8397` for an `if` condition); code a construct emits after building its children, with no statement of its own, carries the location of the last statement built. H-a: an `if`/`else` closes the then-branch after the else part is built (`src/80cc/ir_build.c:8415-8420`), so the then-branch's last jump carries the else part's last statement, even when the then-branch has no braces. H-b: the fall-off-end `ret` (`src/80cc/ir_build.c:8669-8673`), the switch exit (`src/80cc/ir_build.c:8352-8356`) and a countdown step (`src/80cc/ir_build.c:8258-8268`) carry the last statement inside the construct. H-c: CSE and LICM insert a `1cse_<n>` / `1licm_<n>` declaration before the loop with the hoisted expression's scope (`src/80cc/ast_opt.c:4116`, `src/80cc/ast_opt.c:4190`, `src/80cc/ast_opt.c:4615`). No record excludes any of them for a given block, so an 80cc block local is never listed plain (design 14).
 - **80cc temporaries.** `1cse_<n>` and `1licm_<n>` start with a digit, so no C name can be one: `classify()` hides a leading-digit name as `Temporary` (`CDB-55`), which keeps the level-0 `1licm_0` out of the parameters.
 - **The `x` placeholder, again.** `fill_compilers()` also takes a level-0 `x` record as zsdcc's when the module has no function named `x` (sccz80 and 80cc write `x` only for a function really called `x`, which has an `F:` record): a zsdcc module whose functions have empty bodies has no TAB and no level above 0 (`Z88ZB-15`, `Z88ZB-16`). Undecidable, and left: a zsdcc module whose only function is named `x` and has an empty body.
+- **Two `F:` records (zsdcc, GH #438 S4b2).** A zsdcc function with a block static local gets its `F:` record twice, `...,C,0,-4,...` and `...,C,0,0,...` (97731e4e29 and 0f0a1cf70e; SDCC's `cdbWriteFunction` wrote it twice, and the records differ only in the number after the address space, which nothing reads). `build_variable_store()` keeps the first of records equal up to that number, so the function is one and its variables attach (`Z88ZB-17`); a record with another type stays a second function (`Z88CDB-30`).
 - **Enum records (z88dk#3241).** sccz80 and 80cc write an `N:` (the enum) and an `E:` (an enum-typed object) record; `cdb_decode()` returns them as `CdbKind::Enum`, checked for shape and
   dropped by `build_variable_store()`: the object's `S:` record is still written with the integer type, which is what the Variables tab reads, so a value shows as its number (`CDB-53`, `Z88ZB-11`).
 - **Unsized arrays.** The decoder classes every `{-1}DA-1x` record as hidden (sccz80 and 80cc write it first, then the sized one). `build_variable_store()` unhides one that has no

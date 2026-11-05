@@ -8900,6 +8900,71 @@ int main() {
             check("SRCDBG-ZB-16", "zsdcc shadow.c at `g += t`: two t rows, the outer (register DE) marked `shadowed`; read t is the inner one, `optimised out`; t := 7 is refused",
                   at && rows.size() == 2 && shadowed == 1 && !rd.ok && rd.why == "optimised out" && !w.w.ok());
         }
+        {   // SRCDBG-ZB-18
+            // block-scoped statics, sccz80 (statics.c): f's `static int16_t t` lives in the innermost block (lines 9-12), f2's in its inner block. The identity of the variable a name means is read from where it
+            // lives: a static is in a data page (`Kind::Page`, here $8EF3 and $8EF5, the map's `_st_f_t` and `_st_f2_t`), a local on the stack (`Kind::Cpu`). (sccz80 itself never uses the static: it
+            // resolves `t` to the outer local in the block, so the VALUES say nothing about which record the debugger picked.) Inside the static's block the static wins and the local is `shadowed`;
+            // outside it `t` is the local alone
+            const char* fx = "master-fixed-sccz80/sccz80-static";
+            Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2), f2out(false, MachineType::ZXN_ISSUE2);
+            const bool a1 = lzf(in, fx, "zb18a", 0x8C9F, true), a2 = lzf(out, fx, "zb18b", 0x8CAE, true), a3 = lzf(f2in, fx, "zb18c", 0x8CD4, true), a4 = lzf(f2out, fx, "zb18d", 0x8CD9, true);
+            const Dbg::CValueResult rin = in.dbg->read_c_value(0, "t"), rout = out.dbg->read_c_value(0, "t"), r2in = f2in.dbg->read_c_value(0, "t"), r2out = f2out.dbg->read_c_value(0, "t");
+            const auto rows_in = trows(in, "t"), rows_out = trows(out, "t"), rows_f2out = trows(f2out, "t");
+            int page = 0, cpu = 0, shadowed_cpu = 0;
+            for (const auto& r : rows_in) {
+                page += r.where.kind == Dbg::CWhere::Kind::Page;
+                cpu += r.where.kind == Dbg::CWhere::Kind::Cpu;
+                shadowed_cpu += r.where.kind == Dbg::CWhere::Kind::Cpu && row_has(r, "shadowed");
+            }
+            const Dbg::CWriteResult win = wr(in, 0, "t", "9");
+            int nine_page = 0;
+            for (const auto& r : trows(in, "t")) nine_page += r.where.kind == Dbg::CWhere::Kind::Page && r.value == "9";
+            const Dbg::CWriteResult wout = wr(out, 0, "t", "5");
+            const auto rout2 = trows(out, "t");
+            check("SRCDBG-ZB-18", "sccz80 statics.c: inside the static's block t is the static (a Page place at $8EF3), the stack local is the other t row and `shadowed`, and t := 9 writes the static; outside it (`g += t`) "
+                                  "there is one t row, on the stack, t reads it and t := 5 writes it; in f2 the inner static ($8EF5) wins at `g = t` and the block local (stack) is the only t at `g += t`",
+                  a1 && a2 && a3 && a4 && rin.ok && rin.where.kind == Dbg::CWhere::Kind::Page && rin.where.source.address == 0x8EF3 && rows_in.size() == 2 && page == 1 && cpu == 1 && shadowed_cpu == 1 &&
+                      win.ok() && nine_page == 1 && rout.ok && rout.where.kind == Dbg::CWhere::Kind::Cpu && rows_out.size() == 1 && wout.ok() && rout2.size() == 1 && rout2[0].value == "5" &&
+                      r2in.ok && r2in.where.kind == Dbg::CWhere::Kind::Page && r2in.where.source.address == 0x8EF5 && r2out.ok && r2out.where.kind == Dbg::CWhere::Kind::Cpu && rows_f2out.size() == 1);
+        }
+        {   // SRCDBG-ZB-19
+            // the same on 80cc: the static is a block local to the PC's scope, never certain. Inside its block t reads with `ambiguous` and `scope unknown` and the write is refused; outside (F1: a later block)
+            // the static is hidden and the level-1 local (on the stack) is the only t, with no ambiguity and a successful write; in f2 at `g = t` the pick is ambiguous and the write refused, at `g += t`
+            // the lone block-local t is flagged but NOT ambiguous (one candidate: certain)
+            const char* fx = "master-fixed-80cc/80cc-static";
+            Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2), f2out(false, MachineType::ZXN_ISSUE2);
+            const bool a1 = lzf(in, fx, "zb19a", 0x8C75, true), a2 = lzf(out, fx, "zb19b", 0x8C7A, true), a3 = lzf(f2in, fx, "zb19c", 0x8CA4, true), a4 = lzf(f2out, fx, "zb19d", 0x8CAA, true);
+            const Dbg::CValueResult rin = in.dbg->read_c_value(0, "t"), rout = out.dbg->read_c_value(0, "t"), r2in = f2in.dbg->read_c_value(0, "t"), r2out = f2out.dbg->read_c_value(0, "t");
+            const auto rows_in = trows(in, "t"), rows_out = trows(out, "t"), rows_f2out = trows(f2out, "t");
+            int may = 0;
+            for (const auto& r : rows_in) may += row_has(r, "may be shadowed");
+            const CwTry win = attempt(in, 0, "t", "9"), w2in = attempt(f2in, 0, "t", "9");
+            const Dbg::CWriteResult wout = wr(out, 0, "t", "5");
+            check("SRCDBG-ZB-19", "80cc statics.c: inside the static's block t is ok with `ambiguous: 2 variables named t` and `scope unknown` (the static, a Page place), the other row is `may be shadowed`, t := 9 is refused; at "
+                                  "`g += t` there is one t row, on the stack, with no ambiguity note, and t := 5 writes it; in f2 at `g = t` the pick is ambiguous and the write refused, at `g += t` the lone block-local t "
+                                  "reads with `scope unknown` and NO `ambiguous` note",
+                  a1 && a2 && a3 && a4 && rin.ok && rin.where.kind == Dbg::CWhere::Kind::Page && has_note(rin, "ambiguous: 2 variables named t") && has_note(rin, "scope unknown") && rows_in.size() == 2 && may == 1 &&
+                      refused_with(win, "scope unknown") && rout.ok && rout.where.kind == Dbg::CWhere::Kind::Cpu && !has_note(rout, "ambiguous") && rows_out.size() == 1 && wout.ok() && r2in.ok &&
+                      has_note(r2in, "ambiguous: 2 variables named t") && refused_with(w2in, "scope unknown") && r2out.ok && has_note(r2out, "scope unknown") && !has_note(r2out, "ambiguous") &&
+                      rows_f2out.size() == 1);
+        }
+        {   // SRCDBG-ZB-20
+            // zsdcc (exact blocks), statics.c: the outer t lives in DE and the inner static t (E space, a Page place) is the pick at `g = t + u`; outside its block t is the register local only
+            const char* fx = "master-fixed-zsdcc/sdcc-static";
+            Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2);
+            const bool a1 = lzf(in, fx, "zb20a", 0x8C71, true), a2 = lzf(out, fx, "zb20b", 0x8C78, true), a3 = lzf(f2in, fx, "zb20c", 0x8C9D, true);
+            const auto rin = trows(in, "t"), rout = trows(out, "t");
+            int shadowed = 0, page = 0;
+            for (const auto& r : rin) {
+                shadowed += row_has(r, "shadowed") && !row_has(r, "may be shadowed");
+                page += r.where.kind == Dbg::CWhere::Kind::Page;
+            }
+            const Dbg::CValueResult ri = in.dbg->read_c_value(0, "t"), r2 = f2in.dbg->read_c_value(0, "t");
+            check("SRCDBG-ZB-20", "zsdcc statics.c: inside the static's block there are two t rows (the register local `shadowed`, the static a Page place) and t reads the static, in f2 too; outside it there is one t row, "
+                                  "the register local",
+                  a1 && a2 && a3 && rin.size() == 2 && shadowed == 1 && page == 1 && ri.ok && ri.where.kind == Dbg::CWhere::Kind::Page && r2.ok && r2.where.kind == Dbg::CWhere::Kind::Page && rout.size() == 1 &&
+                      rout[0].where.kind != Dbg::CWhere::Kind::Page);
+        }
         {   // SRCDBG-ZB-17
             // review 7 F1: 80cc stamps code with the scope of a block the code is not in (master-fixed-80cc/80cc-ifelse, ifelse.c, listing beside the map). The oracle is the C program: at the PCs below
             // only t (and i, k, t in d2) is in scope or maybe, and q is NOT in scope. (1) f1: the jump that ends the then-branch ($8C91, listed on the else line, block 3); (2) k9: the jump that ends a
