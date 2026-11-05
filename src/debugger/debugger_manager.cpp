@@ -10,6 +10,7 @@
 #include "debugger/breakpoint_model.h"
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
+#include "debugger/variables_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/audio_panel.h"
 #include "debugger/memory_panel.h"
@@ -97,13 +98,13 @@ void DebuggerManager::attach_backend() {
     // INS-12 — call-stack tracking while the window is open, as before; through
     // the backend it is also re-applied across a cold boot (CTL-12 rule 2), where
     // the direct `call_stack().set_enabled()` it replaces was silently lost.
-    dbg_.set_call_stack_enabled(true);
+    dbg_.set_call_stack_enabled(client_, true);
     set_panels_client();
 }
 
 void DebuggerManager::detach_backend() {
     if (client_ == jnext::dbg::CLIENT_NONE) return;
-    dbg_.set_call_stack_enabled(false);
+    dbg_.set_call_stack_enabled(client_, false);
     // SES-01 — removes this client's subscriptions (a Step Over or Run to Here
     // target still in flight goes with the window) and its live-raster request.
     // It resumes nothing here: set_enabled(false) has already resumed a paused
@@ -124,6 +125,10 @@ void DebuggerManager::set_panels_paused(bool paused) {
         debugger_window_->stack_panel()->set_paused(paused);
     if (debugger_window_->callstack_panel())
         debugger_window_->callstack_panel()->set_paused(paused);
+    if (debugger_window_->variables_panel())
+        debugger_window_->variables_panel()->set_paused(paused);
+    if (debugger_window_->watch_panel())
+        debugger_window_->watch_panel()->set_paused(paused);
 }
 
 void DebuggerManager::set_panels_client() {
@@ -131,6 +136,7 @@ void DebuggerManager::set_panels_client() {
     if (auto* p = debugger_window_->nextreg_panel()) p->set_client(client_);
     if (auto* p = debugger_window_->audio_panel())   p->set_client(client_);
     if (auto* p = debugger_window_->memory_panel())  p->set_client(client_);
+    if (auto* p = debugger_window_->variables_panel()) p->set_client(client_);   // GH #437: an edit is logged as the window's client
 }
 
 void DebuggerManager::apply_pause_state(bool paused) {

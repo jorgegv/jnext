@@ -2185,8 +2185,52 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#per-platform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per platform
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ccache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ccache
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#measuring-a-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measuring a change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-has-been-measured" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What has been measured
+      
+    </span>
+  </a>
   
 </li>
       
@@ -2376,6 +2420,10 @@
       
         
           
+        
+      
+        
+      
         
       
         
@@ -2936,6 +2984,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2985,7 +3089,7 @@ program to the optimiser at link time, so it can.</p>
   LTO-free, so a rebuild stays quick and <code>perf</code> call graphs stay readable.</li>
 <li><strong>Every Release build has it, with one exception.</strong> <code>gui-release</code>, the rpm
   and the debs, and the Windows executables are all Release builds. The
-  Windows ones only became Release builds with GH #298: before that, the
+  Windows ones are Release builds only since v1.0.74; before that, the
   <code>win-*-release</code> targets passed no build type, fell back to RelWithDebInfo
   and shipped without LTO. Each one now passes <code>-DCMAKE_BUILD_TYPE=Release</code>
   (<code>WIN_BUILD_TYPE</code> in the <code>Makefile</code>), and the <code>package-win-lto</code> row of
@@ -3000,7 +3104,7 @@ program to the optimiser at link time, so it can.</p>
   OFF. The full record is in <code>doc/issues/FLATPAK-LTO-PROBLEMS.md</code>.</li>
 </ul>
 <h2 id="profile-guided-optimisation">Profile-guided optimisation<a class="headerlink" href="#profile-guided-optimisation" title="Permanent link">&para;</a></h2>
-<p>Every binary JNEXT ships is a <strong>PGO</strong> build (GH #297) — gcc's everywhere except
+<p>Every binary JNEXT ships is a <strong>PGO</strong> build — gcc's everywhere except
 macOS, which uses clang's. The compiler first
 builds an instrumented jnext, that binary runs a training set and records which
 branches it takes and how often, and the real build is then compiled with that
@@ -3059,7 +3163,7 @@ takes the package's own configure command and runs it twice, for
 <code>make gui-release-non-pgo</code> builds the same Release binary without PGO, in its
 own tree, and needs no SD image.</p>
 <h3 id="the-training-set-broad-not-big">The training set: broad, not big<a class="headerlink" href="#the-training-set-broad-not-big" title="Permanent link">&para;</a></h3>
-<p>A profile saturates quickly. GH #294 measured that a profile trained on eight
+<p>A profile saturates quickly. A measurement showed that a profile trained on eight
 workloads made four titles it had never seen 17–20% faster, against 17–45% on
 the ones it had seen. So the training set exists to reach every kind of hot
 path, once, rather than to run a lot of anything.</p>
@@ -3281,9 +3385,8 @@ timing-dependent moment — its execution counts are identical. Through LTO thos
 differences still change some cold GUI, debugger and snapshot code, so the
 default build is not byte-reproducible; no CPU, memory, video, audio, DMA or
 Copper function changes size. <code>JNEXT_PGO_NO_GUI=1</code> leaves the GUI run out, and the build is then
-reproducible. The GUI run is kept by default because it is worth it: in GH</p>
-<h1 id="297-without-it-the-qt-binarys-cpu-saving-at-100-speed-was-46-points">297, without it, the Qt binary's CPU saving at 100% speed was 4–6 points<a class="headerlink" href="#297-without-it-the-qt-binarys-cpu-saving-at-100-speed-was-46-points" title="Permanent link">&para;</a></h1>
-<p>smaller (measured when the run still had sound).</p>
+reproducible. The GUI run is kept by default because it is worth it: without it, the Qt binary's CPU saving at 100% speed was 4–6 points
+smaller (measured when the run still had sound).</p>
 <h3 id="per-platform">Per platform<a class="headerlink" href="#per-platform" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3335,7 +3438,7 @@ reproducible. The GUI run is kept by default because it is worth it: in GH</p>
 names instead. Without that the exe ran on Qt's <code>windows</code> platform, whose
 window wine cannot create without a display; Qt then left the main window
 visible with no platform window, and <code>quit()</code> looped forever in
-<code>QApplicationPrivate::tryCloseAllWidgetWindows()</code> (GH #299). Each
+<code>QApplicationPrivate::tryCloseAllWidgetWindows()</code>. Each
 Windows PGO build also refreshes its wine prefix (<code>wineboot -u</code>), because a
 prefix created while the host's wine was broken stays broken after wine is
 fixed. <code>WIN_PGO=0</code>, or <code>make win-release-non-pgo</code> for the x64 leg, builds
@@ -3398,10 +3501,9 @@ binaries. To compare binaries, run them <strong>interleaved</strong>:</p>
   the median and IQR of those ratios over the rounds.</li>
 </ul>
 <p>A slow drift then hits every variant in a round equally and cancels in the
-ratio. GH #294, GH #297 and GH #298 measured this way, with scripts that are not
-committed; <code>doc/analysis/CLANG-LLVM-EVALUATION.md</code> §3 records the method as GH</p>
-<h1 id="294-ran-it-the-one-committed-interleaved-harness-testbenchab-hotlatchsh">294 ran it. The one committed interleaved harness, <code>test/bench/ab-hotlatch.sh</code><a class="headerlink" href="#294-ran-it-the-one-committed-interleaved-harness-testbenchab-hotlatchsh" title="Permanent link">&para;</a></h1>
-<p>(<code>make bench-hotlatch</code>), does only part of it: it interleaves the variants on
+ratio. The clang/gcc, PGO and Windows Release comparisons below were measured this way, with scripts that are not
+committed; <code>doc/analysis/CLANG-LLVM-EVALUATION.md</code> §3 records the method as the clang/gcc comparison ran it. The one committed interleaved harness, <code>test/bench/ab-hotlatch.sh</code>
+(<code>make bench-hotlatch</code>), does only part of it: it interleaves the variants on
 one core, but in a fixed order, from one shared SD clone, without <code>perf stat</code>,
 and it reports each variant's median T-states per second against the baseline
 rather than per-round ratios.</p>
@@ -3423,21 +3525,21 @@ detail lives in the documents named.</p>
   all the hand-tuned hot spots of that task together; the task as a whole took
   boot-nextzxos from 57 to 161 million T-states per second, about 2.8×
   (<code>doc/design/TASK27-FINAL-OPTIMIZATION-REPORT.md</code>).</li>
-<li><strong>GH #294 (2026-10): clang versus gcc — stay on gcc.</strong> With LTO on both
+<li><strong>clang versus gcc (2026-10) — stay on gcc.</strong> With LTO on both
   sides, clang 22 was slower than gcc 16 on every workload, by 5–16% in fps;
   clang with PGO beat plain gcc with LTO, but gcc with PGO beat clang with PGO
   by 8–29%. The same evaluation found gcc PGO to be the bigger lever
   (<code>doc/analysis/CLANG-LLVM-EVALUATION.md</code>).</li>
-<li><strong>GH #297 (v1.0.73): gcc PGO.</strong> Against the same build without PGO,
+<li><strong>gcc PGO (v1.0.73).</strong> Against the same build without PGO,
   headless: <strong>+13% to +22%</strong> on titles the training never saw and +15% to +31%
   on the trained ones. The Qt binary at 100% speed uses 12–20% less CPU. Three
   independent retrains differed by at most 0.015 in the speed ratio.</li>
-<li><strong>GH #298 (v1.0.74): Windows as Release builds.</strong> Under wine, the x64
+<li><strong>Windows (v1.0.74): as Release builds.</strong> Under wine, the x64
   executable with Release + LTO + PGO is <strong>+13% to +55%</strong> faster than the
   RelWithDebInfo + PGO build it replaced; LTO alone already matched or beat the
   old PGO build, and PGO adds 7–31% on top of LTO, where it had added only
   2–8% without it. Wine is not Windows, so these are indicative.</li>
-<li><strong>The balanced, broad training set (GH #297 follow-up, measured on
+<li><strong>The balanced, broad training set (measured on
   v1.0.76).</strong> Against the shipped v1.0.76 PGO build, minimum cycles over six
   interleaved rounds, two retrains of the new set — one with no added load
   (the host was busy with other work, 1-minute load 7–18), one under twelve

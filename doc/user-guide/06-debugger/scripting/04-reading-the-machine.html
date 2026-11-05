@@ -1706,6 +1706,8 @@
       
         
       
+        
+      
     
     
     
@@ -2162,6 +2164,34 @@
     
   
     Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../panels/16-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Variables
   
 
     
@@ -3081,6 +3111,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#c-variables-cvar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C variables: cvar()
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#symbols-name" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3404,6 +3445,8 @@
       
         
       
+        
+      
     
     
     
@@ -3664,6 +3707,34 @@
     
   
     In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/11-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C variables in the debugger
   
 
     
@@ -4405,6 +4476,80 @@ address 0x5C78, because slot 2 (0x4000..0x5FFF) holds page 0x0A.</p>
 <p>Raw line 4 is near the top of the frame, in the vertical blanking, which on the
 48K comes <em>after</em> the 192 paper lines and the bottom border in <code>CVC</code>'s count: so
 <code>CVC</code> is 252.</p>
+<h2 id="c-variables-cvar">C variables: <code>cvar()</code><a class="headerlink" href="#c-variables-cvar" title="Permanent link">&para;</a></h2>
+<pre><code>on execute main.c:21 once when cvar(i) == 3 do
+    log &quot;main.c:21 with i = ${cvar(i)}, table[3] = ${cvar(table[3])}, counter = ${cvar(counter)}&quot;
+end
+</code></pre>
+<p><code>cvar(PATH)</code> reads a C variable of the program, as a 32-bit integer. It needs a z88dk
+<code>-debug</code> map, which carries the program's C variable records (see <a href="../source-debugger/02-building-with-z88dk.html">Building with
+z88dk</a>); with the program of <a href="../source-debugger/01-a-first-session.html">A first
+session</a> and the script above in <code>cv.jds</code>,</p>
+<pre><code>jnext --headless --machine next --load prog.nex --script cv.jds --delayed-automatic-exit-frames 700
+</code></pre>
+<p>logs (z88dk 2.4 build; the timestamps and the <code>[debugger] [info]</code> prefixes are left out)</p>
+<pre><code>SCRIPT cv.jds: names a source line; it loads when the --load program has loaded
+Loaded 19 z88dk symbols from 'prog.map'
+Loaded 46 z88dk source lines from '/home/you/prog/prog.map' (program identity not verified: no section binaries beside it)
+SCRIPT loaded cv.jds: 1 rules [client 2]
+[jds F:500 C:283637187] main.c:21 with i = 3, table[3] = 9, counter = 14 [client 2]
+</code></pre>
+<p>The path is a C name and what follows it:</p>
+<table>
+<thead>
+<tr>
+<th>PATH</th>
+<th>Reads</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>i</code>, <code>counter</code></td>
+<td>a local or parameter of the frame the CPU is in, else a static of the function, a file static or a global, in that order</td>
+</tr>
+<tr>
+<td><code>sum::calls</code></td>
+<td>the static local <code>calls</code> of function <code>sum</code>, from any frame</td>
+</tr>
+<tr>
+<td><code>vars.c::s_dup</code></td>
+<td>the file static (or global) of that file: two files can each have an <code>s_dup</code></td>
+</tr>
+<tr>
+<td><code>vars.c::sum::calls</code></td>
+<td>the same, naming the file that holds the function</td>
+</tr>
+<tr>
+<td><code>p-&gt;x</code>, <code>g_pt.tag</code>, <code>g_matrix[1][2]</code>, <code>*p</code>, <code>*g_cptr</code></td>
+<td>a member, an element or a dereference; the index is decimal, <code>0x</code> or <code>$</code> hex, and spaces are allowed (<code>p -&gt; x</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>What it gives:</p>
+<ul>
+<li><strong>The frame is the one the CPU is in.</strong> There is one atom and no frame argument, so <code>cvar(a)</code> in a rule on <code>sum</code>'s line is
+  <code>sum</code>'s <code>a</code>. A static local is reachable from any line as <code>sum::calls</code>.</li>
+<li><strong>Integers and pointers.</strong> A signed or unsigned integer of up to 32 bits reads as itself (an unsigned 16-bit 40000 is
+  40000, not -25536) and a pointer is its address, so <code>mem[cvar(p)]</code> is the byte it points at. An unsigned 32-bit value
+  keeps its bit pattern, as an integer literal does: <code>cvar(g_ulong) == 0xCAFEBABE</code>.</li>
+<li><strong>What is refused:</strong> a struct or an array (name a member or an element), a float (the language has no floats), and an
+  integer wider than 32 bits. The message names the type.</li>
+<li><strong>A global in a banked page</strong> is read from its own page whether or not that page is mapped now.</li>
+<li><strong><code>cvar()</code> reads.</strong> <code>set cvar(x) = v</code> writes: see <a href="08-changing-the-machine.html#set-cvarpath">Changing the machine</a>.</li>
+</ul>
+<p>The path is checked when the script loads: <code>cvar(a.)</code> is an error at the <code>cvar</code>, with the reason. What it <em>names</em> is looked
+up each time the expression runs, because the map may attach after the script loads. So <strong>every other refusal is a run-time
+error, never a 0</strong>: no C variables in the loaded map (an SLD has none), a name that does not exist, a local that is out of
+scope on the line, a variable the compiler kept nowhere, a null pointer, an index past the end of the array. In a <code>when</code> that
+disables the rule and the run exits 1:</p>
+<pre><code>on execute main.c:21 when cvar(nosuch) == 3 do
+    log &quot;never&quot;
+end
+</code></pre>
+<pre><code>SCRIPT ERROR cv3.jds:1:27: cvar(nosuch): unknown name 'nosuch' - rule at 1:1 disabled [client 2]
+SCRIPT: a run-time error disabled a rule; exiting 1 [client 2]
+</code></pre>
+<p>So put the rule on a line where the variable is in scope, or <code>on execute</code> at a line of the function that has it.</p>
 <h2 id="symbols-name">Symbols: <code>@name</code><a class="headerlink" href="#symbols-name" title="Permanent link">&para;</a></h2>
 <pre><code>on execute @main_loop do …
 on write 0x8000..(@__data_crt_head - 1) do …

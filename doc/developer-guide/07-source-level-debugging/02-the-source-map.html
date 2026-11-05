@@ -2231,6 +2231,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2423,6 +2427,17 @@
     <span class="md-ellipsis">
       
         Embedded texts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-c-variable-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The C variable store
       
     </span>
   </a>
@@ -2914,6 +2929,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2988,9 +3059,9 @@ order</em> and matters: it is the tie-break below.</p>
    segment's primary location.</li>
 </ol>
 <p><code>loaded_file</code> is the adapter's absolute, lexically normalised path (built as the local <code>loaded</code>: <code>sld_loader.cpp:328</code>,
-<code>z88dk_source_map.cpp:589</code>), which is also where the search for a source file starts (<a href="07-frontends.html">7.7</a>).
+<code>z88dk_source_map.cpp:1183</code>), which is also where the search for a source file starts (<a href="07-frontends.html">7.7</a>).
 <code>identity</code>, <code>loaded_file</code>, <code>format</code> (<code>"SLD"</code> or <code>"z88dk"</code>; <code>clear()</code> resets it to
-<code>"SLD"</code>), <code>texts</code> and <code>dot</code> (<code>SourceMap::dot()</code>, GH #351: the map is a z88dk dot command's, so
+<code>"SLD"</code>), <code>texts</code> and <code>dot</code> (<code>SourceMap::dot()</code>: the map is a z88dk dot command's, so
 the backend never judges it from memory at a load, <a href="06-lifetime.html">7.6</a>; <code>clear()</code> resets it)
 are stored as given. Every <code>const SourceLocation*</code> the class
 returns points into <code>locations_</code> and is valid until the next <code>replace()</code> or
@@ -3041,6 +3112,13 @@ adapter, which keeps the text of z88dk's generated start-up code (the <code>.m4<
 files) from <code>prog.lis</code> (<a href="04-4-z88dk-listings.html">7.4.4</a>). <code>embedded_text(file)</code>
 looks up the exact normalised name. Every <code>replace()</code> drops the previous
 texts, since they came with the previous map.</p>
+<h2 id="the-c-variable-store">The C variable store<a class="headerlink" href="#the-c-variable-store" title="Permanent link">&para;</a></h2>
+<p>A z88dk map also carries the program's C variables. The adapter reads the
+<code>__CDBINFO__</code> records into a <code>VariableStore</code> and hands it to <code>replace()</code>, which
+keeps it like the embedded texts: <code>variables()</code> returns that one shared,
+immutable object, a copy of the map shares it, and <code>clear()</code> and every <code>replace()</code>
+without one drop it. What it holds, and how it is joined to the map's symbols, is
+<a href="09-c-variables.html">7.9</a>.</p>
 <h2 id="program-identity">Program identity<a class="headerlink" href="#program-identity" title="Permanent link">&para;</a></h2>
 <p>A map can carry a statement of what the program's bytes looked like when it was
 built, so a map for another build is not trusted. <code>SourceProgramIdentity</code> has

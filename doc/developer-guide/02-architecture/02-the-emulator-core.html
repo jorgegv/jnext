@@ -2311,6 +2311,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2853,6 +2857,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2979,7 +3039,7 @@ three is an easy mistake to make.</p>
 <tbody>
 <tr>
 <td><code>soft_reset()</code></td>
-<td>Re-runs <code>init(config_, preserve_memory=true)</code>. Clears flip-flop state but keeps RAM, the ROM-in-SRAM window, the boot-ROM overlay, the other memories with no reset port (palette, sprite attribute and pattern RAM, Copper RAM, the bank-5/7 BRAMs) and the free-running clock and scheduler. It can land mid-frame, so it also keeps that frame going: its 50/60 Hz geometry and effective machine timing (a pending NR 0x03 timing still waits for the frame edge), the picture on screen, and each video subsystem's per-scanline render history, into which it records the register reset at the current line (GH #263). Models tbblue's <code>RESET_SOFT</code> / NR 0x02 bit 0.</td>
+<td>Re-runs <code>init(config_, preserve_memory=true)</code>. Clears flip-flop state but keeps RAM, the ROM-in-SRAM window, the boot-ROM overlay, the other memories with no reset port (palette, sprite attribute and pattern RAM, Copper RAM, the bank-5/7 BRAMs) and the free-running clock and scheduler. It can land mid-frame, so it also keeps that frame going: its 50/60 Hz geometry and effective machine timing (a pending NR 0x03 timing still waits for the frame edge), the picture on screen, and each video subsystem's per-scanline render history, into which it records the register reset at the current line. Models tbblue's <code>RESET_SOFT</code> / NR 0x02 bit 0.</td>
 <td>NR 0x02 bit 0, F4</td>
 </tr>
 <tr>
@@ -2999,7 +3059,7 @@ three is an easy mistake to make.</p>
 means "the reset flip-flop domain" — what a VHDL reset clause describes — must
 use the soft reset. There used to be an in-place <code>Emulator::reset()</code> as well;
 it had no caller outside the file loaders, rows that called it tested neither
-reset, and it was removed (GH #239).</p>
+reset, and it was removed.</p>
 <p>Reconstructing in place, at a stable address, is the point of the cold boot:
 host code that is holding <code>&amp;emu</code>, or a reference to something inside it, stays
 valid across a cold boot. What lives <em>inside</em> the object does not survive it,
@@ -3017,7 +3077,7 @@ currently executing. So the emulator only <em>records</em> the request, and the
 frontend polls <code>take_hard_reset_request()</code> after each frame returns and
 performs the reconstruction from there.</p>
 <p>A live SD-card change (File &gt; Insert SD Card Image / Eject SD Card, and the
-headless <code>--delayed-sdcard-insert-frames</code>, GH #93) borrows the same shape
+headless <code>--delayed-sdcard-insert-frames</code>) borrows the same shape
 although it comes from the host, not the guest: <code>request_sd_card_change()</code>
 records it (one at a time: a second request while one is pending is refused),
 and the loop owner performs it at the end of its tick — after its frames, or at

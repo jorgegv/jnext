@@ -57,7 +57,7 @@ Three facts the table does not show:
   logical)` is `logical & (size - 1)`. Every route the arbiter produces has
   exactly this offset.
 - **Only some kinds are accessible to a verb.** `Debugger::peek()` and `poke()`
-  take `Cpu`, `Page` and `Rom`. `DivMmcRam{b}` can be *read* (GH #351: the dot
+  take `Cpu`, `Page` and `Rom`. `DivMmcRam{b}` can be *read* (the dot
   commands run from DivMMC bank 2, so their bytes must be checkable): bank `b`
   is `DivMmc::ram_page(b)` (SRAM page `0x10 + b`, `zxnext.vhd:3092-3098`), a bank
   past `DivMmc::kRamPages` is `InvalidPage` (`debugger_inspect.cpp:310-317`), and
@@ -138,7 +138,7 @@ must agree for every instruction that fetches. The rows `SRCDBG-ID-*` in
 NMI paths and compare the two; `FSRC-*` in `mmu_test` and
 `mmu_integration_test` pin the arbiter's order and identities against the VHDL.
 
-## Spelling a space: the long address (GH #360)
+## Spelling a space: the long address
 
 One place spells a `MemSpace` for a human or a file: `src/debug/long_address.*` (std headers
 and `mem_space.h` only). Every Qt view, the trace export and the remote protocols that name a

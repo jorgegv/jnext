@@ -81,7 +81,7 @@ of the priority order, in `route_bits_()`. Offsets agree with
 `dbg::space_offset(space, addr)` in both directions (`& 0x3FFF` for the 16 KB
 `Rom`, `AltRom` and `Config`, `& 0x1FFF` otherwise): mmu_integration_test FSRC-19.
 
-**Memory coverage** (GH #388) hangs off the same two functions. `finish_read_`
+**Memory coverage** hangs off the same two functions. `finish_read_`
 and `write_landed` test `DebugState::mem_gate_live()`, one cached bool that is
 `wp_live || mem_cov_live` (the watchpoint gate and the coverage sink, both only
 while the machine is executing), so with nothing armed the hot path is the
@@ -286,9 +286,9 @@ tape traps, the debugger's `poke` — is tagged with the line
 dropped) and per-frame work is proportional to the number of writes. The fetch
 instants are tabulated in `attribute_mux.h`: pixel and attribute of a display
 slot differ by two ticks, the slot's parity moves both, and the bytes a fine
-X scroll shifts in come from a separate, later "secondary" fetch. Until GH #278
-the CPU's position outlived its write, and the next non-CPU attribute write
-took it over (`mmu_integration_test` G12-TAG). A write before framebuffer row 0
+X scroll shifts in come from a separate, later "secondary" fetch. The
+CPU's position does not outlive its write: the next non-CPU attribute write
+does not take it over (`mmu_integration_test` G12-TAG). A write before framebuffer row 0
 is tagged (row 0, hc 0): it precedes every row-0 fetch, and the tilemap and the
 wide Layer 2 modes do fetch on row 0. Every read consumes such a write, so the
 mux folds an offset's leading run of (0,0) writes into its baseline instead of

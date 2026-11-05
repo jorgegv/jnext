@@ -2344,6 +2344,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2886,6 +2890,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2985,7 +3045,7 @@ floating-bus latch; it returns whether the byte landed. There is exactly one cop
 of the priority order, in <code>route_bits_()</code>. Offsets agree with
 <code>dbg::space_offset(space, addr)</code> in both directions (<code>&amp; 0x3FFF</code> for the 16 KB
 <code>Rom</code>, <code>AltRom</code> and <code>Config</code>, <code>&amp; 0x1FFF</code> otherwise): mmu_integration_test FSRC-19.</p>
-<p><strong>Memory coverage</strong> (GH #388) hangs off the same two functions. <code>finish_read_</code>
+<p><strong>Memory coverage</strong> hangs off the same two functions. <code>finish_read_</code>
 and <code>write_landed</code> test <code>DebugState::mem_gate_live()</code>, one cached bool that is
 <code>wp_live || mem_cov_live</code> (the watchpoint gate and the coverage sink, both only
 while the machine is executing), so with nothing armed the hot path is the
@@ -3165,9 +3225,9 @@ tape traps, the debugger's <code>poke</code> — is tagged with the line
 dropped) and per-frame work is proportional to the number of writes. The fetch
 instants are tabulated in <code>attribute_mux.h</code>: pixel and attribute of a display
 slot differ by two ticks, the slot's parity moves both, and the bytes a fine
-X scroll shifts in come from a separate, later "secondary" fetch. Until GH #278
-the CPU's position outlived its write, and the next non-CPU attribute write
-took it over (<code>mmu_integration_test</code> G12-TAG). A write before framebuffer row 0
+X scroll shifts in come from a separate, later "secondary" fetch. The
+CPU's position does not outlive its write: the next non-CPU attribute write
+does not take it over (<code>mmu_integration_test</code> G12-TAG). A write before framebuffer row 0
 is tagged (row 0, hc 0): it precedes every row-0 fetch, and the tilemap and the
 wide Layer 2 modes do fetch on row 0. Every read consumes such a write, so the
 mux folds an offset's leading run of (0,0) writes into its baseline instead of

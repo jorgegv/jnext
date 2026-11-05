@@ -50,6 +50,25 @@ machines segment 0 is `DIV` while slot 0 reads DivMMC. `MMU=` stays the DeZog pr
 (ROM half >= 0x8000) and does not use `now`. `cpu-step-over` reads the opcode at the PC
 through `memory_reader()`, the instruction the CPU will fetch.
 
+## `CVAR(path)`: jnext's extension of the dialect
+
+`evaluate` and a breakpoint condition both go through `translate_condition()`, ZEsarUX's tokeniser and grouping, and only the
+translation reaches the DSL: `cvar(...)` typed into `evaluate` was `Error parsing`. The tokeniser therefore takes one new
+operand, `CVAR(` and the raw path up to the first `)` (`Tok::CVar`, `Token::raw`), before its function branch; a `(`, a `"`, a missing
+`)` and an empty path make `tokenise()` fail, which is ZEsarUX's `Error parsing`. The path is one token, so `first_top()` never
+splits inside it (`CVAR(p->x)+1` splits at the `+` only) and its case is kept (`canonical_of()` prints `CVAR(path)`, which
+`get-breakpoints` lists and `Breakpoint fired:` echoes). `Translator::operand()` turns it into the DSL text `cvar(path)`, so ZRCP
+reaches `c_int32_scalar()` only through the evaluator: one rule for scripts and ZRCP ([3.10.6](13-the-debugger-scripting-language.md)).
+No ZEsarUX exchange changes meaning, because ZEsarUX answers this text `Error parsing`, and the recorded fixture is untouched. A read
+that fails answers `Error evaluating parsed string: CVAR(path)`, with no reason (the reply is ZEsarUX's; scripts and GDB's
+`monitor print` show the reason). A condition with no `PC=` first term is checked at every instruction, so one with a `CVAR`
+builds the C frames each time: `help set-breakpoint` says to put a `PC=` term first.
+
+The write is the same extension on the one assignment verb: `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1190`) writes
+a C variable of frame 0 through `write_c_value()` ([7.10](../07-source-level-debugging/10-c-frames-and-values.md)). The table's census (`ZRCP-TAB-01`)
+pins the command names to ZEsarUX's `ls`, so no `set-cvar` could be added. Success answers the register line, and every failure (no `)` or `=`, an
+empty path or value, a refusal of the facade) is ZEsarUX's `Error changing register`, with no reason, as a failed `CVAR()` read has none.
+
 ## Breakpoints, history, loading
 
 The 100 condition slots of `set-breakpoint` are one backend subscription each,

@@ -2231,6 +2231,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2909,6 +2913,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3049,16 +3109,17 @@ the pause ownership and stop evidence exactly as <code>step_into()</code> sets t
 </tbody>
 </table>
 <p><code>Over</code> and <code>Out</code> measure depth with the call-stack tracker, so they need it on
-  (<code>set_call_stack_enabled</code>).
+  (<code>set_call_stack_enabled</code>, a per-client request; with a C variable store and a non-observer client
+  attached it is on by itself, <a href="10-c-frames-and-values.html">7.10</a>).
 - <strong>The loop</strong>, per iteration: <code>debugger_step()</code>, then <code>pause()</code>; stop if an event
   stop is latched, or the magic or watch stop fired; stop if <code>reached()</code>; stop at a
   <code>HALT</code> with interrupts disabled (<code>Warn</code>: "Source step stopped at a HALT with
   interrupts disabled"), because each Step there would spend two frames learning
   that only an NMI or a reset ends it; stop when the machine clock has advanced by
-  <code>SOURCE_STEP_FRAME_LIMIT</code> frames (100, <code>SOURCE_STEP_FRAME_LIMIT</code>, <code>debugger.h:1316</code>) since the start
+  <code>SOURCE_STEP_FRAME_LIMIT</code> frames (100, <code>SOURCE_STEP_FRAME_LIMIT</code>, <code>debugger.h:1464</code>) since the start
   (<code>Warn</code>); then the delivery below.
 - <strong>The limit.</strong> After <code>SOURCE_STEP_LIMIT</code> instructions (1,000,000,
-  <code>SOURCE_STEP_LIMIT</code>, <code>debugger.h:1312</code>) the step ends with a <code>Warn</code>.
+  <code>SOURCE_STEP_LIMIT</code>, <code>debugger.h:1460</code>) the step ends with a <code>Warn</code>.
 - <strong>The delivery.</strong> <code>debugger_step()</code> delivers no <code>Execute</code> event, because <code>run_frame()</code>
   does that before each instruction and a Step does not run through it. So between
   instructions the loop gives the next PC <code>run_frame()</code>'s treatment itself, in its
@@ -3104,8 +3165,7 @@ accepted <code>INT</code> or <code>NMI</code> by <code>on_interrupt()</code>. Fr
 <code>MAX_DEPTH</code> = 256. A frame is a <code>CALL</code>, an <code>RST</code>, an <code>INT</code> or an <code>NMI</code>
 (<code>CallType</code>), with <code>caller_pc</code>, <code>target_pc</code>, <code>sp_at_call</code> and the two memories of
 <a href="01-which-memory.html">7.1</a>.</p>
-<p><strong>What ends a frame.</strong> Not just the stack pointer. <code>CallStack::return_to()</code>
-(GH #345): a taken <code>RET</code> that lands on the <strong>newest frame's own return point</strong>
+<p><strong>What ends a frame.</strong> Not just the stack pointer. <code>CallStack::return_to()</code>: a taken <code>RET</code> that lands on the <strong>newest frame's own return point</strong>
 ends exactly that frame: for a <code>CALL</code>, <code>caller_pc + 3</code>; for an <code>INT</code> or <code>NMI</code>,
 <code>caller_pc</code> (or <code>caller_pc + 1</code> when the interrupt ended a <code>HALT</code>, which the CPU had
 stepped past). Any other <code>RET</code>, and every <code>RST</code> frame (whose inline <code>DEFW</code> operands
@@ -3121,7 +3181,7 @@ that SP alone is wrong for a routine that moves its own return address:</p>
 <p>The price is stated in the code: a routine that drops its return address and leaves
 by a direct <code>JP nn</code> keeps its frame until a <code>RET</code> ends it by SP. (A routine that leaves by an
 indirect jump has its frame ended: below.)</p>
-<p><strong>A return with no <code>RET</code></strong> (GH #349). Some sccz80 runtime helpers return by an indirect jump, and
+<p><strong>A return with no <code>RET</code></strong>. Some sccz80 runtime helpers return by an indirect jump, and
 some routines jump indirectly without returning. <code>CallStack::indirect_jump_to()</code>
 (<code>call_stack.cpp:96</code>) judges a <code>JP (HL)</code>, <code>JP (IX)</code> or <code>JP (IY)</code> when the newest frame is a
 <code>CALL</code> frame; the frame ends in two cases:</p>

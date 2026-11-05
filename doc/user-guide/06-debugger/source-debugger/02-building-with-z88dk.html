@@ -1706,6 +1706,8 @@
       
         
       
+        
+      
     
     
     
@@ -2162,6 +2164,34 @@
     
   
     Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../panels/16-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Variables
   
 
     
@@ -3258,6 +3288,8 @@
       
         
       
+        
+      
     
     
     
@@ -3631,6 +3663,34 @@
     
   
     In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="11-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C variables in the debugger
   
 
     
@@ -4177,8 +4237,9 @@ files must end up where, which compilers and libraries work on which z88dk,
 and what changes for tape builds and banked code. <a href="01-a-first-session.html">A first session</a>
 uses the first line below.</p>
 <p>Every command line here was run with z88dk 2.4 (commit 4d530b6eb7, sdcc 4.5.0)
-and with a master build of 2026-10-16 (commit 39421a01cd, sdcc 4.6.0), unless a
+and with a master build (commit 0f0a1cf70e, v2.4-2954, sdcc 4.6.0), unless a
 table says one of them is different.</p>
+<p>For everything that z88dk master has fixed in its debug records, install a nightly named <code>z88dk-20261106-*</code> or later, or build z88dk master from source; z88dk 2.4 works with the limits listed in <a href="11-c-variables.html#what-each-z88dk-can-show">C variables</a>.</p>
 <h2 id="the-recommended-build">The recommended build<a class="headerlink" href="#the-recommended-build" title="Permanent link">&para;</a></h2>
 <pre><code>zcc +zxn -clib=new -debug -m --list -subtype=nex -create-app -o prog main.c util.c asmfn.asm
 </code></pre>
@@ -4200,7 +4261,7 @@ table says one of them is different.</p>
 </tr>
 <tr>
 <td><code>--list</code></td>
-<td>writes <code>prog.lis</code> and one <code>&lt;source&gt;.lis</code> beside each source: every assembly line, every address of a C line, exact extents, and the text of the start-up code</td>
+<td>writes <code>prog.lis</code> and one <code>&lt;source&gt;.lis</code> beside each source: every assembly line, every address of a C line, exact extents, and the text of the start-up code. With 80cc it is also what lets JNEXT tell which block locals are in scope (the map keeps one scope per line, the listing every occurrence)</td>
 </tr>
 <tr>
 <td><code>-subtype=nex</code> and <code>-create-app</code></td>
@@ -4218,7 +4279,7 @@ the example program that is 46 source lines instead of 281 with <code>--list</co
 <pre><code>Loaded 332 z88dk symbols from '/home/you/prog/prog.map'
 Loaded 281 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 </code></pre>
-<p>and 333 symbols with the same 281 lines on the master build.</p>
+<p>and 330 symbols and 286 lines on the master build (0f0a1cf70e).</p>
 <h2 id="what-must-be-beside-what">What must be beside what<a class="headerlink" href="#what-must-be-beside-what" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -4271,48 +4332,58 @@ there. The map records <code>../src/main.c</code>, and the Source tab finds the 
 <thead>
 <tr>
 <th>Build</th>
-<th>z88dk 2.4</th>
-<th>z88dk master (39421a01cd)</th>
+<th>z88dk 2.4 (4d530b6eb7)</th>
+<th>z88dk master (0f0a1cf70e, v2.4-2954)</th>
+<th>C variables (<a href="11-c-variables.html">the Variables tab</a>)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>sccz80, newlib: <code>+zxn -clib=new -debug -m --list</code></td>
 <td>works: 281 lines. Part of a statement can show on the next line</td>
-<td>works: 281 lines</td>
+<td>works: 286 lines</td>
+<td>yes, with the limits listed in <a href="11-c-variables.html#what-each-z88dk-can-show">C variables</a></td>
 </tr>
 <tr>
 <td>sdcc, newlib: <code>+zxn -clib=sdcc_iy -debug -m --list</code></td>
-<td><strong>does not build</strong>: <code>main.c:224: error: syntax error ^---- defc Gcounter0_00==.</code> (z88dk issue 3172). Use <code>--c-code-in-asm</code> instead (next row)</td>
+<td><strong>does not build</strong>: <code>main.c:224: error: syntax error ^---- defc Gcounter0_00==.</code>. Use <code>--c-code-in-asm</code> instead (next row)</td>
 <td>works: 222 lines. Code from a header can show under the wrong line</td>
+<td>2.4: no. Master: yes</td>
 </tr>
 <tr>
 <td>sdcc on 2.4: <code>+zxn -clib=sdcc_iy --c-code-in-asm -m --list</code> (no <code>-debug</code>)</td>
 <td>works: 230 lines, from the listings alone</td>
 <td>not needed</td>
+<td>no (no records without <code>-debug</code>)</td>
 </tr>
 <tr>
 <td>80cc: <code>+zxn -clib=new -compiler=80cc -debug -m --list</code></td>
 <td>not available</td>
-<td>works: 234 lines. Some lines are shared</td>
+<td>works: 240 lines. Some lines are shared</td>
+<td>yes, with the 80cc note</td>
 </tr>
 <tr>
 <td>classic on the Next: <code>+zxn -clib=classic -debug</code></td>
 <td><strong>fails</strong>: <code>Unknown option2 --hardware-keyboard</code></td>
-<td>fails the same way</td>
+<td>works: 187 lines</td>
+<td>2.4: no. Master: yes</td>
 </tr>
 <tr>
 <td>classic on the Next, no <code>-debug</code>: <code>+zxn -clib=classic -m --list</code></td>
 <td>builds: 171 lines, from the listings. No <code>prog_CODE.bin</code>, so the identity is not verified</td>
-<td>builds: 171 lines, same</td>
+<td>builds: 173 lines, same</td>
+<td>no</td>
 </tr>
 <tr>
 <td>classic on the 48K Spectrum: <code>+zx -debug -m --list</code> (no <code>-clib</code>: classic is the default)</td>
 <td>works: 251 lines. No <code>prog_CODE.bin</code>: <code>(program identity not verified: no section binaries beside it)</code></td>
-<td>works</td>
+<td>works: 254 lines, same</td>
+<td>yes</td>
 </tr>
 </tbody>
 </table>
+<p>A line count is the number JNEXT logs when it loads the map (<code>Loaded N z88dk source lines from ... and 4 listings</code>), for the example program of this page (<code>main.c</code>, <code>util.c</code>,
+<code>asmfn.asm</code>) built with the commands in the table, with each of the two z88dk versions named in the header. A newer z88dk gives other numbers.</p>
 <p>Notes:</p>
 <ul>
 <li>On <code>+zx</code> classic is the default library; do not pass <code>-clib=classic</code> there
@@ -4322,8 +4393,7 @@ there. The map records <code>../src/main.c</code>, and the Source tab finds the 
 <li>sdcc writes its C lines into the listings only with <code>--c-code-in-asm</code>. With
   <code>--list</code> but without it, JNEXT says so and uses the map alone:
   <code>z88dk listings for 'prog.map': main.c.lis: it has no line information (sdcc writes it with --c-code-in-asm)</code>.</li>
-<li>The <code>--hardware-keyboard</code> failure is a z88dk bug that is fixed upstream (PR
-  #3198, merged 2026-10-23) and not yet in a release.</li>
+<li>The <code>--hardware-keyboard</code> failure is a z88dk bug that is fixed upstream (in z88dk master from 2026-10-23); master builds from v2.4-2883 have it fixed, a release may not.</li>
 <li>A <code>.lis</code> file from a different build is detected and dropped with a warning;
   see <a href="10-limits-and-troubleshooting.html">Limits and troubleshooting</a>.</li>
 </ul>
@@ -4389,8 +4459,8 @@ zcc +zxn -clib=new -debug -DUSE_BANKED_KW -pragma-define:CRT_ORG_PAGE_20=0x14C00
 <p>Give both pragmas. <code>CRT_ORG_PAGE_20</code> carries the page in its top byte
 (<code>0x14C000</code> is page 20 at <code>$C000</code>) and <code>REGISTER_SP=0xC000</code> keeps the stack below the
 banking window. Without them the program itself calls page 0 or loses its stack,
-so it cannot run. A newer z88dk (PR #3217, merged 2026-10-31) makes the page the
-default and documents the stack; its description says the pragma gives identical
+so it cannot run. A newer z88dk (master from 2026-10-31) makes the page the
+default and documents the stack; the change's description says the pragma gives identical
 output, so it is harmless there. Only 2.4 and the 2026-10-16 master were run for
 this page; on anything newer, build the example and look.</p>
 <p>The build writes <code>prog_CODE.bin</code> and <code>prog_PAGE_20.bin</code>, and JNEXT checks both:</p>

@@ -1706,6 +1706,8 @@
       
         
       
+        
+      
     
     
     
@@ -2162,6 +2164,34 @@
     
   
     Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../panels/16-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Variables
   
 
     
@@ -3268,6 +3298,8 @@
       
         
       
+        
+      
     
     
     
@@ -3528,6 +3560,34 @@
     
   
     In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/11-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C variables in the debugger
   
 
     
@@ -4100,6 +4160,8 @@ unsigned (Byte 0 to 255, Word 0 to 65535, Long 0 to 4294967295), for example
 <code>$D0 (208d)</code>.</p>
 <p>Word and Long are assembled little-endian, low byte first, matching the Z80's
 own convention — so a Word watch on a <code>LD (nn),HL</code> destination reads back <code>HL</code>.</p>
+<p>A watch on a C variable has no size to choose: it has the variable's own type
+(<a href="../panels/16-variables.html">Variables</a>).</p>
 <p>Watches read through the CPU's current view of memory, so a watch on a banked
 address follows whatever is paged in at that moment.</p>
 

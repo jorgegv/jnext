@@ -221,13 +221,14 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     // (5) RULE 2 — re-apply what every client asked for. Subscriptions, the
     //     switches and the symbol table live on `Impl` and never went anywhere.
     //     What the MACHINE held and the reconstruct reset is two kinds of
-    //     thing: the ENABLE FLAGS a client set through a verb (call-stack
-    //     tracking, the trace, `persistent_breakpoints` — rule 2 names the first
-    //     two, CTL-15 "enable flags"), re-applied from the backend's own record
-    //     of the request, and only where a client made one (`Impl::want_*`); and
-    //     the per-client arm bit and live-raster OR, which `clients_changed()`
-    //     re-derives from the list.
-    if (want_call_stack) emu.call_stack().set_enabled(*want_call_stack);
+    //     thing: the ENABLE FLAGS a client set through a verb (the trace,
+    //     `persistent_breakpoints`, CTL-15 "enable flags"), re-applied from the
+    //     backend's own record of the request, and only where a client made one
+    //     (`Impl::want_*`); call-stack tracking (rule 2 names it), derived by
+    //     `sync_call_stack()` from the clients' requests and the source map
+    //     (GH #434); and the per-client arm bit and live-raster OR, which
+    //     `clients_changed()` re-derives from the list.
+    sync_call_stack(/*force=*/true);   // GH #434 F-B: the clients' requests and the source map, not a stored bool
     if (want_trace)      emu.trace_log().set_enabled(*want_trace);
     if (want_persistent) ds().set_persistent_breakpoints(*want_persistent);
     //     GH #276 B4 — INS-20, the fourth enable rule 2 names. Not a `want_*`:

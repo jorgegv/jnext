@@ -2335,6 +2335,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2877,6 +2881,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2975,12 +3035,24 @@ unchanged PC would clear a HALT. <code>Z0</code>/<code>Z1</code> are one <code>E
 <code>Z2</code>/<code>Z3</code>/<code>Z4</code> one <code>Mem</code> subscription (write, read, either), all owned by the
 client and removed by its detach (<code>D</code>, <code>k</code> or a dropped socket), so a crashed
 client can never leave a stopping breakpoint behind.</p>
-<p><code>monitor src [ADDR]</code> (GH #346) answers <code>$ADDR file:line MEM</code> from
+<p><code>monitor src [ADDR]</code> answers <code>$ADDR file:line MEM</code> from
 <code>source_location()</code> and <code>source_page()</code>: the primary location only, in the memory
 mapped at ADDR now, <code>unmapped</code> when no record covers it. ADDR is a number, a
 symbol (through <code>symbols().find_name()</code>; a paged symbol answers in its OWN
-memory, <code>source_location(space, addr)</code>, as <code>monitor sym</code> does, GH #349) or the PC. The memory spelling is the one of
-<code>monitor mmu</code>/GH #360 (<code>P04</code>, <code>ROM0</code>, <code>BOOT</code>).</p>
+memory, <code>source_location(space, addr)</code>, as <code>monitor sym</code> does) or the PC. The memory spelling is the one of
+<code>monitor mmu</code> (<code>P04</code>, <code>ROM0</code>, <code>BOOT</code>).</p>
+<p><code>monitor locals [FRAME]</code>, <code>monitor globals</code> and <code>monitor print [FRAME] PATH</code> print the C variables the debugger
+facade reads (<a href="../07-source-level-debugging/10-c-frames-and-values.html">7.10</a>); <a href="../07-source-level-debugging/07-frontends.html">7.7</a>
+has the formats. <code>pkt_monitor()</code> (<code>rsp_server.cpp:821</code>) hands <code>print</code> the raw rest of the packet text, not <code>split_words()</code>, because a
+C path may hold spaces; the other two take the words. The reply convention is <code>monitor src</code>'s: a content refusal (no C
+variables, no such frame, an unknown name) is an <code>O</code> line and <code>OK</code>; a wrong argument count or a non-decimal frame is <code>E01</code>. Each
+verb asks <code>c_variables_status()</code> first and prints its reason when C variables are unavailable. Those three are read-only; the
+write is <code>monitor set var [FRAME] PATH = VALUE</code> (<code>monitor_set_var()</code>, <code>rsp_server.cpp:1215</code>). <code>monitor set</code> takes a register
+name (<code>i</code>, <code>r</code>, <code>im</code>), and those collide with C names (<code>i</code> is a local of <code>main</code>), so the C form is gdb's own <code>set var</code> spelling:
+<code>pkt_monitor()</code> hands <code>monitor_set_var()</code> the raw rest after <code>set var</code> (a path may hold spaces), a leading decimal word is the frame, the
+path is everything up to the first <code>=</code> and the value the trimmed rest. It calls <code>write_c_value()</code> (<a href="../07-source-level-debugging/10-c-frames-and-values.html">7.10</a>):
+success prints the value read back (<code>(int) g_int = 10</code>) and <code>OK</code>; a refusal is one <code>refused: &lt;why&gt;</code> line and <code>E01</code>, as <code>monitor set</code> answers a
+refused register write (a write that did not happen must not answer <code>OK</code>); a missing path, value or <code>=</code> is <code>E01</code> with no line.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>gdb_rsp_test</code> (Qt-free, both configurations) runs the production <code>Server</code>

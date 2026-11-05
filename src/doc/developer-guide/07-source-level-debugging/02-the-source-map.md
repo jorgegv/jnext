@@ -54,9 +54,9 @@ order* and matters: it is the tie-break below.
    segment's primary location.
 
 `loaded_file` is the adapter's absolute, lexically normalised path (built as the local `loaded`: `sld_loader.cpp:328`,
-`z88dk_source_map.cpp:589`), which is also where the search for a source file starts ([7.7](07-frontends.md)).
+`z88dk_source_map.cpp:1183`), which is also where the search for a source file starts ([7.7](07-frontends.md)).
 `identity`, `loaded_file`, `format` (`"SLD"` or `"z88dk"`; `clear()` resets it to
-`"SLD"`), `texts` and `dot` (`SourceMap::dot()`, GH #351: the map is a z88dk dot command's, so
+`"SLD"`), `texts` and `dot` (`SourceMap::dot()`: the map is a z88dk dot command's, so
 the backend never judges it from memory at a load, [7.6](06-lifetime.md); `clear()` resets it)
 are stored as given. Every `const SourceLocation*` the class
 returns points into `locations_` and is valid until the next `replace()` or
@@ -116,6 +116,15 @@ adapter, which keeps the text of z88dk's generated start-up code (the `.m4`
 files) from `prog.lis` ([7.4.4](04-4-z88dk-listings.md)). `embedded_text(file)`
 looks up the exact normalised name. Every `replace()` drops the previous
 texts, since they came with the previous map.
+
+## The C variable store
+
+A z88dk map also carries the program's C variables. The adapter reads the
+`__CDBINFO__` records into a `VariableStore` and hands it to `replace()`, which
+keeps it like the embedded texts: `variables()` returns that one shared,
+immutable object, a copy of the map shares it, and `clear()` and every `replace()`
+without one drop it. What it holds, and how it is joined to the map's symbols, is
+[7.9](09-c-variables.md).
 
 ## Program identity
 

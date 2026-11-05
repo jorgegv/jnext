@@ -35,7 +35,7 @@ The non-obvious part is **which counters** it compares against.
 the 7 MHz ULA pixel counter, zeroed 11 pixels before the active display — it is
 **not** the 28 MHz master-cycle offset into the line, and **not** anchored at the
 raw line start. jnext passed the raw 28 MHz offset, which put
-every `WAIT` four times too early and one row off (GH #181). `WAIT` also
+every `WAIT` four times too early and one row off. `WAIT` also
 compares `hc >= (hpos<<3)+12` in wrapping 9-bit arithmetic, so `hpos=63` yields
 4, not 516. A threshold above the line's last `hc_ula` (455, or 447 on 48K and Pentagon
 timing) is never reached, so such a `WAIT` stalls until the next restart.
@@ -44,7 +44,7 @@ Mode 11 restarts the program at `cvc` 0 / `hc_ula` 0 and nowhere else
 (`copper.vhd:80`); that is `c_min_vactive` lines into the raw frame, not its
 top. jnext also rewound it at the raw frame start, cutting every whole-frame
 program off `c_min_vactive` lines early: 64 at 50 Hz, 80 on Pentagon, 40 at
-60 Hz (GH #293). An NR 0x62 write that leaves the mode bits unchanged does
+60 Hz. An NR 0x62 write that leaves the mode bits unchanged does
 nothing to the Copper: only a mode change resets its PC. A stopped Copper is
 not stepped, except to latch a pending mode write, so that a stop and a
 restart (`00` then `01`/`11`) is still seen as a mode change.
@@ -67,7 +67,7 @@ Memory and I/O access go through four callbacks bound to `Mmu` and
 `PortDispatch`, so a DMA-driven `OUT` re-enters the normal dispatcher — which is
 why `PortDispatch::write()` has to tolerate a nested write. A DMA port read goes
 through `PortDispatch::guest_read()`, so an RZX records and replays it like the
-CPU's `IN` (GH #283). `execute_burst(16)`
+CPU's `IN`. `execute_burst(16)`
 runs from the instruction loop, and `dma_holds_bus()` both stalls the CPU and
 silences the DMA ports. In burst mode the CPU is released during the prescaler
 wait; in continuous and byte mode it is not. The wait follows every byte, the
@@ -78,8 +78,7 @@ increment (`zxnext.vhd:1776-1777`, `dma.vhd:250-254`), which is one count per
 step's CPU clocks and sets `set_turbo()` from the clock's divisor, so a
 prescaler of N spaces bytes N×32 master cycles apart. The status byte follows
 the VHDL's two flags exactly: the end of a block sets *end of block* and an
-auto-restart does not clear it, and the return to idle clears *at least one*
-(GH #300).
+auto-restart does not clear it, and the return to idle clears *at least one*.
 
 ## DivMMC
 
@@ -139,8 +138,8 @@ as a write-protected card would. This runtime path is entirely separate from the
 host-side FAT32 reader in `src/core/sd_rom_extractor.{h,cpp}`, which pulls the
 ROM images out of the same file at startup.
 
-The card can be changed while the machine runs (`Emulator::change_sd_card()`,
-GH #93): `mount()` is a full `reset()` of the protocol state, so the guest has to
+The card can be changed while the machine runs (`Emulator::change_sd_card()`):
+`mount()` is a full `reset()` of the protocol state, so the guest has to
 initialise the new card from CMD0, which is what NextZXOS's REMOUNT does after
 its "press Y". There is no card-detect line to model — the Next's SD port is five
 pins (`zxnext_top_issue2.vhd:60-64`). The ROMs are not re-extracted on a change;
@@ -156,7 +155,7 @@ SET_BLOCKLEN changes the transfer length only on the standard-capacity card.
 TBBlue, NextZXOS and FatFs all negotiate HCS=1, so the boot path only ever takes
 the block-addressed leg — the standard-capacity leg exists so a legacy image
 mounted by a host that asks for SDSC is addressed correctly instead of silently
-512× off (GH #94).
+512× off.
 
 ## CTC
 
@@ -171,7 +170,7 @@ at ports `0x183B`-`0x1B3B`, each a transcription of the VHDL five-state machine,
 and channel *N*'s ZC/TO output feeds channel *N*+1 so they can be cascaded.
 
 The model is exact to the CLK_28 edge, and the edges are where the surprises
-are (GH #265):
+are:
 
 - A time constant written from S_RESET_TC passes through S_TRIGGER for one
   edge with the prescaler held at 0, so a timer's first count lands **17**
@@ -333,7 +332,7 @@ while jnext runs neither starts nor stops it. Three pieces:
   entries that do not count as a setup having been tried; a manual unpack does), and the question and the `[uart]` log both say it.
   File existence goes through `sdcard::regular_file_exists`
   (`std::filesystem`), never `::stat`: MinGW's `stat` is `stat64i32` and fails
-  with `EOVERFLOW` for files of 4 GiB or more (GH #358). The download itself is
+  with `EOVERFLOW` for files of 4 GiB or more. The download itself is
   resumable (contract and decision table: `08-media-and-loaders.md`): the
   backend keeps `<archive>.part`, the question offers to continue it, and only a
   finished download is renamed to the archive's name, so a partial is never
@@ -458,8 +457,8 @@ Four consequences, all deliberate:
   bytes for the guest in a wire with its own short lock (held for a push or pop,
   never across a transport or sink call), and `ThreadedEsp::tick()` paces from it
   without the core lock; it try-locks the core only to frame the *next* `+IPD`,
-  once the wire has drained. Before GH #327 a lost try-lock dropped the elapsed
-  time, which under wine (worker inside a Winsock call, 1-25 ms) paused a reply
+  once the wire has drained. A lost try-lock keeps the elapsed
+  time; dropping it under wine (worker inside a Winsock call, 1-25 ms) paused a reply
   mid-message for up to 382 018 emulated cycles, and NextSync's 20-poll window
   between `+IPD,<n>:` header bytes then abandoned the packet. A real ESP-01
   clocks a message out back to back; each message is pushed as one unit.
@@ -468,7 +467,7 @@ Four consequences, all deliberate:
   function in `esp_socket_platform.h`. On Windows it is a Win32 thread, not
   `std::thread::detach`: MinGW winpthreads recycles the descriptor of a thread
   that ended before `pthread_detach` ran while that thread's exit callback can
-  still reach it, so the *next* thread created may never run its body (GH #328).
+  still reach it, so the *next* thread created may never run its body.
   `test/lint-thread-detach.sh` fails `make unit-test` and `make regression` on any other `.detach()`.
 
 Everything that couples the two sides lives on **jnext's** side of the line:

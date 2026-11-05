@@ -80,6 +80,7 @@ private:
         if (tk.kind == Tok::Ident) return "`" + tk.text + "`";
         if (tk.kind == Tok::Symbol) return "`@" + tk.text + "`";
         if (tk.kind == Tok::FileLine) return "`" + tk.text + "`";
+        if (tk.kind == Tok::CVar) return "`cvar(" + tk.text + ")`";
         if (tk.kind == Tok::Int) return "the number " + std::to_string(tk.value);
         return tok_name(tk.kind);
     }
@@ -116,7 +117,7 @@ private:
             case Tok::Int: case Tok::String: case Tok::Symbol: case Tok::LParen:
             case Tok::MemL: case Tok::Mem16L: case Tok::PhysL: case Tok::NextRegL:
             case Tok::MmuL: case Tok::PageL: case Tok::StackL: case Tok::ChangedL:
-            case Tok::DepthL: case Tok::Minus: case Tok::Tilde:
+            case Tok::DepthL: case Tok::CVar: case Tok::Minus: case Tok::Tilde:
                 return true;
             case Tok::Ident:
                 return !is_reserved_word(cur().text) || cur().text == "not" ||
@@ -484,7 +485,7 @@ private:
     ExprPtr parse_lvalue() {
         static const char* const WHAT =
             "expected a variable, a register, a flag, IFF1, IFF2, IM, AUDIO_MUTE, "
-            "mem[], mem16[], phys[] or nextreg[]";
+            "mem[], mem16[], phys[], nextreg[] or cvar()";
         const Token& tk = cur();
         auto node = std::make_shared<Expr>();
         node->pos = tk.pos;
@@ -520,6 +521,11 @@ private:
                 expect(Tok::RBracket, "to close the index");
                 return sealed(std::move(node));
             }
+            case Tok::CVar:   // GH #437: `set cvar(PATH) = v` writes a C variable of frame 0
+                node->kind = ExprKind::CVar;
+                node->text = tk.text;
+                take();
+                return node;
             case Tok::PhysL: {
                 node->kind = ExprKind::Phys;
                 take();
@@ -773,6 +779,13 @@ private:
                                     "` (expected regs, mmu, iff1 or stack0)");
                 take();
                 expect(Tok::RParen, "to close `changed(`");
+                return e;
+            }
+            case Tok::CVar: {
+                auto e  = std::make_shared<Expr>();
+                e->kind = ExprKind::CVar;
+                e->pos  = p;
+                e->text = take().text;
                 return e;
             }
             case Tok::DepthL: {

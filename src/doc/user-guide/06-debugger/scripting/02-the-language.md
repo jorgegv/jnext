@@ -53,7 +53,7 @@ io_read io_write nextreg frame scanline cycle interrupt nmi reset hostkey stop
 copper move wait halt at dma start byte page mask value log indent assert exit
 dump_regs dump_mmu dump_mem snap unsnap dump_diff enable disable screenshot
 save_snapshot compare_scr press for release joystick set out if then else and
-or not true false mem mem16 phys mmu stack changed depth`.
+or not true false mem mem16 phys mmu stack changed depth cvar`.
 
 A source line is written `main.c:19` (a file, a colon and a line number, with no
 space), only after `on execute`; a file name with spaces or a drive letter is

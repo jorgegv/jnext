@@ -27,7 +27,7 @@ running. `Emulator::init` builds the whole personality for a plain
 `--machine pentagon`: the 128K ROM, NR 0x03 = 0x44, the firmware's mode-3 port
 enables and the Covox DAC. Every standalone personality (48K, 128K, +3,
 Pentagon) gets the port enables `tbblue.fw` `boot.c` writes for its mode, on a
-cold boot only (GH #325): NR 0x82 = 0xC0 / 0xC2 / 0xDA / 0xC6, NR 0x83 bits 7:6
+cold boot only: NR 0x82 = 0xC0 / 0xC2 / 0xDA / 0xC6, NR 0x83 bits 7:6
 clear (Layer 2, sprites), NR 0x85 bits 7, 3 and 2 clear (so a soft reset keeps
 them; no CTC, no 0xEFF7), NR 0x84 bit 0 clear on the 48K (AY) and bit 2 on the
 Pentagon. The rule: a bit `boot.c` writes the same whatever `config.ini` says
@@ -87,7 +87,7 @@ fetch guest memory at the beam — the ULA, the tilemap and LoRes from the
 bank-5 / bank-7 VRAM and Layer 2 from the SRAM — so a byte written after the
 beam has passed it belongs to the next frame, not to the one being drawn.
 Reading the memory at the end of the frame gets that wrong (a game that
-rewrites its tile map in the vertical blank tore its own scroll, GH #362), so
+rewrites its tile map in the vertical blank tore its own scroll), so
 the `Mmu` keeps a per-frame log of those writes and the renderer asks it "what
 did the fetch at this scanline and column read".
 

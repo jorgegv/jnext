@@ -88,16 +88,17 @@ the pause ownership and stop evidence exactly as `step_into()` sets them.
 | `Out` | there is a location **and** `depth < start_depth` |
 
   `Over` and `Out` measure depth with the call-stack tracker, so they need it on
-  (`set_call_stack_enabled`).
+  (`set_call_stack_enabled`, a per-client request; with a C variable store and a non-observer client
+  attached it is on by itself, [7.10](10-c-frames-and-values.md)).
 - **The loop**, per iteration: `debugger_step()`, then `pause()`; stop if an event
   stop is latched, or the magic or watch stop fired; stop if `reached()`; stop at a
   `HALT` with interrupts disabled (`Warn`: "Source step stopped at a HALT with
   interrupts disabled"), because each Step there would spend two frames learning
   that only an NMI or a reset ends it; stop when the machine clock has advanced by
-  `SOURCE_STEP_FRAME_LIMIT` frames (100, `SOURCE_STEP_FRAME_LIMIT`, `debugger.h:1316`) since the start
+  `SOURCE_STEP_FRAME_LIMIT` frames (100, `SOURCE_STEP_FRAME_LIMIT`, `debugger.h:1464`) since the start
   (`Warn`); then the delivery below.
 - **The limit.** After `SOURCE_STEP_LIMIT` instructions (1,000,000,
-  `SOURCE_STEP_LIMIT`, `debugger.h:1312`) the step ends with a `Warn`.
+  `SOURCE_STEP_LIMIT`, `debugger.h:1460`) the step ends with a `Warn`.
 - **The delivery.** `debugger_step()` delivers no `Execute` event, because `run_frame()`
   does that before each instruction and a Step does not run through it. So between
   instructions the loop gives the next PC `run_frame()`'s treatment itself, in its
@@ -150,8 +151,7 @@ accepted `INT` or `NMI` by `on_interrupt()`. Frames are oldest first, up to
 (`CallType`), with `caller_pc`, `target_pc`, `sp_at_call` and the two memories of
 [7.1](01-which-memory.md).
 
-**What ends a frame.** Not just the stack pointer. `CallStack::return_to()`
-(GH #345): a taken `RET` that lands on the **newest frame's own return point**
+**What ends a frame.** Not just the stack pointer. `CallStack::return_to()`: a taken `RET` that lands on the **newest frame's own return point**
 ends exactly that frame: for a `CALL`, `caller_pc + 3`; for an `INT` or `NMI`,
 `caller_pc` (or `caller_pc + 1` when the interrupt ended a `HALT`, which the CPU had
 stepped past). Any other `RET`, and every `RST` frame (whose inline `DEFW` operands
@@ -168,7 +168,7 @@ The price is stated in the code: a routine that drops its return address and lea
 by a direct `JP nn` keeps its frame until a `RET` ends it by SP. (A routine that leaves by an
 indirect jump has its frame ended: below.)
 
-**A return with no `RET`** (GH #349). Some sccz80 runtime helpers return by an indirect jump, and
+**A return with no `RET`**. Some sccz80 runtime helpers return by an indirect jump, and
 some routines jump indirectly without returning. `CallStack::indirect_jump_to()`
 (`call_stack.cpp:96`) judges a `JP (HL)`, `JP (IX)` or `JP (IY)` when the newest frame is a
 `CALL` frame; the frame ends in two cases:

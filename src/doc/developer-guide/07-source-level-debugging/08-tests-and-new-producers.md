@@ -16,16 +16,20 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 
 | Suite | What it covers |
 |---|---|
-| `source_map_test` | The std-only layer, with no emulator: `SourceMap` (`SRCRNG-*`, `SRCMAP-*`, `SRCPATH-*`, `SRCTXT-01`), the SLD adapter (`SLD-*`, `SLDL-*`), the symbol table's pages (`SYMPG-*`), the NextBuild adapter (`NBSYM-*`), and the fixture manifest (`Z88FIX-01`, `Z88FIX-02`) |
-| `z88dk_map_test` | The z88dk map: the source half (`Z88MAP-*`), the symbol half and binding (`Z88SYM-*`), C names (`Z88CN-*`), dot commands (`Z88DOT-*`, [7.4.3](04-3-z88dk-map.md) rule 5), and the size cap and BOM of the symbol loaders (`MAPCAP-*`, `MAPBOM-*`) |
+| `source_map_test` | The std-only layer, with no emulator: `SourceMap` (`SRCRNG-*`, `SRCMAP-*`, `SRCPATH-*`, `SRCTXT-01`, `SRCVAR-01`), the SLD adapter (`SLD-*`, `SLDL-*`), the symbol table's pages (`SYMPG-*`), the NextBuild adapter (`NBSYM-*`), and the fixture manifest (`Z88FIX-01`, `Z88FIX-02`) |
+| `z88dk_map_test` | The z88dk map: the source half (`Z88MAP-*`), the symbol half and binding (`Z88SYM-*`), C names (`Z88CN-*`), dot commands (`Z88DOT-*`, [7.4.3](04-3-z88dk-map.md) rule 5), the C variable store (`Z88CDB-*`, [7.9](09-c-variables.md)) and the extents and frame helpers (`Z88CDB-41`..`-50`, [7.10](10-c-frames-and-values.md)), and the size cap and BOM of the symbol loaders (`MAPCAP-*`, `MAPBOM-*`) |
 | `z88dk_lis_test` | The listing adapter (`Z88LIS-*`), including the placement of a label-less piece by its bytes (`Z88LIS-36` to `-47`, [7.4.4](04-4-z88dk-listings.md) rule 5b) and the BOM (`Z88LIS-35`, `-44`) |
-| `source_debug_test` | The backend on a real machine: identity of fetches (`SRCDBG-ID-*`), sidecars and ownership (`SRCDBG-SIDE-*`, `-OWN-*`), symbols (`SRCDBG-SYM-*`), z88dk (`SRCDBG-Z88-*`, `-LIS-*`), tapes (`SRCDBG-TAPE-*`), lifetime (`SRCLIFE-*`), dot commands (`SRCDOT-*`, [7.6](06-lifetime.md)), breakpoints (`SRCBP-*`), run to line (`SRCRUN-*`), steps (`SRCSTEP-*`, `SRCDBG-STEP-*`, `-BACK-*`, `-HIST-*`), call stack (`SRCDBG-CS-*`), coverage (`SRCDBG-COV-*`), the long address through a machine (`LADDR-17` to `-20`; the pure formatter's `LADDR-01` to `-16` are in `debugger_backend_test`) |
+| `c_value_test` | The pure C value layer (`c_value.cpp`, [7.10](10-c-frames-and-values.md)): the 48-bit and IEEE floats, integers, pointers, arrays, structs, bitfields, the struct type lookup and type text, the path grammar and its evaluation, visible locals, register locals (`CVALF-*`), the children of an object (`CVCH-*`), the encoder of a written value (`CVW-*`), and the int32 rule of the script atom and ZRCP (`CVINT-*`) |
+| `cdb_record_test` | The z88dk C debug records (`__CDBINFO__`, `cdb_decode()` in `src/debug/cdb_record.cpp`): un-escaping (`cdb_unescape()`), the scope split at the last `.`, the type chain, storage, `T:` members, what views hide (`CdbHidden`), refusals with their reasons, and every record of every committed map (`CDB-*`). Records measured from the z88dk master install are quoted in the rows with the probe and command |
+| `source_debug_test` | The backend on a real machine: identity of fetches (`SRCDBG-ID-*`), sidecars and ownership (`SRCDBG-SIDE-*`, `-OWN-*`), symbols (`SRCDBG-SYM-*`), z88dk (`SRCDBG-Z88-*`, `-LIS-*`), tapes (`SRCDBG-TAPE-*`), the variable store's lifetime (`SRCDBG-VAR-*`), the tracker policy and the C frames (`SRCDBG-CVAL-*`, [7.10](10-c-frames-and-values.md)), writing a C variable (`SRCDBG-CVW-*`), the children of a C variable on a running machine (`SRCDBG-CVCH-*`), lifetime (`SRCLIFE-*`), dot commands (`SRCDOT-*`, [7.6](06-lifetime.md)), breakpoints (`SRCBP-*`), run to line (`SRCRUN-*`), steps (`SRCSTEP-*`, `SRCDBG-STEP-*`, `-BACK-*`, `-HIST-*`), call stack (`SRCDBG-CS-*`), coverage (`SRCDBG-COV-*`), the long address through a machine (`LADDR-17` to `-20`; the pure formatter's `LADDR-01` to `-16` are in `debugger_backend_test`) |
 | `source_debug_posix_test` | The rows whose fixtures are POSIX file types (a looping link, a FIFO); gated by OS |
 | `mmu_test`, `mmu_integration_test` | The arbiter against the VHDL's memory map (`FSRC-*`) |
 | `step_out_test`, `rewind_call_stack_test` | Step Out's `RET` predicate, and the call-stack tracker restored across a rewind (the frame-ending rule itself is `SRCDBG-CS-08` to `-15` in `source_debug_test`) |
 | `debugger_backend_test` | Symbols across formats (`SYM-*`), and the pure long-address formatter (`LADDR-01` to `-16`) |
-| `gdb_rsp_test`, `zrcp_adapter_test`, `dzrp_adapter_test` | `monitor src` and `monitor sym` (`GDB-MON-*`); ZRCP `get-memory-pages` names and `cpu-step-over` at a DivMMC entry (`LADDR-21`, `-22`); DZRP's `0xFF` for a ROM slot (`DZRP-REG-08`) |
+| `gdb_rsp_test`, `zrcp_adapter_test`, `dzrp_adapter_test` | `monitor src` and `monitor sym` (`GDB-MON-*`); `monitor locals`, `globals` and `print` on the cvars fixtures (`GDB-CVAR-*`); ZRCP `CVAR(path)` in `evaluate` and conditions (`ZRCP-CVAR-*`); the C writes `monitor set var` (`GDB-CVW-*`) and `set-register CVAR(path)=value` (`ZRCP-CVW-*`); ZRCP `get-memory-pages` names and `cpu-step-over` at a DivMMC entry (`LADDR-21`, `-22`); DZRP's `0xFF` for a ROM slot (`DZRP-REG-08`) |
 | `script_events_test` | The DSL's `on execute FILE:LINE` and `--map` |
+| `debugger_variables_panel_test` | The Qt Variables tab on a real Next running the z88dk fixtures: frames, locals, globals, lazy expansion, the Call Stack selection both ways, addresses, refresh, idle (`QVAR-*`, and editing a value `QVARW-*`, the C rows of the Watches tab included, [7.7](07-frontends.md)); gated on Qt and the debugger |
+| `script_eval_test` | The DSL evaluator; its `EVAL-CVAR-*` rows are the `cvar(PATH)` atom over a real Next machine and the committed cvars fixtures (scalars, members, elements, qualified names, banked globals, every refusal, no C variables, interpolation, a `when`, and a tape program's verdict applied inside a delivery) |
 | `debugger_source_panel_test`, `debugger_verbs_test`, `debugger_panels_test`, `debugger_disasm_copy_test`, `debugger_menu_test` | The Qt Source tab (`QSRC-*`: the highlighter and schemes `QSRC-190` to `-200`, the selection sync `QSRC-176` to `-189` and `-201` to `-208`, the dot command's tab `QDOT-*`), the Map menu, and the long address in every panel (`QLADDR-*`); gated on Qt and the debugger |
 
 A suite marked `?` in `test/unit-tests.conf` is gated; the harness checks that its
@@ -64,7 +68,7 @@ the rules that normalise and trim the output.
   values moved.
 - **The script exits non-zero** when a build that should succeed fails, and when
   one recorded as not producible starts to build (`EXPECT_FAIL=1`). The failures
-  are recorded too: `v2.4/sdcc-debug` and the two `classic-debug` builds keep only
+  are recorded too: `v2.4/sdcc-debug` and `v2.4/classic-debug` keep only
   a `build.log`.
 - **`MANIFEST.sha256`** lists every file the rows hash: sources, the script, the
   outputs (not `README.md`). `Z88FIX-01` checks every entry's hash; `Z88FIX-02`
@@ -77,12 +81,12 @@ the rules that normalise and trim the output.
   address, line and section in a z88dk row comes from these files, never from the
   code under test.
 
-The dot-command builds (GH #351) are `dot:<subtype>` lines in `generate.sh`, compiled from `dot.c dutil.c`
+The dot-command builds are `dot:<subtype>` lines in `generate.sh`, compiled from `dot.c dutil.c`
 with `-subtype=dot`, `dotx` or `dotn` instead of `nex`: `v2.4/sccz80-dot`, `sccz80-dotx`, `sdcc-dot`,
 `v2.4-dotn/sccz80` and `master/sccz80-dot`, `sccz80-dotx`, `sdcc-dot`, `80cc-dot`. The dotn lives in its own
 directory so that `Z88CN-10`'s walk over `v2.4/` and `master/` (every map shows a C name) is not tripped by
 its refused C symbols. The banked-CRT builds (`sccz80-banked-crt`, both trees) are the fixtures of the
-placement by bytes (GH #426 F4).
+placement by bytes.
 
 **`test/fixtures/sjasmequ/`** is made by hand with an exact command, sjasmplus
 commit and `sha256` per file (its `README.md`): `equlabels.asm` is ours, and
@@ -91,7 +95,7 @@ wine), `equlabels-v1.17.sym` (a build of the v1.17.0 tag) and `equlabels.sld` ar
 sjasmplus writes for it, byte for byte.
 
 **`test/fixtures/zdebugmap/`** is the trimmed 2.4 maps (`debug.map`, `nodebug.map`)
-of a small program, kept for the symbol rows `SYM-14`..`SYM-18` (GH #352); its
+of a small program, kept for the symbol rows `SYM-14`..`SYM-18`; its
 README records the trimming.
 
 There is no committed fixture for a `Memory.txt` or for the SLD identity records;

@@ -617,14 +617,15 @@ dutil.c::dutil_twice::1::1:
      6  0018  d1                	pop	de
      6  0019  7d                	ld	a,l
      6  001a  12                	ld	(de),a
+     6  001b  2600              	ld	h,0
      6                          	C_LINE	7,"dutil.c::dutil_twice::1::1"
      7                          	C_LINE	7,"dutil.c::dutil_twice::1::1"
-     7  001b  e1                	pop	hl
-     7  001c  e5                	push	hl
-     7  001d  2600              	ld	h,0
-     7  001f  33                	inc	sp
-     7  0020  cd0000            	call	l_debug_pop_frame
-     7  0023  c9                	ret
+     7  001d  e1                	pop	hl
+     7  001e  e5                	push	hl
+     7  001f  2600              	ld	h,0
+     7  0021  33                	inc	sp
+     7  0022  cd0000            	call	l_debug_pop_frame
+     7  0025  c9                	ret
      7                          
      7                          
      7                          	SECTION	bss_compiler

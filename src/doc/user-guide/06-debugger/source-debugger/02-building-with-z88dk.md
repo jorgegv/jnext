@@ -7,8 +7,10 @@ and what changes for tape builds and banked code. [A first session](01-a-first-s
 uses the first line below.
 
 Every command line here was run with z88dk 2.4 (commit 4d530b6eb7, sdcc 4.5.0)
-and with a master build of 2026-10-16 (commit 39421a01cd, sdcc 4.6.0), unless a
+and with a master build (commit 0f0a1cf70e, v2.4-2954, sdcc 4.6.0), unless a
 table says one of them is different.
+
+For everything that z88dk master has fixed in its debug records, install a nightly named `z88dk-20261106-*` or later, or build z88dk master from source; z88dk 2.4 works with the limits listed in [C variables](11-c-variables.md#what-each-z88dk-can-show).
 
 ## The recommended build
 
@@ -20,7 +22,7 @@ zcc +zxn -clib=new -debug -m --list -subtype=nex -create-app -o prog main.c util
 |---|---|
 | `-debug` | the C line records in the map (`__C_LINE_` symbols). With sccz80 and 80cc it also changes the program: see below |
 | `-m` | writes `prog.map`, the file JNEXT reads |
-| `--list` | writes `prog.lis` and one `<source>.lis` beside each source: every assembly line, every address of a C line, exact extents, and the text of the start-up code |
+| `--list` | writes `prog.lis` and one `<source>.lis` beside each source: every assembly line, every address of a C line, exact extents, and the text of the start-up code. With 80cc it is also what lets JNEXT tell which block locals are in scope (the map keeps one scope per line, the listing every occurrence) |
 | `-subtype=nex` and `-create-app` | write `prog.nex`, the loadable file (see the targets below) |
 | `-clib=new` | the sccz80 compiler with the new library. A bare `zcc +zxn` uses sdcc: `zxn.cfg` sets `-clib=sdcc_iy -O2 -SO2` |
 
@@ -34,7 +36,7 @@ Loaded 332 z88dk symbols from '/home/you/prog/prog.map'
 Loaded 281 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 ```
 
-and 333 symbols with the same 281 lines on the master build.
+and 330 symbols and 286 lines on the master build (0f0a1cf70e).
 
 ## What must be beside what
 
@@ -63,15 +65,18 @@ there. The map records `../src/main.c`, and the Source tab finds the file.
 
 ## Which compiler and library work
 
-| Build | z88dk 2.4 | z88dk master (39421a01cd) |
-|---|---|---|
-| sccz80, newlib: `+zxn -clib=new -debug -m --list` | works: 281 lines. Part of a statement can show on the next line | works: 281 lines |
-| sdcc, newlib: `+zxn -clib=sdcc_iy -debug -m --list` | **does not build**: `main.c:224: error: syntax error ^---- defc Gcounter0_00==.` (z88dk issue 3172). Use `--c-code-in-asm` instead (next row) | works: 222 lines. Code from a header can show under the wrong line |
-| sdcc on 2.4: `+zxn -clib=sdcc_iy --c-code-in-asm -m --list` (no `-debug`) | works: 230 lines, from the listings alone | not needed |
-| 80cc: `+zxn -clib=new -compiler=80cc -debug -m --list` | not available | works: 234 lines. Some lines are shared |
-| classic on the Next: `+zxn -clib=classic -debug` | **fails**: `Unknown option2 --hardware-keyboard` | fails the same way |
-| classic on the Next, no `-debug`: `+zxn -clib=classic -m --list` | builds: 171 lines, from the listings. No `prog_CODE.bin`, so the identity is not verified | builds: 171 lines, same |
-| classic on the 48K Spectrum: `+zx -debug -m --list` (no `-clib`: classic is the default) | works: 251 lines. No `prog_CODE.bin`: `(program identity not verified: no section binaries beside it)` | works |
+| Build | z88dk 2.4 (4d530b6eb7) | z88dk master (0f0a1cf70e, v2.4-2954) | C variables ([the Variables tab](11-c-variables.md)) |
+|---|---|---|---|
+| sccz80, newlib: `+zxn -clib=new -debug -m --list` | works: 281 lines. Part of a statement can show on the next line | works: 286 lines | yes, with the limits listed in [C variables](11-c-variables.md#what-each-z88dk-can-show) |
+| sdcc, newlib: `+zxn -clib=sdcc_iy -debug -m --list` | **does not build**: `main.c:224: error: syntax error ^---- defc Gcounter0_00==.`. Use `--c-code-in-asm` instead (next row) | works: 222 lines. Code from a header can show under the wrong line | 2.4: no. Master: yes |
+| sdcc on 2.4: `+zxn -clib=sdcc_iy --c-code-in-asm -m --list` (no `-debug`) | works: 230 lines, from the listings alone | not needed | no (no records without `-debug`) |
+| 80cc: `+zxn -clib=new -compiler=80cc -debug -m --list` | not available | works: 240 lines. Some lines are shared | yes, with the 80cc note |
+| classic on the Next: `+zxn -clib=classic -debug` | **fails**: `Unknown option2 --hardware-keyboard` | works: 187 lines | 2.4: no. Master: yes |
+| classic on the Next, no `-debug`: `+zxn -clib=classic -m --list` | builds: 171 lines, from the listings. No `prog_CODE.bin`, so the identity is not verified | builds: 173 lines, same | no |
+| classic on the 48K Spectrum: `+zx -debug -m --list` (no `-clib`: classic is the default) | works: 251 lines. No `prog_CODE.bin`: `(program identity not verified: no section binaries beside it)` | works: 254 lines, same | yes |
+
+A line count is the number JNEXT logs when it loads the map (`Loaded N z88dk source lines from ... and 4 listings`), for the example program of this page (`main.c`, `util.c`,
+`asmfn.asm`) built with the commands in the table, with each of the two z88dk versions named in the header. A newer z88dk gives other numbers.
 
 Notes:
 
@@ -82,8 +87,7 @@ Notes:
 - sdcc writes its C lines into the listings only with `--c-code-in-asm`. With
   `--list` but without it, JNEXT says so and uses the map alone:
   `z88dk listings for 'prog.map': main.c.lis: it has no line information (sdcc writes it with --c-code-in-asm)`.
-- The `--hardware-keyboard` failure is a z88dk bug that is fixed upstream (PR
-  #3198, merged 2026-10-23) and not yet in a release.
+- The `--hardware-keyboard` failure is a z88dk bug that is fixed upstream (in z88dk master from 2026-10-23); master builds from v2.4-2883 have it fixed, a release may not.
 - A `.lis` file from a different build is detected and dropped with a warning;
   see [Limits and troubleshooting](10-limits-and-troubleshooting.md).
 
@@ -131,8 +135,8 @@ zcc +zxn -clib=new -debug -DUSE_BANKED_KW -pragma-define:CRT_ORG_PAGE_20=0x14C00
 Give both pragmas. `CRT_ORG_PAGE_20` carries the page in its top byte
 (`0x14C000` is page 20 at `$C000`) and `REGISTER_SP=0xC000` keeps the stack below the
 banking window. Without them the program itself calls page 0 or loses its stack,
-so it cannot run. A newer z88dk (PR #3217, merged 2026-10-31) makes the page the
-default and documents the stack; its description says the pragma gives identical
+so it cannot run. A newer z88dk (master from 2026-10-31) makes the page the
+default and documents the stack; the change's description says the pragma gives identical
 output, so it is harmless there. Only 2.4 and the 2026-10-16 master were run for
 this page; on anything newer, build the example and look.
 

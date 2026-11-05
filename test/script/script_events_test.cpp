@@ -478,7 +478,7 @@ static void reg_rows() {
                                            "low-byte and the exact decode at once) and registers nothing; the two "
                                            "halves load",
               !a && ea.size() == 1 && ea[0].pos.line == 1 && ea[0].pos.column == 13 &&
-                  ea[0].message.find("GH #222") != std::string::npos && b && g.subs().size() == 2,
+                  ea[0].message.find("decoded on the low byte") != std::string::npos && b && g.subs().size() == 2,
               dstr(ea) + " " + show(g.subs()));
     }
     {
@@ -1583,7 +1583,7 @@ static const char* kCopper =
     "on copper wait when WAIT_V == 95 do\n"
     "    log \"WAIT(95,${WAIT_H}) satisfied at cvc ${CVC} hc_ula ${HC_ULA}\"\n"
     "    assert CVC == 95 and HC_ULA >= WAIT_H \"WAIT for line 95 is satisfied on the Copper's own line 95, "
-    "at or past its threshold (GH #181)\"\n"
+    "at or past its threshold\"\n"
     "end\n"
     "on copper halt once do log \"copper HALT at ${CPC}\" end\n";
 

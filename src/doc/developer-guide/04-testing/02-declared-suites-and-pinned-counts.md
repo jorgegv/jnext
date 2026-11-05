@@ -32,7 +32,7 @@ it more briefly — *this file is a contract, not a convenience.*
   it as not-run — never silently. (That is a gated-out suite, which is not a
   SKIP: a suite that reports `Skipped > 0` fails the run, see
   [4.1](01-the-test-triplet.md).)
-- A second, orthogonal directive, `# os: all | posix | linux` (GH #214), says
+- A second, orthogonal directive, `# os: all | posix | linux`, says
   which **target operating systems** own the suites below it, until the next
   `# os:`; `all` is in force at the top. `posix` is Linux and macOS, `linux` is
   Linux alone, and Linux satisfies every value, so Linux still runs every suite.
@@ -85,7 +85,7 @@ everything look as though it were registered twice. It refuses when:
   `ENABLE_DEBUGGER` out of the build tree's own `CMakeCache.txt`, so the
   configuration is taken from the build rather than from the caller, and the
   same manifest is exact in every configuration instead of merely permissive in
-  all of them. Before this (GH #273) the `?` alone meant "skip it quietly if
+  all of them. Before this the `?` alone meant "skip it quietly if
   CMake did not register it", so a suite that stopped being registered in the
   configuration that owns it printed a NOTICE and the run stayed green. The
   `# os:` directive is checked the same way, both directions, against
@@ -184,7 +184,7 @@ directories pointing at an empty per-run directory, and `JNEXT_CONFIG_DIR`
 unset, so a saved `~/.jnext/jnext.conf`, a legacy `Debugger.conf` or Qt setting cannot
 change a result.
 
-## The regression suite's own per-OS pins (GH #319)
+## The regression suite's own per-OS pins
 
 `functional_tests.conf` has the same discipline for the platform runs. Besides
 `# expect: N` (the rows declared) it carries `# expect-macos: N` and
@@ -192,4 +192,4 @@ change a result.
 an `os=<list>` tag (`linux` mandatory) and a `# os:` reason above it. Retagging a
 row without moving the pin, in either direction, is a harness fault; so is a
 tagged manifest with a pin missing. The run prints the rows an OS does not run by
-name. See [the regression suite](03-the-regression-suite.md#platform-runs-macos-and-windows-under-wine-gh-319).
+name. See [the regression suite](03-the-regression-suite.md#platform-runs-macos-and-windows-under-wine).

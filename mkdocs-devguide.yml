@@ -127,6 +127,8 @@ nav:
       - 7.6 Lifetime: 07-source-level-debugging/06-lifetime.md
       - 7.7 The frontends: 07-source-level-debugging/07-frontends.md
       - 7.8 Tests, fixtures and adding a producer: 07-source-level-debugging/08-tests-and-new-producers.md
+      - 7.9 C variables: 07-source-level-debugging/09-c-variables.md
+      - 7.10 C frames and values: 07-source-level-debugging/10-c-frames-and-values.md
 
 # Same posture as the user guide: `mkdocs build --strict` must fail on a page
 # missing from the nav and on a cross-reference that no longer resolves.

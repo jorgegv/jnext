@@ -1,0 +1,4 @@
+# z88dk 97731e4e2988543e2c849cd1ae1d0aeddf372fcd (master)
++ zcc +zxn -clib=sdcc_iy -debug -m --list -subtype=nex -o prog -create-app fc.c
+fc.c:5: warning 126: unreachable code
+rc=0

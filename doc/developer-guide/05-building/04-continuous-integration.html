@@ -2113,10 +2113,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-regression-suite-on-other-operating-systems-gh-319" class="md-nav__link">
+  <a href="#the-regression-suite-on-other-operating-systems" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The regression suite on other operating systems (GH #319)
+        The regression suite on other operating systems
       
     </span>
   </a>
@@ -2337,6 +2337,10 @@
       
         
           
+        
+      
+        
+      
         
       
         
@@ -2897,6 +2901,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2986,7 +3046,7 @@ shipped an older pandoc than the maintainer's failed <code>docs-check</code> on 
 from the day the man page landed. Matching the distribution removes the whole
 class of problem, instead of pinning tool by tool and waiting for the next one.</p>
 <p>The container tracks the <code>updates</code> repository of fedora:44, so CI can receive a newer
-package than a developer host that has not upgraded yet: GH #415 was <code>unit-test-win</code> red on
+package than a developer host that has not upgraded yet: <code>unit-test-win</code> was once red on
 CI under wine 11.20 and green on a host with 11.0. To see CI's package set locally, build an
 image from <code>ci.yml</code>'s two install lists (the test dependencies, and the MinGW and wine
 packages), and run the same make targets in it against a separate detached worktree, with
@@ -2995,7 +3055,7 @@ mounted, so the host's build trees and wine prefixes are never shared with the c
 wine. This is a documented local check, not a CI step.</p>
 <h2 id="the-jobs-in-ciyml">The jobs in <code>ci.yml</code><a class="headerlink" href="#the-jobs-in-ciyml" title="Permanent link">&para;</a></h2>
 <p><strong><code>test</code></strong> is the main job: one definition, a matrix of five legs that run in
-parallel on runners of their own (GH #295). Every leg installs the same
+parallel on runners of their own. Every leg installs the same
 dependency set and checks out the repository with submodules; then</p>
 <ul>
 <li><strong><code>build-matrix</code></strong> runs <code>make build-matrix</code>;</li>
@@ -3004,7 +3064,7 @@ dependency set and checks out the repository with submodules; then</p>
   generator validates every VHDL citation against the real source tree and
   produces different bytes without it — and runs <code>make clean &amp;&amp; make
   gui-release</code>, <code>make unit-test</code> and <code>make unit-test-sdl</code>;</li>
-<li><strong><code>unit-win</code></strong> (GH #214) installs the MinGW cross toolchain and wine and runs
+<li><strong><code>unit-win</code></strong> installs the MinGW cross toolchain and wine and runs
   <code>make unit-test-win</code>: the SDL-only suites as Windows executables under wine. It
   builds no PGO binary, so on an SD-image cache miss <code>make unit-test-win</code>
   provisions the image itself (<code>make sdcard-image</code>);</li>
@@ -3038,11 +3098,11 @@ run (locally too — the old CI-only <code>$CI</code> split is gone), so a row t
 quietly stopped running cannot read as a pass. The Flatpak build is not a row of
 this job; the <code>flatpak</code> job below builds it, and only the tool-free
 <code>flatpak-manifest</code> contract runs here. After <code>make package-test</code> passes the job
-uploads each package it built as a run artifact (GH #359); the steps are
+uploads each package it built as a run artifact; the steps are
 <code>uses:</code> steps, so the make-target rule is untouched.</p>
 <p><strong><code>macos</code></strong> runs <code>make package-macos</code> on a real <code>macos-latest</code> runner and
 uploads the <code>.dmg</code>,
-<strong><code>macos-unit</code></strong> (GH #214) runs <code>make unit-test-sdl</code> on one, with Homebrew's
+<strong><code>macos-unit</code></strong> runs <code>make unit-test-sdl</code> on one, with Homebrew's
 <code>bash</code>, <code>coreutils</code> and <code>grep</code> installed because the unit harness needs them
 (macOS ships bash 3.2 and BSD tools), and uploads the suites' logs on failure,
 and
@@ -3055,12 +3115,12 @@ dyld on every Mac except the one that built it. Neither job is
 point of having them.</p>
 <p>The permission check came with the consolidation and is not incidental. This
 job used to be <code>release.yml</code>'s copied near-verbatim, minus that step, so from
-the day GH #271 was fixed a bundle that stopped carrying <code>--share=network</code>
+the day that defect was fixed a bundle that stopped carrying <code>--share=network</code>
 would still have passed here on every push — which is exactly the defect the
 gate was written for. One body, one gate, three callers.</p>
 <h2 id="testing-a-runs-packages">Testing a run's packages<a class="headerlink" href="#testing-a-runs-packages" title="Permanent link">&para;</a></h2>
 <p>Every green <code>ci.yml</code> run leaves its builds on the run's Summary page, under
-<strong>Artifacts</strong>, so a tester can try a build without a release (GH #359). Upload is
+<strong>Artifacts</strong>, so a tester can try a build without a release. Upload is
 by <code>uses: actions/upload-artifact@v6</code> steps (no <code>run:</code>). The <code>package</code> and
 <code>macos</code> uploads come after their job's tests, so they happen only on success; the
 Flatpak is uploaded by its action BEFORE the permission check, so it can be
@@ -3172,7 +3232,7 @@ it claims to cover or stop and say so. Shipping a deliberately partial release
 is still possible — it means restoring <code>continue-on-error</code> on that one job in
 that one commit, which makes it an explicit and visible decision each time
 rather than a standing one.</p>
-<h2 id="the-regression-suite-on-other-operating-systems-gh-319">The regression suite on other operating systems (GH #319)<a class="headerlink" href="#the-regression-suite-on-other-operating-systems-gh-319" title="Permanent link">&para;</a></h2>
+<h2 id="the-regression-suite-on-other-operating-systems">The regression suite on other operating systems<a class="headerlink" href="#the-regression-suite-on-other-operating-systems" title="Permanent link">&para;</a></h2>
 <p>Two more blocking jobs run a portable subset of the regression suite, with the
 same plain make targets a developer types. The <strong><code>regression-win</code></strong> leg of the
 <code>test</code> job installs the MinGW cross toolchain (including <code>mingw64-qt6-qtbase</code> and <code>mingw64-qt6-qtsvg</code>)

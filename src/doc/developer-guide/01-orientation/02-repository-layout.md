@@ -55,7 +55,7 @@ profiler — surround the emulation rather than being part of it.
 | `debugger/` | The Qt 6 debugger window and its panels — CPU, disassembly, memory, MMU, stack, call stack, watches, breakpoints, video, sprites, copper, NextREG, audio, script — a frontend of the `debug/` backend (see 3.10.2). Compiled only when `ENABLE_DEBUGGER=ON`. |
 | `debug/` | The debugger *backend*, pure C++ with no GUI dependency: disassembler, breakpoint set, `DebugState`, trace log, call stack, symbol table, and the rewind ring buffer. Plus the four *published* headers `debugger.h`, `events.h`, `inspect.h`, `result.h` and the `jnext::dbg::Debugger` facade behind them (`debugger*.cpp`) — the backend the three loop owners host and every debugger frontend talks to (see 3.9). |
 | `remote/` | The socket transport the debugger protocol servers share (`jnext_remote`): one non-blocking listener driven by the backend's `pump()`, over esp01's socket seam, plus the in-memory fake their unit suites use. `remote/dzrp/` is the DeZog Remote Protocol server (`--dzrp-port`, see 3.10.3); `remote/gdb/` is the GDB remote serial protocol server for z88dk-gdb (`--gdb-port`, see 3.10.4); `remote/zrcp/` is the ZEsarUX remote command protocol server (`--zrcp-port`, see 3.10.5). |
-| `script/` | The debugger scripting language, `.jds` (`jnext_script`): lexer, parser, load-time checks, the expression compiler as a library (`compile_expr` / `eval_expr`), the engine that runs scripts as backend subscriptions, the loop owners' `ScriptHost` (`--script`, `--script-key`, `--map`, `--record-script`) and the GH #20 recorder. Qt-free, over the `jnext::dbg::Debugger` facade only (see 3.10.6). |
+| `script/` | The debugger scripting language, `.jds` (`jnext_script`): lexer, parser, load-time checks, the expression compiler as a library (`compile_expr` / `eval_expr`), the engine that runs scripts as backend subscriptions, the loop owners' `ScriptHost` (`--script`, `--script-key`, `--map`, `--record-script`) and the recorder. Qt-free, over the `jnext::dbg::Debugger` facade only (see 3.10.6). |
 | `esp01/` | The emulated ESP-01 WiFi module — AT-command engine, socket layer, worker thread — built as its own library with its own tests. |
 | `profiler/` | The per-physical-address T-state profiler behind `--profile`. |
 | `doc/` | Markdown sources for the user guide and this developer guide, plus the Graphviz diagram sources. |
@@ -79,7 +79,7 @@ cell — the technique Nirvana-class engines are built on — and a write that
 lands after a pixel byte's fetch is not seen until the next scanline. Since
 JNEXT composites the frame at the end, those writes have to be logged and
 replayed at the instant the ULA fetches each byte to survive at all.
-The tilemap and LoRes read bank 5 / bank 7 through the same log (GH #362), and
+The tilemap and LoRes read bank 5 / bank 7 through the same log, and
 `SramBeamLog` does the same for the SRAM bitmap Layer 2 fetches.
 
 The **rewind ring buffer** in `src/debug/` is the machinery behind the

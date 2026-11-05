@@ -28,8 +28,8 @@ output.
 | *Source map not verified yet: it is checked when the dot command runs* (Source tab) | a dot command's map, attached before `.prog` has been typed | nothing; the log says `Verified z88dk source map ...` when it runs |
 | *The dot command started in DivMMC RAM bank 2 is not the one source map ... describes; it stays pending* (log) | another dot command ran from the same bank | nothing: the map is not dropped. Type the command it describes |
 | `Cannot break on 'main.c:19'` (z88dk-gdb) | a map built by master's sdcc (`-clib=sdcc_iy -debug -m --list`), with the 2.4 and the master clients (the 2026-10-16 master) | use an address or a symbol in the client, or build with sccz80 |
-| `Segmentation fault` of z88dk-gdb (the 2026-10-16 master client, on the 2.4 and the master banked `-run` maps) | the map has a 24-bit `__C_LINE_` value | debug it in JNEXT's own Source tab. z88dk PR #3218 (merged 2026-10-31) is said to fix it; not run here |
-| `Unknown option2 --hardware-keyboard` (z88dk, at build) | `+zxn -clib=classic -debug` | use `-clib=new`, or `+zx` with the default classic library. Fixed upstream (PR #3198), not in a release |
+| `Segmentation fault` of z88dk-gdb (the 2026-10-16 master client, on the 2.4 and the master banked `-run` maps) | the map has a 24-bit `__C_LINE_` value | debug it in JNEXT's own Source tab. z88dk master from 2026-10-31 is said to fix it; not run here |
+| `Unknown option2 --hardware-keyboard` (z88dk, at build) | `+zxn -clib=classic -debug` | use `-clib=new`, or `+zx` with the default classic library. Fixed upstream (z88dk master from 2026-10-23), not in a release |
 | `defc Gcounter0_00==.` syntax error (z88dk 2.4, at build) | sdcc with `-debug` on 2.4 | use `--c-code-in-asm --list` instead of `-debug`, or master |
 
 A source map that is found and refused says why. The reasons: the SLD or map was
@@ -56,8 +56,16 @@ the two pragmas: see [Building programs with z88dk](02-building-with-z88dk.md#ba
 - **DivMMC sections** (`DIV_n`, and z88dk's `dotn` programs) are refused: a map
   with a line in one is rejected, with the line named, rather than attached half.
   A `dot` or `dotx` command is supported: [Dot commands](03-dot-commands.md).
-- **C variables beyond their names** (types, locals, structs) are not in the
-  debugger yet.
+- **C variables** are shown in the Variables tab ([C variables in the debugger](11-c-variables.md), with
+  what each z88dk version and compiler can show) and read by scripts (`cvar()`), over GDB and over ZRCP, never over DeZog's protocol (DZRP): see
+  [Scripts and remote debuggers](09-scripts-and-remote-debuggers.md#c-variables).
+- **Some C variables cannot be written** (from a script, over GDB and ZRCP; each refusal says why):
+  a variable the compiler keeps in a register (zsdcc), and anything reached through a pointer held in a register (the
+  debug record gives no live range, so the register may hold something else by then); a whole struct or array (write a
+  member or an element); sccz80's fastcall parameter (z88dk U1) and a member of an overlapping bitfield struct
+  (z88dk U2), whose places are not certain; any 80cc block local (`scope unknown`: the slot may hold another variable, and 80cc's block stamps cannot prove it in scope); a name that two visible variables share when the innermost is `scope unknown` (`ambiguous`); a variable that shares its stack slot with another listed one (`shares its stack slot with ...`: the write
+  would land in the other); a variable not allocated yet or out of scope; a global of a dot command, which lives in
+  DivMMC RAM, where the debugger cannot write; and anything in ROM.
 - **A step is synchronous and bounded.** A step that never reaches another
   statement (a loop on one line, a `HALT` with interrupts disabled) stops by itself
   at a disabled-interrupt `HALT`, or after a million instructions or 100 frames,

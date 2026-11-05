@@ -2231,6 +2231,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2855,6 +2859,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2945,7 +3005,7 @@ other tool.</p>
 <code>@name</code>, the GDB server's <code>monitor sym</code> and <code>--map</code> all read it, so a symbol loaded by one client shows
 in every other. How the formats differ is only in what they put in it.</p>
 <ul>
-<li><strong>Keyed by memory and address (GH #375).</strong> <code>add_label(name, addr, space, bind_at_load, c_symbol)</code>
+<li><strong>Keyed by memory and address.</strong> <code>add_label(name, addr, space, bind_at_load, c_symbol)</code>
   stores a label that is <em>paged</em> (assembled for one <code>FetchSource</code> such as <code>Page{20}</code>, naming the address
   only while that memory supplies it) or <em>unpaged</em> (naming it in every memory: the sjasmplus EQU,
   Simple and NextBuild loaders make these). There is no address-only lookup:
@@ -3002,9 +3062,9 @@ in every other. How the formats differ is only in what they put in it.</p>
 <ul>
 <li><code>sjasmplus</code> is <code>~/src/spectrum/sjasmplus</code> at v1.23.1, commit <code>46aae3f</code>.</li>
 <li><code>z88dk 2.4</code> is <code>~/src/spectrum/z88dk-original-2.4</code> at <code>4d530b6eb7</code> (v2.4) and
-  <code>z88dk master</code> is <code>~/src/spectrum/z88dk-original-latest</code> at <code>39421a01cd</code>
-  (<code>v2.4-2695-g39421a01cd</code>). These are the two installs the z88dk fixtures were
-  made with (<code>test/fixtures/z88dk/PROVENANCE</code> files).</li>
+  <code>z88dk master</code> is <code>~/src/spectrum/z88dk-original-97731e4e29</code> at <code>97731e4e29</code>
+  (<code>v2.4-2883-g97731e4e29</code>), master before the debug-record fixes of 2026-11-04 and -05, which <code>~/src/spectrum/z88dk-original-latest</code> (<code>0f0a1cf70e</code>) has. These are the installs the
+  z88dk fixtures were made with (<code>test/fixtures/z88dk/*/PROVENANCE</code> files).</li>
 <li>Boriel ZX Basic and NextBuild are read on GitHub: <code>boriel-basic/zxbasic</code> at
   <code>29f0b2f0ce</code> and <code>em00k/NextBuild</code> at <code>364b2d13c5</code>, both on 2026-11-01. The
   URLs are in <code>doc/REFERENCES.md</code>.</li>

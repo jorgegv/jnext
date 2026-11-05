@@ -27,6 +27,7 @@
 #include "debug/symbol_table.h"
 #include "debug/annotations_file.h"
 #include "debug/user_annotations.h"
+#include "debug/variable_store.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -36,6 +37,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
@@ -1130,6 +1132,28 @@ int main() {
         check("SRCTXT-01", "replace() keeps the embedded texts under their normalised names, embedded_text() "
                            "matches the exact name only, and clear() and a later replace() without texts drop them",
               kept && exact && replaced && !cleared.embedded_text("x/y.m4"));
+    }
+
+    // ── SRCVAR-01 (GH #433): the C variable store a z88dk map carries ──
+    {
+        const auto store = std::make_shared<const jnext::dbg::VariableStore>(
+            std::vector<jnext::dbg::CFunction>{}, std::vector<jnext::dbg::CVariable>{},
+            std::vector<jnext::dbg::CRecord>{}, std::vector<jnext::dbg::CRecord>{},
+            std::vector<std::string>{});
+        SourceMap m;
+        m.replace({}, {}, std::nullopt, "t.map", "z88dk", {}, false, store);
+        const bool kept = m.variables() == store;
+        SourceMap copy = m;                   // a copy shares the one immutable object
+        const bool shared = copy.variables() == store && store.use_count() >= 3;
+        SourceMap again = m;
+        again.replace({}, {}, std::nullopt, "u.map", "z88dk");
+        const bool replaced = !again.variables();
+        SourceMap cleared = m;
+        cleared.clear();
+        check("SRCVAR-01", "replace() keeps the C variable store (variables() is that object), a copy of the map shares "
+                           "it, and clear() and a later replace() without one drop it; a fresh map has none",
+              kept && shared && replaced && !cleared.variables() && !SourceMap().variables() &&
+                  m.variables() == store);
     }
 
     // ── GH #387 (E23-24): the user's labels and comments, and the .jdp project file ──

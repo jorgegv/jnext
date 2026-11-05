@@ -2311,6 +2311,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2853,6 +2857,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3033,7 +3093,7 @@ profiler — surround the emulation rather than being part of it.</p>
 </tr>
 <tr>
 <td><code>script/</code></td>
-<td>The debugger scripting language, <code>.jds</code> (<code>jnext_script</code>): lexer, parser, load-time checks, the expression compiler as a library (<code>compile_expr</code> / <code>eval_expr</code>), the engine that runs scripts as backend subscriptions, the loop owners' <code>ScriptHost</code> (<code>--script</code>, <code>--script-key</code>, <code>--map</code>, <code>--record-script</code>) and the GH #20 recorder. Qt-free, over the <code>jnext::dbg::Debugger</code> facade only (see 3.10.6).</td>
+<td>The debugger scripting language, <code>.jds</code> (<code>jnext_script</code>): lexer, parser, load-time checks, the expression compiler as a library (<code>compile_expr</code> / <code>eval_expr</code>), the engine that runs scripts as backend subscriptions, the loop owners' <code>ScriptHost</code> (<code>--script</code>, <code>--script-key</code>, <code>--map</code>, <code>--record-script</code>) and the recorder. Qt-free, over the <code>jnext::dbg::Debugger</code> facade only (see 3.10.6).</td>
 </tr>
 <tr>
 <td><code>esp01/</code></td>
@@ -3069,7 +3129,7 @@ cell — the technique Nirvana-class engines are built on — and a write that
 lands after a pixel byte's fetch is not seen until the next scanline. Since
 JNEXT composites the frame at the end, those writes have to be logged and
 replayed at the instant the ULA fetches each byte to survive at all.
-The tilemap and LoRes read bank 5 / bank 7 through the same log (GH #362), and
+The tilemap and LoRes read bank 5 / bank 7 through the same log, and
 <code>SramBeamLog</code> does the same for the SRAM bitmap Layer 2 fetches.</p>
 <p>The <strong>rewind ring buffer</strong> in <code>src/debug/</code> is the machinery behind the
 debugger's backwards execution: step back one instruction, jump back a frame,

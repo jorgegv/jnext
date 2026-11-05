@@ -43,6 +43,23 @@ void CallStackPanel::create_ui() {
     table_->horizontalHeader()->setStretchLastSection(true);
 
     layout->addWidget(table_);
+
+    // GH #435 - the user's choice of a row picks the C frame the Variables tab shows
+    connect(table_, &QTableWidget::currentCellChanged, this, [this](int row, int, int, int) {
+        if (!programmatic_ && row >= 0) emit call_selected(row);
+    });
+}
+
+void CallStackPanel::select_row(int row) {
+    programmatic_ = true;
+    if (row >= 0 && row < table_->rowCount()) {
+        table_->setCurrentCell(row, 0);
+        table_->selectRow(row);
+    } else {
+        table_->clearSelection();
+        table_->setCurrentCell(-1, -1);
+    }
+    programmatic_ = false;
 }
 
 void CallStackPanel::set_paused(bool paused) {
@@ -55,6 +72,9 @@ void CallStackPanel::refresh() {
     const auto& frames = dbg_->call_stack();   // INS-12
     int count = static_cast<int>(frames.size());
 
+    // setRowCount() can move the current cell: not the user's choice (GH #435)
+    struct Guard { bool& f; ~Guard() { f = false; } } guard{programmatic_};
+    programmatic_ = true;
     table_->setRowCount(count);
 
     // Display most recent first (top of table = most recent call)

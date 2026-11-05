@@ -36,7 +36,7 @@ throw on `x`, which aborts the process, and read `5x` as 5. A value that is not
 a whole number in the option's range is a usage error: `main.cpp` prints the
 option and the offending value and exits 1.
 
-`--set SECTION.KEY=VALUE` (GH #417) is one more row of the table, and its value
+`--set SECTION.KEY=VALUE` is one more row of the table, and its value
 is checked at parse time against a second table, `config_keys::KEYS` in
 `src/platform/config_keys.h`: the keys of `jnext.conf`. A key with a dedicated
 flag (`--cpu-speed`, `--scale`, `--crt`, `--silent`, `--machine`, ...) and the
@@ -108,7 +108,7 @@ if (headless) {
 ```
 
 The frontends are heap-allocated on purpose: each holds the 1.17 MB `Emulator`
-by value, so as automatic variables they were `main()`'s stack frame (GH #308).
+by value, so as automatic variables they were `main()`'s stack frame.
 
 `configure_and_run` is a generic lambda, and that is what lets a single body
 drive three classes that share no base class. They implement the same informal
@@ -137,7 +137,7 @@ the command-line one reached the disk — at exit or at any earlier point, since
 main window, and `MainWindow::closeEvent()` reports a recording it has to stop
 in a modal dialog that an unattended run would wait on forever.
 
-**Quit signals (GH #364).** SDL3's `SDL_Init` installs a persistent
+**Quit signals.** SDL3's `SDL_Init` installs a persistent
 SIGINT/SIGTERM handler that only queues `SDL_EVENT_QUIT`; `QtApp` never reads
 that event, so the Qt GUI swallowed both signals, and the SDL frontend exited
 with status 0. `quit_signal` (`src/platform/quit_signal.h`) takes the signals
@@ -174,7 +174,7 @@ was terminated BY the signal, plus headless held paused by a DZRP client) and
 - **`HeadlessApp`** (`src/platform/headless_app.h`) owns nothing but the
   `Emulator`. Its `run()` is a bare `run_frame()` loop with no sleep in it.
 
-## Light and dark (GH #363)
+## Light and dark
 
 The Qt frontend follows the desktop's light/dark preference, at start and
 live. The decision is the pure `src/gui/color_scheme_policy.h`; the glue is

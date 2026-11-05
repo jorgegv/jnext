@@ -39,14 +39,14 @@ difference between a single missing edge and a wrong graph.
 Building is not the same as running, though, and for a long time it was all the
 matrix did: every configuration was proved to link, and only the default one ever
 had a suite run in it, so a suite could stay red in a supported configuration
-indefinitely — which is what GH #273 found. Two configurations now run their
+indefinitely — which had happened. Two configurations now run their
 suites: the default Qt+debugger build through `make unit-test`, and the SDL-only
 build through `make unit-test-sdl`. The other two, Qt without the debugger and
 SDL with it, are not used in practice and remain build-only. CI runs both
 targets.
 
 The configurations are about *what* is built; the suites also run on three
-operating systems (GH #214). The SDL-only set runs natively on Linux
+operating systems. The SDL-only set runs natively on Linux
 (`make unit-test-sdl`), natively on macOS (the same target, with Homebrew's GNU
 tools first on `PATH`), and as MinGW-built Windows executables under wine
 (`make unit-test-win`). Which suites each OS owes is declared by `# os:` in
@@ -112,13 +112,13 @@ toolchain rather than to any single translation unit or transform, which is why
 nothing short of disabling it helps. Every other build keeps LTO on —
 including the Windows executables, which is why every `win-*-release` target
 passes `-DCMAKE_BUILD_TYPE=Release` explicitly (`WIN_BUILD_TYPE` in the
-Makefile). Before GH #298 they passed no build type, fell back to
+Makefile). They used to pass no build type, fell back to
 RelWithDebInfo, and shipped without LTO.
 
 ## Profile-guided optimisation
 
 `make gui-release` — and every package, see
-[5.3](03-packaging-and-release.md) — is a gcc **PGO** build (GH #297): an
+[5.3](03-packaging-and-release.md) — is a gcc **PGO** build: an
 instrumented twin in `build/gui-release-pgo-gen` runs a short training set
 (`tools/pgo-train.sh`), and `build/gui-release` is then compiled with the
 profile it wrote to `build/gui-release-pgo-profile`. `cmake/JnextPgo.cmake`
@@ -131,7 +131,7 @@ describes the pipeline, the training set, the gates and the measured gains.
 
 ## The stack-frame gate
 
-No production function may need a stack frame over 256 KiB (GH #308):
+No production function may need a stack frame over 256 KiB:
 `-Werror=frame-larger-than=262144` on GCC, `-Wframe-larger-than=262144
 -Werror=frame-larger-than` on Clang. It exists because Windows runs on
 MinGW's default 2 MB main-thread reserve (jnext sets no `--stack`), and

@@ -218,6 +218,7 @@ struct Debugger::Impl {
     std::vector<std::string> pending_log;
     uint64_t begin_generation();
     void recheck();
+    void recheck_pending();   ///< recheck()'s work, without the call-stack sync after it
     /// The source map readers see: null while the user's is stale.
     const SourceMap* live_sources() const {
         return user_sources_stale ? nullptr : &source_map;
@@ -469,6 +470,7 @@ struct Debugger::Impl {
         ClientInfo info;
         Listener*  listener    = nullptr;
         bool       live_raster = false;
+        bool       call_stack  = false;   ///< GH #434 F-B: this client asked for call-stack tracking
         bool       detached    = false;   ///< tombstone
         /// CAP-03 — this client's bookmarks, in save order (a re-save of a name
         /// keeps its place). HERE, on the client row, because §4.5 makes them
@@ -500,6 +502,22 @@ struct Debugger::Impl {
     /// one function: a change that forgets it leaves the machine armed for a
     /// client that has gone, or unarmed for one that has arrived.
     void clients_changed();
+
+    /// THE ONE WRITER of the call-stack tracker's state (GH #434 F-B, OD-2). A function of the
+    /// client list and the live source map, like `clients_changed()`: on while some live client
+    /// asked for it, or while the live source map has C variable records and a live NON-OBSERVER
+    /// client is attached (the Qt emulator window's permanent observer does not count). It reads
+    /// `clients` and `live_sources()` directly, never `recheck()` or `ds().clients_attached()`
+    /// (a replay guard clears that one temporarily), so it cannot recurse. Called wherever an
+    /// input changes: a request, an attach or detach, `recheck()`, a source map loaded or
+    /// cleared, the program sidecars, a reconstruct. `CallStack::set_enabled()` empties the
+    /// tracker only on a change.
+    /// The tracker is written only when the derived state CHANGES (`call_stack_derived`), or
+    /// with `force` and the state on (a reconstruct may have replaced the machine, whose own state is off): a
+    /// panel that switched the tracker directly on the `Emulator` (pre-package Q, CTL-12-55) is
+    /// not undone by an attach, a detach or an in-place landing that changes nothing derived.
+    void sync_call_stack(bool force = false);
+    bool call_stack_derived = false;
 
     /// Drop the tombstones. Called only where no fan-out loop is walking the
     /// vector.
@@ -587,8 +605,11 @@ struct Debugger::Impl {
 
     /// CTL-12 rule 2 / CTL-15 — the ENABLE FLAGS a client set through a backend
     /// verb, kept OUTSIDE the `Emulator` so a reconstruct cannot lose them:
-    /// call-stack tracking (INS-12), the trace (INS-13) and
-    /// `--persistent-breakpoints` (§4.1). Each is the machine's own state
+    /// the trace (INS-13) and `--persistent-breakpoints` (§4.1). Call-stack
+    /// tracking (INS-12) is no longer one of them: each CLIENT's request lives on
+    /// its row (`Client::call_stack`), which survives a reconstruct, and
+    /// `sync_call_stack()` derives the machine's state from the rows (GH #434).
+    /// Each is the machine's own state
     /// (`Emulator::call_stack()`, `trace_log()`, `DebugState::persistent_`),
     /// which `~Emulator()` + placement-new resets to its default; the backend
     /// re-applies its copy on every route that can land a new machine.
@@ -601,12 +622,11 @@ struct Debugger::Impl {
     /// path (`on_cold_boot_done()`, after the machine is already gone) can do it
     /// too.
     ///
-    /// NOT CAPTURED: the Qt panels still switch call-stack tracking and the trace
-    /// directly on the `Emulator` until package Q makes them clients, so those
-    /// writes are not client intent and a cold boot resets them exactly as it
-    /// always has (`emulator_cold_boot()` restores nothing transient). Coverage
-    /// (INS-20) is B4's.
-    std::optional<bool> want_call_stack;
+    /// NOT CAPTURED: the Qt panels still switch the trace directly on the
+    /// `Emulator` until package Q makes them clients, so those writes are not
+    /// client intent and a cold boot resets them exactly as it always has
+    /// (`emulator_cold_boot()` restores nothing transient). Coverage (INS-20) is
+    /// B4's.
     std::optional<bool> want_trace;
     std::optional<bool> want_persistent;
 

@@ -1,12 +1,12 @@
 # 3.10.6 The debugger scripting language
 
-A debugger script (`.jds`, GH #26, carrying #279's use cases) is a list of
+A debugger script (`.jds`) is a list of
 rules. Each rule is an event and the actions to run when it happens. The
 language lives in **`src/script/`** (CMake target `jnext_script`). It has no
 toolkit dependency, so it is built in every configuration, and it reaches the
 machine only through the published `jnext::dbg::Debugger` facade of
 [3.9.1](09-1-the-backend-api.md) — never through `Emulator`. The record /
-replay workflow of GH #20 is built on top of it (the recorder, below).
+replay workflow is built on top of it (the recorder, below).
 
 The design and the reason behind each rule is
 `doc/design/debug-subsystem/dsl-frontend.md`. Its "as built" appendices (G to
@@ -19,7 +19,7 @@ code departs from it. This page describes the code.
 
 | File | What it holds |
 |---|---|
-| `lexer.{h,cpp}` | tokens; comments `;` `//` `#`; integers (decimal, `0x`, `$`, `0b`, 32-bit wrapping); strings with `${expr[:x2\|x4\|d]}` interpolation; `file:line` as one `FileLine` token, recognised by lookahead (GH #346); the bracketed accessors (`mem[`, `mem16[`, `phys[`, `nextreg[`, `mmu[`, `page[`, `stack[`, `changed(`, `depth(`) as single tokens |
+| `lexer.{h,cpp}` | tokens; comments `;` `//` `#`; integers (decimal, `0x`, `$`, `0b`, 32-bit wrapping); strings with `${expr[:x2\|x4\|d]}` interpolation; `file:line` as one `FileLine` token, recognised by lookahead; the bracketed accessors (`mem[`, `mem16[`, `phys[`, `nextreg[`, `mmu[`, `page[`, `stack[`, `changed(`, `depth(`) as single tokens; `cvar(PATH)` as one `CVar` token carrying the raw C path |
 | `parser.{h,cpp}`, `ast.h` | recursive descent over the grammar; the syntax tree (`Script`, `Rule`, `EventSpec`, `Action`, `Expr`) |
 | `names.{h,cpp}` | the one table of reserved words, built-in state names (`LIVE`) and payload names (`PAYLOAD`); which names `set` may assign |
 | `check.{h,cpp}` | the load-time checks and BINDING: each upper-case name resolved to what it reads in its scope; `payload_legal()` — the per-event payload table |
@@ -28,7 +28,7 @@ code departs from it. This page describes the code.
 | `expr_compiler.{h,cpp}` | the public library surface: `compile_expr()`, `eval_expr()` |
 | `script_engine.{h,cpp}` | `ScriptEngine`: loaded scripts as backend subscriptions; the actions; stop and exit |
 | `script_host.{h,cpp}` | `ScriptHost`: what the three loop owners hold to run `--script`, `--script-key`, `--map` and `--record-script` |
-| `recorder.{h,cpp}`, `key_names.{h,cpp}` | the GH #20 recorder, and the key names it writes |
+| `recorder.{h,cpp}`, `key_names.{h,cpp}` | the recorder, and the key names it writes |
 | `src/platform/recording_info.h` | `recording_info_of()`: the recorder's header facts, taken from the booted machine |
 | `src/platform/host_key_latch.h`, `host_key_wiring.h` | the script host keys (Alt+1..Alt+8) in the emulator windows |
 | `src/debugger/script_panel.*`, `debugger_window.cpp` | the Qt Script tab and Script menu |
@@ -70,6 +70,18 @@ is both is the address (row SYM-13). A z88dk C symbol (module `<file>_c`) also r
 `@counter` for `_counter`, after the exact names and constants (rows SCRIPT-HOST-CN-01/02).
 The `-debug` records of a map (names starting `__C_LINE_`, `__ASM_LINE_` or
 `__CDBINFO__`) are not symbols: the loader drops them (rows SYM-14 to SYM-18).
+
+**`cvar(PATH)`** ([7.7](../07-source-level-debugging/07-frontends.md)) is the atom that reads a C variable of frame 0, as
+an int32. Its path is not the DSL's grammar (`->`, `::`, `*`, `$1F`, a file name with a `.`), so `lex_ident()` takes `cvar` directly
+followed by `(` as one `Tok::CVar` and `lex_cvar()` (`lexer.cpp:195`) captures the raw text to the first `)` on the line, trimmed;
+a `(`, a `"`, a missing `)` and an empty path are lexical errors, and `cvar` is a reserved word (`RESERVED` in `names.cpp`, as `depth` and `changed` are), so `var cvar` is refused at load. The word was
+not free before: `dump_mem` and `out` take two expressions side by side, so `dump_mem cvar(4)` with a `var cvar` was two operands; it
+now fails to load, loudly, rather than meaning something else. Inside a `${...}` interpolation a `::` is not the format separator. `parse_primary()` makes an
+`ExprKind::CVar` whose `text` is the path (`parse_lvalue()` also accepts it as a `set` target: `ActionKind::Set` calls `write_c_value(cid_, 0, path, int32)`, and a refusal is `fail()` with the facade's reason).
+`check_script()` checks the syntax with `c_parse_path()` at load, in every scope (it reads the machine, like `mem[]`); what the path
+names is looked up at each evaluation, by `eval_int()`, as `read_c_value(0, path)` then `c_int32_scalar()`. Every refusal is an
+`EvalError` carrying the facade's reason, which in a `when` disables the rule; none is a 0. The `-Werror=switch` of `jnext_script`
+is what forced the arms in both switches.
 
 An sjasmplus `--sym` / `--exp` file loads into the same table (`--map` picks it
 by contents). Its names are dotted (`main.loop`, `gfx.draw.loop`), so
@@ -134,7 +146,7 @@ own `Listener`. `load(text, file)` does four things, in this order:
 
 A script with any error registers nothing.
 
-`on execute FILE:LINE` (GH #346) is resolved here, in `subscriptions_for()`, by
+`on execute FILE:LINE` is resolved here, in `subscriptions_for()`, by
 `SourceMap::resolve()` (the resolver the GUI's source breakpoints use): one
 template per start, `filter.lo = hi = address` and `filter.space` the start's
 memory, `page = PAGE_ANY`; `once`, `enable` and `unload` treat them as the
@@ -299,7 +311,7 @@ They are reached in four ways:
   (`queue_host_key()`). `run_edge()` raises it at the edge of that frame,
   before the deferred actions run.
 
-## The recorder (GH #20) and `compare_scr`
+## The recorder and `compare_scr`
 
 `Recorder` is a second backend client (`ClientKind::Script`, arming). It
 OBSERVES and never drives. Its frame-edge handler does the work:
@@ -407,7 +419,7 @@ The `script-*-func` regression rows cover:
 
 - the three frontends' exit codes;
 - the dsl_demo suite, each row with a red twin against `dsl_demo_buggy.nex`. The
-  three #279 ChaseTheBug cases are `script-guard-func`, `script-mmu-func` and
+  three ChaseTheBug cases are `script-guard-func`, `script-mmu-func` and
   `script-isr-func`;
 - the two DAPR recordings;
 - a headless record → replay round trip;

@@ -1112,10 +1112,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#macos-command-is-the-host-modifier-gh-403" class="md-nav__link">
+  <a href="#macos-command-is-the-host-modifier" class="md-nav__link">
     <span class="md-ellipsis">
       
-        macOS: Command is the host modifier (GH #403)
+        macOS: Command is the host modifier
       
     </span>
   </a>
@@ -2361,6 +2361,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2903,6 +2907,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2975,7 +3035,7 @@ row <em>N</em>), and <code>read_rows()</code> returns the 5-bit AND of every sel
    <code>Emulator::on_scanline()</code> by a cycle accumulator. It used to run once per
    video frame, which stretched a 165 µs hold to 20 ms and left a released
    Symbol Shift contaminating the <em>next</em> frame's keystroke: a tap of Symbol
-   Shift followed by a tap of <code>P</code> typed <code>"</code> instead of <code>PRINT</code> (issue #268).
+   Shift followed by a tap of <code>P</code> typed <code>"</code> instead of <code>PRINT</code>.
    The rate is part of the spec, not an implementation detail.</li>
 <li><strong>The extended-key fold</strong>, described below.</li>
 <li><strong>The <code>MembraneStick</code> fold</strong>, also below, matching
@@ -3057,7 +3117,7 @@ in the machine-side class, plus a stated policy.</p>
   cannot drift between them.</p>
 </li>
 <li>
-<p><strong>Which controller drives which connector (GH #311)</strong> is policy in
+<p><strong>Which controller drives which connector</strong> is policy in
   <code>joy_assign.{h,cpp}</code> (pure, no SDL), not an accident of arrival order.
   <code>GamepadHost</code> keeps the list of present devices and, whenever a device
   arrives or leaves, a connector's source changes or an assignment is made,
@@ -3100,8 +3160,8 @@ in the machine-side class, plus a stated policy.</p>
   delta, re-centre, or ignore the echo of its own warp. SDL does not use it,
   because its relative mode does the equivalent natively. Both frontends do
   use its <code>release_chord()</code> for the release hint: Qt on macOS reads Command as
-  Ctrl, so the chord there is Alt+Cmd (issue #307). The release gesture itself
-  is configurable (GH #365): <code>ReleaseFilter</code> is the toolkit-free decision for
+  Ctrl, so the chord there is Alt+Cmd. The release gesture itself
+  is configurable: <code>ReleaseFilter</code> is the toolkit-free decision for
   one of three exclusive methods (<code>ctrl-alt</code>, <code>middle-click</code>, <code>esc</code>), returning
   per event whether to release and whether to consume it, and <code>release_hint()</code>
   is the one spelling of the gesture for every title, tip, log line and
@@ -3113,7 +3173,7 @@ in the machine-side class, plus a stated policy.</p>
   the release, and a focus loss forgets a pending swallow. Its default policy
   measures every delta from the centre, which needs a warp that lands at once:
   X11 and Windows. macOS and Wayland get a second policy,
-  <code>DeferredWarpPolicy</code> (issue #303). On macOS <code>QCursor::setPos</code> is a synthetic
+  <code>DeferredWarpPolicy</code>. On macOS <code>QCursor::setPos</code> is a synthetic
   event that lands late, or never without the Accessibility permission, so the
   frontend warps with <code>CGWarpMouseCursorPosition</code> instead
   (<code>src/gui/mac_cursor_warp.cpp</code>). On Wayland the warp is a compositor request
@@ -3139,10 +3199,10 @@ in the machine-side class, plus a stated policy.</p>
   exist because of the frame boundary. Host key events are delivered <em>between</em>
   <code>run_frame()</code> calls, so the matrix is sampled once per emulated frame.</li>
 </ul>
-<p><code>Latch</code> is the <strong>minimum-hold</strong> half (issue #120): a press plus its release
+<p><code>Latch</code> is the <strong>minimum-hold</strong> half: a press plus its release
   arriving in the same gap would be invisible to the guest, so the latch defers
   such a release until a frame has actually run.</p>
-<p><code>Router</code> is the <strong>serialiser</strong> (issue #268), and it is the half that decides
+<p><code>Router</code> is the <strong>serialiser</strong>, and it is the half that decides
   when a <em>press</em> may land. Holding a press was never enough on its own: the
   next key pressed while the first one's release was still deferred used to be
   asserted on top of it, so the frame sampled a two-key chord the host never
@@ -3160,7 +3220,7 @@ in the machine-side class, plus a stated policy.</p>
   nothing — so neither policy is a fidelity claim about the Next; both are
   compensation for jnext delivering host input once per frame.</p>
 <p><strong>Nothing is lost</strong> holds for the <em>matrix</em>, and it is not enough for the
-  <em>guest</em> (GH #386). <code>48.rom</code>'s <code>KEYBOARD</code> routine keeps two key sets (<code>KSTATE</code>
+  <em>guest</em>. <code>48.rom</code>'s <code>KEYBOARD</code> routine keeps two key sets (<code>KSTATE</code>
   at <code>$5C00</code> and <code>$5C04</code>): every interrupt decrements each busy set's counter and
   frees it at 0 (<code>0x02C6-0x02D6</code>), a new key needs a free set (with none, <code>RET Z</code>
   at <code>0x02F0</code> throws it away), a new key's counter is set to 5 (<code>LD (HL),$05</code> at
@@ -3174,10 +3234,10 @@ in the machine-side class, plus a stated policy.</p>
   the next key's time), applied to <em>queued</em> presses only. A press that arrives on
   an idle router keeps the host's own timing, so games and ordinary typing pay
   nothing; the price is that a backlog drains at 10 keys/s at 50 FPS. Two taps of
-  the same key in one gap are now two keystrokes (the old "#120 residue"). The
+  the same key in one gap are now two keystrokes. The
   spacing counts frames (<code>on_tick_end(frames)</code>), never ticks, and <code>attach()</code> and
   <code>release_all()</code> forget it.</p>
-<p><strong>Host actions are barriers in the same queue</strong> (GH #386). A Quick Save or
+<p><strong>Host actions are barriers in the same queue</strong>. A Quick Save or
   Quick Load is requested through <code>Router::on_host_action(fn)</code>: it runs once every
   keystroke typed before it has been shown to a frame and released, and every host
   event typed after it queues until the frontend calls <code>action_done()</code>. <code>fn</code> only
@@ -3209,8 +3269,8 @@ in the machine-side class, plus a stated policy.</p>
   directly and all three share the Symbol Shift cell.
   The price is stated rather than hidden — a press not yet shown to a frame is
   dropped instead of held, which is correct, because the user has moved to a
-  menu (GH #268).
-  The Router is also where the <strong>script host keys</strong> live (GH #26): Alt+1..Alt+8
+  menu.
+  The Router is also where the <strong>script host keys</strong> live: Alt+1..Alt+8
   with no other modifier held call the callback <code>wire_script_keys()</code>
   (<code>host_key_wiring.h</code>) installs — the backend's <code>Host{scriptN}</code> — and the
   digit's press <em>and</em> release are swallowed, script loaded or not. Alt+9/Alt+0
@@ -3261,7 +3321,7 @@ and Alt+E, Alt+G, Alt+C and Alt+<code>`</code> are reserved for the guest's EDIT
 GRAPH, CAPS LOCK and INV VIDEO. Adding a menu on one of those would silently
 kill a guest key, so <code>host_hotkey_test</code> pins the two sets disjoint — see
 <a href="../04-testing/index.html">Testing</a>.</p>
-<h3 id="macos-command-is-the-host-modifier-gh-403">macOS: Command is the host modifier (GH #403)<a class="headerlink" href="#macos-command-is-the-host-modifier-gh-403" title="Permanent link">&para;</a></h3>
+<h3 id="macos-command-is-the-host-modifier">macOS: Command is the host modifier<a class="headerlink" href="#macos-command-is-the-host-modifier" title="Permanent link">&para;</a></h3>
 <p>On macOS the same split sits one key over. Qt reports Command as
 <code>Key_Control</code> / <code>ControlModifier</code> / <code>Qt::CTRL</code> and the physical Control key as
 <code>Key_Meta</code> (jnext does not set <code>AA_MacDontSwapCtrlAndMeta</code>), so
@@ -3280,7 +3340,7 @@ the same flag (<code>validate_combo(c, why, host_mod_is_ctrl)</code>). Add a hos
 shortcut to the <code>host_shortcuts::Action</code> table, never as a literal <code>Qt::ALT</code>
 (<code>HS403-27</code> fails on one).</p>
 <p>The one bare non-function host key is <strong>Pause</strong>, an alternate shortcut on
-Machine &gt; Pause (GH #322, an owner-approved exception to the Alt rule; it is the
+Machine &gt; Pause (an owner-approved exception to the Alt rule; it is the
 conventional emulator pause key). It is safe because Next PS/2 Pause/Break is
 "reset ps2 module" (<code>keymaps.vhd:104</code>, <code>ps2_keyb.vhd:245</code>) with no guest meaning,
 and jnext models no PS/2. Alt+U stays the primary shortcut (QMenu shows only the
@@ -3293,8 +3353,7 @@ is given a <code>QProxyStyle</code> reporting <code>SH_MenuBar_AltKeyNavigation<
 (<code>src/qt/menu_bar_alt_nav_qt.h</code>, installed by both the emulator window and
 the debugger window). Alt+<em>letter</em> mnemonics are unaffected — Qt opens those
 through the shortcut map, not through this hint — and <code>handle_key()</code>
-additionally feeds the guest nothing at all while a Qt popup owns the keyboard
-(GH #268).</p>
+additionally feeds the guest nothing at all while a Qt popup owns the keyboard.</p>
 <p><strong>This is a settled decision, taken 2026-09-25, not a provisional workaround.</strong>
 The reasoning: Alt is simultaneously a guest modifier (EDIT / GRAPH / CAPS
 LOCK) and this project's entire host-hotkey namespace, so pressing it is an

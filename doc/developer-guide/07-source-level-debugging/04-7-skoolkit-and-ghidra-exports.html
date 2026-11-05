@@ -2231,6 +2231,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2916,6 +2920,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2944,7 +3004,7 @@
 
 
 <h1 id="747-the-skoolkit-and-ghidra-exports-and-imports">7.4.7 The skoolkit and Ghidra exports and imports<a class="headerlink" href="#747-the-skoolkit-and-ghidra-exports-and-imports" title="Permanent link">&para;</a></h1>
-<p>The other pages of 7.4 are inputs. This one is the reverse direction (GH #389, E23-26):
+<p>The other pages of 7.4 are inputs. This one is the reverse direction:
 <code>Debugger::export_skoolkit()</code> and <code>export_ghidra()</code> write what the disassembly shows, and for
 skoolkit the code/data map that <code>--coverage</code> recorded, into a directory, as the files the two
 reverse-engineering tools read; <code>import_skoolkit()</code> and <code>import_ghidra()</code> (stage B) read such files back
@@ -2986,7 +3046,7 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
   the header, <code>@ start</code> / <code>@ org</code>, the block directives (<code>block_letter()</code> (<code>skoolkit_ctl.cpp:137</code>)),
   the labels, the <code>B</code>/<code>C</code> sub-blocks and the closing <code>i</code>. A Z80N instruction or a clipped one is a <code>B</code>
   sub-block, and so is each piece of an instruction a key falls in.</li>
-<li><strong>One name, one key</strong> (GH #349). z88dk's module-local labels repeat across routines (<code>end_x</code>
+<li><strong>One name, one key</strong>. z88dk's module-local labels repeat across routines (<code>end_x</code>
   at <code>$80CA</code> and <code>$8103</code> in <code>asm_zx_cls_wc_attr</code> / <code>asm_zx_cls_wc_pix</code>); <code>skool2asm.py</code> refuses a label
   defined twice, and both importers (and <code>UserAnnotations</code>, one key per name) refuse a name at two keys.
   So <code>unique_names()</code> (<code>reexport.cpp</code>) runs first in <code>build()</code> of each writer: of the exportable labels sharing
@@ -3120,16 +3180,16 @@ in the writers' files:</p>
 </ul>
 <h3 id="qt-map-import-and-export">Qt: Map ▸ Import and Export<a class="headerlink" href="#qt-map-import-and-export" title="Permanent link">&para;</a></h3>
 <p>The Qt debugger offers the four verbs in its Map menu, after the annotation entries of 7.4.6:
-<code>import_menu</code> (<code>debugger_window.cpp:899</code>) and
-<code>export_menu</code> (<code>debugger_window.cpp:904</code>), each with
+<code>import_menu</code> (<code>debugger_window.cpp:900</code>) and
+<code>export_menu</code> (<code>debugger_window.cpp:905</code>), each with
 <code>&amp;skoolkit Control Files...</code> and <code>&amp;Ghidra Symbols...</code> (<code>I</code> and <code>E</code> are free in the Map popup, <code>S</code> and <code>G</code>
 are unique in each submenu; <code>DACC-05</code> pins the new popups and mnemonics). The slots are
-<code>on_import_skoolkit</code> (<code>debugger_manager.cpp:852</code>),
-<code>on_import_ghidra</code> (<code>debugger_manager.cpp:853</code>),
-<code>on_export_skoolkit</code> (<code>debugger_manager.cpp:854</code>) and
-<code>on_export_ghidra</code> (<code>debugger_manager.cpp:855</code>), which share
-<code>import_re_files</code> (<code>debugger_manager.cpp:812</code>) and
-<code>export_re_files</code> (<code>debugger_manager.cpp:835</code>):</p>
+<code>on_import_skoolkit</code> (<code>debugger_manager.cpp:858</code>),
+<code>on_import_ghidra</code> (<code>debugger_manager.cpp:859</code>),
+<code>on_export_skoolkit</code> (<code>debugger_manager.cpp:860</code>) and
+<code>on_export_ghidra</code> (<code>debugger_manager.cpp:861</code>), which share
+<code>import_re_files</code> (<code>debugger_manager.cpp:818</code>) and
+<code>export_re_files</code> (<code>debugger_manager.cpp:841</code>):</p>
 <ul>
 <li><strong>Import</strong> asks for one or more files with <code>QFileDialog::getOpenFileNames</code> (<code>*.ctl</code> or <code>*.txt</code>), calls
   the backend verb once with all of them, and shows the report (counts, then each note) in an
