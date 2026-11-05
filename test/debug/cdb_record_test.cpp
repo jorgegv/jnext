@@ -539,8 +539,8 @@ int main() {
             }
         }
         if (!why.empty()) std::printf("  note: first refusal: %s\n", why.c_str());
-        check("CDB-35", "every __CDBINFO__ record of every committed map decodes (none refused, none dropped), and the three -cvars maps have the counts the README states (53, 63, 55), 84 maps carry 1133 records (GH #438 rebuild: +4 zsdcc maps, 123 records, and -3 on master-fixed, whose N:/E: records replace the empty enumerators; GH #438: + 26 maps, 371 records: the blocks, bits and fm builds, 80cc u5, the xmod builds, the two classic float builds, and master-fixed's nine; GH #434: + the four cross maps: 5, 6, 8 and 5 records, + the three floats maps: 7, 7 and 9; GH #445: + master/classic-debug, 6 records; GH #433: + the two master/*-extern maps, 7 and 3 records; the merge of main added the 8 intarg, longsw and calleejp maps: +62 records)",
-              !maps.empty() && with_cdb == 84 && records == 1133 && lines == records && refusals == 0 &&
+        check("CDB-35", "every __CDBINFO__ record of every committed map decodes (none refused, none dropped), and the three -cvars maps have the counts the README states (53, 63, 55), 85 maps carry 1142 records (GH #438 S4a: +1 map, master-fixed-80cc/80cc-scope, 9 records; GH #438 rebuild: +4 zsdcc maps, 123 records, and -3 on master-fixed, whose N:/E: records replace the empty enumerators; GH #438: + 26 maps, 371 records: the blocks, bits and fm builds, 80cc u5, the xmod builds, the two classic float builds, and master-fixed's nine; GH #434: + the four cross maps: 5, 6, 8 and 5 records, + the three floats maps: 7, 7 and 9; GH #445: + master/classic-debug, 6 records; GH #433: + the two master/*-extern maps, 7 and 3 records; the merge of main added the 8 intarg, longsw and calleejp maps: +62 records)",
+              !maps.empty() && with_cdb == 85 && records == 1142 && lines == records && refusals == 0 &&
               per_map["master/sccz80-cvars"] == 53 && per_map["v2.4/sccz80-cvars"] == 53 &&
               per_map["master/sdcc-cvars"] == 63 && per_map["master/80cc-cvars"] == 55);
         auto n = [&](const char* map, CdbHidden h) { return hidden[map][h]; };
