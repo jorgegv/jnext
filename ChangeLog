@@ -23,9 +23,10 @@
 - Debugger Video panel shows the just-finished frame after Break instead of a dark placeholder
 - Windows build under wine 11.7+: downloads no longer freeze waiting for a slow server; progress, stall note and cancel work
 - NextPi enabled in Preferences no longer starts QEMU when jnext starts a non-Next machine
+- Keys reach programs at the frame interrupt, not ~290 T before it: fixes Ms. Nam-Pac resetting when play starts
 
 ### Contributors in this release
-- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj, @jattree
+- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj, @jattree, @jsmolina
 
 ## v1.1.87 (2026-10-24)
 
