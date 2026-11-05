@@ -813,6 +813,50 @@ in 128.rom, plus3.rom and enNextZX.rom.
 | ROMKB-02 | `B 1 1` taps in one gap, then 40 frames | edit line `E7 31 31` (pre-fix: `E7 31`) | 48.rom 0x0310 |
 | ROMKB-03 | `B` pressed (release deferred), a `.jns` load wipes the matrix, `Router::reassert()`, 20 frames | edit line starts `E7`; without `reassert()` it does not | `emulator_apply_load` -> `release_all_keys` |
 
+### 3.18 Host input commit point (HIC-*, GH #450)
+
+When does the guest see a key change made between frames? The VHDL has no
+input phase: the membrane is scanned continuously (`membrane.vhd:99-155`), so a
+real key change is asynchronous to the frame. The position the policy commits
+at is the VHDL interrupt position `(c_int_h, c_int_v)` (`zxula_timing.vhd:551`;
+Pentagon `:155`/`:163`, 128K `:187`/`:199`, +3 and Next `:189`/`:199`, 48K
+`:257`/`:265`). The POLICY of committing there, rather than at the frame
+boundary, is a host policy, stated like ROMKB's ROM oracle in 3.17: its oracle
+is FUSE 1.5.7 `spectrum.c:91-103`, where the frame event runs `z80_interrupt()`
+first and `ui_event()` (host input) after it, so a key lands after the
+interrupt has been entered. A key set in frame N is therefore seen by the guest
+from frame N+1's interrupt on, and by no read before it. The commit is drained
+at an instruction boundary: an `IN` that begins before the edge sees the old
+state, the first instruction after it (the ISR's first when the interrupt is
+accepted there) the new one.
+
+Guest: hand-assembled, in uncontended bank 2 at `$8000` (no third-party
+bytes): a main loop polls the key, an IM 2 ISR records its own read and the main
+loop's last read before it, and counts ticks.
+
+| ID | Machine | Stimulus | Expected (pre-fix in brackets) | Cite |
+|----|---------|----------|--------------------------------|------|
+| HIC-01 | 128K | `set_key(SPACE)` between frames N and N+1 | the main loop first sees it after frame N+1's ISR: `seen_tick == t+1` [`t`] | FUSE `spectrum.c:91-103`; `zxula_timing.vhd:187/:199` |
+| HIC-02 | 128K | same | the ISR of N+1 reads SPACE down AND the main loop's last read before that ISR read it up (the FUSE order) [main read it down] | FUSE `spectrum.c:91-103` |
+| HIC-03 | 48K | same, INT at `(116,0)`: a 58.5 T window | same as HIC-01 and HIC-02 together | `zxula_timing.vhd:257/:265` |
+| HIC-04 | Pentagon | same, INT at `(439,319)`: the commit is the last 5 T of the frame; the ISR that reads the key runs in frame N+2 | the main loop polls all of frame N+1 and does not see it; `seen_tick == t+2` | `zxula_timing.vhd:155/:163` |
+| HIC-05 | 128K | the Ms. Nam-Pac mechanism: IM 2 table at `$C000` in bank 0, bank 6 `$C0FF/$C100` = `$8F8F` (a routine writing `$DE` to a marker); on a key the main loop pages bank 6 with EI for ~420 T | `done == 1`, `marker == 0` [`marker == $DE`: the vector was read from bank 6] | FUSE `spectrum.c:91-103` |
+| HIC-06 | 128K | the key through the injection path: `queue_auto_type` before frame N (`--delayed-keypress-frames`) | as HIC-01/HIC-02, relative to the edge that presses it | FUSE `spectrum.c:91-103` |
+| HIC-07 | Next | `set_extended_key(UP)` between frames; the guest polls NR `0xB0` | as HIC-01/HIC-02 through NR `0xB0` bit 3 | `zxnext.vhd:6208` |
+| HIC-08 | Next, ULA INT off (NR `0x22` bit 2), DI | key set between frames, a polling loop counting iterations | the first sighting is at the interrupt position (iteration count against the frame length), not at the edge: the commit is a raster position, not the interrupt | `zxula_timing.vhd:551` |
+| HIC-09 | 128K | key set between frames, boundary snapshot: a ring rewind replay and a `load_state` into a fresh machine | both give the HIC-01/HIC-02 result (the guest view is machine state) | FUSE `spectrum.c:91-103` |
+| HIC-10 | 128K | Caps Shift held, released between frames | down to the guest through N+1's interrupt (still down at the first ISR after the commit: the one-scan hold), up one frame later | `membrane.vhd:178` |
+| HIC-11 | 128K | key set between frames; `port().in()` from the test, `matrix_row`, `live_extended_keys`, NR `0xB0` byte | all see it at once: nothing is held outside `run_frame` | host contract |
+
+Mutations the rows are derived from: M1 no latch (guest reads live), M2 the
+release at frame end or never, M3 a hard-coded commit offset, M4 latch after
+`tick_auto_type()`, M5 NR `0xB0`/`0xB1` read live, M6 `tick_scan()` latches the
+live matrix, M7 release gated on the ULA interrupt enable, M8 guest view not in
+`describe_state`, M9 held from the frame edge, M10 `input_state()` reports the
+guest view, M11 the commit drained mid-instruction (`irq_scheduler_`) instead of
+at the boundary. Joystick and mouse input commit at the frame boundary, by
+decision (2026-11-05): no program in hand needs it.
+
 ---
 
 ## 4. Reset Defaults (VHDL-verified)
