@@ -66,6 +66,10 @@ enum class CConv : uint8_t {
     ListedFastcall,    ///< ... and flags it `__z88dk_fastcall`
 };
 
+/// Which z88dk compiler wrote a function's records (GH #438, plan 1.2). Unknown: a store that did not come
+/// from a map (a synthetic one), where no compiler-specific rule applies.
+enum class CCompiler : uint8_t { Unknown, Sccz80, Zsdcc, Cc80 };
+
 struct CFunction {
     CdbRecord record;          ///< the `F:` record
     std::string text;          ///< the unescaped record
@@ -73,9 +77,16 @@ struct CFunction {
     std::string module;        ///< the module of the entry symbol (the CDB line's when there is none)
     CStorage entry;
     std::vector<CScope> scopes;   ///< sorted by offset
+    /// 80cc with PR #3243's block records, and a listing beside the map: `scopes` holds EVERY `C_LINE` occurrence of the listing (the map keeps one
+    /// per line and scope), which makes the PC's scope exact (GH #438 S4a). False: the map's own scopes.
+    bool scopes_from_listing = false;
+    /// Every C_LINE record of the extent, owners and the lower lines that share an owner's address, as CScope in (offset, line)
+    /// order (GH #438: the block walk of sccz80 modules reads the whole trail). Empty for a synthetic store.
+    std::vector<CScope> trail;
     std::vector<CPiece> pieces;   ///< the extent, in order; empty: unknown (`extent_why`)
     std::string extent_why;       ///< pieces empty: why; else the reason the extent stops short, or empty
     CConv conv = CConv::Unlisted;
+    CCompiler compiler = CCompiler::Unknown;   ///< set by the adapter from the map (see build_variable_store())
 };
 
 struct CVariable {
@@ -121,7 +132,7 @@ public:
     VariableStore(std::vector<CFunction> functions, std::vector<CVariable> variables,
                   std::vector<CRecord> types, std::vector<CRecord> modules,
                   std::vector<std::string> refused, CFrameHelpers helpers = {},
-                  CNoRecordFacts facts = {});
+                  CNoRecordFacts facts = {}, std::string float_library = {});
 
     const std::vector<CFunction>& functions() const { return functions_; }
     const std::vector<CVariable>& variables() const { return variables_; }
@@ -131,6 +142,9 @@ public:
     const std::vector<std::string>& refused() const { return refused_; }
     const CFrameHelpers& helpers() const { return helpers_; }
     const CNoRecordFacts& no_record_facts() const { return facts_; }
+    /// The float library the map names (`math32`, `mbf32`, ...: the first non-zero `__code_fp_<lib>_size`),
+    /// empty when it names none (GH #438, z88dk#3236: the records do not say the float format).
+    const std::string& float_library() const { return float_library_; }
 
     /// The function whose extent holds `at` (the space and the address both), and the offset
     /// into it; nothing else is used: neither the nearest symbol nor a jump target. nullopt: in
@@ -149,6 +163,7 @@ private:
     std::vector<std::string> refused_;
     CFrameHelpers helpers_;
     CNoRecordFacts facts_;
+    std::string float_library_;
 };
 
 }  // namespace dbg

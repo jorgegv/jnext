@@ -4414,6 +4414,7 @@ refused, never truncated: <code>monitor set var g_uint = -1</code> is <code>refu
 monitor set var 1 c = 100
 monitor set var p -&gt; x = 10
 </code></pre>
+<p><code>cvar()</code> and ZRCP carry no <a href="11-c-variables.html#notes-on-a-value">notes</a>; GDB's <code>monitor locals</code>, <code>print</code> and <code>set var</code> print each note in brackets on a line after the value (the 80cc frame-slot note, for example, also after a successful <code>set var</code>).</p>
 <p>GDB answers each with the value read back (<code>(int) g_int = 10</code>), ZRCP with the register line of the stop. A refusal is
 <code>refused:</code> and the reason, and the reply <code>E01</code>, over GDB, and <code>Error changing register</code> over ZRCP, which has no room
 for a reason. A write is a change of the machine like a <code>poke</code>: it is logged as a <code>MUTATE</code> line naming the client,

@@ -1,0 +1,4 @@
+# z88dk 97731e4e2988543e2c849cd1ae1d0aeddf372fcd (master)
++ zcc +zxn -clib=new -compiler=80cc -debug -m --list -subtype=nex -o prog -create-app bits.c
+bits.c:14:17: warning: Value is out of range for assignment [-Wlimited-range]
+rc=0

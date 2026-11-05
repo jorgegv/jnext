@@ -7321,15 +7321,16 @@ int main() {
                   ok, seen);
         }
         {   // SRCDBG-CVAL-40
-            // the same sccz80 build with NO listing beside the map: nothing says ffast is fastcall, so the record is read as written (the documented limit, OD-14a)
+            // the same sccz80 build with NO listing beside the map: nothing flags ffast fastcall, but its entry does (OD-A, GH #438): `call l_debug_push_frame; push hl`
             Machine m(false, MachineType::ZXN_ISSUE2);
             const fs::path d = var_dir("c40", "master/sccz80-fc");   // z88_copy: the map, the NEX and the section binaries, no .lis
             z88_load(m, d / "prog.nex");
             m.dbg->load_program_sidecars((d / "prog.nex").string());
             const bool at = cv_run_to(m, 0x8C62);
+            const bool entry = m.emu.mmu().peek(0x8C62) == 0xCD && m.emu.mmu().peek(0x8C65) == 0xE5;   // call l_debug_push_frame (fc.c.lis: 0000 cd0000, 0003 e5 push hl)
             const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
-            check("SRCDBG-CVAL-40", "ffast's x with no listing: read from the record's slot, with no U1 marker (a value, not a refusal)",
-                  at && x.ok && x.why.find("U1") == std::string::npos);
+            check("SRCDBG-CVAL-40", "ffast's x with no listing is refused `location unknown (z88dk U1...)`: its entry is `call l_debug_push_frame; push hl` (the prologue is the fastcall evidence)",
+                  at && entry && !x.ok && x.why.find("location unknown (z88dk U1") == 0);
         }
         {   // SRCDBG-CVAL-41
             Machine m(false, MachineType::ZXN_ISSUE2);
@@ -8439,6 +8440,557 @@ int main() {
                   lr.count > 0 && !w.ok() && w.status == Result::RefusedReadOnly && w.landed == 1 && w.why == "1 of 2 bytes landed (the rest is read-only)" &&
                       m.emu.mmu().peek(0x4000) == 0x12 && m.emu.mmu().peek(0x3FFF) == rom0 && lines == 1 && m.dbg->state_revision() == rev + 1,
                   w.why + " landed=" + std::to_string(w.landed) + " lines=" + std::to_string(lines) + " rev " + std::to_string(rev) + "->" + std::to_string(m.dbg->state_revision()));
+        }
+
+        // ── GH #438 (E353-08) S1: the markers. Oracle: the C sources of the fixtures (fc.c, fm.c, u5.c, bits.c, vars.c), their maps and listings
+        // (addresses; `call l_debug_push_frame; push hl`; u5.c's `add a,a`), the ABI of the program the machine runs (bytes read independently
+        // of the facade) and z88dk's own issues (#3229, #3231, #3233). Stops are asserted against the map's own line records.
+        const std::string k3233 = "z88dk#3233";
+        const auto zb_at = [&](Machine& m, const char* fixture, const char* tag, const char* line, uint16_t pc, bool lis = false) {
+            const fs::path d = var_dir(tag, fixture);
+            if (lis) z88_copy_lis(fixture, d);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            return cv_starts_at(m, line, pc) && cv_run_to(m, pc);
+        };
+        const auto note80 = [&](const std::vector<std::string>& notes) {
+            for (const auto& n : notes)
+                if (n.find(k3233) != std::string::npos) return true;
+            return false;
+        };
+        const auto u1 = [](const Dbg::CValueResult& r) { return !r.ok && r.why.find("location unknown (z88dk U1") == 0; };
+        // main's `while (1);`: its loop head. The first jump of main (jp, or jr) that lands on or before itself, inside main, found from the entry: sccz80's
+        // `jp i_6` is a jump to itself, 80cc's `ld a,1; or a; jp nz,L_f2_bb_1` jumps back to its `ld a,1`
+        const auto spin_pc = [&](Machine& m, const char* fn) -> int {
+            const auto e = cw_entry(m, fn);
+            if (!e) return -1;
+            const auto at = [&](unsigned a) { return static_cast<unsigned>(m.emu.mmu().peek(static_cast<uint16_t>(a))); };
+            for (unsigned pc = e->address; pc < e->address + 0xC0u; ++pc) {
+                const unsigned op = at(pc);
+                unsigned target = 0;
+                if (op == 0xC3 || op == 0xC2 || op == 0xCA || op == 0xD2 || op == 0xDA || op == 0xE2 || op == 0xEA || op == 0xF2 || op == 0xFA)
+                    target = at(pc + 1) | at(pc + 2) << 8;
+                else if (op == 0x18 || op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38)
+                    target = pc + 2u + static_cast<unsigned>(static_cast<int8_t>(at(pc + 1)));
+                if (target >= e->address && target <= pc) return static_cast<int>(target);
+            }
+            return -1;
+        };
+        const auto spin_at = [&](Machine& m, const char* fixture, const char* tag) {
+            const fs::path d = var_dir(tag, fixture);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const int pc = spin_pc(m, "main");
+            return pc >= 0 && cv_run_to(m, static_cast<uint16_t>(pc));
+        };
+        {   // SRCDBG-ZB-01
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({k80cc_41.fixture, "zb01a", k80cc_41.pc}, m);
+            const auto loc = m.dbg->c_locals(0);
+            bool all = at && loc.ok;
+            std::string seen;
+            for (const char* n : {"a", "b", "p", "k", "t", "acc", "inner"}) {
+                const auto* row = row_of(loc.rows, n);
+                if (!(row && note80(row->notes))) { all = false; seen += std::string(" ") + n; }
+            }
+            const auto* calls = row_of(loc.rows, "calls");
+            const Dbg::CValueResult t = m.dbg->read_c_value(0, "t"), lp = m.dbg->read_c_value(1, "lp"), g = m.dbg->read_c_value(0, "g_int"), sc = m.dbg->read_c_value(0, "sum::calls");
+            bool globals = true;
+            for (const auto& r : m.dbg->c_globals()) globals = globals && !note80(r.notes);
+            // no sccz80 or zsdcc local carries it
+            bool others = true;
+            int n = 0;
+            for (const SumAt& c : {SumAt{"master/sccz80-cvars", "zb01b", 0x8D3E}, SumAt{"master/sdcc-cvars", "zb01c", 0x8C97}, SumAt{"v2.4/sccz80-cvars", "zb01d", 0x8D3E}}) {
+                Machine o(false, MachineType::ZXN_ISSUE2);
+                others = others && at41(c, o);
+                for (const auto& r : o.dbg->c_locals(0).rows) { others = others && !note80(r.notes); ++n; }
+                others = others && !note80(o.dbg->read_c_value(1, "lp").notes);
+            }
+            check("SRCDBG-ZB-01", "master 80cc-cvars at vars.c:41: a, b, p, k, t, acc and inner carry the 80cc note (z88dk#3233) in c_locals(0), t does in read_c_value(0, \"t\") and frame 1's lp "
+                                  "does; read_c_value of the block local inner also says `scope unknown`; sum::calls, g_int and every global do not; no sccz80 or zsdcc local does",
+                  all && calls && !note80(calls->notes) && t.ok && note80(t.notes) && has_note(m.dbg->read_c_value(0, "inner"), "scope unknown") && !has_note(t, "scope unknown") && lp.ok && note80(lp.notes) && g.ok && !note80(g.notes) && sc.ok && !note80(sc.notes) && globals && others && n > 12,
+                  seen + " n=" + std::to_string(n));
+        }
+        {   // SRCDBG-ZB-02
+            // u5.c (z88dk#3233's program): twice(v): r = v + v; r = r + 1. At line 7's start r is in A (the listing's `add a,a`), v = 3, and r's slot was never written
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = zb_at(m, "master/80cc-u5", "zb02", "u5.c:7", 0x8C6C);
+            const unsigned a = m.dbg->registers().AF >> 8;
+            const Dbg::CValueResult r = m.dbg->read_c_value(0, "r"), v = m.dbg->read_c_value(0, "v");
+            check("SRCDBG-ZB-02", "master 80cc-u5 at `r = r + 1;`: A is 6 (v + v, v = 3), r is read from its slot with the 80cc note and the slot does not hold 6 (the stale value the note warns of)",
+                  at && a == 6 && r.ok && note80(r.notes) && r.value != "6" && v.ok && v.value == "3" && note80(v.notes), "A=" + std::to_string(a) + " r=" + (r.ok ? r.value : r.why));
+        }
+        {   // SRCDBG-ZB-03
+            // U1 per function. fc.c: ffast's x is pushed after `call l_debug_push_frame` (the stop is entry + 4, after `push hl`). fm.c: fm(a, b) fastcall, y = a - b = 5 at `return y;`
+            Machine f(false, MachineType::ZXN_ISSUE2);
+            const bool fat = zb_at(f, "master-fixed/sccz80-fc", "zb03a", "fc.c:3", 0x8C62, true) && cv_run_to(f, 0x8C66);
+            const Dbg::CValueResult fx = f.dbg->read_c_value(0, "x");
+            const uint16_t fp = f.dbg->c_frames()[0].fp;
+            Machine g(false, MachineType::ZXN_ISSUE2);
+            const bool gat = zb_at(g, "master-fixed/sccz80-fm", "zb03b", "fm.c:7", 0x8C92, true);
+            Machine p(false, MachineType::ZXN_ISSUE2);
+            const bool pat = zb_at(p, "master/sccz80-fm", "zb03c", "fm.c:7", 0x8C92, true);
+            Machine c(false, MachineType::ZXN_ISSUE2);
+            const bool cat = zb_at(c, "master/80cc-fm", "zb03d", "fm.c:7", 0x8C68, true);
+            const Dbg::CValueResult ca = c.dbg->read_c_value(0, "a"), cb = c.dbg->read_c_value(0, "b");
+            check("SRCDBG-ZB-03", "U1 per function: master-fixed sccz80-fc at ffast's `push hl`: x = 3 at fp-2 (Cpu), no U1; master-fixed fm at `return y;`: a = 7, b = 2, y = 5; master (pre-fix) "
+                                  "sccz80 fm: a and b refused with U1, y = 5; master 80cc fm: a = 7 with no U1 and with the 80cc note, b has no U1 but the 80cc note and reads y's 5 "
+                                  "(its record -2 is y's slot: z88dk#3233 before PR #3244) and both b and y carry `shares its stack slot with <the other>`",
+                  fat && fx.ok && fx.value == "3" && fx.where.kind == Dbg::CWhere::Kind::Cpu && fx.where.cpu == static_cast<uint16_t>(fp - 2) && !u1(fx) &&
+                      gat && cvv(g, 0, "a") == "7" && cvv(g, 0, "b") == "2" && cvv(g, 0, "y") == "5" && pat && u1(p.dbg->read_c_value(0, "a")) && u1(p.dbg->read_c_value(0, "b")) &&
+                      cvv(p, 0, "y") == "5" && cat && ca.ok && ca.value == "7" && !u1(ca) && note80(ca.notes) && cb.ok && !u1(cb) && note80(cb.notes) && cb.value == "5" && cvv(c, 0, "y") == "5" &&
+                      has_note(cb, jnext::dbg::c_shares_note("y").c_str()) && has_note(c.dbg->read_c_value(0, "y"), jnext::dbg::c_shares_note("b").c_str()) && !has_note(ca, "shares its stack slot"),
+                  "x=" + (fx.ok ? fx.value : fx.why) + " b80=" + (cb.ok ? cb.value : cb.why));
+        }
+        {   // SRCDBG-ZB-04
+            // no listing beside any of these maps: the entry bytes decide. ffast: `call l_debug_push_frame; push hl`; fcallee's entry is the same call but no `push hl` after it
+            const auto ffast_x = [&](const char* fixture, const char* tag, uint16_t pc) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = zb_at(m, fixture, tag, "fc.c:3", 0x8C62) && (pc == 0x8C62 || cv_run_to(m, pc));
+                const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
+                return std::make_pair(at, x);
+            };
+            const auto pre24 = ffast_x("v2.4/sccz80-fc", "zb04a", 0x8C62), prem = ffast_x("master/sccz80-fc", "zb04b", 0x8C62), fixd = ffast_x("master-fixed/sccz80-fc", "zb04c", 0x8C66);
+            bool callee = true;
+            for (const SumAt& c : {SumAt{"v2.4/sccz80-fc", "zb04d", 0x8C74}, SumAt{"master/sccz80-fc", "zb04e", 0x8C74}, SumAt{"master-fixed/sccz80-fc", "zb04f", 0x8C74}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                cv_load(m, c.fixture, c.tag);
+                callee = callee && cv_run_to(m, c.pc) && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4";
+            }
+            // the shapes of the evidence, poked into master's entry (not yet executed, at $8C62; l_debug_push_frame is $8B5C): `call l_debug_push_frame; push de; push hl` (a 32-bit parameter) is evidence;
+            // `call l_debug_push_frame; push de` alone and a call to another address are not
+            const auto poked = [&](const char* tag, std::initializer_list<std::pair<uint16_t, uint8_t>> pokes) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = zb_at(m, "master/sccz80-fc", tag, "fc.c:3", 0x8C62);
+                for (const auto& pk : pokes) m.emu.mmu().write(pk.first, pk.second);
+                return std::make_pair(at, m.dbg->read_c_value(0, "x"));
+            };
+            const auto de_hl = poked("zb04h", {{0x8C65, 0xD5}, {0x8C66, 0xE5}}), de_only = poked("zb04i", {{0x8C65, 0xD5}, {0x8C66, 0xC5}}),
+                       other_call = poked("zb04j", {{0x8C63, 0x5D}});
+            check("SRCDBG-ZB-04", "no listing (the entry bytes are the evidence): v2.4 and master sccz80-fc's ffast x is refused with U1, master-fixed's is 3; fcallee's a and b are 4 on all three "
+                                  "(`call l_debug_push_frame` is not enough: only `push hl` after it marks a fastcall function); poked into master's entry, `call l_debug_push_frame; push de; "
+                                  "push hl` is evidence too, `push de` alone and a call to another address are not",
+                  pre24.first && u1(pre24.second) && prem.first && u1(prem.second) && fixd.first && fixd.second.ok && fixd.second.value == "3" && callee && de_hl.first && u1(de_hl.second) &&
+                      de_only.first && !u1(de_only.second) && other_call.first && !u1(other_call.second));
+        }
+        {   // SRCDBG-ZB-05
+            // z88dk#3231: with start/width records the bitfields of g_flags are exact. g_flags poked 8D C8: lo = 5, mid = 17 (byte 0), hi = 200 (byte 1)
+            std::string seen;
+            bool ok = true;
+            for (const SumAt& c : {SumAt{"master-fixed/sccz80-cvars", "zb05a", 0x8D3E}, SumAt{"master-fixed/80cc-cvars", "zb05b", 0x8CB0}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = at41(c, m);
+                const Dbg::CValueResult r0 = m.dbg->read_c_value(0, "g_flags");
+                const uint8_t b[2] = {0x8D, 0xC8};
+                if (r0.where.kind == Dbg::CWhere::Kind::Page) m.dbg->poke(m.a, r0.where.source.space, r0.where.source.address & 0x1FFF, 2, b);
+                const Dbg::CValueResult r = m.dbg->read_c_value(0, "g_flags");
+                if (!(at && r.ok && r.value == "{lo = 5, mid = 17, hi = 200}" && r.notes.empty())) { ok = false; seen += std::string(" ") + c.fixture + ":" + (r.ok ? r.value : r.why); }
+            }
+            check("SRCDBG-ZB-05", "master-fixed sccz80-cvars and 80cc-cvars, g_flags poked 8D C8: {lo = 5, mid = 17, hi = 200} with no note (the SB records are exact)", ok, seen);
+        }
+        {   // SRCDBG-ZB-06
+            // bits.c at `while (1);` (line 15): g_bf, l_bf, g_one. The expected text is the C program's own: lo 5, mid 17, hi 200, neg -3, wide 2748, tag 66; g_one.s = -3
+            const std::string good = "{lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'}";   // tag is a uint8_t: a printable byte shows its character
+            const auto child_type = [&](Machine& m, const char* path, const char* member) {
+                for (const auto& r : m.dbg->c_children(0, path, 0, 16).rows)
+                    if (r.name == member) return r.type;
+                return std::string("-");
+            };
+            struct Bt { const char* fx; const char* tag; uint16_t pc; bool fixed; bool c80; bool zs; };
+            std::string seen;
+            bool ok = true;
+            for (const Bt& c : {Bt{"master-fixed/sccz80-bits", "zb06a", 0x8CE1, true, false, false}, Bt{"master-fixed/80cc-bits", "zb06b", 0x8CFE, true, true, false},
+                                Bt{"master/sdcc-bits", "zb06c", 0x8CB3, true, false, true}, Bt{"master/sccz80-bits", "zb06d", 0x8CE1, false, false, false},
+                                Bt{"master/80cc-bits", "zb06e", 0x8CFE, false, true, false}, Bt{"v2.4/sccz80-bits", "zb06f", 0x8CE1, false, false, false}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = zb_at(m, c.fx, c.tag, "bits.c:15", c.pc);
+                const Dbg::CValueResult gb = m.dbg->read_c_value(0, "g_bf"), lb = m.dbg->read_c_value(0, "l_bf"), go = m.dbg->read_c_value(0, "g_one");
+                bool one;
+                bool marked = true;
+                if (c.fixed) {
+                    one = go.ok && go.value == (c.zs ? "{s = -3}" : "{s = 13}") && child_type(m, "g_bf", "neg") == "int :4" && child_type(m, "g_bf", "lo") == "unsigned int :3" &&
+                          child_type(m, "g_one", "s") == (c.zs ? "int :4" : "unsigned int :4");
+                    marked = gb.ok && gb.value == good && gb.notes.empty() && lb.ok && lb.value == good && note80(lb.notes) == c.c80 && !note80(gb.notes);
+                } else {
+                    // whole-int records: lo, mid, hi and neg are U2-marked, tag is read right; g_one's `{2}SI:U` lies beyond its 1-byte struct
+                    const std::string mark = "[bitfield layout unknown (z88dk U2)]";
+                    marked = gb.ok && gb.value.find("tag = 66 'B'") != std::string::npos && gb.value.find("lo = ") != std::string::npos;
+                    for (const char* mem : {"lo", "mid", "hi", "neg"}) {
+                        const size_t at2 = gb.value.find(std::string(mem) + " = ");
+                        marked = marked && at2 != std::string::npos && gb.value.substr(at2, gb.value.find_first_of(",}", at2) - at2).find(mark) != std::string::npos;
+                    }
+                    marked = marked && lb.ok && lb.value.find("tag = 66 'B'") != std::string::npos && note80(lb.notes) == c.c80;
+                    one = !go.ok && go.why.find("lies beyond the object") != std::string::npos;
+                }
+                if (!(at && one && marked)) { ok = false; seen += std::string(" ") + c.fx + " at=" + std::to_string(at) + " one=" + std::to_string(one) + " marked=" + std::to_string(marked) + " gb=" + (gb.ok ? gb.value : gb.why); }
+            }
+            check("SRCDBG-ZB-06", "bits.c at `while (1);`: g_bf and l_bf are {lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'} on master-fixed sccz80 and 80cc and master zsdcc, neg is `int :4` and lo "
+                                  "`unsigned int :3`; g_one = {s = 13} on fixed sccz80 and 80cc (an int bitfield is unsigned there), {s = -3} on zsdcc; the pre-fix records (v2.4 and master sccz80, "
+                                  "master 80cc) mark lo, mid, hi and neg U2 and read tag = 66 'B', and refuse g_one; the 80cc locals carry the 80cc note, nothing else does",
+                  ok, seen);
+        }
+        {   // SRCDBG-ZB-07
+            // blocks.c (f: t; an `if` block p; a `for` with i; blocks u, v, z / g2: q, a `for (;;)` body w / h: m, a `for` with j) at the first hit of each line, on every sccz80:
+            // the C program computes t = 3 -> 9 -> 12 -> 24, u = 12, v = 12, z = 13, w = 4, h's t = 5 -> 6, m = 5, j = 0. A name listed with a value that is not its own carries `shares`
+            struct Bz { const char* fx; const char* tag; bool fixed; };
+            std::string seen;
+            bool ok = true;
+            const auto shares_of = [&](Machine& m, const char* name) {
+                for (const auto& n : m.dbg->read_c_value(0, name).notes)
+                    if (n.find("shares its stack slot with ") == 0) return n;
+                return std::string();
+            };
+            const auto listed = [&](Machine& m, const char* name) { return row_of(m.dbg->c_locals(0).rows, name) != nullptr; };
+            // the Variables tab's rows (c_locals) carry the same note as read_c_value
+            const auto row_shares = [&](Machine& m, const char* name) {
+                const auto rows = m.dbg->c_locals(0).rows;
+                const auto* r = row_of(rows, name);
+                if (r)
+                    for (const auto& n : r->notes)
+                        if (n.find("shares its stack slot with ") == 0) return n;
+                return std::string();
+            };
+            for (const Bz& c : {Bz{"v2.4/sccz80-blocks", "zb07a", false}, Bz{"master/sccz80-blocks", "zb07b", false}, Bz{"master-fixed/sccz80-blocks", "zb07c", true}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                cv_load(m, c.fx, c.tag);
+                const bool f8 = cv_starts_at(m, "blocks.c:8", 0x8CB4) && cv_run_to(m, 0x8CB4);
+                const bool a8 = cvv(m, 0, "t") == "3" && cvv(m, 0, "p") == "6" && (c.fixed ? !listed(m, "i") : (listed(m, "i") && shares_of(m, "p") == jnext::dbg::c_shares_note("i") && shares_of(m, "i") == jnext::dbg::c_shares_note("p") &&
+                                                                                    row_shares(m, "p") == jnext::dbg::c_shares_note("i") && row_shares(m, "i") == jnext::dbg::c_shares_note("p")));
+                const bool f11 = cv_starts_at(m, "blocks.c:11", 0x8CDD) && cv_run_to(m, 0x8CDD);
+                const bool a11 = cvv(m, 0, "t") == "9" && (c.fixed ? cvv(m, 0, "i") == "0" && !listed(m, "p") : (!listed(m, "i") && !listed(m, "p")));
+                const bool f17 = cv_starts_at(m, "blocks.c:17", 0x8CF7) && cv_run_to(m, 0x8CF7);
+                const bool a17 = cvv(m, 0, "t") == "12" && cvv(m, 0, "u") == "12" && cvv(m, 0, "v") == "12" &&
+                                 (c.fixed ? shares_of(m, "v") == jnext::dbg::c_shares_note("z") && shares_of(m, "z") == jnext::dbg::c_shares_note("v") && row_shares(m, "v") == jnext::dbg::c_shares_note("z") &&
+                                                  row_shares(m, "z") == jnext::dbg::c_shares_note("v") : (shares_of(m, "v").empty() && !listed(m, "z")));
+                const bool f20 = cv_starts_at(m, "blocks.c:20", 0x8D0E) && cv_run_to(m, 0x8D0E);
+                const bool a20 = cvv(m, 0, "t") == "24" && cvv(m, 0, "u") == "12" && !listed(m, "v") && (c.fixed ? cvv(m, 0, "z") == "13" && shares_of(m, "z").empty() : !listed(m, "z"));
+                const bool g32 = cv_starts_at(m, "blocks.c:32", 0x8D42) && cv_run_to(m, 0x8D42);
+                const bool ag = cvv(m, 0, "w") == "4" && !listed(m, "q");
+                const bool h42 = cv_starts_at(m, "blocks.c:42", 0x8D7A) && cv_run_to(m, 0x8D7A);
+                const bool ah = cvv(m, 0, "t") == "5" && cvv(m, 0, "m") == "5" && cvv(m, 0, "j") == "0";
+                const bool h44 = cv_starts_at(m, "blocks.c:44", 0x8D90) && cv_run_to(m, 0x8D90);
+                const bool ah2 = cvv(m, 0, "t") == "6" && cvv(m, 0, "m") == "5" && !listed(m, "j");
+                if (!(f8 && a8 && f11 && a11 && f17 && a17 && f20 && a20 && g32 && ag && h42 && ah && h44 && ah2)) {
+                    ok = false;
+                    seen += std::string(" ") + c.fx + ":" + (f8 ? "" : "!f8") + (a8 ? "" : "!a8") + (f11 ? "" : "!f11") + (a11 ? "" : "!a11") + (f17 ? "" : "!f17") + (a17 ? "" : "!a17") + (f20 ? "" : "!f20") +
+                            (a20 ? "" : "!a20") + (g32 ? "" : "!g32") + (ag ? "" : "!ag") + (h42 ? "" : "!h42") + (ah ? "" : "!ah") + (h44 ? "" : "!h44") + (ah2 ? "" : "!ah2");
+                }
+            }
+            check("SRCDBG-ZB-07", "blocks.c at the first hit of f:8 (t 3, p 6), f:11 (t 9), f:17 (t, u, v = 12, 12, 12), f:20 (t 24, u 12), g2:32 (w 4, not q), h:42 (t 5, m 5, j 0) and h:44 (t 6, m 5, no j) on v2.4, "
+                                  "master and master-fixed sccz80: v2.4 and master list `i` at f:8 sharing p's slot (both marked, neither hidden) and not at f:11 or f:20's z; master-fixed lists i = 0 at f:11, z = 13 "
+                                  "at f:20 and marks v/z at f:17",
+                  ok, seen);
+        }
+        {   // SRCDBG-ZB-08
+            // fm.c at main's `while (1);`: ls = "loc", static ss = "stat", file static fs = "file", global gs = "glob", each with its NUL
+            const auto txt = [&](Machine& m, const char* name) { const Dbg::CValueResult r = m.dbg->read_c_value(0, name); return r.ok ? r.value : "!" + r.why; };
+            const std::string unk = "!an array of unknown length: its debug record has no size";
+            Machine f(false, MachineType::ZXN_ISSUE2);
+            const bool fat = spin_at(f, "master-fixed/sccz80-fm", "zb08a");
+            Machine p(false, MachineType::ZXN_ISSUE2);
+            const bool pat = spin_at(p, "master/sccz80-fm", "zb08b");
+            Machine v(false, MachineType::ZXN_ISSUE2);
+            const bool vat = spin_at(v, "v2.4/sccz80-fm", "zb08c");
+            Machine c(false, MachineType::ZXN_ISSUE2);
+            const bool cat = spin_at(c, "master/80cc-fm", "zb08d");
+            const Dbg::CValueResult cls = c.dbg->read_c_value(0, "ls");
+            const std::string want_ls = "\"loc\\0\"", want_ss = "\"stat\\0\"", want_fs = "\"file\\0\"", want_gs = "\"glob\\0\"";
+            check("SRCDBG-ZB-08", "fm.c at main's `while (1);`: master-fixed sccz80 reads ls \"loc\\0\", ss \"stat\\0\", fs \"file\\0\" and gs \"glob\\0\" (every byte, #437's rule); v2.4 and master sccz80 refuse ls, ss "
+                                  "and fs (`an array of unknown length: its debug record has no size`) and read gs as fixed; master 80cc reads ls with the 80cc note (the value is not asserted) and "
+                                  "refuses ss and fs",
+                  fat && txt(f, "ls") == want_ls && txt(f, "ss") == want_ss && txt(f, "fs") == want_fs && txt(f, "gs") == want_gs && pat && txt(p, "ls") == unk && txt(p, "ss") == unk &&
+                      txt(p, "fs") == unk && txt(p, "gs") == want_gs && vat && txt(v, "ls") == unk && txt(v, "gs") == want_gs && cat && cls.ok && note80(cls.notes) && txt(c, "ss") == unk &&
+                      txt(c, "fs") == unk && txt(c, "gs") == want_gs,
+                  "fixed ls=" + txt(f, "ls") + " ss=" + txt(f, "ss") + " fs=" + txt(f, "fs") + " gs=" + txt(f, "gs") + " | 80cc ls=" + txt(c, "ls") + " ss=" + txt(c, "ss"));
+        }
+        {   // SRCDBG-ZB-09
+            // writes: an 80cc frame-slot variable is written, and the result carries the note (the Qt panel and `monitor set var` print it)
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({k80cc_41.fixture, "zb09a", k80cc_41.pc}, m);
+            const Dbg::CWriteResult w = wr(m, 0, "t", "1000");
+            Machine s(false, MachineType::ZXN_ISSUE2);
+            const bool sat = at41({kSccz80_41.fixture, "zb09b", kSccz80_41.pc}, s);
+            const Dbg::CWriteResult sw = wr(s, 0, "t", "1000");
+            // the writer of the readers' refusals: a float of an mbf32 map is refused (bytes unchanged), of a math32 map stored as IEEE; U1 with no listing is refused too
+            const auto float_map = [&](const char* name, const char* lib_line) {
+                auto fmp = std::make_unique<Machine>(false, MachineType::ZXN_ISSUE2);
+                Machine& fm = *fmp;
+                const std::string map = (z / name).string();
+                write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                                "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                                "__code_compiler_tail = $8040 ; const, public, def, , ,\n" + std::string(lib_line) +
+                                "_gf = $9000 ; addr, public, , t_c, data_compiler, t.c:3\n" +
+                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gf$0_0$0({4}SF:S),E,0,0", "t_c"));
+                fm.dbg->load_source_map(map, true);
+                const Bytes before = cpk(fm, 0x9000, 4);
+                const CwTry t = attempt(fm, 0, "gf", std::string("1") + ".5");
+                return std::make_tuple(std::move(fmp), t, before);
+            };
+            auto mbf = float_map("zb09m.map", "__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n");
+            auto m32 = float_map("zb09n.map", "__code_fp_math32_size = $001D ; const, public, def, , ,\n");
+            // the guard binds the writer: b's record (-2) is y's slot on 80cc, v and z share one in master-fixed's blocks.c; a write to either is refused, the other keeps its value
+            Machine sb(false, MachineType::ZXN_ISSUE2);
+            const bool sbat = zb_at(sb, "master/80cc-fm", "zb09d", "fm.c:7", 0x8C68);
+            const CwTry bw = attempt(sb, 0, "b", "9");
+            Machine sz(false, MachineType::ZXN_ISSUE2);
+            const bool szat = zb_at(sz, "master-fixed/sccz80-blocks", "zb09e", "blocks.c:17", 0x8CF7);
+            const CwTry zw = attempt(sz, 0, "z", "5");
+            const CwTry vw = attempt(sz, 0, "v", "5");
+            Machine ul(false, MachineType::ZXN_ISSUE2);
+            const bool uat = zb_at(ul, "master/sccz80-fc", "zb09c", "fc.c:3", 0x8C62);
+            const CwTry u1w = attempt(ul, 0, "x", "5");
+            check("SRCDBG-ZB-09", "write t := 1000 at master 80cc vars.c:41 succeeds and its CWriteResult.notes holds the 80cc note, and t reads back 1000; the same write on sccz80 succeeds with no "
+                                  "note; the readers' refusals bind the writer: a float global of an mbf32 map is refused and its bytes stay, in a math32 map the value lands as IEEE (00 00 C0 3F), "
+                                  "and ffast's x with no listing (entry evidence) is refused with U1; a variable that shares its stack slot is refused (80cc b with y, master-fixed's z with v) and the other keeps its value",
+                  at && w.ok() && note80(w.notes) && w.value == "1000" && cvv(m, 0, "t") == "1000" && sat && sw.ok() && sw.notes.empty() &&
+                      refused_with(std::get<1>(mbf), "float format mbf32 is not read") && cpk(*std::get<0>(mbf), 0x9000, 4) == std::get<2>(mbf) && std::get<1>(m32).w.ok() &&
+                      cpk(*std::get<0>(m32), 0x9000, 4) == Bytes{0, 0, 0xC0, 0x3F} && uat && refused_with(u1w, "location unknown (z88dk U1") &&
+                      sbat && refused_with(bw, "shares its stack slot with y") && cvv(sb, 0, "y") == "5" && szat && refused_with(zw, "shares its stack slot with v") && refused_with(vw, "shares its stack slot with z") &&
+                      cvv(sz, 0, "v") == "12");
+        }
+        {   // SRCDBG-ZB-10
+            // z88dk#3262 + #3265 on real records: master-fixed-zsdcc/sdcc-cvars has no TAB in its C_LINE records and the -debug module names of the whole path. The program
+            // and its code are those of master/sdcc-cvars (vars.c:41 is $8C97 in both), so CVAL-30's values are the oracle
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({"master-fixed-zsdcc/sdcc-cvars", "zb10", 0x8C97}, m);
+            const Dbg::CValueResult t = m.dbg->read_c_value(0, "t");
+            const Dbg::CValueResult acc = m.dbg->read_c_value(0, "acc");
+            const Dbg::CValueResult inner = m.dbg->read_c_value(0, "inner");
+            const auto loc = m.dbg->c_locals(0);
+            check("SRCDBG-ZB-10", "master-fixed-zsdcc sdcc-cvars (C_LINE without the TAB) at vars.c:41: a=0 b=-5 k=120 'x' calls=1 *p as on master; t is 122 read from BC with the stale note; "
+                                  "acc is optimised out; `inner` is hidden (out of scope) and not listed",
+                  at && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "calls") == "1" &&
+                      cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" && t.ok && t.value == "122" && t.where.kind == Dbg::CWhere::Kind::Register &&
+                      has_note(t, "in BC; may be stale") && !acc.ok && acc.why == "optimised out" && !inner.ok &&
+                      inner.why == "out of scope at vars.c:41" && loc.ok && row_of(loc.rows, "a") && row_of(loc.rows, "k") && !row_of(loc.rows, "inner"));
+        }
+        {   // SRCDBG-ZB-11
+            // z88dk#3241: N:/E: records beside the S: record of an enum variable. g_colour is BLUE (6), read from its S: record, as on master (CVAL-34)
+            bool ok = true;
+            std::string seen;
+            for (const SumAt& c : {SumAt{"master-fixed/sccz80-cvars", "zb11a", 0x8D3E}, SumAt{"master-fixed/80cc-cvars", "zb11b", 0x8CB0}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = at41(c, m);
+                const std::string got = cvv(m, 0, "g_colour") + "/" + cvv(m, 0, "g_int") + "/" + cvv(m, 0, "g_byte");
+                if (!(at && got == "6/-5/7")) { ok = false; seen += std::string(" ") + c.fixture + ":" + got; }
+            }
+            check("SRCDBG-ZB-11", "master-fixed sccz80-cvars and 80cc-cvars at vars.c:41 (maps with N: and E: enum records): g_colour reads 6 (BLUE) from its S: record, with g_int and g_byte as before", ok, seen);
+        }
+        // master-fixed-80cc/80cc-scope: load the fixture (with its listings when `lis`) and run to `pc`
+        const auto lz = [&](Machine& m, const char* tag, uint16_t pc, bool lis) {
+            const fs::path d = var_dir(tag, "master-fixed-80cc/80cc-scope");
+            if (lis) z88_copy_lis("master-fixed-80cc/80cc-scope", d);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            return cv_run_to(m, pc);
+        };
+        {   // SRCDBG-ZB-12
+            // 80cc with PR #3243 (master-fixed-80cc/80cc-scope, f3254.c; f is entered at $8C49). Oracle: the C program's own scopes. f's locals: t (level 1), p (inside the `if`), i (the outer `for`), j (the inner,
+            // brace-less `for`). At L6 (`t += p`, $8C68) p is in scope and i, j are not; in the inner loop (the third `C_LINE 10` of the listing, `j++`, $8CBE) i and j are in scope
+            // and p is not; at `return t` (L13, $8C9A) only t is. Without the listing beside the map no scope is exact, and every block local is flagged
+            const auto names = [&](Machine& m) {
+                std::string out;
+                const auto loc = m.dbg->c_locals(0);
+                for (const auto& r : loc.rows) {
+                    if (r.kind == Dbg::CValueRow::Kind::Param) continue;
+                    bool unk = false;
+                    for (const auto& n : r.notes) unk = unk || n.find("scope unknown") != std::string::npos;
+                    out += (out.empty() ? "" : " ") + r.name + (unk ? "?" : "");
+                }
+                return out;
+            };
+            std::string got;
+            const auto at = [&](const char* tag, uint16_t pc, bool lis) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool ok = lz(m, tag, pc, lis);
+                const std::string n = names(m);
+                std::vector<std::string> v;
+                std::istringstream is(n);
+                for (std::string w; is >> w;) v.push_back(w);
+                std::sort(v.begin(), v.end());
+                std::string row;
+                for (const auto& w : v) row += (row.empty() ? "" : " ") + w;
+                got += std::string(ok ? "" : "[no stop]") + row + "|";
+                return row;
+            };
+            const std::string l6 = at("zb12a", 0x8C68, true), loop = at("zb12b", 0x8CBE, true), l13 = at("zb12c", 0x8C9A, true);
+            const std::string n6 = at("zb12d", 0x8C68, false), nloop = at("zb12e", 0x8CBE, false), n13 = at("zb12f", 0x8C9A, false);
+            check("SRCDBG-ZB-12", "master-fixed-80cc f3254.c with the listing beside the map (GH #438 S4b: an 80cc block local is never plain): at `t += p` p is listed flagged `scope unknown` and t plain; in the inner loop (third `C_LINE 10`) i and j are listed flagged `scope unknown`, t plain, "
+                                  "p absent; at `return t` only t is. With no listing at the same three stops every block local is flagged (i? j? p?) and t is plain",
+                  l6 == "p? t" && loop == "i? j? t" && l13 == "t" && n6 == "i? j? p? t" && nloop == "i? j? p? t" && n13 == "i? j? p? t", got);
+        }
+        {   // SRCDBG-ZB-13
+            // writes, same fixture and stops: p at `t += p` is proven in scope, so p := 5 succeeds and carries the 80cc frame-slot note; i in the inner loop is `scope unknown`, so i := 1 is refused
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const fs::path d = var_dir("zb13a", "master-fixed-80cc/80cc-scope");
+            z88_copy_lis("master-fixed-80cc/80cc-scope", d);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const bool at6 = cv_run_to(m, 0x8C68);
+            const CwTry wp = attempt(m, 0, "p", "5");
+            Machine l(false, MachineType::ZXN_ISSUE2);
+            const bool atl = lz(l, "zb13b", 0x8CBE, true);
+            const CwTry wi = attempt(l, 0, "i", "1");
+            check("SRCDBG-ZB-13", "master-fixed-80cc f3254.c with the listing (GH #438 S4b: an 80cc block local is never plain): at `t += p` p := 5 is refused `scope unknown` (nothing is written) and the read of p carries the "
+                  "`scope unknown` note; in the inner loop i := 1 is refused the same way",
+                  at6 && refused_with(wp, "scope unknown") && has_note(m.dbg->read_c_value(0, "p"), "scope unknown") && atl && refused_with(wi, "scope unknown"));
+        }
+        // S4b fixtures: load a fixture (with its listings when `lis`) and run to `pc`
+        const auto lzf = [&](Machine& m, const char* fixture, const char* tag, uint16_t pc, bool lis) {
+            const fs::path d = var_dir(tag, fixture);
+            if (lis) z88_copy_lis(fixture, d);
+            else z88_copy(fixture, d);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            return cv_run_to(m, pc);
+        };
+        const auto trows = [&](Machine& m, const char* name) {
+            std::vector<Dbg::CValueRow> out;
+            for (const auto& r : m.dbg->c_locals(0).rows)
+                if (r.name == name) out.push_back(r);
+            return out;
+        };
+        const auto row_has = [](const Dbg::CValueRow& r, const char* part) {
+            for (const auto& n : r.notes)
+                if (n.find(part) != std::string::npos) return true;
+            return false;
+        };
+        {   // SRCDBG-ZB-14
+            // shadowing, sccz80 (master-fixed-sccz80/sccz80-shadow, shadow.c): at `g += t` (line 8, $8C76) the inner t (block 2) is 5 and the outer t is 3. The innermost wins, as in gdb
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = lzf(m, "master-fixed-sccz80/sccz80-shadow", "zb14", 0x8C76, true);
+            const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
+            const auto rows = trows(m, "t");
+            const bool two = rows.size() == 2;
+            const bool marked = two && (row_has(rows[0], "shadowed") != row_has(rows[1], "shadowed"));
+            const Dbg::CValueRow* outer = two ? (row_has(rows[0], "shadowed") ? &rows[0] : &rows[1]) : nullptr;
+            const Dbg::CValueRow* inner = two ? (outer == &rows[0] ? &rows[1] : &rows[0]) : nullptr;
+            const Dbg::CWriteResult w = wr(m, 0, "t", "7");
+            const auto after = trows(m, "t");
+            const bool wrote = after.size() == 2 && ((after[0].value == "7" && after[1].value == "3") || (after[0].value == "3" && after[1].value == "7"));
+            check("SRCDBG-ZB-14", "sccz80 shadow.c at `g += t`: read t is 5 (the inner one) with no ambiguity or scope note; c_locals has two t rows, the outer (3) marked `shadowed` and the inner (5) not; t := 7 writes the inner one "
+                                  "(the rows read 7 and 3 afterwards)",
+                  at && rd.ok && rd.value == "5" && !has_note(rd, "ambiguous") && !has_note(rd, "scope unknown") && marked && outer && inner && outer->value == "3" && inner->value == "5" && w.ok() && wrote);
+        }
+        {   // SRCDBG-ZB-15
+            // the same, 80cc ($8C64): the inner t is a block local, never certain, so the read is noted `ambiguous` and `scope unknown`, the outer row is `may be shadowed`, and t := 7 is refused
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = lzf(m, "master-fixed-80cc/80cc-shadow", "zb15", 0x8C64, true);
+            const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
+            const auto rows = trows(m, "t");
+            int may = 0, unk = 0;
+            for (const auto& r : rows) {
+                may += row_has(r, "may be shadowed");
+                unk += row_has(r, "scope unknown");
+            }
+            const CwTry w = attempt(m, 0, "t", "7");
+            check("SRCDBG-ZB-15", "80cc shadow.c at `g += t`: read t is ok with the notes `ambiguous: 2 variables named t ...` and `scope unknown`; of the two t rows one is `may be shadowed` and one `scope unknown`; "
+                                  "t := 7 is refused (`scope unknown`, nothing written)",
+                  at && rd.ok && has_note(rd, "ambiguous: 2 variables named t") && has_note(rd, "scope unknown") && rows.size() == 2 && may == 1 && unk == 1 && refused_with(w, "scope unknown"));
+        }
+        {   // SRCDBG-ZB-16
+            // zsdcc ($8C56, shadow.c line 8): zsdcc keeps the outer t in DE and records the inner t (5, a constant) as `[]`, optimised out. The innermost still wins: t reads `optimised out`, not the outer's value
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = lzf(m, "master-fixed-zsdcc/sdcc-shadow", "zb16", 0x8C56, true);
+            const Dbg::CValueResult rd = m.dbg->read_c_value(0, "t");
+            const auto rows = trows(m, "t");
+            int shadowed = 0;
+            for (const auto& r : rows) shadowed += row_has(r, "shadowed") && !row_has(r, "may be shadowed");
+            const CwTry w = attempt(m, 0, "t", "7");
+            check("SRCDBG-ZB-16", "zsdcc shadow.c at `g += t`: two t rows, the outer (register DE) marked `shadowed`; read t is the inner one, `optimised out`; t := 7 is refused",
+                  at && rows.size() == 2 && shadowed == 1 && !rd.ok && rd.why == "optimised out" && !w.w.ok());
+        }
+        {   // SRCDBG-ZB-18
+            // block-scoped statics, sccz80 (statics.c): f's `static int16_t t` lives in the innermost block (lines 9-12), f2's in its inner block. The identity of the variable a name means is read from where it
+            // lives: a static is in a data page (`Kind::Page`, here $8EF3 and $8EF5, the map's `_st_f_t` and `_st_f2_t`), a local on the stack (`Kind::Cpu`). (sccz80 itself never uses the static: it
+            // resolves `t` to the outer local in the block, so the VALUES say nothing about which record the debugger picked.) Inside the static's block the static wins and the local is `shadowed`;
+            // outside it `t` is the local alone
+            const char* fx = "master-fixed-sccz80/sccz80-static";
+            Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2), f2out(false, MachineType::ZXN_ISSUE2);
+            const bool a1 = lzf(in, fx, "zb18a", 0x8C9F, true), a2 = lzf(out, fx, "zb18b", 0x8CAE, true), a3 = lzf(f2in, fx, "zb18c", 0x8CD4, true), a4 = lzf(f2out, fx, "zb18d", 0x8CD9, true);
+            const Dbg::CValueResult rin = in.dbg->read_c_value(0, "t"), rout = out.dbg->read_c_value(0, "t"), r2in = f2in.dbg->read_c_value(0, "t"), r2out = f2out.dbg->read_c_value(0, "t");
+            const auto rows_in = trows(in, "t"), rows_out = trows(out, "t"), rows_f2out = trows(f2out, "t");
+            int page = 0, cpu = 0, shadowed_cpu = 0;
+            for (const auto& r : rows_in) {
+                page += r.where.kind == Dbg::CWhere::Kind::Page;
+                cpu += r.where.kind == Dbg::CWhere::Kind::Cpu;
+                shadowed_cpu += r.where.kind == Dbg::CWhere::Kind::Cpu && row_has(r, "shadowed");
+            }
+            const Dbg::CWriteResult win = wr(in, 0, "t", "9");
+            int nine_page = 0;
+            for (const auto& r : trows(in, "t")) nine_page += r.where.kind == Dbg::CWhere::Kind::Page && r.value == "9";
+            const Dbg::CWriteResult wout = wr(out, 0, "t", "5");
+            const auto rout2 = trows(out, "t");
+            check("SRCDBG-ZB-18", "sccz80 statics.c: inside the static's block t is the static (a Page place at $8EF3), the stack local is the other t row and `shadowed`, and t := 9 writes the static; outside it (`g += t`) "
+                                  "there is one t row, on the stack, t reads it and t := 5 writes it; in f2 the inner static ($8EF5) wins at `g = t` and the block local (stack) is the only t at `g += t`",
+                  a1 && a2 && a3 && a4 && rin.ok && rin.where.kind == Dbg::CWhere::Kind::Page && rin.where.source.address == 0x8EF3 && rows_in.size() == 2 && page == 1 && cpu == 1 && shadowed_cpu == 1 &&
+                      win.ok() && nine_page == 1 && rout.ok && rout.where.kind == Dbg::CWhere::Kind::Cpu && rows_out.size() == 1 && wout.ok() && rout2.size() == 1 && rout2[0].value == "5" &&
+                      r2in.ok && r2in.where.kind == Dbg::CWhere::Kind::Page && r2in.where.source.address == 0x8EF5 && r2out.ok && r2out.where.kind == Dbg::CWhere::Kind::Cpu && rows_f2out.size() == 1);
+        }
+        {   // SRCDBG-ZB-19
+            // the same on 80cc: the static is a block local to the PC's scope, never certain. Inside its block t reads with `ambiguous` and `scope unknown` and the write is refused; outside (F1: a later block)
+            // the static is hidden and the level-1 local (on the stack) is the only t, with no ambiguity and a successful write; in f2 at `g = t` the pick is ambiguous and the write refused, at `g += t`
+            // the lone block-local t is flagged but NOT ambiguous (one candidate: certain)
+            const char* fx = "master-fixed-80cc/80cc-static";
+            Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2), f2out(false, MachineType::ZXN_ISSUE2);
+            const bool a1 = lzf(in, fx, "zb19a", 0x8C75, true), a2 = lzf(out, fx, "zb19b", 0x8C7A, true), a3 = lzf(f2in, fx, "zb19c", 0x8CA4, true), a4 = lzf(f2out, fx, "zb19d", 0x8CAA, true);
+            const Dbg::CValueResult rin = in.dbg->read_c_value(0, "t"), rout = out.dbg->read_c_value(0, "t"), r2in = f2in.dbg->read_c_value(0, "t"), r2out = f2out.dbg->read_c_value(0, "t");
+            const auto rows_in = trows(in, "t"), rows_out = trows(out, "t"), rows_f2out = trows(f2out, "t");
+            int may = 0;
+            for (const auto& r : rows_in) may += row_has(r, "may be shadowed");
+            const CwTry win = attempt(in, 0, "t", "9"), w2in = attempt(f2in, 0, "t", "9");
+            const Dbg::CWriteResult wout = wr(out, 0, "t", "5");
+            check("SRCDBG-ZB-19", "80cc statics.c: inside the static's block t is ok with `ambiguous: 2 variables named t` and `scope unknown` (the static, a Page place), the other row is `may be shadowed`, t := 9 is refused; at "
+                                  "`g += t` there is one t row, on the stack, with no ambiguity note, and t := 5 writes it; in f2 at `g = t` the pick is ambiguous and the write refused, at `g += t` the lone block-local t "
+                                  "reads with `scope unknown` and NO `ambiguous` note",
+                  a1 && a2 && a3 && a4 && rin.ok && rin.where.kind == Dbg::CWhere::Kind::Page && has_note(rin, "ambiguous: 2 variables named t") && has_note(rin, "scope unknown") && rows_in.size() == 2 && may == 1 &&
+                      refused_with(win, "scope unknown") && rout.ok && rout.where.kind == Dbg::CWhere::Kind::Cpu && !has_note(rout, "ambiguous") && rows_out.size() == 1 && wout.ok() && r2in.ok &&
+                      has_note(r2in, "ambiguous: 2 variables named t") && refused_with(w2in, "scope unknown") && r2out.ok && has_note(r2out, "scope unknown") && !has_note(r2out, "ambiguous") &&
+                      rows_f2out.size() == 1);
+        }
+        {   // SRCDBG-ZB-20
+            // zsdcc (exact blocks), statics.c: the outer t lives in DE and the inner static t (E space, a Page place) is the pick at `g = t + u`; outside its block t is the register local only
+            const char* fx = "master-fixed-zsdcc/sdcc-static";
+            Machine in(false, MachineType::ZXN_ISSUE2), out(false, MachineType::ZXN_ISSUE2), f2in(false, MachineType::ZXN_ISSUE2);
+            const bool a1 = lzf(in, fx, "zb20a", 0x8C71, true), a2 = lzf(out, fx, "zb20b", 0x8C78, true), a3 = lzf(f2in, fx, "zb20c", 0x8C9D, true);
+            const auto rin = trows(in, "t"), rout = trows(out, "t");
+            int shadowed = 0, page = 0;
+            for (const auto& r : rin) {
+                shadowed += row_has(r, "shadowed") && !row_has(r, "may be shadowed");
+                page += r.where.kind == Dbg::CWhere::Kind::Page;
+            }
+            const Dbg::CValueResult ri = in.dbg->read_c_value(0, "t"), r2 = f2in.dbg->read_c_value(0, "t");
+            check("SRCDBG-ZB-20", "zsdcc statics.c: inside the static's block there are two t rows (the register local `shadowed`, the static a Page place) and t reads the static, in f2 too; outside it there is one t row, "
+                                  "the register local",
+                  a1 && a2 && a3 && rin.size() == 2 && shadowed == 1 && page == 1 && ri.ok && ri.where.kind == Dbg::CWhere::Kind::Page && r2.ok && r2.where.kind == Dbg::CWhere::Kind::Page && rout.size() == 1 &&
+                      rout[0].where.kind != Dbg::CWhere::Kind::Page);
+        }
+        {   // SRCDBG-ZB-17
+            // review 7 F1: 80cc stamps code with the scope of a block the code is not in (master-fixed-80cc/80cc-ifelse, ifelse.c, listing beside the map). The oracle is the C program: at the PCs below
+            // only t (and i, k, t in d2) is in scope or maybe, and q is NOT in scope. (1) f1: the jump that ends the then-branch ($8C91, listed on the else line, block 3); (2) k9: the jump that ends a
+            // brace-less then-branch ($8D72); (3) c1: the epilogue after a trailing block ($8DBD); (4) d2: the multiply hoisted before the loop ($8DDD). No block local is plain; q is flagged, a read
+            // of q carries `scope unknown` and q := 1 is refused; d2's parameters are a and c, 80cc's temporary 1licm_0 is not listed
+            const auto names = [&](Machine& m, bool params) {
+                std::vector<std::string> v;
+                for (const auto& r : m.dbg->c_locals(0).rows) {
+                    if ((r.kind == Dbg::CValueRow::Kind::Param) != params) continue;
+                    v.push_back(r.name + (row_has(r, "scope unknown") ? "?" : ""));
+                }
+                std::sort(v.begin(), v.end());
+                std::string out;
+                for (const auto& x : v) out += (out.empty() ? "" : " ") + x;
+                return out;
+            };
+            Machine m1(false, MachineType::ZXN_ISSUE2), m2(false, MachineType::ZXN_ISSUE2), m3(false, MachineType::ZXN_ISSUE2), m4(false, MachineType::ZXN_ISSUE2);
+            const bool a1 = lzf(m1, "master-fixed-80cc/80cc-ifelse", "zb17a", 0x8C91, true), a2 = lzf(m2, "master-fixed-80cc/80cc-ifelse", "zb17b", 0x8D72, true),
+                       a3 = lzf(m3, "master-fixed-80cc/80cc-ifelse", "zb17c", 0x8DBD, true), a4 = lzf(m4, "master-fixed-80cc/80cc-ifelse", "zb17d", 0x8DDD, true);
+            const std::string n1 = names(m1, false), n2 = names(m2, false), n3 = names(m3, false), n4 = names(m4, false), p4 = names(m4, true);
+            const Dbg::CValueResult rq = m1.dbg->read_c_value(0, "q");
+            const CwTry wq = attempt(m1, 0, "q", "1");
+            check("SRCDBG-ZB-17", "master-fixed-80cc ifelse.c with the listing, at the jump that ends f1's then-branch, k9's brace-less then-branch jump, c1's epilogue and d2's hoisted multiply: the block locals are "
+                                  "`q? t`, `q? t`, `q? t` and `i? k? t` (never plain); read q carries `scope unknown` and q := 1 is refused; d2's parameters are `a c` and nothing is named 1licm_0",
+                  a1 && a2 && a3 && a4 && n1 == "q? t" && n2 == "q? t" && n3 == "q? t" && n4 == "i? k? t" && p4 == "a c" && rq.ok && has_note(rq, "scope unknown") && refused_with(wq, "scope unknown"),
+                  n1 + " | " + n2 + " | " + n3 + " | " + n4 + " | " + p4);
         }
     }
 

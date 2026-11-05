@@ -363,7 +363,15 @@ void VariablesPanel::commit_edit(QTreeWidgetItem* item, const QString& text)
     const Debugger::CWriteResult w = dbg_->write_c_value(client_, static_cast<size_t>(frame_), path.toStdString(), v);
     if (w.ok()) {
         // the write bumped the backend's revision: the manager's next paused tick redraws every panel, this one with the value read back
-        message_->hide();
+        // (GH #438: a note the object's read carries, 80cc's frame-slot one, says here that the write may not be what the program sees)
+        if (w.notes.empty()) {
+            message_->hide();
+        } else {
+            QStringList notes;
+            for (const std::string& n : w.notes) notes << QString::fromStdString(n);
+            message_->setText(path + ": " + notes.join("; "));
+            message_->show();
+        }
         return;
     }
     message_->setText(path + ": " + QString::fromStdString(w.why));

@@ -29,7 +29,10 @@ namespace dbg {
 inline constexpr std::string_view kCdbPrefix = "__CDBINFO__";
 
 /// The record kind: its first letter (`F:` `M:` `S:` `T:`).
-enum class CdbKind { Function, Module, Variable, Type };
+/// Enum: the `N:` enum definition and the `E:` enum-typed variable record that z88dk's sccz80 and 80cc write since z88dk#3241. The
+/// `S:` record of the same variable is still written with the plain integer type, which is what jnext reads; an Enum record is
+/// recognised (its name is kept) and not interpreted.
+enum class CdbKind { Function, Module, Variable, Type, Enum };
 
 /// Where the name lives: `G` global, `F<file>` file scope, `L<file>.<function>`
 /// a function's locals and parameters. A module record and a type record's

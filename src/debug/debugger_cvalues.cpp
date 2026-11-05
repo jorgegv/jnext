@@ -148,6 +148,32 @@ CFormatCtx var_ctx(const Env& e, const CVariable& v)
     return ctx;
 }
 
+// z88dk#3233: 80cc may leave a local in a register, and records a register-passed parameter at its nominal slot, which can be
+// another variable's. A stack variable of an 80cc function is therefore shown with this note, whatever its offset.
+const char* const k80ccSlot =
+    "80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)";
+
+// OD-A (GH #438): with no listing beside the map nothing flags a function `__z88dk_fastcall`, but its ENTRY says so: sccz80 calls
+// `l_debug_push_frame` and then pushes the register parameter (`call l_debug_push_frame; push hl`, or `push de` first for a
+// 32-bit one). The bytes are read from the function's own page (the entry's page-aware key), whatever is mapped now.
+// KNOWN LIMITATION: a `float` or `long long` fastcall argument is pushed by other helpers (`gen_push_float`, `llpush`), whose entry
+// bytes this does not recognise: on 2.4 and on master before z88dk#3229, with no listing beside the map, such a function's parameter is
+// still read from its nominal slot, a silent wrong value.
+bool prologue_is_fastcall(const Env& e, int function)
+{
+    const CFunction& f = e.store->functions()[static_cast<size_t>(function)];
+    const CStorage& pf = e.store->helpers().push_frame;
+    if (f.conv != CConv::Unlisted || !f.entry.resolved || !pf.resolved) return false;
+    uint8_t b[5] = {0, 0, 0, 0, 0};
+    const MemSpace space = f.entry.at.space;
+    const uint32_t off = space_offset(space, f.entry.at.address);
+    if (off + 5 > space_size(space.kind)) return false;
+    const auto r = e.d.peek(space, off, 5, b);
+    if (r.status != Result::Ok || r.value != 5) return false;
+    const bool call = b[0] == 0xCD && static_cast<uint16_t>(b[1] | b[2] << 8) == pf.at.address;
+    return call && (b[3] == 0xE5 || (b[3] == 0xD5 && b[4] == 0xE5));
+}
+
 // Read variable `v` (and the path's steps) in frame `k`.
 Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool deref, const std::vector<CPathStep>& steps)
 {
@@ -159,10 +185,14 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
 
     CFormatCtx ctx = var_ctx(e, v);
 
-    // OD-14 / z88dk U1: a fastcall parameter recorded at its nominal slot is not there.
-    if (v.function >= 0 && cv.space == 'B' && cv.stack_offset() >= 0) {
-        const std::string u1 = c_param_location_unknown(e.store->functions()[static_cast<size_t>(v.function)].conv, cv);
-        if (!u1.empty()) return [&] { CResult r = refused(u1); r.type = out.type; r.aggregate = out.aggregate; return r; }();
+    // OD-14 / z88dk U1 (GH #438: per FUNCTION): in a fastcall function whose parameters are all recorded at nominal slots,
+    // none of them is there.
+    if (v.function >= 0 && cv.space == 'B' && cv.level == 0 && cv.stack_offset() >= 0 &&
+        c_fastcall_records_nominal(*e.store, v.function, prologue_is_fastcall(e, v.function))) {
+        CResult r = refused(kCU1Text);
+        r.type = out.type;
+        r.aggregate = out.aggregate;
+        return r;
     }
 
     CLoc root;
@@ -188,6 +218,8 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
         if (fr.how == Frame::Base::Unknown) return refused("the frame base is not known: " + fr.note);
         const int addr = static_cast<int>(fr.fp) + cv.stack_offset();
         if (cv.stack_offset() < 0 && addr < static_cast<int>(fr.floor)) return refused("not allocated");
+        if (v.function >= 0 && e.store->functions()[static_cast<size_t>(v.function)].compiler == CCompiler::Cc80)
+            out.notes.push_back(k80ccSlot);
         root.addr = static_cast<uint32_t>(addr) & 0xFFFF;
         out.where.kind = Debugger::CWhere::Kind::Cpu;
         out.where.cpu = static_cast<uint16_t>(root.addr);
@@ -279,6 +311,8 @@ struct Found {
     Row::Kind kind = Row::Kind::Local;
     std::string why;
     bool scope_unknown = false;   // shown because the block at the PC is not known (80cc): a note for a read, a refusal for a write
+    std::string shares;           // GH #438: the visible stack variables whose slot this one shares: a note for a read, a refusal for a write
+    std::string ambiguous;        // GH #438 S4b: other variables of this name may be in scope and this one may not be (c_pick_local): a note for a read, a refusal for a write
 };
 
 std::string where_text(const Env& e, size_t k)
@@ -298,13 +332,15 @@ Found find_local(const Env& e, size_t k, int f, const std::string& name)
     Found out;
     const auto loc = k < e.frames.size() ? e.store->locate(e.frames[k].pc) : std::nullopt;
     const CScope* scope = loc ? e.store->scope_at(f, loc->offset) : nullptr;
-    for (const CLocalRef& r : c_visible_locals(*e.store, f, scope))
-        if (r.var->c_name == name) {
-            out.v = r.var;
-            out.kind = kind_of_local(r.kind);
-            out.scope_unknown = r.scope_unknown;
-            return out;
-        }
+    const std::vector<CLocalRef> rows = c_visible_locals(*e.store, f, scope);
+    if (const CPicked pk = c_pick_local(rows, name); pk.chosen) {
+        out.v = pk.chosen->var;
+        out.kind = kind_of_local(pk.chosen->kind);
+        out.scope_unknown = pk.chosen->scope_unknown;
+        out.shares = pk.chosen->shares;
+        if (!pk.certain) out.ambiguous = c_ambiguous_note(pk);
+        return out;
+    }
     for (const CVariable& v : e.store->variables())
         if (v.function == f && v.c_name == name && v.record.hidden == CdbHidden::None) {
             out.why = "out of scope at " + where_text(e, k);
@@ -467,9 +503,14 @@ Debugger::CLocalsResult Debugger::c_locals(size_t frame) const
     }
     const auto loc = e.store->locate(fr.pc);
     const CScope* scope = loc ? e.store->scope_at(fr.function, loc->offset) : nullptr;
-    for (const CLocalRef& r : c_visible_locals(*e.store, fr.function, scope)) {
+    const std::vector<CLocalRef> visible = c_visible_locals(*e.store, fr.function, scope);
+    for (const CLocalRef& r : visible) {
         Row row = to_row(e, frame, *r.var, kind_of_local(r.kind), r.var->c_name);
         if (r.scope_unknown) row.notes.push_back("scope unknown: shown whatever block the PC is in");
+        if (!r.shares.empty()) row.notes.push_back(c_shares_note(r.shares));
+        // a name that another visible variable also has: the innermost is the one `print` means, the others are marked
+        if (const CPicked pk = c_pick_local(visible, r.var->c_name); pk.chosen && pk.chosen != &r)
+            row.notes.push_back(pk.certain ? kCShadowedNote : kCMayBeShadowedNote);
         out.rows.push_back(row);
     }
     out.ok = true;
@@ -515,7 +556,11 @@ Debugger::CValueResult Debugger::read_c_value(size_t frame, std::string_view pat
     if (frame >= e.frames.size()) return refused("no frame " + std::to_string(frame) + " (there are " + std::to_string(e.frames.size()) + ")");
     const Found f = find_var(e, frame, p);
     if (!f.v) return refused(f.why);
-    return eval_var(e, frame, *f.v, p.deref, p.steps);
+    CValueResult r = eval_var(e, frame, *f.v, p.deref, p.steps);
+    if (r.ok && f.scope_unknown) r.notes.push_back("scope unknown: shown whatever block the PC is in");
+    if (r.ok && !f.shares.empty()) r.notes.push_back(c_shares_note(f.shares));
+    if (r.ok && !f.ambiguous.empty()) r.notes.push_back(f.ambiguous);
+    return r;
 }
 
 // `in BC; may be stale ...` -> `BC`: the registers a register local (or the pointer a path followed from one) lives in.
@@ -545,12 +590,17 @@ Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::s
     if (!f.v) return refuse(f.why);
     if (f.scope_unknown)
         return refuse("scope unknown: the block at the PC is not known (80cc), so the slot may hold another variable");
+    // an uncertain pick (c_pick_local) is always a `scope unknown` one: only level >= 2 variables are ever flagged, and the innermost of the candidates has the greatest level, so an
+    // unflagged pick has none flagged under it (CVZB-16 and CVZB-20 assert it on every scope); the refusal above is therefore the guard of an ambiguous write too
+    if (!f.shares.empty())
+        return refuse(c_shares_note(f.shares) + ", so a write may land in the other's value");
     // the place is the read's: a write needs a successful read of the same path
     const CValueResult r = eval_var(e, frame, *f.v, p.deref, p.steps);
     out.where = r.where;
     if (!r.ok) return refuse(r.why);
     out.type = r.type;
     out.old_value = r.value;
+    out.notes = r.notes;
     if (f.v->record.var.space == 'R')
         return refuse("a register variable cannot be written: its debug record gives no live range (in " + registers_of(r) + ")");
     if (r.aggregate) return refuse(r.type + " is an aggregate: write a member or an element");

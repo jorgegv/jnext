@@ -12,16 +12,17 @@ address is in. Reading a value, a frame or a type is not here (last section).
 
 ## What the store holds
 
-`VariableStore` (`class VariableStore`, `src/debug/variable_store.h:117`) is immutable once
+`VariableStore` (`class VariableStore`, `src/debug/variable_store.h:128`) is immutable once
 built. Its five vectors:
 
 | Accessor | Holds |
 |---|---|
-| `functions()` | One `CFunction` per `F:` record: the decoded record, its `name`, its `module` (the module of the entry symbol, never the record line's), `entry` (a `CStorage`) and its `scopes` table |
+| `functions()` | One `CFunction` per `F:` record: the decoded record, its `name`, its `module` (the module of the entry symbol, never the record line's), `entry` (a `CStorage`), its `scopes` table, its `trail` (every `C_LINE` record of the extent, see "The scope table") and its `compiler` (`CCompiler`: Sccz80, Zsdcc, Cc80 or Unknown for a synthetic store) |
 | `variables()` | One `CVariable` per `S:` record, hidden ones included (views hide, the store keeps): the module of its CDB line, the C name, `function` (an index into `functions()`, -1 for none) and `storage` |
 | `types()` | Every `T:` record with its module; the lookup rules (own scope, then a unique tag) belong to the first consumer |
 | `modules()` | Every `M:` record (zsdcc and 80cc only) |
 | `refused()` | `"<escaped symbol>: <reason>"` of every record the decoder refused |
+| `float_library()` | the float library the map names (`math32`, `mbf32`, ...: the first non-zero `__code_fp_<lib>_size`), empty when it names none |
 
 A `CStorage` is `resolved` or it says `why` not: a resolved one has the page-aware
 address (`SourceAddress`, the same type as a line's start, so a banked variable is
@@ -61,15 +62,15 @@ no store, because it replaces nothing. `Load MAP` (symbols only) never has one.
 ## How it is filled
 
 `load_z88dk_source_map()` reads the map once. Pass 1 keeps a `const` line that
-starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:584`),
+starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:728`),
 and the parser gained `Z88dkMapLine::is_public` (the scope field). The line records
 of code sections are copied to `scope_records` right after they are placed and
-**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:647`):
-a listing's `C_LINE` keeps only the file, so the scope can come only from the map.
+**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:795`):
+a listing's `C_LINE` keeps only the file, so the scope comes from the map; for an 80cc function the table is replaced by the listing's own occurrences (`fill_listing_scopes()`, S4a).
 Just before `map.replace()`, `build_variable_store()`
-(`src/debug/z88dk_source_map.cpp:444`)
+(`src/debug/z88dk_source_map.cpp:557`)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:876`),
+space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:1036`),
 shared by the extent code and the store, so no rule is kept twice.
 
 ## The joins
@@ -81,11 +82,11 @@ ambiguous and reported as such; the first is never taken.
 
 | Record | Joined to | Why |
 |---|---|---|
-| `S:G$x` | the PUBLIC `_x`, whatever its module (`join_public()`, `src/debug/z88dk_source_map.cpp:241`) | A record's module column is its first emitter, not its definer. Measured on `master/sdcc-extern` (`ext_use.c` declares `extern int g;`, `ext_def.c` defines it): zsdcc writes `S:G$g` with `ext_use_c` while `_g` is public in `ext_def_c`; sccz80 writes it in `ext_def_c`. The same collapse makes `F:G$other` say `vars_c` while `_other` is in `other_c` (`master/sccz80-cvars`) |
-| `S:F<file>$x`, level 0 | `_x` in the record's module (`join_in_module()`, `src/debug/z88dk_source_map.cpp:231`) | `_s_dup` is one symbol in `vars_c` and another in `other_c` |
-| `S:F<file>$st_<fn>_<x>`, level > 0 | `_st_<fn>_<x>` in the module; the local belongs to the module's function `fn`, its C name is `x` (`static_local_function()`, `src/debug/z88dk_source_map.cpp:301`) | The writers: `src/sccz80/declparse.c:1012`, `src/80cc/declparse.c:1099`. Several candidate functions (`a` and `a_b`): left unattributed, with the raw name. 80cc's `st_<fn>_<x>_<n>` keeps `_<n>` in the C name, not distinguishable from a name that ends so |
-| `S:L<scope>.<fn>$x$L_S$B`, space E (a zsdcc static local) | `_<fn>_<x>_<L*10000+S>_<B>` in the module (`join_variable()`, `src/debug/z88dk_source_map.cpp:273`) | SDCC `allocLocal()`, `z88dk/src/sdcc-build/src/SDCCmem.c:876` |
-| `S:L...`, any space | `function` = the one `CFunction` of that name AND module (`function_of()`, `src/debug/z88dk_source_map.cpp:288`) | A local exists only in its defining unit; `util_inc` of a header is two functions, one per module, each with its own `v` |
+| `S:G$x` | the PUBLIC `_x`, whatever its module (`join_public()`, `src/debug/z88dk_source_map.cpp:242`) | A record's module column is its first emitter, not its definer. Measured on `master/sdcc-extern` (`ext_use.c` declares `extern int g;`, `ext_def.c` defines it): zsdcc writes `S:G$g` with `ext_use_c` while `_g` is public in `ext_def_c`; sccz80 writes it in `ext_def_c`. The same collapse makes `F:G$other` say `vars_c` while `_other` is in `other_c` (`master/sccz80-cvars`) |
+| `S:F<file>$x`, level 0 | `_x` in the record's module (`join_in_module()`, `src/debug/z88dk_source_map.cpp:232`) | `_s_dup` is one symbol in `vars_c` and another in `other_c` |
+| `S:F<file>$st_<fn>_<x>`, level > 0 | `_st_<fn>_<x>` in the module; the local belongs to the module's function `fn`, its C name is `x` (`static_local_function()`, `src/debug/z88dk_source_map.cpp:302`) | The writers: `src/sccz80/declparse.c:1012`, `src/80cc/declparse.c:1099`. Several candidate functions (`a` and `a_b`): left unattributed, with the raw name. 80cc's `st_<fn>_<x>_<n>` keeps `_<n>` in the C name, not distinguishable from a name that ends so |
+| `S:L<scope>.<fn>$x$L_S$B`, space E (a zsdcc static local) | `_<fn>_<x>_<L*10000+S>_<B>` in the module (`join_variable()`, `src/debug/z88dk_source_map.cpp:274`) | SDCC `allocLocal()`, `z88dk/src/sdcc-build/src/SDCCmem.c:876` |
+| `S:L...`, any space | `function` = the one `CFunction` of that name AND module (`function_of()`, `src/debug/z88dk_source_map.cpp:289`) | A local exists only in its defining unit; `util_inc` of a header is two functions, one per module, each with its own `v` |
 | `F:G$f` | the public `_f`; the function's module is that symbol's | |
 | `F:F<file>$f` | `_f` in the record's module | |
 
@@ -105,7 +106,7 @@ reason.
 ## The scope table
 
 Each function has a table of the scopes its code is in, built from the map's own
-`C_LINE` records (`fill_scopes()`, `src/debug/z88dk_source_map.cpp:376`). Records
+`C_LINE` records (`fill_scopes()`, `src/debug/z88dk_source_map.cpp:377`). Records
 at one address are grouped, and the highest line owns the address (the rule the
 line ranges use). Equal-line owners that disagree make the entry unknown, so no
 order of the map can change the answer. The entry is filed under the function of
@@ -117,7 +118,7 @@ The compilers write the scope differently:
 
 - sccz80 and 80cc: `file::<func>::<level>::<block>:<line>`. The level is the
   compiler's, the block is the last one opened, not the current one, and 80cc has
-  level 0 everywhere and no block structure. The named function must be the
+  level 0 everywhere and no block structure. Since PR #3243 80cc counts blocks per file in parse order (a `__stdc` function takes one more for its parameters), writes the open compounds plus the open `for` headers as the level and the innermost open compound as the block: a `for` raises the level and opens no block (D-for), and `emit_op_cline()` skips an op whose line equals the previous one's, so a line holding code of two blocks carries only the first block's scope (D-line). The named function must be the
   function at the address, or the entry is unknown. This is the line-44 gap: `int
   main(void)` is scoped `sum::0::2` at `_main`, and the same address holds line 45
   (`main::0::3`), which owns it; were line 44 alone there, the cross-check makes it
@@ -130,8 +131,26 @@ The compilers write the scope differently:
   cross-check. The store decomposes it so both sides of a comparison with the CDB
   records (which are in `(level, sub)`) agree.
 
-A location that names only a file and a line, with no scope, is unknown. Block-tree reconstruction and
-visibility are not decided here.
+A location that names only a file and a line, with no scope, is unknown. Visibility is not decided here, but the table keeps what the decision needs:
+
+- **The trail** (`CFunction::trail`, GH #438): every `C_LINE` record of the function's extent, not only the owner of each address, in `(offset, line)` order.
+  A line with no code of its own (`for (;;) {`) shares its address with the next line and its record is the only one that names its block, so the owners alone are not
+  enough (`Z88ZB-02`). `scopes` is unchanged.
+- **The compiler of a function** (`CCompiler`, `fill_compilers()`): from the map alone. 80cc writes `M:<file>` into its module, the file as its `C_LINE` records spell it
+  (`M:./m.c` beside `./m.c::main::...`); zsdcc writes `M:<module>` against the file `<module>.c`, so it never matches (since z88dk#3265 `-debug` writes `M:m.c`, which does match: the `x` form is what rules 80cc out); sccz80 writes no `M:` into the map. A module is 80cc iff an `M:` record
+  names a file field of the module's own `C_LINE` records and none of them is zsdcc's `x` form (`x` with a TAB, or a level of 10000 or more: `Z88ZB-10`); no `M:` is sccz80; any other module is zsdcc. The name z80asm gives the module is
+  not used: it prefixes `X` to a path that starts with `.`, `/` or a digit (`X__xm_c`). An `M:` name is free text: `( ) [ ] ,` are accepted; `$` is still refused by the decoder.
+- **The `x` placeholder.** zsdcc writes the literal `x` where it names no function. Since z88dk#3262 drops the TAB that used to follow it, `x` is read as "no function"
+  with or without the TAB (`parse_location()`), so the alias rule keeps asking `later_function_entry()` instead of comparing "x" with "x" (`Z88ZB-09`). A zsdcc function really named
+  `x` is told by its level (`level_raw >= 10000`); an sccz80 function named `x` by its name.
+- **Stale stamps (GH #438 S4b).** 80cc keeps one global emit location (`ir_set_emit_loc()`, `src/80cc/ir_build.c:7931` once per statement, and `src/80cc/ir_build.c:8397` for an `if` condition); code a construct emits after building its children, with no statement of its own, carries the location of the last statement built. H-a: an `if`/`else` closes the then-branch after the else part is built (`src/80cc/ir_build.c:8415-8420`), so the then-branch's last jump carries the else part's last statement, even when the then-branch has no braces. H-b: the fall-off-end `ret` (`src/80cc/ir_build.c:8669-8673`), the switch exit (`src/80cc/ir_build.c:8352-8356`) and a countdown step (`src/80cc/ir_build.c:8258-8268`) carry the last statement inside the construct. H-c: CSE and LICM insert a `1cse_<n>` / `1licm_<n>` declaration before the loop with the hoisted expression's scope (`src/80cc/ast_opt.c:4116`, `src/80cc/ast_opt.c:4190`, `src/80cc/ast_opt.c:4615`). No record excludes any of them for a given block, so an 80cc block local is never listed plain (design 14).
+- **80cc temporaries.** `1cse_<n>` and `1licm_<n>` start with a digit, so no C name can be one: `classify()` hides a leading-digit name as `Temporary` (`CDB-55`), which keeps the level-0 `1licm_0` out of the parameters.
+- **The `x` placeholder, again.** `fill_compilers()` also takes a level-0 `x` record as zsdcc's when the module has no function named `x` (sccz80 and 80cc write `x` only for a function really called `x`, which has an `F:` record): a zsdcc module whose functions have empty bodies has no TAB and no level above 0 (`Z88ZB-15`, `Z88ZB-16`). Undecidable, and left: a zsdcc module whose only function is named `x` and has an empty body.
+- **Two `F:` records (zsdcc, GH #438 S4b2).** A zsdcc function with a block static local gets its `F:` record twice, `...,C,0,-4,...` and `...,C,0,0,...` (97731e4e29 and 0f0a1cf70e; SDCC's `cdbWriteFunction` wrote it twice, and the records differ only in the number after the address space, which nothing reads). `build_variable_store()` keeps the first of records equal up to that number, so the function is one and its variables attach (`Z88ZB-17`); a record with another type stays a second function (`Z88CDB-30`).
+- **Enum records (z88dk#3241).** sccz80 and 80cc write an `N:` (the enum) and an `E:` (an enum-typed object) record; `cdb_decode()` returns them as `CdbKind::Enum`, checked for shape and
+  dropped by `build_variable_store()`: the object's `S:` record is still written with the integer type, which is what the Variables tab reads, so a value shows as its number (`CDB-53`, `Z88ZB-11`).
+- **Unsized arrays.** The decoder classes every `{-1}DA-1x` record as hidden (sccz80 and 80cc write it first, then the sized one). `build_variable_store()` unhides one that has no
+  sized twin of the same scope kind, scope name, function, name and module, deciding every record before applying any (`Z88ZB-03`); it is then listed and refused.
 
 ## Refusals are lenient
 
@@ -155,8 +174,6 @@ remaps each variable's `function` to the sorted index.
 - z80asm keeps the first of two identical symbols (`symtab1.c:117`), so a record
   that two modules both write is held once.
 - 80cc's second static of one name, `st_<fn>_<x>_<n>`, keeps `_<n>` in the C name.
-- A zsdcc function literally named `x`, in a map without the TAB, is read as
-  sccz80's form.
 - The frame helpers (`__debug_framepointer`, `l_debug_push_frame`) are not stored: a
   hand-loaded z88dk map attaches no symbols, so the next stage adds them to this same pass.
 
@@ -164,8 +181,7 @@ remaps each variable's `function` to the sorted index.
 
 Frames, the extents they stand on and the rule that keeps the tracker running are in
 [7.10](10-c-frames-and-values.md). Values, the "location unknown" of sccz80's fastcall
-parameter, the text that says why no variables are shown, and the type lookup are the next
-stage of the epic. The store gives them the records, the storage and the scopes.
+parameter, the text that says why no variables are shown, and the type lookup are in 7.10. The store gives them the records, the storage and the scopes.
 
 ## Rows
 

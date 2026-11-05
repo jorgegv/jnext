@@ -18,6 +18,7 @@
 #include "debug/variable_store.h"
 #include "debug/z88dk_source_map.h"
 
+#include <algorithm>
 #include <clocale>
 #include <cstdint>
 #include <cstdio>
@@ -27,7 +28,9 @@
 #include <locale>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 #include "../row_id.h"
 
@@ -38,7 +41,7 @@ static int g_total = 0;
 static int g_pass = 0;
 static int g_fail = 0;
 
-static void check(const char* id, const char* desc, bool cond) {
+static void check(const char* id, const char* desc, bool cond, const std::string& detail = std::string()) {
     report_row_id(id);
     ++g_total;
     if (cond) {
@@ -46,6 +49,7 @@ static void check(const char* id, const char* desc, bool cond) {
     } else {
         ++g_fail;
         std::printf("  FAIL %s: %s\n", id, desc);
+        if (!detail.empty()) std::printf("    detail: %s\n", detail.c_str());
     }
 }
 
@@ -641,21 +645,36 @@ int main() {
                   ra.why == "optimised out" && !ro.ok && ro.why == "not available (register, outer frame)" && !rb.ok && rb.why.find("zz") != std::string::npos);
     }
 
-    // ── CVALF-30: the sccz80 fastcall marker ───────────────────────────────────
+    // ── CVALF-30: the per-function U1 rule, its boundary cases ─────────────────────
+    // Oracle: the definition of U1 (z88dk#3229): before the fix sccz80 records every parameter of a fastcall function at its nominal slot (>= 0); after it, the register
+    // parameter is recorded below the frame. One synthetic function `ffast`, parameters (level 0, space B) and a local (level 1) given as record texts.
     {
-        const CdbDecoded nominal = cdb_decode("S:Lfc.ffast$x$1_0$1({2}SI:U),B,1,4");
-        const CdbDecoded correct = cdb_decode("S:Lfc.ffast$x$1_0$1({2}SI:U),B,1,-2");
-        const CdbDecoded zero = cdb_decode("S:Lfc.ffast$x$1_0$1({2}SI:U),B,1,0");
-        const CdbDecoded reg = cdb_decode("S:Lfc.ffast$x$1_0$1({2}SI:U),R,0,0,[l,h]");
-        const std::string u1 = c_param_location_unknown(CConv::ListedFastcall, nominal.record.var);
-        check("CVALF-30", "OD-14: a listed fastcall parameter recorded at a stack offset >= 0 is `location unknown (z88dk U1...)`; at a negative offset (80cc's correct "
-                          "record) or with no listing evidence (a plain or unlisted function) it is read as written; a register record is never marked",
-              u1.find("location unknown") != std::string::npos && u1.find("U1") != std::string::npos &&
-                  !c_param_location_unknown(CConv::ListedFastcall, zero.record.var).empty() &&
-                  c_param_location_unknown(CConv::ListedFastcall, correct.record.var).empty() &&
-                  c_param_location_unknown(CConv::Listed, nominal.record.var).empty() &&
-                  c_param_location_unknown(CConv::Unlisted, nominal.record.var).empty() &&
-                  c_param_location_unknown(CConv::ListedFastcall, reg.record.var).empty());
+        const auto nominal = [](CConv conv, bool prologue, const std::vector<std::pair<std::string, bool>>& recs) {
+            std::vector<CVariable> vs;
+            for (const auto& [text, hidden] : recs) {
+                CVariable v;
+                v.record = cdb_decode(text).record;
+                v.record.hidden = hidden ? CdbHidden::IncompleteArray : CdbHidden::None;
+                v.c_name = v.record.var.name;
+                v.function = 0;
+                vs.push_back(v);
+            }
+            CFunction f;
+            f.name = "ffast";
+            f.conv = conv;
+            const VariableStore st({f}, vs, {}, {}, {});
+            return c_fastcall_records_nominal(st, 0, prologue);
+        };
+        const std::string p4 = "S:Lfc.ffast$x$0_0$0({2}SI:U),B,1,4", p0 = "S:Lfc.ffast$x$0_0$0({2}SI:U),B,1,0", pm2 = "S:Lfc.ffast$y$0_0$0({2}SI:U),B,1,-2",
+                          loc = "S:Lfc.ffast$t$1_0$1({2}SI:U),B,1,-4", reg = "S:Lfc.ffast$x$0_0$0({2}SI:U),R,0,0,[l,h]";
+        const bool c1 = nominal(CConv::ListedFastcall, false, {{p4, false}, {loc, false}}), c2 = nominal(CConv::ListedFastcall, false, {{p0, false}}),
+                   c3 = nominal(CConv::ListedFastcall, false, {{p4, false}, {pm2, false}}), c4 = nominal(CConv::ListedFastcall, false, {{pm2, true}, {p4, false}}),
+                   c5 = nominal(CConv::ListedFastcall, false, {{reg, false}}), c6 = nominal(CConv::Listed, true, {{p4, false}}),
+                   c7n = nominal(CConv::Unlisted, false, {{p4, false}}), c7y = nominal(CConv::Unlisted, true, {{p4, false}});
+        check("CVALF-30", "c_fastcall_records_nominal, the boundary cases of U1: a fastcall function whose only parameter is at +4 is nominal even beside a level-1 local at -4; a parameter at +0 is nominal; "
+                          "one at +4 with another at -2 is not; a hidden parameter record at -2 is ignored; a function with only an R-space parameter is not; a listing that names it without the "
+                          "flag wins over the prologue; an unlisted function is nominal only when the caller read a fastcall prologue",
+              c1 && c2 && !c3 && c4 && !c5 && !c6 && !c7n && c7y);
     }
 
     // ── CVALF-31: sccz80's struct flags (U2): every view agrees and none reads past the object ─────────────────
@@ -1325,6 +1344,759 @@ int main() {
                   no(enc("{8}DA4x,SI:S", "1"), "is an aggregate: write a member or an element") && no(enc("{0}SV:S", "1"), "not a value") &&
                   no(enc("{2}DF,SI:S", "1"), "not a value") && no(enc("{4}SQ:S", "1"), "fixed-point layout not decoded") &&
                   no(enc("{0}SI:S", "1"), "size of the object is not known") && no(enc("{-1}SI:S", "1"), "size of the object is not known"));
+    }
+
+    // ── GH #438: the S1 markers. Oracle: the C sources (fc.c, fm.c, bits.c, fl.c), the fixtures' records, the listings, IEEE 754 ──
+    // A store with the listings beside the map read (the fastcall evidence of CConv::ListedFastcall).
+    const auto listed = [](const char* fixture) {
+        SourceMap map;
+        load_z88dk_source_map(map, (kFixtures / fixture / "prog.map").string(), nex_space, Z88dkListings::Beside);
+        return map.variables();
+    };
+    {   // CVZB-01
+        const auto nominal = [&](const char* fixture, const char* fn, bool prologue = false) {
+            const auto st = listed(fixture);
+            if (!st) return std::string("no store");
+            for (size_t i = 0; i < st->functions().size(); ++i)
+                if (st->functions()[i].name == fn) return std::string(c_fastcall_records_nominal(*st, static_cast<int>(i), prologue) ? "yes" : "no");
+            return std::string("no function");
+        };
+        check("CVZB-01", "c_fastcall_records_nominal (per function: fastcall and no parameter recorded below the frame): true for v2.4 and master sccz80's ffast (fc.c) and fm "
+                         "(fm.c: a +6 and b +4 before z88dk#3229); false for master-fixed's ffast and fm (the register parameter is at -2), master 80cc's ffast and fm, "
+                         "zsdcc's ffast (register parameter), and every fcallee (callee, not fastcall), even when the caller reports entry bytes that look like a fastcall prologue (a listing that names the function without the flag wins)",
+              nominal("v2.4/sccz80-fc", "ffast") == "yes" && nominal("master/sccz80-fc", "ffast") == "yes" && nominal("v2.4/sccz80-fm", "fm") == "yes" &&
+                  nominal("master/sccz80-fm", "fm") == "yes" && nominal("master-fixed/sccz80-fc", "ffast") == "no" && nominal("master-fixed/sccz80-fm", "fm") == "no" &&
+                  nominal("master/80cc-fc", "ffast") == "no" && nominal("master/80cc-fm", "fm") == "no" && nominal("master/sdcc-fc", "ffast") == "no" &&
+                  nominal("v2.4/sccz80-fc", "fcallee") == "no" && nominal("master/sccz80-fc", "fcallee") == "no" && nominal("master-fixed/sccz80-fc", "fcallee") == "no" &&
+                  nominal("master/80cc-fc", "fcallee") == "no" && nominal("master/sdcc-fc", "fcallee") == "no" &&
+                  nominal("master/sccz80-fc", "fcallee", true) == "no" && nominal("v2.4/sccz80-fc", "fcallee", true) == "no" && nominal("master/sccz80-fc", "ffast", true) == "yes");
+    }
+    // the type text of a member of struct `tag` named `member`
+    const auto member_text = [](const char* fixture, const char* tag, const char* member) {
+        Loaded l(fixture);
+        for (const CRecord& r : l.store ? l.store->types() : std::vector<CRecord>())
+            if (r.record.var.name == tag)
+                for (const CdbMember& m : r.record.members)
+                    if (m.var.name == member) return c_type_text(m.var.type);
+        return std::string("-");
+    };
+    check("CVZB-02", "the type text of a bitfield: `SB0$4:S` (neg: zsdcc and fixed sccz80 and 80cc) is `int :4`, `SB0$3:U` (lo) is `unsigned int :3`, and zsdcc's plain `int s:4` "
+                     "(`SB0$4:S`) is `int :4` while the same field is `unsigned int :4` on fixed sccz80 and 80cc",
+          member_text("master/sdcc-bits", "bf", "neg") == "int :4" && member_text("master-fixed/sccz80-bits", "bf", "neg") == "int :4" &&
+              member_text("master-fixed/80cc-bits", "bf", "neg") == "int :4" && member_text("master/sdcc-bits", "bf", "lo") == "unsigned int :3" &&
+              member_text("master-fixed/sccz80-bits", "bf", "lo") == "unsigned int :3" && member_text("master/sdcc-bits", "one", "s") == "int :4" &&
+              member_text("master-fixed/sccz80-bits", "one", "s") == "unsigned int :4" && member_text("master-fixed/80cc-bits", "one", "s") == "unsigned int :4");
+    // g_bf, g_lone and g_one of bits.c formatted from the bytes the program leaves (bits.c: lo 5, mid 17, hi 200, neg -3, wide 2748, tag 66)
+    const auto bits_text = [](const char* fixture, const char* scope, const char* global, std::initializer_list<uint8_t> bytes, std::vector<std::string>* notes = nullptr) {
+        Loaded l(fixture);
+        CFormatCtx ctx;
+        ctx.store = l.store.get();
+        ctx.scope_name = scope;
+        ctx.module = "bits_c";
+        const CVariable* v = l.store ? global_var(*l.store, global) : nullptr;
+        if (!v) return std::string("no variable");
+        const CFormatted f = fmt(ctx, v->record.var.type, bytes);
+        if (notes) *notes = f.notes;
+        return f.ok ? f.text : "!" + f.why;
+    };
+    {   // CVZB-03
+        const std::string good = "{lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'}";   // tag is a uint8_t: a printable byte shows its character
+        std::vector<std::string> n1, n2, n3, n4, n5;
+        const std::string a = bits_text("master-fixed/sccz80-bits", "bits.c", "g_bf", {0x8D, 0xC8, 0x0D, 0xBC, 0x0A, 0x42}, &n1);
+        const std::string b = bits_text("master-fixed/80cc-bits", "bits.c", "g_bf", {0x8D, 0xC8, 0x0D, 0xBC, 0x0A, 0x42}, &n2);
+        const std::string c = bits_text("master/sdcc-bits", "bits", "g_bf", {0x8D, 0xC8, 0x0D, 0xBC, 0x0A, 0x42}, &n3);
+        const std::string d = bits_text("master/sccz80-bits", "bits.c", "g_bf", {0x8D, 0xC8, 0x0D, 0xBC, 0x0A, 0x42}, &n4);
+        const std::string e = bits_text("master/80cc-bits", "bits.c", "g_bf", {0x8D, 0xC8, 0x0D, 0xBC, 0x0A, 0x42}, &n5);
+        const auto marked = [&](const std::string& t, const char* member) {
+            const size_t at = t.find(std::string(member) + " = ");
+            if (at == std::string::npos) return false;
+            const size_t end = t.find_first_of(",}", at);
+            return t.substr(at, end - at).find("[bitfield layout unknown (z88dk U2)]") != std::string::npos;
+        };
+        check("CVZB-03", "g_bf = 8D C8 0D BC 0A 42 (bits.c: lo 5, mid 17, hi 200, neg -3, wide 2748, tag 66) reads exactly `{lo = 5, mid = 17, hi = 200, neg = -3, wide = 2748, tag = 66 'B'}` with no note on master-fixed sccz80 and 80cc "
+                         "and on master zsdcc; on v2.4/master sccz80 and master 80cc (whole-int records) lo, mid, hi and neg carry the U2 marker, wide and tag do not and tag is 66 'B'",
+              a == good && n1.empty() && b == good && n2.empty() && c == good && n3.empty() &&
+                  marked(d, "lo") && marked(d, "mid") && marked(d, "hi") && marked(d, "neg") && !marked(d, "wide") && d.find("tag = 66 'B'") != std::string::npos && n4.size() == 1 &&
+                  marked(e, "lo") && marked(e, "mid") && marked(e, "hi") && marked(e, "neg") && !marked(e, "wide") && e.find("tag = 66 'B'") != std::string::npos && n5.size() == 1);
+    }
+    {   // CVZB-04
+        // g_lone: a 12-bit field whose unit shares no byte with another member, then a char: BC FA 09 (the field's upper unit bits hold FA, c is 9)
+        check("CVZB-04", "g_lone = BC FA 09 reads {a = 2748, c = 9} once the record is exact (master-fixed sccz80, 80cc, master zsdcc); on the pre-fix record (a whole `{2}SI:U`, "
+                         "overlapping nothing) it is `a = 64188` with no note (the documented residual: the padding bits are in the value); g_one = 0D reads `{s = 13}` on "
+                         "fixed sccz80 and 80cc (a plain int bitfield is unsigned there: `SB0$4:U`), `{s = -3}` on zsdcc (`SB0$4:S`) and is refused on the pre-fix record "
+                         "(`member 's' lies beyond the object`)",
+              bits_text("master-fixed/sccz80-bits", "bits.c", "g_lone", {0xBC, 0xFA, 0x09}) == "{a = 2748, c = 9}" &&
+                  bits_text("master-fixed/80cc-bits", "bits.c", "g_lone", {0xBC, 0xFA, 0x09}) == "{a = 2748, c = 9}" &&
+                  bits_text("master/sdcc-bits", "bits", "g_lone", {0xBC, 0xFA, 0x09}) == "{a = 2748, c = 9}" &&
+                  bits_text("master/sccz80-bits", "bits.c", "g_lone", {0xBC, 0xFA, 0x09}) == "{a = 64188, c = 9}" &&
+                  bits_text("master/80cc-bits", "bits.c", "g_lone", {0xBC, 0xFA, 0x09}) == "{a = 64188, c = 9}" &&
+                  bits_text("master-fixed/sccz80-bits", "bits.c", "g_one", {0x0D}) == "{s = 13}" && bits_text("master-fixed/80cc-bits", "bits.c", "g_one", {0x0D}) == "{s = 13}" &&
+                  bits_text("master/sdcc-bits", "bits", "g_one", {0x0D}) == "{s = -3}" &&
+                  bits_text("master/sccz80-bits", "bits.c", "g_one", {0x0D}) == "!member 's' lies beyond the object");
+    }
+    {   // CVZB-10
+        // the (struct tag, member) pairs of the store whose member read through c_eval_path carries the U2 note
+        const auto u2_members = [](const char* fixture) {
+            Loaded l(fixture);
+            std::set<std::string> out;
+            if (!l.store) return std::string("no store");
+            for (const CVariable& v : l.store->variables()) {
+                const auto& ch = v.record.var.type.chain;
+                if (ch.empty() || ch[0].kind != CdbTypeKind::Struct) continue;
+                CFormatCtx ctx;
+                ctx.store = l.store.get();
+                ctx.scope_name = v.record.scope_name;
+                ctx.module = v.module;
+                const CTypeLookup lk = c_find_type(*l.store, ch[0].tag, ctx.scope_name, ctx.module);
+                if (!lk.record) continue;
+                for (const CdbMember& m : lk.record->record.members) {
+                    if (m.var.name.empty()) continue;
+                    CLoc root;
+                    root.type = v.record.var.type;
+                    root.addr = 0x9000;
+                    CPathStep step;
+                    step.kind = CPathStep::Kind::Dot;
+                    step.name = m.var.name;
+                    const CEval ev = c_eval_path(ctx, root, false, {step});
+                    if (ev.ok && !ev.loc.note.empty()) out.insert(ch[0].tag + "." + m.var.name);
+                }
+            }
+            std::string text;
+            for (const std::string& m : out) text += (text.empty() ? "" : " ") + m;
+            return text;
+        };
+        int fixed_maps = 0;
+        bool none = true;
+        for (const auto& d : fs::directory_iterator(kFixtures / "master-fixed")) {
+            if (!fs::exists(d.path() / "prog.map")) continue;
+            ++fixed_maps;
+            none = none && u2_members(("master-fixed/" + d.path().filename().string()).c_str()).empty();
+        }
+        check("CVZB-10", "U2 switch-off: no struct member of any master-fixed map carries the overlapping-int marker (every bitfield is an SB record, sized by its own width); "
+                         "struct flags' lo, mid and hi do on v2.4 and master sccz80 and on master 80cc, and none does on master zsdcc",
+              fixed_maps == 9 && none && u2_members("v2.4/sccz80-cvars") == "flags.hi flags.lo flags.mid" && u2_members("master/sccz80-cvars") == "flags.hi flags.lo flags.mid" &&
+                  u2_members("master/80cc-cvars") == "flags.hi flags.lo flags.mid" && u2_members("master/sdcc-cvars").empty());
+    }
+    {   // CVZB-11
+        const std::vector<uint8_t> mbf = {0x00, 0x00, 0xD0, 0x82}, ieee = {0x00, 0x00, 0x50, 0xC0};   // -3.25 as mbf32 (exponent 82, mantissa D0) and as IEEE 754 binary32 (C0500000)
+        const CdbType f4 = ty("{4}SF:S");
+        Loaded lmb("master/classic-mbf32"), lm3("master/classic-math32");   // alive for the whole row: the contexts point into their stores
+        CFormatCtx cmb, cm3;
+        cmb.store = lmb.store.get();
+        cm3.store = lm3.store.get();
+        const auto mb = std::make_pair(lmb.store ? lmb.store->float_library() : std::string("no store"), cmb);
+        const auto m3 = std::make_pair(lm3.store ? lm3.store->float_library() : std::string("no store"), cm3);
+        const CFormatted rm = c_format_value(mb.second, f4, mbf.data(), 4), r3 = c_format_value(m3.second, f4, ieee.data(), 4), none = c_format_value(CFormatCtx{}, f4, ieee.data(), 4);
+        const auto lib_refuses = [&](const char* lib) {
+            const VariableStore st({}, {}, {}, {}, {}, {}, {}, lib);
+            CFormatCtx ctx;
+            ctx.store = &st;
+            const CFormatted f = c_format_value(ctx, f4, ieee.data(), 4);
+            return !f.ok && f.why == std::string("float format ") + lib + " is not read: the record does not say it (z88dk#3236)";
+        };
+        const auto lib_reads = [&](const char* lib) {
+            const VariableStore st({}, {}, {}, {}, {}, {}, {}, lib);
+            CFormatCtx ctx;
+            ctx.store = &st;
+            const CFormatted f = c_format_value(ctx, f4, ieee.data(), 4);
+            return f.ok && f.text == "-3.25";
+        };
+        check("CVZB-11", "float format from the map's library: master classic-mbf32 (`{4}SF`, bytes 00 00 D0 82) is refused `float format mbf32 is not read: the record does not say it "
+                         "(z88dk#3236)`; classic-math32's 00 00 50 C0 is -3.25; mbf64, bbc and dai32 are refused like mbf32; am9511 and math48 read by size; a map that names no "
+                         "library reads by size as before (-3.25, and 00 00 D0 82 as IEEE, the silent wrong value the refusal exists for)",
+              mb.first == "mbf32" && !rm.ok && rm.why == "float format mbf32 is not read: the record does not say it (z88dk#3236)" && m3.first == "math32" && r3.ok && r3.text == "-3.25" &&
+                  none.ok && none.text == "-3.25" && c_format_value(CFormatCtx{}, f4, mbf.data(), 4).ok && lib_refuses("mbf64") && lib_refuses("bbc") && lib_refuses("dai32") &&
+                  lib_reads("am9511") && lib_reads("math48") && lib_reads("math32"));
+    }
+    {   // CVZB-12
+        Loaded l("v2.4/sccz80-fm");
+        CFormatCtx ctx;
+        ctx.store = l.store.get();
+        const CVariable* ls = nullptr;
+        if (l.store)
+            for (const CVariable& v : l.store->variables())
+                if (v.c_name == "ls") ls = &v;
+        CLoc loc;
+        if (ls) loc.type = ls->record.var.type;
+        loc.addr = 0x9000;
+        Mem mem;
+        mem.put(0x9000, {1, 2, 3, 4});
+        ctx.read = mem.reader();
+        const CFormatted f = ls ? c_read_loc(ctx, loc) : CFormatted{};
+        check("CVZB-12", "a listed `{-1}DA-1x` record (v2.4 sccz80's `char ls[] = \"loc\"` local, no size) is refused `an array of unknown length: its debug record has no size`; "
+                         "its record is listed (not hidden: it has no sized twin)",
+              ls && ls->record.hidden == CdbHidden::None && ls->record.var.type.size == -1 && !f.ok && f.why == "an array of unknown length: its debug record has no size");
+    }
+
+    // ── GH #438 S2: the scope walk and the stack-slot guard ──
+    // Oracle: blocks.c's C scopes (f: t; the `if` block p; the `for` header and body i; the blocks u, v and z; g2: the `if` block q, the `for (;;)` body w; h: m, the
+    // `for (int j ...)` j), the fixtures' records, and the parameters left out. A local declared later in an OPEN block is listed with it (the block rule
+    // since #434), so f:14 shows z. `name[other]` is a local marked as sharing its stack slot with `other`.
+    const auto walk_table = [](const char* fixture, const char* module, bool with_main = false) {
+        Loaded l(fixture);
+        std::string out;
+        if (!l.store) return std::string("no store");
+        const VariableStore& st = *l.store;
+        for (size_t i = 0; i < st.functions().size(); ++i) {
+            const CFunction& f = st.functions()[i];
+            if (f.module != module || (f.name == "main" && !with_main)) continue;
+            for (const CScope& sc : f.scopes) {
+                std::vector<std::string> names;
+                for (const CLocalRef& r : c_visible_locals(st, static_cast<int>(i), &sc))
+                    if (r.kind != CVarKind::Param) names.push_back(r.var->c_name + (r.shares.empty() ? "" : "[" + r.shares + "]"));
+                std::sort(names.begin(), names.end());
+                std::string row;
+                for (const std::string& n : names) row += (row.empty() ? "" : " ") + n;
+                out += (out.empty() ? "" : "|") + f.name + ":" + std::to_string(sc.line) + "=" + row;
+            }
+        }
+        return out;
+    };
+    const std::string kPreFix =
+        "f:4=t|f:5=t|f:6=t|f:7=i[p] p[i] t|f:8=i[p] p[i] t|f:9=i[p] p[i] t|f:10=t|f:11=t|f:12=t|f:14=t u|f:16=t u v|f:17=t u v|f:18=t u v|f:19=t u|f:20=t u|f:21=t u|f:22=t|"
+        "g2:25=|g2:26=|g2:27=q|g2:28=q|g2:29=q|g2:31=w|g2:32=w|g2:33=w|g2:34=|h:37=t|h:38=t|h:40=m t|h:41=m t|h:42=j m t|h:43=j m t|h:44=m t|h:45=m t|h:46=t";
+    const std::string kFixed =
+        "f:4=t|f:5=t|f:6=t|f:7=p t|f:8=p t|f:9=p t|f:10=t|f:11=i t|f:12=i t|f:14=t u z|f:16=t u v[z] z[v]|f:17=t u v[z] z[v]|f:18=t u v[z] z[v]|f:19=t u z|f:20=t u z|f:21=t u z|f:22=t|"
+        "g2:25=|g2:26=|g2:27=q|g2:28=q|g2:29=q|g2:31=w|g2:32=w|g2:33=w|g2:34=|h:37=t|h:38=t|h:40=m t|h:41=m t|h:42=j m t|h:43=j m t|h:44=m t|h:45=m t|h:46=t";
+    check("CVZB-05", "c_visible_locals at every scope entry of f, g2 and h of blocks.c: v2.4 and master sccz80 (block numbers name the last block opened, `for` raises a level with no block) list "
+                     "t at f:11 (the for body: its i is the same pair as p, a documented pre-#3227 limit), t u at f:20 (z likewise), w at g2:31-33 (not q), m t at h:40-41 and j m t at "
+                     "h:42-43; master-fixed lists i t at f:11, t u z at f:20, w at g2:31-33, m t and j m t; the pairs that share a slot are marked (i/p at f:7-9 before the fix, v/z at "
+                     "f:16-18 after it)",
+          walk_table("v2.4/sccz80-blocks", "blocks_c") == kPreFix && walk_table("master/sccz80-blocks", "blocks_c") == kPreFix && walk_table("master-fixed/sccz80-blocks", "blocks_c") == kFixed,
+          walk_table("master-fixed/sccz80-blocks", "blocks_c"));
+    {   // CVZB-06
+        // which entries mark a pair: only the three of `i`/`p` before the fix and the three of `v`/`z` after it, in blocks.c; none in any cvars or fc fixture
+        int marked_blocks = 0, marked_other = 0;
+        for (const char* fx : {"v2.4/sccz80-blocks", "master/sccz80-blocks", "master-fixed/sccz80-blocks"}) {
+            const std::string t = walk_table(fx, "blocks_c");
+            for (size_t at = t.find('['); at != std::string::npos; at = t.find('[', at + 1)) ++marked_blocks;
+        }
+        for (const char* fx : {"v2.4/sccz80-cvars", "master/sccz80-cvars", "master/sdcc-cvars", "master/80cc-cvars", "master-fixed/sccz80-cvars", "master-fixed/80cc-cvars", "v2.4/sccz80-cvars-banked",
+                               "master/sccz80-cvars-banked", "master/sdcc-cvars-banked", "master/80cc-cvars-banked", "v2.4/sccz80-fc", "master/sccz80-fc", "master/sdcc-fc", "master/80cc-fc",
+                               "master-fixed/sccz80-fc", "master/sccz80-floats", "master/sdcc-floats", "master/sccz80-cross", "master/sccz80-extern"}) {
+            const std::string t = walk_table(fx, "vars_c") + walk_table(fx, "fc_c") + walk_table(fx, "bk_c") + walk_table(fx, "other_c") + walk_table(fx, "floats_c") + walk_table(fx, "cross_c") +
+                                  walk_table(fx, "ext_def_c") + walk_table(fx, "ext_use_c") + walk_table(fx, "bkmain_c");
+            for (size_t at = t.find('['); at != std::string::npos; at = t.find('[', at + 1)) ++marked_other;
+        }
+        // master 80cc fm at `return y;` (line 7): b's record (-2) is y's slot, both marked
+        Loaded fm("master/80cc-fm");
+        std::string fmrow;
+        if (fm.store)
+            for (size_t i = 0; i < fm.store->functions().size(); ++i)
+                if (fm.store->functions()[i].name == "fm")
+                    for (const CScope& sc : fm.store->functions()[i].scopes)
+                        if (sc.line == 7)
+                            for (const CLocalRef& r : c_visible_locals(*fm.store, static_cast<int>(i), &sc)) fmrow += r.var->c_name + "[" + r.shares + "] ";
+        check("CVZB-06", "the stack-slot guard marks i/p (v2.4 and master blocks.c f:7-9), v/z (master-fixed f:16-18: 2 names x 3 entries x 1 fixture = 6 marks each side) and master 80cc fm's "
+                         "b/y at `return y;`; no other entry of blocks.c or of any cvars, fc, floats, cross or extern fixture is marked",
+              marked_blocks == 18 && marked_other == 0 && fmrow == "b[y] a[] y[b] ", fmrow + " blocks=" + std::to_string(marked_blocks) + " other=" + std::to_string(marked_other));
+    }
+    {   // CVZB-07
+        // synthetic: a 4-byte local at -6 and a 2-byte one at -4 overlap; -6/4 and -2/2 are neighbours and do not
+        const auto rec = [](const char* name, int size, int off) {
+            return cdb_decode(std::string("S:Lt.c.f$") + name + "$1_0$1({" + std::to_string(size) + "}" + (size == 4 ? "SL" : "SI") + ":S),B,1," + std::to_string(off)).record;
+        };
+        const auto marks = [&](std::initializer_list<std::tuple<const char*, int, int>> locals) {
+            std::vector<CVariable> vars;
+            for (const auto& [n, sz, off] : locals) {
+                CVariable v;
+                v.record = rec(n, sz, off);
+                v.c_name = n;
+                v.function = 0;
+                vars.push_back(v);
+            }
+            CFunction f;
+            f.name = "f";
+            const VariableStore st({f}, vars, {}, {}, {});
+            std::string out;
+            for (const CLocalRef& r : c_visible_locals(st, 0, nullptr)) out += r.var->c_name + "[" + r.shares + "] ";
+            return out;
+        };
+        check("CVZB-07", "synthetic: a 4-byte local at -6 and a 2-byte one at -4 overlap and name each other; -6/4 and -2/2 are neighbours and are not marked; three that overlap name both others; "
+                         "an equal start is an overlap",
+              marks({{"a", 4, -6}, {"b", 2, -4}}) == "a[b] b[a] " && marks({{"a", 4, -6}, {"b", 2, -2}}) == "a[] b[] " && marks({{"a", 4, -6}, {"b", 2, -4}, {"c", 2, -5}}) == "a[b, c] b[a, c] c[a, b] " &&
+                  marks({{"a", 2, -4}, {"b", 2, -4}}) == "a[b] b[a] ");
+    }
+    {   // CVZB-08
+        // no regression: the scopes of vars.c's sum and main, on every cvars fixture, are the C scopes (sum: acc t calls, inner at 38-40; main: arr big c i lp pp; no marks)
+        bool ok = true;
+        std::string seen;
+        for (const char* fx : {"v2.4/sccz80-cvars", "master/sccz80-cvars", "master-fixed/sccz80-cvars"}) {
+            const std::string t = walk_table(fx, "vars_c", true);
+            const bool sum = t.find("sum:33=acc calls t|") != std::string::npos && t.find("sum:36=acc calls t|") != std::string::npos && t.find("sum:38=acc calls inner t|") != std::string::npos &&
+                             t.find("sum:40=acc calls inner t|") != std::string::npos && t.find("sum:41=acc calls t") != std::string::npos;
+            ok = ok && sum;
+            // main shows every local at every entry (all at level 1 or 3, the blocks hold none of their own)
+            size_t n_main = 0;
+            for (size_t at = t.find("main:"); at != std::string::npos; at = t.find("main:", at + 1)) ++n_main;
+            ok = ok && n_main >= 14 && t.find("main:49=arr big c i lp pp") != std::string::npos && t.find("main:66=arr big c i lp pp") != std::string::npos && t.find('[') == std::string::npos;
+            if (!sum) seen += std::string(" ") + fx;
+        }
+        check("CVZB-08", "no regression: on v2.4, master and master-fixed sccz80-cvars the scope entries of sum list acc calls t (lines 33-36 and 41) and add inner at 38-40, main lists arr big c i lp pp "
+                         "at every entry, and nothing is marked",
+              ok, seen);
+    }
+    {   // CVZB-09
+        // U6's switch-off: how often a record names a block the replay's stack does not hold at its level (the pre-#3227 numbering the replay compensates)
+        const auto disagree = [&](const char* fixture, const char* module) {
+            Loaded l(fixture);
+            int n = 0;
+            if (l.store)
+                for (size_t i = 0; i < l.store->functions().size(); ++i)
+                    if (l.store->functions()[i].module == module) n += c_trail_disagreements(*l.store, static_cast<int>(i));
+            return n;
+        };
+        check("CVZB-09", "the block-number compensation is needed on v2.4 and master sccz80-blocks (f:19 names a level-3 block at level 2: at least one disagreement) and on sccz80-cvars (sum:41), "
+                         "and never on master-fixed's sccz80 maps (blocks, cvars, fc)",
+              disagree("v2.4/sccz80-blocks", "blocks_c") > 0 && disagree("master/sccz80-blocks", "blocks_c") > 0 && disagree("v2.4/sccz80-cvars", "vars_c") > 0 && disagree("master/sccz80-cvars", "vars_c") > 0 &&
+                  disagree("master-fixed/sccz80-blocks", "blocks_c") == 0 && disagree("master-fixed/sccz80-cvars", "vars_c") == 0 && disagree("master-fixed/sccz80-cvars", "other_c") == 0 &&
+                  disagree("master-fixed/sccz80-fc", "fc_c") == 0 && disagree("master-fixed/sccz80-fm", "fm_c") == 0 && disagree("master-fixed/sccz80-bits", "bits_c") == 0);
+    }
+    {   // CVZB-13
+        // records where a `for` DOES open a block (z88dk#3254, proposed in z88dk PR #3258): f has t (level 1), an `if` block (2, p), a `for` whose header variable i
+        // is block 3 at level 2 and whose body is block 4 at level 3 (k), then a block u (2, block 5). Numbers are in pre-order, as #3227 makes them.
+        const auto rec = [](const std::string& name, int level, int block, int off) {
+            return cdb_decode("S:Lt.c.f$" + name + "$" + std::to_string(level) + "_0$" + std::to_string(block) + "({2}SI:S),B,1," + std::to_string(off)).record;
+        };
+        const std::vector<std::tuple<std::string, int, int, int>> locals = {{"t", 1, 1, -2}, {"p", 2, 2, -4}, {"i", 2, 3, -4}, {"k", 3, 4, -6}, {"u", 2, 5, -4}};
+        std::vector<CVariable> vars;
+        for (const auto& [n, lv, bl, off] : locals) {
+            CVariable v;
+            v.record = rec(n, lv, bl, off);
+            v.c_name = n;
+            v.function = 0;
+            vars.push_back(v);
+        }
+        const auto sc = [](uint32_t off, int line, int level, int block) {
+            CScope c;
+            c.offset = off;
+            c.line = line;
+            c.level = level;
+            c.block = block;
+            c.known = true;
+            return c;
+        };
+        CFunction f;
+        f.name = "f";
+        f.compiler = CCompiler::Sccz80;
+        f.trail = {sc(0, 4, 0, 0), sc(3, 5, 1, 1), sc(10, 7, 2, 2), sc(20, 10, 1, 1), sc(24, 11, 2, 3), sc(30, 12, 3, 4), sc(40, 14, 2, 3), sc(50, 17, 1, 1), sc(55, 18, 2, 5)};
+        f.scopes = f.trail;
+        const VariableStore st({f}, vars, {}, {}, {});
+        const auto at = [&](uint32_t off) {
+            const CScope* s = nullptr;
+            for (const CScope& c : st.functions()[0].scopes)
+                if (c.offset == off) s = &c;
+            std::vector<std::string> n;
+            for (const CLocalRef& r : c_visible_locals(st, 0, s)) n.push_back(r.var->c_name);
+            std::sort(n.begin(), n.end());
+            std::string out;
+            for (const std::string& x : n) out += (out.empty() ? "" : " ") + x;
+            return out;
+        };
+        // the walk is sccz80's: the same trail on a zsdcc function keeps the block rule (zsdcc numbers blocks exactly, not in pre-order): scope (level 2, block 5) after a
+        // record of block 7 at the same level shows block 5's local, where the replay would keep block 7
+        std::vector<CVariable> zv;
+        for (const auto& [n, lv, bl] : std::vector<std::tuple<std::string, int, int>>{{"p", 2, 7}, {"q", 2, 5}}) {
+            CVariable v;
+            v.record = cdb_decode("S:Lt.f$" + n + "$" + std::to_string(lv) + "_0$" + std::to_string(bl) + "({2}SI:S),B,1,-4").record;
+            v.c_name = n;
+            v.function = 0;
+            zv.push_back(v);
+        }
+        CFunction zf;
+        zf.name = "f";
+        zf.compiler = CCompiler::Zsdcc;
+        zf.trail = {sc(0, 1, 0, 0), sc(3, 2, 1, 1), sc(5, 3, 2, 7), sc(10, 4, 2, 5)};
+        zf.scopes = zf.trail;
+        const VariableStore zst({zf}, zv, {}, {}, {});
+        std::string zrow;
+        for (const CLocalRef& r : c_visible_locals(zst, 0, &zst.functions()[0].scopes[3])) zrow += r.var->c_name + " ";
+        CFunction sf = zf;
+        sf.compiler = CCompiler::Sccz80;
+        const VariableStore sst({sf}, zv, {}, {}, {});
+        std::string srow;
+        for (const CLocalRef& r : c_visible_locals(sst, 0, &sst.functions()[0].scopes[3])) srow += r.var->c_name + " ";
+        // before z88dk#3227 a `for` directly in the function body: the body's records are level 3 with block 1 (the last opened), its i is `$3_0$1`; no level 2 exists, no record sets it
+        std::vector<CVariable> pv;
+        for (const auto& [n, lv, bl] : std::vector<std::tuple<std::string, int, int>>{{"t", 1, 1}, {"i", 3, 1}}) {
+            CVariable v;
+            v.record = cdb_decode("S:Lt.c.f$" + n + "$" + std::to_string(lv) + "_0$" + std::to_string(bl) + "({2}SI:S),B,1,-4").record;
+            v.c_name = n;
+            v.function = 0;
+            pv.push_back(v);
+        }
+        CFunction pf;
+        pf.name = "f";
+        pf.compiler = CCompiler::Sccz80;
+        pf.trail = {sc(0, 1, 0, 0), sc(3, 2, 1, 1), sc(8, 3, 3, 1)};
+        pf.scopes = pf.trail;
+        const VariableStore pst({pf}, pv, {}, {}, {});
+        std::string prow;
+        for (const CLocalRef& r : c_visible_locals(pst, 0, &pst.functions()[0].scopes[2])) prow += r.var->c_name + " ";
+        check("CVZB-13", "a trail that names the `for` block in its own records (a shape sccz80 does not write: its header line stays in the enclosing block, see CVZB-14; this is the "
+                         "walk's general case): in the `if` block t p (i, k and u are not open), in a header recorded inside the for block t i, in the for body t i k, after the loop t, in the "
+                         "next block t u; and the walk is sccz80's only: the same trail on a zsdcc function keeps the block rule (shows q, block 5), on sccz80 the "
+                         "replay keeps block 7 (shows p); before z88dk#3227 a `for` in the function body (records at level 3 naming block 1, no level 2 ever seen) shows its i",
+              at(10) == "p t" && at(24) == "i t" && at(30) == "i k t" && at(40) == "i t" && at(50) == "t" && at(55) == "t u" && zrow == "q " && srow == "p " && prow == "t i ",
+              at(10) + " | " + at(24) + " | " + at(30) + " | " + at(40) + " | " + at(55) + " | z=" + zrow + " s=" + srow + " p=" + prow);
+    }
+
+    {   // CVZB-14
+        // The records sccz80 writes once a `for` opens a block (z88dk#3254, PR #3258; sccz80 built at upstream 96c0efaddd from issue_3254.t's program and a second program): the `for`
+        // line stays in the ENCLOSING block, the body sits at level + 2 with the next block number, and NO record names the for block: it is known only from the header variable's
+        // `S:` record (`i$2_0$3`). Numbers below are that compiler's own map: (offset, line, level, block) and (name, level, block, stack offset).
+        struct Rec { uint32_t off; int line, level, block; };
+        struct Var { const char* name; int level, block, off; };
+        const auto visible = [](const std::vector<Rec>& trail, const std::vector<Var>& vars) {
+            std::vector<CVariable> vs;
+            for (const Var& v : vars) {
+                CVariable cv;
+                cv.record = cdb_decode(std::string("S:Lt.c.f$") + v.name + "$" + std::to_string(v.level) + "_0$" + std::to_string(v.block) + "({2}SI:S),B,1," + std::to_string(v.off)).record;
+                cv.c_name = v.name;
+                cv.function = 0;
+                vs.push_back(cv);
+            }
+            CFunction f;
+            f.name = "f";
+            f.compiler = CCompiler::Sccz80;
+            for (const Rec& r : trail) {
+                CScope c;
+                c.offset = r.off;
+                c.line = r.line;
+                c.level = r.level;
+                c.block = r.block;
+                c.known = true;
+                f.trail.push_back(c);
+            }
+            // scopes: the owner of each address (the highest line)
+            for (size_t i = 0; i < f.trail.size(); ++i)
+                if (i + 1 == f.trail.size() || f.trail[i + 1].offset != f.trail[i].offset) f.scopes.push_back(f.trail[i]);
+            const VariableStore st({f}, vs, {}, {}, {});
+            std::string out;
+            for (const CScope& sc : st.functions()[0].scopes) {
+                std::vector<std::string> n;
+                for (const CLocalRef& r : c_visible_locals(st, 0, &sc))
+                    if (r.kind != CVarKind::Param) n.push_back(r.var->c_name);
+                std::sort(n.begin(), n.end());
+                std::string row;
+                for (const std::string& x : n) row += (row.empty() ? "" : " ") + x;
+                out += (out.empty() ? "" : "|") + std::to_string(sc.line) + "=" + row;
+            }
+            return out;
+        };
+        // issue_3254.t's program: f(a) { t = a; if (a) { p = t; t += p; } for (int i...) { for (int j...) t += i + j; } return t; }; i and p share slot -4
+        const std::string f3254 = visible({{0, 3, 0, 0}, {3, 4, 1, 1}, {7, 5, 1, 1}, {15, 6, 2, 2}, {18, 7, 2, 2}, {34, 8, 2, 2}, {35, 9, 1, 1}, {59, 10, 3, 4}, {83, 11, 4, 5}, {113, 12, 3, 4}, {117, 13, 1, 1}},
+                                         {{"a", 0, 0, 4}, {"t", 1, 1, -2}, {"p", 2, 2, -4}, {"i", 2, 3, -4}, {"j", 4, 5, -6}});
+        // an empty sibling block `{ int z; }` (block 2, slot -4) before a `for (int i...)` (block 3, the same slot), whose body (3/4) holds k; then a `for` with NO declaration (its block, 5, is
+        // named by nothing), whose body is 3/6 with m; then a block u (2/7). K: the fill must take the greatest candidate (i, block 3, not z), and skip the unnamed block
+        const std::string f2 = visible({{0, 3, 0, 0}, {3, 4, 1, 1}, {7, 6, 1, 1}, {31, 7, 3, 4}, {43, 8, 3, 4}, {61, 9, 3, 4}, {66, 10, 1, 1}, {102, 11, 3, 6}, {106, 12, 3, 6}, {122, 13, 3, 6}, {126, 14, 1, 1},
+                                        {126, 15, 2, 7}, {129, 16, 2, 7}, {145, 17, 2, 7}, {146, 18, 1, 1}},
+                                       {{"a", 0, 0, 4}, {"t", 1, 1, -2}, {"z", 2, 2, -4}, {"i", 2, 3, -4}, {"k", 3, 4, -6}, {"m", 3, 6, -4}, {"u", 2, 7, -4}});
+        check("CVZB-14", "the records sccz80 writes once a `for` opens a block (z88dk#3254, built from upstream 96c0efaddd): the `for` line is in the enclosing block, the body is level + 2 with the next "
+                         "block number, no record names the for block; issue_3254.t's program shows L4-5 t, L6-8 p t, L9 t, L10 i t, L11 i j t, L12 i t, L13 t (the nested brace-less for's j at 4/5); with an "
+                         "empty sibling block `{ int z; }` before the `for` (z and i share slot -4) L7-9 show i k t and never z, and a `for` with no declaration shows m t at L11-13 (the unnamed block is "
+                         "skipped), then t u at L15-17",
+              f3254 == "3=t|4=t|5=t|6=p t|7=p t|8=p t|9=t|10=i t|11=i j t|12=i t|13=t" && f2 == "3=t|4=t|6=t|7=i k t|8=i k t|9=i k t|10=t|11=m t|12=m t|13=m t|15=t u|16=t u|17=t u|18=t",
+              f3254 + " || " + f2);
+    }
+
+    {   // CVZB-15
+        // 80cc with z88dk PR #3243 (80cc built at upstream 96c0efaddd, issue_3254.t's program and f2.c): C_LINE records carry levels and blocks, in source-unordered code (f3254's line 12 is
+        // at +140, after line 13 at +75), `for` variables `i$2_0$1`. Neither the sccz80 replay nor the block rule reads them right (a closed sibling shown, the variable in scope hidden), so every
+        // block local stays `scope unknown`: listed, flagged, never hidden. Numbers: (offset, line, level, block) and (name, level, block, stack offset) of that compiler's map
+        struct Rec { uint32_t off; int line, level, block; };
+        struct Var { const char* name; int level, block, off; };
+        const auto rows = [](const std::vector<Rec>& trail, const std::vector<Var>& vars) {
+            std::vector<CVariable> vs;
+            for (const Var& v : vars) {
+                CVariable cv;
+                cv.record = cdb_decode(std::string("S:Lt.c.f$") + v.name + "$" + std::to_string(v.level) + "_0$" + std::to_string(v.block) + "({2}SI:S),B,1," + std::to_string(v.off)).record;
+                cv.c_name = v.name;
+                cv.function = 0;
+                vs.push_back(cv);
+            }
+            CFunction f;
+            f.name = "f";
+            f.compiler = CCompiler::Cc80;
+            for (const Rec& r : trail) {
+                CScope c;
+                c.offset = r.off;
+                c.line = r.line;
+                c.level = r.level;
+                c.block = r.block;
+                c.known = true;
+                f.trail.push_back(c);
+            }
+            f.scopes = f.trail;
+            const VariableStore st({f}, vs, {}, {}, {});
+            std::string out;
+            for (const CScope& sc : st.functions()[0].scopes) {
+                std::vector<std::string> n;
+                for (const CLocalRef& r : c_visible_locals(st, 0, &sc))
+                    if (r.kind != CVarKind::Param) n.push_back(r.var->c_name + (r.scope_unknown ? "?" : ""));
+                std::sort(n.begin(), n.end());
+                std::string row;
+                for (const std::string& x : n) row += (row.empty() ? "" : " ") + x;
+                out += (out.empty() ? "" : "|") + std::to_string(sc.line) + "=" + row;
+            }
+            return out;
+        };
+        const std::string f3254 = rows({{0, 3, 0, 0}, {19, 4, 1, 1}, {23, 5, 1, 1}, {27, 6, 2, 2}, {33, 7, 2, 2}, {37, 9, 2, 1}, {63, 10, 4, 3}, {72, 11, 4, 3}, {75, 13, 1, 1}, {140, 12, 2, 1}},
+                                       {{"a", 0, 0, 4}, {"i", 2, 1, -4}, {"j", 4, 3, -2}, {"p", 2, 2, -6}, {"t", 1, 1, -8}});
+        const std::string f2 = rows({{0, 3, 0, 0}, {13, 4, 1, 1}, {20, 6, 2, 1}, {46, 7, 3, 3}, {56, 8, 3, 3}, {73, 9, 2, 1}, {76, 10, 2, 1}, {87, 11, 3, 4}, {98, 12, 3, 4}, {105, 13, 2, 1}, {108, 15, 2, 5},
+                                     {116, 16, 2, 5}, {120, 18, 1, 1}},
+                                    {{"a", 0, 0, 4}, {"i", 2, 1, -8}, {"k", 3, 3, -6}, {"m", 3, 4, -4}, {"t", 1, 1, -12}, {"u", 2, 5, -2}, {"z", 2, 2, -10}});
+        const std::string every = "i? j? p? t";
+        std::string expect3254, expect2;
+        for (const char* l : {"3", "4", "5", "6", "7", "9", "10", "11", "13", "12"}) expect3254 += std::string(expect3254.empty() ? "" : "|") + l + "=" + (std::string(l) == "3" || std::string(l) == "4" || std::string(l) == "5" ? "i? j? p? t" : every);
+        for (const char* l : {"3", "4", "6", "7", "8", "9", "10", "11", "12", "13", "15", "16", "18"}) expect2 += std::string(expect2.empty() ? "" : "|") + l + "=i? k? m? t u? z?";
+        check("CVZB-15", "80cc with PR #3243's block records (levels and blocks, code out of source order): every block local of f3254 and f2 stays listed and flagged `scope unknown` at every scope entry "
+                         "(never hidden, never shown without the flag), t (level 1) is plain: a store whose scopes do not come from the listing (no listing beside the map) is not exact enough for the three-valued reading (CVZB-16)",
+              f3254 == expect3254 && f2 == expect2, f3254 + " || " + f2);
+    }
+
+    // ── GH #438 S4a: 80cc's PR #3243 block records read three-valued, with the listing's scopes ─────────────
+    struct Rec4 { uint32_t off; int line, level, block; };
+    struct Var4 { const char* name; int level, block, off; };
+    struct Sc3 { int line, level, block; };
+    // The rows of one function: the listing's scopes in order (the flag `scopes_from_listing` set), `name?` for a local flagged `scope unknown`, a hidden local absent
+    const auto cc80_rows = [](const std::vector<Rec4>& trail, const std::vector<Var4>& vars, const std::vector<Sc3>& scopes, bool* plain_block = nullptr, bool* bad_pick = nullptr) {
+        std::vector<CVariable> vs;
+        for (const Var4& v : vars) {
+            CVariable cv;
+            cv.record = cdb_decode(std::string("S:Lt.c.f$") + v.name + "$" + std::to_string(v.level) + "_0$" + std::to_string(v.block) + "({2}SI:S),B,1," + std::to_string(v.off)).record;
+            cv.c_name = v.name;
+            cv.function = 0;
+            vs.push_back(cv);
+        }
+        CFunction f;
+        f.name = "f";
+        f.compiler = CCompiler::Cc80;
+        f.scopes_from_listing = true;
+        for (const Rec4& r : trail) {
+            CScope c;
+            c.offset = r.off;
+            c.line = r.line;
+            c.level = r.level;
+            c.block = r.block;
+            c.known = true;
+            f.trail.push_back(c);
+        }
+        uint32_t off = 0;
+        for (const Sc3& sc : scopes) {
+            CScope c;
+            c.offset = off++;
+            c.line = sc.line;
+            c.level = sc.level;
+            c.block = sc.block;
+            c.known = true;
+            f.scopes.push_back(c);
+        }
+        const VariableStore st({f}, vs, {}, {}, {});
+        std::string out;
+        for (const CScope& sc : st.functions()[0].scopes) {
+            std::vector<std::string> n;
+            const std::vector<CLocalRef> vis = c_visible_locals(st, 0, &sc);
+            if (bad_pick)
+                for (const CLocalRef& r : vis)
+                    if (const CPicked pk = c_pick_local(vis, r.var->c_name); pk.chosen && !pk.certain && !pk.chosen->scope_unknown) *bad_pick = true;
+            for (const CLocalRef& r : vis) {
+                if (r.kind != CVarKind::Param) n.push_back(r.var->c_name + (r.scope_unknown ? "?" : ""));
+                if (plain_block && r.kind == CVarKind::Local && r.var->record.var.level >= 2 && !r.scope_unknown) *plain_block = true;
+            }
+            std::sort(n.begin(), n.end());
+            std::string row;
+            for (const std::string& x : n) row += (row.empty() ? "" : " ") + x;
+            out += (out.empty() ? "" : "|") + std::to_string(sc.line) + "=" + row;
+        }
+        return out;
+    };
+    bool bad_pick = false;   // an uncertain pick whose chosen row is not flagged `scope unknown` (the write guard relies on there being none)
+    bool any_plain_block_local = false;   // CVZB-16 and CVZB-20: an 80cc block local is never listed plain
+    {   // CVZB-16
+        // The records and the variables are those 80cc (upstream 96c0efaddd, PR #3243) wrote for eight functions of our own programs (f3254.c, f2.c, blocks.c, t1.c: a `for` with a
+        // declaration, sibling `for`s, nested blocks, a brace-less inner `for`, `for(;;)`, a `__stdc` function), read through jnext's adapter. The expected text is the C scope of each line:
+        // a name is plain only where the program's block holds it, absent where its block is closed or not yet opened, and `?` where the records cannot tell (a `for` variable, a block
+        // under a `for`: f2.c's second `for` has the records of one `for`, k2 the records of a `for` body, g2 the records of two nested blocks).
+        struct Case { const char* name; std::vector<Rec4> trail; std::vector<Var4> vars; std::vector<Sc3> scopes; const char* expect; };
+        const std::vector<Case> cases = {
+        {"f3254_f", {{0,3,0,0},{19,4,1,1},{23,5,1,1},{27,6,2,2},{33,7,2,2},{37,9,2,1},{63,10,4,3},{72,11,4,3},{75,13,1,1},{140,12,2,1}}, {{"a",0,0,4},{"i",2,1,-4},{"j",4,3,-2},{"p",2,2,-6},{"t",1,1,-8}}, {{3,0,0},{4,1,1},{5,1,1},{6,2,2},{7,2,2},{9,2,1},{10,4,3},{11,4,3},{13,1,1},{12,2,1}}, "3=t|4=t|5=t|6=p? t|7=p? t|9=i? t|10=i? j? t|11=i? j? t|13=t|12=i? t"},
+        {"f2_h", {{0,3,0,0},{13,4,1,1},{20,6,2,1},{46,7,3,3},{56,8,3,3},{73,9,2,1},{76,10,2,1},{87,11,3,4},{98,12,3,4},{105,13,2,1},{108,15,2,5},{116,16,2,5},{120,18,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"k",3,3,-6},{"m",3,4,-4},{"t",1,1,-12},{"u",2,5,-2},{"z",2,2,-10}}, {{3,0,0},{4,1,1},{6,2,1},{7,3,3},{8,3,3},{9,2,1},{10,2,1},{11,3,4},{12,3,4},{13,2,1},{15,2,5},{16,2,5},{18,1,1}}, "3=t|4=t|6=i? t|7=i? k? t z?|8=i? k? t z?|9=i? t|10=i? t|11=i? m? t z?|12=i? m? t z?|13=i? t|15=t u?|16=t u?|18=t"},
+        {"blocks_f", {{0,4,0,0},{19,5,1,1},{23,6,1,1},{34,7,2,2},{41,8,2,2},{45,10,2,1},{71,11,3,3},{88,12,2,1},{91,14,2,4},{99,16,3,5},{105,17,3,5},{109,19,2,4},{122,20,2,4},{126,22,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"p",2,2,-10},{"t",1,1,-12},{"u",2,4,-6},{"v",3,5,-4},{"z",2,4,-2}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{10,2,1},{11,3,3},{12,2,1},{14,2,4},{16,3,5},{17,3,5},{19,2,4},{20,2,4},{22,1,1}}, "4=t|5=t|6=t|7=p? t|8=p? t|10=i? t|11=i? t|12=i? t|14=t u? z?|16=t u? v? z?|17=t u? v? z?|19=t u? z?|20=t u? z?|22=t"},
+        {"blocks_g2", {{0,25,0,0},{16,26,1,6},{20,27,2,7},{24,28,2,7},{27,31,3,8},{36,32,3,8},{40,34,1,6}}, {{"a",0,0,4},{"q",2,7,-4},{"w",3,8,-2}}, {{25,0,0},{26,1,6},{27,2,7},{28,2,7},{31,3,8},{32,3,8},{34,1,6}}, "25=|26=|27=q?|28=q?|31=q? w?|32=q? w?|34="},
+        {"blocks_h", {{0,37,0,0},{13,38,1,9},{21,40,2,10},{27,41,3,10},{53,42,4,11},{70,43,3,10},{73,44,2,10},{82,46,1,9}}, {{"a",0,0,4},{"j",3,10,-2},{"m",2,10,-4},{"t",1,9,-6}}, {{37,0,0},{38,1,9},{40,2,10},{41,3,10},{42,4,11},{43,3,10},{44,2,10},{46,1,9}}, "37=t|38=t|40=m? t|41=j? m? t|42=j? m? t|43=j? m? t|44=m? t|46=t"},
+        {"t1_k1", {{0,4,0,0},{19,5,1,1},{23,6,1,1},{34,7,2,2},{41,8,2,2},{41,12,2,2},{58,9,3,3},{64,10,3,3},{68,11,3,3},{78,14,2,1},{87,17,2,1},{104,15,3,4},{110,16,3,4},{130,18,2,1},{156,19,3,5},{162,20,3,5},{179,21,2,1},{182,22,1,1}}, {{"a",0,0,4},{"i",2,1,-8},{"j",2,1,-4},{"r",2,2,-12},{"t",1,1,-14},{"w",3,3,-10},{"x",3,4,-6},{"y",3,5,-2}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{9,3,3},{10,3,3},{11,3,3},{14,2,1},{15,3,4},{16,3,4},{17,2,1},{18,2,1},{19,3,5},{20,3,5},{21,2,1},{22,1,1}}, "4=t|5=t|6=t|7=r? t|8=r? t|9=r? t w?|10=r? t w?|11=r? t w?|14=i? j? t|15=i? j? t x?|16=i? j? t x?|17=i? j? t|18=i? j? t|19=i? j? t y?|20=i? j? t y?|21=i? j? t|22=t"},
+        {"t1_k2", {{0,25,0,0},{19,26,1,6},{23,27,1,6},{27,28,3,7},{36,29,3,7},{39,35,1,6},{83,30,3,7},{109,31,4,8},{116,32,4,8},{133,33,3,7}}, {{"a",0,0,4},{"i",3,7,-6},{"j",3,7,-4},{"q",4,8,-2},{"t",1,6,-8}}, {{25,0,0},{26,1,6},{27,1,6},{28,3,7},{29,3,7},{35,1,6},{30,3,7},{31,4,8},{32,4,8},{33,3,7}}, "25=t|26=t|27=t|28=i? j? t|29=i? j? t|35=t|30=i? j? t|31=i? j? q? t|32=i? j? q? t|33=i? j? t"},
+        {"t1_k3", {{0,38,0,9},{13,39,1,10},{18,41,2,11},{30,43,3,12},{37,45,4,13},{44,46,4,13},{48,51,2,14},{56,52,2,14},{60,54,1,10}}, {{"a",0,9,4},{"t",1,10,-10},{"u",2,11,-8},{"v",3,12,-6},{"w",4,13,-4},{"z",2,14,-2}}, {{38,0,9},{39,1,10},{41,2,11},{43,3,12},{45,4,13},{46,4,13},{51,2,14},{52,2,14},{54,1,10}}, "38=t|39=t|41=t u?|43=t u? v?|45=t u? v? w?|46=t u? v? w?|51=t z?|52=t z?|54=t"},
+        };
+        bool ok = true;
+        std::string seen;
+        for (const Case& c : cases) {
+            const std::string got = cc80_rows(c.trail, c.vars, c.scopes, &any_plain_block_local, &bad_pick);
+            if (got != c.expect) { ok = false; seen += std::string(" ") + c.name + ": " + got; }
+        }
+        check("CVZB-16", "80cc with PR #3243's records and the listing's scopes (GH #438 S4b: never plain): eight functions (f3254 f, f2 h, blocks f, g2, h, t1 k1, k2, k3 (`__stdc`)) give at every listed scope "
+                         "the block locals that are not provably closed as `scope unknown` (`name?`), and none that are provably closed (absent); level-1 locals are plain; no block local is ever plain; an uncertain name pick is always a flagged row",
+              ok && cases.size() == 8 && !any_plain_block_local && !bad_pick, seen);
+    }
+    {   // CVZB-20
+        // GH #438 S4b (review 7 F1): 80cc stamps some code with the scope of a block the code is not in, so a block local is never plain. The records are those of 14 functions of our own programs,
+        // built with 80cc 0f0a1cf70e: r1 f1 / r3 f3 / r4 f4 (if/else chains, loops, a shadowing inner block, an else body on one line), c1 c1..c6 (epilogue after a trailing block, `for`, `switch`,
+        // nested else), d1..d4 (hoisted loop code, `switch`), r2 f2 (`__stdc`, nested ifs, `switch`, `while`), c9 k9 (a brace-less then-branch). The expected text hides what the stamp proves closed
+        // and flags the rest; at the then-branch's closing jump (r1 line 11, r3 line 25, c9 line 10, r4 line 10) the else local is `q?`, not plain, and at c1's epilogue (line 9) `q?`
+        struct Case { const char* name; std::vector<Rec4> trail; std::vector<Var4> vars; std::vector<Sc3> scopes; const char* expect; };
+        const std::vector<Case> cases = {
+        {"r1_f1", {{0,4,0,0},{13,5,1,1},{21,6,1,1},{38,7,2,2},{47,8,2,2},{50,11,2,3},{53,10,2,3},{65,13,1,1},{78,14,2,4},{85,15,2,4},{92,18,2,5},{100,19,2,5},{127,20,1,1},{141,22,2,6},{150,23,2,6},{160,25,1,1},{163,26,1,1},{175,27,2,7},{181,28,2,7},{196,31,2,8},{199,29,1,1},{205,30,2,8},{227,33,1,1}}, {{"a",0,0,4},{"d",2,5,-8},{"e",2,7,-4},{"h",2,8,-2},{"p",2,2,-14},{"q",2,3,-12},{"t",1,1,-16},{"t",2,6,-6},{"w",2,4,-10}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{11,2,3},{10,2,3},{13,1,1},{14,2,4},{15,2,4},{18,2,5},{19,2,5},{20,1,1},{22,2,6},{23,2,6},{25,1,1},{26,1,1},{27,2,7},{28,2,7},{31,2,8},{29,1,1},{30,2,8},{33,1,1}}, "4=t|5=t|6=t|7=p? t|8=p? t|11=q? t|10=q? t|13=t|14=t w?|15=t w?|18=d? t|19=d? t|20=t|22=t t?|23=t t?|25=t|26=t|27=e? t|28=e? t|31=h? t|29=t|30=h? t|33=t"},
+        {"r3_f3", {{0,4,0,0},{13,5,1,1},{21,6,1,1},{38,7,2,2},{47,8,2,2},{50,14,3,4},{53,10,2,3},{62,11,2,3},{65,13,3,4},{85,17,1,1},{97,18,2,5},{103,19,2,5},{118,25,2,7},{121,20,1,1},{127,21,2,6},{134,22,2,6},{146,24,2,7},{169,27,1,1},{182,28,2,8},{188,29,2,8},{192,30,3,9},{198,31,3,9},{202,34,3,10},{205,33,3,10},{217,38,2,11},{225,39,2,11},{252,40,1,1},{266,41,1,1}}, {{"a",0,0,4},{"d",2,11,-2},{"e",2,5,-14},{"h",2,6,-12},{"k",2,7,-10},{"p",2,2,-20},{"q",2,3,-18},{"r",3,4,-16},{"t",1,1,-22},{"u",3,9,-6},{"v",3,10,-4},{"w",2,8,-8}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{14,3,4},{10,2,3},{11,2,3},{13,3,4},{17,1,1},{18,2,5},{19,2,5},{25,2,7},{20,1,1},{21,2,6},{22,2,6},{24,2,7},{27,1,1},{28,2,8},{29,2,8},{30,3,9},{31,3,9},{34,3,10},{33,3,10},{38,2,11},{39,2,11},{40,1,1},{41,1,1}}, "4=t|5=t|6=t|7=p? t|8=p? t|14=p? q? r? t|10=q? t|11=q? t|13=p? q? r? t|17=t|18=e? t|19=e? t|25=k? t|20=t|21=h? t|22=h? t|24=k? t|27=t|28=t w?|29=t w?|30=t u? w?|31=t u? w?|34=t v? w?|33=t v? w?|38=d? t|39=d? t|40=t|41=t"},
+        {"r4_f4", {{0,4,0,0},{13,5,1,1},{21,6,1,1},{38,7,2,2},{47,8,2,2},{50,10,2,3},{65,12,1,1}}, {{"a",0,0,4},{"p",2,2,-4},{"q",2,3,-2},{"t",1,1,-6}}, {{4,0,0},{5,1,1},{6,1,1},{7,2,2},{8,2,2},{10,2,3},{12,1,1}}, "4=t|5=t|6=t|7=p? t|8=p? t|10=q? t|12=t"},
+        {"c1_c1", {{0,4,0,0},{10,5,1,1},{18,6,1,1},{21,7,1,1},{38,8,2,2},{50,9,2,2}}, {{"a",0,0,4},{"q",2,2,-2},{"t",1,1,-4}}, {{4,0,0},{5,1,1},{6,1,1},{7,1,1},{8,2,2},{9,2,2}}, "4=t|5=t|6=t|7=t|8=q? t|9=q? t"},
+        {"c1_c2", {{0,13,0,0},{13,14,1,3},{21,15,2,3},{47,16,3,4},{56,17,3,4},{75,18,4,5},{88,19,4,5},{115,21,2,3},{118,22,1,3}}, {{"a",0,0,4},{"b",3,4,-4},{"i",2,3,-6},{"q",4,5,-2},{"t",1,3,-8}}, {{13,0,0},{14,1,3},{15,2,3},{16,3,4},{17,3,4},{18,4,5},{19,4,5},{21,2,3},{22,1,3}}, "13=t|14=t|15=i? t|16=b? i? t|17=b? i? t|18=b? i? q? t|19=b? i? q? t|21=i? t|22=t"},
+        {"c1_c3", {{0,25,0,0},{10,26,1,6},{18,36,1,6},{29,32,2,7},{42,33,3,8},{52,34,3,8},{58,29,2,7},{63,37,1,6}}, {{"a",0,0,4},{"q",3,8,-2},{"t",1,6,-4}}, {{25,0,0},{26,1,6},{36,1,6},{32,2,7},{33,3,8},{34,3,8},{29,2,7},{37,1,6}}, "25=t|26=t|36=t|32=t|33=q? t|34=q? t|29=t|37=t"},
+        {"c1_c5", {{0,40,0,0},{13,41,1,9},{21,42,1,9},{38,43,2,10},{47,44,2,10},{50,49,3,12},{53,46,2,11},{62,47,2,11},{73,48,3,12},{83,52,1,9}}, {{"a",0,0,4},{"p",2,10,-6},{"q",3,12,-2},{"t",1,9,-8},{"z",2,11,-4}}, {{40,0,0},{41,1,9},{42,1,9},{43,2,10},{44,2,10},{49,3,12},{46,2,11},{47,2,11},{48,3,12},{52,1,9}}, "40=t|41=t|42=t|43=p? t|44=p? t|49=p? q? t z?|46=t z?|47=t z?|48=p? q? t z?|52=t"},
+        {"c1_c6", {{0,55,0,0},{13,56,1,13},{21,57,1,13},{34,58,2,14},{40,59,2,14},{44,60,3,15},{51,61,3,15},{58,65,2,16},{66,66,2,16},{71,67,3,17},{77,68,3,17},{83,70,1,13},{97,71,1,13}}, {{"a",0,0,4},{"d",2,16,-4},{"q",3,15,-6},{"r",3,17,-2},{"t",1,13,-10},{"w",2,14,-8}}, {{55,0,0},{56,1,13},{57,1,13},{58,2,14},{59,2,14},{60,3,15},{61,3,15},{65,2,16},{66,2,16},{67,3,17},{68,3,17},{70,1,13},{71,1,13}}, "55=t|56=t|57=t|58=t w?|59=t w?|60=q? t w?|61=q? t w?|65=d? t|66=d? t|67=d? r? t w?|68=d? r? t w?|70=t|71=t"},
+        {"c7_d1", {{0,4,0,0},{13,5,2,1},{31,6,3,2},{41,7,3,2},{60,8,4,3},{73,9,4,3},{79,11,2,1}}, {{"a",0,0,4},{"b",3,2,-4},{"i",2,1,-6},{"q",4,3,-2}}, {{4,0,0},{5,2,1},{6,3,2},{7,3,2},{8,4,3},{9,4,3},{11,2,1}}, "4=|5=i?|6=b? i?|7=b? i?|8=b? i? q?|9=b? i? q?|11=i?"},
+        {"c7_d2", {{0,14,0,0},{13,15,1,4},{18,16,2,4},{27,17,3,5},{77,18,3,5},{102,19,2,4},{105,20,1,4}}, {{"1licm_0",0,0,-4},{"a",0,0,6},{"c",0,0,4},{"i",2,4,-6},{"k",3,5,-2},{"t",1,4,-8}}, {{14,0,0},{15,1,4},{16,2,4},{17,3,5},{18,3,5},{19,2,4},{20,1,4}}, "14=t|15=t|16=i? t|17=i? k? t|18=i? k? t|19=i? t|20=t"},
+        {"c7_d3", {{0,23,0,0},{10,24,1,6},{20,25,2,7},{23,26,2,7},{34,27,3,8},{41,28,3,8},{44,31,1,6}}, {{"a",0,0,4},{"q",3,8,-2},{"r",2,7,-4}}, {{23,0,0},{24,1,6},{25,2,7},{26,2,7},{27,3,8},{28,3,8},{31,1,6}}, "23=|24=|25=r?|26=r?|27=q? r?|28=q? r?|31="},
+        {"c7_d4", {{0,34,0,0},{9,44,1,9},{20,40,2,10},{37,41,3,11},{43,42,3,11},{49,37,2,10}}, {{"a",0,0,4},{"q",3,11,-2}}, {{34,0,0},{44,1,9},{40,2,10},{41,3,11},{42,3,11},{37,2,10}}, "34=|44=|40=|41=q?|42=q?|37="},
+        {"r2_f2", {{0,4,0,1},{13,5,1,2},{21,6,1,2},{31,7,2,3},{43,8,2,3},{53,9,3,4},{62,10,3,4},{68,12,2,3},{82,14,1,2},{92,15,2,5},{101,19,2,5},{104,30,1,2},{115,29,2,7},{124,16,2,5},{148,17,3,6},{160,18,3,6},{177,20,2,5},{189,24,3,8},{198,25,3,8},{204,32,2,9},{213,34,3,10},{222,35,3,10},{228,38,1,2}}, {{"a",0,1,4},{"b",0,1,6},{"n",3,10,-2},{"o",2,9,-4},{"s",3,8,-6},{"t",1,2,-16},{"x",2,3,-14},{"x",3,4,-12},{"y",2,5,-10},{"z",3,6,-8}}, {{4,0,1},{5,1,2},{6,1,2},{7,2,3},{8,2,3},{9,3,4},{10,3,4},{12,2,3},{14,1,2},{15,2,5},{19,2,5},{30,1,2},{29,2,7},{16,2,5},{17,3,6},{18,3,6},{20,2,5},{24,3,8},{25,3,8},{32,2,9},{34,3,10},{35,3,10},{38,1,2}}, "4=t|5=t|6=t|7=t x?|8=t x?|9=t x? x?|10=t x? x?|12=t x?|14=t|15=t y?|19=t y?|30=t|29=t|16=t y?|17=t y? z?|18=t y? z?|20=t y?|24=s? t|25=s? t|32=o? t|34=n? o? t|35=n? o? t|38=t"},
+        {"c9_k9", {{0,4,0,0},{10,5,1,1},{18,6,1,1},{35,7,1,1},{41,10,2,2},{44,9,2,2},{56,12,1,1}}, {{"a",0,0,4},{"q",2,2,-2},{"t",1,1,-4}}, {{4,0,0},{5,1,1},{6,1,1},{7,1,1},{10,2,2},{9,2,2},{12,1,1}}, "4=t|5=t|6=t|7=t|10=q? t|9=q? t|12=t"},
+        };
+        bool ok = true;
+        std::string seen;
+        for (const Case& c : cases) {
+            const std::string got = cc80_rows(c.trail, c.vars, c.scopes, &any_plain_block_local, &bad_pick);
+            if (got != c.expect) { ok = false; seen += std::string(" ") + c.name + ": " + got; }
+        }
+        check("CVZB-20", "80cc, the stale-stamp cases of review 7: fourteen functions give at every listed scope block locals that are `scope unknown` or absent, never plain; at the jump that ends a then-branch "
+                         "(r1 f1 line 11, r3 f3 line 25, r4 f4 line 10, c9 k9 line 10) and in an epilogue after a trailing block (c1 line 9) the else or trailing local is `q?`; the property holds across CVZB-16 and CVZB-20; "
+                         "80cc's leading-digit temporary `1licm_0` is not a parameter or a local",
+              ok && cases.size() == 14 && !any_plain_block_local && !bad_pick, seen);
+    }
+    {   // CVZB-18
+        // F3's upper bound is strict (review 7 M06): trail (5,1,1) (6,2,2) (8,1,1) (8,3,3), y in block 2, w in block 3, PC scope (8,3,3). An entry of the lower block 1 on the PC's own line (8) closes
+        // nothing: block 3 can be a child of block 2 (the same line holds both), so y stays `y?`; hiding it would be unsound
+        const std::string r = cc80_rows({{0, 5, 1, 1}, {1, 6, 2, 2}, {2, 8, 1, 1}, {3, 8, 3, 3}}, {{"t", 1, 1, -2}, {"y", 2, 2, -4}, {"w", 3, 3, -6}}, {{8, 3, 3}});
+        check("CVZB-18", "an entry of a lower block on the PC's own line does not close the block before it: with trail (5,1,1) (6,2,2) (8,1,1) (8,3,3) at (8,3,3), y (block 2) and w (block 3) are `scope unknown`", r == "8=t w? y?", r);
+    }
+    {   // CVZB-19
+        // c_pick_local: the innermost declaration of a name wins (the greatest level, then block), as gdb does; `certain` is false when a candidate is flagged `scope unknown`
+        const auto mk = [](const char* name, int level, int block, bool unknown) {
+            static std::vector<std::unique_ptr<CVariable>> keep;
+            auto v = std::make_unique<CVariable>();
+            v->record = cdb_decode(std::string("S:Lt.c.f$") + name + "$" + std::to_string(level) + "_0$" + std::to_string(block) + "({2}SI:S),B,1,-2").record;
+            v->c_name = name;
+            CLocalRef r;
+            r.var = v.get();
+            r.scope_unknown = unknown;
+            keep.push_back(std::move(v));
+            return r;
+        };
+        const CLocalRef t1 = mk("t", 1, 1, false), t6 = mk("t", 2, 6, false), t6u = mk("t", 2, 6, true), par = mk("a", 0, 0, false), loc = mk("a", 2, 3, false), t7 = mk("t", 2, 7, false);
+        const std::vector<CLocalRef> va = {t1, t6}, vb = {t1, t6u}, vc = {par, loc}, vd = {t1}, ve = {t6, t7};   // the picks point into these
+        const CPicked a = c_pick_local(va, "t"), b = c_pick_local(vb, "t"), c = c_pick_local(vc, "a"), d = c_pick_local(vd, "t"), e = c_pick_local(ve, "t"), none = c_pick_local(vd, "zz");
+        check("CVZB-19", "c_pick_local: (a) t at level 1 and level 2 block 6 pick block 6, certain, one other; (b) the inner one flagged `scope unknown`: still block 6, not certain; (c) a parameter and a block local "
+                         "of one name pick the local; (d) a single candidate is certain with no others; (e) two at one level pick the greater block; no candidate picks nothing; the ambiguous note names the count and the pick",
+              a.chosen && a.chosen->var->record.var.block == 6 && a.certain && a.others.size() == 1 && b.chosen && b.chosen->var->record.var.block == 6 && !b.certain && c.chosen && c.chosen->var->record.var.level == 2 &&
+                  d.chosen && d.certain && d.others.empty() && e.chosen && e.chosen->var->record.var.block == 7 && !none.chosen &&
+                  c_ambiguous_note(b) == "ambiguous: 2 variables named t may be in scope here; this is the innermost (level 2, block 6)");
+    }
+    {   // CVZB-21
+        // GH #438 S4b2 (review 8 G1): a block-scoped static local is in scope only in its block, like a block local of the same (level, block). Function f of statics.c: t (level 1), u (2/2),
+        // `static t` (3/3, an E-space record), then `g += t` at (13, 2/2) and `t++` at (15, 1/1) where the static is out of scope. Exact blocks (zsdcc's way): the static is listed at line 11 only;
+        // 80cc with the listing's scopes: flagged at 11, hidden outside; a level-1 static is listed everywhere
+        const auto rows = [](CCompiler cc, bool exact80) {
+            std::vector<CVariable> vs;
+            const auto add = [&](const std::string& rec, const char* name) {
+                CVariable v;
+                v.record = cdb_decode(rec).record;
+                v.c_name = name;
+                v.function = 0;
+                vs.push_back(v);
+            };
+            add("S:Ls1.c.f$t$1_0$1({2}SI:S),B,1,-2", "t");
+            add("S:Ls1.c.f$u$2_0$2({2}SI:S),B,1,-4", "u");
+            add("S:Fs1.c$st_f_t$3_0$3({2}SI:S),E,0,0", "t");
+            add("S:Fs1.c$st_f_k$1_0$1({2}SI:S),E,0,0", "k");
+            CFunction f;
+            f.name = "f";
+            f.compiler = cc;
+            f.scopes_from_listing = exact80;
+            for (const Sc3 sc : {Sc3{5, 1, 1}, Sc3{7, 2, 2}, Sc3{11, 3, 3}, Sc3{13, 2, 2}, Sc3{15, 1, 1}}) {
+                CScope c;
+                c.offset = static_cast<uint32_t>(f.scopes.size());
+                c.line = sc.line;
+                c.level = sc.level;
+                c.block = sc.block;
+                c.known = true;
+                f.scopes.push_back(c);
+            }
+            f.trail = f.scopes;
+            const VariableStore st({f}, vs, {}, {}, {});
+            std::string out;
+            for (const CScope& sc : st.functions()[0].scopes) {
+                std::vector<std::string> n;
+                for (const CLocalRef& r : c_visible_locals(st, 0, &sc)) n.push_back(r.var->c_name + (r.kind == CVarKind::StaticLocal ? "s" : "") + (r.scope_unknown ? "?" : ""));
+                std::sort(n.begin(), n.end());
+                std::string row;
+                for (const std::string& x : n) row += (row.empty() ? "" : " ") + x;
+                out += (out.empty() ? "" : "|") + std::to_string(sc.line) + "=" + row;
+            }
+            return out;
+        };
+        const std::string exact = rows(CCompiler::Zsdcc, false), c80 = rows(CCompiler::Cc80, true);
+        check("CVZB-21", "a block static (level 3, block 3) is listed where its block is open and hidden elsewhere, like a block local; a level-1 static (k) is listed at every line. Exact blocks list `ts` at line 11 only; "
+                         "80cc with the listing's scopes lists it flagged (`ts?`) at line 11 and hides it at 13 and 15 (block 3 > block 2, F1), its block locals flagged",
+              exact == "5=ks t|7=ks t u|11=ks t ts u|13=ks t u|15=ks t" && c80 == "5=ks t|7=ks t u?|11=ks t ts? u?|13=ks t u?|15=ks t", exact + " || " + c80);
+    }
+    {   // CVZB-22
+        // review 9 H1: a LEVEL-2 block static (an `else` or a bare block directly in the function body) out-picks a parameter or a level-1 local of its name only inside its block. Function f: parameter a,
+        // local t (1/1), `static a` and `static t` both at 2/2. Exact blocks: at line 7 (2/2) the statics are listed and win the pick (kind StaticLocal, the others are the shadowed candidates); at
+        // lines 5 and 9 (1/1) they are hidden and the name means the parameter and the local, which is where a write goes
+        std::vector<CVariable> vs;
+        const auto add = [&](const std::string& rec, const char* name) {
+            CVariable v;
+            v.record = cdb_decode(rec).record;
+            v.c_name = name;
+            v.function = 0;
+            vs.push_back(v);
+        };
+        add("S:Lt.c.f$a$0_0$0({2}SI:S),B,1,4", "a");
+        add("S:Lt.c.f$t$1_0$1({2}SI:S),B,1,-2", "t");
+        add("S:Ft.c$st_f_a$2_0$2({2}SI:S),E,0,0", "a");
+        add("S:Ft.c$st_f_t$2_0$2({2}SI:S),E,0,0", "t");
+        CFunction f;
+        f.name = "f";
+        f.compiler = CCompiler::Zsdcc;
+        for (const Sc3 sc : {Sc3{5, 1, 1}, Sc3{7, 2, 2}, Sc3{9, 1, 1}}) {
+            CScope c;
+            c.offset = static_cast<uint32_t>(f.scopes.size());
+            c.line = sc.line;
+            c.level = sc.level;
+            c.block = sc.block;
+            c.known = true;
+            f.scopes.push_back(c);
+        }
+        f.trail = f.scopes;
+        const VariableStore st({f}, vs, {}, {}, {});
+        const auto kind_of = [&](size_t scope_index, const char* name) {
+            const std::vector<CLocalRef> vis = c_visible_locals(st, 0, &st.functions()[0].scopes[scope_index]);
+            const CPicked pk = c_pick_local(vis, name);
+            return pk.chosen ? static_cast<int>(pk.chosen->kind) + 10 * static_cast<int>(vis.size()) : -1;
+        };
+        // kind 0 Param, 1 Local, 2 StaticLocal; + 10 * the number of visible rows (4 inside the block, 2 outside)
+        check("CVZB-22", "a level-2 block static (static a, static t at block 2) wins the pick over the parameter a and the level-1 local t inside its block (line 7: StaticLocal, four rows) and is hidden outside it "
+                         "(lines 5 and 9: the pick is the Param a and the Local t, two rows)",
+              kind_of(0, "a") == 20 + 0 && kind_of(0, "t") == 20 + 1 && kind_of(1, "a") == 40 + 2 && kind_of(1, "t") == 40 + 2 && kind_of(2, "a") == 20 + 0 && kind_of(2, "t") == 20 + 1,
+              std::to_string(kind_of(0, "a")) + " " + std::to_string(kind_of(1, "a")) + " " + std::to_string(kind_of(2, "t")));
+    }
+    {   // CVZB-17
+        // The line proofs are strict, and beta is the lowest block. Expected values: the three-valued rule applied by hand to each trail (the programs would be hand-written C of these shapes)
+        const std::string c1 = cc80_rows({{0, 5, 1, 1}, {1, 8, 1, 1}, {2, 8, 2, 2}, {3, 9, 3, 3}, {4, 10, 3, 3}}, {{"t", 1, 1, -2}, {"y", 2, 2, -4}, {"w", 3, 3, -6}}, {{9, 3, 3}, {10, 3, 3}});
+        const std::string c2 = cc80_rows({{0, 5, 1, 1}, {1, 8, 2, 2}, {2, 9, 2, 2}, {3, 9, 3, 3}, {4, 10, 3, 3}, {5, 11, 1, 1}}, {{"t", 1, 1, -2}, {"y", 2, 2, -4}, {"w", 3, 3, -6}}, {{10, 3, 3}});
+        const std::string c3 = cc80_rows({{0, 3, 2, 2}, {1, 4, 2, 2}, {2, 5, 2, 3}, {3, 6, 2, 3}}, {{"x", 2, 2, -2}, {"y", 2, 3, -4}}, {{3, 2, 2}, {5, 2, 3}});
+        check("CVZB-17", "the proofs are strict: an outer entry on y's own line closes nothing (y stays `?` at lines 9 and 10 beside w); a line shared by two blocks makes no parent (y never plain, w `?`); with no level-1 data beta is "
+                         "the lowest block, so at the first block's line x is `?` and y absent, and at the second's x is absent and y `?` (S4b: never plain)",
+              c1 == "9=t w? y?|10=t w? y?" && c2 == "10=t w? y?" && c3 == "3=x?|5=y?", c1 + " || " + c2 + " || " + c3);
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

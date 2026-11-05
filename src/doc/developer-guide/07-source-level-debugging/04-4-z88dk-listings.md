@@ -92,13 +92,15 @@ binaries' bytes). In order:
    A byte row is an *item*: its section, address, byte count, whether its first token
    is a Z80/Z80N mnemonic, and its source location (in `Asm` mode its own file and
    column; otherwise the current `C_LINE` or comment marker of its section).
+   In `CLine` mode the walk also keeps every `C_LINE` operand (`Z88dkListedScope`): the LAST directive before a byte row owns that row, and the row's map value is the occurrence's.
+   `fill_listing_scopes()` gives an 80cc function that table instead of the map's one `__C_LINE_` symbol per (line, scope) (GH #438 S4a, `Z88ZB-12`, `Z88ZB-13`).
 5. **Anchors and the offset.** A label row of the walk is an *anchor* when the map
    has an `addr` symbol of that name in this module, in the same section, whose map
    location is *this very row* (`<header>:<line-number column>`). The anchor gives
    `offset = map value - listed address` for its section. All anchors of one section
    piece must agree, or the listing is dropped ("this is not the listing of this
    build"). A piece with no anchor falls back to `__<section>_head` when
-   `tail - head` equals the piece's byte count (`p.pc`, `z88dk_lis.cpp:603-612`). A smaller piece is
+   `tail - head` equals the piece's byte count (`p.pc`, `z88dk_lis.cpp:610-619`). A smaller piece is
    placed by its bytes (5b below). A piece with none of these, and anything inside `PHASE`,
    cannot be placed; those rows are counted and reported as "N listed lines could not be
    placed".
@@ -113,9 +115,9 @@ binaries' bytes). In order:
    patches an opcode, so a listing of this build is never excluded at its true start. The byte at
    `c + row address` comes from `view.byte_at(value, space)`, where `place()` gave the space; it is
    *unknown* (`nullopt`) when no section binary covers the byte, **when two or more do** (overlay
-   sections at one ORG: `bin_for(..., &more)`, `z88dk_source_map.cpp:695`, and the `byte_at` lambda, `:766-771`), and when `place()` fails (a ROM area: the memory is not a RAM
+   sections at one ORG: `bin_for(..., &more)`, `z88dk_source_map.cpp:843`, and the `byte_at` lambda, `:912-917`), and when `place()` fails (a ROM area: the memory is not a RAM
    page, so no byte can be read). The outcome is one of three:
-   - **no start survives** (`survivors`, `z88dk_lis.cpp:655`; the search loop over `survivors`, `z88dk_lis.cpp:614-664`): the listing is dropped, with "section '<s>': its label-less lines match no
+   - **no start survives** (`survivors`, `z88dk_lis.cpp:662`; the search loop over `survivors`, `z88dk_lis.cpp:621-671`): the listing is dropped, with "section '<s>': its label-less lines match no
      place in the section binary; this is not the listing of this build" (row `Z88LIS-42`);
    - **exactly one survives and every checked byte was known:** the piece starts there (`Z88LIS-36`
      and `-37` on the banked-CRT fixtures: the CRT piece is placed and the driver's bytes after it

@@ -204,12 +204,37 @@ struct CLocalRef {
     const CVariable* var = nullptr;
     CVarKind kind = CVarKind::Local;
     bool scope_unknown = false;   ///< shown because the block at the PC is not known (80cc, or an unknown entry)
+    /// GH #438: the other visible stack variables whose bytes overlap this one's, comma separated ("y", "i, p"); empty: none. Exactly
+    /// one of them holds the slot's value, and nothing says which.
+    std::string shares;
 };
+/// GH #438 S4b: the variable a name means among the visible locals `rows` (c_visible_locals()): the innermost declaration wins, the greatest level and then the greatest block,
+/// as in gdb. `others` are the other candidates of that name (shadowed). `certain` is false when some candidate is flagged `scope unknown`: the innermost may not be in scope
+/// at all, so a read is noted and a write refused. A parameter and a block local of one name pick the local.
+struct CPicked {
+    const CLocalRef* chosen = nullptr;
+    std::vector<const CLocalRef*> others;
+    bool certain = true;
+};
+CPicked c_pick_local(const std::vector<CLocalRef>& rows, const std::string& name);
+/// The note of a read whose pick is not certain, and the row notes of the candidates a pick did not choose.
+std::string c_ambiguous_note(const CPicked& p);
+inline constexpr const char* kCShadowedNote = "shadowed";
+inline constexpr const char* kCMayBeShadowedNote = "may be shadowed";
+/// How many trail records of `function` name a block that the replay's stack does not hold at the record's level (GH #438): the replay then
+/// keeps its stack. 0 on every map whose block numbers are exact (z88dk#3227 and later), more on sccz80 before it.
+int c_trail_disagreements(const VariableStore& store, int function);
+/// The note and the refusal text of a stack-slot overlap: `shares_note("y")` is `shares its stack slot with y: only one of them holds its value`.
+std::string c_shares_note(const std::string& others);
 /// The parameters (ordered by stack position: the records carry no declaration order), then the locals visible at
 /// `scope` (the scope table's entry at the PC, null when none), then the static locals, of function `function`.
 /// Hidden records (CdbHidden) are left out. Parameters and level-1 locals are always visible; a local of level >= 2
 /// is visible iff its block is the open block or one of its ancestors; with no block data (every known scope at
 /// level 0 while some local has level >= 2) or an unknown scope, every block local is shown, marked.
+/// GH #438: for a function of sccz80 (`CCompiler::Sccz80`) with a trail, which block is open is read from the trail: every C_LINE record
+/// up to the PC's, replayed as a stack of open blocks (so a `for` header, which raises the level without opening a block in every sccz80
+/// before z88dk#3254, and a `for` that does open one, are both right). Other compilers keep the block rule above. Every stack variable
+/// that shares bytes with another visible one is marked (`CLocalRef::shares`).
 std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function, const CScope* scope);
 
 /// The CPU registers of frame 0.
@@ -226,10 +251,15 @@ struct CRegRead {
 /// is not available.
 CRegRead c_read_register_local(const CdbVar& var, const CRegs* regs);
 
-/// OD-14 / z88dk U1: sccz80 records a `__z88dk_fastcall` parameter at its nominal stack slot, where it is not. The
-/// reason, when `conv` says fastcall (a used listing flagged it) and the record's offset is >= 0; empty otherwise
-/// (a negative offset is 80cc's correct record).
-std::string c_param_location_unknown(CConv conv, const CdbVar& var);
+/// The refusal text of z88dk U1 (`eval_var` returns it for a parameter of a function `c_fastcall_records_nominal()` holds for).
+inline constexpr const char* kCU1Text = "location unknown (z88dk U1: sccz80 records a fastcall parameter at its nominal slot)";
+
+/// GH #438, z88dk U1, per FUNCTION (a per-record test cannot see that sccz80 after z88dk#3229 records one register
+/// parameter below the frame and still the others at their nominal slots): true iff `function` is fastcall and none of its
+/// parameters (level 0, space B) is recorded at a negative offset, i.e. the records are the pre-#3229 ones, every parameter at
+/// its nominal slot, where none of them is. Fastcall is `CConv::ListedFastcall`, or `prologue_fastcall` (the caller read the
+/// entry bytes `call l_debug_push_frame; push hl` and no listing names the function). False for a function with no such parameter.
+bool c_fastcall_records_nominal(const VariableStore& store, int function, bool prologue_fastcall = false);
 
 }  // namespace dbg
 }  // namespace jnext

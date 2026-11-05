@@ -2571,6 +2571,70 @@ static void cvw_rows() {
                   rig.emu.cpu().get_registers().I == 5 && listed,
               join(e1) + join(e2) + join(e3) + join(e4) + join(e5));
     }
+    {   // GDB-ZB-01
+        // GH #438: master's 80cc at vars.c:41 ($8CCA): the note of z88dk#3233 follows every stack variable of an 80cc function in the monitor lines
+        const std::string nex80 = JNEXT_Z88DK_FIXTURE_DIR "/master/80cc-cvars/prog.nex";
+        const std::string note = "  [80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)]";
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const bool loaded = emulator_apply_load(rig.emu, nex80, false);
+        rig.dbg->load_program_sidecars(nex80);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0x8CCA);
+        std::string f1, f2, f3, f4;
+        const auto locals = c.monitor("locals", f1);
+        const auto print = c.monitor("print t", f2);
+        const auto print_inner = c.monitor("print inner", f4);
+        const auto set = c.monitor("set var t=1000", f3);
+        // the note follows each of a, b, p, k, t, acc and inner, and not `calls` (a static local)
+        const auto noted = [&](const std::string& name) {
+            for (size_t i = 0; i + 1 < locals.size(); ++i)
+                if (locals[i].find(") " + name + " = ") != std::string::npos || locals[i].find(") " + name + ": ") != std::string::npos)
+                    return locals[i + 1] == note + "\n" || locals[i + 1] == note;
+            return false;
+        };
+        const auto not_noted = [&](const std::string& name) {
+            for (size_t i = 0; i < locals.size(); ++i)
+                if (locals[i].find(") " + name + " = ") != std::string::npos)
+                    return i + 1 >= locals.size() || (locals[i + 1] != note && locals[i + 1] != note + "\n");
+            return false;
+        };
+        size_t in_print = 0, in_set = 0;
+        for (const auto& l : print) in_print += (l == note || l == note + "\n");
+        for (const auto& l : set) in_set += (l == note || l == note + "\n");
+        check("GDB-ZB-01", "monitor locals at master 80cc-cvars vars.c:41 prints `  [80cc may not keep it in the frame slot its record names: the value shown can be stale or another "
+                           "variable's (z88dk#3233)]` after a, b, p, k, t, acc and inner and not after calls; monitor print t prints it once and monitor print inner (a block local, scope unknown) prints that note; monitor set var t=1000 prints it once, "
+                           "after the value line",
+              loaded && at && f1 == "OK" && f2 == "OK" && f3 == "OK" && noted("a") && noted("b") && noted("p") && noted("k") && noted("t") && noted("acc") && noted("inner") &&
+                  not_noted("calls") && in_print == 1 && in_set == 1 && cvar_val(set, "t", "1000") && f4 == "OK" &&
+                  cvar_has(print_inner, "  [scope unknown: shown whatever block the PC is in]"),
+              join(locals) + join(print) + join(set));
+    }
+    {   // GDB-ZB-02
+        // GH #438 S4b: shadowing over the monitor. sccz80 shadow.c at `g += t` ($8C76): the inner t (5) hides the outer (3). `monitor print t` prints 5; `monitor locals` lists both t rows and
+        // the outer one is followed by `  [shadowed]`, the inner one is not
+        const std::string nexs = JNEXT_Z88DK_FIXTURE_DIR "/master-fixed-sccz80/sccz80-shadow/prog.nex";
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const bool loaded = emulator_apply_load(rig.emu, nexs, false);
+        rig.dbg->load_program_sidecars(nexs);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0x8C76);
+        std::string f1, f2;
+        const auto print = c.monitor("print t", f1);
+        const auto locals = c.monitor("locals", f2);
+        int t_rows = 0;
+        bool outer_marked = false, inner_marked = false;
+        for (size_t i = 0; i < locals.size(); ++i) {
+            if (locals[i].find(") t = ") == std::string::npos) continue;
+            ++t_rows;
+            const bool marked = i + 1 < locals.size() && locals[i + 1].find("  [shadowed]") == 0;
+            if (cvar_val(locals, "t", "3") && locals[i].find(") t = 3") != std::string::npos) outer_marked = marked;
+            if (locals[i].find(") t = 5") != std::string::npos) inner_marked = marked;
+        }
+        check("GDB-ZB-02", "monitor print t at sccz80 shadow.c `g += t` prints the inner t (5); monitor locals lists both t rows, the outer (3) followed by `  [shadowed]` and the inner (5) not",
+              loaded && at && f1 == "OK" && f2 == "OK" && cvar_has(print, ") t = 5") && t_rows == 2 && outer_marked && !inner_marked, join(print) + join(locals));
+    }
 }
 
 // ── GDB-UNS — unsupported, honestly (§2 rows 26-33) ────────────────────────

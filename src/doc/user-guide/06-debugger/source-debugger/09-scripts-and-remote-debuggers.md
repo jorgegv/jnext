@@ -197,6 +197,8 @@ monitor set var 1 c = 100
 monitor set var p -> x = 10
 ```
 
+`cvar()` and ZRCP carry no [notes](11-c-variables.md#notes-on-a-value); GDB's `monitor locals`, `print` and `set var` print each note in brackets on a line after the value (the 80cc frame-slot note, for example, also after a successful `set var`).
+
 GDB answers each with the value read back (`(int) g_int = 10`), ZRCP with the register line of the stop. A refusal is
 `refused: ` and the reason, and the reply `E01`, over GDB, and `Error changing register` over ZRCP, which has no room
 for a reason. A write is a change of the machine like a `poke`: it is logged as a `MUTATE` line naming the client,

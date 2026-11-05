@@ -539,8 +539,8 @@ int main() {
             }
         }
         if (!why.empty()) std::printf("  note: first refusal: %s\n", why.c_str());
-        check("CDB-35", "every __CDBINFO__ record of every committed map decodes (none refused, none dropped), and the three -cvars maps have the counts the README states (53, 63, 55), 54 maps carry 642 records (GH #434: + the four cross maps: 5, 6, 8 and 5 records, + the three floats maps: 7, 7 and 9; GH #445: + master/classic-debug, 6 records; GH #433: + the two master/*-extern maps, 7 and 3 records; the merge of main added the 8 intarg, longsw and calleejp maps: +62 records)",
-              !maps.empty() && with_cdb == 54 && records == 642 && lines == records && refusals == 0 &&
+        check("CDB-35", "every __CDBINFO__ record of every committed map decodes (none refused, none dropped), and the three -cvars maps have the counts the README states (53, 63, 55), 94 maps carry 1245 records (GH #438 S4b2: +3 maps, 40 records: statics.c on sccz80, 80cc and zsdcc; GH #438 S4b: +6 maps, 63 records: 80cc ifelse, x and shadow, sccz80 and zsdcc shadow, the zsdcc stub; GH #438 S4a: +1 map, master-fixed-80cc/80cc-scope, 9 records; GH #438 rebuild: +4 zsdcc maps, 123 records, and -3 on master-fixed, whose N:/E: records replace the empty enumerators; GH #438: + 26 maps, 371 records: the blocks, bits and fm builds, 80cc u5, the xmod builds, the two classic float builds, and master-fixed's nine; GH #434: + the four cross maps: 5, 6, 8 and 5 records, + the three floats maps: 7, 7 and 9; GH #445: + master/classic-debug, 6 records; GH #433: + the two master/*-extern maps, 7 and 3 records; the merge of main added the 8 intarg, longsw and calleejp maps: +62 records)",
+              !maps.empty() && with_cdb == 94 && records == 1245 && lines == records && refusals == 0 &&
               per_map["master/sccz80-cvars"] == 53 && per_map["v2.4/sccz80-cvars"] == 53 &&
               per_map["master/sdcc-cvars"] == 63 && per_map["master/80cc-cvars"] == 55);
         auto n = [&](const char* map, CdbHidden h) { return hidden[map][h]; };
@@ -550,6 +550,37 @@ int main() {
               n("master/sdcc-cvars", CdbHidden::Temporary) == 4 && n("master/sdcc-cvars", CdbHidden::Function) == 3 &&
               n("master/sdcc-cvars", CdbHidden::EmptyType) == 0 && n("master/sdcc-cvars", CdbHidden::IncompleteArray) == 0 &&
               n("master/80cc-cvars", CdbHidden::EmptyType) == 3 && n("master/80cc-cvars", CdbHidden::IncompleteArray) == 1);
+    }
+
+    // CDB-55 (GH #438 S4b): 80cc names its CSE / LICM temporaries with a leading digit (`1cse_0`, `1licm_0`, `2licm_1`), so the name cannot be a C identifier: hidden as Temporary
+    {
+        const auto hid = [](const char* name, const char* level) {
+            return cdb_decode(std::string("S:Ld2.d2$") + name + "$" + level + "_0$0({2}SI:S),B,1,-4").record.hidden;
+        };
+        check("CDB-55", "a local named with a leading digit (`1licm_0`, `1cse_0`, `2licm_1`, `9x`) is hidden as Temporary, whatever its level; `licm1`, `_1x` and `t1` are not",
+              hid("1licm_0", "0") == CdbHidden::Temporary && hid("1cse_0", "1") == CdbHidden::Temporary && hid("2licm_1", "0") == CdbHidden::Temporary && hid("9x", "2") == CdbHidden::Temporary &&
+                  hid("licm1", "1") == CdbHidden::None && hid("_1x", "1") == CdbHidden::None && hid("t1", "1") == CdbHidden::None);
+    }
+
+    // CDB-53 .. CDB-54: the N: and E: records of z88dk#3241 (sccz80, 80cc). Oracle: the records of master-fixed/sccz80-cvars (types.h's enum colour) and the PR's grammar.
+    {
+        const CdbDecoded n = cdb_decode("N:Ftypes.h$colour({2}SI:S)[(RED$0)(GREEN$5)(BLUE$6)]");
+        const CdbDecoded eg = cdb_decode("E:G$g_colour$0_0$0({2}SEFtypes.h$colour:S),E,0,0");
+        const CdbDecoded el = cdb_decode("E:Lvars.c.main$c$1_0$1({2}SEFtypes.h$colour:S),B,1,-4");
+        const CdbDecoded ef = cdb_decode("E:Fvars.c$s_col$0_0$0({2}DA2x,SEFtypes.h$colour:S),E,0,0");
+        check("CDB-53", "N: and E: decode as enum records, kept by name and scope and not interpreted: N: file types.h, tag colour; E: global g_colour, local c, file-scope s_col",
+              n.ok() && n.record.kind == CdbKind::Enum && n.record.scope == CdbScope::File && n.record.scope_name == "types.h" && n.record.var.name == "colour" &&
+                  eg.ok() && eg.record.kind == CdbKind::Enum && eg.record.scope == CdbScope::Global && eg.record.var.name == "g_colour" &&
+                  el.ok() && el.record.kind == CdbKind::Enum && el.record.scope == CdbScope::Local && el.record.var.name == "c" &&
+                  ef.ok() && ef.record.kind == CdbKind::Enum && ef.record.scope == CdbScope::File && ef.record.var.name == "s_col");
+        struct Bad { const char* rec; };
+        const Bad bad[] = {{"N:"}, {"N:Gtypes.h$colour({2}SI:S)[(RED$0)]"}, {"N:Ftypes.h$colour({2}SI:S)[(RED$0)"}, {"N:F$colour({2}SI:S)[]"},
+                           {"N:Ftypes.h$({2}SI:S)[]"}, {"E:"}, {"E:Q$g$0_0$0({2}SEFt.h$c:S),E,0,0"}, {"E:G$g_colour"}, {"E:G$$0_0$0({2}SEFt.h$c:S),E,0,0"},
+                           {"E:G$g$0_0$0"}};
+        bool all_refused = true;
+        for (const Bad& b : bad) all_refused = all_refused && !cdb_decode(b.rec).ok();
+        check("CDB-54", "malformed N: and E: records are refused: an N: with no 'F' scope, no closing ']', no file or no tag; an E: with an unknown scope, no type, or an empty name",
+              all_refused && !cdb_decode("X:G$a$0_0$0({2}SI:S),E,0,0").ok());
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

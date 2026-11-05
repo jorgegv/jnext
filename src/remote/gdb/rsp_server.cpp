@@ -1234,6 +1234,7 @@ bool GdbServer::monitor_set_var(const std::string& rest) {
         return false;
     }
     monitor_line(c_row_text(w.type, path, true, w.value, std::string()));
+    for (const auto& note : w.notes) monitor_line("  [" + printable(note, 200) + "]");
     return true;
 }
 

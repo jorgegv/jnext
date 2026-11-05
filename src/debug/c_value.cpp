@@ -92,6 +92,18 @@ bool overlaps_other(const CdbRecord& rec, size_t idx)
     return false;
 }
 
+// z88dk's debug record gives a float's SIZE and no format (z88dk#3236). The map says which library the program links: the
+// 4-byte formats of mbf32 and dai32 (and mbf64's, bbc's) are not IEEE, so reading their bytes as one is a silent wrong value.
+// math32, am9511, math48 and a map that names no library are decided by the size, as before.
+std::string float_refusal(const CFormatCtx& ctx)
+{
+    if (!ctx.store) return "";
+    const std::string& lib = ctx.store->float_library();
+    if (lib == "mbf32" || lib == "mbf64" || lib == "bbc" || lib == "dai32")
+        return "float format " + lib + " is not read: the record does not say it (z88dk#3236)";
+    return "";
+}
+
 struct Formatter {
     const CFormatCtx& ctx;
     std::vector<std::string>& notes;
@@ -168,6 +180,7 @@ struct Formatter {
             return true;
         }
         case CdbTypeKind::Float:
+            if (!float_refusal(ctx).empty()) return fail(float_refusal(ctx));
             if (size == 6 && avail >= 6) {
                 out = c_format_float48(b);
                 return true;
@@ -467,7 +480,7 @@ std::string base_text(const CdbType& t, size_t i)
     case CdbTypeKind::Void: return "void";
     case CdbTypeKind::Scalar: return e.is_unsigned ? "unsigned int" : "int";
     case CdbTypeKind::Struct: return "struct " + e.tag;
-    case CdbTypeKind::Bitfield: return "unsigned int :" + num(e.bit_width);
+    case CdbTypeKind::Bitfield: return (e.is_unsigned ? "unsigned int :" : "int :") + num(e.bit_width);   // `:S` is a signed field (GH #438)
     default: return "?";
     }
 }
@@ -867,7 +880,10 @@ CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc, std::vector<uint8_
 {
     CFormatted out;
     if (loc.type.size <= 0) {
-        out.why = "the size of the object is not known";
+        // an `{-1}DA-1x` record (sccz80 before z88dk#3229, 80cc's static and global arrays sized by their initialiser): the compiler
+        // wrote no size, so there is nothing to read (GH #438)
+        const bool unsized = !loc.type.chain.empty() && loc.type.chain[0].kind == CdbTypeKind::Array && loc.type.chain[0].count < 0;
+        out.why = unsized ? "an array of unknown length: its debug record has no size" : "the size of the object is not known";
         return out;
     }
     std::vector<uint8_t> buf(static_cast<size_t>(loc.type.size));
@@ -886,6 +902,104 @@ CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc, std::vector<uint8_
 }
 
 // -- scope, registers, fastcall ----------------------------------------------
+
+
+// The replay of a function's trail (GH #438): stack[level] is the block open at that level, or kSkip for a level with no block (the level a
+// `for` header raises without opening one, in every sccz80 before z88dk#3254). A record at a level drops every level above it. A record that
+// opens a block higher than any seen (`b > max`) fills the unset levels below it with the greatest unseen block of that level in between (a
+// block opened and closed without a line of its own), else kSkip: before z88dk#3227 the number was the last one OPENED, and when a record
+// names a block the stack does not hold at its level (`stack[level] != b`: counted in *disagreements) the stack is kept. After z88dk#3254 a
+// `for` opens a block at the raised level and the same replay holds it.
+constexpr int kSkipBlock = -1;
+void replay_trail(const CFunction& fn, const std::map<int, int>& blev, uint32_t upto, std::map<int, int>& stack, int* disagreements)
+{
+    int max_block = 0;
+    for (const CScope& e : fn.trail) {
+        if (e.offset > upto) break;
+        if (!e.known) continue;
+        const int lv = e.level, b = e.block;
+        stack.erase(stack.upper_bound(lv), stack.end());
+        if (lv == 0) continue;
+        if (b > max_block) {
+            for (int l = 1; l < lv; ++l) {
+                if (stack.count(l)) continue;
+                int best = kSkipBlock;
+                for (const auto& kv : blev)
+                    if (kv.second == l && kv.first > max_block && kv.first < b) best = std::max(best, kv.first);
+                stack[l] = best;
+            }
+            stack[lv] = b;
+            max_block = b;
+        } else if (!stack.count(lv)) {
+            const auto it = blev.find(b);
+            stack[lv] = it != blev.end() && it->second == lv ? b : kSkipBlock;
+            for (int l = 1; l < lv; ++l)
+                if (!stack.count(l)) stack[l] = kSkipBlock;
+        }
+        if (disagreements && stack[lv] != b) ++*disagreements;
+    }
+}
+
+namespace {
+
+enum class Cc80Verdict { Hidden, Unknown };
+
+// GH #438 S4b: whether the 80cc block local `v` (level >= 2) can be hidden at scope `s`, from 80cc's PR #3243 records and the listing's scopes. Never "plain": 80cc stamps some
+// code with the scope of a block the code is not in, so no record can prove a block local in scope. Three ways (z88dk 0f0a1cf70e, src/80cc/ir_build.c):
+//  H-a  an `if`/`else`'s then-branch ends with a jump emitted after the else part was built (late join, :8418), which carries the last statement of the else part: an else local would
+//       look open at the end of the then-branch (even when the then-branch has no braces, so the else block has no earlier sibling);
+//  H-b  the code after a construct (the fall-off-end `ret` :8669, the switch exit :8352, a countdown step :8258) carries the last statement inside it: a trailing `if` block's local
+//       would look open in the epilogue;
+//  H-c  CSE/LICM hoisting (ast_opt.c:4116, :4190, :4615) puts code before a loop with the loop body's scope.
+// What the stamp proves closed is closed also for the place the code really is (checked on every program of the rows), except at an H-a jump, where the then-branch's own local can be
+// hidden: the Source tab shows that jump on the else line too. So the answer is Hidden or Unknown (the row is listed, flagged, and a write is refused). `trail` is the function's map
+// trail (only its known entries of level >= 1 are read), `locals` the (level, block) of every block-scope local. Rules, with b a block, lv a level, s = (line l_s, level L_s, block B_s):
+//  F1  b > B_s is not open (a block opened after B_s, while B_s is innermost);
+//  F2  b == B_s and lv > L_s: a `for` variable whose `for` is not open;
+//  F3  b closed before s: a line x of b, an entry of a lower-numbered block at a line strictly between x and l_s (not for beta);
+//  F5  v is outside its scope when an open block a (B_s or an ancestor of it) is numbered above b and has a level <= lv (what lies inside v's scope is deeper than lv).
+//  An ancestor a < b of b: beta (the lowest block) is every block's, and a is also when some line of a is strictly after some line of b.
+Cc80Verdict cc80_verdict(const std::vector<CScope>& trail, const std::vector<std::pair<int, int>>& locals, int lv, int bv, const CScope& s)
+{
+    struct E { int line, level, block; };
+    std::vector<E> ent;
+    for (const CScope& e : trail)
+        if (e.known && e.level >= 1) ent.push_back({e.line, e.level, e.block});
+    std::set<int> blocks;
+    std::map<int, std::set<int>> lines;
+    std::map<int, int> m;
+    const auto note_level = [&](int b, int l) { const auto it = m.find(b); m[b] = it == m.end() ? l : std::min(it->second, l); };
+    for (const E& e : ent) { blocks.insert(e.block); lines[e.block].insert(e.line); note_level(e.block, e.level); }
+    for (const auto& [l, b] : locals) if (l >= 1) { blocks.insert(b); note_level(b, l); }
+    if (s.level == 0 || bv > s.block) return Cc80Verdict::Hidden;                       // F1
+    if (blocks.empty()) return Cc80Verdict::Unknown;
+    const int beta = *blocks.begin();
+    const auto ancestors = [&](int b) {
+        std::set<int> out;
+        for (const int a : blocks) {
+            if (a >= b) break;
+            bool is = a == beta;
+            for (const int x : lines[a]) for (const int y : lines[b]) is = is || x > y;
+            if (is) out.insert(a);
+        }
+        return out;
+    };
+    if (bv == s.block) {
+        if (lv > s.level) return Cc80Verdict::Hidden;                                    // F2
+    } else {
+        if (bv != beta)
+            for (const int x : lines[bv])                                                 // F3
+                for (const E& e : ent)
+                    if (e.block < bv && x < e.line && e.line < s.line) return Cc80Verdict::Hidden;
+        std::set<int> open = ancestors(s.block);
+        open.insert(s.block);
+        for (const int a : open)
+            if (a > bv && m.count(a) && m[a] <= lv) return Cc80Verdict::Hidden;          // F5
+    }
+    return Cc80Verdict::Unknown;
+}
+
+}  // namespace
 
 std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function, const CScope* scope)
 {
@@ -924,10 +1038,47 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
         block_data = block_data || sc.level > 0;
         if (sc.level > 0) level_of.emplace(sc.block, sc.level);
     }
-    const bool unknown = !scope || !scope->known || (deep_local && !block_data);
+    // 80cc: its blocks are neither pre-order (the sccz80 replay) nor zsdcc's exact ones and its code is out of source order, so neither rule is used (a closed sibling shown, the
+    // variable in scope hidden, with no note: GH #438 S3 review 4). With PR #3243's levels and the listing's occurrences cc80_verdict() answers what the records can answer.
+    // Only with the listing's own occurrences (fn.scopes_from_listing) is the PC's scope exact enough for the three-valued rule (cc80_verdict()); the map keeps one C_LINE symbol per
+    // (line, scope), so 80cc's repeated lines would resolve to the wrong scope. Without them, or before #3243 (no levels), every 80cc block local stays `scope unknown`.
+    const bool cc80_exact = fn.compiler == CCompiler::Cc80 && fn.scopes_from_listing && block_data && scope && scope->known;
+    const bool unknown = !scope || !scope->known || (deep_local && !block_data) || (fn.compiler == CCompiler::Cc80 && !cc80_exact);
+    std::vector<std::pair<int, int>> cc80_locals;
+    if (cc80_exact)
+        for (const CVariable* v : mine) {
+            const CdbVar& cv = v->record.var;
+            if (cv.space != 'E' && !is_param(cv)) cc80_locals.push_back({cv.level, cv.block});
+        }
+
+    // GH #438: an sccz80 function with a trail: the open blocks are the replay of the trail up to the PC's (replay_trail()).
+    constexpr int kSkip = kSkipBlock;
+    const bool use_walk = !unknown && fn.compiler == CCompiler::Sccz80 && !fn.trail.empty();
+    std::map<int, int> blev;      // block -> level
+    std::map<int, int> stack;     // level -> block | kSkip
+    if (use_walk) {
+        for (const CScope& e : fn.trail)
+            if (e.known && e.level > 0) blev.emplace(e.block, e.level);
+        for (const CVariable* v : mine) {
+            const CdbVar& cv = v->record.var;
+            if (cv.space != 'E' && !is_param(cv)) blev.emplace(cv.block, cv.level);
+        }
+        replay_trail(fn, blev, scope->offset, stack, nullptr);
+    }
+    const auto walk_visible = [&](const CdbVar& cv) {
+        const auto it = blev.find(cv.block);
+        const int bl = it != blev.end() ? it->second : cv.level;   // the level of the block the record names: below the record's own for a `for` variable
+        const auto at = [&](int l) { const auto s2 = stack.find(l); return s2 == stack.end() ? -2 : s2->second; };
+        if (bl == cv.level) return at(cv.level) == cv.block;
+        if (bl > cv.level) return false;
+        if (at(bl) != cv.block) return false;
+        for (int l = bl + 1; l <= cv.level; ++l)
+            if (at(l) != kSkip) return false;
+        return true;
+    };
 
     std::set<std::pair<int, int>> open;
-    if (!unknown) {
+    if (!unknown && !use_walk) {
         const auto below = [&](int level, int limit, bool inclusive) {
             int best = -1;
             for (const auto& kv : level_of)
@@ -945,18 +1096,27 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
         const CdbVar& cv = v->record.var;
         CLocalRef r;
         r.var = v;
+        // A static local of level >= 2 is declared in a block: it is in scope only there (its storage lives on, its name does not), so it is judged exactly like a block local of
+        // the same (level, block) for the compiler (GH #438 S4b2, review 8 G1). A function-scope static (level 1) is listed everywhere.
+        const auto block_visible = [&]() {
+            if (cc80_exact) {
+                const Cc80Verdict d = cc80_verdict(fn.trail, cc80_locals, cv.level, cv.block, *scope);
+                if (d == Cc80Verdict::Hidden) return false;
+                r.scope_unknown = true;
+            } else if (unknown) r.scope_unknown = true;
+            else if (use_walk ? !walk_visible(cv) : !open.count({cv.level, cv.block})) return false;
+            return true;
+        };
         if (cv.space == 'E') {
             r.kind = CVarKind::StaticLocal;
+            if (cv.level >= 2 && !block_visible()) continue;
             statics.push_back(r);
         } else if (is_param(cv)) {
             r.kind = CVarKind::Param;
             params.push_back(r);
         } else {
             r.kind = CVarKind::Local;
-            if (cv.level >= 2) {
-                if (unknown) r.scope_unknown = true;
-                else if (!open.count({cv.level, cv.block})) continue;
-            }
+            if (cv.level >= 2 && !block_visible()) continue;
             locals.push_back(r);
         }
     }
@@ -965,7 +1125,67 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
     std::vector<CLocalRef> out = params;
     out.insert(out.end(), locals.begin(), locals.end());
     out.insert(out.end(), statics.begin(), statics.end());
+    // GH #438: stack variables that share bytes (two blocks that reuse a slot where the compiler's numbering cannot tell which is open, or 80cc's
+    // register-parameter record): both are marked, each naming the other; neither is hidden
+    const auto span = [](const CLocalRef& r) { return static_cast<int>(std::max(1, r.var->record.var.type.size)); };
+    for (size_t i = 0; i < out.size(); ++i) {
+        if (out[i].var->record.var.space != 'B') continue;
+        const int ai = out[i].var->record.var.stack_offset();
+        for (size_t j = 0; j < out.size(); ++j) {
+            if (i == j || out[j].var->record.var.space != 'B') continue;
+            const int aj = out[j].var->record.var.stack_offset();
+            if (ai < aj + span(out[j]) && aj < ai + span(out[i]))
+                out[i].shares += (out[i].shares.empty() ? "" : ", ") + out[j].var->c_name;
+        }
+    }
     return out;
+}
+
+int c_trail_disagreements(const VariableStore& store, int function)
+{
+    if (function < 0 || static_cast<size_t>(function) >= store.functions().size()) return 0;
+    const CFunction& fn = store.functions()[static_cast<size_t>(function)];
+    std::map<int, int> blev, stack;
+    for (const CScope& e : fn.trail)
+        if (e.known && e.level > 0) blev.emplace(e.block, e.level);
+    for (const CVariable& v : store.variables()) {
+        const CdbVar& cv = v.record.var;
+        if (v.function == function && cv.space != 'E' && cv.level > 0 && cv.stack_offset() < 4) blev.emplace(cv.block, cv.level);
+    }
+    int n = 0;
+    replay_trail(fn, blev, UINT32_MAX, stack, &n);
+    return n;
+}
+
+CPicked c_pick_local(const std::vector<CLocalRef>& rows, const std::string& name)
+{
+    CPicked out;
+    std::vector<const CLocalRef*> cand;
+    for (const CLocalRef& r : rows)
+        if (r.var->c_name == name) cand.push_back(&r);
+    if (cand.empty()) return out;
+    const auto key = [](const CLocalRef* r) { return std::make_pair(r->var->record.var.level, r->var->record.var.block); };
+    out.chosen = cand.front();
+    for (const CLocalRef* c : cand)
+        if (key(c) > key(out.chosen)) out.chosen = c;
+    for (const CLocalRef* c : cand) {
+        if (c != out.chosen) out.others.push_back(c);
+        if (c->scope_unknown) out.certain = false;
+    }
+    if (out.others.empty()) out.certain = true;
+    return out;
+}
+
+std::string c_ambiguous_note(const CPicked& p)
+{
+    const CdbVar& v = p.chosen->var->record.var;
+    return "ambiguous: " + std::to_string(p.others.size() + 1) + " variables named " + p.chosen->var->c_name + " may be in scope here; this is the innermost (level " +
+           std::to_string(v.level) + ", block " + std::to_string(v.block) + ")";
+}
+
+std::string c_shares_note(const std::string& others)
+{
+    return "shares its stack slot with " + others + ": only one of them holds its value";
 }
 
 CRegRead c_read_register_local(const CdbVar& var, const CRegs* regs)
@@ -1008,11 +1228,20 @@ CRegRead c_read_register_local(const CdbVar& var, const CRegs* regs)
     return out;
 }
 
-std::string c_param_location_unknown(CConv conv, const CdbVar& var)
+bool c_fastcall_records_nominal(const VariableStore& store, int function, bool prologue_fastcall)
 {
-    if (conv == CConv::ListedFastcall && var.space == 'B' && var.stack_offset() >= 0)
-        return "location unknown (z88dk U1: sccz80 records a fastcall parameter at its nominal slot)";
-    return "";
+    if (function < 0 || static_cast<size_t>(function) >= store.functions().size()) return false;
+    const CFunction& fn = store.functions()[static_cast<size_t>(function)];
+    // a listing that names the function and does not flag it is evidence it is NOT fastcall: the prologue then proves nothing
+    if (fn.conv != CConv::ListedFastcall && !(prologue_fastcall && fn.conv == CConv::Unlisted)) return false;
+    bool any = false;
+    for (const CVariable& v : store.variables()) {
+        const CdbVar& cv = v.record.var;
+        if (v.function != function || v.record.hidden != CdbHidden::None || cv.space != 'B' || cv.level != 0) continue;
+        if (cv.stack_offset() < 0) return false;   // a fixed sccz80 or 80cc: the register parameter is recorded below the frame
+        any = true;
+    }
+    return any;
 }
 
 }  // namespace dbg

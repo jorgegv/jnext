@@ -9,4 +9,6 @@ N + 1. Open a struct, an array or a pointer to see inside it. Right-click a row 
 
 Like the Call Stack it shows data only while the machine is **paused**. Double-click a Value to edit it (right-click ▸ **Edit Value**).
 
+A value the compiler's records cannot be trusted for carries a note in brackets (also in the tooltip and, after an edit, in the message above the tree): the 80cc frame-slot note, `shares its stack slot with ...`, `scope unknown`.
+
 Everything about it is in [C variables in the debugger](../source-debugger/11-c-variables.md).
