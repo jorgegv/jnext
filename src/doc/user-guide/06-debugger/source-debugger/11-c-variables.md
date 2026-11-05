@@ -15,7 +15,7 @@ The tab is the second one of the bottom-right tab bar, between **Watches** and *
   `(current)`, is where the CPU is. A frame is `function at file.c:line`, or `<not C code> $8B64` where the
   program is in assembly, the C runtime or a library, and there are no variables to show.
 - **Locals**: the frame's parameters (in stack order), then the locals visible at the frame's line, then its
-  static locals. A local declared in a block that has not been entered at that line is not listed.
+  static locals. A local declared in a block that has not been entered at that line is not listed (see the notes below for what the compilers' records allow).
 - **Globals and statics**: every global, file static and static local, one group per source file.
   A static local is named `function::name` (`sum::calls`), because two functions can each have one.
 
@@ -71,6 +71,8 @@ first word (`120` for `120 'x'`, `$8D21` for `$8D21 <g_node>`, `1.5` for a float
   has no value, a register variable and the other cases in [Limits and troubleshooting](10-limits-and-troubleshooting.md#limits) cannot be
   edited.
 - Watches rows of C variables are not editable.
+- The edit of an 80cc stack variable succeeds, and the message above the tree then repeats the 80cc note (the value may not be the one the
+  program reads). A variable that shares its stack slot with another listed one is refused, naming the other, and the slot is not written.
 
 ## When there is nothing to show
 
@@ -79,15 +81,64 @@ map with line records but no variable records (build with `zcc -debug`; with z88
 `-debug`, [z88dk#3172](https://github.com/z88dk/z88dk/issues/3172)); or `zcc -O0` with zsdcc, which writes no variable
 records. A map made stale by a different program in memory is shown as stale.
 
-## What it cannot show
+## Notes on a value
 
-These are limits of what the compilers record, not of the debugger:
-- A zsdcc variable kept in a register is read from the live registers, so it is right only at frame 0 and only within its live
-  range: it is marked `may be stale`, and in an older frame it is `not available`. A variable the optimiser removed is `optimised out`.
-- The 80cc compiler records no block structure, so every block local is listed, marked `scope unknown`; it records no 1-byte locals.
-- An sccz80 `__z88dk_fastcall` parameter is recorded at a place where it is not: its row says `location unknown`.
-- sccz80 and 80cc write a bitfield as a whole `int`: its members are marked `bitfield layout unknown`.
-- Enumerations show their number, not their name; a `union` is shown as a `struct`; zsdcc writes no record for a `const` global.
+A value the compiler's records cannot be fully trusted for is shown with a note in brackets after it, in the Value column and in the tooltip;
+the same notes reach the Watches tab and GDB's `monitor locals`, `print` and `set var`. A note never hides the variable.
+
+- **`80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)`**: on every
+  stack variable (a local or a parameter, in any frame, and the members or elements of it) of a function built with the 80cc compiler. 80cc can
+  keep a local in a register and never write its slot, and it records a register-passed parameter at the slot of another variable. A static or
+  a global never has it. [z88dk#3233](https://github.com/z88dk/z88dk/issues/3233): the locals are fixed (PR #3244, merged), the parameters are
+  not yet (PR #3264, open). JNEXT cannot tell a fixed build from an old one, so the note stays on every 80cc stack variable.
+- **`shares its stack slot with <name>: only one of them holds its value`**: two variables that are both listed at this line and whose bytes
+  overlap, each naming the other (several names are separated by commas). Two blocks that reuse one slot can both look open when the compiler's
+  block numbers cannot tell which is, and 80cc's parameter record can name another variable's slot. Neither variable is hidden. Writing either
+  is refused (the value would land in the other). A member of a shared struct or array shows no note of its own, but writing it is refused too.
+- **`scope unknown: shown whatever block the PC is in`**: the compiler gave no block structure for this line (80cc before PR #3243).
+
+Refusals instead of a value: `location unknown (z88dk U1...)` for a `__z88dk_fastcall` parameter that sccz80 recorded where it is not;
+`an array of unknown length: its debug record has no size`; `float format mbf32 is not read: the record does not say it (z88dk#3236)` (also
+`mbf64`, `bbc` and `dai32`) when the map shows the program links one of those float libraries.
+
+## What each z88dk can show
+
+These are limits of what the compilers record, not of the debugger. One row per version and compiler. **Merged** means merged into z88dk's
+master; a release that contains the fix is not tracked here. The last column is filled in when `z88dk-latest` has been rebuilt: until then it
+says `to be confirmed`, and no date is guessed.
+
+| z88dk, compiler | What the compiler records wrongly or not at all | How JNEXT shows it | z88dk issue | Fix | In z88dk master from |
+|---|---|---|---|---|---|
+| 2.4, sccz80 | a `__z88dk_fastcall` function's parameters at their nominal slots, where they are not | each parameter `location unknown (z88dk U1...)`, with a listing beside the map or (no listing) from the function's entry bytes `call l_debug_push_frame; push hl`. Not recognised without a listing: a `float` or `long long` fastcall argument, which is pushed by other helpers (its parameter is read from the nominal slot: a wrong value) | none | PR #3229, merged | to be confirmed |
+| 2.4, sccz80 | an array or static sized by its initialiser (`char s[] = "x";`) has no size | `an array of unknown length: its debug record has no size` | none | PR #3229, merged | to be confirmed |
+| 2.4, sccz80 | bitfields as whole `int`s | members marked `bitfield layout unknown (z88dk U2)`; a lone field that shares no byte with another member is shown as its whole `int`, so it is wrong when the padding bits are not 0 | none | PR #3231, merged | to be confirmed |
+| 2.4, sccz80 | block numbers name the last block opened | a local declared after an inner block, in the same block, is not listed | none | PR #3227, merged | to be confirmed |
+| 2.4, sccz80 | a `for (int i ...)` variable gets the enclosing block's number | not listed inside its loop; two listed variables that share a slot both say `shares its stack slot with ...` | [#3254](https://github.com/z88dk/z88dk/issues/3254) | PR #3258, merged | to be confirmed |
+| 2.4, sccz80 | enumerators have no value and no type | the number, not the name | [#3232](https://github.com/z88dk/z88dk/issues/3232) | PR #3241, open | not yet |
+| 2.4, sccz80 | the float format is not recorded | a 6-byte float is read as z88dk's 48-bit format | [#3236](https://github.com/z88dk/z88dk/issues/3236) | PR #3240, open | not yet |
+| master (before the fixes above), sccz80 | the same as 2.4 | the same as 2.4 | as above | as above | to be confirmed |
+| master, sccz80 | enumerators; the float format of classic `--math-mbf32` and `--math-dai32` | the number; `float format mbf32 is not read` | #3232, #3236 | PRs #3241, #3240, open | not yet |
+| master, zsdcc | a register variable has no live range | frame 0: `in BC; may be stale`; an older frame: `not available`; a removed variable: `optimised out` | none (SDCC) | none | not applicable |
+| master, zsdcc | a `const` global has no record | not listed | [#3235](https://github.com/z88dk/z88dk/issues/3235) (SDCC bug #4243) | none in z88dk | not applicable |
+| master, zsdcc | `zcc -O0` writes no variable records | the tab says so | none | none | not applicable |
+| master, zsdcc | no enum information | the number | #3232 | PR #3241, open | not yet |
+| master, zsdcc | `C_LINE` records end in a TAB (a line reads as -1 in z88dk's own tools); a breakpoint inside a loop has no frame in ticks; the file name is not the one given | JNEXT reads the records with or without the TAB | [#3222](https://github.com/z88dk/z88dk/issues/3222) | PRs #3262, #3263, #3265, open | not yet |
+| master, 80cc | a local is kept in a register; a register-passed parameter is recorded at another variable's slot | the value, with the 80cc note; a write is allowed and carries the note, and is refused where the slot is a listed variable's (`shares ...`) | #3233 | locals: PR #3244, merged; parameters: PR #3264, open | locals: to be confirmed; parameters: not yet |
+| master, 80cc | `C_LINE` has no level and no block | every block local `scope unknown` | [#3228](https://github.com/z88dk/z88dk/issues/3228) | PR #3243, merged | to be confirmed (JNEXT is then expected to scope block locals as it does zsdcc's; not yet checked on a rebuilt map) |
+| master, 80cc | some locals have no record (constant-initialised, `float`) | not listed | #3233 | PR #3244, merged | to be confirmed |
+| master, 80cc | a static or global array sized by its initialiser has no size | `an array of unknown length` | [#3255](https://github.com/z88dk/z88dk/issues/3255) | PR #3257, merged | to be confirmed |
+| master, 80cc | bitfields as whole `int`s | as 2.4 sccz80 | none | PR #3231, merged | to be confirmed |
+| master, 80cc | a `for (int i ...)` variable's block | as sccz80 | #3254 | the 80cc half follows PR #3258 | not yet |
+| master, 80cc | enumerators; the float format | as master sccz80 | #3232, #3236 | open | not yet |
+
+More, in short:
+- A plain `int` bitfield (`int s:4;`) is **unsigned** in sccz80 and 80cc and signed in zsdcc, so the value shown is each program's own reading; a `signed int` field is signed everywhere.
+- On a `for` line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80 and 80cc: those lines are recorded in the enclosing block. It is listed in the body, and again from the next line.
+- A path that contains a `$` (`game$v2/main.c`) makes the 80cc frame-slot note disappear for that module: JNEXT cannot read the module's name. This is open for the owner to decide.
+- Not a display limit: a bitfield initialiser across two bytes written as one (#3234, fixed by PR #3242), and the 80cc code-generation bugs #3245 to #3248 (fixed by PRs #3250 to #3253).
+- Not JNEXT: z88dk's own debuggers (#3230, #3237, #3238 and ticks' float reading in #3240).
+- No C variables at all: zsdcc on 2.4 (`-debug` does not build, #3172), and the classic library on the Next with 2.4 (`-debug` fails, PR #3198; it works on master).
+- Enumerations show their number, not their name; a `union` is shown as a `struct`.
 - Before a function has set up its frame, its locals are `not allocated`; a variable at an offset below the stack the frame owns, too.
 - Some variables cannot be written: see [Editing a value](#editing-a-value).
 

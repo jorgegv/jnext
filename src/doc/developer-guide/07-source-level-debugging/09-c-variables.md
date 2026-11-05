@@ -17,11 +17,12 @@ built. Its five vectors:
 
 | Accessor | Holds |
 |---|---|
-| `functions()` | One `CFunction` per `F:` record: the decoded record, its `name`, its `module` (the module of the entry symbol, never the record line's), `entry` (a `CStorage`) and its `scopes` table |
+| `functions()` | One `CFunction` per `F:` record: the decoded record, its `name`, its `module` (the module of the entry symbol, never the record line's), `entry` (a `CStorage`), its `scopes` table, its `trail` (every `C_LINE` record of the extent, see "The scope table") and its `compiler` (`CCompiler`: Sccz80, Zsdcc, Cc80 or Unknown for a synthetic store) |
 | `variables()` | One `CVariable` per `S:` record, hidden ones included (views hide, the store keeps): the module of its CDB line, the C name, `function` (an index into `functions()`, -1 for none) and `storage` |
 | `types()` | Every `T:` record with its module; the lookup rules (own scope, then a unique tag) belong to the first consumer |
 | `modules()` | Every `M:` record (zsdcc and 80cc only) |
 | `refused()` | `"<escaped symbol>: <reason>"` of every record the decoder refused |
+| `float_library()` | the float library the map names (`math32`, `mbf32`, ...: the first non-zero `__code_fp_<lib>_size`), empty when it names none |
 
 A `CStorage` is `resolved` or it says `why` not: a resolved one has the page-aware
 address (`SourceAddress`, the same type as a line's start, so a banked variable is
@@ -130,8 +131,20 @@ The compilers write the scope differently:
   cross-check. The store decomposes it so both sides of a comparison with the CDB
   records (which are in `(level, sub)`) agree.
 
-A location that names only a file and a line, with no scope, is unknown. Block-tree reconstruction and
-visibility are not decided here.
+A location that names only a file and a line, with no scope, is unknown. Visibility is not decided here, but the table keeps what the decision needs:
+
+- **The trail** (`CFunction::trail`, GH #438): every `C_LINE` record of the function's extent, not only the owner of each address, in `(offset, line)` order.
+  A line with no code of its own (`for (;;) {`) shares its address with the next line and its record is the only one that names its block, so the owners alone are not
+  enough (`Z88ZB-02`). `scopes` is unchanged.
+- **The compiler of a function** (`CCompiler`, `fill_compilers()`): from the map alone. 80cc writes `M:<file>` into its module, the file as its `C_LINE` records spell it
+  (`M:./m.c` beside `./m.c::main::...`); zsdcc writes `M:<module>` against the file `<module>.c`, so it never matches; sccz80 writes no `M:` into the map. A module is 80cc iff an `M:` record
+  names a file field of the module's own `C_LINE` records and none of them is zsdcc's `x` form; no `M:` is sccz80; any other module is zsdcc. The name z80asm gives the module is
+  not used: it prefixes `X` to a path that starts with `.`, `/` or a digit (`X__xm_c`). An `M:` name is free text: `( ) [ ] ,` are accepted; `$` is still refused by the decoder.
+- **The `x` placeholder.** zsdcc writes the literal `x` where it names no function. Since z88dk#3262 drops the TAB that used to follow it, `x` is read as "no function"
+  with or without the TAB (`parse_location()`), so the alias rule keeps asking `later_function_entry()` instead of comparing "x" with "x" (`Z88ZB-09`). A zsdcc function really named
+  `x` is told by its level (`level_raw >= 10000`); an sccz80 function named `x` by its name.
+- **Unsized arrays.** The decoder classes every `{-1}DA-1x` record as hidden (sccz80 and 80cc write it first, then the sized one). `build_variable_store()` unhides one that has no
+  sized twin of the same scope kind, scope name, function, name and module, deciding every record before applying any (`Z88ZB-03`); it is then listed and refused.
 
 ## Refusals are lenient
 
@@ -155,8 +168,6 @@ remaps each variable's `function` to the sorted index.
 - z80asm keeps the first of two identical symbols (`symtab1.c:117`), so a record
   that two modules both write is held once.
 - 80cc's second static of one name, `st_<fn>_<x>_<n>`, keeps `_<n>` in the C name.
-- A zsdcc function literally named `x`, in a map without the TAB, is read as
-  sccz80's form.
 - The frame helpers (`__debug_framepointer`, `l_debug_push_frame`) are not stored: a
   hand-loaded z88dk map attaches no symbols, so the next stage adds them to this same pass.
 
@@ -164,8 +175,7 @@ remaps each variable's `function` to the sorted index.
 
 Frames, the extents they stand on and the rule that keeps the tracker running are in
 [7.10](10-c-frames-and-values.md). Values, the "location unknown" of sccz80's fastcall
-parameter, the text that says why no variables are shown, and the type lookup are the next
-stage of the epic. The store gives them the records, the storage and the scopes.
+parameter, the text that says why no variables are shown, and the type lookup are in 7.10. The store gives them the records, the storage and the scopes.
 
 ## Rows
 

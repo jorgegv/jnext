@@ -3051,7 +3051,7 @@ built. Its five vectors:</p>
 <tbody>
 <tr>
 <td><code>functions()</code></td>
-<td>One <code>CFunction</code> per <code>F:</code> record: the decoded record, its <code>name</code>, its <code>module</code> (the module of the entry symbol, never the record line's), <code>entry</code> (a <code>CStorage</code>) and its <code>scopes</code> table</td>
+<td>One <code>CFunction</code> per <code>F:</code> record: the decoded record, its <code>name</code>, its <code>module</code> (the module of the entry symbol, never the record line's), <code>entry</code> (a <code>CStorage</code>), its <code>scopes</code> table, its <code>trail</code> (every <code>C_LINE</code> record of the extent, see "The scope table") and its <code>compiler</code> (<code>CCompiler</code>: Sccz80, Zsdcc, Cc80 or Unknown for a synthetic store)</td>
 </tr>
 <tr>
 <td><code>variables()</code></td>
@@ -3068,6 +3068,10 @@ built. Its five vectors:</p>
 <tr>
 <td><code>refused()</code></td>
 <td><code>"&lt;escaped symbol&gt;: &lt;reason&gt;"</code> of every record the decoder refused</td>
+</tr>
+<tr>
+<td><code>float_library()</code></td>
+<td>the float library the map names (<code>math32</code>, <code>mbf32</code>, ...: the first non-zero <code>__code_fp_&lt;lib&gt;_size</code>), empty when it names none</td>
 </tr>
 </tbody>
 </table>
@@ -3200,8 +3204,21 @@ spaces: a function that crosses an 8 KB slot lives in two, <a href="10-c-frames-
   cross-check. The store decomposes it so both sides of a comparison with the CDB
   records (which are in <code>(level, sub)</code>) agree.</li>
 </ul>
-<p>A location that names only a file and a line, with no scope, is unknown. Block-tree reconstruction and
-visibility are not decided here.</p>
+<p>A location that names only a file and a line, with no scope, is unknown. Visibility is not decided here, but the table keeps what the decision needs:</p>
+<ul>
+<li><strong>The trail</strong> (<code>CFunction::trail</code>, GH #438): every <code>C_LINE</code> record of the function's extent, not only the owner of each address, in <code>(offset, line)</code> order.
+  A line with no code of its own (<code>for (;;) {</code>) shares its address with the next line and its record is the only one that names its block, so the owners alone are not
+  enough (<code>Z88ZB-02</code>). <code>scopes</code> is unchanged.</li>
+<li><strong>The compiler of a function</strong> (<code>CCompiler</code>, <code>fill_compilers()</code>): from the map alone. 80cc writes <code>M:&lt;file&gt;</code> into its module, the file as its <code>C_LINE</code> records spell it
+  (<code>M:./m.c</code> beside <code>./m.c::main::...</code>); zsdcc writes <code>M:&lt;module&gt;</code> against the file <code>&lt;module&gt;.c</code>, so it never matches; sccz80 writes no <code>M:</code> into the map. A module is 80cc iff an <code>M:</code> record
+  names a file field of the module's own <code>C_LINE</code> records and none of them is zsdcc's <code>x</code> form; no <code>M:</code> is sccz80; any other module is zsdcc. The name z80asm gives the module is
+  not used: it prefixes <code>X</code> to a path that starts with <code>.</code>, <code>/</code> or a digit (<code>X__xm_c</code>). An <code>M:</code> name is free text: <code>( ) [ ] ,</code> are accepted; <code>$</code> is still refused by the decoder.</li>
+<li><strong>The <code>x</code> placeholder.</strong> zsdcc writes the literal <code>x</code> where it names no function. Since z88dk#3262 drops the TAB that used to follow it, <code>x</code> is read as "no function"
+  with or without the TAB (<code>parse_location()</code>), so the alias rule keeps asking <code>later_function_entry()</code> instead of comparing "x" with "x" (<code>Z88ZB-09</code>). A zsdcc function really named
+  <code>x</code> is told by its level (<code>level_raw &gt;= 10000</code>); an sccz80 function named <code>x</code> by its name.</li>
+<li><strong>Unsized arrays.</strong> The decoder classes every <code>{-1}DA-1x</code> record as hidden (sccz80 and 80cc write it first, then the sized one). <code>build_variable_store()</code> unhides one that has no
+  sized twin of the same scope kind, scope name, function, name and module, deciding every record before applying any (<code>Z88ZB-03</code>); it is then listed and refused.</li>
+</ul>
 <h2 id="refusals-are-lenient">Refusals are lenient<a class="headerlink" href="#refusals-are-lenient" title="Permanent link">&para;</a></h2>
 <p>A record the decoder refuses goes to <code>refused()</code> with its reason; one that cannot
 be joined stays with its reason. Neither refuses the lines: the strictness of 7.3
@@ -3220,16 +3237,13 @@ remaps each variable's <code>function</code> to the sorted index.</p>
 <li>z80asm keeps the first of two identical symbols (<code>symtab1.c:117</code>), so a record
   that two modules both write is held once.</li>
 <li>80cc's second static of one name, <code>st_&lt;fn&gt;_&lt;x&gt;_&lt;n&gt;</code>, keeps <code>_&lt;n&gt;</code> in the C name.</li>
-<li>A zsdcc function literally named <code>x</code>, in a map without the TAB, is read as
-  sccz80's form.</li>
 <li>The frame helpers (<code>__debug_framepointer</code>, <code>l_debug_push_frame</code>) are not stored: a
   hand-loaded z88dk map attaches no symbols, so the next stage adds them to this same pass.</li>
 </ul>
 <h2 id="not-here">Not here<a class="headerlink" href="#not-here" title="Permanent link">&para;</a></h2>
 <p>Frames, the extents they stand on and the rule that keeps the tracker running are in
 <a href="10-c-frames-and-values.html">7.10</a>. Values, the "location unknown" of sccz80's fastcall
-parameter, the text that says why no variables are shown, and the type lookup are the next
-stage of the epic. The store gives them the records, the storage and the scopes.</p>
+parameter, the text that says why no variables are shown, and the type lookup are in 7.10. The store gives them the records, the storage and the scopes.</p>
 <h2 id="rows">Rows<a class="headerlink" href="#rows" title="Permanent link">&para;</a></h2>
 <p>(<code>Z88CDB-41</code> to <code>-50</code> and <code>SRCDBG-CVAL-01</code> to <code>-58</code>: <a href="10-c-frames-and-values.html">7.10</a>.)
 <code>Z88CDB-01</code> to <code>-26</code> in <code>z88dk_map_test</code> (the joins, scope tables, order,

@@ -3191,22 +3191,31 @@ postfix operators bind tighter than the <code>*</code>: <code>*x[1]</code> is <c
 <code>c_eval_path()</code> (<code>c_value.cpp:700</code>) walks the steps over a typed location (an array index is checked against its
 count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
 refused), then applies the <code>*</code>, and <code>c_read_loc()</code> reads and formats it. Every refusal says why.</p>
-<p><code>c_visible_locals()</code> (<code>c_value.cpp:943</code>) lists which locals show at a PC: the parameters (ordered by stack position),
+<p><code>c_visible_locals()</code> lists which locals show at a PC: the parameters (ordered by stack position),
 the locals, the static locals. A parameter is a record of level 0 (sccz80, 80cc), at a stack offset &gt;= 4, or (zsdcc) in
 a block below the body's first block (the entry scope's), where its register and fastcall parameters sit. Parameters
-and level-1 locals are always visible; a local of level &gt;= 2 is visible iff its block is the open block or one of its
-ancestors. A block's level is its locals' own; a block that holds no local (the <code>else</code> of an <code>if</code> that declared one)
-takes the level of the first scope entry, in offset order, that names it (sccz80 numbers blocks in pre-order, so a
-block just opened is the last opened one). The open block is the greatest known block at the scope's level at or below
-the scope's block, which turns sccz80's "last opened block" into the block that is open and keeps a closed sibling's
-locals hidden; its ancestors are found over the same set. With no block data (80cc) or an unknown scope, every block
-local is shown, marked.
-<code>c_read_register_local()</code> (<code>c_value.cpp:1084</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
+and level-1 locals are always visible. Which block is open depends on the compiler:</p>
+<ul>
+<li><strong>zsdcc and 80cc</strong> (and a synthetic store): a local of level &gt;= 2 is visible iff its block is the open block or one of its ancestors. A block's level is its locals' own;
+  a block that holds no local takes the level of the first scope entry, in offset order, that names it. The open block is the greatest known block at the scope's level at or
+  below the scope's block. With no block data (80cc before z88dk PR #3243) or an unknown scope, every block local is shown, marked <code>scope unknown</code>.</li>
+<li><strong>sccz80 with a trail</strong> (GH #438, <code>replay_trail()</code>): the trail is replayed up to the PC's offset as a stack of open blocks, <code>stack[level] = block | SKIP</code>. A record at a level drops
+  every level above it. A record that names a block higher than any seen fills the unset levels below it with the greatest unseen block of that level in between (a block opened and
+  closed without a line of its own, or the block a <code>for</code> opened: it is named by nothing but its header variable's <code>S:</code> record), else SKIP; a record that names a lower block than the
+  stack holds at its level leaves the stack alone (the pre-z88dk#3227 numbering, the last block opened: <code>c_trail_disagreements()</code> counts those, 0 on every fixed build). A local
+  is visible iff the stack holds its block at its level, or, when its block's level is lower than its own (a <code>for (int i ...)</code> variable on 2.4 and before z88dk PR #3258 carries the
+  enclosing block's number), iff that block is open and every level between is SKIP. A block's level is the first trail entry that names it, else its locals'. The replay is the same on
+  records where a <code>for</code> opens a block of its own (PR #3258: the <code>for</code> line stays in the enclosing block, the body is level + 2 with the next number, <code>CVZB-14</code>): its variable is visible
+  in the body and a closed sibling that shares its slot is not. The <code>for</code> line itself is recorded in the enclosing block, so the loop variable is hidden on that line.</li>
+<li><strong>The guard</strong> (<code>CLocalRef::shares</code>, <code>c_shares_note()</code>): every pair of visible B-space variables whose byte ranges overlap is marked, each naming the other, and neither is hidden.
+  <code>c_locals</code> rows and <code>read_c_value</code> carry the note; a write is refused. <code>c_children</code> rows do not carry it (a member of a shared aggregate shows no note, but its write is refused).</li>
+</ul>
+<p><code>c_read_register_local()</code> (<code>c_value.cpp:1084</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
 that it may be stale), refuses <code>[]</code> as optimised out and an outer frame as not available.
-<code>c_param_location_unknown()</code> (<code>c_value.cpp:1140</code>) marks a listed <code>__z88dk_fastcall</code> parameter recorded at an offset</p>
-<blockquote>
-<p>= 0 (z88dk U1).</p>
-</blockquote>
+<code>c_fastcall_records_nominal()</code> is the U1 rule, per function (GH #438): true iff the function is fastcall and none of its parameters (level 0, space B) is recorded at a negative offset,
+that is, the records are the pre-z88dk#3229 ones, every parameter at its nominal slot, where none of them is. Fastcall is <code>CConv::ListedFastcall</code> (a listing flags it), or the caller's
+<code>prologue_fastcall</code> for a function no listing names (a listing that names it without the flag wins). <code>c_param_location_unknown()</code> is the older per-record form; the read path no longer calls it
+(its row, <code>CVALF-30</code>, still pins it).</p>
 <h2 id="reading-values-the-facade">Reading values: the facade<a class="headerlink" href="#reading-values-the-facade" title="Permanent link">&para;</a></h2>
 <p><code>Debugger</code> has six CAP-SRC readers (<code>debugger.h</code>), all <code>const</code>, all running <code>recheck()</code> first (through <code>variables()</code> and
 <code>c_frames()</code>) and bumping nothing themselves, so a panel redrawing on <code>state_revision()</code> does not redraw on a read:</p>
@@ -3258,7 +3267,14 @@ StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code
   object, read through the CPU view, <code>CLoc::ptr_value</code>); a member or an element of a register-held aggregate has no address and is refused.</li>
 <li><strong>What a pointer points at</strong> is read through the CPU view (C semantics), which is why a location carries <code>rooted</code>: true while it is
   inside its root object, cleared when a pointer is followed (<code>CFormatCtx::read_root</code>).</li>
-<li>A listed <code>__z88dk_fastcall</code> parameter recorded at an offset &gt;= 0 is <code>location unknown (z88dk U1...)</code>.</li>
+<li>A parameter of a function for which <code>c_fastcall_records_nominal()</code> holds is <code>location unknown (z88dk U1...)</code>. The prologue evidence is read by <code>prologue_is_fastcall()</code>: the function's
+  entry bytes <code>call l_debug_push_frame; push hl</code> (or <code>push de; push hl</code>), <code>CD &lt;lo hi&gt; E5</code>, <code>l_debug_push_frame</code> being the helper the store resolved, read through the entry's own page
+  (<code>peek</code>, no side effect). KNOWN LIMITATION: a <code>float</code> or <code>long long</code> fastcall argument is pushed by other helpers (<code>gen_push_float</code>, <code>llpush</code>), so with no listing a function that takes
+  one is read from the nominal slot, a wrong value; with a listing it is refused.</li>
+<li><strong>A stack variable of an 80cc function</strong> carries the note <code>80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)</code>, in every
+  frame and on members and elements (<code>CCompiler::Cc80</code>). It is always on: nothing in the map says whether the build has z88dk PR #3244, and a parameter the function reassigns is still wrong after it.</li>
+<li><strong>A float</strong> of a map whose float library is <code>mbf32</code>, <code>mbf64</code>, <code>bbc</code> or <code>dai32</code> is refused (<code>float format &lt;lib&gt; is not read: ...</code>): the record says only <code>{4}SF</code>. <code>math32</code>, <code>am9511</code>, <code>math48</code> and a map that names none decide by size.</li>
+<li><strong>A bitfield's type text</strong> is <code>int :N</code> for an <code>SB..:S</code> record and <code>unsigned int :N</code> for <code>:U</code> (a plain <code>int</code> bitfield is <code>:U</code> in sccz80 and 80cc, <code>:S</code> in zsdcc). An <code>{-1}</code> array is refused <code>an array of unknown length: its debug record has no size</code>.</li>
 </ul>
 <p><code>find_var()</code> (<code>debugger_cvalues.cpp:350</code>) resolves a name in frame <code>k</code>: the frame's visible locals, then its function's static
 locals, the file's statics, the globals. A local that exists but is hidden is <code>out of scope at &lt;file&gt;:&lt;line&gt;</code>. <code>fn::name</code> names a static
@@ -3314,7 +3330,7 @@ fixture has an 8-byte integer, a binary16 or an <code>_Accum</code> global.</p>
 a write needs a successful <code>eval_var()</code> of the same path, and its bytes are that read's <code>loc</code> and <code>where</code>, so
 there is no second resolver to drift from the first. Whatever a read refuses a write refuses with the read's own words (U1, a frame
 base that is not known, <code>not allocated</code>, <code>optimised out</code>, a null pointer, an index past the end, a page crossing, an unresolved
-storage). The write adds five refusals, in this order:</p>
+storage). The write adds six refusals, in this order:</p>
 <table>
 <thead>
 <tr>
@@ -3326,6 +3342,10 @@ storage). The write adds five refusals, in this order:</p>
 <tr>
 <td><code>scope unknown</code> (<code>Found::scope_unknown</code>, copied from <code>CLocalRef</code> in <code>find_local()</code>)</td>
 <td>80cc writes no block structure, so the slot of a block local may hold another variable: a note for a read, a refusal for a write</td>
+</tr>
+<tr>
+<td><code>shares its stack slot with &lt;name&gt;: ...</code> (<code>Found::shares</code>, from <code>CLocalRef</code> in <code>find_local()</code>)</td>
+<td>the variable's slot overlaps another listed variable's: the write would land in the other</td>
 </tr>
 <tr>
 <td><code>a register variable cannot be written</code></td>
@@ -3352,7 +3372,7 @@ with the one MUTATE line and the one bump of the bytes that landed; a refusal by
 <code>RefusedRzx</code>, <code>RefusedReadOnly</code> (with <code>landed</code>, worded <code>K of N bytes landed (the rest is read-only)</code>), <code>InvalidPage</code> or <code>Unsupported</code>; every
 refusal decided before it is <code>RefusedUnavailable</code> with the reason in <code>why</code>. There is no C-specific code. A dot command's global lives in
 <code>DivMmcRam</code>, which <code>poke()</code> refuses (<code>identity_only()</code>, INS-02-30), so it is <code>Unsupported</code> with <code>DivMMC RAM bank 2 cannot be written by the
-debugger (unsupported)</code>. After an <code>Ok</code> the object is read back into <code>CWriteResult::value</code>. A <code>Page</code> object cannot half-land: the read already
+debugger (unsupported)</code>. After an <code>Ok</code> the object is read back into <code>CWriteResult::value</code>. <code>CWriteResult::notes</code> holds the notes of the read that preceded the write (the 80cc frame-slot note, a <code>not mapped</code> note): the Qt edit message and GDB <code>monitor set var</code> print them. A <code>Page</code> object cannot half-land: the read already
 refused a page crossing.</p>
 <p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1472</code>) is pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
 independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRCP, GDB) or a script's 32-bit value:</p>
