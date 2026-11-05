@@ -1377,8 +1377,16 @@ void test_rows() {
         for (auto* n : ns) vals << n->text(2).section(' ', 0, 0);
         vals.sort();
         const bool no_watch = two && !f.vp()->watch_item(ns[0]) && !f.vp()->watch_item(ns[1]) && spy.count() == 0;
-        check("QVARSH-04", "zsdcc shadowagg.c Globals: two rows named f::n with two keys, reading 100 and 7 (each its own static), and a Watch on either is refused (the path names both)",
-              at && two && keys && vals == QStringList({"100", "7"}) && no_watch, two ? detail_of(ns[0]) + " | " + detail_of(ns[1]) : std::string("rows=") + std::to_string(ns.size()));
+        // a refused edit of either row names the static, not the internal handle
+        QString msg;
+        if (two) {
+            f.vp()->commit_edit(ns[0], "99999");
+            msg = message(f) ? message(f)->text() : QString("<none>");
+        }
+        check("QVARSH-04", "zsdcc shadowagg.c Globals: two rows named f::n with two keys, reading 100 and 7 (each its own static), a Watch on either is refused (the path names both), and a refused edit (99999) reads "
+                           "`f::n (static): ...` with no `#`",
+              at && two && keys && vals == QStringList({"100", "7"}) && no_watch && msg.startsWith("f::n (static): ") && !msg.contains('#'),
+              (two ? detail_of(ns[0]) + " | " + detail_of(ns[1]) : std::string("rows=") + std::to_string(ns.size())) + " | " + s(msg));
     }
     {   // QVARSH-05
         // the edit message names the variable, never the internal handle: a refused edit of the shadowed t of sccz80 shadow.c reads `t (shadowed, in f): ...`
