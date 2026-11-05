@@ -440,7 +440,7 @@ and `.newt sntp 0 pool.ntp.org` works. What is not emulated there is UDP
 "modes" 1 and 2, which let the far end of the link change to whoever last sent
 a packet; the emulated module answers `ERROR` rather than pretending.
 
-None of the rest has a consumer in current Next software. Widening the emulation to
-the full ESP-01 firmware specification is not done.
+None of the rest has a consumer in current Next software, so the rest of the
+ESP-01 firmware specification is not emulated.
 
 ---

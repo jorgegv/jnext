@@ -3563,8 +3563,8 @@ no-op on the synthetic path and pinned by <code>NEXMMU-01..07</code>.</p>
 (size, mtime) read after the recording, plus a process-wide write generation
 (<code>SdCardDevice::host_write_generation()</code>, bumped by every CMD24 jnext commits):
 an own write drops the in-memory state, and a memo of the last validation
-catches an own write that left the mtime unchanged. A memo replaces the whole-image SHA-256, which cost 0.6-1.2 s per GB on the UI
-thread at every cold boot that loads a program). <strong>Accepted residual:</strong> an
+catches an own write that left the mtime unchanged. The (size, mtime, generation) key replaces the whole-image SHA-256, which cost 0.6-1.2 s per GB on the UI
+thread at every cold boot that loads a program. <strong>Accepted residual:</strong> an
 image replaced or edited from outside with the same size and the same mtime
 (<code>cp -p</code>, <code>touch -r</code>) serves a stale recording; <code>--warm-start-regenerate</code> is the
 escape hatch. The file magic is <code>JNEXTWS3</code> (layout generation).</p>
@@ -3710,7 +3710,7 @@ answered. The names come from <code>src/core/esxdos_trace.h</code>, transcribed 
 <code>esxapi.def</code> and z88dk's <code>esxdos.def</code>.</p>
 <p><strong>Tests.</strong> <code>test/esxdos_stub/esxdos_stub_test.cpp</code>: <code>ESX-01..10</code> cover the
 in-memory file and <code>.RUN</code> chaining, <code>ESXT-01..36</code> the call-name table, hook
-installation and the <code>$0008</code> trigger, and <code>ESXN-01..18</code> the NEX loader's dead-byte handling. Most <code>ESXN</code>
+installation and the <code>$0008</code> trigger, and <code>ESXN-01..18</code> the esxDOS answers a directly loaded NEX gets. Most <code>ESXN</code>
 rows load a NEX built at test time through <code>load_nex()</code> and run it with
 <code>run_frame()</code>; the bare <code>--esxdos-stub</code> rows put the program in RAM directly
 instead, because <code>load_nex()</code> would arm the direct-load answers, and the
@@ -4224,7 +4224,7 @@ Snapshot Alt+Shift+F9; the same two chords in the SDL-only build) follow the sam
 shape for <code>.jns</code>. <code>src/core/quick_snapshot.*</code> holds the folder
 (<code>default_quick_snapshot_dir()</code> = <code>sdcard::default_state_dir()</code> + <code>/snapshots</code>,
 so <code>$JNEXT_CONFIG_DIR</code> and the SD image's own state-dir resolution apply — on
-Windows it depends on HOME → USERPROFILE resolution, and without it a missing HOME puts it beside the SD image under <code>./.jnext</code>), the name
+Windows, with no HOME, it is under <code>%USERPROFILE%\.jnext</code>: <code>home_dir()</code> tries HOME, then USERPROFILE, else <code>.</code>), the name
 (<code>auto_timestamped_path()</code>, the one function <code>auto_screenshot_path()</code> also
 uses) and the choice of file (<code>latest_quick_snapshot()</code>: greatest modification
 time among <code>*.jns</code> regular files directly in the folder, ties to the greater

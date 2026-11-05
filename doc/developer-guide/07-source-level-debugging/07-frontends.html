@@ -3193,7 +3193,7 @@ rather than unreadable. The sidecar report is <code>DebuggerManager::report_side
 the log, and the main window's status bar for ten seconds.</p>
 <h3 id="colouring">Colouring<a class="headerlink" href="#colouring" title="Permanent link">&para;</a></h3>
 <p><code>SourceHighlighter</code> (<code>source_highlighter.*</code>, a <code>QSyntaxHighlighter</code> that exists only in
-<code>jnext_debugger</code>;).</p>
+<code>jnext_debugger</code>).</p>
 <ul>
 <li><strong>The language.</strong> <code>source_language_for(file, text)</code> (<code>source_highlighter.cpp:409</code>): the
   extension, lower-cased, with a trailing <code>.m4</code> dropped (<code>zxn_crt.asm.m4</code> is assembly): <code>c</code> and
@@ -3346,7 +3346,7 @@ behaviour; <code>source_sync_colors.h</code> is the one definition of the linked
 per scheme (<code>SchemeColours::linked_line</code>), tested for legibility like the coverage tint (row <code>QSRC-189</code>).</p>
 <h2 id="the-qt-variables-tab">The Qt Variables tab<a class="headerlink" href="#the-qt-variables-tab" title="Permanent link">&para;</a></h2>
 <p><code>VariablesPanel</code> (<code>src/debugger/variables_panel.*</code>) is a tab of the bottom-right tab widget, between Watches and
-Breakpoints (the window has no docks: its layout is the fixed one of). It shows the C variables of one call
+Breakpoints (the window has no docks: its layout is fixed). It shows the C variables of one call
 frame and the globals and statics as a <code>QTreeWidget</code> (Name, Type, Value, Address). Like every CAP-SRC reader it holds no copy
 of a store, and it <strong>formats nothing</strong>: every value, type, refusal and note is the facade's text (<code>c_locals()</code>,
 <code>c_globals()</code>, <code>c_children()</code>, <a href="10-c-frames-and-values.html">7.10</a>); the panel only joins a row's notes onto its value
@@ -3385,7 +3385,7 @@ of a store, and it <strong>formats nothing</strong>: every value, type, refusal 
   C rows stay read-only.</li>
 </ul>
 <h3 id="c-watches-in-the-watches-tab">C watches in the Watches tab<a class="headerlink" href="#c-watches-in-the-watches-tab" title="Permanent link">&para;</a></h3>
-<p>A <code>WatchEntry</code> has a kind, <code>Memory</code> (the address watch of) or <code>CVariable</code> (<code>CVarWatch</code>: the facade <code>path</code>, the <code>function</code> and CDB
+<p>A <code>WatchEntry</code> has a kind, <code>Memory</code> (the address watch) or <code>CVariable</code> (<code>CVarWatch</code>: the facade <code>path</code>, the <code>function</code> and CDB
 <code>module</code> of a parameter or local, empty for a global, a file static or a static local). <code>VariablesPanel::watch_item()</code> (the right-click
 menu's one action, refused while the machine runs: the tab shows the last stop, and a binding taken from the live machine would not be what the user pointed at) builds it and emits <code>watch_requested</code>; the window connects that to <code>WatchPanel::add_c_watch()</code>, and the current tab does not change.</p>
 <ul>

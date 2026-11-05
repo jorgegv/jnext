@@ -329,8 +329,7 @@ screenshots + the admitted rows (no lints, no stamp).
    The desktop process (`explorer.exe /desktop`) is the same hazard: wine
    starts it from whichever client first needs the desktop, on that client's
    stderr (a row's filter pipe), and it lives while any other wine process uses
-   the desktop, so a 0.1 s step could be held to its 120 s bound by another row
-. `--serve` therefore also starts a keeper (`wine start /wait cmd /c
+   the desktop, so a 0.1 s step could be held to its 120 s bound by another row. `--serve` therefore also starts a keeper (`wine start /wait cmd /c
    pause`, stdio on `/dev/null`), verifies exactly one stable `explorer.exe` of
    the prefix on `/dev/null` and prints its pid; the driver records it and
    raises a harness fault if that process is not the same one at the end of the run.

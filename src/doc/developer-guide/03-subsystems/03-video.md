@@ -313,7 +313,7 @@ pixels after the write.
 Three logs do better. `AttributeMux` was the first (Nirvana-class attribute
 rewrites; it covers the pixel bytes too, so a frame can no longer
 show new glyphs on old attributes; the tilemap and LoRes read
-through it, and `SramBeamLog` does the same for Layer 2's bitmap), and a later one added the Layer 2 **bank** (NR 0x12/0x13) and **scroll**
+through it, and `SramBeamLog` does the same for Layer 2's bitmap), and a later change added the Layer 2 **bank** (NR 0x12/0x13) and **scroll**
 (NR 0x16/0x17/0x71) logs. Those two carry an `hpos` beside the line tag,
 `Layer2::apply_changes_for_line` merges them into one per-row list of render
 segments ordered by column, and `render_scanline` draws the row as one span per

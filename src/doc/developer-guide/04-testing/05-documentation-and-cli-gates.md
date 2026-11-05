@@ -232,7 +232,7 @@ names, the file format version) is declared in the table with its reason, and
 
 ### `--set`, the other half of the same table
 
-`--set SECTION.KEY=VALUE` (the second half of the table) is parsed by
+`--set SECTION.KEY=VALUE` is parsed by
 `config_keys::parse_assignment()` and applied in `main.cpp` by one lambda,
 `apply_assignment`, whose `switch (a.id)` over `config_keys::KeyId` has **no
 `default`**: the `jnext` target builds with `-Werror=switch`, so a row added to

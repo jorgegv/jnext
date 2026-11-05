@@ -114,7 +114,7 @@ the log, and the main window's status bar for ten seconds.
 ### Colouring
 
 `SourceHighlighter` (`source_highlighter.*`, a `QSyntaxHighlighter` that exists only in
-`jnext_debugger`;).
+`jnext_debugger`).
 
 - **The language.** `source_language_for(file, text)` (`source_highlighter.cpp:409`): the
   extension, lower-cased, with a trailing `.m4` dropped (`zxn_crt.asm.m4` is assembly): `c` and
@@ -274,7 +274,7 @@ per scheme (`SchemeColours::linked_line`), tested for legibility like the covera
 ## The Qt Variables tab
 
 `VariablesPanel` (`src/debugger/variables_panel.*`) is a tab of the bottom-right tab widget, between Watches and
-Breakpoints (the window has no docks: its layout is the fixed one of). It shows the C variables of one call
+Breakpoints (the window has no docks: its layout is fixed). It shows the C variables of one call
 frame and the globals and statics as a `QTreeWidget` (Name, Type, Value, Address). Like every CAP-SRC reader it holds no copy
 of a store, and it **formats nothing**: every value, type, refusal and note is the facade's text (`c_locals()`,
 `c_globals()`, `c_children()`, [7.10](10-c-frames-and-values.md)); the panel only joins a row's notes onto its value
@@ -314,7 +314,7 @@ of a store, and it **formats nothing**: every value, type, refusal and note is t
 
 ### C watches in the Watches tab
 
-A `WatchEntry` has a kind, `Memory` (the address watch of) or `CVariable` (`CVarWatch`: the facade `path`, the `function` and CDB
+A `WatchEntry` has a kind, `Memory` (the address watch) or `CVariable` (`CVarWatch`: the facade `path`, the `function` and CDB
 `module` of a parameter or local, empty for a global, a file static or a static local). `VariablesPanel::watch_item()` (the right-click
 menu's one action, refused while the machine runs: the tab shows the last stop, and a binding taken from the live machine would not be what the user pointed at) builds it and emits `watch_requested`; the window connects that to `WatchPanel::add_c_watch()`, and the current tab does not change.
 

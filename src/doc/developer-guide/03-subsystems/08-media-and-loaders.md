@@ -488,8 +488,8 @@ no-op on the synthetic path and pinned by `NEXMMU-01..07`.
 (size, mtime) read after the recording, plus a process-wide write generation
 (`SdCardDevice::host_write_generation()`, bumped by every CMD24 jnext commits):
 an own write drops the in-memory state, and a memo of the last validation
-catches an own write that left the mtime unchanged. A memo replaces the whole-image SHA-256, which cost 0.6-1.2 s per GB on the UI
-thread at every cold boot that loads a program). **Accepted residual:** an
+catches an own write that left the mtime unchanged. The (size, mtime, generation) key replaces the whole-image SHA-256, which cost 0.6-1.2 s per GB on the UI
+thread at every cold boot that loads a program. **Accepted residual:** an
 image replaced or edited from outside with the same size and the same mtime
 (`cp -p`, `touch -r`) serves a stale recording; `--warm-start-regenerate` is the
 escape hatch. The file magic is `JNEXTWS3` (layout generation).
@@ -603,7 +603,7 @@ answered. The names come from `src/core/esxdos_trace.h`, transcribed from
 
 **Tests.** `test/esxdos_stub/esxdos_stub_test.cpp`: `ESX-01..10` cover the
 in-memory file and `.RUN` chaining, `ESXT-01..36` the call-name table, hook
-installation and the `$0008` trigger, and `ESXN-01..18` the NEX loader's dead-byte handling. Most `ESXN`
+installation and the `$0008` trigger, and `ESXN-01..18` the esxDOS answers a directly loaded NEX gets. Most `ESXN`
 rows load a NEX built at test time through `load_nex()` and run it with
 `run_frame()`; the bare `--esxdos-stub` rows put the program in RAM directly
 instead, because `load_nex()` would arm the direct-load answers, and the
@@ -1126,7 +1126,7 @@ Snapshot Alt+Shift+F9; the same two chords in the SDL-only build) follow the sam
 shape for `.jns`. `src/core/quick_snapshot.*` holds the folder
 (`default_quick_snapshot_dir()` = `sdcard::default_state_dir()` + `/snapshots`,
 so `$JNEXT_CONFIG_DIR` and the SD image's own state-dir resolution apply — on
-Windows it depends on HOME → USERPROFILE resolution, and without it a missing HOME puts it beside the SD image under `./.jnext`), the name
+Windows, with no HOME, it is under `%USERPROFILE%\.jnext`: `home_dir()` tries HOME, then USERPROFILE, else `.`), the name
 (`auto_timestamped_path()`, the one function `auto_screenshot_path()` also
 uses) and the choice of file (`latest_quick_snapshot()`: greatest modification
 time among `*.jns` regular files directly in the folder, ties to the greater

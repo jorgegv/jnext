@@ -3165,8 +3165,7 @@ accepted <code>INT</code> or <code>NMI</code> by <code>on_interrupt()</code>. Fr
 <code>MAX_DEPTH</code> = 256. A frame is a <code>CALL</code>, an <code>RST</code>, an <code>INT</code> or an <code>NMI</code>
 (<code>CallType</code>), with <code>caller_pc</code>, <code>target_pc</code>, <code>sp_at_call</code> and the two memories of
 <a href="01-which-memory.html">7.1</a>.</p>
-<p><strong>What ends a frame.</strong> Not just the stack pointer. <code>CallStack::return_to()</code>
-: a taken <code>RET</code> that lands on the <strong>newest frame's own return point</strong>
+<p><strong>What ends a frame.</strong> Not just the stack pointer. <code>CallStack::return_to()</code>: a taken <code>RET</code> that lands on the <strong>newest frame's own return point</strong>
 ends exactly that frame: for a <code>CALL</code>, <code>caller_pc + 3</code>; for an <code>INT</code> or <code>NMI</code>,
 <code>caller_pc</code> (or <code>caller_pc + 1</code> when the interrupt ended a <code>HALT</code>, which the CPU had
 stepped past). Any other <code>RET</code>, and every <code>RST</code> frame (whose inline <code>DEFW</code> operands

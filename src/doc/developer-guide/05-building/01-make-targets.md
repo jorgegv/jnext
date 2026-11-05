@@ -45,8 +45,7 @@ Makefile is full of those, and they are where the reasoning actually lives.
 which builds and then runs, and a `-clean` target; `make clean` removes all of
 them along with `build/`.
 
-`gui-release` is the binary JNEXT ships and tests, and it is a **PGO build**
-: it depends on `gui-release-pgo-gen`, the instrumented twin, runs the
+`gui-release` is the binary JNEXT ships and tests, and it is a **PGO build**: it depends on `gui-release-pgo-gen`, the instrumented twin, runs the
 training and then compiles `build/gui-release` with the profile — see
 [5.5](05-performance-and-optimisation.md#profile-guided-optimisation).
 `gui-release-non-pgo` is the same Release build without PGO, in its own tree;

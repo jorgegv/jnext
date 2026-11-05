@@ -3131,7 +3131,7 @@ the digest, and has the loader validate every value against the file before
 installing it. Any failure is ONE warning and the deck stays as it was. A file
 without the member (older jnext) is not reattached either, since attaching at
 the start would hand block 0 to a program waiting for a later one.</p>
-<p>A snapshot changes no setting (owner). The session's mode reaches
+<p>A snapshot changes no setting (owner decision). The session's mode reaches
 the core as <code>JnsLoadOptions::tape_realtime</code> (the one fast/real-time setting:
 the Tape &gt; Fast Load toggle, which <code>--tape-realtime</code> overrides for the run in
 <code>main.cpp</code>; <code>QtApp::tape_realtime()</code> reads the toggle, SDL and headless take the

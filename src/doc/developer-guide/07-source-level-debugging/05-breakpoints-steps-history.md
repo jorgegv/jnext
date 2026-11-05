@@ -151,8 +151,7 @@ accepted `INT` or `NMI` by `on_interrupt()`. Frames are oldest first, up to
 (`CallType`), with `caller_pc`, `target_pc`, `sp_at_call` and the two memories of
 [7.1](01-which-memory.md).
 
-**What ends a frame.** Not just the stack pointer. `CallStack::return_to()`
-: a taken `RET` that lands on the **newest frame's own return point**
+**What ends a frame.** Not just the stack pointer. `CallStack::return_to()`: a taken `RET` that lands on the **newest frame's own return point**
 ends exactly that frame: for a `CALL`, `caller_pc + 3`; for an `INT` or `NMI`,
 `caller_pc` (or `caller_pc + 1` when the interrupt ended a `HALT`, which the CPU had
 stepped past). Any other `RET`, and every `RST` frame (whose inline `DEFW` operands

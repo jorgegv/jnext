@@ -3258,7 +3258,7 @@ The rules, in order of the section name:</p>
 <li><strong><code>PAGE_&lt;n&gt;</code></strong> and <code>&lt;KIND&gt;_PAGE_&lt;n&gt;</code> (KIND is <code>CODE</code>, <code>RODATA</code>, <code>DATA</code> or
    <code>BSS</code>): a section that starts in page <code>n</code> and may run into the next ones. The
    head is <code>z88dk_page_head()</code>: the <em>low 16 bits</em> of the constant <code>__PAGE_&lt;n&gt;_head</code>
-   (newlib puts the page in bits 16-23, which are not read;). The page is
+   (newlib puts the page in bits 16-23, which are not read). The page is
    <code>n + (((head &amp; 0x1FFF) + (addr16 - head)) &gt;&gt; 13)</code>. With no such constant, an
    address below the head, or a result past page 223, the value is <em>unpaged</em>.</li>
 <li><strong><code>BANK_&lt;n&gt;</code></strong> and <code>&lt;KIND&gt;_&lt;n&gt;</code>, with <code>_L</code> or <code>_H</code>, and for <code>RODATA</code>/<code>DATA</code> also

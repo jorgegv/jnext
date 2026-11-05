@@ -134,7 +134,7 @@ Give both pragmas. `CRT_ORG_PAGE_20` carries the page in its top byte
 (`0x14C000` is page 20 at `$C000`) and `REGISTER_SP=0xC000` keeps the stack below the
 banking window. Without them the program itself calls page 0 or loses its stack,
 so it cannot run. A newer z88dk (master from 2026-10-31) makes the page the
-default and documents the stack; its description says the pragma gives identical
+default and documents the stack; the change's description says the pragma gives identical
 output, so it is harmless there. Only 2.4 and the 2026-10-16 master were run for
 this page; on anything newer, build the example and look.
 

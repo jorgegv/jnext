@@ -4459,7 +4459,7 @@ zcc +zxn -clib=new -debug -DUSE_BANKED_KW -pragma-define:CRT_ORG_PAGE_20=0x14C00
 (<code>0x14C000</code> is page 20 at <code>$C000</code>) and <code>REGISTER_SP=0xC000</code> keeps the stack below the
 banking window. Without them the program itself calls page 0 or loses its stack,
 so it cannot run. A newer z88dk (master from 2026-10-31) makes the page the
-default and documents the stack; its description says the pragma gives identical
+default and documents the stack; the change's description says the pragma gives identical
 output, so it is harmless there. Only 2.4 and the 2026-10-16 master were run for
 this page; on anything newer, build the example and look.</p>
 <p>The build writes <code>prog_CODE.bin</code> and <code>prog_PAGE_20.bin</code>, and JNEXT checks both:</p>

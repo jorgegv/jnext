@@ -457,8 +457,8 @@ Four consequences, all deliberate:
   bytes for the guest in a wire with its own short lock (held for a push or pop,
   never across a transport or sink call), and `ThreadedEsp::tick()` paces from it
   without the core lock; it try-locks the core only to frame the *next* `+IPD`,
-  once the wire has drained. A lost try-lock must not drop the elapsed
-  time: under wine (worker inside a Winsock call, 1-25 ms) paused a reply
+  once the wire has drained. A lost try-lock keeps the elapsed
+  time; dropping it under wine (worker inside a Winsock call, 1-25 ms) paused a reply
   mid-message for up to 382 018 emulated cycles, and NextSync's 20-poll window
   between `+IPD,<n>:` header bytes then abandoned the packet. A real ESP-01
   clocks a message out back to back; each message is pushed as one unit.

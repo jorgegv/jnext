@@ -146,7 +146,7 @@ The rules, in order of the section name:
 1. **`PAGE_<n>`** and `<KIND>_PAGE_<n>` (KIND is `CODE`, `RODATA`, `DATA` or
    `BSS`): a section that starts in page `n` and may run into the next ones. The
    head is `z88dk_page_head()`: the *low 16 bits* of the constant `__PAGE_<n>_head`
-   (newlib puts the page in bits 16-23, which are not read;). The page is
+   (newlib puts the page in bits 16-23, which are not read). The page is
    `n + (((head & 0x1FFF) + (addr16 - head)) >> 13)`. With no such constant, an
    address below the head, or a result past page 223, the value is *unpaged*.
 2. **`BANK_<n>`** and `<KIND>_<n>`, with `_L` or `_H`, and for `RODATA`/`DATA` also

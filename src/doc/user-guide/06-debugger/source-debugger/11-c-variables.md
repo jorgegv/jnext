@@ -86,7 +86,7 @@ records. A map made stale by a different program in memory is shown as stale.
 A value the compiler's records cannot be fully trusted for is shown with a note in brackets after it, in the Value column and in the tooltip;
 the same notes reach the Watches tab and GDB's `monitor locals`, `print` and `set var`. A note never hides the variable.
 
-- **`80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's `**: on every
+- **`80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's (z88dk#3233)`**: on every
   stack variable (a local or a parameter, in any frame, and the members or elements of it) of a function built with the 80cc compiler. 80cc can
   keep a local in a register and never write its slot, and it records a register-passed parameter at the slot of another variable. A static or
   a global never has it. In z88dk master the locals are fixed from 2026-11-04 and the parameters from 2026-11-05. JNEXT cannot tell a fixed build from an old one, so the note stays on every 80cc stack variable.
@@ -99,16 +99,15 @@ the same notes reach the Watches tab and GDB's `monitor locals`, `print` and `se
 The words `U1` and `U2` in the messages are JNEXT's names for two z88dk record bugs (a fastcall parameter's slot, a bitfield written as an `int`).
 
 Refusals instead of a value: `location unknown (z88dk U1...)` for a `__z88dk_fastcall` parameter that sccz80 recorded where it is not;
-`an array of unknown length: its debug record has no size`; `float format mbf32 is not read: the record does not say it` (also
+`an array of unknown length: its debug record has no size`; `float format mbf32 is not read: the record does not say it (z88dk#3236)` (also
 `mbf64`, `bbc` and `dai32`) when the map shows the program links one of those float libraries.
 
 ## What each z88dk can show
 
 These are limits of what the compilers record, not of the debugger. One row per version and compiler. The last column is the date from which
 z88dk master contains the fix (a release that contains it is not tracked here); `not fixed yet` means master does not have it. Every fix listed
-with a date is in z88dk master at `0f0a1cf70e` (2026-11-05). No z88dk nightly has them all yet: the latest one when this was written,
-`z88dk-20261105-ddfed0b200`, predates the 2026-11-05 fixes; a nightly built after 2026-11-05 03:30 UTC (the file name carries its date and
-commit) contains them, and so does z88dk master built from source.
+with a date is in z88dk master at `0f0a1cf70e` (2026-11-05). No z88dk nightly up to `z88dk-20261105-ddfed0b200` has them all: that one has the fixes merged by about 00:10 UTC on 2026-11-05 and lacks those merged after 07:00 UTC
+(enumerators, the zsdcc records, the 80cc parameters). Nightlies from `z88dk-20261106-*` on have all of them, and so does z88dk master built from source.
 
 | z88dk, compiler | What the compiler records wrongly or not at all | How JNEXT shows it | Fixed in z88dk master from |
 |---|---|---|---|
@@ -142,8 +141,8 @@ More, in short:
 - A source path that contains a `$` (`game$v2/main.c`): sccz80 and 80cc write the path into each local's and static's record, and `$` separates the record's fields, so JNEXT cannot read the records of that file and does not list its parameters, locals or file statics (its globals are listed). zcc itself needs the `$` escaped and cannot write `--list` listings for such a path. Keep `$` out of source paths.
 - 80cc writes one scope per source line and stamps some code with another block's scope (see the table), so its block locals are never certain. On a line that holds code of two blocks the locals hidden are those of the block 80cc wrote first. Keeping a block's statements on lines of their own does not avoid it: the stamp comes from the compiler's order of work, not from the line.
 - A name that two visible variables share (an inner block's `t` over the function's `t`): the innermost is the one `print`, a watch, `cvar()` and a write mean, as in gdb. The Variables tab lists both; the outer one is marked `shadowed`, or `may be shadowed` when the choice is not certain, that is when the inner one is `scope unknown` (that is 80cc's block locals; a parameter or level-1 local shadowed by a certain pick is `shadowed` on every compiler). A read of an uncertain name carries `ambiguous: 2 variables named t may be in scope here; this is the innermost (...)`, and a write to it is refused. A block-scoped `static` local is in scope only in its block, like a block local: where its block is closed it is not listed and the name means the local; where it is open it wins; on 80cc it is `scope unknown` like every block local.
-- Not a display limit, but wrong values in the program itself: a bitfield initialiser across two bytes written as one (fixed in z88dk master), and three 80cc code-generation bugs (also fixed in master; one only on the Game Boy target).
-- Not JNEXT: z88dk's own debuggers (its other debuggers' defects, and ticks' reading of floats).
+- Not a display limit, but wrong values in the program itself: a bitfield initialiser across two bytes written as one (fixed in z88dk master from 2026-11-04), and three 80cc code-generation bugs (fixed in master on 2026-11-04 and 2026-11-05; one only on the Game Boy target).
+- Not JNEXT: defects of z88dk's own debuggers (one fixed in master from 2026-11-04) and ticks' reading of floats (not fixed yet).
 - No C variables at all: zsdcc on 2.4 (`-debug` does not build), and the classic library on the Next with 2.4 (`-debug` fails; it works on master from 2026-10-23).
 - Enumerations show their number, not their name; a `union` is shown as a `struct`.
 - Before a function has set up its frame, its locals are `not allocated`; a variable at an offset below the stack the frame owns, too.

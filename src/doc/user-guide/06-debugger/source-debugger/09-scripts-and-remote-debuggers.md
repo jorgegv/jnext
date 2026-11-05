@@ -69,7 +69,7 @@ break on 'main.c:19'`: use an address or a symbol there, or build with sccz80. A
 programs the master client crashed (segmentation fault) loading the map of the `-run` banked
 example built with both installs, which has a 24-bit line symbol; the client's `next` is also
 reported to hang in banked code, which was not re-run for this page. z88dk master from
-2026-10-31 fixes these according to its description; it is newer than both installs used here,
+2026-10-31 fixes these according to the change's description; it is newer than both installs used here,
 and no case was run with it.
 
 ## C variables
