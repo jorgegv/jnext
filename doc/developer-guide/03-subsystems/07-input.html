@@ -3030,10 +3030,13 @@ visible to the guest at the ULA interrupt position of frame <em>N</em>+1</strong
 extended keys and NR <code>0xB0</code>/<code>0xB1</code> with it), and to no read before it. The
 position itself is the VHDL one, <code>(c_int_h, c_int_v)</code> of
 <code>zxula_timing.vhd:551</code> with the per-timing constants: Pentagon <code>(439,319)</code>
-(<code>:155</code>, <code>:163</code>), 128K <code>(128,1)</code> (<code>:187</code>, <code>:199</code>), +3 and the Next's default
-timing <code>(126,1)</code> (<code>:189</code>, <code>:199</code>), 48K <code>(116,0)</code> (<code>:257</code>, <code>:265</code>).</p>
-<p>The oracle for the <em>order</em> is FUSE 1.5.7. Its frame-end event,
-<code>spectrum_frame_event_fn()</code> in <code>spectrum.c</code> (lines 91 through 103), runs</p>
+(<code>zxula_timing.vhd:155</code> and <code>zxula_timing.vhd:163</code>), 128K <code>(128,1)</code>
+(<code>zxula_timing.vhd:187</code> and <code>zxula_timing.vhd:199</code>), +3 and the Next's default
+timing <code>(126,1)</code> (<code>zxula_timing.vhd:189</code> and <code>zxula_timing.vhd:199</code>), 48K
+<code>(116,0)</code> (<code>zxula_timing.vhd:257</code> and <code>zxula_timing.vhd:265</code>).</p>
+<p>The oracle for the <em>order</em> is FUSE 1.5.7. Its frame-end event handler,
+<code>spectrum_frame_event_fn()</code>, runs (the excerpt is its lines 91 to 103 in FUSE's
+<code>spectrum.c</code>)</p>
 <pre><code class="language-c">  z80_interrupt();
   ui_joystick_poll();
   timer_estimate_speed();

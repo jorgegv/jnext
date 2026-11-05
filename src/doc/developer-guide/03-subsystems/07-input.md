@@ -101,11 +101,14 @@ visible to the guest at the ULA interrupt position of frame *N*+1** (the
 extended keys and NR `0xB0`/`0xB1` with it), and to no read before it. The
 position itself is the VHDL one, `(c_int_h, c_int_v)` of
 `zxula_timing.vhd:551` with the per-timing constants: Pentagon `(439,319)`
-(`:155`, `:163`), 128K `(128,1)` (`:187`, `:199`), +3 and the Next's default
-timing `(126,1)` (`:189`, `:199`), 48K `(116,0)` (`:257`, `:265`).
+(`zxula_timing.vhd:155` and `zxula_timing.vhd:163`), 128K `(128,1)`
+(`zxula_timing.vhd:187` and `zxula_timing.vhd:199`), +3 and the Next's default
+timing `(126,1)` (`zxula_timing.vhd:189` and `zxula_timing.vhd:199`), 48K
+`(116,0)` (`zxula_timing.vhd:257` and `zxula_timing.vhd:265`).
 
-The oracle for the *order* is FUSE 1.5.7. Its frame-end event,
-`spectrum_frame_event_fn()` in `spectrum.c` (lines 91 through 103), runs
+The oracle for the *order* is FUSE 1.5.7. Its frame-end event handler,
+`spectrum_frame_event_fn()`, runs (the excerpt is its lines 91 to 103 in FUSE's
+`spectrum.c`)
 
 ```c
   z80_interrupt();
