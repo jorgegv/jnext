@@ -1317,6 +1317,9 @@ public:
     std::vector<CValueRow> c_globals() const;
     /// A C path (`['*'] name | fn::name | file.c::name`, then `.m`, `->m`, `[i]`) read in frame `frame`.
     CValueResult read_c_value(size_t frame, std::string_view path) const;
+    /// The Variables panel's own entry points (GH #353): the same as `read_c_value()`, `write_c_value()` and `c_children()` but for a `CValueRow::path` as c_locals(), c_globals() and c_children() give it, which
+    /// can be an internal handle (`#12`) where the C name would reach another variable. A typed surface (watch, script, ZRCP, GDB) uses the plain functions, which refuse a leading `#`.
+    CValueResult read_c_value_row(size_t frame, std::string_view row_path) const;
 
     /// GH #437 - what `write_c_value()` did. `status`: Ok, a poke() refusal (RefusedRzx, RefusedReadOnly, InvalidPage, Unsupported),
     /// or RefusedUnavailable for every refusal decided before a byte is written; `why` is set whenever it is not Ok.
@@ -1337,6 +1340,7 @@ public:
     /// logs and bumps nothing; a write that lands only some bytes (it straddles ROM and RAM) is RefusedReadOnly, and carries the one MUTATE line and the one
     /// bump of the bytes that did land. A value out of the type's range is refused, never truncated (`c_encode_value()`).
     CWriteResult write_c_value(ClientId by, size_t frame, std::string_view path, const CNewValue& value);
+    CWriteResult write_c_value_row(ClientId by, size_t frame, std::string_view row_path, const CNewValue& value);   ///< see read_c_value_row()
     CVariablesStatus c_variables_status() const;
     /// CAP-SRC (GH #435) - what a tree view lists under the object `path` names in frame `frame`: a struct's members, an array's
     /// elements `first`..`first + max` (`total` is the element count), a pointer's pointee (a struct's members as `p->x`, anything else
@@ -1350,6 +1354,7 @@ public:
         std::vector<CValueRow> rows;
     };
     CChildRows c_children(size_t frame, std::string_view path, size_t first = 0, size_t max = 100) const;
+    CChildRows c_children_row(size_t frame, std::string_view row_path, size_t first = 0, size_t max = 100) const;   ///< see read_c_value_row()
 
     /// CAP-SRC — the primary source position of `addr` as it is mapped NOW (what
     /// `source_page(addr)` says supplies it), or of the current PC. Null when
@@ -1562,6 +1567,9 @@ public:
     uint64_t state_revision() const;
 
 private:
+    CValueResult read_c_value_impl(size_t frame, std::string_view path, bool rows) const;
+    CWriteResult write_c_value_impl(ClientId by, size_t frame, std::string_view path, const CNewValue& value, bool rows);
+    CChildRows c_children_impl(size_t frame, std::string_view path, size_t first, size_t max, bool rows) const;
     // ── The ONE thing B1 added to this frozen header ────────────────────────
     //
     // (B3 added one public declaration to this header: `on_cold_boot_begin()`

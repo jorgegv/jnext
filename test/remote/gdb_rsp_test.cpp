@@ -2635,6 +2635,25 @@ static void cvw_rows() {
         check("GDB-ZB-02", "monitor print t at sccz80 shadow.c `g += t` prints the inner t (5); monitor locals lists both t rows, the outer (3) followed by `  [shadowed]` and the inner (5) not",
               loaded && at && f1 == "OK" && f2 == "OK" && cvar_has(print, ") t = 5") && t_rows == 2 && outer_marked && !inner_marked, join(print) + join(locals));
     }
+    {   // GDB-ZB-04
+        // the Variables panel's internal row handle (`#4`) is not a typed path: monitor print and monitor set var refuse it, and write nothing
+        const std::string nexs = JNEXT_Z88DK_FIXTURE_DIR "/master-fixed-zsdcc/sdcc-shadowagg/prog.nex";
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const bool loaded = emulator_apply_load(rig.emu, nexs, false);
+        rig.dbg->load_program_sidecars(nexs);
+        Client c(rig);
+        open_session(c);
+        const bool at = cvar_stop_at(rig, c, 0x8C8B);
+        std::string f1, f2, f3;
+        const auto print = c.monitor("print #4", f1);
+        const auto print2 = c.monitor("print #6.x", f2);
+        const auto set = c.monitor("set var #6.x = 12", f3);
+        bool none_value = true;
+        for (const auto& l : print) none_value = none_value && l.find(") #4 = ") == std::string::npos;
+        for (const auto& l : print2) none_value = none_value && l.find(") #6.x = ") == std::string::npos;
+        check("GDB-ZB-04", "monitor print #4, monitor print #6.x and monitor set var #6.x = 12 are refused (no value line, E01 or a refusal text): a handle is not a typed path",
+              loaded && at && none_value && (f3 == "E01" || !cvar_has(set, "OK")) && !cvar_has(print, "= 1"), join(print) + join(print2) + join(set));
+    }
     {   // GDB-ZB-03
         // GH #353 review F2: zsdcc shadowagg.c has two block statics n in f (7 and 100). `monitor globals` lists both as `f::n`, each marked `(ambiguous path)`, because the path reads neither back;
         // `monitor print f::n` refuses with the reason

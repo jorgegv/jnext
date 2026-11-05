@@ -1380,6 +1380,66 @@ void test_rows() {
         check("QVARSH-04", "zsdcc shadowagg.c Globals: two rows named f::n with two keys, reading 100 and 7 (each its own static), and a Watch on either is refused (the path names both)",
               at && two && keys && vals == QStringList({"100", "7"}) && no_watch, two ? detail_of(ns[0]) + " | " + detail_of(ns[1]) : std::string("rows=") + std::to_string(ns.size()));
     }
+    {   // QVARSH-05
+        // the edit message names the variable, never the internal handle: a refused edit of the shadowed t of sccz80 shadow.c reads `t (shadowed, in f): ...`
+        Fix f;
+        f.load("master-fixed-sccz80/sccz80-shadow", "sh05", [](const fs::path& d) {
+            fs::copy_file(kFixtures / "master-fixed-sccz80/sccz80-shadow" / "shadow.c.lis", d / "shadow.c.lis", fs::copy_options::overwrite_existing);
+        });
+        const bool at = f.run_to(0x8C76);
+        QTreeWidgetItem* outer = nullptr;
+        QTreeWidgetItem* L = locals(f);
+        for (int i = 0; L && i < L->childCount(); ++i)
+            if (L->child(i)->text(0) == "t" && L->child(i)->text(2).contains("shadowed")) outer = L->child(i);
+        if (outer) f.vp()->commit_edit(outer, "99999");
+        const QString msg = message(f) ? message(f)->text() : QString("<none>");
+        check("QVARSH-05", "a refused edit of the shadowed t (99999 is out of range) is reported as `t (shadowed, in f): ...`, with no `#` anywhere in the message",
+              at && outer && msg.startsWith("t (shadowed, in f): ") && !msg.contains('#'), s(msg));
+    }
+    {   // QVARSH-06
+        // a Locals row of a block static whose `function::name` is shared (zsdcc shadowagg.c:14, the second block of `static n`): its Watch is disabled like the Globals rows', with the same kind of tooltip
+        Fix f;
+        f.load("master-fixed-zsdcc/sdcc-shadowagg", "sh06");
+        const bool at = f.run_to(0x8CA3);
+        QTreeWidgetItem* n = child(locals(f), "n");
+        QSignalSpy spy(f.vp(), &VariablesPanel::watch_requested);
+        const bool refused = n && !f.vp()->watch_item(n) && spy.count() == 0 && !n->data(0, Qt::UserRole + 9).toString().isEmpty();
+        check("QVARSH-06", "zsdcc shadowagg.c:14: the Locals row of the static n (its path f::n names two statics) cannot be watched and carries the tooltip",
+              at && n && refused, detail_of(n));
+    }
+    {   // QVARSH-07
+        // the flags of a handle row (synthetic: init has x at level 1 (-2), x at level 2 (-2, the same slot) and x at level 3 (-6), no block data, so the deep ones are `scope unknown`): the level-1 x is
+        // shadowed and shares its slot with the middle x; editing it is refused `shares`; the middle x is shadowed and `scope unknown`: editing it is refused `scope unknown`; both messages name the variable
+        Fix f;
+        f.dir = fs::path(g_tmp->path().toStdString()) / "sh07";
+        fs::create_directories(f.dir);
+        const std::string map = (f.dir / "syn.map").string();
+        std::ofstream(map) << "_init = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                              "__C_LINE_1_a_2ec = $8000 ; addr, local, , a_c, code_compiler, a.c::init::0::0:1\n"
+                              "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                           << syn_rec("F:Fa.c$init$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "a_c") << syn_rec("S:La.c.init$x$1_0$1({2}SI:S),B,1,-2", "a_c")
+                           << syn_rec("S:La.c.init$x$2_0$2({2}SI:S),B,1,-2", "a_c") << syn_rec("S:La.c.init$x$3_0$3({2}SI:S),B,1,-6", "a_c");
+        const uint8_t pro[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39, 0xE5, 0xE5};
+        for (size_t i = 0; i < sizeof pro; ++i) f.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), pro[i]);
+        const bool loaded = f.backend->load_source_map(map, true).count > 0;
+        syn_enter(f, 0x8000, 0xFE00);
+        QTreeWidgetItem* L = locals(f);
+        std::vector<QTreeWidgetItem*> xs;
+        for (int i = 0; L && i < L->childCount(); ++i)
+            if (L->child(i)->text(0) == "x") xs.push_back(L->child(i));
+        QTreeWidgetItem* level1 = nullptr;
+        QTreeWidgetItem* middle = nullptr;
+        for (auto* x : xs) {
+            if (x->text(2).contains("shares") && !x->text(2).contains("scope unknown")) level1 = x;
+            else if (x->text(2).contains("shares") && x->text(2).contains("scope unknown") && x->text(2).contains("may be shadowed")) middle = x;
+        }
+        QString m1, m2;
+        if (level1) { f.vp()->commit_edit(level1, "5"); m1 = message(f)->text(); }
+        if (middle) { f.vp()->commit_edit(middle, "5"); m2 = message(f)->text(); }
+        check("QVARSH-07", "three x in init: the level-1 x (shadowed, shares its slot) refuses an edit with `x (may be shadowed, in init): shares its stack slot ...` (the innermost x is `scope unknown`, so the choice is not certain), the middle x (may be shadowed, scope unknown) with `scope unknown`; no `#` in either",
+              loaded && xs.size() == 3 && level1 && middle && m1.startsWith("x (may be shadowed, in init): ") && m1.contains("shares its stack slot") && m2.startsWith("x (may be shadowed, in init): ") && m2.contains("scope unknown") &&
+                  !m1.contains('#') && !m2.contains('#'), s(m1) + " | " + s(m2) + " | " + std::to_string(xs.size()));
+    }
     {   // QVARZB-02
         // GH #438 review note: a C watch shows the facade's notes, the 80cc frame-slot one included
         Fix f;

@@ -554,6 +554,13 @@ Debugger::CLocalsResult Debugger::c_locals(size_t frame) const
         if (!r.shares.empty()) row.notes.push_back(c_shares_note(r.shares));
         // a name that another visible variable also has: the innermost is the one `print` means, the others are marked. A marked row's own path is its handle, so that edit and expand act on
         // the variable the row shows and not on the innermost one; no typed name reaches it, so it is not watchable (GH #353 review F1)
+        // a block static whose `function::name` also names another static of the function: the typed path is refused, so no Watch (the Globals rows say the same)
+        if (r.kind == CVarKind::StaticLocal) {
+            const long same = std::count_if(e.store->variables().begin(), e.store->variables().end(), [&](const CVariable& o) {
+                return o.function == r.var->function && o.c_name == r.var->c_name && o.record.var.space == 'E' && o.record.hidden == CdbHidden::None;
+            });
+            row.ambiguous_path = same > 1;
+        }
         if (const CPicked pk = c_pick_local(visible, r.var->c_name); pk.chosen && pk.chosen != &r) {
             row.notes.push_back(pk.certain ? kCShadowedNote : kCMayBeShadowedNote);
             row.path = "#" + std::to_string(static_cast<size_t>(r.var - e.store->variables().data()));
@@ -607,11 +614,14 @@ std::vector<Debugger::CValueRow> Debugger::c_globals() const
     return rows;
 }
 
-Debugger::CValueResult Debugger::read_c_value(size_t frame, std::string_view path) const
+Debugger::CValueResult Debugger::read_c_value(size_t frame, std::string_view path) const { return read_c_value_impl(frame, path, false); }
+Debugger::CValueResult Debugger::read_c_value_row(size_t frame, std::string_view row_path) const { return read_c_value_impl(frame, row_path, true); }
+
+Debugger::CValueResult Debugger::read_c_value_impl(size_t frame, std::string_view path, bool rows) const
 {
     const Env e = make_env(*this);
     if (!e.store) return refused(c_variables_status().why);
-    const CPath p = c_parse_path(path);
+    const CPath p = c_parse_path(path, rows);
     if (!p.ok) return refused(p.why);
     if (frame >= e.frames.size()) return refused("no frame " + std::to_string(frame) + " (there are " + std::to_string(e.frames.size()) + ")");
     const Found f = find_var(e, frame, p);
@@ -632,7 +642,10 @@ static std::string registers_of(const Debugger::CValueResult& r)
     return "registers";
 }
 
-Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::string_view path, const CNewValue& value)
+Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::string_view path, const CNewValue& value) { return write_c_value_impl(by, frame, path, value, false); }
+Debugger::CWriteResult Debugger::write_c_value_row(ClientId by, size_t frame, std::string_view row_path, const CNewValue& value) { return write_c_value_impl(by, frame, row_path, value, true); }
+
+Debugger::CWriteResult Debugger::write_c_value_impl(ClientId by, size_t frame, std::string_view path, const CNewValue& value, bool rows)
 {
     CWriteResult out;
     const auto refuse = [&out](const std::string& why) {
@@ -642,7 +655,7 @@ Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::s
     };
     const Env e = make_env(*this);
     if (!e.store) return refuse(c_variables_status().why);
-    const CPath p = c_parse_path(path);
+    const CPath p = c_parse_path(path, rows);
     if (!p.ok) return refuse(p.why);
     if (frame >= e.frames.size())
         return refuse("no frame " + std::to_string(frame) + " (there are " + std::to_string(e.frames.size()) + ")");
@@ -700,7 +713,10 @@ Debugger::CWriteResult Debugger::write_c_value(ClientId by, size_t frame, std::s
     return out;
 }
 
-Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, size_t first, size_t max) const
+Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, size_t first, size_t max) const { return c_children_impl(frame, path, first, max, false); }
+Debugger::CChildRows Debugger::c_children_row(size_t frame, std::string_view row_path, size_t first, size_t max) const { return c_children_impl(frame, row_path, first, max, true); }
+
+Debugger::CChildRows Debugger::c_children_impl(size_t frame, std::string_view path, size_t first, size_t max, bool rows) const
 {
     CChildRows out;
     const Env e = make_env(*this);
@@ -708,7 +724,7 @@ Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, s
         out.why = c_variables_status().why;
         return out;
     }
-    const CPath p = c_parse_path(path);
+    const CPath p = c_parse_path(path, rows);
     if (!p.ok) {
         out.why = p.why;
         return out;
@@ -752,7 +768,7 @@ Debugger::CChildRows Debugger::c_children(size_t frame, std::string_view path, s
     }
     for (const CChild& c : ch.items) {
         const std::string child_path = base + c.suffix;
-        const CPath cp = c_parse_path(child_path);
+        const CPath cp = c_parse_path(child_path, rows);
         CValueResult r = cp.ok ? eval_var(e, frame, *f.v, cp.deref, cp.steps) : refused(cp.why);
         Row row;
         row.name = c.label;

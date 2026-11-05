@@ -115,7 +115,9 @@ struct CPath {
     size_t handle = 0;       ///< Handle: the index into VariableStore::variables() (`#12`, then the usual steps): the debugger's own rows name a variable this way when its C name would reach another one (a shadowed local, two same-named block statics)
     std::vector<CPathStep> steps;
 };
-CPath c_parse_path(std::string_view text);
+/// `allow_handle`: also accept the debugger's internal row handle (`#12`, an index into VariableStore::variables()), which only the Variables panel's own rows use, through the `*_row` entry points of the
+/// facade; every typed surface (watches, scripts, ZRCP, GDB) parses with the default and so refuses a leading `#`.
+CPath c_parse_path(std::string_view text, bool allow_handle = false);
 
 /// A typed place (a struct's size is a declared object's, never its members' extent: "size unknown (z88dk U2)" when there is none): `type.chain` is the chain of THIS object (the outer elements already peeled), `type.size` its size.
 struct CLoc {

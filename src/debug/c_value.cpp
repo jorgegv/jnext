@@ -596,7 +596,7 @@ CFormatted c_format_value(const CFormatCtx& ctx, const CdbType& type, const uint
 
 // -- paths -------------------------------------------------------------------
 
-CPath c_parse_path(std::string_view s)
+CPath c_parse_path(std::string_view s, bool allow_handle)
 {
     CPath p;
     size_t i = 0;
@@ -646,7 +646,7 @@ CPath c_parse_path(std::string_view s)
             p.primary = q1.find('.') != std::string::npos ? CPath::Primary::File : CPath::Primary::Function;
         }
     }
-    if (i < s.size() && s[i] == '#' && p.qualifier.empty()) {
+    if (allow_handle && i < s.size() && s[i] == '#' && p.qualifier.empty()) {
         ++i;
         const size_t b = i;
         while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) ++i;

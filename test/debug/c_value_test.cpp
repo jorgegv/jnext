@@ -2090,12 +2090,13 @@ int main() {
               std::to_string(kind_of(0, "a")) + " " + std::to_string(kind_of(1, "a")) + " " + std::to_string(kind_of(2, "t")));
     }
     {   // CVZB-23
-        // the debugger's own handle paths (`#12`, then the usual steps): a row of a shadowed variable or of one of two same-named block statics names its own record, not the name
-        const CPath a = c_parse_path("#12"), b = c_parse_path("#7.x[2]->y"), c = c_parse_path("*#3"), d = c_parse_path("#"), e = c_parse_path("#x"), f = c_parse_path("fn::#3"),
-                    g = c_parse_path("t");
-        check("CVZB-23", "c_parse_path: `#12` is a handle (index 12), `#7.x[2]->y` a handle with three steps, `*#3` a dereferenced handle; `#`, `#x` and `fn::#3` are refused; a name is still a name",
+        // the debugger's own row handles (`#12`, then the usual steps) parse only when the caller says so (the Variables panel's rows); a typed surface parses without it and refuses a leading `#`
+        const CPath a = c_parse_path("#12", true), b = c_parse_path("#7.x[2]->y", true), c = c_parse_path("*#3", true), d = c_parse_path("#", true), e = c_parse_path("#x", true), f = c_parse_path("fn::#3", true),
+                    g = c_parse_path("t"), h = c_parse_path("#12"), i = c_parse_path("*#3"), j = c_parse_path("#7.x");
+        check("CVZB-23", "c_parse_path with allow_handle: `#12` is a handle (index 12), `#7.x[2]->y` a handle with three steps, `*#3` a dereferenced handle; `#`, `#x` and `fn::#3` are refused; without it (every typed "
+                         "surface) `#12`, `*#3` and `#7.x` are refused like any bad path; a name is a name either way",
               a.ok && a.primary == CPath::Primary::Handle && a.handle == 12 && a.steps.empty() && b.ok && b.primary == CPath::Primary::Handle && b.handle == 7 && b.steps.size() == 3 && c.ok && c.deref &&
-                  c.primary == CPath::Primary::Handle && c.handle == 3 && !d.ok && !e.ok && !f.ok && g.ok && g.primary == CPath::Primary::Name && g.name == "t");
+                  c.primary == CPath::Primary::Handle && c.handle == 3 && !d.ok && !e.ok && !f.ok && g.ok && g.primary == CPath::Primary::Name && g.name == "t" && !h.ok && !i.ok && !j.ok);
     }
     {   // CVZB-17
         // The line proofs are strict, and beta is the lowest block. Expected values: the three-valued rule applied by hand to each trail (the programs would be hand-written C of these shapes)

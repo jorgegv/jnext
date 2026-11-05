@@ -138,17 +138,35 @@ QString VariablesPanel::address_text(const Debugger::CWhere& w) const
 }
 
 VariablesPanel::Node VariablesPanel::node_of(const Debugger::CValueRow& row, const QString& key_prefix,
-                                             const QString& parent_name) const
+                                             const QString& parent_name, const QString& parent_root_label) const
 {
     Node n;
     n.kind = KindVar;
     n.row_kind = static_cast<int>(row.kind);
     n.file = QString::fromStdString(row.file);
     n.path = QString::fromStdString(row.path);
-    n.key = key_prefix + n.path;   // a shadowed local's path is its handle, so the two `t` rows have two keys (GH #353 review F1)
+    n.key = key_prefix + n.path;
+    if (n.path.contains('#')) {
+        n.root_label = parent_root_label;
+        if (n.root_label.isEmpty()) {
+            // a root row named by an internal handle: the message names the variable
+            if (row.ambiguous_path) {
+                n.root_label = QString::fromStdString(row.name_path) + " (static)";
+            } else {
+                bool may = false;
+                for (const std::string& note : row.notes) may = may || note == "may be shadowed";
+                QString where;
+                const auto frames = dbg_->c_frames();
+                const auto store = dbg_->variables();
+                if (static_cast<size_t>(frame_) < frames.size() && store && frames[static_cast<size_t>(frame_)].function >= 0)
+                    where = ", in " + QString::fromStdString(store->functions()[static_cast<size_t>(frames[static_cast<size_t>(frame_)].function)].name);
+                n.root_label = QString::fromStdString(row.name) + (may ? " (may be shadowed" : " (shadowed") + where + ")";
+            }
+        }
+    }   // a shadowed local's path is its handle, so the two `t` rows have two keys (GH #353 review F1)
     if (!row.ambiguous_path) n.watch_path = QString::fromStdString(row.name_path);
     if (n.watch_path.isEmpty())
-        n.watch_tip = row.ambiguous_path ? tr("The path %1 names more than one static of that name, so a Watch could not tell them apart").arg(QString::fromStdString(row.name_path))
+        n.watch_tip = row.ambiguous_path ? tr("More than one static of this name exists in the function, so a Watch could not tell them apart")
                                          : tr("A Watch is a name, and the name %1 reaches the innermost declaration, not this one").arg(QString::fromStdString(row.name));
     QString name = QString::fromStdString(row.name);
     if (name == "*") name += parent_name;   // the dereference of a pointer: `*p`
@@ -238,7 +256,7 @@ std::vector<VariablesPanel::Node> VariablesPanel::child_nodes(QTreeWidgetItem* i
     const QString path = item->data(0, RolePath).toString();
     const QString key = key_of(item);
     const size_t first = kind == KindRange ? static_cast<size_t>(item->data(0, RoleFirst).toInt()) : 0;
-    const Debugger::CChildRows r = dbg_->c_children(static_cast<size_t>(frame_), path.toStdString(), first, kChunk);
+    const Debugger::CChildRows r = dbg_->c_children_row(static_cast<size_t>(frame_), path.toStdString(), first, kChunk);
     if (!r.ok) {
         out.push_back(message(QString::fromStdString(r.why)));
         return out;
@@ -260,7 +278,7 @@ std::vector<VariablesPanel::Node> VariablesPanel::child_nodes(QTreeWidgetItem* i
         return out;
     }
     const QString parent_name = item->text(0);
-    for (const Debugger::CValueRow& row : r.rows) out.push_back(node_of(row, prefix, parent_name));
+    for (const Debugger::CValueRow& row : r.rows) out.push_back(node_of(row, prefix, parent_name, item->data(0, RoleRootLabel).toString()));
     return out;
 }
 
@@ -278,6 +296,7 @@ void VariablesPanel::apply(QTreeWidgetItem* item, const Node& n)
     item->setData(0, RoleFile, n.file);
     item->setData(0, RoleEditText, n.edit_text);
     item->setData(0, RoleWatchPath, n.watch_path);
+    item->setData(0, RoleRootLabel, n.root_label);
     item->setData(0, RoleWatchTip, n.watch_tip);
     item->setData(2, RoleEditText, n.edit_text);
     item->setFlags(n.editable ? item->flags() | Qt::ItemIsEditable : item->flags() & ~Qt::ItemFlags(Qt::ItemIsEditable));
@@ -372,6 +391,17 @@ bool VariablesPanel::edit_item(QTreeWidgetItem* item)
     return true;
 }
 
+QString VariablesPanel::display_path(QTreeWidgetItem* item) const
+{
+    QString p = item->data(0, RolePath).toString();
+    const QString root = item->data(0, RoleRootLabel).toString();
+    const int h = p.indexOf('#');
+    if (h < 0 || root.isEmpty()) return p;
+    int e = h + 1;
+    while (e < p.size() && p[e].isDigit()) ++e;
+    return p.left(h) + root + p.mid(e);
+}
+
 void VariablesPanel::commit_edit(QTreeWidgetItem* item, const QString& text)
 {
     if (!dbg_ || !paused_ || !item || item->data(0, RoleKind).toInt() != KindVar) return;
@@ -379,7 +409,7 @@ void VariablesPanel::commit_edit(QTreeWidgetItem* item, const QString& text)
     jnext::dbg::CNewValue v;
     v.text = text.toStdString();
     const QString path = item->data(0, RolePath).toString();
-    const Debugger::CWriteResult w = dbg_->write_c_value(client_, static_cast<size_t>(frame_), path.toStdString(), v);
+    const Debugger::CWriteResult w = dbg_->write_c_value_row(client_, static_cast<size_t>(frame_), path.toStdString(), v);
     if (w.ok()) {
         // the write bumped the backend's revision: the manager's next paused tick redraws every panel, this one with the value read back
         // (GH #438: a note the object's read carries, 80cc's frame-slot one, says here that the write may not be what the program sees)
@@ -388,12 +418,12 @@ void VariablesPanel::commit_edit(QTreeWidgetItem* item, const QString& text)
         } else {
             QStringList notes;
             for (const std::string& n : w.notes) notes << QString::fromStdString(n);
-            message_->setText(path + ": " + notes.join("; "));
+            message_->setText(display_path(item) + ": " + notes.join("; "));
             message_->show();
         }
         return;
     }
-    message_->setText(path + ": " + QString::fromStdString(w.why));
+    message_->setText(display_path(item) + ": " + QString::fromStdString(w.why));
     message_->show();
     // nothing changed and nothing needs a redraw: the delegate never wrote the model, so the cell still shows the value it had
 }

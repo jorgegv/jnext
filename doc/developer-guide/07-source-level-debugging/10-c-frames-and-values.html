@@ -3186,7 +3186,7 @@ such a member (the whole struct, a member path, a pointer, an element <code>p[1]
 read to the struct that holds it and zero-fills the overhang, so <code>hi</code> is 200 for the bytes <code>8D C8</code> whichever way it is
 reached, and no read goes past that struct.</p>
 <p><code>c_parse_path()</code> (<code>c_value.cpp:599</code>) parses the C paths: <code>['*'] primary {'.' name | '-&gt;' name | '[' index ']'}</code>,
-the primary a name, <code>fn::name</code>, <code>file.c::name</code> or <code>file.c::fn::name</code> (the file names which <code>fn</code> when two modules have a function of that name), the index decimal, <code>0x&lt;hex&gt;</code> or <code>$&lt;hex&gt;</code> with no sign. As in C the
+the primary a name, <code>fn::name</code>, <code>file.c::name</code> or <code>file.c::fn::name</code> (the file names which <code>fn</code> when two modules have a function of that name), the index decimal, <code>0x&lt;hex&gt;</code> or <code>$&lt;hex&gt;</code> with no sign. A leading <code>#</code> is refused: <code>c_parse_path(text, allow_handle)</code> accepts <code>#&lt;n&gt;</code> (an index into <code>VariableStore::variables()</code>, followed by the usual steps) only for the Variables panel's own rows, which reach the facade through <code>read_c_value_row()</code>, <code>write_c_value_row()</code> and <code>c_children_row()</code>; every typed surface (watches, scripts, ZRCP, GDB) uses the plain functions and so cannot name a handle, which is an index that means another variable after a rebuild. As in C the
 postfix operators bind tighter than the <code>*</code>: <code>*x[1]</code> is <code>*(x[1])</code> and <code>*head-&gt;next</code> is <code>*(head-&gt;next)</code>.
 <code>c_eval_path()</code> (<code>c_value.cpp:709</code>) walks the steps over a typed location (an array index is checked against its
 count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
@@ -3235,19 +3235,19 @@ that is, the records are the pre-2026-11-04 ones, every parameter at its nominal
 </tr>
 <tr>
 <td><code>c_locals(frame)</code> (<code>debugger_cvalues.cpp:527</code>)</td>
-<td>the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a <code>CValueRow</code>; refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known</td>
+<td>the parameters (by stack position), the locals visible at the frame's PC and its static locals, each a <code>CValueRow</code> (<code>path</code> is the name, except for a row that another visible variable of its name shadows: its <code>path</code> is its internal handle, <code>name_path</code> is empty because no typed name reaches it, and the row carries the note <code>shadowed</code>, or <code>may be shadowed</code> when the pick is not certain; a static whose <code>function::name</code> is shared has <code>ambiguous_path</code> set); refused, with a reason, for a frame past the end, an assembly frame or a frame whose base is not known</td>
 </tr>
 <tr>
-<td><code>c_globals()</code> (<code>debugger_cvalues.cpp:568</code>)</td>
-<td>every global, file static and static local, ordered by file then name, with a <code>path</code> no local can shadow: <code>vars.c::s_dup</code>, <code>sum::calls</code> (<code>a.c::init::done</code> when two modules have a function <code>init</code>)</td>
+<td><code>c_globals()</code> (<code>debugger_cvalues.cpp:575</code>)</td>
+<td>every global, file static and static local, ordered by file then name, with a <code>path</code> no local can shadow: <code>vars.c::s_dup</code>, <code>sum::calls</code> (<code>a.c::init::done</code> when two modules have a function <code>init</code>). When two block statics of one name share their function (<code>f::n</code> twice, zsdcc), each row's <code>path</code> is its internal handle, <code>name_path</code> is the shared typed path and <code>ambiguous_path</code> is set: a typed read or write of <code>f::n</code> is refused (<code>ambiguous: 2 statics named n in f</code>)</td>
 </tr>
 <tr>
-<td><code>read_c_value(frame, path)</code> (<code>debugger_cvalues.cpp:610</code>)</td>
+<td><code>read_c_value(frame, path)</code> (<code>debugger_cvalues.cpp:617</code>)</td>
 <td>the object a C path names in that frame: <code>ok</code> or <code>why</code>, the type text, the value text, <code>notes</code>, the typed location <code>loc</code>, <code>where</code>, <code>integer</code> (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and <code>real</code> (the floats)</td>
 </tr>
 <tr>
-<td><code>c_children(frame, path, first, max)</code> (<code>debugger_cvalues.cpp:703</code>)</td>
-<td>what a tree lists under an object: a struct's members, an array's elements <code>first</code>..<code>first + max</code> (<code>total</code> is the element COUNT), a pointer's pointee (a struct's members as <code>p-&gt;x</code>, anything else as <code>p[0]</code>, named <code>*</code>); <code>void *</code>, a function pointer and a scalar have none (<code>ok</code>, <code>total</code> 0). Each row's <code>path</code> is the parent's plus a suffix and round-trips through <code>read_c_value</code> (for a <code>*E</code> path the base is <code>E[0]</code>, since the grammar applies a leading <code>*</code> after the postfix steps: <code>*p</code> + <code>.x</code> would read <code>*(p.x)</code>); a row is read, placed and noted exactly as <code>read_c_value</code> would, so a banked global's elements carry its page. <code>!ok</code> gives <code>read_c_value</code>'s own reason, or <code>null pointer</code> / the unreadable address</td>
+<td><code>c_children(frame, path, first, max)</code> (<code>debugger_cvalues.cpp:716</code>)</td>
+<td>what a tree lists under an object: a struct's members, an array's elements <code>first</code>..<code>first + max</code> (<code>total</code> is the element COUNT), a pointer's pointee (a struct's members as <code>p-&gt;x</code>, anything else as <code>p[0]</code>, named <code>*</code>); <code>void *</code>, a function pointer and a scalar have none (<code>ok</code>, <code>total</code> 0). Each row's <code>path</code> is the parent's plus a suffix and round-trips through <code>read_c_value</code> (for a <code>*E</code> path the base is <code>E[0]</code>, since the grammar applies a leading <code>*</code> after the postfix steps: <code>*p</code> + <code>.x</code> would read <code>*(p.x)</code>); a row is read, placed and noted exactly as <code>read_c_value</code> would, so a banked global's elements carry its page. <code>!ok</code> gives <code>read_c_value</code>'s own reason, or <code>null pointer</code> / the unreadable address The root variable's <code>scope unknown</code>, <code>shares</code> and <code>ambiguous</code> notes are added to every child row whose read succeeded, as <code>read_c_value()</code> adds them; a child of a handle path has an empty <code>name_path</code>. <code>c_children_row()</code>, <code>read_c_value_row()</code> and <code>write_c_value_row()</code> take the panel's row paths, which may be handles; the plain functions refuse them.</td>
 </tr>
 </tbody>
 </table>
@@ -3328,7 +3328,7 @@ type, which <code>read_c_value()</code> fills for it. <code>integer</code> is th
 how far to trust a value that is shown. The rule is a pure function, so <code>CVINT-01</code> and <code>CVINT-02</code> reach every arm with synthetic types; no
 fixture has an 8-byte integer, a binary16 or an <code>_Accum</code> global.</p>
 <h2 id="writing-a-value">Writing a value<a class="headerlink" href="#writing-a-value" title="Permanent link">&para;</a></h2>
-<p><code>write_c_value(by, frame, path, CNewValue)</code> (<code>debugger_cvalues.cpp:635</code>) is the one write, and it takes its place from the read:
+<p><code>write_c_value(by, frame, path, CNewValue)</code> (<code>debugger_cvalues.cpp:645</code>) is the one write, and it takes its place from the read:
 a write needs a successful <code>eval_var()</code> of the same path, and its bytes are that read's <code>loc</code> and <code>where</code>, so
 there is no second resolver to drift from the first. Whatever a read refuses a write refuses with the read's own words (U1, a frame
 base that is not known, <code>not allocated</code>, <code>optimised out</code>, a null pointer, an index past the end, a page crossing, an unresolved

@@ -1153,6 +1153,15 @@ static void cvar_rows() {
                               "g_schar=-3 g_char=65 g_long=305419896 g_ulong==0xCAFEBABE colour=6 s_file=9, acc=345 on sccz80",
               all, detail);
     }
+    // EVAL-CVAR-10
+    {
+        // the Variables panel's internal row handle (`#4`) is not a C path: cvar() refuses it like any bad path, and a name still reads
+        CvarRig r("master/sccz80-cvars");
+        const bool ok = r.loaded && r.run_to(0x8D3E);
+        const std::string h = cv(r, "cvar(#4)"), h2 = cv(r, "cvar(#4.x)"), t = cv(r, "cvar(t)");
+        check("EVAL-CVAR-10", "cvar(#4) and cvar(#4.x) are errors (a row handle is internal to the Variables panel, never a typed path), while cvar(t) still reads 122",
+              ok && h.rfind("err:", 0) == 0 && h2.rfind("err:", 0) == 0 && t == "ok:122", h + " | " + h2 + " | " + t);
+    }
     // EVAL-CVAR-02
     {
         CvarRig r("master/sccz80-cvars");
