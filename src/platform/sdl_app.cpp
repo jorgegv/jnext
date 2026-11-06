@@ -117,7 +117,7 @@ bool SdlApp::init(int argc, char* argv[]) {
     input_.on_window_invalidated = [this]() { display_.request_redraw(); };   // GH #428
 
     // Issue #122 — bind the key router to this machine's Keyboard BEFORE the
-    // callback below can fire (SDL_PollEvent only runs inside run(), so the
+    // callback below can fire (SDL_PollEvent only runs inside tick(), so the
     // window is empty in practice; ordering it this way keeps it empty by
     // construction). Also re-run on every cold boot — see cold_boot() — which
     // is what attach()'s latch reset is for: a release still held back refers
@@ -154,7 +154,7 @@ bool SdlApp::init(int argc, char* argv[]) {
             switch (quick) {
             // GH #386 - a chord takes its turn behind the keys typed before it
             // and holds back the ones typed after it (Router::on_host_action);
-            // run() services the flag once the Router lets the action through.
+            // tick() services the flag once the Router lets the action through.
             case jnext::QuickChord::Save:
                 key_router_.on_host_action([this]() { quick_save_requested_ = true; });
                 return;
@@ -205,11 +205,11 @@ bool SdlApp::init(int argc, char* argv[]) {
         }
         // Issue #122 — through the issue-#120 minimum-hold latch, NOT straight
         // into the matrix. SDL_PollEvent() and the frame loop are the same
-        // run() iteration, so a press and its release delivered in one poll
+        // tick() iteration, so a press and its release delivered in one poll
         // batch used to set the matrix bit and clear it again with no
         // run_frame() in between: the guest never saw the key. A press is still
         // applied at once; only a release that no frame has had the chance to
-        // see is held back, and on_tick_end() in run() discharges it.
+        // see is held back, and on_tick_end() in tick() discharges it.
         //
         // The dispatch itself lives in host_key_latch::Router (unit-tested
         // there, rows RT-*): this callback must stay a plain forward, exactly
@@ -473,347 +473,356 @@ void SdlApp::run() {
     if (!emulator_start_rzx(emulator_, rzx_play_file_, ""))
         exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
 
-    while (running_) {
-        // GH #364 — SIGINT/SIGTERM: leave through the normal teardown; main()
-        // re-raises the signal for the exit status.
-        if (const int sig = quit_signal::pending()) {
-            Log::platform()->info("{} received: quitting", quit_signal::name(sig));
-            break;
-        }
-        // SDL3's SDL_GetTicks() returns Uint64 (SDL2: Uint32). Only
-        // differences are ever taken, so the width is carried through
-        // deliberately rather than truncated back.
-        uint64_t frame_start = SDL_GetTicks();
+    bool more = running_;
+    while (more) {
+        uint32_t sleep_ms = 0;
+        more = tick(sleep_ms);
+        if (sleep_ms > 0) SDL_Delay(sleep_ms);
+    }
+}
 
-        if (!input_.poll()) break;
+bool SdlApp::tick(uint32_t& sleep_ms) {
+    sleep_ms = 0;
+    // GH #364 — SIGINT/SIGTERM: leave through the normal teardown; main()
+    // re-raises the signal for the exit status.
+    if (const int sig = quit_signal::pending()) {
+        Log::platform()->info("{} received: quitting", quit_signal::name(sig));
+        return false;
+    }
+    // SDL3's SDL_GetTicks() returns Uint64 (SDL2: Uint32). Only
+    // differences are ever taken, so the width is carried through
+    // deliberately rather than truncated back.
+    uint64_t frame_start = SDL_GetTicks();
 
-        // Apply pending inject when countdown reaches zero.
-        if (inject_countdown_ == 0) {
-            emulator_.inject_binary(inject_file_, inject_org_, inject_pc_);
-            inject_countdown_ = -1;  // done
-        } else if (inject_countdown_ > 0) {
-            --inject_countdown_;
-        }
+    if (!input_.poll()) return false;
 
-        // Apply pending load when countdown reaches zero.
-        if (load_countdown_ == 0) {
-            // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
-            // GH #386 - the load wipes the matrix, keys the host holds included;
-            // the helper re-asserts them.
-            const bool loaded = emulator_apply_load_keeping_keys(
-                emulator_, load_file_, tape_realtime_,
-                [this](MachineType t) { config_.type = t; }, key_router_);
-            if (!loaded) {
-                Log::platform()->error("load: failed to load '{}'", load_file_);
-                exit_code_ = 1;   // a failed load exits non-zero (as headless)
-            } else {
-                // CAP-SRC — the program's own symbols and source map, if any.
-                // A refused one is reported, not only in the debugger's log.
-                const auto sidecars = debugger_->load_program_sidecars(load_file_);
-                if (!sidecars.problem.empty())
-                    Log::platform()->warn("load: {}", sidecars.problem);
-                // --source-map: attached once, as the user's map, on top of them.
-                if (!config_.source_map_file.empty()) {
-                    const auto sm = emulator_attach_cli_source_map(
-                        *debugger_, config_.source_map_file,
-                        program_loads_later(load_file_));
-                    if (sm.ok) {
-                        Log::platform()->info("{}", sm.line);
-                        source_map_watch_ = sm.pending;
-                    } else {
-                        Log::platform()->error("{}", sm.line);
-                        exit_code_ = 1;
-                    }
-                }
-            }
-            config_.source_map_file.clear();
-            // GH #346 - the scripts held back for the program's maps.
-            if (!script_host_.program_loaded()) exit_code_ = 1;
-            load_countdown_ = -1;  // done
-        } else if (load_countdown_ > 0) {
-            --load_countdown_;
-        }
+    // Apply pending inject when countdown reaches zero.
+    if (inject_countdown_ == 0) {
+        emulator_.inject_binary(inject_file_, inject_org_, inject_pc_);
+        inject_countdown_ = -1;  // done
+    } else if (inject_countdown_ > 0) {
+        --inject_countdown_;
+    }
 
-        // A --source-map still waiting for its tape program: dropped by a mismatch exits 1.
-        if (source_map_watch_) {
-            std::string why;
-            switch (emulator_poll_cli_source_map(*debugger_, &why)) {
-                case CliSourceMapWatch::Waiting: break;
-                case CliSourceMapWatch::Done: source_map_watch_ = false; break;
-                case CliSourceMapWatch::Failed:
-                    Log::platform()->error("--source-map: dropped: {}", why);
-                    exit_code_ = 1;
-                    source_map_watch_ = false;
-                    break;
-            }
-        }
-
-        // --rzx-record, once the load/inject above is in the machine.
-        if (!emulator_start_rzx_record_when_loaded(
-                emulator_, rzx_record_file_, rzx_record_started_,
-                load_countdown_ >= 0 || inject_countdown_ >= 0))
-            exit_code_ = 1;
-
-        // GH #381 - --delayed-pok-frames: the trainers go in through the backend
-        // after this tick's load and before its frames. A refusal fails the run,
-        // like a failed load.
-        if (pok_job_ && !pok_job_->poll(*debugger_, emulator_.video_timing().refresh_60hz()))
-            exit_code_ = 1;
-
-        // Pace emulation against the sound card, not the wall clock: the 20 ms
-        // frame delay runs the emulator at 50.00 frames/s while a 48K frame is
-        // 1/50.08 s, and audio is synthesised on the emulated clock — so we feed
-        // the device ~44030 samples per real second while it consumes 44100. The
-        // deficit empties the audio queue and SDL pads the stream with zeros:
-        // clicks, a few times a second, forever (issue #7 / Task 23). See
-        // audio_pacing.h.
-        // --delayed-screenshot: when the countdown comes due, hand the capture
-        // to the backend (GH #276 B4, O2; platform/cli_capture.h). It arms the
-        // --delayed-screenshot-layers mask now for the frame(s) rendered in this
-        // tick, forces them to render, and this tick's pump writes the last of
-        // them and takes the mask down — the frame, the mask and the file this
-        // loop used to handle itself. As in QtApp, the mask lives on the
-        // Renderer the window also shows, so the captured frame is displayed
-        // masked for that tick. Queued once, however many ticks it waits.
-        if (screenshot_countdown_.due() && !screenshot_queued_) {
-            if (queue_cli_screenshot(debugger(), screenshot_file_, screenshot_layers_) ==
-                jnext::dbg::Result::Ok)
-                screenshot_queued_ = true;
-            else
-                screenshot_refused_ = true;   // reported below, as a failed write
-        }
-
-        // Frames actually rendered this tick. frames_for_tick() returns 0 when
-        // the audio queue is ahead of the card (audio_pacing.h:56), so this
-        // loop can legitimately run zero times — and then the framebuffer still
-        // holds the previous frame, composited with LAYER_ALL. Capturing that
-        // would silently ignore the user's layer selection.
-        int frames_rendered = 0;
-        // Issue #35 — a WhenSlowPrefer::Video catch-up runs one frame here and
-        // skips the end-of-iteration sleep below, so the second frame the sound
-        // card wants gets its own iteration (and its own present) instead of
-        // being superseded inside this one.
-        bool next_tick_asap = false;
-        // --speed away from 100% decouples emulated time from real time: the
-        // machine's sample rate no longer matches the sound card's, so the
-        // audio pacer cannot hold and the loop paces on the wall clock at the
-        // scaled period instead (the sleep below) — exactly as QtApp does.
-        const bool speed_scaled = (speed_multiplier_ != 1.0);
-        const bool screenshot_due = screenshot_countdown_.due();
-        // Above 100%, present at most every RENDER_INTERVAL_MS (QtApp's
-        // compositor throttle): the frames in between are never seen, and the
-        // renderer is vsynced, so presenting every one would cap the machine
-        // at the display's refresh rate. A due screenshot always presents.
-        bool present_this_tick = true;
-        if (speed_multiplier_ > 1.0 && !screenshot_due) {
-            const uint64_t now = SDL_GetTicks();
-            if (now - last_present_ms_ < static_cast<uint64_t>(
-                                             frame_sequencer::RENDER_INTERVAL_MS))
-                present_this_tick = false;
-            else
-                last_present_ms_ = now;
-        }
-        {
-            const audio_pacing::TickPlan plan =
-                (emulator_.fastload_active() || speed_scaled)
-                    ? audio_pacing::TickPlan{1, false}
-                    : audio_pacing::plan_for(
-                          audio_pacing::frames_for_tick(pacing_band_, audio_.queued_ms()),
-                          when_slow_prefer_);
-            const int frames = plan.frames;
-            next_tick_asap   = plan.next_tick_asap;
-            for (int i = 0; i < frames; i++) {
-                // Superseded-composite skip (issue #9): the display presents
-                // once, below, so only the tick's last frame composites
-                // (render_policy.h). Fastload runs 1 frame per loop pass here
-                // (its pacing comes from skipping the delay), so it always
-                // composites; a due screenshot forces the whole tick.
-                emulator_.set_render_enabled(
-                    present_this_tick &&
-                    render_policy::composite_frame_in_tick(i, frames,
-                                                           screenshot_due));
-                emulator_.run_frame();
-                ++frames_rendered;
-            }
-            // The hint is per-frame within this tick; restore the default.
-            emulator_.set_render_enabled(true);
-        }
-
-        // Issue #122 — end of the tick's frames: any key whose release was held
-        // back has now been seen by the guest and may come up. The gate on
-        // frames_rendered lives in Router::on_tick_end and is pinned by rows
-        // RT-04a/b/c: a tick the audio pacer gave zero frames emulated nothing,
-        // so the hold has not been honoured and must not be discharged.
-        //
-        // Placed HERE, not after present() where QtApp's equivalent sits, for
-        // one structural reason: SDL checks its cold-boot requests AFTER the
-        // frames where Qt checks them before (frame_sequencer.h:402-403), and
-        // those checks `continue`. Discharging further down would therefore be
-        // skipped on a tick that did emulate frames. The outcome is the same
-        // either way — cold_boot() re-attaches, which resets the latch — but
-        // this placement keeps "frames ran => the hold is discharged" true
-        // unconditionally instead of true-by-consequence.
-        key_router_.on_tick_end(frames_rendered);
-
-        if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
-            cold_boot(load_file);
-            continue;
-        }
-
-        if (service_quick_requests()) continue;   // a Quick Load cold-booted
-
-        // Task 70 — a hard reset (F1 / a program's NR 0x02 bit 1) is a power-on
-        // cold boot done here between frames. cold_boot() reconstructs the
-        // emulator, so restart the loop with the fresh machine.
-        if (emulator_.take_hard_reset_request()) {
-            cold_boot(std::string());
-            continue;
-        }
-
-        // GH #276 B4 — SES-03: the backend's service call, once per tick after
-        // the frame batch and after the two cold-boot polls above (CTL-12's
-        // ordering — see HeadlessApp::run(), which places it the same way).
-        // GH #12 (WP-5) — T's budget: drain a paused remote's commands, never
-        // block the tick (platform/debug_servers.h).
-        pump_hint_ = debugger_->pump(
-            DebugServers::frame_loop_budget(debugger_->state().paused, pump_hint_));
-
-        // GH #26 WP4 — a script's verdict (§6.3), as HeadlessApp: the SDL
-        // frontend has no pause, so a script stop is an exit (3).
-        if (script_host_.exit_requested()) {
-            const int code = script_host_.exit_code();
-            Log::platform()->info("script requested exit {}", code);
-            if (code != 0 || exit_code_ == 0) exit_code_ = code;
-            running_ = false;
-            continue;
-        }
-
-        // Task 19 fastload follow-up — when the phantom typist is
-        // armed or a fast-load tape is in flight, skip pushing audio
-        // samples to SDL. The emulator still synthesizes audio into
-        // the mixer ring buffer (we drain it below by NOT pushing,
-        // letting the buffer self-regulate via the `max_queued` cap
-        // in SdlAudio::push_from_mixer); pushing samples while
-        // running at 10× wall-clock would either back-pressure the
-        // emulator or produce stuttering audio chunks. Mirrors
-        // FUSE's `sound_pause()`/`sound_unpause()` around
-        // fastloading windows (timer/timer.c).
-        const bool fastload = emulator_.fastload_active();
-        if (!fastload) {
-            // The underrun hold is a rescue for a device the loop keeps fed on
-            // the audio clock; unpaced (--speed away from 100%) it would fire
-            // every tick instead — QtApp gates it the same way.
-            audio_.push_from_mixer(emulator_.mixer(), /*hold_on_underrun=*/!speed_scaled);
-        }
-
-        const uint32_t* fb = emulator_.get_framebuffer();
-        const int fb_w = emulator_.get_framebuffer_width();
-        const int fb_h = emulator_.get_framebuffer_height();
-        if (present_this_tick) {
-            // GH #428 — a frame the display already shows is not drawn again:
-            // a paused machine used to re-upload and present it every tick.
-            // take_redraw_request() is read unconditionally so it is consumed.
-            const bool redraw = display_.take_redraw_request();
-            ++present_ticks_;
-            if (render_policy::upload_needed(emulator_.framebuffer_generation(),
-                                             last_uploaded_gen_, redraw)) {
-                display_.upload_frame(fb, fb_w, fb_h);
-                display_.present();
-                last_uploaded_gen_ = emulator_.framebuffer_generation();
-                ++present_uploads_;
-            }
-            const uint64_t now_ms = SDL_GetTicks();
-            if (now_ms - present_window_start_ms_ >= 1000) {
-                Log::platform()->debug("sdl present: ticks={} uploads={}",
-                                       present_ticks_, present_uploads_);
-                present_ticks_ = present_uploads_ = 0;
-                present_window_start_ms_ = now_ms;
-            }
-        }
-
-        // Delayed screenshot: the OUTCOME. This tick's pump (above) has written
-        // the capture if a frame was rendered in it; flush_captures() — the
-        // backend's exit bound for its CLIENT_NONE captures — says how it
-        // ended (GH #276 B4, O2).
-        if (screenshot_countdown_.due()) {
-            if (screenshot_refused_ || frames_rendered > 0) {
-                // A failed write means no file — same failure as never taking
-                // the capture, so same contract as SdlApp::shutdown(): error +
-                // non-zero exit. save_screenshot_*() has already logged WHY; the
-                // format is the extension (GH #18).
-                const bool ok = !screenshot_refused_ &&
-                                debugger().flush_captures(jnext::dbg::CLIENT_NONE) ==
-                                    jnext::dbg::Result::Ok;
-                if (!ok) {
-                    Log::platform()->error(
-                        "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
-                        "see the error above. Exiting non-zero.",
-                        screenshot_file_,
-                        Renderer::layer_mask_to_string(screenshot_layers_));
+    // Apply pending load when countdown reaches zero.
+    if (load_countdown_ == 0) {
+        // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
+        // GH #386 - the load wipes the matrix, keys the host holds included;
+        // the helper re-asserts them.
+        const bool loaded = emulator_apply_load_keeping_keys(
+            emulator_, load_file_, tape_realtime_,
+            [this](MachineType t) { config_.type = t; }, key_router_);
+        if (!loaded) {
+            Log::platform()->error("load: failed to load '{}'", load_file_);
+            exit_code_ = 1;   // a failed load exits non-zero (as headless)
+        } else {
+            // CAP-SRC — the program's own symbols and source map, if any.
+            // A refused one is reported, not only in the debugger's log.
+            const auto sidecars = debugger_->load_program_sidecars(load_file_);
+            if (!sidecars.problem.empty())
+                Log::platform()->warn("load: {}", sidecars.problem);
+            // --source-map: attached once, as the user's map, on top of them.
+            if (!config_.source_map_file.empty()) {
+                const auto sm = emulator_attach_cli_source_map(
+                    *debugger_, config_.source_map_file,
+                    program_loads_later(load_file_));
+                if (sm.ok) {
+                    Log::platform()->info("{}", sm.line);
+                    source_map_watch_ = sm.pending;
+                } else {
+                    Log::platform()->error("{}", sm.line);
                     exit_code_ = 1;
                 }
-                screenshot_countdown_.disarm();  // done
-                screenshot_queued_    = false;
-                screenshot_refused_   = false;
             }
-            // else: no frame went through the compositor this tick (audio queue
-            // ahead of the card). The countdown holds at 0 and the capture stays
-            // queued — the backend keeps its mask armed and takes it at the next
-            // tick that renders, never a stale frame with the wrong layers.
-        } else if (screenshot_countdown_.pending()) {
-            screenshot_countdown_.tick(emulator_.video_timing().refresh_60hz());
         }
+        config_.source_map_file.clear();
+        // GH #346 - the scripts held back for the program's maps.
+        if (!script_host_.program_loaded()) exit_code_ = 1;
+        load_countdown_ = -1;  // done
+    } else if (load_countdown_ > 0) {
+        --load_countdown_;
+    }
 
-        // Delayed automatic exit. Deferred command-line work it cuts off
-        // fails the run (platform/auto_exit.h).
-        if (exit_countdown_.due()) {
-            Log::platform()->info("automatic exit triggered");
-            if (!auto_exit_finds_no_deferred_work(emulator_, {
-                    {"--load", load_file_, load_countdown_ >= 0},
-                    {"--inject", inject_file_, inject_countdown_ >= 0},
-                    {"--rzx-record", rzx_record_file_,
-                     !rzx_record_file_.empty() && !rzx_record_started_},
-                    {"--delayed-pok-frames", pok_job_ ? pok_job_->request().path : std::string(),
-                     pok_job_ && pok_job_->pending()},
-                }))
+    // A --source-map still waiting for its tape program: dropped by a mismatch exits 1.
+    if (source_map_watch_) {
+        std::string why;
+        switch (emulator_poll_cli_source_map(*debugger_, &why)) {
+            case CliSourceMapWatch::Waiting: break;
+            case CliSourceMapWatch::Done: source_map_watch_ = false; break;
+            case CliSourceMapWatch::Failed:
+                Log::platform()->error("--source-map: dropped: {}", why);
                 exit_code_ = 1;
-            if (const std::size_t n = script_host_.unreached_verdicts()) {   // GH #26 WP4 (§7.3)
-                Log::platform()->error("SCRIPT: {} deferred actions never ran - exiting 3", n);
-                if (exit_code_ == 0) exit_code_ = 3;
-            }
-            running_ = false;
-        } else if (exit_countdown_.pending()) {
-            exit_countdown_.tick(emulator_.video_timing().refresh_60hz());
-        }
-
-        // Frame pacing: target the emulated video refresh (~20 ms at 50 Hz,
-        // ~17 ms at 60 Hz — issue #9; a 60 Hz demo runs at 60 fps, not a
-        // hardcoded 50) EXCEPT during fastload — when the phantom typist is
-        // armed or a fast-load tape is delivering data, skip the per-frame
-        // sleep and immediately run the next frame. Mirrors FUSE
-        // timer/timer.c:216 `timer_frame()` fast-path (no `sound_buffer_wait`,
-        // no `timer_check`). The moment fastload_active() flips back to false
-        // (typist fired AND tape at end), we re-engage pacing on the very next
-        // iteration.
-        //
-        // The same sleep is skipped for a single iteration when the audio pacer
-        // asked to catch up and the user prefers video (issue #35): the extra
-        // frame runs in the NEXT iteration, where it is composited and shown,
-        // rather than inside this one, where it would be superseded.
-        if (!fastload && !next_tick_asap) {
-            // --speed scales the period (QtApp::effective_frame_period_us()).
-            const uint32_t frame_ms = static_cast<uint32_t>(
-                std::lround(emulator_.frame_period_ms() / speed_multiplier_));
-            if (frame_ms != last_frame_ms_) {
-                last_frame_ms_ = frame_ms;
-                Log::platform()->info(
-                    "frame pacing: {:.2f} Hz video refresh at {}x -> {} ms/frame",
-                    1000.0 / emulator_.frame_period_ms(), speed_multiplier_, frame_ms);
-            }
-            uint64_t elapsed = SDL_GetTicks() - frame_start;
-            if (elapsed < frame_ms) SDL_Delay(static_cast<Uint32>(frame_ms - elapsed));
+                source_map_watch_ = false;
+                break;
         }
     }
+
+    // --rzx-record, once the load/inject above is in the machine.
+    if (!emulator_start_rzx_record_when_loaded(
+            emulator_, rzx_record_file_, rzx_record_started_,
+            load_countdown_ >= 0 || inject_countdown_ >= 0))
+        exit_code_ = 1;
+
+    // GH #381 - --delayed-pok-frames: the trainers go in through the backend
+    // after this tick's load and before its frames. A refusal fails the run,
+    // like a failed load.
+    if (pok_job_ && !pok_job_->poll(*debugger_, emulator_.video_timing().refresh_60hz()))
+        exit_code_ = 1;
+
+    // Pace emulation against the sound card, not the wall clock: the 20 ms
+    // frame delay runs the emulator at 50.00 frames/s while a 48K frame is
+    // 1/50.08 s, and audio is synthesised on the emulated clock — so we feed
+    // the device ~44030 samples per real second while it consumes 44100. The
+    // deficit empties the audio queue and SDL pads the stream with zeros:
+    // clicks, a few times a second, forever (issue #7 / Task 23). See
+    // audio_pacing.h.
+    // --delayed-screenshot: when the countdown comes due, hand the capture
+    // to the backend (GH #276 B4, O2; platform/cli_capture.h). It arms the
+    // --delayed-screenshot-layers mask now for the frame(s) rendered in this
+    // tick, forces them to render, and this tick's pump writes the last of
+    // them and takes the mask down — the frame, the mask and the file this
+    // loop used to handle itself. As in QtApp, the mask lives on the
+    // Renderer the window also shows, so the captured frame is displayed
+    // masked for that tick. Queued once, however many ticks it waits.
+    if (screenshot_countdown_.due() && !screenshot_queued_) {
+        if (queue_cli_screenshot(debugger(), screenshot_file_, screenshot_layers_) ==
+            jnext::dbg::Result::Ok)
+            screenshot_queued_ = true;
+        else
+            screenshot_refused_ = true;   // reported below, as a failed write
+    }
+
+    // Frames actually rendered this tick. frames_for_tick() returns 0 when
+    // the audio queue is ahead of the card (audio_pacing.h:56), so this
+    // loop can legitimately run zero times — and then the framebuffer still
+    // holds the previous frame, composited with LAYER_ALL. Capturing that
+    // would silently ignore the user's layer selection.
+    int frames_rendered = 0;
+    // Issue #35 — a WhenSlowPrefer::Video catch-up runs one frame here and
+    // skips the end-of-iteration sleep below, so the second frame the sound
+    // card wants gets its own iteration (and its own present) instead of
+    // being superseded inside this one.
+    bool next_tick_asap = false;
+    // --speed away from 100% decouples emulated time from real time: the
+    // machine's sample rate no longer matches the sound card's, so the
+    // audio pacer cannot hold and the loop paces on the wall clock at the
+    // scaled period instead (the sleep below) — exactly as QtApp does.
+    const bool speed_scaled = (speed_multiplier_ != 1.0);
+    const bool screenshot_due = screenshot_countdown_.due();
+    // Above 100%, present at most every RENDER_INTERVAL_MS (QtApp's
+    // compositor throttle): the frames in between are never seen, and the
+    // renderer is vsynced, so presenting every one would cap the machine
+    // at the display's refresh rate. A due screenshot always presents.
+    bool present_this_tick = true;
+    if (speed_multiplier_ > 1.0 && !screenshot_due) {
+        const uint64_t now = SDL_GetTicks();
+        if (now - last_present_ms_ < static_cast<uint64_t>(
+                                         frame_sequencer::RENDER_INTERVAL_MS))
+            present_this_tick = false;
+        else
+            last_present_ms_ = now;
+    }
+    {
+        const audio_pacing::TickPlan plan =
+            (emulator_.fastload_active() || speed_scaled)
+                ? audio_pacing::TickPlan{1, false}
+                : audio_pacing::plan_for(
+                      audio_pacing::frames_for_tick(pacing_band_, audio_.queued_ms()),
+                      when_slow_prefer_);
+        const int frames = plan.frames;
+        next_tick_asap   = plan.next_tick_asap;
+        for (int i = 0; i < frames; i++) {
+            // Superseded-composite skip (issue #9): the display presents
+            // once, below, so only the tick's last frame composites
+            // (render_policy.h). Fastload runs 1 frame per loop pass here
+            // (its pacing comes from skipping the delay), so it always
+            // composites; a due screenshot forces the whole tick.
+            emulator_.set_render_enabled(
+                present_this_tick &&
+                render_policy::composite_frame_in_tick(i, frames,
+                                                       screenshot_due));
+            emulator_.run_frame();
+            ++frames_rendered;
+        }
+        // The hint is per-frame within this tick; restore the default.
+        emulator_.set_render_enabled(true);
+    }
+
+    // Issue #122 — end of the tick's frames: any key whose release was held
+    // back has now been seen by the guest and may come up. The gate on
+    // frames_rendered lives in Router::on_tick_end and is pinned by rows
+    // RT-04a/b/c: a tick the audio pacer gave zero frames emulated nothing,
+    // so the hold has not been honoured and must not be discharged.
+    //
+    // Placed HERE, not after present() where QtApp's equivalent sits, for
+    // one structural reason: SDL checks its cold-boot requests AFTER the
+    // frames where Qt checks them before (frame_sequencer.h:402-403), and
+    // those checks return early. Discharging further down would therefore be
+    // skipped on a tick that did emulate frames. The outcome is the same
+    // either way — cold_boot() re-attaches, which resets the latch — but
+    // this placement keeps "frames ran => the hold is discharged" true
+    // unconditionally instead of true-by-consequence.
+    key_router_.on_tick_end(frames_rendered);
+
+    if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
+        cold_boot(load_file);
+        return running_;
+    }
+
+    if (service_quick_requests()) return running_;   // a Quick Load cold-booted
+
+    // Task 70 — a hard reset (F1 / a program's NR 0x02 bit 1) is a power-on
+    // cold boot done here between frames. cold_boot() reconstructs the
+    // emulator, so restart the loop with the fresh machine.
+    if (emulator_.take_hard_reset_request()) {
+        cold_boot(std::string());
+        return running_;
+    }
+
+    // GH #276 B4 — SES-03: the backend's service call, once per tick after
+    // the frame batch and after the two cold-boot polls above (CTL-12's
+    // ordering — see HeadlessApp::run(), which places it the same way).
+    // GH #12 (WP-5) — T's budget: drain a paused remote's commands, never
+    // block the tick (platform/debug_servers.h).
+    pump_hint_ = debugger_->pump(
+        DebugServers::frame_loop_budget(debugger_->state().paused, pump_hint_));
+
+    // GH #26 WP4 — a script's verdict (§6.3), as HeadlessApp: the SDL
+    // frontend has no pause, so a script stop is an exit (3).
+    if (script_host_.exit_requested()) {
+        const int code = script_host_.exit_code();
+        Log::platform()->info("script requested exit {}", code);
+        if (code != 0 || exit_code_ == 0) exit_code_ = code;
+        running_ = false;
+        return running_;
+    }
+
+    // Task 19 fastload follow-up — when the phantom typist is
+    // armed or a fast-load tape is in flight, skip pushing audio
+    // samples to SDL. The emulator still synthesizes audio into
+    // the mixer ring buffer (we drain it below by NOT pushing,
+    // letting the buffer self-regulate via the `max_queued` cap
+    // in SdlAudio::push_from_mixer); pushing samples while
+    // running at 10× wall-clock would either back-pressure the
+    // emulator or produce stuttering audio chunks. Mirrors
+    // FUSE's `sound_pause()`/`sound_unpause()` around
+    // fastloading windows (timer/timer.c).
+    const bool fastload = emulator_.fastload_active();
+    if (!fastload) {
+        // The underrun hold is a rescue for a device the loop keeps fed on
+        // the audio clock; unpaced (--speed away from 100%) it would fire
+        // every tick instead — QtApp gates it the same way.
+        audio_.push_from_mixer(emulator_.mixer(), /*hold_on_underrun=*/!speed_scaled);
+    }
+
+    const uint32_t* fb = emulator_.get_framebuffer();
+    const int fb_w = emulator_.get_framebuffer_width();
+    const int fb_h = emulator_.get_framebuffer_height();
+    if (present_this_tick) {
+        // GH #428 — a frame the display already shows is not drawn again:
+        // a paused machine used to re-upload and present it every tick.
+        // take_redraw_request() is read unconditionally so it is consumed.
+        const bool redraw = display_.take_redraw_request();
+        ++present_ticks_;
+        if (render_policy::upload_needed(emulator_.framebuffer_generation(),
+                                         last_uploaded_gen_, redraw)) {
+            display_.upload_frame(fb, fb_w, fb_h);
+            display_.present();
+            last_uploaded_gen_ = emulator_.framebuffer_generation();
+            ++present_uploads_;
+        }
+        const uint64_t now_ms = SDL_GetTicks();
+        if (now_ms - present_window_start_ms_ >= 1000) {
+            Log::platform()->debug("sdl present: ticks={} uploads={}",
+                                   present_ticks_, present_uploads_);
+            present_ticks_ = present_uploads_ = 0;
+            present_window_start_ms_ = now_ms;
+        }
+    }
+
+    // Delayed screenshot: the OUTCOME. This tick's pump (above) has written
+    // the capture if a frame was rendered in it; flush_captures() — the
+    // backend's exit bound for its CLIENT_NONE captures — says how it
+    // ended (GH #276 B4, O2).
+    if (screenshot_countdown_.due()) {
+        if (screenshot_refused_ || frames_rendered > 0) {
+            // A failed write means no file — same failure as never taking
+            // the capture, so same contract as SdlApp::shutdown(): error +
+            // non-zero exit. save_screenshot_*() has already logged WHY; the
+            // format is the extension (GH #18).
+            const bool ok = !screenshot_refused_ &&
+                            debugger().flush_captures(jnext::dbg::CLIENT_NONE) ==
+                                jnext::dbg::Result::Ok;
+            if (!ok) {
+                Log::platform()->error(
+                    "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
+                    "see the error above. Exiting non-zero.",
+                    screenshot_file_,
+                    Renderer::layer_mask_to_string(screenshot_layers_));
+                exit_code_ = 1;
+            }
+            screenshot_countdown_.disarm();  // done
+            screenshot_queued_    = false;
+            screenshot_refused_   = false;
+        }
+        // else: no frame went through the compositor this tick (audio queue
+        // ahead of the card). The countdown holds at 0 and the capture stays
+        // queued — the backend keeps its mask armed and takes it at the next
+        // tick that renders, never a stale frame with the wrong layers.
+    } else if (screenshot_countdown_.pending()) {
+        screenshot_countdown_.tick(emulator_.video_timing().refresh_60hz());
+    }
+
+    // Delayed automatic exit. Deferred command-line work it cuts off
+    // fails the run (platform/auto_exit.h).
+    if (exit_countdown_.due()) {
+        Log::platform()->info("automatic exit triggered");
+        if (!auto_exit_finds_no_deferred_work(emulator_, {
+                {"--load", load_file_, load_countdown_ >= 0},
+                {"--inject", inject_file_, inject_countdown_ >= 0},
+                {"--rzx-record", rzx_record_file_,
+                 !rzx_record_file_.empty() && !rzx_record_started_},
+                {"--delayed-pok-frames", pok_job_ ? pok_job_->request().path : std::string(),
+                 pok_job_ && pok_job_->pending()},
+            }))
+            exit_code_ = 1;
+        if (const std::size_t n = script_host_.unreached_verdicts()) {   // GH #26 WP4 (§7.3)
+            Log::platform()->error("SCRIPT: {} deferred actions never ran - exiting 3", n);
+            if (exit_code_ == 0) exit_code_ = 3;
+        }
+        running_ = false;
+    } else if (exit_countdown_.pending()) {
+        exit_countdown_.tick(emulator_.video_timing().refresh_60hz());
+    }
+
+    // Frame pacing: target the emulated video refresh (~20 ms at 50 Hz,
+    // ~17 ms at 60 Hz — issue #9; a 60 Hz demo runs at 60 fps, not a
+    // hardcoded 50) EXCEPT during fastload — when the phantom typist is
+    // armed or a fast-load tape is delivering data, skip the per-frame
+    // sleep and immediately run the next frame. Mirrors FUSE
+    // timer/timer.c:216 `timer_frame()` fast-path (no `sound_buffer_wait`,
+    // no `timer_check`). The moment fastload_active() flips back to false
+    // (typist fired AND tape at end), we re-engage pacing on the very next
+    // iteration.
+    //
+    // The same sleep is skipped for a single iteration when the audio pacer
+    // asked to catch up and the user prefers video (issue #35): the extra
+    // frame runs in the NEXT iteration, where it is composited and shown,
+    // rather than inside this one, where it would be superseded.
+    if (!fastload && !next_tick_asap) {
+        // --speed scales the period (QtApp::effective_frame_period_us()).
+        const uint32_t frame_ms = static_cast<uint32_t>(
+            std::lround(emulator_.frame_period_ms() / speed_multiplier_));
+        if (frame_ms != last_frame_ms_) {
+            last_frame_ms_ = frame_ms;
+            Log::platform()->info(
+                "frame pacing: {:.2f} Hz video refresh at {}x -> {} ms/frame",
+                1000.0 / emulator_.frame_period_ms(), speed_multiplier_, frame_ms);
+        }
+        uint64_t elapsed = SDL_GetTicks() - frame_start;
+        if (elapsed < frame_ms) sleep_ms = static_cast<uint32_t>(frame_ms - elapsed);
+    }
+    return running_;
 }
 
 void SdlApp::shutdown() {

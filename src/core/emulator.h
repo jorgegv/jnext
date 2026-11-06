@@ -700,7 +700,7 @@ public:
     /// `timer_fastloading_active()` (timer/timer.c:198) is
     /// `tape_is_playing() || phantom_typist_is_active()`: it sprints only
     /// while something is LOADING, never because a tape is merely in the
-    /// deck. The platform layer (SdlApp::run, QtApp::on_frame_tick) reads
+    /// deck. The platform layer (SdlApp::tick, QtApp::on_frame_tick) reads
     /// this and skips its frame-rate delay while true; once it clears the
     /// platform re-engages normal 50 Hz pacing (and re-resumes audio output).
     ///

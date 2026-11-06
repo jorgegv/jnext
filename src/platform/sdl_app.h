@@ -25,6 +25,15 @@ class SdlApp {
 public:
     bool init(int argc, char* argv[]);
     void run();
+
+    /// One iteration of the frame loop: what run() used to hold inline. It
+    /// never sleeps; `sleep_ms` is always written and receives the pacing
+    /// sleep this iteration asks for before the next one (0 = none: fastload,
+    /// a Video catch-up, a cold-boot or exit iteration, or no time left).
+    /// Returns false when the loop must end (a quit signal, a window close,
+    /// an automatic or script exit). run() is: while (tick(ms)) sleep ms; and
+    /// the last sleep too.
+    bool tick(uint32_t& sleep_ms);
     void shutdown();
 
     Emulator& emulator() { return emulator_; }
@@ -146,7 +155,7 @@ private:
     bool       running_ = false;
 
     /// GH #321 — Alt+Shift+F5 / Alt+Shift+F9. Save runs from the key callback (between
-    /// frames); Load is serviced in run() beside the NEX load request.
+    /// frames); Load is serviced in tick() beside the NEX load request.
     void quick_save();
     bool quick_load();   // true when it cold-booted
     bool quick_save_requested_ = false;
@@ -181,14 +190,14 @@ private:
 
     /// Issue #122 — host key events go through the issue-#120 minimum-hold
     /// latch instead of straight into the matrix. SDL_PollEvent() and the frame
-    /// loop are the SAME loop iteration (run()), so a key event can only land
+    /// loop are the SAME loop iteration (tick()), so a key event can only land
     /// BETWEEN two run_frame() calls — the identical sampling window that made
     /// the Qt frontend drop keystrokes, and for the identical reason.
     ///
     /// BOTH the policy and the DISPATCH live in platform/host_key_latch.h, and
     /// both are unit-tested (host_key_latch_test, rows HKL-* and RT-*). SdlApp
     /// supplies only the three call sites: on_host_key() in the input_.on_key
-    /// callback, on_tick_end() after the frame loop in run(), and attach() in
+    /// callback, on_tick_end() after the frame loop in tick(), and attach() in
     /// init() plus cold_boot()'s rewire_host hook.
     host_key_latch::Router<Keyboard, SDL_Scancode> key_router_;
 

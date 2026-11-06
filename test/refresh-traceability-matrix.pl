@@ -1089,6 +1089,7 @@ my %NO_MATRIX_SECTION = (
     'color_scheme_linux_test' => 'GH #414: the private dbus-daemon of color_scheme_test dies with a SIGKILLed or normally exiting suite; Linux-only test infrastructure (guard process, /proc), the FPGA core has no counterpart',
     'sdcard_dialog_test'  => 'SD-card/NextPi download dialog through a dropped network (host GUI, GH #358)',
     'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
+    'sdl_app_tick_test' => 'SdlApp::tick() host frame-loop iteration (host UI, GH #462)',
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',
 
     # ── CLI, configuration, logging, profiling ───────────────────────
