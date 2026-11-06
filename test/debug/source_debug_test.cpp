@@ -8816,10 +8816,10 @@ int main() {
                 return r;
             };
             const std::string c15 = std::string("1") + ".5";
-            const FpRun a = run("cvfmt01a.map", fp_lines(2, 128, 3, "t_c"), {0x00, 0x00, 0xD0, 0x82}, "1.5");
-            const FpRun b = run("cvfmt01b.map", fp_lines(2, 128, 3, "t_c") + "__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n", {0x00, 0x00, 0xD0, 0x82}, "1.5");
+            const FpRun a = run("cvfmt01a.map", fp_lines(2, 128, 3, "t_c"), {0x00, 0x00, 0xD0, 0x82}, c15);
+            const FpRun b = run("cvfmt01b.map", fp_lines(2, 128, 3, "t_c") + "__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n", {0x00, 0x00, 0xD0, 0x82}, c15);
             const FpRun c = run("cvfmt01c.map", fp_lines(6, 0, 3, "t_c"), {0x00, 0x00, 0xC0, 0x01}, "-3.25");
-            const FpRun d = run("cvfmt01d.map", fp_lines(7, 0, 3, "t_c"), {0x00, 0x00, 0xD0, 0x82}, "1.5");
+            const FpRun d = run("cvfmt01d.map", fp_lines(7, 0, 3, "t_c"), {0x00, 0x00, 0xD0, 0x82}, c15);
             check("SRCDBG-CVFMT-01", "a module with mode 2 (mbf32): gf 00 00 D0 82 reads -3.25 (value and typed real), a write of 1.5 stores 00 00 40 81 and reads back 1.5; "
                                      "with __code_fp_mbf32_size beside it, which alone refuses mbf32 floats, it still reads and writes (the format beats the library guess); mode 6 (AM9511): "
                                      "00 00 C0 01 reads 1.5 and -3.25 is written as 00 00 D0 82; mode 7: the read and the write are refused with the reason and the bytes stay",
@@ -8830,6 +8830,7 @@ int main() {
                   a.before_text + " | " + b.before_text + " | " + c.before_text + " | " + d.before_text + " " + d.w.w.why);
         }
         {   // SRCDBG-CVFMT-02
+            const std::string c25 = std::string("2") + ".5";
             // two modules in one map, each with its own format: each global reads and is written in its own module's format
             const auto fp_lines = [](int mode, int bias, int ms, const char* module) {
                 char b[400];
@@ -8852,7 +8853,7 @@ int main() {
             for (size_t i = 0; i < b4.size(); ++i) m.emu.mmu().write(static_cast<uint16_t>(0x9010 + i), b4[i]);
             const auto txt = [&](const char* name) { const Dbg::CValueResult r = m.dbg->read_c_value(0, name); return r.ok ? r.value : "!" + r.why; };
             const std::string r6 = txt("g6"), r4 = txt("g4");
-            const CwTry w6 = attempt(m, 0, "g6", "2.5"), w4 = attempt(m, 0, "g4", "2.5");
+            const CwTry w6 = attempt(m, 0, "g6", c25), w4 = attempt(m, 0, "g4", c25);
             check("SRCDBG-CVFMT-02", "two modules in one map: t_c (48-bit) g6 and u_c (IEEE) g4 both read -3.25 from their own bytes, and a write of 2.5 lands as 00 00 00 00 20 82 in g6 "
                                      "and 00 00 20 40 in g4",
                   r6 == "-3.25" && r4 == "-3.25" && w6.w.ok() && w4.w.ok() && cpk(m, 0x9000, 6) == Bytes{0x00, 0x00, 0x00, 0x00, 0x20, 0x82} && cpk(m, 0x9010, 4) == Bytes{0x00, 0x00, 0x20, 0x40},

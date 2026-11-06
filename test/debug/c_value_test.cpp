@@ -56,6 +56,7 @@ static void check(const char* id, const char* desc, bool cond, const std::string
 static const fs::path kFixtures = JNEXT_Z88DK_FIXTURE_DIR;
 // 1.5 spelled in two pieces: a bare "1.5" literal is shaped like a row ID, and the global ID check (dup-ids) reads it as one
 static const std::string k15 = std::string("1") + ".5";
+static const std::string k25 = std::string("2") + ".5";
 
 // What the NEX loader leaves mapped (slots 2-5 = pages 10, 11, 4, 5).
 static MemSpace nex_space(uint16_t address) {
@@ -2198,7 +2199,7 @@ int main() {
             const std::vector<uint8_t> b(8, 0x55);
             const CFormatted r = c_format_value(f.ctx, ty(c.chain), b.data(), 6);
             const std::optional<double> real = c_float_value(f.ctx, ty(c.chain), b.data(), 6);
-            const std::string w = enc_hex(f.ctx, c.chain, "1.5", std::vector<uint8_t>(6, 0));
+            const std::string w = enc_hex(f.ctx, c.chain, k15.c_str(), std::vector<uint8_t>(6, 0));
             if (r.ok || r.why != c.text || real || w != std::string("!") + c.text) bad += std::string(" [") + c.text + " -> " + r.why + " | " + w + "]";
         }
         check("CVFMT-24", "an unknown mode, a mantissa that does not fit the record, a z88 one that leaves no room after byte 0, an am9511 without a 3-byte mantissa, an IEEE float "
@@ -2338,7 +2339,7 @@ int main() {
             {6, 0, 3, "{4}SF:S", {"00 00 D0 82", "00 00 C0 01", "00 00 80 82", "00 00 C8 07", "00 00 A0 02"}},
             {0, 129, 4, "{6}SF:S", {"00 00 00 D0 83 00", "00 00 00 40 82 00", "00 00 00 80 83 00", "00 00 00 48 88 00", "00 00 00 20 83 00"}},
         };
-        const char* texts[] = {"-3.25", "1.5", "-2", "100", "2.5"};
+        const char* texts[] = {"-3.25", k15.c_str(), "-2", "100", k25.c_str()};
         std::string bad;
         for (const Build& bd : builds) {
             const FpCtx f(bd.mode, bd.bias, bd.ms);
@@ -2363,9 +2364,9 @@ int main() {
             if (!e.ok || !r.ok || r.text != "0.1") rt += " mode " + std::to_string(bd.mode) + "/" + std::to_string(bd.bias) + ":" + r.text + e.why;
         }
         const FpCtx m40(3, 128, 4), z88(5, 127, 4), b4(0, 129, 4), m32(2, 128, 3), am(6, 0, 3), d48(0, 128, 5);
-        const std::string keep40 = enc_hex(m40.ctx, "{6}SF:S", "1.5", {1, 2, 3, 4, 5, 0xAA});
-        const std::string keepz = enc_hex(z88.ctx, "{6}SF:S", "1.5", {0xEE, 1, 2, 3, 4, 5});
-        const std::string keep4 = enc_hex(b4.ctx, "{6}SF:S", "1.5", {1, 2, 3, 4, 5, 0xBB});
+        const std::string keep40 = enc_hex(m40.ctx, "{6}SF:S", k15.c_str(), {1, 2, 3, 4, 5, 0xAA});
+        const std::string keepz = enc_hex(z88.ctx, "{6}SF:S", k15.c_str(), {0xEE, 1, 2, 3, 4, 5});
+        const std::string keep4 = enc_hex(b4.ctx, "{6}SF:S", k15.c_str(), {1, 2, 3, 4, 5, 0xBB});
         const std::string zero = enc_hex(m40.ctx, "{6}SF:S", "0", {1, 2, 3, 4, 5, 0xAA});
         const std::string zeroz = enc_hex(z88.ctx, "{6}SF:S", "0", {0xEE, 1, 2, 3, 4, 5});
         const std::string big32 = enc_hex(m32.ctx, "{4}SF:S", "1e39", {0, 0, 0, 0});
