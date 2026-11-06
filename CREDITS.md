@@ -7,13 +7,26 @@ Jorge Gonzalez, aka ZXjogv <zx@jogv.es>
 ## Code contributors
 
 - dcrespo3d
+- jattree
 - jon263
+- shadowphiar
+- vmorilla
 
 ## Testers and bug reporters
 
+- beef-pl
+- bleughb
+- clebin
 - danboid
 - Duefectu
+- IndigoBeetle
 - janko-jj
+- jsmolina
+- MickeyG
+- Nitrowing
+- pavero01
+- suborb
+- tofro
 - Utodev
 - WoolyChewbakker
 
