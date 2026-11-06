@@ -2291,9 +2291,11 @@ Paused indicator while the machine is paused), Hi-DPI pixel-perfect
 rendering at integer scale, and a CRT effect (scanlines, or an optional
 GPU soft-scanlines, TV or PC-monitor look).
 
-Menu shortcuts use **Alt**, never plain **Ctrl**: Ctrl is the Spectrum’s
-Symbol Shift, so a Ctrl shortcut would eat a key the guest needs (see
-**THE KEYBOARD** below).
+Menu shortcuts use **Alt** (Command on macOS), never Ctrl + a letter:
+Ctrl is the Spectrum’s Symbol Shift, so a Ctrl shortcut would eat a key
+the guest needs; the only Ctrl chords are Ctrl+F5 and Ctrl+F6 (video
+recording), and on macOS Control+Command+F (full screen) (see **KEYBOARD
+MAPPING** below).
 
 **File**  
 Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok
@@ -2325,11 +2327,12 @@ and so has no NextZXOS to return to - use Power Reset there), Pause
 (Alt+U or the Pause key - freeze or resume the machine where it is,
 without opening the debugger; the sound goes quiet, a **Paused** cell
 appears in the status bar, and a Power Reset or a load made while paused
-stays paused), Machine Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7
-/ 14 / 28 MHz - the Next’s own clock), Emulator Speed (0.5x / 1x / 2x /
-4x / custom % - the host-side throttle), POK Trainers… (open a .pok
-trainer file and apply or remove its trainers - infinite lives and the
-like - on the running machine; a snapshot saved afterwards keeps them).
+stays paused), Machine Type (48K / 128K / +3 / Pentagon 128K / Next),
+CPU Speed (3.5 / 7 / 14 / 28 MHz - the Next’s own clock), Emulator Speed
+(0.5x / 1x / 2x / 4x / custom % - the host-side throttle), POK Trainers…
+(open a .pok trainer file and apply or remove its trainers - infinite
+lives and the like - on the running machine; a snapshot saved afterwards
+keeps them).
 
 **Input**  
 Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting
@@ -2340,7 +2343,7 @@ freely (by default Ctrl+Alt releases it, Alt+Cmd on macOS; see
 **--mouse-release**).
 
 **Tape**  
-Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle), Auto
+Open Tape File (Alt+T), Eject Tape, Rewind, Fast Load (toggle), Auto
 Play/Stop (toggle); Start Saving…, which saves to a TAP, TZX or WAV file
 as **--tape-save** does, and Stop Saving.
 
@@ -2356,9 +2359,10 @@ three only in builds with GPU support), Debugger (Alt+D).
 
 **Settings**  
 Preferences… (Alt+P), which opens the settings dialog (Startup, Input,
-Audio, Network and Paths tabs, plus Debugger Keys in a build with the
-debugger compiled in). Its values are saved to the configuration file;
-command-line options always take precedence over them.
+Audio, Network, NextPi and Paths tabs, plus Debugger and Debugger Keys
+in a build with the debugger compiled in). Its values are saved to the
+configuration file; command-line options always take precedence over
+them.
 
 **Help**  
 About.
@@ -2413,7 +2417,8 @@ changes how fast the emulator runs relative to real time.
 
 Shift is Caps Shift and Ctrl is Symbol Shift, matching a real Spectrum
 Next with a PC keyboard attached. Earlier releases had the two swapped.
-In the Qt GUI on a Mac, Cmd does what this section says of Ctrl.
+On a Mac, Symbol Shift is the Control key too; Command is not a Spectrum
+key (see below).
 
 Holding Shift while pressing a digit or one of the symbol keys above
 reaches the guest as Caps Shift plus that key: Shift+1 is Edit, Shift+0
@@ -2455,8 +2460,9 @@ constantly - Ctrl+O `;`, Ctrl+D `STEP`, Ctrl+R `<`, Ctrl+T `>`, Ctrl+Q
 Ctrl+Shift+S (Caps Shift + Symbol Shift + S), which was the last one to
 move. Earlier releases bound those to menu commands and the program
 never saw them. The only Ctrl chords jnext still takes are Ctrl+F5 and
-Ctrl+F6 (start and stop video recording), and function keys have no
-Spectrum meaning to lose.
+Ctrl+F6 (start and stop video recording), and on macOS Control+Command+F
+(full screen, a Command chord); function keys have no Spectrum meaning
+to lose.
 
 On macOS the two roles move one key over. The host shortcuts are Command
 instead of Alt: every Alt+X below is Command+X (⌘X), Quit is Command+Q
@@ -2538,6 +2544,11 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
   and what a pointer points at; the type, the value (or why there is
   none) and where it is; paused only. Double-click a value to edit it;
   right-click a row to watch it
+- **Source** - with a source map (a z88dk `-debug` map or a sjasmplus
+  SLD), the source line the CPU is on, with line numbers, a breakpoint
+  column, a current-line arrow, coverage tint and the Disassembly’s
+  right-click menu; source Step Into, Over, Out, Back and Reverse, also
+  in **Debug \> Source**
 - **Breakpoints** - execution, read, write and I/O watchpoints, in one
   panel. An I/O watchpoint address of **00**-**FF** matches any port
   with that low byte (**FE** catches every ULA access, whatever the high
@@ -3073,9 +3084,12 @@ The debugger window’s layout is stored under `[debugger]`: `size`
 and `attached` (`true`/`false`). An older `~/.jnext/Debugger.conf` is
 merged into this section once and removed. All section names are
 lowercase. CLI options always take precedence over saved values, and
-headless runs never read it. Every key above can also be set for one
-run, without touching the file, with **--set** *section.key=value* (see
-**Settings for --set**).
+headless runs never read it. Every setting above can also be set for one
+run, without touching the file (the Recent Files history, the joystick
+controller names `joy1_device_name` and `joy2_device_name`,
+`[config] version` and the debugger window’s `size` and `position` are
+refused), with **--set** *section.key=value* (see **Settings for
+--set**).
 
 `~/.jnext/screenshots/`  
 Where **File \> Quick Screenshot** writes, unless

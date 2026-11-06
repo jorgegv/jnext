@@ -37,7 +37,7 @@ without a finger (a TZX "stop the tape if in 48K mode" block stops only on a 48K
 machine, as the TZX specification says, whatever this setting is).
 
 **Tape > Open Tape File…** (Alt+T) loads a tape, fast or in real time as
-**Tape > Fast Load** shows, and **Eject** and **Rewind** do what they say (a
+**Tape > Fast Load** shows, and **Eject Tape** and **Rewind** do what they say (a
 `.wav` rewinds by starting again). The status bar shows the tape name and, while
 loading, the block position. A new tape replaces the one that was in, whatever
 its format; a file that is not a valid tape is refused with a warning, and the

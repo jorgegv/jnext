@@ -4116,7 +4116,8 @@
 
 
 <h1 id="6-the-debugger">6. The debugger<a class="headerlink" href="#6-the-debugger" title="Permanent link">&para;</a></h1>
-<p>JNEXT ships with a full source-less debugger for ZX Spectrum Next software: it
+<p>JNEXT ships with a full machine-level debugger for ZX Spectrum Next software (it
+needs no source; with a source map it also debugs by source line): it
 halts the machine at an instruction boundary and shows you the CPU, the memory
 map, every video layer, the Copper program, the NextREG file and the AY
 registers, all as the hardware sees them at that instant.</p>
@@ -4138,7 +4139,7 @@ emulator toolbar. The same actions close it. While it is closed
 the debugger costs nothing — no breakpoint checking, no call-stack tracking, no
 panel refreshes. Closing it also resumes the machine if it was paused.</p>
 <p>The debugger opens in its own window, positioned to the right of the emulator
-window. It has its own menu bar — <strong>Debug</strong>, <strong>Map</strong>, <strong>Breakpoints</strong>,
+window. It has its own menu bar — <strong>Debug</strong>, <strong>Script</strong>, <strong>Map</strong>, <strong>Breakpoints</strong>,
 <strong>Watches</strong> and <strong>Window</strong> — and a control toolbar along the bottom.</p>
 <p><strong>Window ▸ Attach to emulator window</strong> keeps it pinned to the emulator's
 right-hand edge as you drag or resize that window; the setting is remembered

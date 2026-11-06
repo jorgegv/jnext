@@ -22,9 +22,7 @@ on master too). It writes `PROG` (the command, in capitals, whatever the `-o` na
    verified yet: it is checked when the dot command runs*. The log line is (z88dk 2.4 and
    master alike):
 
-   ```
-   --source-map 'prog.map': 267 source lines (3 z88dk listings) (identity check pending: the dot command loads when it runs)
-   ```
+        --source-map 'prog.map': 267 source lines (3 z88dk listings) (identity check pending: the dot command loads when it runs)
 
 3. Set `dot.c:8` in the Breakpoints panel (or in a script), and type `.prog` at the NextZXOS
    prompt. The machine stops inside the command, and the Source tab, **Into / Over / Out**

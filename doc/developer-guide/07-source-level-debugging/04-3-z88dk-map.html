@@ -3267,23 +3267,18 @@ The rules, in order of the section name:</p>
    16 bits of the address.</li>
 <li><strong>An unnumbered section with a value above <code>0xFFFF</code></strong> is <em>refused</em>: nothing
    says which bank it is in.</li>
-<li><strong>Any other section</strong>, and a value of 16 bits: <em>bind at load</em>. The memory is the
+<li>
+<p><strong>Any other section</strong>, and a value of 16 bits: <em>bind at load</em>. The memory is the
    RAM page the MMU maps at that address with the program in memory, found with the
    same <code>predict_fetch</code> the source lookups use. In the symbol half this is the
    lenient form: <code>SymbolTable::bind(space_of)</code> gives the page only when
    <code>space_of(addr)</code> is a RAM <code>Page</code>; ROM, DivMMC and the other overlays leave the
    symbol unpaged; an empty function unbinds all. It runs at <code>load_map()</code>, at the
    sidecar <code>&lt;stem&gt;.map</code> (a tape's too, at the attach) and for the user's store at
-   every program load.</li>
-</ol>
-<p>A number above the limit of its family (223 for a page, 111 for a bank, 15 for
-DivMMC) makes the value unpaged when it fits 16 bits and refused otherwise.</p>
-<p>A <code>DIV_&lt;n&gt;</code> or <code>&lt;KIND&gt;_DIV_&lt;n&gt;</code> section (DivMMC memory) is unpaged with the reason "a DIV_n
-bank is the one the program, or a dotn command's allocator, chooses when it runs": the bank is
-the program's to choose, so the map cannot say it. The symbol half keeps a 16-bit symbol of it
-as an unpaged label, and the source half refuses a line record in it.</p>
-<ol>
-<li><strong>A dot command.</strong> NextZXOS copies a dot command's file into a DivMMC RAM bank and
+   every program load.</p>
+</li>
+<li>
+<p><strong>A dot command.</strong> NextZXOS copies a dot command's file into a DivMMC RAM bank and
    runs it from <code>$2000</code> there; the map names no bank. <code>z88dk_dot_command(consts, &amp;why)</code>
    (<code>z88dk_space.cpp:136</code>) says whether a map is one: the constant <code>startupoffset</code> is <code>$0100</code> (dot),
    <code>$0200</code> (dotx) or <code>$0300</code> (dotn) and <code>__CODE_head</code> is <code>$2000</code>. No <code>startupoffset</code>, or another
@@ -3293,20 +3288,29 @@ as an unpaged label, and the source half refuses a line record in it.</p>
    (<code>z88dk_dot_command()</code>, <code>symbol_table.cpp:82</code>, no reason asked). Both halves read the
    <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:736</code>; the symbol half keeps every constant). For a dot,
    <code>z88dk_section_space()</code> takes it as a last argument, after rules 1 to 3 (a value above <code>0xFFFF</code> in
-   an unnumbered section is still refused) and before rule 4, for unnumbered sections only:</li>
+   an unnumbered section is still refused) and before rule 4, for unnumbered sections only:</p>
+<ul>
 <li>an unnumbered section at <code>$2000</code>-<code>$3FFF</code> is <code>DivMmcRam{kNextZxosDotBank}</code>, bank 2
-     (<code>kNextZxosDotBank</code>, <code>z88dk_space.cpp:176-181</code>), whatever the MMU maps there when the map is loaded;</li>
+  (<code>kNextZxosDotBank</code>, <code>z88dk_space.cpp:176-181</code>), whatever the MMU maps there when the map is loaded;</li>
 <li>a dotx's other unnumbered sections are rule 4: its main part (<code>PROG.X</code>, <code>prog_MAIN.bin</code>
-     at <code>CRT_ORG_MAIN</code> <code>$8000</code>) is main RAM;</li>
+  at <code>CRT_ORG_MAIN</code> <code>$8000</code>) is main RAM;</li>
 <li>in a dotn those sections, and every <code>PAGE_&lt;n&gt;</code> / <code>DIV_&lt;n&gt;</code> section, are <em>refused</em>
-     (<code>refused_dotn()</code>: NextZXOS allocates those pages when the command runs, <code>__z_page_table</code>; the
-     reason says to build it as a dotx to debug it);</li>
+  (<code>refused_dotn()</code>: NextZXOS allocates those pages when the command runs, <code>__z_page_table</code>; the
+  reason says to build it as a dotx to debug it);</li>
 <li>a dot's or dotx's <code>PAGE</code>/<code>DIV</code> sections follow the rules above, and <code>DIV_&lt;n&gt;</code> stays unpaged.</li>
-</ol>
+</ul>
 <p>The bank is measured, not documented: booting NextZXOS in JNEXT and typing a dot, a dotx and a dotn,
-   the file lands in bank 2, <code>E3</code> becomes <code>$82</code> (conmem and bank 2) and the CPU executes <code>$2000</code>
-   (fixtures README, G24; <code>kNextZxosDotBank</code>, <code>z88dk_space.h:46</code>). <code>SourceMap::replace(..., dot)</code>
-   remembers the verdict (<code>SourceMap::dot()</code>), which <a href="06-lifetime.html">7.6</a> uses for the identity.</p>
+the file lands in bank 2, <code>E3</code> becomes <code>$82</code> (conmem and bank 2) and the CPU executes <code>$2000</code>
+(fixtures README, G24; <code>kNextZxosDotBank</code>, <code>z88dk_space.h:46</code>). <code>SourceMap::replace(..., dot)</code>
+remembers the verdict (<code>SourceMap::dot()</code>), which <a href="06-lifetime.html">7.6</a> uses for the identity.</p>
+</li>
+</ol>
+<p>A number above the limit of its family (223 for a page, 111 for a bank, 15 for
+DivMMC) makes the value unpaged when it fits 16 bits and refused otherwise.</p>
+<p>A <code>DIV_&lt;n&gt;</code> or <code>&lt;KIND&gt;_DIV_&lt;n&gt;</code> section (DivMMC memory) is unpaged with the reason "a DIV_n
+bank is the one the program, or a dotn command's allocator, chooses when it runs": the bank is
+the program's to choose, so the map cannot say it. The symbol half keeps a 16-bit symbol of it
+as an unpaged label, and the source half refuses a line record in it.</p>
 <p>In a numbered section the bits of <code>value</code> above 15 are not read.</p>
 <h3 id="extent-and-ownership">Extent and ownership<a class="headerlink" href="#extent-and-ownership" title="Permanent link">&para;</a></h3>
 <p>A line record has a start and no end. <code>extent()</code> in <code>load_z88dk_source_map()</code>

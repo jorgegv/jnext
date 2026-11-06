@@ -3679,11 +3679,15 @@ precondition: the DivMMC automap that takes <code>$0008</code> to NextZXOS needs
 <td>carry set, <code>A</code>=<code>$02</code> (<code>esx_enonsense</code>)</td>
 <td>falls through</td>
 </tr>
+<tr>
+<td><code>$B2</code> and above</td>
+<td>falls through</td>
+<td>falls through</td>
+</tr>
 </tbody>
 </table>
 <p>With <code>--esxdos-stub-root</code> the file and directory calls are served from a real
-host directory instead; see the section below.
-| <code>$B2</code> and above | falls through | falls through |</p>
+host directory instead; see the section below.</p>
 <p>The in-memory file (<code>esxdos_stub_file_</code>) is one anonymous buffer: opening for
 write creates it empty under the given name, and opening for read succeeds only
 under that same name. <code>emulator_cold_boot()</code> carries it across a power reset,
