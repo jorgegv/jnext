@@ -149,7 +149,7 @@ other one because the handler resets it; a signal that was
 `SIG_IGN` at start stays ignored). Each frame loop polls `pending()` once per
 iteration and leaves through its normal teardown: `QtApp`'s `post_frames()` does
 the unattended quit (finish the RZX recording, `set_unattended`, `quit()`),
-`SdlApp::run()` and `HeadlessApp::run()` break out of their loops. The end of
+`SdlApp::tick()` returns false and `HeadlessApp::run()` breaks out of its loop. The end of
 `main()`, after every teardown, calls `quit_signal::reraise_if_pending()`, so
 the process dies by the signal (status 128+N, `WIFSIGNALED`) and never reads as
 a success. Windows is exempt: the helper is a no-op there, because no SIGTERM
@@ -166,7 +166,11 @@ was terminated BY the signal, plus headless held paused by a DZRP client) and
   the `QApplication` exists it calls `DesktopColorScheme::install()` (light and
   dark, below).
 - **`SdlApp`** (`src/platform/sdl_app.h`) owns an `SdlDisplay`, an `SdlInput`
-  and an `SdlAudio`, and runs its own event and pacing loop. Its speed
+  and an `SdlAudio`, and runs its own event and pacing loop. One iteration of
+  it is `SdlApp::tick()`, which never sleeps: it returns whether to go on and
+  hands back the pacing sleep it wants. `SdlApp::run()` loops on it and does
+  the sleep, so a host that needs control back after every frame can drive
+  `tick()` itself. Its speed
   multiplier (`--speed`, `SdlApp::set_speed_percent()`) scales the whole-ms
   sleep, switches off audio pacing away from 1x and, above it, presents at most
   every `frame_sequencer::RENDER_INTERVAL_MS` — the same three things
