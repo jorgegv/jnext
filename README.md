@@ -65,13 +65,8 @@ under CI.
   SPI / I²C / RTC, keyboard and USB gamepads, ESP01 Wifi subsystem
 - **Formats** — NEX, SNA, SZX, Z80, TAP, TZX, WAV, RZX
 
-**Status: 1.0, not finished** — fixes are still pending and many features are
-on the roadmap. It works well enough for its author, and hopefully for you; the
-1.0 release is meant to bring more users and more bug reports, so please report
-what you find at [GitHub issues](https://github.com/jorgegv/jnext/issues).
-Extreme cycle-exactness is explicitly *not* a goal; "good enough to develop
-games on" is. Some things are still rough or missing; they are listed, not
-hidden:
+Known bugs and pending features are listed, not hidden; please report what you
+find at [GitHub issues](https://github.com/jorgegv/jnext/issues):
 
 - [GitHub issues](https://github.com/jorgegv/jnext/issues) — known issues and pending features
 - [KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md](doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md)
