@@ -4291,17 +4291,19 @@ open the row, up to 100 at a time: an array of more than 100 elements shows rang
 ...) that open onto their elements. A NULL pointer opens onto the text <code>null pointer</code>. What you have open stays
 open at the next stop, and a row you have selected stays selected.</p>
 <h2 id="watching-a-variable">Watching a variable<a class="headerlink" href="#watching-a-variable" title="Permanent link">&para;</a></h2>
-<p>Right-click a row and choose <strong>Watch</strong>: it becomes a row of the <strong>Watches</strong> tab (the tab does not change).
-- A parameter or local is tied to <strong>its function</strong>: the row is labelled <code>t (in sum)</code> and is read in the
+<p>Right-click a row and choose <strong>Watch</strong>: it becomes a row of the <strong>Watches</strong> tab (the tab does not change).</p>
+<ul>
+<li>A parameter or local is tied to <strong>its function</strong>: the row is labelled <code>t (in sum)</code> and is read in the
   newest call of <code>sum</code> wherever it is, and when <code>sum</code> is not on the call stack it says
-  <code>out of scope: sum is not on the call stack</code>.
-- A global, a file static or a static local always reads, whatever the CPU is running (a static local is pinned under its
-  own file and function, so another file's function of the same name is never read instead).
-- <strong>Watch</strong> is available only while the machine is paused, like everything in the tab.
-- C rows are read at each stop, not while the machine runs: they keep the text of the last stop.
-- Edit does nothing on a C row (there is no address to edit); Remove deletes it. C watches last the session.
-- Without a source map, the rows show why there are no variables, and bind again when a map with that function
-  and variable is attached.</p>
+  <code>out of scope: sum is not on the call stack</code>.</li>
+<li>A global, a file static or a static local always reads, whatever the CPU is running (a static local is pinned under its
+  own file and function, so another file's function of the same name is never read instead).</li>
+<li><strong>Watch</strong> is available only while the machine is paused, like everything in the tab.</li>
+<li>C rows are read at each stop, not while the machine runs: they keep the text of the last stop.</li>
+<li>Edit does nothing on a C row (there is no address to edit); Remove deletes it. C watches last the session.</li>
+<li>Without a source map, the rows show why there are no variables, and bind again when a map with that function
+  and variable is attached.</li>
+</ul>
 <h2 id="editing-a-value">Editing a value<a class="headerlink" href="#editing-a-value" title="Permanent link">&para;</a></h2>
 <p>Double-click a variable's <strong>Value</strong> (or right-click ▸ <strong>Edit Value</strong>) while the machine is paused: an editor opens holding the value's
 first word (<code>120</code> for <code>120 'x'</code>, <code>$8D21</code> for <code>$8D21 &lt;g_node&gt;</code>, <code>1.5</code> for a float). Type the new value and press Enter; Esc cancels.</p>
@@ -4397,12 +4399,6 @@ with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get
 <td>not fixed yet</td>
 </tr>
 <tr>
-<td>master (before the fixes above), sccz80</td>
-<td>the same as 2.4</td>
-<td>the same as 2.4</td>
-<td>as above</td>
-</tr>
-<tr>
 <td>master, sccz80</td>
 <td>enumerators</td>
 <td>the number (JNEXT recognises the <code>N:</code> and <code>E:</code> records master writes from 2026-11-05 and does not read the enumerator names yet)</td>
@@ -4494,18 +4490,20 @@ with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get
 </tr>
 </tbody>
 </table>
-<p>More, in short:
-- A plain <code>int</code> bitfield (<code>int s:4;</code>) is <strong>unsigned</strong> in sccz80 and 80cc and signed in zsdcc, so the value shown is each program's own reading; a <code>signed int</code> field is signed everywhere.
-- On a <code>for</code> line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80 and 80cc: those lines are recorded in the enclosing block. It is listed in the body, and again from the next line. With 80cc the loop variable is listed on its <code>for</code> line too, flagged <code>scope unknown</code>, because 80cc opens no block for a <code>for</code>.
-- A source path that contains a <code>$</code> (<code>game$v2/main.c</code>): sccz80 and 80cc write the path into each local's and static's record, and <code>$</code> separates the record's fields, so JNEXT cannot read the records of that file and does not list its parameters, locals or file statics (its globals are listed). zcc itself needs the <code>$</code> escaped and cannot write <code>--list</code> listings for such a path. Keep <code>$</code> out of source paths.
-- 80cc writes one scope per source line and stamps some code with another block's scope (see the table), so its block locals are never certain. On a line that holds code of two blocks the locals hidden are those of the block 80cc wrote first. Keeping a block's statements on lines of their own does not avoid it: the stamp comes from the compiler's order of work, not from the line.
-- A name that two visible variables share (an inner block's <code>t</code> over the function's <code>t</code>): the innermost is the one <code>print</code>, a watch, <code>cvar()</code> and a write mean, as in gdb. The Variables tab lists both; the outer one is marked <code>shadowed</code>, or <code>may be shadowed</code> when the choice is not certain, that is when the inner one is <code>scope unknown</code> (that is 80cc's block locals; a parameter or level-1 local shadowed by a certain pick is <code>shadowed</code> on every compiler). A read of an uncertain name carries <code>ambiguous: 2 variables named t may be in scope here; this is the innermost (...)</code>, and a write to it is refused. A block-scoped <code>static</code> local is in scope only in its block, like a block local: where its block is closed it is not listed and the name means the local; where it is open it wins; on 80cc it is <code>scope unknown</code> like every block local. Each of the two rows acts on the variable it shows: Edit Value writes that variable and expanding it lists that variable's members. Watch is offered only on the innermost row, because a Watch is a name and the name reaches the innermost declaration; the shadowed row's Watch is disabled and its tooltip says so. Two block statics of one name in a function (zsdcc) share the path <code>function::name</code>: that typed path is refused with <code>ambiguous: 2 statics named n in f</code>, <code>monitor globals</code> marks both entries <code>(ambiguous path)</code>, and the Globals rows read and edit their own static but cannot be watched.
-- Not a display limit, but wrong values in the program itself: a bitfield initialiser across two bytes written as one (fixed in z88dk master from 2026-11-04), and three 80cc code-generation bugs (fixed in master on 2026-11-04 and 2026-11-05; one only on the Game Boy target).
-- Not JNEXT: defects of z88dk's own debuggers (one fixed in master from 2026-11-04) and ticks' reading of floats (not fixed yet).
-- No C variables at all: zsdcc on 2.4 (<code>-debug</code> does not build), and the classic library on the Next with 2.4 (<code>-debug</code> fails; it works on master from 2026-10-23).
-- Enumerations show their number, not their name; a <code>union</code> is shown as a <code>struct</code>.
-- Before a function has set up its frame, its locals are <code>not allocated</code>; a variable at an offset below the stack the frame owns, too.
-- Some variables cannot be written: see <a href="#editing-a-value">Editing a value</a>.</p>
+<p>More, in short:</p>
+<ul>
+<li>A plain <code>int</code> bitfield (<code>int s:4;</code>) is <strong>unsigned</strong> in sccz80 and 80cc and signed in zsdcc, so the value shown is each program's own reading; a <code>signed int</code> field is signed everywhere.</li>
+<li>On a <code>for</code> line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80 and 80cc: those lines are recorded in the enclosing block. It is listed in the body, and again from the next line. With 80cc the loop variable is listed on its <code>for</code> line too, flagged <code>scope unknown</code>, because 80cc opens no block for a <code>for</code>.</li>
+<li>A source path that contains a <code>$</code> (<code>game$v2/main.c</code>): sccz80 and 80cc write the path into each local's and static's record, and <code>$</code> separates the record's fields, so JNEXT cannot read the records of that file and does not list its parameters, locals or file statics (its globals are listed). zcc itself needs the <code>$</code> escaped and cannot write <code>--list</code> listings for such a path. Keep <code>$</code> out of source paths.</li>
+<li>80cc writes one scope per source line and stamps some code with another block's scope (see the table), so its block locals are never certain. On a line that holds code of two blocks the locals hidden are those of the block 80cc wrote first. Keeping a block's statements on lines of their own does not avoid it: the stamp comes from the compiler's order of work, not from the line.</li>
+<li>A name that two visible variables share (an inner block's <code>t</code> over the function's <code>t</code>): the innermost is the one <code>print</code>, a watch, <code>cvar()</code> and a write mean, as in gdb. The Variables tab lists both; the outer one is marked <code>shadowed</code>, or <code>may be shadowed</code> when the choice is not certain, that is when the inner one is <code>scope unknown</code> (that is 80cc's block locals; a parameter or level-1 local shadowed by a certain pick is <code>shadowed</code> on every compiler). A read of an uncertain name carries <code>ambiguous: 2 variables named t may be in scope here; this is the innermost (...)</code>, and a write to it is refused. A block-scoped <code>static</code> local is in scope only in its block, like a block local: where its block is closed it is not listed and the name means the local; where it is open it wins; on 80cc it is <code>scope unknown</code> like every block local. Each of the two rows acts on the variable it shows: Edit Value writes that variable and expanding it lists that variable's members. Watch is offered only on the innermost row, because a Watch is a name and the name reaches the innermost declaration; the shadowed row's Watch is disabled and its tooltip says so. Two block statics of one name in a function (zsdcc) share the path <code>function::name</code>: that typed path is refused with <code>ambiguous: 2 statics named n in f</code>, <code>monitor globals</code> marks both entries <code>(ambiguous path)</code>, and the Globals rows read and edit their own static but cannot be watched.</li>
+<li>Not a display limit, but wrong values in the program itself: a bitfield initialiser across two bytes written as one (fixed in z88dk master from 2026-11-04), and three 80cc code-generation bugs (fixed in master on 2026-11-04 and 2026-11-05; one only on the Game Boy target).</li>
+<li>Not JNEXT: defects of z88dk's own debuggers (one fixed in master from 2026-11-04) and ticks' reading of floats (not fixed yet).</li>
+<li>No C variables at all: zsdcc on 2.4 (<code>-debug</code> does not build), and the classic library on the Next with 2.4 (<code>-debug</code> fails; it works on master from 2026-10-23).</li>
+<li>Enumerations show their number, not their name; a <code>union</code> is shown as a <code>struct</code>.</li>
+<li>Before a function has set up its frame, its locals are <code>not allocated</code>; a variable at an offset below the stack the frame owns, too.</li>
+<li>Some variables cannot be written: see <a href="#editing-a-value">Editing a value</a>.</li>
+</ul>
 <p>To read the same values from a script, GDB or ZRCP, see <a href="09-scripts-and-remote-debuggers.html#c-variables">Scripts and remote debuggers</a>.</p>
 
 

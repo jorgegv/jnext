@@ -47,6 +47,7 @@ open at the next stop, and a row you have selected stays selected.
 ## Watching a variable
 
 Right-click a row and choose **Watch**: it becomes a row of the **Watches** tab (the tab does not change).
+
 - A parameter or local is tied to **its function**: the row is labelled `t (in sum)` and is read in the
   newest call of `sum` wherever it is, and when `sum` is not on the call stack it says
   `out of scope: sum is not on the call stack`.
@@ -117,7 +118,6 @@ with a date is in z88dk master from `0f0a1cf70e` (2026-11-05). To get all of the
 | 2.4, sccz80 | a `for (int i ...)` variable gets the enclosing block's number | not listed inside its loop; two listed variables that share a slot both say `shares its stack slot with ...` | 2026-11-04 |
 | 2.4, sccz80 | enumerators have no value and no type | the number, not the name | 2026-11-05 |
 | 2.4, sccz80 | the float format is not recorded | a 6-byte float is read as z88dk's 48-bit format | not fixed yet |
-| master (before the fixes above), sccz80 | the same as 2.4 | the same as 2.4 | as above |
 | master, sccz80 | enumerators | the number (JNEXT recognises the `N:` and `E:` records master writes from 2026-11-05 and does not read the enumerator names yet) | 2026-11-05 |
 | master, sccz80 | the float format of classic `--math-mbf32` and `--math-dai32` | `float format mbf32 is not read` | not fixed yet |
 | master, zsdcc | a register variable has no live range | frame 0: `in BC; may be stale`; an older frame: `not available`; a removed variable: `optimised out` | not applicable |
@@ -135,6 +135,7 @@ with a date is in z88dk master from `0f0a1cf70e` (2026-11-05). To get all of the
 | master, 80cc | the float format | as master sccz80 | not fixed yet |
 
 More, in short:
+
 - A plain `int` bitfield (`int s:4;`) is **unsigned** in sccz80 and 80cc and signed in zsdcc, so the value shown is each program's own reading; a `signed int` field is signed everywhere.
 - On a `for` line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80 and 80cc: those lines are recorded in the enclosing block. It is listed in the body, and again from the next line. With 80cc the loop variable is listed on its `for` line too, flagged `scope unknown`, because 80cc opens no block for a `for`.
 - A source path that contains a `$` (`game$v2/main.c`): sccz80 and 80cc write the path into each local's and static's record, and `$` separates the record's fields, so JNEXT cannot read the records of that file and does not list its parameters, locals or file statics (its globals are listed). zcc itself needs the `$` escaped and cannot write `--list` listings for such a path. Keep `$` out of source paths.

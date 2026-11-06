@@ -568,10 +568,10 @@ precondition: the DivMMC automap that takes `$0008` to NextZXOS needs
 | `$9E` `F_WRITE` | the in-memory file only; there is no host-handle branch, so a write to host handle 2 or 3 fails (carry set, `A`=5) | in-memory file |
 | `$9F` / `$A0` / `$A1` `F_SEEK` / `F_FGETPOS` / `F_FSTAT` | host handles; otherwise `F_SEEK` fails (`A`=5) and the other two get the catch-all error | `F_SEEK` fails (`A`=5); the other two fall through |
 | any other `$80`-`$B1` | carry set, `A`=`$02` (`esx_enonsense`) | falls through |
+| `$B2` and above | falls through | falls through |
 
 With `--esxdos-stub-root` the file and directory calls are served from a real
 host directory instead; see the section below.
-| `$B2` and above | falls through | falls through |
 
 The in-memory file (`esxdos_stub_file_`) is one anonymous buffer: opening for
 write creates it empty under the given name, and opening for read succeeds only
