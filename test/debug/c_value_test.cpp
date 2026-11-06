@@ -2343,6 +2343,10 @@ int main() {
         for (const Build& bd : builds) {
             const FpCtx f(bd.mode, bd.bias, bd.ms);
             const int n = c_leaf_size(f.ctx, ty("{4}SF:S").chain);
+            if (n < 0) {
+                bad += " mode " + std::to_string(bd.mode) + ": no size";
+                continue;
+            }
             for (int k = 0; k < 5; ++k) {
                 const std::string got = enc_hex(f.ctx, bd.chain, texts[k], std::vector<uint8_t>(static_cast<size_t>(n), 0));
                 if (got != bd.b[k]) bad += " mode " + std::to_string(bd.mode) + "/" + std::to_string(bd.bias) + " " + texts[k] + " -> " + got;
@@ -2391,7 +2395,8 @@ int main() {
                               val(c, "{4}SF:S", {0, 0, 0xD0, 0x82}) == -3.25 && val(d, "{6}SF:S", {0, 0, 0, 0xD0, 0x82, 0}) == -3.25 &&
                               val(e, "{8}SF:S", {0, 0, 0, 0, 0, 0, 0xD0, 0x82}) == -3.25 && val(f, "{6}SF:S", {0, 0, 0, 0, 0xD0, 0x81}) == -3.25 &&
                               val(g, "{4}SF:S", {0, 0, 0xD0, 0x82}) == -3.25 && val(g, "{4}SF:S", {0, 0, 0xC8, 0x07}) == 100.0 &&
-                              val(a, "{6}SF:S", {0, 0, 0, 0, 0, 0}) == 0.0 && val(f, "{6}SF:S", {0, 2, 0, 0, 0, 0}) == 2.0;
+                              val(a, "{6}SF:S", {0, 0, 0, 0, 0, 0}) == 0.0 && val(f, "{6}SF:S", {0, 2, 0, 0, 0, 0}) == 2.0 &&
+                              val(f, "{6}SF:S", {0, 0xFE, 0xFF, 0xFF, 0xFF, 0}) == -2.0;
         // a short buffer and the unusable format give nothing; an int is not a float
         const std::vector<uint8_t> five(5, 1);
         const bool none = !c_float_value(a.ctx, ty("{6}SF:S"), five.data(), 5) && !c_float_value(FpCtx(7, 0, 3).ctx, ty("{4}SF:S"), five.data(), 5) &&
@@ -2400,7 +2405,7 @@ int main() {
         const std::vector<uint8_t> f48 = {0, 0, 0, 0, 0xD0, 0x82}, f32 = {0x00, 0x00, 0xC0, 0x3F};
         const auto o48 = c_float_value(ty("{6}SF:S"), f48.data(), 6);
         const auto o32 = c_float_value(ty("{4}SF:S"), f32.data(), 4);
-        check("CVFMT-30", "c_float_value(ctx, ...) is the decoded value in every mode (-3.25 in all seven, 100 in am9511, the z88 integer 2, zero), nothing for a short buffer, an unusable "
+        check("CVFMT-30", "c_float_value(ctx, ...) is the decoded value in every mode (-3.25 in all seven, 100 in am9511, the z88 integers 2 and -2, zero), nothing for a short buffer, an unusable "
                           "format and an int; the three-argument overload still reads by size (48-bit -3.25, binary32 1.5)",
               per_mode && none && o48 && *o48 == -3.25 && o32 && *o32 == 1.5);
     }

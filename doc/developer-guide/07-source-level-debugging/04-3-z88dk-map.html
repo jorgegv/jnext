@@ -3284,9 +3284,9 @@ The rules, in order of the section name:</p>
    <code>$0200</code> (dotx) or <code>$0300</code> (dotn) and <code>__CODE_head</code> is <code>$2000</code>. No <code>startupoffset</code>, or another
    value, is not a dot and has no reason; a dot whose <code>__CODE_head</code> is not <code>$2000</code> is not a dot
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
-   (<code>dot_why</code>, <code>z88dk_source_map.cpp:748-750</code>), while the symbol half places the map as any other
+   (<code>dot_why</code>, <code>z88dk_source_map.cpp:774-776</code>), while the symbol half places the map as any other
    (<code>z88dk_dot_command()</code>, <code>symbol_table.cpp:82</code>, no reason asked). Both halves read the
-   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:736</code>; the symbol half keeps every constant). For a dot,
+   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:755</code>; the symbol half keeps every constant). For a dot,
    <code>z88dk_section_space()</code> takes it as a last argument, after rules 1 to 3 (a value above <code>0xFFFF</code> in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:</p>
 <ul>
