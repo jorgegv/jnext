@@ -33,7 +33,7 @@ report a verdict at all rather than quietly skipping itself. The reasoning is
 worth internalising, because it recurs throughout this project: a check that did
 not run must never read as a check that passed. The same holds for
 **dbus-daemon**: `color_scheme_test` starts a private one to serve a mock
-desktop portal (GH #363), and its portal rows fail without it.
+desktop portal, and its portal rows fail without it.
 
 **The documentation toolchain is separate, and it is optional.** `pandoc`
 regenerates the man page and `USAGE.md`, `mkdocs-material` renders the user and

@@ -27,6 +27,14 @@
 // the backend's `SlotInfo`, in the one shape DeZog sends them: a comparison
 // with a number, as a conjunct of the top-level AND chain
 // (`PC=0abcdh AND SEG3=0005h`). Anywhere else they are refused.
+//
+// THE jnext EXTENSION (GH #436): `CVAR(path)` is one operand that reads a C variable of
+// the stopped program, the DSL's `cvar(path)` (frame 0, an int32; a pointer is its
+// address). The path is kept as written (its case too, `canonical` echoes it) and is
+// one token, so `CVAR(p->x)+1` splits at the `+` and nowhere inside the path. ZEsarUX
+// answers this text "Error parsing", so no ZEsarUX exchange changes meaning. A
+// failure to read it (an unknown name, an aggregate, no C variables) is ZEsarUX's
+// "Error evaluating parsed string", with no reason.
 // ---------------------------------------------------------------------------
 
 #include <array>

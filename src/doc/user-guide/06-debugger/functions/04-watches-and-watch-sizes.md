@@ -15,5 +15,8 @@ unsigned (Byte 0 to 255, Word 0 to 65535, Long 0 to 4294967295), for example
 Word and Long are assembled little-endian, low byte first, matching the Z80's
 own convention — so a Word watch on a `LD (nn),HL` destination reads back `HL`.
 
+A watch on a C variable has no size to choose: it has the variable's own type
+([Variables](../panels/16-variables.md)).
+
 Watches read through the CPU's current view of memory, so a watch on a banked
 address follows whatever is paged in at that moment.

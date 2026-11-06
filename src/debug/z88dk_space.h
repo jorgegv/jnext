@@ -84,6 +84,7 @@ struct Z88dkMapLine {
     uint64_t value = 0;       // up to 64 bits: `__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF`
     bool is_addr = false;     // type "addr"
     bool is_const = false;    // type "const"
+    bool is_public = false;   // scope "public" (a C global; `local` for a file static)
     std::string module;
     std::string section;      // empty for a symbol in no section
     std::string location;     // the 6th comma field, whole (it can hold commas or a TAB)

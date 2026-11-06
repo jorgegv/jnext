@@ -5,6 +5,7 @@
 #include <limits>
 #include <map>
 
+#include "debug/c_value.h"
 #include "script/names.h"
 
 namespace jnext {
@@ -311,6 +312,14 @@ struct Binder {
                 e.slot = names->snapshot_slot(e.text);
                 if (e.a) need_int(*e.a, walk(*e.a), "an index");
                 return ValueType::Int;
+            case ExprKind::CVar: {
+                // GH #436: the path's syntax is checked here; what it names is looked up at each
+                // evaluation (the store may not exist yet). Legal in every scope: it reads the
+                // machine, like `mem[]`.
+                const dbg::CPath cp = dbg::c_parse_path(e.text);
+                if (!cp.ok) err(e.pos, "`cvar(" + e.text + ")`: " + cp.why);
+                return ValueType::Int;
+            }
             case ExprKind::Changed:
             case ExprKind::Depth:
                 if (!names) {

@@ -79,7 +79,7 @@ other kind is delivered at an instruction boundary:
 The "≤1 instruction" entries are all one fact. The boundary drain runs
 **before** `tick_devices_after_instruction()`, and that is where the Copper and
 the deferred CPU NextREG queue run. Moving the drain behind the device cluster
-would change the GH #265 early-return contract for every data breakpoint, so
+would change the early-return contract for every data breakpoint, so
 the delay is accepted and stated instead. A CPU `NextRegWrite`'s payload still
 names the writer's PC.
 
@@ -98,8 +98,7 @@ instruction slot, so every event one instruction raises carries that slot's
 start cycle. Two `Mem{Write}`s from one `LD (nn),HL` are indistinguishable by
 `cycle`. `Scanline` is exact, because the site hands the latch the line's own
 boundary cycle. Its `cvc` comes from the line number rather than from a cycle,
-because `cvc` steps at raw `hc == hc_ula_zero_raw_hc()` and not at raw `hc` 0
-(GH #257).
+because `cvc` steps at raw `hc == hc_ula_zero_raw_hc()` and not at raw `hc` 0.
 
 ## The delivery
 

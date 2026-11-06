@@ -410,13 +410,13 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
             } else {
                 int32_t lo = 0, hi = 0;
                 range(ev.lo, ev.hi, 0xFFFF, "port", lo, hi);
-                // GH #222 (§2.1 `port_spec`): a 0x00xx port decodes on its LOW
+                // (§2.1 `port_spec`): a 0x00xx port decodes on its LOW
                 // byte, any other exactly — for a single port and a range
                 // alike. A range straddling 0xFF would need both at once.
                 const bool low = hi <= 0xFF;
                 if (!bad && !low && lo <= 0xFF) {
                     errors.push_back(Diagnostic{ev.lo->pos,
-                        "a port range lies wholly in 0x00..0xFF (decoded on the low byte, GH #222) or "
+                        "a port range lies wholly in 0x00..0xFF (decoded on the low byte) or "
                         "wholly above it"});
                     bad = true;
                 } else if (lo == hi) {
@@ -843,6 +843,15 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                     if (reg < 0 || reg > 0xFF) fail(t.pos, "`set nextreg[]` register outside 0..0xFF");
                     refused(a.pos, "`set nextreg[]`",
                             d.nextreg_write(cid_, static_cast<uint8_t>(reg), static_cast<uint8_t>(v & 0xFF)));
+                    break;
+                }
+                if (t.kind == ExprKind::CVar) {
+                    // GH #437: frame 0, where the CPU is, as the read atom; the script's int32 (a bit pattern for a 4-byte integer)
+                    dbg::CNewValue nv;
+                    nv.from  = dbg::CNewValue::From::Int32;
+                    nv.int32 = v;
+                    const auto w = d.write_c_value(cid_, 0, t.text, nv);
+                    if (!w.ok()) fail(a.pos, "`set cvar(" + t.text + ")` was refused (" + w.why + ")");
                     break;
                 }
                 fail(t.pos, "internal: bad `set` target");

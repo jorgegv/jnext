@@ -29,7 +29,7 @@ remediation line:
   would let a hand-edited SVG through, because mkdocs copies it across
   unchanged. The fix is `make docs-devguide`, then commit both.
 
-- **`docs-devguide-cites-check`** (GH #430) verifies the developer guide's
+- **`docs-devguide-cites-check`** verifies the developer guide's
   code cites. It is not a freshness check: no renderer is involved. See
   [the cite rule](#the-developer-guide-cite-rule) below.
 
@@ -104,7 +104,7 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:
 **At a merge, the gate is not enough** (a merge-time procedure, not a gate). The
 rule cannot see a cite whose number did not move while its code did, when the
 symbol is still somewhere in the cited range or a weak anchor happens to match the
-line now there: the 10 cites of the #387 merge, and a plain `text` that matched a
+line now there: ten cites after one merge, and a plain `text` that matched a
 comment. After merging code into a branch whose guide has cites, map every cite
 whose number is unchanged through the code diff and re-point the ones whose cited
 lines moved:
@@ -212,7 +212,7 @@ Adding a flag is therefore four edits: an `OptId`, a table row, a `case` in
 
 ## The table of `jnext.conf` keys
 
-`src/platform/config_keys.h` (GH #417) is the one place the keys of `jnext.conf` are
+`src/platform/config_keys.h` is the one place the keys of `jnext.conf` are
 named: section, key, value type, bounds, accepted words, the dedicated flag with
 the same effect, and the frontends where it takes effect. It is Qt-free, so the
 SDL-only and headless builds can parse the same names. `AppConfig` and
@@ -232,7 +232,7 @@ names, the file format version) is declared in the table with its reason, and
 
 ### `--set`, the other half of the same table
 
-`--set SECTION.KEY=VALUE` (stage 2 of GH #417) is parsed by
+`--set SECTION.KEY=VALUE` is parsed by
 `config_keys::parse_assignment()` and applied in `main.cpp` by one lambda,
 `apply_assignment`, whose `switch (a.id)` over `config_keys::KeyId` has **no
 `default`**: the `jnext` target builds with `-Werror=switch`, so a row added to

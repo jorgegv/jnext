@@ -519,25 +519,24 @@ intarg.c::accum::0::0:
 intarg.c::accum::0::1:
      4  0004  210600            	ld	hl,6
      4  0007  39                	add	hl,sp
-     4  0008  7e                	ld	a,(hl)
-     4  0009  6f                	ld	l,a
-     4  000a  2600              	ld	h,0
-     4  000c  444d              	ld	bc,hl
-     4  000e  29                	add	hl,hl
-     4  000f  09                	add	hl,bc
-     4  0010  eb                	ex	de,hl
-     4  0011  210800            	ld	hl,8
-     4  0014  39                	add	hl,sp
-     4  0015  7e23              	ld	a,(hl+)
-     4  0017  66                	ld	h,(hl)
-     4  0018  6f                	ld	l,a
-     4  0019  19                	add	hl,de
-     4  001a  d1                	pop	de
-     4  001b  e5                	push	hl
+     4  0008  6e                	ld	l,(hl)
+     4  0009  2600              	ld	h,0
+     4  000b  444d              	ld	bc,hl
+     4  000d  29                	add	hl,hl
+     4  000e  09                	add	hl,bc
+     4  000f  eb                	ex	de,hl
+     4  0010  210800            	ld	hl,8
+     4  0013  39                	add	hl,sp
+     4  0014  7e23              	ld	a,(hl+)
+     4  0016  66                	ld	h,(hl)
+     4  0017  6f                	ld	l,a
+     4  0018  19                	add	hl,de
+     4  0019  d1                	pop	de
+     4  001a  e5                	push	hl
      4                          	C_LINE	5,"intarg.c::accum::0::1"
-     5  001c  f1                	pop	af
-     5  001d  cd0000            	call	l_debug_pop_frame
-     5  0020  c9                	ret
+     5  001b  f1                	pop	af
+     5  001c  cd0000            	call	l_debug_pop_frame
+     5  001f  c9                	ret
      5                          	C_LINE	8,"intarg.c::accum::0::1"
      8                          
      8                          ; Function main flags 0x00000000 __stdc
@@ -545,34 +544,34 @@ intarg.c::accum::0::1:
      8                          	C_LINE	9,"intarg.c::main::0::2"
 intarg.c::main::0::2:
      9                          ._main
-     9  0021  dde5              	push	ix
-     9  0023  dd210000          	ld	ix,0
-     9  0027  dd39              	add	ix,sp
-     9  0029  f5                	push	af
+     9  0020  dde5              	push	ix
+     9  0022  dd210000          	ld	ix,0
+     9  0026  dd39              	add	ix,sp
+     9  0028  f5                	push	af
      9                          	C_LINE	11,"intarg.c::main::0::3"
 intarg.c::main::0::3:
-    11  002a  216400            	ld	hl,100
-    11  002d  e5                	push	hl
-    11  002e  2e07              	ld	l,7
-    11  0030  e5                	push	hl
-    11  0031  cd0000            	call	_accum
+    11  0029  216400            	ld	hl,100
+    11  002c  e5                	push	hl
+    11  002d  2e07              	ld	l,7
+    11  002f  e5                	push	hl
+    11  0030  cd0000            	call	_accum
+    11  0033  c1                	pop	bc
     11  0034  c1                	pop	bc
-    11  0035  c1                	pop	bc
-    11  0036  d1                	pop	de
-    11  0037  e5                	push	hl
+    11  0035  d1                	pop	de
+    11  0036  e5                	push	hl
     11                          	C_LINE	12,"intarg.c::main::0::3"
-    12  0038  e5                	push	hl
-    12  0039  210200            	ld	hl,2
-    12  003c  e5                	push	hl
-    12  003d  cd0000            	call	_accum
+    12  0037  e5                	push	hl
+    12  0038  210200            	ld	hl,2
+    12  003b  e5                	push	hl
+    12  003c  cd0000            	call	_accum
+    12  003f  c1                	pop	bc
     12  0040  c1                	pop	bc
-    12  0041  c1                	pop	bc
-    12  0042  d1                	pop	de
-    12  0043  e5                	push	hl
+    12  0041  d1                	pop	de
+    12  0042  e5                	push	hl
     12                          	C_LINE	13,"intarg.c::main::0::3"
-    13  0044  ddf9              	ld	sp,ix
-    13  0046  dde1              	pop	ix
-    13  0048  c9                	ret
+    13  0043  ddf9              	ld	sp,ix
+    13  0045  dde1              	pop	ix
+    13  0047  c9                	ret
     13                          	SECTION	bss_compiler
     13                          	SECTION	code_compiler
     13                          ; --- Start of Optimiser additions ---

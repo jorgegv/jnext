@@ -60,7 +60,8 @@ stops by itself (at a disabled-interrupt `HALT`, or after a million instructions
 or 100 frames) and says so in the log.
 
 **Over** and **Out** count calls with the call-stack tracker, which runs while
-the debugger window is open. **Back** and **Reverse** need the trace log and
+the debugger window is open, and also while a remote client or a script is attached and the
+loaded z88dk map carries C variable records. **Back** and **Reverse** need the trace log and
 rewind, like **Step Back**
 ([Backward execution (rewind)](../functions/07-backward-execution-rewind.md)); they look for
 their target in the instructions the trace has kept.

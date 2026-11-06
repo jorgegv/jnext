@@ -21,6 +21,18 @@ changes is as repeatable as one that does not.
 | `phys[p, o]` | a byte in physical 8K page `p` |
 | `nextreg[r]` | a NextREG, as a `NEXTREG` instruction would write it |
 | `AUDIO_MUTE` | the host-side mute mask (not the machine; never saved in a snapshot) |
+| `cvar(PATH)` | a C variable of the frame the CPU is in (see below) |
+
+### `set cvar(PATH)`
+
+`set cvar(g_int) = 10` writes a C variable of frame 0, where the CPU is, with the path grammar of
+[reading](04-reading-the-machine.md#c-variables-cvar). The value is the language's 32-bit integer: a 4-byte variable
+takes its bit pattern (`set cvar(g_ulong) = 0xCAFEBABE`), a smaller one must hold the value (`set cvar(g_uint) = -1` is
+refused, never truncated), a pointer takes 0 to 65535, and a float or an 8-byte variable is refused (use GDB or ZRCP, which
+take text). Every refusal is a run-time error: ``set cvar(g_uint)` was refused (...)`` with the reason, the rule is disabled and
+the run exits 1. A register variable, a struct, an out-of-scope local and the other cases of
+[Limits and troubleshooting](../source-debugger/10-limits-and-troubleshooting.md#limits) cannot be written. A write is a
+`MUTATE` line like any other.
 
 ## `out`
 

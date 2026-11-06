@@ -58,7 +58,7 @@ with `dsl_demo_buggy.nex` for the buggy build.
 
 ## `range_watch.jds`: a guard on the code area
 
-The #279 code-area guard — every write into 0x0000–0x3FFF and into
+The code-area guard — every write into 0x0000–0x3FFF and into
 0x8000–`@__data_crt_head - 1` stops, naming the writer. The script is listed
 and explained in [Catching memory-corruption bugs](11-catching-memory-corruption-bugs.md#1-a-guard-on-the-code-area).
 
@@ -160,7 +160,7 @@ on copper move 0x43 when armed == 1 do
 end
 
 on copper wait when armed == 1 and WAIT_V == 95 do
-    assert CVC == 95 and HC_ULA >= WAIT_H "WAIT for line 95 is satisfied on the Copper's own line 95, at or past its threshold (GH #181)"
+    assert CVC == 95 and HC_ULA >= WAIT_H "WAIT for line 95 is satisfied on the Copper's own line 95, at or past its threshold"
 end
 
 on copper halt once when armed == 1 do

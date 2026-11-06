@@ -256,7 +256,7 @@ Result Debugger::set_client_enabled(ClientId cid, bool enabled) {
 // ---------------------------------------------------------------------------
 
 std::vector<EventId> Debugger::probe_execute(uint16_t pc) const {
-    // A PURE query, and it must cover BOTH models: the GH #221 step-off arm
+    // A query that arms and fires nothing (a condition's `cvar()` may run `recheck()`, GH #436), and it must cover BOTH models: the GH #221 step-off arm
     // asks "what is there at the address I am standing on", and that may be a
     // legacy PC breakpoint (which has no id: an `EVENT_NONE` entry) or an
     // `Execute` subscription. Transient ones count — a Step Over's target IS a

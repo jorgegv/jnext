@@ -191,6 +191,7 @@ expr        ::= literal | IDENT | builtin | "@" IDENT { "." IDENT } | "(" expr "
               | IDENT "." field                    # snapshot field, see 2.5
               | "changed(" IDENT "," group ")"     # snapshot comparison
               | "depth(" IDENT ")"
+              | "cvar(" CPATH ")"                  # a C variable of frame 0 as an int32 (GH #436, 2.3)
               | unop expr | expr binop expr
 literal     ::= INT (dec, 0x hex, $ hex, 0b bin) | "true" | "false" | string
               | "CPU" | "DMA" | "COPPER"           # the SOURCE constants (integers 0, 1, 2)
@@ -338,6 +339,11 @@ changed(NAME, stack0) # word at SP differs from the captured one
 depth(NAME)           # stack depth, for indented traces
 dump_diff NAME        # log every field that differs, one line each
 ```
+
+`cvar(PATH)` (GH #436, epic #353) reads a C variable of frame 0 (where the CPU is) as an int32, through the backend's
+`read_c_value()`. PATH is the raw text to the first `)`: `['*'] name | fn::name | file.c::name`, then `.m`, `->m`, `[i]`.
+It is also an lvalue (GH #437): `set cvar(PATH) = v` writes through `write_c_value()` with the int32 as a pattern for a 4-byte integer (a smaller one range-checked, floats and 8-byte integers refused), and a refusal is a run-time error `` `set cvar(PATH)` was refused (<reason>) ``. The path is checked at load, and every refusal (no store, an unknown or out-of-scope name,
+an aggregate, a float, a null pointer) is a run-time error (§6.5), never a 0.
 
 Reading a field of an empty stack is a script error (§6.5). `changed` and
 `dump_diff` compare the current machine against the **top** entry. This is the

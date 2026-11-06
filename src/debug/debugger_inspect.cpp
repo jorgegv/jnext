@@ -903,11 +903,13 @@ bool Debugger::call_stack_enabled() const {
     return impl_->emu.call_stack().enabled();
 }
 
-Result Debugger::set_call_stack_enabled(bool enabled) {
-    impl_->emu.call_stack().set_enabled(enabled);
-    // GH #276 B3 — client intent, re-applied across a reconstruct
-    // (`Impl::want_call_stack`).
-    impl_->want_call_stack = enabled;
+Result Debugger::set_call_stack_enabled(ClientId by, bool enabled) {
+    // GH #434 F-B — the request is the CLIENT's, on its row (so a reconstruct keeps it and a
+    // detach drops it); the machine's state is derived from every row by `sync_call_stack()`.
+    Impl::Client* c = impl_->find_client(by);
+    if (!c) return Result::RefusedUnavailable;
+    c->call_stack = enabled;
+    impl_->sync_call_stack();
     impl_->bump_revision();   // GH #428
     return Result::Ok;
 }

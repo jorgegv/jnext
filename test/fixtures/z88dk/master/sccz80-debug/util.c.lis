@@ -617,25 +617,27 @@ util.c::util_twice::1::1:
      6  0018  d1                	pop	de
      6  0019  7d                	ld	a,l
      6  001a  12                	ld	(de),a
+     6  001b  2600              	ld	h,0
      6                          	C_LINE	7,"util.c::util_twice::1::1"
      7                          	C_LINE	7,"util.c::util_twice::1::1"
-     7  001b  210000            	ld	hl,0	;const
-     7  001e  39                	add	hl,sp
-     7  001f  e5                	push	hl
-     7  0020  6e                	ld	l,(hl)
-     7  0021  2600              	ld	h,0
-     7  0023  23                	inc	hl
-     7  0024  d1                	pop	de
-     7  0025  7d                	ld	a,l
-     7  0026  12                	ld	(de),a
+     7  001d  210000            	ld	hl,0	;const
+     7  0020  39                	add	hl,sp
+     7  0021  e5                	push	hl
+     7  0022  6e                	ld	l,(hl)
+     7  0023  2600              	ld	h,0
+     7  0025  23                	inc	hl
+     7  0026  d1                	pop	de
+     7  0027  7d                	ld	a,l
+     7  0028  12                	ld	(de),a
+     7  0029  2600              	ld	h,0
      7                          	C_LINE	8,"util.c::util_twice::1::1"
      8                          	C_LINE	8,"util.c::util_twice::1::1"
-     8  0027  e1                	pop	hl
-     8  0028  e5                	push	hl
-     8  0029  2600              	ld	h,0
-     8  002b  33                	inc	sp
-     8  002c  cd0000            	call	l_debug_pop_frame
-     8  002f  c9                	ret
+     8  002b  e1                	pop	hl
+     8  002c  e5                	push	hl
+     8  002d  2600              	ld	h,0
+     8  002f  33                	inc	sp
+     8  0030  cd0000            	call	l_debug_pop_frame
+     8  0033  c9                	ret
      8                          
      8                          
      8                          	SECTION	bss_compiler

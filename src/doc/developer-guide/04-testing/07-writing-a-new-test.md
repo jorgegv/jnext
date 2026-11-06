@@ -84,8 +84,7 @@ resolution of a real filesystem (wine keeps whole seconds, so a fixture mtime is
 set 250 ms past the second, never exactly on it).
 Wine's Winsock can also return a peer reset as a 0-byte read followed by
 WSAECONNRESET (a race in its server), so the Windows socket shim confirms a
-0-byte stream read with a `MSG_PEEK` recv before calling it an orderly close
-(GH #326).
+0-byte stream read with a `MSG_PEEK` recv before calling it an orderly close.
 
 ## Portable regression rows
 

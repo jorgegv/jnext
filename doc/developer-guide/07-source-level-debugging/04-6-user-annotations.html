@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2231,6 +2231,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2943,6 +2947,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2971,7 +3031,7 @@
 
 
 <h1 id="746-the-annotations-project-file-jdp-and-the-users-labels">7.4.6 The annotations project file (<code>.jdp</code>) and the user's labels<a class="headerlink" href="#746-the-annotations-project-file-jdp-and-the-users-labels" title="Permanent link">&para;</a></h1>
-<p>The user's own labels and comments (GH #387) are the one input of chapter 7 that
+<p>The user's own labels and comments are the one input of chapter 7 that
 no toolchain writes. JNEXT defines the file itself: plain UTF-8 text, extension
 <code>.jdp</code>, opened and saved by the user and never attached beside a program. It
 fills a third store, <code>UserAnnotations</code>, which sits beside the toolchain's
@@ -3029,7 +3089,7 @@ error is <code>line N: reason</code>.</p>
    file cannot disagree: <code>UserAnnotations::valid_label_name()</code>
    (<code>src/debug/user_annotations.cpp:29</code>: components <code>[A-Za-z_][A-Za-z0-9_]*</code>
    joined by single dots, exactly what the DSL's <code>@name</code> lexes,
-   <code>lex_symbol()</code>, <code>src/script/lexer.cpp:217-235</code>), <code>valid_utf8()</code> (<code>src/debug/user_annotations.cpp:39</code>: no overlong form, no
+   <code>lex_symbol()</code>, <code>src/script/lexer.cpp:243-261</code>), <code>valid_utf8()</code> (<code>src/debug/user_annotations.cpp:39</code>: no overlong form, no
    surrogate, nothing past U+10FFFF) and the uniqueness of a name
    (<code>set_label()</code>, <code>src/debug/user_annotations.cpp:62-80</code>).</li>
 <li><strong>A key the file can name.</strong> <code>nameable()</code> (<code>src/debug/user_annotations.cpp:15</code>)
@@ -3053,7 +3113,7 @@ automatically.</p>
 <p>The BOM, CR, <code>#</code> lines and blank lines above. Nothing else: an unknown record,
 tag, version or escape refuses the file.</p>
 <h2 id="8-excerpt">8. Excerpt<a class="headerlink" href="#8-excerpt" title="Permanent link">&para;</a></h2>
-<p>From the writer's row <code>JDP-01</code> (<code>test/debug/source_map_test.cpp:1319-1325</code>), the
+<p>From the writer's row <code>JDP-01</code> (<code>test/debug/source_map_test.cpp:1343-1349</code>), the
 bytes of a store inserted in a shuffled order:</p>
 <pre><code>jnext-annotations 1
 label P04 $8000 Start
@@ -3074,11 +3134,11 @@ so every consumer reads both layers with no code of its own.
 <code>names</code> is assigned in place, so the <code>const SymbolTable*</code> the Disassembly, Call Stack
 and Breakpoints panels hold (<code>set_symbol_table(&amp;dbg_.symbols())</code>) stays valid.</p>
 <p><code>recompose_names()</code> is called after every change of either layer: the toolchain writers
-(<code>recompose_names</code> at <code>src/debug/debugger.cpp:270</code> in load_map and <code>:284</code> in clear_symbols; in <code>src/debug/debugger_source.cpp</code> at <code>:409</code> the deferred-check drop, <code>:542</code> and <code>:549</code> the
-hand SLD's labels, <code>:780</code> the program-load attach and its bind, <code>:944</code>
-drop_sidecars, <code>:1042</code> and <code>:1048</code> the ring landing) and every verb that changes a label
+(<code>recompose_names</code> at <code>src/debug/debugger.cpp:270</code> in load_map and <code>:284</code> in clear_symbols; in <code>src/debug/debugger_source.cpp</code> at <code>:409</code> the deferred-check drop, <code>:547</code> and <code>:554</code> the
+hand SLD's labels, <code>:797</code> the program-load attach and its bind, <code>:961</code>
+drop_sidecars, <code>:1064</code> and <code>:1070</code> the ring landing) and every verb that changes a label
 (<code>recompose_names</code> at <code>src/debug/debugger_annotations.cpp:71</code> in set_user_label, <code>:80</code> in remove_user_label, <code>:116</code> in replace_annotations; <code>set_user_comment()</code> changes no name and does not). The attachment cache
-copies <code>toolchain_symbols</code>, never <code>names</code> (<code>src/debug/debugger_source.cpp:895</code>),
+copies <code>toolchain_symbols</code>, never <code>names</code> (<code>src/debug/debugger_source.cpp:912</code>),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.</p>
 <p>The name rule against the toolchain layer is in <code>set_user_label()</code>
@@ -3091,7 +3151,7 @@ loaded later is not either: the user layer then wins by name.</p>
 <code>source_file_problem()</code> first (not a regular file, over 64 MiB). The verbs touch no
 machine state, so they are allowed while the machine runs, take no load generation
 and leave <code>.jns</code>, the rewind ring and the attachment cache alone; each success bumps
-<code>state_revision()</code> (<a href="../03-subsystems/09-1-the-backend-api.html">3.9.1</a>, GH #428). A verb that
+<code>state_revision()</code> (<a href="../03-subsystems/09-1-the-backend-api.html">3.9.1</a>). A verb that
 changes nothing (a rename to the same name, an identical or already-normalised comment, clearing a
 comment that is not there, replacing or loading the same store) bumps neither revision: the early
 <code>return Result::Ok</code> of <code>set_user_label()</code> (<code>Ok</code>, <code>src/debug/debugger_annotations.cpp:69</code>), of
@@ -3118,12 +3178,12 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   file the toolchain layer was loaded from (<code>toolchain_symbols().loaded_file()</code> in <code>add_annotation_actions()</code>, <code>toolchain_note</code>,
   <code>annotation_menu.cpp:95-98</code>; <code>state_of()</code>, <code>:24</code>, only says whether a label is there). The panels hold a <code>const Debugger*</code> for reading; the writes go
   through the non-const pointer <code>DebuggerManager</code> hands them with <code>set_annotation_backend()</code>
-  (<code>src/debugger/debugger_manager.cpp:386</code> and <code>:390</code>), and each panel's <code>annotations_changed()</code> signal makes the
+  (<code>src/debugger/debugger_manager.cpp:392</code> and <code>:396</code>), and each panel's <code>annotations_changed()</code> signal makes the
   manager refresh the panels.</li>
 <li><strong>The Disassembly draws it.</strong> <code>label_column_shown()</code> (<code>disasm_panel.cpp:1016</code>) is true while the symbol table
   (the composed reader, section 9) holds any label; then the <strong>Label</strong> column sits between the BP column and the
   mnemonic and every x after it moves by <code>label_width()</code> (16 characters). The columns run Mem, Addr, BP column,
-  [Label], mnemonic, opcode bytes, <code>; comment</code> (GH #448); <code>breakpoint_x()</code> (<code>:1023</code>) is the BP column's left edge,
+  [Label], mnemonic, opcode bytes, <code>; comment</code>; <code>breakpoint_x()</code> (<code>:1023</code>) is the BP column's left edge,
   <code>mnemonic_x()</code> (<code>:1025</code>) the mnemonic's (<code>breakpoint_x() + 20 + 4</code>, plus <code>label_width()</code> with a label),
   <code>mnemonic_width()</code> (<code>:1030</code>) the mnemonic column's 20 characters, and <code>bytes_x(line)</code> (<code>:1035</code>) where that line's
   bytes start: after the column, or after the mnemonic itself plus a gap when that mnemonic is wider, so a long
@@ -3136,18 +3196,18 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   file).</li>
 <li><strong>The Map menu.</strong> <code>DebuggerWindow</code> adds <strong>Open Annotations…</strong>, <strong>Save Annotations</strong> and <strong>Save Annotations As…</strong>
   (<code>connect</code>, <code>src/debugger/debugger_window.cpp:890-894</code>), connected to <code>DebuggerManager::on_open_annotations()</code>
-  (<code>debugger_manager.cpp:778</code>), <code>on_save_annotations()</code> (<code>:754</code>) and <code>on_save_annotations_as()</code> (<code>:744</code>); Save with no
+  (<code>debugger_manager.cpp:784</code>), <code>on_save_annotations()</code> (<code>:760</code>) and <code>on_save_annotations_as()</code> (<code>:750</code>); Save with no
   current file is Save As, which appends <code>.jdp</code> to a name without a suffix. Failures are warnings with the
   backend's <code>why</code> (an Open names the line).</li>
 <li><strong>Unsaved changes (D11).</strong> <code>DebuggerManager</code> keeps <code>saved_revision_</code> (<code>debugger_manager.h</code>), the backend's
   <code>annotations_revision()</code> at the last Open, Save or <code>--annotations</code>; <code>annotations_unsaved()</code> compares them.
-  <code>confirm_discard_annotations()</code> (<code>debugger_manager.cpp:760</code>) asks Save / Discard / Cancel when they differ, and is
+  <code>confirm_discard_annotations()</code> (<code>debugger_manager.cpp:766</code>) asks Save / Discard / Cancel when they differ, and is
   asked by <code>on_open_annotations()</code> before it opens and by <code>MainWindow::closeEvent()</code>
   (<code>confirm_discard_annotations</code>, <code>src/gui/main_window.cpp:3830</code>) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
   through <code>close()</code>, which then returns false). An unattended close (<code>unattended_</code>, the delayed automatic exit and
   SIGINT/SIGTERM, tested at <code>src/gui/main_window.cpp:3827</code>) asks nothing: it logs that the unsaved changes were
   discarded and quits (<code>QG-ANN-05</code>). With nothing changed there is no dialog. <code>set_annotations_file()</code>
-  (<code>debugger_manager.cpp:725</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>set_annotations_file</code>, <code>src/gui/qt_app.cpp:394</code>), makes that file
+  (<code>debugger_manager.cpp:731</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>set_annotations_file</code>, <code>src/gui/qt_app.cpp:394</code>), makes that file
   the Save target and the starting point of "unsaved".</li>
 <li><strong>Settings.</strong> None: the store has no Preferences field, so <code>config_keys.cpp</code> has no row; the CLI is
   <code>--annotations FILE</code>.</li>

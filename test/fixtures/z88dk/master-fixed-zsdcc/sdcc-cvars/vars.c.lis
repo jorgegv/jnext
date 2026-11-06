@@ -1,0 +1,701 @@
+/tmp/tmpXXXXXXXX.asm:
+     1                          MODULE vars_c
+     2                          LINE 0, "vars.c"
+vars.c:
+                                
+     1                          ;--------------------------------------------------------
+     2                          ; File Created by SDCC : free open source ISO C Compiler
+     3                          ; Version 4.6.0 #16639 (Linux)
+     4                          ;--------------------------------------------------------
+     5                          ; Processed by Z88DK
+     6                          ;--------------------------------------------------------
+     7                          
+     8                          	EXTERN __divschar
+     9                          	EXTERN __divschar_callee
+    10                          	EXTERN __divsint
+    11                          	EXTERN __divsint_callee
+    12                          	EXTERN __divslong
+    13                          	EXTERN __divslong_callee
+    14                          	EXTERN __divslonglong
+    15                          	EXTERN __divslonglong_callee
+    16                          	EXTERN __divsuchar
+    17                          	EXTERN __divsuchar_callee
+    18                          	EXTERN __divuchar
+    19                          	EXTERN __divuchar_callee
+    20                          	EXTERN __divuint
+    21                          	EXTERN __divuint_callee
+    22                          	EXTERN __divulong
+    23                          	EXTERN __divulong_callee
+    24                          	EXTERN __divulonglong
+    25                          	EXTERN __divulonglong_callee
+    26                          	EXTERN __divuschar
+    27                          	EXTERN __divuschar_callee
+    28                          	EXTERN __modschar
+    29                          	EXTERN __modschar_callee
+    30                          	EXTERN __modsint
+    31                          	EXTERN __modsint_callee
+    32                          	EXTERN __modslong
+    33                          	EXTERN __modslong_callee
+    34                          	EXTERN __modslonglong
+    35                          	EXTERN __modslonglong_callee
+    36                          	EXTERN __modsuchar
+    37                          	EXTERN __modsuchar_callee
+    38                          	EXTERN __moduchar
+    39                          	EXTERN __moduchar_callee
+    40                          	EXTERN __moduint
+    41                          	EXTERN __moduint_callee
+    42                          	EXTERN __modulong
+    43                          	EXTERN __modulong_callee
+    44                          	EXTERN __modulonglong
+    45                          	EXTERN __modulonglong_callee
+    46                          	EXTERN __moduschar
+    47                          	EXTERN __moduschar_callee
+    48                          	EXTERN __mulint
+    49                          	EXTERN __mulint_callee
+    50                          	EXTERN __mullong
+    51                          	EXTERN __mullong_callee
+    52                          	EXTERN __mullonglong
+    53                          	EXTERN __mullonglong_callee
+    54                          	EXTERN __mulschar
+    55                          	EXTERN __mulschar_callee
+    56                          	EXTERN __mulsuchar
+    57                          	EXTERN __mulsuchar_callee
+    58                          	EXTERN __muluchar
+    59                          	EXTERN __muluchar_callee
+    60                          	EXTERN __muluschar
+    61                          	EXTERN __muluschar_callee
+    62                          	EXTERN __rlslonglong
+    63                          	EXTERN __rlslonglong_callee
+    64                          	EXTERN __rlulonglong
+    65                          	EXTERN __rlulonglong_callee
+    66                          	EXTERN __rrslonglong
+    67                          	EXTERN __rrslonglong_callee
+    68                          	EXTERN __rrulonglong
+    69                          	EXTERN __rrulonglong_callee
+    70                          	EXTERN ___mulsint2slong
+    71                          	EXTERN ___mulsint2slong_callee
+    72                          	EXTERN ___muluint2ulong
+    73                          	EXTERN ___muluint2ulong_callee
+    74                          	EXTERN ___sdcc_call_hl
+    75                          	EXTERN ___sdcc_call_iy
+    76                          	EXTERN ___sdcc_enter_ix
+    77                          	EXTERN banked_call
+    78                          	EXTERN _banked_ret
+    79                          	EXTERN ___fs2schar
+    80                          	EXTERN ___fs2schar_callee
+    81                          	EXTERN ___fs2sint
+    82                          	EXTERN ___fs2sint_callee
+    83                          	EXTERN ___fs2slong
+    84                          	EXTERN ___fs2slong_callee
+    85                          	EXTERN ___fs2slonglong
+    86                          	EXTERN ___fs2slonglong_callee
+    87                          	EXTERN ___fs2uchar
+    88                          	EXTERN ___fs2uchar_callee
+    89                          	EXTERN ___fs2uint
+    90                          	EXTERN ___fs2uint_callee
+    91                          	EXTERN ___fs2ulong
+    92                          	EXTERN ___fs2ulong_callee
+    93                          	EXTERN ___fs2ulonglong
+    94                          	EXTERN ___fs2ulonglong_callee
+    95                          	EXTERN ___fsadd
+    96                          	EXTERN ___fsadd_callee
+    97                          	EXTERN ___fsdiv
+    98                          	EXTERN ___fsdiv_callee
+    99                          	EXTERN ___fseq
+   100                          	EXTERN ___fseq_callee
+   101                          	EXTERN ___fsgt
+   102                          	EXTERN ___fsgt_callee
+   103                          	EXTERN ___fslt
+   104                          	EXTERN ___fslt_callee
+   105                          	EXTERN ___fsmul
+   106                          	EXTERN ___fsmul_callee
+   107                          	EXTERN ___fsneq
+   108                          	EXTERN ___fsneq_callee
+   109                          	EXTERN ___fssub
+   110                          	EXTERN ___fssub_callee
+   111                          	EXTERN ___schar2fs
+   112                          	EXTERN ___schar2fs_callee
+   113                          	EXTERN ___sint2fs
+   114                          	EXTERN ___sint2fs_callee
+   115                          	EXTERN ___slong2fs
+   116                          	EXTERN ___slong2fs_callee
+   117                          	EXTERN ___slonglong2fs
+   118                          	EXTERN ___slonglong2fs_callee
+   119                          	EXTERN ___uchar2fs
+   120                          	EXTERN ___uchar2fs_callee
+   121                          	EXTERN ___uint2fs
+   122                          	EXTERN ___uint2fs_callee
+   123                          	EXTERN ___ulong2fs
+   124                          	EXTERN ___ulong2fs_callee
+   125                          	EXTERN ___ulonglong2fs
+   126                          	EXTERN ___ulonglong2fs_callee
+   127                          	EXTERN ____sdcc_2_copy_src_mhl_dst_deix
+   128                          	EXTERN ____sdcc_2_copy_src_mhl_dst_bcix
+   129                          	EXTERN ____sdcc_4_copy_src_mhl_dst_deix
+   130                          	EXTERN ____sdcc_4_copy_src_mhl_dst_bcix
+   131                          	EXTERN ____sdcc_4_copy_src_mhl_dst_mbc
+   132                          	EXTERN ____sdcc_4_ldi_nosave_bc
+   133                          	EXTERN ____sdcc_4_ldi_save_bc
+   134                          	EXTERN ____sdcc_4_push_hlix
+   135                          	EXTERN ____sdcc_4_push_mhl
+   136                          	EXTERN ____sdcc_lib_setmem_hl
+   137                          	EXTERN ____sdcc_ll_add_de_bc_hl
+   138                          	EXTERN ____sdcc_ll_add_de_bc_hlix
+   139                          	EXTERN ____sdcc_ll_add_de_hlix_bc
+   140                          	EXTERN ____sdcc_ll_add_de_hlix_bcix
+   141                          	EXTERN ____sdcc_ll_add_deix_bc_hl
+   142                          	EXTERN ____sdcc_ll_add_deix_hlix
+   143                          	EXTERN ____sdcc_ll_add_hlix_bc_deix
+   144                          	EXTERN ____sdcc_ll_add_hlix_deix_bc
+   145                          	EXTERN ____sdcc_ll_add_hlix_deix_bcix
+   146                          	EXTERN ____sdcc_ll_asr_hlix_a
+   147                          	EXTERN ____sdcc_ll_asr_mbc_a
+   148                          	EXTERN ____sdcc_ll_copy_src_de_dst_hlix
+   149                          	EXTERN ____sdcc_ll_copy_src_de_dst_hlsp
+   150                          	EXTERN ____sdcc_ll_copy_src_deix_dst_hl
+   151                          	EXTERN ____sdcc_ll_copy_src_deix_dst_hlix
+   152                          	EXTERN ____sdcc_ll_copy_src_deixm_dst_hlsp
+   153                          	EXTERN ____sdcc_ll_copy_src_desp_dst_hlsp
+   154                          	EXTERN ____sdcc_ll_copy_src_hl_dst_de
+   155                          	EXTERN ____sdcc_ll_copy_src_hlsp_dst_de
+   156                          	EXTERN ____sdcc_ll_copy_src_hlsp_dst_deixm
+   157                          	EXTERN ____sdcc_ll_lsl_hlix_a
+   158                          	EXTERN ____sdcc_ll_lsl_mbc_a
+   159                          	EXTERN ____sdcc_ll_lsr_hlix_a
+   160                          	EXTERN ____sdcc_ll_lsr_mbc_a
+   161                          	EXTERN ____sdcc_ll_push_hlix
+   162                          	EXTERN ____sdcc_ll_push_mhl
+   163                          	EXTERN ____sdcc_ll_sub_de_bc_hl
+   164                          	EXTERN ____sdcc_ll_sub_de_bc_hlix
+   165                          	EXTERN ____sdcc_ll_sub_de_hlix_bc
+   166                          	EXTERN ____sdcc_ll_sub_de_hlix_bcix
+   167                          	EXTERN ____sdcc_ll_sub_deix_bc_hl
+   168                          	EXTERN ____sdcc_ll_sub_deix_hlix
+   169                          	EXTERN ____sdcc_ll_sub_hlix_bc_deix
+   170                          	EXTERN ____sdcc_ll_sub_hlix_deix_bc
+   171                          	EXTERN ____sdcc_ll_sub_hlix_deix_bcix
+   172                          	EXTERN ____sdcc_load_debc_deix
+   173                          	EXTERN ____sdcc_load_dehl_deix
+   174                          	EXTERN ____sdcc_load_debc_mhl
+   175                          	EXTERN ____sdcc_load_hlde_mhl
+   176                          	EXTERN ____sdcc_store_dehl_bcix
+   177                          	EXTERN ____sdcc_store_debc_hlix
+   178                          	EXTERN ____sdcc_store_debc_mhl
+   179                          	EXTERN ____sdcc_cpu_pop_ei
+   180                          	EXTERN ____sdcc_cpu_pop_ei_jp
+   181                          	EXTERN ____sdcc_cpu_push_di
+   182                          	EXTERN ____sdcc_outi
+   183                          	EXTERN ____sdcc_outi_128
+   184                          	EXTERN ____sdcc_outi_256
+   185                          	EXTERN ____sdcc_ldi
+   186                          	EXTERN ____sdcc_ldi_128
+   187                          	EXTERN ____sdcc_ldi_256
+   188                          	EXTERN ____sdcc_4_copy_srcd_hlix_dst_deix
+   189                          	EXTERN ____sdcc_4_and_src_mbc_mhl_dst_deix
+   190                          	EXTERN ____sdcc_4_or_src_mbc_mhl_dst_deix
+   191                          	EXTERN ____sdcc_4_xor_src_mbc_mhl_dst_deix
+   192                          	EXTERN ____sdcc_4_or_src_dehl_dst_bcix
+   193                          	EXTERN ____sdcc_4_xor_src_dehl_dst_bcix
+   194                          	EXTERN ____sdcc_4_and_src_dehl_dst_bcix
+   195                          	EXTERN ____sdcc_4_xor_src_mbc_mhl_dst_debc
+   196                          	EXTERN ____sdcc_4_or_src_mbc_mhl_dst_debc
+   197                          	EXTERN ____sdcc_4_and_src_mbc_mhl_dst_debc
+   198                          	EXTERN ____sdcc_4_cpl_src_mhl_dst_debc
+   199                          	EXTERN ____sdcc_4_xor_src_debc_mhl_dst_debc
+   200                          	EXTERN ____sdcc_4_or_src_debc_mhl_dst_debc
+   201                          	EXTERN ____sdcc_4_and_src_debc_mhl_dst_debc
+   202                          	EXTERN ____sdcc_4_and_src_debc_hlix_dst_debc
+   203                          	EXTERN ____sdcc_4_or_src_debc_hlix_dst_debc
+   204                          	EXTERN ____sdcc_4_xor_src_debc_hlix_dst_debc
+   205                          
+   206                          	.zxn
+   207                          ;--------------------------------------------------------
+   208                          ; Public variables in this module
+   209                          ;--------------------------------------------------------
+   210                          	GLOBAL _main
+   211                          	GLOBAL _g_byte
+   212                          	GLOBAL _g_colour
+   213                          	GLOBAL _g_pt
+   214                          	GLOBAL _g_matrix
+   215                          	GLOBAL _g_cptr
+   216                          	GLOBAL _g_str
+   217                          	GLOBAL _g_float
+   218                          	GLOBAL _g_ulong
+   219                          	GLOBAL _g_long
+   220                          	GLOBAL _g_char
+   221                          	GLOBAL _g_schar
+   222                          	GLOBAL _g_uint
+   223                          	GLOBAL _g_int
+   224                          	GLOBAL _g_fnptr2
+   225                          	GLOBAL _g_fnptr
+   226                          	GLOBAL _g_flags
+   227                          	GLOBAL _g_head
+   228                          	GLOBAL _g_node
+   229                          	GLOBAL _g_word
+   230                          	GLOBAL _g_rect
+   231                          	GLOBAL _g_pts
+   232                          	GLOBAL _g_bptr
+   233                          ;--------------------------------------------------------
+   234                          ; Externals used
+   235                          ;--------------------------------------------------------
+   236                          	GLOBAL _other
+   237                          ;--------------------------------------------------------
+   238                          ; special function registers
+   239                          ;--------------------------------------------------------
+   240                          ;--------------------------------------------------------
+   241                          ; ram data
+   242                          ;--------------------------------------------------------
+   243                          	SECTION bss_compiler
+   244                          _g_bptr:
+   245  0000  0000              	DEFS 2
+   246                          _g_pts:
+   247  0002  0000000000000000  	DEFS 15
+              00000000000000    
+   248                          _g_rect:
+   249  0011  0000000000000000  	DEFS 14
+              000000000000      
+   250                          _g_word:
+   251  001f  0000              	DEFS 2
+   252                          _g_node:
+   253  0021  000000000000      	DEFS 6
+   254                          _g_head:
+   255  0027  0000              	DEFS 2
+   256                          _g_flags:
+   257  0029  0000              	DEFS 2
+   258                          _g_fnptr:
+   259  002b  0000              	DEFS 2
+   260                          _g_fnptr2:
+   261  002d  0000              	DEFS 2
+   262                          _s_dup:
+   263  002f  00                	DEFS 1
+   264                          _sum_calls_10000_10:
+   265  0030  00                	DEFS 1
+   266                          ;--------------------------------------------------------
+   267                          ; ram data
+   268                          ;--------------------------------------------------------
+   269                          
+   270                          IF 0
+   271                          
+   272                          ; .area _INITIALIZED removed by z88dk
+   273                          
+   274                          _g_int:
+   275                          	DEFS 2
+   276                          _g_uint:
+   277                          	DEFS 2
+   278                          _g_schar:
+   279                          	DEFS 1
+   280                          _g_char:
+   281                          	DEFS 1
+   282                          _g_long:
+   283                          	DEFS 4
+   284                          _g_ulong:
+   285                          	DEFS 4
+   286                          _g_float:
+   287                          	DEFS 4
+   288                          _g_str:
+   289                          	DEFS 3
+   290                          _g_cptr:
+   291                          	DEFS 2
+   292                          _g_matrix:
+   293                          	DEFS 12
+   294                          _g_pt:
+   295                          	DEFS 5
+   296                          _g_colour:
+   297                          	DEFS 1
+   298                          _g_byte:
+   299                          	DEFS 1
+   300                          _s_file:
+   301                          	DEFS 2
+   302                          
+   303                          ENDIF
+   304                          
+   305                          ;--------------------------------------------------------
+   306                          ; absolute ram data
+   307                          ;--------------------------------------------------------
+   308                          	SECTION IGNORE
+   309                          ;--------------------------------------------------------
+   310                          ; global & static initialisations
+   311                          ;--------------------------------------------------------
+   312                          	SECTION code_crt_init
+   313                          ;--------------------------------------------------------
+   314                          ; Home
+   315                          ;--------------------------------------------------------
+   316                          	SECTION code_home
+   317                          ;--------------------------------------------------------
+   318                          ; code
+   319                          ;--------------------------------------------------------
+   320                          	SECTION code_compiler
+   321                          C_LINE 28,"vars.c::x::0::10"
+vars.c::x::0::10:
+    28                          ;	---------------------------------
+    28                          ; Function sum
+    28                          ; ---------------------------------
+    28                          _sum:
+    28  0000  dde5              	push	ix
+    28  0002  dd210000          	ld	ix,	+0
+    28  0006  dd39              	add	ix, sp
+    28  0008  f5                	push	af
+    28  0009  f5                	push	af
+    28                          C_LINE 33,"vars.c::x::10000::10"
+vars.c::x::10000::10:
+    33  000a  213000            	ld	hl,_sum_calls_10000_10
+    33  000d  34                	inc	(hl)
+    33                          C_LINE 34,"vars.c::x::10000::10"
+    34  000e  dd7e04            	ld	a,(ix+4)
+    34  0011  dd8606            	add	a,(ix+6)
+    34  0014  4f                	ld	c, a
+    34  0015  dd7e05            	ld	a,(ix+5)
+    34  0018  dd8e07            	adc	a,(ix+7)
+    34  001b  47                	ld	b, a
+    34  001c  dd6e0a            	ld	l,(ix+10)
+    34  001f  2600              	ld	h,0x00
+    34  0021  09                	add	hl, bc
+    34                          C_LINE 35,"vars.c::x::10000::10"
+    35  0022  4d                	ld	c,l
+    35  0023  44                	ld	b,h
+    35  0024  29                	add	hl, hl
+    35  0025  09                	add	hl, bc
+    35  0026  e3                	ex	(sp), hl
+    35                          C_LINE 36,"vars.c::x::20000::11"
+vars.c::x::20000::11:
+    36  0027  dd7e09            	ld	a,(ix+9)
+    36  002a  ddb608            	or	a,(ix+8)
+    36  002d  2820              	jr	z,l_sum_00102
+    36                          C_LINE 38,"vars.c::x::30000::12"
+vars.c::x::30000::12:
+    38  002f  dd5e08            	ld	e,(ix+8)
+    38  0032  dd5609            	ld	d,(ix+9)
+    38  0035  1a                	ld	a, (de)
+    38  0036  dd77fe            	ld	(ix-2),a
+    38  0039  13                	inc	de
+    38  003a  1a                	ld	a, (de)
+    38  003b  dd77ff            	ld	(ix-1),a
+    38  003e  1b                	dec	de
+    38  003f  eb                	ex	de, hl
+    38  0040  23                	inc	hl
+    38  0041  23                	inc	hl
+    38  0042  5e                	ld	e, (hl)
+    38  0043  23                	inc	hl
+    38  0044  56                	ld	d, (hl)
+    38  0045  dd6efe            	ld	l,(ix-2)
+    38  0048  dd66ff            	ld	h,(ix-1)
+    38  004b  19                	add	hl, de
+    38                          C_LINE 39,"vars.c::x::30000::12"
+    39  004c  09                	add	hl, bc
+    39  004d  4d                	ld	c, l
+    39  004e  44                	ld	b, h
+    39                          l_sum_00102:
+    39                          C_LINE 41,"vars.c::x::10000::10"
+vars.c::x::10000::10:
+    41  004f  e1                	pop	hl
+    41  0050  e5                	push	hl
+    41  0051  09                	add	hl, bc
+    41                          C_LINE 42,"vars.c::x::10000::10"
+    42  0052  ddf9              	ld	sp, ix
+    42  0054  dde1              	pop	ix
+    42                          C_LINE 42,"vars.c::x::10000::10"
+    42  0056  c9                	ret
+    42                          C_LINE 44,"vars.c::x::10000::14"
+vars.c::x::10000::14:
+    44                          ;	---------------------------------
+    44                          ; Function main
+    44                          ; ---------------------------------
+    44                          _main:
+    44  0057  dde5              	push	ix
+    44  0059  dd210000          	ld	ix,	+0
+    44  005d  dd39              	add	ix, sp
+    44  005f  21f2ff            	ld	hl, -14
+    44  0062  39                	add	hl, sp
+    44  0063  f9                	ld	sp, hl
+    44                          C_LINE 52,"vars.c::x::10000::14"
+    52  0064  dd36f203          	ld	(ix-14),0x03
+    52  0068  af                	xor	a, a
+    52  0069  dd77f3            	ld	(ix-13),a
+    52  006c  dd36f404          	ld	(ix-12),0x04
+    52  0070  af                	xor	a, a
+    52  0071  dd77f5            	ld	(ix-11),a
+    52  0074  dd36f605          	ld	(ix-10),0x05
+    52                          C_LINE 53,"vars.c::x::10000::14"
+    53                          C_LINE 55,"vars.c::x::30000::16"
+vars.c::x::30000::16:
+    55  0078  dd36ff00          	ld	(ix-1),0x00
+    55                          l_main_00105:
+    55                          C_LINE 56,"vars.c::x::30000::16"
+    56  007c  dd5eff            	ld	e,(ix-1)
+    56  007f  1600              	ld	d,0x00
+    56  0081  4b                	ld	c, e
+    56  0082  42                	ld	b, d
+    56  0083  cb21              	sla	c
+    56  0085  cb10              	rl	b
+    56  0087  210500            	ld	hl,5
+    56  008a  39                	add	hl, sp
+    56  008b  09                	add	hl, bc
+    56  008c  e5                	push	hl
+    56  008d  3e78              	ld	a,0x78
+    56  008f  f5                	push	af
+    56  0090  33                	inc	sp
+    56  0091  210300            	ld	hl,3
+    56  0094  39                	add	hl, sp
+    56  0095  e5                	push	hl
+    56  0096  2a0000            	ld	hl, (_g_int)
+    56  0099  e5                	push	hl
+    56  009a  d5                	push	de
+    56  009b  cd0000            	call	_sum
+    56  009e  f1                	pop	af
+    56  009f  f1                	pop	af
+    56  00a0  f1                	pop	af
+    56  00a1  33                	inc	sp
+    56  00a2  c1                	pop	bc
+    56  00a3  7d                	ld	a, l
+    56  00a4  02                	ld	(bc), a
+    56  00a5  03                	inc	bc
+    56  00a6  7c                	ld	a, h
+    56  00a7  02                	ld	(bc), a
+    56                          C_LINE 55,"vars.c::x::20000::15"
+vars.c::x::20000::15:
+    55  00a8  dd34ff            	inc	(ix-1)
+    55  00ab  dd7eff            	ld	a,(ix-1)
+    55  00ae  d604              	sub	a,0x04
+    55  00b0  38ca              	jr	c,l_main_00105
+    55                          C_LINE 58,"vars.c::x::10000::14"
+vars.c::x::10000::14:
+    58  00b2  212100            	ld	hl,_g_node
+    58  00b5  222700            	ld	(_g_head), hl
+    58                          C_LINE 59,"vars.c::x::10000::14"
+    59  00b8  21a086            	ld	hl,0x86a0
+    59  00bb  222300            	ld	((_g_node + 2)), hl
+    59  00be  210100            	ld	hl,0x0001
+    59  00c1  222500            	ld	((_g_node + 2)+2), hl
+    59                          C_LINE 60,"vars.c::x::10000::14"
+    60  00c4  dd4efd            	ld	c,(ix-3)
+    60  00c7  dd46fe            	ld	b,(ix-2)
+    60  00ca  2e78              	ld	l,0x78
+    60  00cc  09                	add	hl, bc
+    60  00cd  222a00            	ld	(_s_file), hl
+    60                          C_LINE 61,"vars.c::x::10000::14"
+    61  00d0  2a2a00            	ld	hl, (_s_file)
+    61  00d3  e5                	push	hl
+    61  00d4  cd0000            	call	_other
+    61  00d7  f1                	pop	af
+    61  00d8  7d                	ld	a, l
+    61  00d9  322f00            	ld	(_s_dup), a
+    61                          C_LINE 62,"vars.c::x::10000::14"
+    62  00dc  210000            	ld	hl,_other
+    62  00df  222d00            	ld	(_g_fnptr2), hl
+    62                          C_LINE 63,"vars.c::x::10000::14"
+    63                          l_main_00103:
+    63                          C_LINE 64,"vars.c::x::20000::17"
+vars.c::x::20000::17:
+    64  00e2  2a0000            	ld	hl, (_g_int)
+    64  00e5  23                	inc	hl
+    64  00e6  220000            	ld	(_g_int), hl
+    64                          C_LINE 66,"vars.c::x::10000::14"
+vars.c::x::10000::14:
+    66                          C_LINE 67,"vars.c::x::10000::14"
+    67                          C_LINE 67,"vars.c::x::10000::14"
+    67  00e9  18f7              	jr	l_main_00103
+    67                          	SECTION rodata_compiler
+    67                          ___str_2:
+    67  0000  616263            	DEFM "abc"
+    67  0003  00                	DEFB 0x00
+    67                          	SECTION data_compiler
+    67                          _g_int:
+    67  0000  fbff              	DEFW +0xfffb
+    67                          _g_uint:
+    67  0002  409c              	DEFW +0x9c40
+    67                          _g_schar:
+    67  0004  fd                	DEFB +0xfd
+    67                          _g_char:
+    67  0005  41                	DEFB +0x41
+    67                          _g_long:
+    67  0006  78563412          	DEFB +0x78,0x56, +0x34, +0x12
+    67                          _g_ulong:
+    67  000a  bebafeca          	DEFB +0xbe,0xba, +0xfe, +0xca
+    67                          _g_float:
+    67  000e  0000c03f          	DEFB +0x00,0x00, +0xc0, +0x3f
+    67                          _g_str:
+    67  0012  6869              	DEFM "hi"
+    67  0014  00                	DEFB 0x00
+    67                          _g_cptr:
+    67  0015  0000              	DEFW ___str_2
+    67                          _g_matrix:
+    67  0017  0100              	DEFW +0x0001
+    67  0019  0200              	DEFW +0x0002
+    67  001b  0300              	DEFW +0x0003
+    67  001d  0400              	DEFW +0x0004
+    67  001f  0500              	DEFW +0x0005
+    67  0021  0600              	DEFW +0x0006
+    67                          _g_pt:
+    67  0023  0100              	DEFW +0x0001
+    67  0025  0200              	DEFW +0x0002
+    67  0027  03                	DEFB +0x03
+    67                          _g_colour:
+    67  0028  06                	DEFB +0x06
+    67                          _g_byte:
+    67  0029  07                	DEFB +0x07
+    67                          _s_file:
+    67  002a  0900              	DEFW +0x0009
+    67                          	SECTION IGNORE
+    67                          
+    67                          
+    67                          ; Embedding adb file
+    67                          PUBLIC __CDBINFO__M_3avars_2ec
+    67                          defc __CDBINFO__M_3avars_2ec=1
+    67                          
+    67                          PUBLIC __CDBINFO__F_3aFvars_2ec_24sum_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    67                          defc __CDBINFO__F_3aFvars_2ec_24sum_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2esum_24a_24_31_5f_30_24_39_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_34
+    67                          defc __CDBINFO__S_3aLvars_2ec_2esum_24a_24_31_5f_30_24_39_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_34=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2esum_24b_24_31_5f_30_24_39_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_36
+    67                          defc __CDBINFO__S_3aLvars_2ec_2esum_24b_24_31_5f_30_24_39_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_36=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2esum_24p_24_31_5f_30_24_39_28_7b_32_7dDG_2cSTpoint_3aS_29_2cB_2c_31_2c_38
+    67                          defc __CDBINFO__S_3aLvars_2ec_2esum_24p_24_31_5f_30_24_39_28_7b_32_7dDG_2cSTpoint_3aS_29_2cB_2c_31_2c_38=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2esum_24k_24_31_5f_30_24_39_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_31_30
+    67                          defc __CDBINFO__S_3aLvars_2ec_2esum_24k_24_31_5f_30_24_39_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_31_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2esum_24t_24_31_5f_30_24_31_30_28_7b_32_7dSI_3aS_29_2cR_2c_30_2c_30_2c_5bc_2cb_5d
+    67                          defc __CDBINFO__S_3aLvars_2ec_2esum_24t_24_31_5f_30_24_31_30_28_7b_32_7dSI_3aS_29_2cR_2c_30_2c_30_2c_5bc_2cb_5d=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2esum_24acc_24_31_5f_30_24_31_30_28_7b_34_7dSL_3aS_29_2cR_2c_30_2c_30_2c_5b_5d
+    67                          defc __CDBINFO__S_3aLvars_2ec_2esum_24acc_24_31_5f_30_24_31_30_28_7b_34_7dSL_3aS_29_2cR_2c_30_2c_30_2c_5b_5d=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2esum_24inner_24_33_5f_30_24_31_32_28_7b_32_7dSI_3aS_29_2cR_2c_30_2c_30_2c_5bl_2ch_5d
+    67                          defc __CDBINFO__S_3aLvars_2ec_2esum_24inner_24_33_5f_30_24_31_32_28_7b_32_7dSI_3aS_29_2cR_2c_30_2c_30_2c_5bl_2ch_5d=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2esum_24sloc_30_24_30_5f_31_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34
+    67                          defc __CDBINFO__S_3aLvars_2ec_2esum_24sloc_30_24_30_5f_31_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_34=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2esum_24sloc_31_24_30_5f_31_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32
+    67                          defc __CDBINFO__S_3aLvars_2ec_2esum_24sloc_31_24_30_5f_31_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_2d_32=1
+    67                          
+    67                          PUBLIC __CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_31_33_2c_30_2c_30_2c_30
+    67                          defc __CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_31_33_2c_30_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2emain_24lp_24_31_5f_30_24_31_34_28_7b_35_7dSTpoint_3aS_29_2cB_2c_31_2c_2d_31_34
+    67                          defc __CDBINFO__S_3aLvars_2ec_2emain_24lp_24_31_5f_30_24_31_34_28_7b_35_7dSTpoint_3aS_29_2cB_2c_31_2c_2d_31_34=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2emain_24arr_24_31_5f_30_24_31_34_28_7b_38_7dDA_34d_2cSI_3aS_29_2cB_2c_31_2c_2d_39
+    67                          defc __CDBINFO__S_3aLvars_2ec_2emain_24arr_24_31_5f_30_24_31_34_28_7b_38_7dDA_34d_2cSI_3aS_29_2cB_2c_31_2c_2d_39=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2emain_24i_24_31_5f_30_24_31_34_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31
+    67                          defc __CDBINFO__S_3aLvars_2ec_2emain_24i_24_31_5f_30_24_31_34_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2emain_24c_24_31_5f_30_24_31_34_28_7b_31_7dSC_3aU_29_2cR_2c_30_2c_30_2c_5b_5d
+    67                          defc __CDBINFO__S_3aLvars_2ec_2emain_24c_24_31_5f_30_24_31_34_28_7b_31_7dSC_3aU_29_2cR_2c_30_2c_30_2c_5b_5d=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2emain_24big_24_31_5f_30_24_31_34_28_7b_34_7dSL_3aS_29_2cR_2c_30_2c_30_2c_5b_5d
+    67                          defc __CDBINFO__S_3aLvars_2ec_2emain_24big_24_31_5f_30_24_31_34_28_7b_34_7dSL_3aS_29_2cR_2c_30_2c_30_2c_5b_5d=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2emain_24pp_24_31_5f_30_24_31_34_28_7b_32_7dDG_2cSTpoint_3aS_29_2cR_2c_30_2c_30_2c_5b_5d
+    67                          defc __CDBINFO__S_3aLvars_2ec_2emain_24pp_24_31_5f_30_24_31_34_28_7b_32_7dDG_2cSTpoint_3aS_29_2cR_2c_30_2c_30_2c_5b_5d=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2emain_24sloc_30_24_30_5f_31_24_30_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31
+    67                          defc __CDBINFO__S_3aLvars_2ec_2emain_24sloc_30_24_30_5f_31_24_30_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31=1
+    67                          
+    67                          PUBLIC __CDBINFO__T_3aFvars_2ec_24flags_5b_28_7b_30_7dS_3aS_24lo_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_33_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24mid_24_30_5f_30_24_30_28_7b_31_7dSB_33_24_35_3aU_29_2cZ_2c_30_2c_30_29_28_7b_31_7dS_3aS_24hi_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_38_3aU_29_2cZ_2c_30_2c_30_29_5d
+    67                          defc __CDBINFO__T_3aFvars_2ec_24flags_5b_28_7b_30_7dS_3aS_24lo_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_33_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24mid_24_30_5f_30_24_30_28_7b_31_7dSB_33_24_35_3aU_29_2cZ_2c_30_2c_30_29_28_7b_31_7dS_3aS_24hi_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_38_3aU_29_2cZ_2c_30_2c_30_29_5d=1
+    67                          
+    67                          PUBLIC __CDBINFO__T_3aFvars_2ec_24point_5b_28_7b_30_7dS_3aS_24x_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cZ_2c_30_2c_30_29_28_7b_32_7dS_3aS_24y_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cZ_2c_30_2c_30_29_28_7b_34_7dS_3aS_24tag_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cZ_2c_30_2c_30_29_5d
+    67                          defc __CDBINFO__T_3aFvars_2ec_24point_5b_28_7b_30_7dS_3aS_24x_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cZ_2c_30_2c_30_29_28_7b_32_7dS_3aS_24y_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cZ_2c_30_2c_30_29_28_7b_34_7dS_3aS_24tag_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cZ_2c_30_2c_30_29_5d=1
+    67                          
+    67                          PUBLIC __CDBINFO__T_3aFvars_2ec_24node_5b_28_7b_30_7dS_3aS_24next_24_30_5f_30_24_30_28_7b_32_7dDG_2cSTnode_3aS_29_2cZ_2c_30_2c_30_29_28_7b_32_7dS_3aS_24val_24_30_5f_30_24_30_28_7b_34_7dSL_3aS_29_2cZ_2c_30_2c_30_29_5d
+    67                          defc __CDBINFO__T_3aFvars_2ec_24node_5b_28_7b_30_7dS_3aS_24next_24_30_5f_30_24_30_28_7b_32_7dDG_2cSTnode_3aS_29_2cZ_2c_30_2c_30_29_28_7b_32_7dS_3aS_24val_24_30_5f_30_24_30_28_7b_34_7dSL_3aS_29_2cZ_2c_30_2c_30_29_5d=1
+    67                          
+    67                          PUBLIC __CDBINFO__T_3aFvars_2ec_24rect_5b_28_7b_30_7dS_3aS_24a_24_30_5f_30_24_30_28_7b_35_7dSTpoint_3aS_29_2cZ_2c_30_2c_30_29_28_7b_35_7dS_3aS_24b_24_30_5f_30_24_30_28_7b_35_7dSTpoint_3aS_29_2cZ_2c_30_2c_30_29_28_7b_31_30_7dS_3aS_24name_24_30_5f_30_24_30_28_7b_34_7dDA_34d_2cSC_3aU_29_2cZ_2c_30_2c_30_29_5d
+    67                          defc __CDBINFO__T_3aFvars_2ec_24rect_5b_28_7b_30_7dS_3aS_24a_24_30_5f_30_24_30_28_7b_35_7dSTpoint_3aS_29_2cZ_2c_30_2c_30_29_28_7b_35_7dS_3aS_24b_24_30_5f_30_24_30_28_7b_35_7dSTpoint_3aS_29_2cZ_2c_30_2c_30_29_28_7b_31_30_7dS_3aS_24name_24_30_5f_30_24_30_28_7b_34_7dDA_34d_2cSC_3aU_29_2cZ_2c_30_2c_30_29_5d=1
+    67                          
+    67                          PUBLIC __CDBINFO__T_3aFvars_2ec_24word_5b_28_7b_30_7dS_3aS_24w_24_30_5f_30_24_30_28_7b_32_7dSI_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24b_24_30_5f_30_24_30_28_7b_32_7dDA_32d_2cSC_3aU_29_2cZ_2c_30_2c_30_29_5d
+    67                          defc __CDBINFO__T_3aFvars_2ec_24word_5b_28_7b_30_7dS_3aS_24w_24_30_5f_30_24_30_28_7b_32_7dSI_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24b_24_30_5f_30_24_30_28_7b_32_7dDA_32d_2cSC_3aU_29_2cZ_2c_30_2c_30_29_5d=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fint_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fint_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fuint_24_30_5f_30_24_30_28_7b_32_7dSI_3aU_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fuint_24_30_5f_30_24_30_28_7b_32_7dSI_3aU_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fschar_24_30_5f_30_24_30_28_7b_31_7dSC_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fschar_24_30_5f_30_24_30_28_7b_31_7dSC_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fchar_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fchar_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5flong_24_30_5f_30_24_30_28_7b_34_7dSL_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5flong_24_30_5f_30_24_30_28_7b_34_7dSL_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fulong_24_30_5f_30_24_30_28_7b_34_7dSL_3aU_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fulong_24_30_5f_30_24_30_28_7b_34_7dSL_3aU_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5ffloat_24_30_5f_30_24_30_28_7b_34_7dSF_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5ffloat_24_30_5f_30_24_30_28_7b_34_7dSF_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fstr_24_30_5f_30_24_30_28_7b_33_7dDA_33d_2cSC_3aU_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fstr_24_30_5f_30_24_30_28_7b_33_7dDA_33d_2cSC_3aU_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fcptr_24_30_5f_30_24_30_28_7b_32_7dDG_2cSC_3aU_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fcptr_24_30_5f_30_24_30_28_7b_32_7dDG_2cSC_3aU_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fmatrix_24_30_5f_30_24_30_28_7b_31_32_7dDA_32d_2cDA_33d_2cSI_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fmatrix_24_30_5f_30_24_30_28_7b_31_32_7dDA_32d_2cDA_33d_2cSI_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fpt_24_30_5f_30_24_30_28_7b_35_7dSTpoint_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fpt_24_30_5f_30_24_30_28_7b_35_7dSTpoint_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fcolour_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fcolour_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fbyte_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fbyte_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aFvars_2ec_24s_5ffile_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aFvars_2ec_24s_5ffile_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fbptr_24_30_5f_30_24_30_28_7b_32_7dDG_2cSC_3aU_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fbptr_24_30_5f_30_24_30_28_7b_32_7dDG_2cSC_3aU_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fpts_24_30_5f_30_24_30_28_7b_31_35_7dDA_33d_2cSTpoint_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fpts_24_30_5f_30_24_30_28_7b_31_35_7dDA_33d_2cSTpoint_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5frect_24_30_5f_30_24_30_28_7b_31_34_7dSTrect_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5frect_24_30_5f_30_24_30_28_7b_31_34_7dSTrect_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fword_24_30_5f_30_24_30_28_7b_32_7dSTword_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fword_24_30_5f_30_24_30_28_7b_32_7dSTword_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fnode_24_30_5f_30_24_30_28_7b_36_7dSTnode_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fnode_24_30_5f_30_24_30_28_7b_36_7dSTnode_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fhead_24_30_5f_30_24_30_28_7b_32_7dDG_2cSTnode_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fhead_24_30_5f_30_24_30_28_7b_32_7dDG_2cSTnode_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5fflags_24_30_5f_30_24_30_28_7b_32_7dSTflags_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5fflags_24_30_5f_30_24_30_28_7b_32_7dSTflags_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5ffnptr_24_30_5f_30_24_30_28_7b_32_7dDC_2cDF_2cSV_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5ffnptr_24_30_5f_30_24_30_28_7b_32_7dDC_2cDF_2cSV_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24g_5ffnptr_32_24_30_5f_30_24_30_28_7b_32_7dDC_2cDF_2cSI_3aS_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24g_5ffnptr_32_24_30_5f_30_24_30_28_7b_32_7dDC_2cDF_2cSI_3aS_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aFvars_2ec_24s_5fdup_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aFvars_2ec_24s_5fdup_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aLvars_2ec_2esum_24calls_24_31_5f_30_24_31_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aLvars_2ec_2esum_24calls_24_31_5f_30_24_31_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24other_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aG_24other_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aFvars_2ec_24sum_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aFvars_2ec_24sum_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aG_24main_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_31_33
+    67                          defc __CDBINFO__S_3aG_24main_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_31_33=1
+    67                          
+    67                          PUBLIC __CDBINFO__S_3aFvars_2ec_24_5f_5fstr_5f_32_24_30_5f_30_24_30_28_7b_34_7dDA_34d_2cSC_3aU_29_2cD_2c_30_2c_30
+    67                          defc __CDBINFO__S_3aFvars_2ec_24_5f_5fstr_5f_32_24_30_5f_30_24_30_28_7b_34_7dDA_34d_2cSC_3aU_29_2cD_2c_30_2c_30=1
+    67                          
+    67                          

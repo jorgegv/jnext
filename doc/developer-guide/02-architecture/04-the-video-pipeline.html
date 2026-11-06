@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2339,6 +2339,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2881,6 +2885,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2972,8 +3032,7 @@ array of 256 entries is filled as the frame runs: <code>Emulator::on_scanline()<
 calls <code>renderer_.snapshot_fallback_for_line(row)</code> and its siblings, and
 <code>render_row()</code> later reads <code>fallback_per_line_[row]</code>. This covers NR 0x4A, the
 ULA enable, the NR 0x68 stencil and blend bits, NR 0x14, the NR 0x1A clip, the
-LoRes registers, the ULA border, the tilemap scroll and fetch bases, and — since
-GH #256 — the tilemap's output-stage inputs (the NR 0x1B clip and the NR 0x4C
+LoRes registers, the ULA border, the tilemap scroll and fetch bases, and the tilemap's output-stage inputs (the NR 0x1B clip and the NR 0x4C
 transparency index), the sprite engine's render controls (the NR 0x19 clip,
 NR 0x15 bits 6, 5 and 1, and the NR 0x4B transparency index), the ULA's ULA+ and
 ULAnext enables, the NR 0x42 ULAnext format and the shadow-screen bank, and the
@@ -2982,7 +3041,7 @@ carry an "active" flag that <code>init_*_per_line()</code> sets at frame start a
 hard <code>reset()</code> / <code>load_state()</code> clear, so until the first frame of a run they fall
 back to the live registers — which is also what a unit test that renders one
 row directly sees. The older arrays have no flag; <code>load_state()</code> refills them
-from the registers it has just loaded instead (GH #261). The NR 0x4A fallback
+from the registers it has just loaded instead. The NR 0x4A fallback
 and the border arrays are the exceptions: they travel in the snapshot.</p>
 <p><strong>Change logs with rewind and replay</strong> handle state whose whole <em>object</em> has to
 be time-travelled — an entire palette, the sprite attribute table, the
@@ -3060,17 +3119,17 @@ the per-line snapshots pick the reset values up on their own from the reset
 row down. Memory with no reset port (palette RAM, sprite attribute and
 pattern RAM) is not touched by a soft reset at all, and <code>Z80Cpu</code> keeps its
 frame-relative T-state count, which scaled by the divisor is the beam position
-the VRAM mux tags each write with. Until GH #263 the two
-mechanisms failed in opposite directions: <code>PaletteManager::reset()</code> changed
-the live RAM without the log, so the render replayed the old palette over it,
-while the other classes wiped their history and repainted the rows above the
+the VRAM mux tags each write with. The two
+mechanisms would otherwise fail in opposite directions: <code>PaletteManager::reset()</code> changing
+the live RAM without the log would make the render replay the old palette over it,
+while the other classes wiping their history would repaint the rows above the
 reset with reset values.</p>
 <p>Five details reliably bite newcomers:</p>
 <ul>
 <li><strong>A register in neither mechanism is read at its end-of-frame value.</strong> Nothing
-  enforces coverage: GH #256 found the tilemap and sprite transparency indices,
+  enforces coverage: an audit found the tilemap and sprite transparency indices,
   both remaining clip windows, three NR 0x15 sprite bits, the ULA+ / ULAnext
-  state and the shadow-screen bank all read live, so a Copper split of any of
+  state and the shadow-screen bank all reading live, so a Copper split of any of
   them repainted the whole frame with its last value. A snapshot only helps if
   <em>every</em> render-time reader uses it — the ULA+ enable had a snapshot array for
   months that production never filled or read.</li>
@@ -3078,7 +3137,7 @@ reset with reset values.</p>
 <p><strong>A writer that bypasses the log is worse than no log.</strong> <code>rewind_to_baseline()</code>
   overwrites whatever a writer put straight into live state, so an unlogged
   write is not merely late — it is erased, and the next frame's baseline loses
-  it too. The NR 0xFF ULA+ palette poke did exactly that until GH #256: it never
+  it too. The NR 0xFF ULA+ palette poke did exactly that once: it never
   reached the screen at all.</p>
 </li>
 <li>
@@ -3091,10 +3150,10 @@ reset with reset values.</p>
   executes in, for every lane: the snapshots are taken at the end of each raw
   line, and the tilemap's scroll, fetch and output-stage snapshots share that
   one point so that a Copper split changing several of them switches them all
-  on the same row (GH #257; they used to be taken at the start of the line,
+  on the same row (they are not taken at the start of the line, which would be
   one row late). Two lanes DO have a representation for "from column X": the
   Layer 2 bank and scroll logs carry a column beside the line tag and the
-  renderer draws the row in segments (GH #270). For every other lane this stays
+  renderer draws the row in segments. For every other lane this stays
   an approximation, and one that is not bounded to a row: a line carrying two
   writes to the same register loses the first outright.</p>
 </li>

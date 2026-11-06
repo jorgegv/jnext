@@ -125,6 +125,74 @@ Raw line 4 is near the top of the frame, in the vertical blanking, which on the
 48K comes *after* the 192 paper lines and the bottom border in `CVC`'s count: so
 `CVC` is 252.
 
+## C variables: `cvar()`
+
+```
+on execute main.c:21 once when cvar(i) == 3 do
+    log "main.c:21 with i = ${cvar(i)}, table[3] = ${cvar(table[3])}, counter = ${cvar(counter)}"
+end
+```
+
+`cvar(PATH)` reads a C variable of the program, as a 32-bit integer. It needs a z88dk
+`-debug` map, which carries the program's C variable records (see [Building with
+z88dk](../source-debugger/02-building-with-z88dk.md)); with the program of [A first
+session](../source-debugger/01-a-first-session.md) and the script above in `cv.jds`,
+
+```
+jnext --headless --machine next --load prog.nex --script cv.jds --delayed-automatic-exit-frames 700
+```
+
+logs (z88dk 2.4 build; the timestamps and the `[debugger] [info]` prefixes are left out)
+
+```
+SCRIPT cv.jds: names a source line; it loads when the --load program has loaded
+Loaded 19 z88dk symbols from 'prog.map'
+Loaded 46 z88dk source lines from '/home/you/prog/prog.map' (program identity not verified: no section binaries beside it)
+SCRIPT loaded cv.jds: 1 rules [client 2]
+[jds F:500 C:283637187] main.c:21 with i = 3, table[3] = 9, counter = 14 [client 2]
+```
+
+The path is a C name and what follows it:
+
+| PATH | Reads |
+|---|---|
+| `i`, `counter` | a local or parameter of the frame the CPU is in, else a static of the function, a file static or a global, in that order |
+| `sum::calls` | the static local `calls` of function `sum`, from any frame |
+| `vars.c::s_dup` | the file static (or global) of that file: two files can each have an `s_dup` |
+| `vars.c::sum::calls` | the same, naming the file that holds the function |
+| `p->x`, `g_pt.tag`, `g_matrix[1][2]`, `*p`, `*g_cptr` | a member, an element or a dereference; the index is decimal, `0x` or `$` hex, and spaces are allowed (`p -> x`) |
+
+What it gives:
+
+- **The frame is the one the CPU is in.** There is one atom and no frame argument, so `cvar(a)` in a rule on `sum`'s line is
+  `sum`'s `a`. A static local is reachable from any line as `sum::calls`.
+- **Integers and pointers.** A signed or unsigned integer of up to 32 bits reads as itself (an unsigned 16-bit 40000 is
+  40000, not -25536) and a pointer is its address, so `mem[cvar(p)]` is the byte it points at. An unsigned 32-bit value
+  keeps its bit pattern, as an integer literal does: `cvar(g_ulong) == 0xCAFEBABE`.
+- **What is refused:** a struct or an array (name a member or an element), a float (the language has no floats), and an
+  integer wider than 32 bits. The message names the type.
+- **A global in a banked page** is read from its own page whether or not that page is mapped now.
+- **`cvar()` reads.** `set cvar(x) = v` writes: see [Changing the machine](08-changing-the-machine.md#set-cvarpath).
+
+The path is checked when the script loads: `cvar(a.)` is an error at the `cvar`, with the reason. What it *names* is looked
+up each time the expression runs, because the map may attach after the script loads. So **every other refusal is a run-time
+error, never a 0**: no C variables in the loaded map (an SLD has none), a name that does not exist, a local that is out of
+scope on the line, a variable the compiler kept nowhere, a null pointer, an index past the end of the array. In a `when` that
+disables the rule and the run exits 1:
+
+```
+on execute main.c:21 when cvar(nosuch) == 3 do
+    log "never"
+end
+```
+
+```
+SCRIPT ERROR cv3.jds:1:27: cvar(nosuch): unknown name 'nosuch' - rule at 1:1 disabled [client 2]
+SCRIPT: a run-time error disabled a rule; exiting 1 [client 2]
+```
+
+So put the rule on a line where the variable is in scope, or `on execute` at a line of the function that has it.
+
 ## Symbols: `@name`
 
 ```

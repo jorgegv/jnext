@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1706,6 +1706,8 @@
       
         
       
+        
+      
     
     
     
@@ -2162,6 +2164,34 @@
     
   
     Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../panels/16-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Variables
   
 
     
@@ -3258,6 +3288,8 @@
       
         
       
+        
+      
     
     
     
@@ -3518,6 +3550,34 @@
     
   
     In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="11-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C variables in the debugger
   
 
     
@@ -4231,12 +4291,12 @@ output.</p>
 <tr>
 <td><code>Segmentation fault</code> of z88dk-gdb (the 2026-10-16 master client, on the 2.4 and the master banked <code>-run</code> maps)</td>
 <td>the map has a 24-bit <code>__C_LINE_</code> value</td>
-<td>debug it in JNEXT's own Source tab. z88dk PR #3218 (merged 2026-10-31) is said to fix it; not run here</td>
+<td>debug it in JNEXT's own Source tab. z88dk master from 2026-10-31 is said to fix it; not run here</td>
 </tr>
 <tr>
 <td><code>Unknown option2 --hardware-keyboard</code> (z88dk, at build)</td>
 <td><code>+zxn -clib=classic -debug</code></td>
-<td>use <code>-clib=new</code>, or <code>+zx</code> with the default classic library. Fixed upstream (PR #3198), not in a release</td>
+<td>use <code>-clib=new</code>, or <code>+zx</code> with the default classic library. Fixed upstream (z88dk master from 2026-10-23), not in a release</td>
 </tr>
 <tr>
 <td><code>defc Gcounter0_00==.</code> syntax error (z88dk 2.4, at build)</td>
@@ -4267,8 +4327,16 @@ the two pragmas: see <a href="02-building-with-z88dk.html#banked-code">Building 
 <li><strong>DivMMC sections</strong> (<code>DIV_n</code>, and z88dk's <code>dotn</code> programs) are refused: a map
   with a line in one is rejected, with the line named, rather than attached half.
   A <code>dot</code> or <code>dotx</code> command is supported: <a href="03-dot-commands.html">Dot commands</a>.</li>
-<li><strong>C variables beyond their names</strong> (types, locals, structs) are not in the
-  debugger yet.</li>
+<li><strong>C variables</strong> are shown in the Variables tab (<a href="11-c-variables.html">C variables in the debugger</a>, with
+  what each z88dk version and compiler can show) and read by scripts (<code>cvar()</code>), over GDB and over ZRCP, never over DeZog's protocol (DZRP): see
+  <a href="09-scripts-and-remote-debuggers.html#c-variables">Scripts and remote debuggers</a>.</li>
+<li><strong>Some C variables cannot be written</strong> (from a script, over GDB and ZRCP; each refusal says why):
+  a variable the compiler keeps in a register (zsdcc), and anything reached through a pointer held in a register (the
+  debug record gives no live range, so the register may hold something else by then); a whole struct or array (write a
+  member or an element); sccz80's fastcall parameter (z88dk U1) and a member of an overlapping bitfield struct
+  (z88dk U2), whose places are not certain; any 80cc block local (<code>scope unknown</code>: the slot may hold another variable, and 80cc's block stamps cannot prove it in scope); a name that two visible variables share when the innermost is <code>scope unknown</code> (<code>ambiguous</code>); a variable that shares its stack slot with another listed one (<code>shares its stack slot with ...</code>: the write
+  would land in the other); a variable not allocated yet or out of scope; a global of a dot command, which lives in
+  DivMMC RAM, where the debugger cannot write; and anything in ROM.</li>
 <li><strong>A step is synchronous and bounded.</strong> A step that never reaches another
   statement (a loop on one line, a <code>HALT</code> with interrupts disabled) stops by itself
   at a disabled-interrupt <code>HALT</code>, or after a million instructions or 100 frames,

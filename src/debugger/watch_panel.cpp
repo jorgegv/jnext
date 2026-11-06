@@ -84,6 +84,10 @@ void WatchPanel::refresh() {
 
     for (int i = 0; i < static_cast<int>(watches_.size()); ++i) {
         const auto& w = watches_[i];
+        if (w.kind == WatchEntry::Kind::CVariable) {
+            if (paused_) refresh_c_row(i, w);   // while running a C row keeps the text of the last stop
+            continue;
+        }
         QString value_str;
 
         switch (w.type) {
@@ -117,6 +121,87 @@ void WatchPanel::refresh() {
                 mem->setText(memtext::text(dbg_, style_, memtext::now_of(sinfo, w.addr), w.addr));
         }
     }
+}
+
+// A C row, read at a stop. A parameter or local follows its function: it is read in the NEWEST frame of it (by name and module), and the row
+// says so when there is none. A global, file static or static local is read through its unshadowable path, in frame 0.
+void WatchPanel::refresh_c_row(int row, const WatchEntry& w) {
+    // what is shown is also kept in the entry, so a table rebuild (an Add or Remove while the machine runs) shows the last stop again
+    auto set = [&](int col, const QString& text) {
+        watches_[static_cast<size_t>(row)].shown[col] = text;
+        if (auto* it = table_->item(row, col)) it->setText(text);
+    };
+    const auto placeholder = [&](bool on) {
+        watches_[static_cast<size_t>(row)].refused = on;
+        if (auto* it = table_->item(row, 3))
+            it->setData(Qt::ForegroundRole, on ? QVariant(palette().color(QPalette::PlaceholderText)) : QVariant());
+    };
+    set(0, QString());
+    set(4, QString());
+    const auto status = dbg_->c_variables_status();
+    if (!status.available) {
+        set(3, QString::fromStdString(status.why));
+        placeholder(true);
+        return;
+    }
+    size_t frame = 0;
+    if (!w.cvar.function.empty()) {
+        bool found = false;
+        const auto store = dbg_->variables();
+        const auto frames = dbg_->c_frames();
+        for (size_t k = 0; store && !found && k < frames.size(); ++k) {
+            const int f = frames[k].function;
+            if (f < 0 || static_cast<size_t>(f) >= store->functions().size()) continue;
+            const auto& fn = store->functions()[static_cast<size_t>(f)];
+            if (fn.name == w.cvar.function && fn.module == w.cvar.module) {
+                frame = k;
+                found = true;
+            }
+        }
+        if (!found) {
+            set(3, tr("out of scope: %1 is not on the call stack").arg(QString::fromStdString(w.cvar.function)));
+            placeholder(true);
+            return;
+        }
+    }
+    const auto r = dbg_->read_c_value(frame, w.cvar.path);
+    if (!r.type.empty()) set(2, QString::fromStdString(r.type));
+    if (!r.ok) {
+        set(3, QString::fromStdString(r.why));   // a refusal is text, never a number
+        placeholder(true);
+        return;
+    }
+    QString value = QString::fromStdString(r.value);
+    QStringList notes;
+    for (const std::string& n : r.notes) notes << QString::fromStdString(n);
+    if (!notes.isEmpty()) value += "  (" + notes.join("; ") + ")";
+    set(3, value);
+    placeholder(false);
+    using K = jnext::dbg::Debugger::CWhere::Kind;
+    const auto mmu = dbg_->mmu_slots();
+    switch (r.where.kind) {
+    case K::Page:
+        set(0, QString::asprintf("$%04X", r.where.source.address));
+        set(4, memtext::text(dbg_, style_, r.where.source.space, r.where.source.address));
+        break;
+    case K::Cpu:
+        set(0, QString::asprintf("$%04X", r.where.cpu));
+        set(4, memtext::text(dbg_, style_, memtext::now_of(mmu, r.where.cpu), r.where.cpu));
+        break;
+    case K::Register:
+        set(0, QString::fromStdString(r.where.regs));
+        break;
+    default:
+        break;
+    }
+}
+
+void WatchPanel::add_c_watch(const CVarWatch& cv) {
+    WatchEntry entry;
+    entry.kind = WatchEntry::Kind::CVariable;
+    entry.cvar = cv;
+    watches_.push_back(entry);
+    update_table();
 }
 
 void WatchPanel::add_watch(uint16_t addr, const std::string& label, int type) {
@@ -217,6 +302,7 @@ void WatchPanel::on_edit_watch() {
     if (row < 0 || row >= static_cast<int>(watches_.size())) return;
 
     auto& w = watches_[row];
+    if (w.kind == WatchEntry::Kind::CVariable) return;   // nothing an address dialog could edit
     uint16_t addr = w.addr;
     std::string label = w.label;
     int type = static_cast<int>(w.type);
@@ -237,19 +323,26 @@ void WatchPanel::update_table() {
     for (int i = 0; i < static_cast<int>(watches_.size()); ++i) {
         const auto& w = watches_[i];
 
-        auto* addr_item = new QTableWidgetItem(QString::asprintf("$%04X", w.addr));
+        const bool c = w.kind == WatchEntry::Kind::CVariable;
+        auto* addr_item = new QTableWidgetItem(c ? w.shown[0] : QString::asprintf("$%04X", w.addr));
         table_->setItem(i, 0, addr_item);
 
-        auto* label_item = new QTableWidgetItem(QString::fromStdString(w.label));
+        QString label = QString::fromStdString(w.label);
+        if (c) {
+            label = QString::fromStdString(w.cvar.path);
+            if (!w.cvar.function.empty()) label += " (in " + QString::fromStdString(w.cvar.function) + ")";
+        }
+        auto* label_item = new QTableWidgetItem(label);
         table_->setItem(i, 1, label_item);
 
-        auto* type_item = new QTableWidgetItem(type_names[w.type]);
+        auto* type_item = new QTableWidgetItem(c ? w.shown[2] : QString(type_names[w.type]));
         table_->setItem(i, 2, type_item);
 
-        auto* value_item = new QTableWidgetItem("--");
+        auto* value_item = new QTableWidgetItem(c && !w.shown[3].isEmpty() ? w.shown[3] : QString("--"));
+        if (c && w.refused) value_item->setData(Qt::ForegroundRole, palette().color(QPalette::PlaceholderText));
         table_->setItem(i, 3, value_item);
 
-        table_->setItem(i, 4, new QTableWidgetItem(QString()));
+        table_->setItem(i, 4, new QTableWidgetItem(c ? w.shown[4] : QString()));
     }
 
     refresh();

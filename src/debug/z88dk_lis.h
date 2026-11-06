@@ -41,6 +41,16 @@ struct Z88dkListing {
 /// for a file that is not a z80asm listing.
 std::optional<Z88dkListing> parse_z88dk_listing(const std::string& path, std::string& why);
 
+/// A C function a listing names in its `; Function <name> flags 0x<hex> ...` comment (sccz80 and
+/// 80cc write the flags, zsdcc only the name), and whether the flags say `__z88dk_fastcall`
+/// (GH #434, OD-14: the evidence for z88dk U1, sccz80 recording a fastcall parameter at its
+/// nominal stack slot).
+struct Z88dkListedFunction {
+    std::string name;
+    bool fastcall = false;
+};
+std::vector<Z88dkListedFunction> z88dk_listing_functions(const Z88dkListing& listing);
+
 /// Where `place` puts a (section, value) pair: the memory space and the 16-bit
 /// address in it, or the reason it cannot be put anywhere.
 struct Z88dkPlacement {
@@ -69,11 +79,23 @@ struct Z88dkListedRange {
     std::string section;
 };
 
+/// A `C_LINE n,"<file>::<func>::<level>::<block>"` directive, placed at the first byte row after it (the last directive
+/// before that row owns it): the scope the compiler wrote for that code, once per occurrence (GH #438, S4a). The map keeps
+/// only the first `__C_LINE_` symbol of each (line, scope) key, so it cannot place 80cc's repeated lines.
+struct Z88dkListedScope {
+    std::string text;         // `<file>::<func>::<level>::<block>:<line>`, the map's own location form
+    uint64_t value = 0;       // the map value of the byte row
+    std::string section;
+    jnext::dbg::FetchSource space;
+    uint16_t lo = 0;
+};
+
 struct Z88dkListingResult {
     bool used = false;                          // false: dropped or ignored, `notes` say why
     std::string module;
     std::vector<Z88dkListedRange> ranges;
     std::vector<SourceAlias> aliases;           // `range` indexes `ranges`
+    std::vector<Z88dkListedScope> scopes;       // C modes: every C_LINE directive with a scope operand, placed
     std::map<std::string, std::vector<std::string>> texts;   // `.m4` files: lines[i] is line i + 1
     int checks = 0;                             // map line records compared
     int disagreements = 0;                      // ... that the listing places elsewhere

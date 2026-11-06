@@ -29,6 +29,7 @@ class BreakpointPanel;
 class MmuPanel;
 class StackPanel;
 class CallStackPanel;
+class VariablesPanel;
 class SourcePanel;
 class QPushButton;
 class QSplitter;
@@ -116,6 +117,8 @@ public:
     BreakpointPanel* breakpoint_panel() { return breakpoint_panel_; }
     StackPanel* stack_panel() { return stack_panel_; }
     CallStackPanel* callstack_panel() { return callstack_panel_; }
+    /// GH #435 - the Variables tab.
+    VariablesPanel* variables_panel() { return variables_panel_; }
     NextRegPanel* nextreg_panel() { return nextreg_panel_; }
     AudioPanel* audio_panel() { return audio_panel_; }
     MemoryPanel* memory_panel() { return memory_panel_; }
@@ -248,6 +251,7 @@ private:
     MmuPanel* mmu_panel_ = nullptr;
     StackPanel* stack_panel_ = nullptr;
     CallStackPanel* callstack_panel_ = nullptr;
+    VariablesPanel* variables_panel_ = nullptr;
     SourcePanel* source_panel_ = nullptr;
     ScriptPanel* script_panel_ = nullptr;   // GH #26 WP5
     QAction* script_key_actions_[8] = {};    // GH #26 WP5

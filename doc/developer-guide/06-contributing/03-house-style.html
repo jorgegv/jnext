@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2355,6 +2355,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2897,6 +2901,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2942,7 +3002,7 @@ reviewer is the gate the whole process depends on.</p>
 <p>If you do notice a genuine second problem, say so — in a note, in the pull
 request, or as a new issue. Just do not fix it in the same change.</p>
 <h2 id="program-text-is-ascii">Program text is ASCII<a class="headerlink" href="#program-text-is-ascii" title="Permanent link">&para;</a></h2>
-<p><em>(Owner decision, 2026-10-17, GH #382; enforced by <code>test/lint-ascii-text.sh</code>.)</em></p>
+<p><em>(Owner decision, 2026-10-17; enforced by <code>test/lint-ascii-text.sh</code>.)</em></p>
 <p>The text jnext writes to a console is ASCII. A Windows console decodes the
 program's bytes in its OEM code page, so the three UTF-8 bytes of an em dash
 come out as three accented letters (<code>ÔÇö</code> in code page 850) instead of a dash.

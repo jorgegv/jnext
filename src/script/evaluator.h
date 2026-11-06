@@ -17,6 +17,10 @@
 //   * shifts use the low five bits of the count (as Java/x86 do): `x << 33` is
 //     `x << 1`; `>>` is arithmetic;
 //   * comparisons, `not`, `and`, `or` give 1 or 0; `and` / `or` short-circuit;
+//   * `cvar(path)` is the int32 of a C variable of frame 0 (`Debugger::read_c_value()` then
+//     `c_int32_scalar()`): a pointer is its address, an unsigned 32-bit value its bit pattern;
+//     any refusal (no store, unknown name, aggregate, float, null pointer) is a run-time error
+//     carrying the facade's reason (GH #436);
 //   * `==` / `!=` of two strings compare their text (value.h: the only string
 //     operations besides interpolation).
 //

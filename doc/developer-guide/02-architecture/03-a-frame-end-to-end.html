@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2350,6 +2350,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2892,6 +2896,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2936,7 +2996,7 @@ once the call returns the frontend reads the finished image with
 <h3 id="how-the-qt-frontend-paces-and-presents">How the Qt frontend paces and presents<a class="headerlink" href="#how-the-qt-frontend-paces-and-presents" title="Permanent link">&para;</a></h3>
 <p>The Qt tick is <code>frame_sequencer::Sequencer::tick()</code> (<code>src/platform/frame_sequencer.h</code>),
 driven by one timer and four rules that only show their worth on a host at the
-edge of real time (GH #155):</p>
+edge of real time:</p>
 <ul>
 <li><strong>The timer is single-shot and is re-armed from now at the end of every
   tick</strong> (<code>src/gui/frame_timer.h</code>), whatever the interval. The deadline
@@ -2973,7 +3033,7 @@ timer unarmed — must be 0) and <code>pending-paint checked=</code>/<code>paint
 the tick-entry paint was asked, and how often it found a frame to paint — ~0
 on Linux, the Windows residual elsewhere). The <code>frame-loop-wiring-func</code>
 regression row runs the real GUI binary and pins the first three.</p>
-<p><strong>An unchanged frame is not presented again (GH #428).</strong> <code>Emulator::
+<p><strong>An unchanged frame is not presented again.</strong> <code>Emulator::
 framebuffer_generation()</code> advances at every write of the framebuffer (the
 end-of-frame render, both rewind re-renders, a cold boot); it is never reset.
 <code>render_policy::upload_needed()</code> decides, for <code>EmulatorWidget::update_frame()</code>
@@ -3027,13 +3087,13 @@ The visible symptom is a frame that renders flat.</p>
    <code>VideoTiming::frame_int_master_cycle_offset()</code>, and the <strong>line interrupt</strong>
    via <code>reschedule_line_interrupt()</code>.</li>
 <li>Begin an RZX playback or recording frame. The Copper gets no frame-start
-   call: its mode-11 restart is at <code>cvc</code> 0, inside <code>Copper::execute()</code> (GH #293).</li>
+   call: its mode-11 restart is at <code>cvc</code> 0, inside <code>Copper::execute()</code>.</li>
 <li>Baseline about fifteen per-scanline change logs and snapshots: the palette,
    Layer 2 scroll and bank, sprite attributes, ULA scroll, palette-select,
    Timex mode and border, tilemap scroll and fetch state and NR 0x6B, the
    attribute mux, NR 0x15, NR 0x68, NR 0x14, NR 0x4A, NR 0x1A and LoRes.</li>
 <li>Call <code>schedule_frame_events()</code>, which queues one <code>SCANLINE</code> event per line,
-   the frame's <code>CVC_RELOAD</code> (where <code>cvc</code> takes NR 0x64, GH #290) and a single
+   the frame's <code>CVC_RELOAD</code> (where <code>cvc</code> takes NR 0x64) and a single
    <code>VSYNC</code>.</li>
 </ol>
 <h2 id="the-inner-loop">The inner loop<a class="headerlink" href="#the-inner-loop" title="Permanent link">&para;</a></h2>
@@ -3096,16 +3156,15 @@ framebuffer row a display register write belongs to — it snapshots the row tha
 is ending and retags the per-scanline change logs — so running it late means
 attributing writes to the wrong row. The Copper writes at 28 MHz, so a burst
 released in horizontal blanking straddles a row boundary within a single Z80
-instruction; before GH #272 the whole window was stepped first and the boundary
-fired afterwards, which put writes that were physically <em>after</em> the boundary
+instruction; stepping the whole window first and firing the boundary
+afterwards would put writes that are physically <em>after</em> the boundary
 into the row <em>before</em> it, and split a burst across two rows at a point that
-drifted with the CPU's phase from frame to frame. That is a flickering line, and
-it was reported as one. <code>advance_copper_across_row_boundaries()</code> therefore walks
+drifts with the CPU's phase from frame to frame. That is a flickering line. <code>advance_copper_across_row_boundaries()</code> therefore walks
 the video-row queue across the instruction's window and crosses each boundary at
 its own master cycle, carrying the part of the deferred CPU NextREG queue that
 commits before it across with it. The walk is unconditional — not gated on the
 Copper running — so a boundary always falls at the same point in the cluster.</p>
-<p>For interrupts that is not the whole story (GH #265). Every request — frame and
+<p>For interrupts that is not the whole story. Every request — frame and
 line interrupt, CTC ZC/TO, UART — carries the CLK_28 edge it happened on, and
 because the IM2 tick runs <em>after</em> the devices and the event queues, the fabric
 resolves the instruction's own requests on that timeline and the CPU takes an
@@ -3129,7 +3188,7 @@ any NEX boot hold counts down. The last visible row, 255, gets its snapshots
 taken here only when its raw line is the frame's last (60 Hz), because then no
 <code>on_scanline</code> follows it. At 50 Hz <code>on_scanline</code> has already taken them, and
 taking them again here would paint row 255 with writes made in the raw lines
-below the display, which the hardware never shows (GH #264).</p>
+below the display, which the hardware never shows.</p>
 <p><code>end_of_frame()</code> is a separate function rather than the tail of <code>run_frame()</code>
 for the same reason <code>step_one_instruction()</code> is: the debugger's Step needs it
 too. <code>step_frame_slot()</code> — one instruction slot with the begin-frame and

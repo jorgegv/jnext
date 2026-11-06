@@ -36,7 +36,7 @@ if want script-load-error-func; then
     expect_1 parse "SCRIPT ERROR .*sle-parse.jds:2:11: " --script "$TMP_DIR/sle-parse.jds"
     expect_1 "parse, second of two" "sle-parse.jds: not loaded" \
         --script "$TMP_DIR/sle-ok.jds" --script "$TMP_DIR/sle-parse.jds"
-    expect_1 straddle "sle-straddle.jds:1:13: .*GH #222" --script "$TMP_DIR/sle-straddle.jds"
+    expect_1 straddle "sle-straddle.jds:1:13: .*decoded on the low byte" --script "$TMP_DIR/sle-straddle.jds"
     expect_1 symbol "SCRIPT ERROR .*sle-sym.jds:1:" --script "$TMP_DIR/sle-sym.jds"
     expect_1 missing "--script $TMP_DIR/nope.jds: cannot be read" --script "$TMP_DIR/nope.jds"
     expect_1 map "--map $TMP_DIR/nope.map: cannot be loaded" \

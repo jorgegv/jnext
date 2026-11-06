@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2344,6 +2344,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2886,6 +2890,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2997,13 +3057,13 @@ difference between a single missing edge and a wrong graph.</p>
 <p>Building is not the same as running, though, and for a long time it was all the
 matrix did: every configuration was proved to link, and only the default one ever
 had a suite run in it, so a suite could stay red in a supported configuration
-indefinitely — which is what GH #273 found. Two configurations now run their
+indefinitely — which had happened. Two configurations now run their
 suites: the default Qt+debugger build through <code>make unit-test</code>, and the SDL-only
 build through <code>make unit-test-sdl</code>. The other two, Qt without the debugger and
 SDL with it, are not used in practice and remain build-only. CI runs both
 targets.</p>
 <p>The configurations are about <em>what</em> is built; the suites also run on three
-operating systems (GH #214). The SDL-only set runs natively on Linux
+operating systems. The SDL-only set runs natively on Linux
 (<code>make unit-test-sdl</code>), natively on macOS (the same target, with Homebrew's GNU
 tools first on <code>PATH</code>), and as MinGW-built Windows executables under wine
 (<code>make unit-test-win</code>). Which suites each OS owes is declared by <code># os:</code> in
@@ -3061,11 +3121,11 @@ toolchain rather than to any single translation unit or transform, which is why
 nothing short of disabling it helps. Every other build keeps LTO on —
 including the Windows executables, which is why every <code>win-*-release</code> target
 passes <code>-DCMAKE_BUILD_TYPE=Release</code> explicitly (<code>WIN_BUILD_TYPE</code> in the
-Makefile). Before GH #298 they passed no build type, fell back to
+Makefile). They used to pass no build type, fell back to
 RelWithDebInfo, and shipped without LTO.</p>
 <h2 id="profile-guided-optimisation">Profile-guided optimisation<a class="headerlink" href="#profile-guided-optimisation" title="Permanent link">&para;</a></h2>
 <p><code>make gui-release</code> — and every package, see
-<a href="03-packaging-and-release.html">5.3</a> — is a gcc <strong>PGO</strong> build (GH #297): an
+<a href="03-packaging-and-release.html">5.3</a> — is a gcc <strong>PGO</strong> build: an
 instrumented twin in <code>build/gui-release-pgo-gen</code> runs a short training set
 (<code>tools/pgo-train.sh</code>), and <code>build/gui-release</code> is then compiled with the
 profile it wrote to <code>build/gui-release-pgo-profile</code>. <code>cmake/JnextPgo.cmake</code>
@@ -3076,7 +3136,7 @@ mismatched profile fails the build.
 <a href="05-performance-and-optimisation.html#profile-guided-optimisation">5.5 Performance and optimisation</a>
 describes the pipeline, the training set, the gates and the measured gains.</p>
 <h2 id="the-stack-frame-gate">The stack-frame gate<a class="headerlink" href="#the-stack-frame-gate" title="Permanent link">&para;</a></h2>
-<p>No production function may need a stack frame over 256 KiB (GH #308):
+<p>No production function may need a stack frame over 256 KiB:
 <code>-Werror=frame-larger-than=262144</code> on GCC, <code>-Wframe-larger-than=262144
 -Werror=frame-larger-than</code> on Clang. It exists because Windows runs on
 MinGW's default 2 MB main-thread reserve (jnext sets no <code>--stack</code>), and

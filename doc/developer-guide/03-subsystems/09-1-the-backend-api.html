@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2440,6 +2440,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2982,6 +2986,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3312,7 +3372,7 @@ and follow the contract of <a href="09-2-event-delivery-and-mutation.html">3.9.2
 <tr>
 <td>call stack and trace</td>
 <td><code>call_stack()</code>, <code>trace_entries()</code>, <code>trace_export(path)</code></td>
-<td><code>set_call_stack_enabled</code>, <code>set_trace_enabled</code>, <code>trace_clear</code>, <code>trace_resize</code></td>
+<td><code>set_call_stack_enabled(by, on)</code> (a per-client request, <a href="../07-source-level-debugging/10-c-frames-and-values.html">7.10</a>); C variables: <code>c_frames()</code>, <code>c_locals(frame)</code>, <code>c_globals()</code>, <code>read_c_value(frame, path)</code>, <code>c_variables_status()</code> (all <code>const</code>, none bumps the revision), <code>set_trace_enabled</code>, <code>trace_clear</code>, <code>trace_resize</code></td>
 </tr>
 <tr>
 <td>coverage</td>
@@ -3508,7 +3568,7 @@ server's <code>monitor sym</code> and <code>--map</code> all read it, so a symbo
 placement rules and C names are <a href="../07-source-level-debugging/04-3-z88dk-map.html">7.4.3</a>; the three
 other loaders are 7.4.1, 7.4.2 and 7.4.5.</p>
 <h3 id="user-labels-and-comments-cap-ann">User labels and comments — CAP-ANN<a class="headerlink" href="#user-labels-and-comments-cap-ann" title="Permanent link">&para;</a></h3>
-<p>A second layer beside the toolchain's symbols: the user's labels and comments (GH #387), keyed by memory and
+<p>A second layer beside the toolchain's symbols: the user's labels and comments, keyed by memory and
 address. <code>symbols()</code>, <code>lookup()</code> and <code>lookup_name()</code> return the composition of the two layers, the user's first,
 so no consumer merges them. The store has no lifetime: loads, resets, state loads and rewinds leave it alone, and
 it is not in <code>.jns</code>.</p>
@@ -3658,7 +3718,7 @@ supplies the code, filled by a format adapter and replaced only by a complete, s
 <code>run_frame()</code>, the debugger's Step and <code>execute_single_instruction()</code> share,
 and only for a slot that fetched the opcode at PC. An NMI or INT acknowledge
 does not run it. Switched off it costs one pointer test per instruction.</p>
-<p><strong>INS-21, memory coverage by execute, read and write</strong> (GH #388, CAP-INS-21) is
+<p><strong>INS-21, memory coverage by execute, read and write</strong> (CAP-INS-21) is
 the physical-memory counterpart, with a separate switch: INS-20 holds 16-bit
 logical PCs (ZRCP <code>cpu-code-coverage</code> returns them, and the logical address a page
 ran at cannot be rebuilt from a physical byte), INS-21 holds one byte of flags
@@ -3693,7 +3753,7 @@ from (<code>fetch_kind</code>, <code>fetch_index</code>). <code>trace_export()</
 mask is the <code>ROM=</code> column after the pages and the identity the <code>FETCH=&lt;tag&gt;</code>
 column after it (<code>space_tag()</code> of <code>fetch_space()</code>, never the GUI's address style).</p>
 <h3 id="reverse-engineering-exports-cap-rex">Reverse-engineering exports — CAP-REX<a class="headerlink" href="#reverse-engineering-exports-cap-rex" title="Permanent link">&para;</a></h3>
-<p><code>export_skoolkit(dir, report, why)</code> and <code>export_ghidra(dir, report, why)</code> (GH #389) write the
+<p><code>export_skoolkit(dir, report, why)</code> and <code>export_ghidra(dir, report, why)</code> write the
 labels the disassembly shows, and for skoolkit the <code>mem_coverage()</code> code/data map, into a
 directory, as skoolkit control files and Ghidra symbol files. They are reads (<code>peek()</code>, coverage
 and the symbol table are side-effect free): no machine state changes, and they are allowed while

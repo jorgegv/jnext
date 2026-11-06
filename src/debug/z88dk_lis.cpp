@@ -479,6 +479,8 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
     std::string c_file;
     std::map<std::string, Piece> pieces;
     std::map<std::string, Loc> current;                 // per section, C modes
+    std::map<std::string, std::string> pending_scope;   // per section: the last C_LINE operand + line, until a byte row owns it
+    std::map<size_t, std::string> scope_of_item;        // item index -> that text
     std::map<std::string, std::vector<Event>> events;   // per section
     std::vector<Item> items;
     std::vector<Anchor> anchors;
@@ -527,6 +529,7 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
                 const LineOps ops = parse_line_ops(sp.rest);
                 if (ops.ok) {
                     if (ops.has_str) {
+                        pending_scope[section] = ops.str + ":" + std::to_string(ops.n);
                         c_file = c_line_file(ops.str);
                         c_first.emplace(ops.str + ":" + std::to_string(ops.n),
                                         Occurrence{section, pieces[section].pc});
@@ -574,6 +577,10 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
         }
         piece.pc = (phased ? piece.pc : static_cast<int64_t>(r.addr)) + item.n;
         piece.has_bytes = true;
+        if (const auto ps = pending_scope.find(section); ps != pending_scope.end()) {
+            scope_of_item[items.size()] = std::move(ps->second);
+            pending_scope.erase(ps);
+        }
         events[section].push_back({'B', {}, false, items.size()});
         items.push_back(std::move(item));
     }
@@ -666,6 +673,7 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
     // Placement.
     std::vector<int> range_of(items.size(), -1);
     std::vector<Z88dkListedRange> ranges;
+    std::vector<Z88dkListedScope> scopes;
     int unplaced = 0;
     for (size_t i = 0; i < items.size(); ++i) {
         const Item& item = items[i];
@@ -700,6 +708,8 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
                 return result;
             }
         }
+        if (const auto so = scope_of_item.find(i); so != scope_of_item.end())
+            scopes.push_back({so->second, value, item.section, placed.space, placed.lo});
         if (!item.loc.valid()) continue;
         const uint32_t page_end = (static_cast<uint32_t>(placed.lo) & 0xE000u) + 0x2000u;
         Z88dkListedRange out;
@@ -718,6 +728,7 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
     }
     result.used = true;
     result.ranges = std::move(ranges);
+    result.scopes = std::move(scopes);
     if (unplaced > 0)
         note(std::to_string(unplaced) + " listed lines could not be placed (no label of their "
              "section piece is in the map and its bytes do not fit exactly one place in the section "
@@ -773,4 +784,23 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
     }
     result.texts = std::move(texts);
     return result;
+}
+
+std::vector<Z88dkListedFunction> z88dk_listing_functions(const Z88dkListing& listing)
+{
+    constexpr std::string_view kMarker = "; Function ";
+    std::vector<Z88dkListedFunction> out;
+    for (const Z88dkListingRow& row : listing.rows) {
+        const std::string_view text = row.text;
+        const size_t first = text.find_first_not_of(" \t");
+        if (first == std::string_view::npos || text.compare(first, kMarker.size(), kMarker) != 0) continue;
+        const std::string_view rest = text.substr(first + kMarker.size());
+        const size_t end = rest.find_first_of(" \t");
+        Z88dkListedFunction f;
+        f.name = std::string(rest.substr(0, end));
+        if (f.name.empty()) continue;
+        f.fastcall = end != std::string_view::npos && rest.find("__z88dk_fastcall", end) != std::string_view::npos;
+        out.push_back(std::move(f));
+    }
+    return out;
 }

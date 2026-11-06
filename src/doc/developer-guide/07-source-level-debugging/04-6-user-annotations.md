@@ -1,6 +1,6 @@
 # 7.4.6 The annotations project file (`.jdp`) and the user's labels
 
-The user's own labels and comments (GH #387) are the one input of chapter 7 that
+The user's own labels and comments are the one input of chapter 7 that
 no toolchain writes. JNEXT defines the file itself: plain UTF-8 text, extension
 `.jdp`, opened and saved by the user and never attached beside a program. It
 fills a third store, `UserAnnotations`, which sits beside the toolchain's
@@ -69,7 +69,7 @@ error is `line N: reason`.
    file cannot disagree: `UserAnnotations::valid_label_name()`
    (`src/debug/user_annotations.cpp:29`: components `[A-Za-z_][A-Za-z0-9_]*`
    joined by single dots, exactly what the DSL's `@name` lexes,
-   `lex_symbol()`, `src/script/lexer.cpp:217-235`), `valid_utf8()` (`src/debug/user_annotations.cpp:39`: no overlong form, no
+   `lex_symbol()`, `src/script/lexer.cpp:243-261`), `valid_utf8()` (`src/debug/user_annotations.cpp:39`: no overlong form, no
    surrogate, nothing past U+10FFFF) and the uniqueness of a name
    (`set_label()`, `src/debug/user_annotations.cpp:62-80`).
 5. **A key the file can name.** `nameable()` (`src/debug/user_annotations.cpp:15`)
@@ -100,7 +100,7 @@ tag, version or escape refuses the file.
 
 ## 8. Excerpt
 
-From the writer's row `JDP-01` (`test/debug/source_map_test.cpp:1319-1325`), the
+From the writer's row `JDP-01` (`test/debug/source_map_test.cpp:1343-1349`), the
 bytes of a store inserted in a shuffled order:
 
 ```
@@ -127,11 +127,11 @@ so every consumer reads both layers with no code of its own.
 and Breakpoints panels hold (`set_symbol_table(&dbg_.symbols())`) stays valid.
 
 `recompose_names()` is called after every change of either layer: the toolchain writers
-(`recompose_names` at `src/debug/debugger.cpp:270` in load_map and `:284` in clear_symbols; in `src/debug/debugger_source.cpp` at `:409` the deferred-check drop, `:542` and `:549` the
-hand SLD's labels, `:780` the program-load attach and its bind, `:944`
-drop_sidecars, `:1042` and `:1048` the ring landing) and every verb that changes a label
+(`recompose_names` at `src/debug/debugger.cpp:270` in load_map and `:284` in clear_symbols; in `src/debug/debugger_source.cpp` at `:409` the deferred-check drop, `:547` and `:554` the
+hand SLD's labels, `:797` the program-load attach and its bind, `:961`
+drop_sidecars, `:1064` and `:1070` the ring landing) and every verb that changes a label
 (`recompose_names` at `src/debug/debugger_annotations.cpp:71` in set_user_label, `:80` in remove_user_label, `:116` in replace_annotations; `set_user_comment()` changes no name and does not). The attachment cache
-copies `toolchain_symbols`, never `names` (`src/debug/debugger_source.cpp:895`),
+copies `toolchain_symbols`, never `names` (`src/debug/debugger_source.cpp:912`),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.
 
@@ -146,7 +146,7 @@ loaded later is not either: the user layer then wins by name.
 `source_file_problem()` first (not a regular file, over 64 MiB). The verbs touch no
 machine state, so they are allowed while the machine runs, take no load generation
 and leave `.jns`, the rewind ring and the attachment cache alone; each success bumps
-`state_revision()` ([3.9.1](../03-subsystems/09-1-the-backend-api.md), GH #428). A verb that
+`state_revision()` ([3.9.1](../03-subsystems/09-1-the-backend-api.md)). A verb that
 changes nothing (a rename to the same name, an identical or already-normalised comment, clearing a
 comment that is not there, replacing or loading the same store) bumps neither revision: the early
 `return Result::Ok` of `set_user_label()` (`Ok`, `src/debug/debugger_annotations.cpp:69`), of
@@ -175,12 +175,12 @@ The same two views edit the store and draw it; nothing here changes what the sto
   file the toolchain layer was loaded from (`toolchain_symbols().loaded_file()` in `add_annotation_actions()`, `toolchain_note`,
   `annotation_menu.cpp:95-98`; `state_of()`, `:24`, only says whether a label is there). The panels hold a `const Debugger*` for reading; the writes go
   through the non-const pointer `DebuggerManager` hands them with `set_annotation_backend()`
-  (`src/debugger/debugger_manager.cpp:386` and `:390`), and each panel's `annotations_changed()` signal makes the
+  (`src/debugger/debugger_manager.cpp:392` and `:396`), and each panel's `annotations_changed()` signal makes the
   manager refresh the panels.
 - **The Disassembly draws it.** `label_column_shown()` (`disasm_panel.cpp:1016`) is true while the symbol table
   (the composed reader, section 9) holds any label; then the **Label** column sits between the BP column and the
   mnemonic and every x after it moves by `label_width()` (16 characters). The columns run Mem, Addr, BP column,
-  [Label], mnemonic, opcode bytes, `; comment` (GH #448); `breakpoint_x()` (`:1023`) is the BP column's left edge,
+  [Label], mnemonic, opcode bytes, `; comment`; `breakpoint_x()` (`:1023`) is the BP column's left edge,
   `mnemonic_x()` (`:1025`) the mnemonic's (`breakpoint_x() + 20 + 4`, plus `label_width()` with a label),
   `mnemonic_width()` (`:1030`) the mnemonic column's 20 characters, and `bytes_x(line)` (`:1035`) where that line's
   bytes start: after the column, or after the mnemonic itself plus a gap when that mnemonic is wider, so a long
@@ -193,18 +193,18 @@ The same two views edit the store and draw it; nothing here changes what the sto
   file).
 - **The Map menu.** `DebuggerWindow` adds **Open Annotations…**, **Save Annotations** and **Save Annotations As…**
   (`connect`, `src/debugger/debugger_window.cpp:890-894`), connected to `DebuggerManager::on_open_annotations()`
-  (`debugger_manager.cpp:778`), `on_save_annotations()` (`:754`) and `on_save_annotations_as()` (`:744`); Save with no
+  (`debugger_manager.cpp:784`), `on_save_annotations()` (`:760`) and `on_save_annotations_as()` (`:750`); Save with no
   current file is Save As, which appends `.jdp` to a name without a suffix. Failures are warnings with the
   backend's `why` (an Open names the line).
 - **Unsaved changes (D11).** `DebuggerManager` keeps `saved_revision_` (`debugger_manager.h`), the backend's
   `annotations_revision()` at the last Open, Save or `--annotations`; `annotations_unsaved()` compares them.
-  `confirm_discard_annotations()` (`debugger_manager.cpp:760`) asks Save / Discard / Cancel when they differ, and is
+  `confirm_discard_annotations()` (`debugger_manager.cpp:766`) asks Save / Discard / Cancel when they differ, and is
   asked by `on_open_annotations()` before it opens and by `MainWindow::closeEvent()`
   (`confirm_discard_annotations`, `src/gui/main_window.cpp:3830`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
   through `close()`, which then returns false). An unattended close (`unattended_`, the delayed automatic exit and
   SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:3827`) asks nothing: it logs that the unsaved changes were
   discarded and quits (`QG-ANN-05`). With nothing changed there is no dialog. `set_annotations_file()`
-  (`debugger_manager.cpp:725`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:394`), makes that file
+  (`debugger_manager.cpp:731`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:394`), makes that file
   the Save target and the starting point of "unsaved".
 - **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is
   `--annotations FILE`.

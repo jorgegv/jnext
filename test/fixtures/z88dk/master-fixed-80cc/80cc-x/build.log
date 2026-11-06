@@ -1,0 +1,3 @@
+# z88dk 0f0a1cf70e48856af8191af6f86096d2e1362482 (master-fixed-80cc)
++ zcc +zxn -clib=new -compiler=80cc -debug -m --list -subtype=nex -o prog -create-app x.c
+rc=0

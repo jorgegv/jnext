@@ -1,7 +1,9 @@
 #include "debug/z88dk_source_map.h"
 
+#include "debug/cdb_record.h"
 #include "debug/source_file.h"
 #include "debug/source_map.h"
+#include "debug/variable_store.h"
 #include "debug/z88dk_lis.h"
 #include "debug/z88dk_space.h"
 
@@ -14,9 +16,11 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -64,6 +68,10 @@ struct Location {
     std::string file;
     std::string func;
     bool func_known = false;
+    bool tab = false;           // the TAB that marks a function sdcc did not give
+    bool scope_given = false;   // `<func>::<level>::<block>` was there (GH #433)
+    int level_raw = 0;          // sccz80, 80cc: the level; zsdcc: level * 10000 + sub
+    int block = 0;
     int line = 0;
 };
 
@@ -93,7 +101,28 @@ std::optional<Location> parse_location(std::string_view text)
         const std::string_view rest = prefix.substr(scope + 2);
         const std::string_view func = rest.substr(0, rest.find("::"));
         out.func = std::string(func);
-        out.func_known = !tab && !func.empty();
+        // zsdcc writes the literal `x` where it gives no function: with a trailing TAB (z88dk 2.4 and master so far) and without one (z88dk#3222 A, once it ships)
+        out.func_known = !tab && !func.empty() && func != "x";
+        out.tab = tab;
+        // `level::block` after the function (GH #433): both numeric, else not given.
+        const size_t after = rest.find("::");
+        if (after != std::string_view::npos) {
+            const std::string_view tail = rest.substr(after + 2);
+            const size_t mid = tail.find("::");
+            if (mid != std::string_view::npos) {
+                const std::string_view lv = tail.substr(0, mid);
+                const std::string_view bl = tail.substr(mid + 2);
+                int level = 0, block = 0;
+                const auto [e1, r1] = std::from_chars(lv.data(), lv.data() + lv.size(), level, 10);
+                const auto [e2, r2] = std::from_chars(bl.data(), bl.data() + bl.size(), block, 10);
+                if (!lv.empty() && !bl.empty() && r1 == std::errc{} && r2 == std::errc{}
+                    && e1 == lv.data() + lv.size() && e2 == bl.data() + bl.size()) {
+                    out.scope_given = true;
+                    out.level_raw = level;
+                    out.block = block;
+                }
+            }
+        }
     }
     if (out.file.empty()) return std::nullopt;
     return out;
@@ -150,6 +179,516 @@ struct Bin {
     std::vector<uint8_t> bytes;
 };
 
+
+// ── The C variable store (GH #433) ──────────────────────────────────────────
+
+using jnext::dbg::CdbKind;
+using jnext::dbg::CdbRecord;
+using jnext::dbg::CdbScope;
+using jnext::dbg::CFunction;
+using jnext::dbg::CRecord;
+using jnext::dbg::CScope;
+using jnext::dbg::CStorage;
+using jnext::dbg::CVariable;
+
+// A `__CDBINFO__` map line: the escaped record and the module column.
+struct CdbLine {
+    std::string name;
+    std::string module;
+};
+
+// A map symbol placed in its space; the one rule `symbols_by_space` and the store share.
+struct SymPlace {
+    bool ok = false;
+    bool bound = false;         // placed by rule 4 (bound to the RAM page mapped there at load)
+    FetchSource space;
+    uint16_t addr16 = 0;
+    std::string why;            // !ok
+};
+using PlaceSymbol = std::function<SymPlace(const Z88dkMapLine&)>;
+
+struct SymbolIndex {
+    std::map<std::pair<std::string, std::string>, std::vector<const Z88dkMapLine*>> in_module;
+    std::map<std::string, std::vector<const Z88dkMapLine*>> pub;
+};
+
+// The symbol a record joins to, or why not. Two or more matches are ambiguous, never first-wins.
+struct Join {
+    const Z88dkMapLine* sym = nullptr;
+    std::string why;
+};
+
+Join pick(const std::vector<const Z88dkMapLine*>* found, const std::string& absent,
+          const std::string& several)
+{
+    Join j;
+    if (!found || found->empty()) j.why = absent;
+    else if (found->size() > 1) j.why = several;
+    else j.sym = found->front();
+    return j;
+}
+
+// `S:F` and every local: the symbol of that name in the record's own module.
+Join join_in_module(const SymbolIndex& idx, const std::string& module, const std::string& symbol)
+{
+    const auto it = idx.in_module.find({module, symbol});
+    return pick(it == idx.in_module.end() ? nullptr : &it->second,
+                "no symbol '" + symbol + "' in module '" + module + "'",
+                "symbol '" + symbol + "' is defined more than once in module '" + module + "'");
+}
+
+// `S:G` and `F:G`: the PUBLIC symbol, whatever its module. The CDB line's module is the
+// first emitter of the record (an `extern int g;` in another unit), not the definer.
+Join join_public(const SymbolIndex& idx, const std::string& symbol)
+{
+    const auto it = idx.pub.find(symbol);
+    return pick(it == idx.pub.end() ? nullptr : &it->second,
+                "no public symbol '" + symbol + "'",
+                "public symbol '" + symbol + "' is defined more than once");
+}
+
+CStorage storage_of(const Join& j, const PlaceSymbol& place)
+{
+    CStorage st;
+    if (!j.sym) {
+        st.why = j.why;
+        return st;
+    }
+    st.symbol = j.sym->name;
+    const SymPlace p = place(*j.sym);
+    if (!p.ok) {
+        st.why = p.why;
+    } else if (p.bound && p.space.kind != MemSpace::Kind::Page) {
+        st.why = "address $" + hex(p.addr16) + " of section '" + j.sym->section
+            + "' is not in a RAM page";
+    } else {
+        st.resolved = true;
+        st.at = {p.space, p.addr16};
+    }
+    return st;
+}
+
+// The storage symbol of an E-space variable (the writers: sccz80 declparse.c:1012, 80cc
+// declparse.c:1099 name a static local `st_<fn>_<x>`; SDCC allocLocal() SDCCmem.c:876 names
+// one `<fn>_<x>_<level * 10000 + sub>_<block>`).
+Join join_variable(const SymbolIndex& idx, const CdbRecord& r, const std::string& module)
+{
+    switch (r.scope) {
+    case CdbScope::Global:
+        return join_public(idx, "_" + r.var.name);
+    case CdbScope::Local:
+        return join_in_module(idx, module,
+            "_" + r.function + "_" + r.var.name + "_"
+            + std::to_string(r.var.level * 10000 + r.var.sub) + "_" + std::to_string(r.var.block));
+    default:
+        return join_in_module(idx, module, "_" + r.var.name);
+    }
+}
+
+// The function a local belongs to: the one record of that name in the local's own module.
+int function_of(const std::vector<CFunction>& fns, const std::string& module, const std::string& name)
+{
+    int found = -1;
+    for (size_t i = 0; i < fns.size(); ++i) {
+        if (fns[i].name != name || fns[i].module != module) continue;
+        if (found >= 0) return -1;   // two: not attributed
+        found = static_cast<int>(i);
+    }
+    return found;
+}
+
+// sccz80 / 80cc static local `st_<fn>_<x>` (level > 0): the one function of the module whose
+// name makes `st_<fn>_` a prefix. Several (`a` and `a_b`): not attributed.
+int static_local_function(const std::vector<CFunction>& fns, const std::string& module,
+                          const std::string& name, std::string* rest)
+{
+    int found = -1;
+    for (size_t i = 0; i < fns.size(); ++i) {
+        const std::string prefix = "st_" + fns[i].name + "_";
+        if (fns[i].module != module || name.size() <= prefix.size() || !starts_with(name, prefix))
+            continue;
+        if (found >= 0) return -1;
+        found = static_cast<int>(i);
+        *rest = name.substr(prefix.size());
+    }
+    return found;
+}
+
+// A function's entry symbol as the map gives it: the VALUE and SECTION the extents and the
+// scope tables compare (GH #434 F-A: never the space, which a function crossing an 8 KB slot
+// changes half way).
+struct FnEntry {
+    const Z88dkMapLine* sym = nullptr;
+};
+
+// The extent of every function whose entry resolved (GH #434, plan 2.1.1): from the entry to the
+// lowest map value above it, in the same section, of the entry of another function, an `addr`
+// symbol or line record of ANOTHER module, or the section's `__<section>_tail`; split at the
+// 8 KB logical boundaries, each piece placed by the same rule the symbols use.
+void fill_extents(std::vector<CFunction>& fns, const std::vector<FnEntry>& entries,
+                  const std::vector<Z88dkMapLine>& symbols, const std::vector<Record>& scope_records,
+                  const std::map<std::string, uint64_t>& bounds, const PlaceSymbol& place)
+{
+    for (size_t i = 0; i < fns.size(); ++i) {
+        CFunction& f = fns[i];
+        if (!f.entry.resolved || !entries[i].sym) {
+            f.extent_why = "its entry symbol is not resolved";
+            continue;
+        }
+        const Z88dkMapLine& e = *entries[i].sym;
+        uint64_t bound = UINT64_MAX;
+        const auto consider = [&](uint64_t v) {
+            if (v > e.value && v < bound) bound = v;
+        };
+        for (size_t j = 0; j < fns.size(); ++j)
+            if (j != i && fns[j].entry.resolved && entries[j].sym && entries[j].sym->section == e.section)
+                consider(entries[j].sym->value);
+        for (const Z88dkMapLine& s : symbols)
+            if (s.section == e.section && s.module != e.module) consider(s.value);
+        for (const Record& r : scope_records)
+            if (r.section == e.section && r.module != e.module) consider(r.value);
+        if (const auto tail = bounds.find("__" + e.section + "_tail"); tail != bounds.end())
+            consider(tail->second);
+        if (bound == UINT64_MAX) {
+            f.extent_why = "nothing bounds it above: no other function, no symbol or line of another "
+                           "module and no __" + e.section + "_tail";
+            continue;
+        }
+        Z88dkMapLine probe = e;
+        for (uint64_t at = e.value; at < bound;) {
+            probe.value = at;
+            const SymPlace p = place(probe);
+            if (!p.ok || (p.bound && p.space.kind != MemSpace::Kind::Page)) {
+                f.extent_why = "address $" + hex(at) + " of section '" + e.section
+                    + "' cannot be placed" + (p.why.empty() ? std::string() : ": " + p.why);
+                break;
+            }
+            const uint32_t room = 0x2000u - (p.addr16 & 0x1FFFu);
+            const uint32_t chunk = static_cast<uint32_t>(std::min<uint64_t>(bound - at, room));
+            f.pieces.push_back({{p.space, p.addr16}, p.addr16 + chunk, static_cast<uint32_t>(at - e.value)});
+            at += chunk;
+        }
+    }
+}
+
+// The scope tables (plan 2.5): the C_LINE records of the map's code sections, one owner per
+// address (the highest line), each filed under the function of its module and section with the
+// greatest entry VALUE at or below it (GH #434 F-A), with its offset from that entry.
+void fill_scopes(std::vector<CFunction>& fns, const std::vector<FnEntry>& entries,
+                 const std::vector<Record>& records)
+{
+    std::map<std::pair<uint32_t, uint16_t>, std::vector<const Record*>> by_address;
+    for (const Record& r : records) by_address[{space_key(r.space), r.lo}].push_back(&r);
+
+    const auto scope_key = [](const Record& r) {
+        return std::make_tuple(r.module, r.loc.func, r.loc.tab, r.loc.scope_given,
+                               r.loc.level_raw, r.loc.block);
+    };
+    for (const auto& [where, members] : by_address) {
+        int top = 0;
+        for (const Record* r : members) top = std::max(top, r->loc.line);
+        std::vector<const Record*> owners;
+        for (const Record* r : members)
+            if (r->loc.line == top) owners.push_back(r);
+        std::sort(owners.begin(), owners.end(),
+                  [&](const Record* a, const Record* b) { return scope_key(*a) < scope_key(*b); });
+        const Record& owner = *owners.front();
+        const bool agree = std::all_of(owners.begin(), owners.end(), [&](const Record* r) {
+            return scope_key(*r) == scope_key(owner);
+        });
+
+        CFunction* fn = nullptr;
+        uint64_t fn_entry = 0;
+        for (size_t i = 0; i < fns.size(); ++i) {
+            CFunction& f = fns[i];
+            if (!f.entry.resolved || !entries[i].sym || f.module != owner.module
+                || entries[i].sym->section != owner.section || entries[i].sym->value > owner.value)
+                continue;
+            const uint64_t v = entries[i].sym->value;
+            if (!fn || v > fn_entry || (v == fn_entry && f.text < fn->text)) {
+                fn = &f;
+                fn_entry = v;
+            }
+        }
+        if (!fn) continue;
+
+        CScope cs;
+        cs.at = {owner.space, owner.lo};
+        cs.line = top;
+        cs.offset = static_cast<uint32_t>(owner.value - fn_entry);
+        if (agree && owner.loc.scope_given) {
+            // zcc's peephole rule writes zsdcc's C_LINE as `<file>::x::<level * 10000 + sub>::<block>`
+            // (lib/sdcc/sdcc_opt.1:313): the function is the literal `x`. A TAB marks it, or the
+            // function at the address is not itself named `x`.
+            // (a zsdcc function really named `x`, with no TAB: its level is level * 10000 + sub, so 10000 and up is zsdcc's)
+            const bool zsdcc = owner.loc.func == "x" && (owner.loc.tab || fn->name != "x" || owner.loc.level_raw >= 10000);
+            if (zsdcc) {
+                cs.known = true;
+                cs.level = owner.loc.level_raw / 10000;
+                cs.sub = owner.loc.level_raw % 10000;
+                cs.block = owner.loc.block;
+            } else if (owner.loc.func == fn->name) {
+                cs.known = true;
+                cs.level = owner.loc.level_raw;
+                cs.block = owner.loc.block;
+            }
+        }
+        fn->scopes.push_back(cs);
+    }
+    for (CFunction& f : fns)
+        std::sort(f.scopes.begin(), f.scopes.end(),
+                  [](const CScope& a, const CScope& b) { return a.offset < b.offset; });
+
+    // The trail (GH #438): every record, each filed under the function of its module and section with the greatest entry VALUE at or
+    // below it, whatever its line; `scopes` above keeps the highest line of an address only.
+    for (const Record& r : records) {
+        CFunction* fn = nullptr;
+        uint64_t fn_entry = 0;
+        for (size_t i = 0; i < fns.size(); ++i) {
+            CFunction& f = fns[i];
+            if (!f.entry.resolved || !entries[i].sym || f.module != r.module || entries[i].sym->section != r.section ||
+                entries[i].sym->value > r.value)
+                continue;
+            const uint64_t v = entries[i].sym->value;
+            if (!fn || v > fn_entry || (v == fn_entry && f.text < fn->text)) {
+                fn = &f;
+                fn_entry = v;
+            }
+        }
+        if (!fn) continue;
+        CScope cs;
+        cs.at = {r.space, r.lo};
+        cs.line = r.loc.line;
+        cs.offset = static_cast<uint32_t>(r.value - fn_entry);
+        if (r.loc.scope_given) {
+            if (r.loc.func == "x" && (r.loc.tab || fn->name != "x" || r.loc.level_raw >= 10000)) {
+                cs.known = true;
+                cs.level = r.loc.level_raw / 10000;
+                cs.sub = r.loc.level_raw % 10000;
+                cs.block = r.loc.block;
+            } else if (r.loc.func == fn->name) {
+                cs.known = true;
+                cs.level = r.loc.level_raw;
+                cs.block = r.loc.block;
+            }
+        }
+        fn->trail.push_back(cs);
+    }
+    for (CFunction& f : fns)
+        std::stable_sort(f.trail.begin(), f.trail.end(), [](const CScope& a, const CScope& b) {
+            return a.offset != b.offset ? a.offset < b.offset : a.line < b.line;
+        });
+}
+
+// 80cc with PR #3243's block records (some known scope of level > 0 in the map) and a listing beside the map (GH #438 S4a): the function's scope table is
+// every `C_LINE` occurrence of the listing, each at the first byte row after it, instead of the map's one symbol per (line, scope). Offsets are from the entry,
+// known iff the directive names this function, as fill_scopes() reads an 80cc record. Called after fill_compilers().
+void fill_listing_scopes(std::vector<CFunction>& fns, const std::vector<FnEntry>& entries, const std::vector<Record>& listed)
+{
+    for (size_t k = 0; k < fns.size(); ++k) {
+        CFunction& f = fns[k];
+        if (f.compiler != jnext::dbg::CCompiler::Cc80 || !f.entry.resolved || !entries[k].sym) continue;
+        const bool block_data = std::any_of(f.scopes.begin(), f.scopes.end(), [](const CScope& c) { return c.known && c.level > 0; });
+        if (!block_data) continue;
+        std::vector<CScope> out;
+        for (const Record& r : listed) {
+            if (r.module != f.module || r.section != entries[k].sym->section || r.value < entries[k].sym->value) continue;
+            // the function of the module and section with the greatest entry value at or below the occurrence
+            bool mine = true;
+            for (size_t j = 0; j < fns.size(); ++j)
+                if (j != k && fns[j].entry.resolved && entries[j].sym && fns[j].module == r.module && entries[j].sym->section == r.section &&
+                    entries[j].sym->value <= r.value && (entries[j].sym->value > entries[k].sym->value || (entries[j].sym->value == entries[k].sym->value && fns[j].text < f.text)))
+                    mine = false;
+            if (!mine) continue;
+            CScope cs;
+            cs.at = {r.space, r.lo};
+            cs.line = r.loc.line;
+            cs.offset = static_cast<uint32_t>(r.value - entries[k].sym->value);
+            if (r.loc.scope_given && r.loc.func == f.name) {
+                cs.known = true;
+                cs.level = r.loc.level_raw;
+                cs.block = r.loc.block;
+            }
+            out.push_back(cs);
+        }
+        if (out.empty()) continue;
+        std::stable_sort(out.begin(), out.end(), [](const CScope& a, const CScope& b) { return a.offset < b.offset; });
+        f.scopes = std::move(out);
+        f.scopes_from_listing = true;
+    }
+}
+
+// Which compiler wrote each function's records (GH #438, plan 1.2), from the map alone: the `M:` module records of the
+// compilers differ. 80cc writes `M:<file>` into the module with the file name as `C_LINE` carries it (`M:./m.c` beside
+// `./m.c::main::...`); zsdcc writes `M:<module>` against `C_LINE` file `<module>.c`, so it never matches; sccz80 writes
+// no `M:` into the map at all. The name z80asm gives the module is NOT used: it prefixes `X` to a path that starts
+// with `.`, `/` or a digit. A zsdcc `x` C_LINE record (TAB or level >= 10000) rules 80cc out.
+void fill_compilers(std::vector<CFunction>& fns, const std::vector<CRecord>& modules,
+                    const std::vector<Record>& scope_records)
+{
+    std::map<std::string, std::set<std::string>> m_names, line_files;
+    std::set<std::string> zsdcc_form, fn_named_x;
+    for (const CFunction& f : fns) if (f.name == "x") fn_named_x.insert(f.module);
+    for (const CRecord& m : modules) m_names[m.module].insert(m.record.var.name);
+    for (const Record& r : scope_records) {
+        line_files[r.module].insert(r.loc.file);
+        // zsdcc writes the function as the literal `x`: with a TAB until z88dk#3262, and without one since; a level of 10000 or more
+        // (level * 10000 + sub) is then what tells it from a sccz80 or 80cc function really named `x`
+        // ... or a module with no function really named `x` (GH #438 S4b): sccz80 and 80cc write `x` only for a function named x, which has an `F:` record; a zsdcc module whose functions
+        // have empty bodies has only level-0 `x` records and no TAB. (Undecidable: a zsdcc module whose only function is named `x` and has an empty body.)
+        if (r.loc.scope_given && r.loc.func == "x" && (r.loc.tab || r.loc.level_raw >= 10000 || !fn_named_x.count(r.module))) zsdcc_form.insert(r.module);
+    }
+    for (CFunction& f : fns) {
+        const auto m = m_names.find(f.module);
+        if (m == m_names.end()) {
+            f.compiler = jnext::dbg::CCompiler::Sccz80;
+            continue;
+        }
+        bool match = false;
+        for (const std::string& file : line_files[f.module])
+            if (m->second.count(file)) match = true;
+        f.compiler = match && !zsdcc_form.count(f.module) ? jnext::dbg::CCompiler::Cc80 : jnext::dbg::CCompiler::Zsdcc;
+    }
+}
+
+// (module, function) of every function a used listing names, and whether it is `__z88dk_fastcall`.
+using ListedFunctions = std::map<std::pair<std::string, std::string>, bool>;
+
+std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
+    const std::vector<CdbLine>& cdb_lines, const std::vector<Z88dkMapLine>& symbols,
+    const std::vector<Record>& scope_records, const PlaceSymbol& place,
+    const std::map<std::string, uint64_t>& bounds, const ListedFunctions& listed,
+    const std::string& float_library, const std::vector<Record>& listing_scopes)
+{
+    SymbolIndex idx;
+    for (const Z88dkMapLine& s : symbols) {
+        idx.in_module[{s.module, s.name}].push_back(&s);
+        if (s.is_public) idx.pub[s.name].push_back(&s);
+    }
+
+    struct Item {
+        CdbRecord record;
+        std::string text;
+        std::string module;
+    };
+    std::vector<Item> functions, variables;
+    std::vector<CRecord> types, modules;
+    std::vector<std::string> refused;
+    for (const CdbLine& line : cdb_lines) {
+        const auto un = jnext::dbg::cdb_unescape(line.name.substr(jnext::dbg::kCdbPrefix.size()));
+        if (!un.ok()) {
+            refused.push_back(line.name + ": " + un.error);
+            continue;
+        }
+        auto decoded = jnext::dbg::cdb_decode(un.text);
+        if (!decoded.ok()) {
+            refused.push_back(line.name + ": " + decoded.error);
+            continue;
+        }
+        switch (decoded.record.kind) {
+        case CdbKind::Function: {
+            // zsdcc writes the `F:` record of a function with a block static local twice (cdbWriteFunction wrote it twice; the records differ only in the stack number, which nothing here reads;
+            // 97731e4e29 and 0f0a1cf70e): one function, the first record (GH #438 S4b2, review 8 G3)
+            // (only a record that is the same but for the numbers after the type: another type is another function, Z88CDB-30)
+            const CdbRecord& nr = decoded.record;
+            const auto upto_numbers = [](const std::string& t) { return t.substr(0, t.find("),")); };
+            const bool again = std::any_of(functions.begin(), functions.end(), [&](const Item& f) {
+                return f.module == line.module && f.record.scope == nr.scope && f.record.scope_name == nr.scope_name && f.record.var.name == nr.var.name && upto_numbers(f.text) == upto_numbers(un.text);
+            });
+            if (!again) functions.push_back({std::move(decoded.record), un.text, line.module});
+            break;
+        }
+        case CdbKind::Variable:
+            variables.push_back({std::move(decoded.record), un.text, line.module});
+            break;
+        case CdbKind::Type:
+            types.push_back({std::move(decoded.record), un.text, line.module});
+            break;
+        case CdbKind::Module:
+            modules.push_back({std::move(decoded.record), un.text, line.module});
+            break;
+        case CdbKind::Enum:
+            break;   // z88dk#3241 N:/E: records: recognised, not used (the S: record carries the integer type)
+        }
+    }
+
+    std::vector<CFunction> fns;
+    std::vector<FnEntry> entries;
+    for (Item& it : functions) {
+        CFunction f;
+        f.record = std::move(it.record);
+        f.text = std::move(it.text);
+        f.name = f.record.var.name;
+        Join j;
+        if (f.record.scope == CdbScope::Global) j = join_public(idx, "_" + f.name);
+        else if (f.record.scope == CdbScope::File) j = join_in_module(idx, it.module, "_" + f.name);
+        else j.why = "a function record without a global or file scope";
+        f.entry = storage_of(j, place);
+        f.module = j.sym ? j.sym->module : it.module;
+        if (const auto l = listed.find({f.module, f.name}); l != listed.end())
+            f.conv = l->second ? jnext::dbg::CConv::ListedFastcall : jnext::dbg::CConv::Listed;
+        entries.push_back({j.sym});
+        fns.push_back(std::move(f));
+    }
+
+    std::vector<CVariable> vars;
+    for (Item& it : variables) {
+        CVariable v;
+        v.record = std::move(it.record);
+        v.text = std::move(it.text);
+        v.module = it.module;
+        v.c_name = v.record.var.name;
+        const CdbRecord& r = v.record;
+        if (r.scope == CdbScope::Local) {
+            v.function = function_of(fns, v.module, r.function);
+        } else if (r.scope == CdbScope::File && r.var.level > 0 && starts_with(r.var.name, "st_")) {
+            std::string rest;
+            v.function = static_local_function(fns, v.module, r.var.name, &rest);
+            if (v.function >= 0) v.c_name = rest;
+        }
+        if (r.var.space == 'E' && r.hidden != jnext::dbg::CdbHidden::EmptyType)
+            v.storage = storage_of(join_variable(idx, r, v.module), place);
+        vars.push_back(std::move(v));
+    }
+
+    fill_extents(fns, entries, symbols, scope_records, bounds, place);
+    fill_scopes(fns, entries, scope_records);
+    fill_compilers(fns, modules, scope_records);
+    fill_listing_scopes(fns, entries, listing_scopes);
+
+    // An `{-1}` array record is the twin of a sized one (an array sized by its initialiser: sccz80 and 80cc write the
+    // unsized record first). With no sized twin of the same scope, name and function it is the variable's only record: it
+    // is listed, and refused with its reason (GH #438, plan 2.6). The decoder still classes every `{-1}` array as hidden.
+    std::vector<CVariable*> unsized_alone;   // decided first, applied after: unhiding one must not make it the twin of the next
+    for (CVariable& v : vars) {
+        if (v.record.hidden != jnext::dbg::CdbHidden::IncompleteArray) continue;
+        const bool twin = std::any_of(vars.begin(), vars.end(), [&](const CVariable& o) {
+            return &o != &v && o.record.hidden == jnext::dbg::CdbHidden::None && o.record.scope == v.record.scope &&
+                   o.record.scope_name == v.record.scope_name && o.record.function == v.record.function &&
+                   o.record.var.name == v.record.var.name && o.module == v.module;
+        });
+        if (!twin) unsized_alone.push_back(&v);
+    }
+    for (CVariable* v : unsized_alone) v->record.hidden = jnext::dbg::CdbHidden::None;
+
+    jnext::dbg::CFrameHelpers helpers;
+    helpers.framepointer = storage_of(join_public(idx, "__debug_framepointer"), place);
+    helpers.push_frame = storage_of(join_public(idx, "l_debug_push_frame"), place);
+    helpers.pop_frame = storage_of(join_public(idx, "l_debug_pop_frame"), place);
+
+    // OD-13: what a map without variables looks like, for the facade's status.
+    jnext::dbg::CNoRecordFacts facts;
+    for (const Record& r : scope_records) {
+        if (!r.loc.scope_given) continue;
+        facts.c_line_records = true;
+        if (r.loc.func == "x") facts.zsdcc_form = true;   // with or without the TAB (see parse_location)
+    }
+    return std::make_shared<const jnext::dbg::VariableStore>(std::move(fns), std::move(vars),
+                                                           std::move(types), std::move(modules),
+                                                           std::move(refused), std::move(helpers), facts,
+                                                           float_library);
+}
+
 } // namespace
 
 SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& path,
@@ -164,7 +703,9 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     // map is sorted by name), so nothing is placed before it has all been read.
     std::vector<RawLine> raws;
     std::vector<Z88dkMapLine> symbols;
+    std::vector<CdbLine> cdb_lines;           // the __CDBINFO__ records, for the variable store
     std::map<std::string, uint64_t> bounds;   // const __<group>_head / _tail, first wins
+    std::string float_library;                // the first non-zero const __code_fp_<lib>_size
     std::string text;
     int map_line = 0;
     while (std::getline(input, text)) {
@@ -183,7 +724,15 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             continue;
         }
         if (!parsed) continue;
+        if (parsed->is_const && starts_with(parsed->name, jnext::dbg::kCdbPrefix)) {
+            cdb_lines.push_back({parsed->name, parsed->module});
+            continue;
+        }
         if (parsed->is_const) {
+            // the float library the program links: `__code_fp_<lib>_size` is non-zero for it alone (GH #438, z88dk#3236)
+            if (float_library.empty() && starts_with(parsed->name, "__code_fp_") && parsed->value != 0
+                && parsed->name.size() > 15 && parsed->name.compare(parsed->name.size() - 5, 5, "_size") == 0)
+                float_library = parsed->name.substr(10, parsed->name.size() - 15);
             if (parsed->name == "startupoffset"   // a dot command's (design 9.4 rule 5)
                 || (starts_with(parsed->name, "__")
                     && (parsed->name.size() > 7)
@@ -241,6 +790,12 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         r.order = records.size();
         records.push_back(std::move(r));
     }
+    // The C_LINE scope of every code record, before a listing replaces its module's lines:
+    // a listing keeps only the file of a line (GH #433).
+    std::vector<Record> scope_records;
+    for (const Record& r : records)
+        if (!is_data_section(r.section)) scope_records.push_back(r);
+
     const bool beside = listings == Z88dkListings::Beside;
     if (records.empty() && !beside) {
         SourceMapLoadResult none;
@@ -316,6 +871,8 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     std::map<std::string, SourceText> listed_texts;
     std::set<std::string> listed_modules;
     std::vector<std::string> notes;
+    ListedFunctions listed_functions;
+    std::vector<Record> listing_scopes;   // every C_LINE occurrence of every used listing (GH #438 S4a)
     int listings_used = 0;
     int checks = 0;
     int disagreements = 0;
@@ -425,6 +982,8 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             for (std::string& n : r.notes) notes.push_back(std::move(n));
             if (!r.used) continue;
             listed_modules.insert(r.module);
+            for (const Z88dkListedFunction& lf : z88dk_listing_functions(*parsed))
+                listed_functions[{r.module, lf.name}] = lf.fastcall;
             ++listings_used;
             checks += r.checks;
             disagreements += r.disagreements;
@@ -432,6 +991,17 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
                 if (examples.size() < 3) examples.push_back(std::move(e));
             const size_t base = listed_ranges.size();
             for (Z88dkListedRange& lr : r.ranges) listed_ranges.push_back(std::move(lr));
+            for (const Z88dkListedScope& sc : r.scopes)
+                if (const auto loc = parse_location(sc.text)) {
+                    Record lr;
+                    lr.value = sc.value;
+                    lr.module = r.module;
+                    lr.section = sc.section;
+                    lr.loc = *loc;
+                    lr.space = sc.space;
+                    lr.lo = sc.lo;
+                    listing_scopes.push_back(std::move(lr));
+                }
             for (SourceAlias& a : r.aliases) {
                 a.range += base;
                 listed_aliases.push_back(std::move(a));
@@ -462,20 +1032,44 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         return none;
     }
 
+    // The one rule that puts a map symbol in its space: the symbols below and the variable store.
+    const PlaceSymbol place_symbol = [&](const Z88dkMapLine& s) {
+        SymPlace out;
+        if (s.section.empty()) {
+            out.why = "symbol '" + s.name + "' is in no section";
+            return out;
+        }
+        if (s.value > 0xFFFFFF) {
+            out.why = "address $" + hex(s.value) + " does not fit 24 bits";
+            return out;
+        }
+        const Z88dkSpace placed = z88dk_section_space(s.section, static_cast<uint32_t>(s.value),
+                                                      page_head, dot);
+        out.addr16 = placed.addr16;
+        if (placed.kind == Z88dkSpace::Kind::Paged) {
+            out.space = placed.space;
+            out.ok = true;
+        } else if (placed.kind == Z88dkSpace::Kind::BindAtLoad) {
+            out.space = space_of(placed.addr16);
+            out.ok = true;
+            out.bound = true;
+        } else {
+            out.why = placed.why;
+        }
+        return out;
+    };
+
     // The symbols that bound an extent or mark a function entry, in their space.
     std::map<uint32_t, std::vector<Symbol>> symbols_by_space;
     for (const Z88dkMapLine& s : symbols) {
-        if (s.section.empty() || s.value > 0xFFFFFF) continue;
-        const Z88dkSpace placed = z88dk_section_space(s.section, static_cast<uint32_t>(s.value),
-                                                      page_head, dot);
+        const SymPlace placed = place_symbol(s);
+        if (!placed.ok) continue;
         Symbol out;
         out.name = s.name;
         out.module = s.module;
         out.addr = placed.addr16;
         out.loc = parse_location(s.location);
-        if (placed.kind == Z88dkSpace::Kind::Paged) out.space = placed.space;
-        else if (placed.kind == Z88dkSpace::Kind::BindAtLoad) out.space = space_of(placed.addr16);
-        else continue;
+        out.space = placed.space;
         symbols_by_space[space_key(out.space)].push_back(std::move(out));
     }
     for (auto& [key, list] : symbols_by_space)
@@ -595,6 +1189,8 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     result.listing_disagreements = disagreements;
     result.listing_notes = std::move(notes);
     map.replace(std::move(ranges), std::move(aliases), std::move(identity), loaded, "z88dk",
-                std::move(listed_texts), dot != nullptr);
+                std::move(listed_texts), dot != nullptr,
+                build_variable_store(cdb_lines, symbols, scope_records, place_symbol, bounds,
+                                     listed_functions, float_library, listing_scopes));
     return result;
 }

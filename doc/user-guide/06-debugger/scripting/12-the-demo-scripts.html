@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1706,6 +1706,8 @@
       
         
       
+        
+      
     
     
     
@@ -2162,6 +2164,34 @@
     
   
     Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../panels/16-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Variables
   
 
     
@@ -3426,6 +3456,8 @@
       
         
       
+        
+      
     
     
     
@@ -3686,6 +3718,34 @@
     
   
     In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/11-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C variables in the debugger
   
 
     
@@ -4324,7 +4384,7 @@ NEX is loaded other code runs at these addresses.</p>
 </code></pre>
 <p>with <code>dsl_demo_buggy.nex</code> for the buggy build.</p>
 <h2 id="range_watchjds-a-guard-on-the-code-area"><code>range_watch.jds</code>: a guard on the code area<a class="headerlink" href="#range_watchjds-a-guard-on-the-code-area" title="Permanent link">&para;</a></h2>
-<p>The #279 code-area guard — every write into 0x0000–0x3FFF and into
+<p>The code-area guard — every write into 0x0000–0x3FFF and into
 0x8000–<code>@__data_crt_head - 1</code> stops, naming the writer. The script is listed
 and explained in <a href="11-catching-memory-corruption-bugs.html#1-a-guard-on-the-code-area">Catching memory-corruption bugs</a>.</p>
 <p>Good build, exit 0:</p>
@@ -4394,7 +4454,7 @@ on copper move 0x43 when armed == 1 do
 end
 
 on copper wait when armed == 1 and WAIT_V == 95 do
-    assert CVC == 95 and HC_ULA &gt;= WAIT_H &quot;WAIT for line 95 is satisfied on the Copper's own line 95, at or past its threshold (GH #181)&quot;
+    assert CVC == 95 and HC_ULA &gt;= WAIT_H &quot;WAIT for line 95 is satisfied on the Copper's own line 95, at or past its threshold&quot;
 end
 
 on copper halt once when armed == 1 do

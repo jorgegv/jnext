@@ -1,6 +1,6 @@
 # 7.4.7 The skoolkit and Ghidra exports and imports
 
-The other pages of 7.4 are inputs. This one is the reverse direction (GH #389, E23-26):
+The other pages of 7.4 are inputs. This one is the reverse direction:
 `Debugger::export_skoolkit()` and `export_ghidra()` write what the disassembly shows, and for
 skoolkit the code/data map that `--coverage` recorded, into a directory, as the files the two
 reverse-engineering tools read; `import_skoolkit()` and `import_ghidra()` (stage B) read such files back
@@ -44,7 +44,7 @@ plain structs of `src/debug/reexport.h`.
   the header, `@ start` / `@ org`, the block directives (`block_letter()` (`skoolkit_ctl.cpp:137`)),
   the labels, the `B`/`C` sub-blocks and the closing `i`. A Z80N instruction or a clipped one is a `B`
   sub-block, and so is each piece of an instruction a key falls in.
-- **One name, one key** (GH #349). z88dk's module-local labels repeat across routines (`end_x`
+- **One name, one key**. z88dk's module-local labels repeat across routines (`end_x`
   at `$80CA` and `$8103` in `asm_zx_cls_wc_attr` / `asm_zx_cls_wc_pix`); `skool2asm.py` refuses a label
   defined twice, and both importers (and `UserAnnotations`, one key per name) refuse a name at two keys.
   So `unique_names()` (`reexport.cpp`) runs first in `build()` of each writer: of the exportable labels sharing
@@ -184,16 +184,16 @@ in the writers' files:
 ### Qt: Map ▸ Import and Export
 
 The Qt debugger offers the four verbs in its Map menu, after the annotation entries of 7.4.6:
-`import_menu` (`debugger_window.cpp:909`) and
-`export_menu` (`debugger_window.cpp:914`), each with
+`import_menu` (`debugger_window.cpp:910`) and
+`export_menu` (`debugger_window.cpp:915`), each with
 `&skoolkit Control Files...` and `&Ghidra Symbols...` (`I` and `E` are free in the Map popup, `S` and `G`
 are unique in each submenu; `DACC-05` pins the new popups and mnemonics). The slots are
-`on_import_skoolkit` (`debugger_manager.cpp:852`),
-`on_import_ghidra` (`debugger_manager.cpp:853`),
-`on_export_skoolkit` (`debugger_manager.cpp:854`) and
-`on_export_ghidra` (`debugger_manager.cpp:855`), which share
-`import_re_files` (`debugger_manager.cpp:812`) and
-`export_re_files` (`debugger_manager.cpp:835`):
+`on_import_skoolkit` (`debugger_manager.cpp:858`),
+`on_import_ghidra` (`debugger_manager.cpp:859`),
+`on_export_skoolkit` (`debugger_manager.cpp:860`) and
+`on_export_ghidra` (`debugger_manager.cpp:861`), which share
+`import_re_files` (`debugger_manager.cpp:818`) and
+`export_re_files` (`debugger_manager.cpp:841`):
 
 - **Import** asks for one or more files with `QFileDialog::getOpenFileNames` (`*.ctl` or `*.txt`), calls
   the backend verb once with all of them, and shows the report (counts, then each note) in an

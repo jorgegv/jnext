@@ -17,6 +17,7 @@
 #include "debugger/mmu_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
+#include "debugger/variables_panel.h"
 #include "debugger/source_panel.h"
 
 #include "debugger/debugger_manager.h"
@@ -1484,6 +1485,7 @@ void DebuggerWindow::create_panels() {
 
     stack_panel_ = new StackPanel(&dbg_);
     callstack_panel_ = new CallStackPanel(&dbg_);
+    variables_panel_ = new VariablesPanel(&dbg_);   // GH #435
     breakpoint_panel_ = new BreakpointPanel();
 
     // GH #220 — no panel-to-panel wiring here any more. Both panels follow the
@@ -1508,6 +1510,19 @@ void DebuggerWindow::create_panels() {
         source_panel_->show_address(addr);
         tab_widget_->setCurrentWidget(source_panel_);
     });
+
+    // GH #435 - the frame is chosen in either place and the other follows. The mapping (Call Stack row i is C frame i + 1) is
+    // written once, in VariablesPanel; select_row() does not emit, so there is no loop.
+    connect(callstack_panel_, &CallStackPanel::call_selected, variables_panel_,
+            [this](int row) {
+                variables_panel_->select_frame(VariablesPanel::frame_of_call_row(row));
+                // a choice select_frame() ignored (the machine runs) leaves the Call Stack on the frame the tree shows
+                callstack_panel_->select_row(variables_panel_->call_stack_row());
+            });
+    // GH #435 - Watch on a variable: a row of the Watches tab, which stays where it is
+    connect(variables_panel_, &VariablesPanel::watch_requested, watch_panel_, &WatchPanel::add_c_watch);
+    connect(variables_panel_, &VariablesPanel::frame_changed, callstack_panel_,
+            [this](int) { callstack_panel_->select_row(variables_panel_->call_stack_row()); });
 
     mmu_panel_ = new MmuPanel(&dbg_);
 
@@ -1551,6 +1566,7 @@ void DebuggerWindow::create_panels() {
     auto* bottom_tab_widget = new QTabWidget();
     bottom_tab_widget->setTabPosition(QTabWidget::North);
     bottom_tab_widget->addTab(watch_panel_, tr("Watches"));
+    bottom_tab_widget->addTab(variables_panel_, tr("Variables"));
     bottom_tab_widget->addTab(breakpoint_panel_, tr("Breakpoints"));
 
     auto* bottom_splitter = new QSplitter(Qt::Horizontal);
@@ -1713,6 +1729,7 @@ void DebuggerWindow::apply_address_style() {
     if (watch_panel_) watch_panel_->set_address_style(address_style_);
     if (stack_panel_) stack_panel_->set_address_style(address_style_);
     if (callstack_panel_) callstack_panel_->set_address_style(address_style_);
+    if (variables_panel_) variables_panel_->set_address_style(address_style_);
     if (source_panel_) source_panel_->set_address_style(address_style_);
     if (BreakpointModel* m = breakpoint_model()) m->set_address_style(address_style_);
 }
@@ -1734,6 +1751,11 @@ void DebuggerWindow::refresh_panels() {
     if (mmu_panel_) mmu_panel_->refresh();
     if (stack_panel_) stack_panel_->refresh();
     if (callstack_panel_) callstack_panel_->refresh();
+    // GH #435 - after the Call Stack, which a refresh may have rebuilt: its selection then follows the chosen frame
+    if (variables_panel_) {
+        variables_panel_->refresh();
+        if (callstack_panel_) callstack_panel_->select_row(variables_panel_->call_stack_row());
+    }
     if (breakpoint_panel_) breakpoint_panel_->refresh();
     if (script_panel_) script_panel_->refresh();
     if (source_panel_) source_panel_->refresh();

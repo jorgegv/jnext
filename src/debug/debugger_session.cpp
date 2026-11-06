@@ -49,6 +49,7 @@
 // ---------------------------------------------------------------------------
 
 #include "debug/debugger_impl.h"
+#include "debug/variable_store.h"
 
 #include <algorithm>
 #include <chrono>
@@ -121,6 +122,27 @@ void Debugger::Impl::clients_changed() {
     // `DebugState`: see `DebugState::clients_attached()` for why each armed()
     // contributor keeps one.
     ds().set_clients_attached(live > 0);
+    sync_call_stack();
+}
+
+void Debugger::Impl::sync_call_stack(bool force) {
+    bool asked = false;      // some live client asked for tracking
+    bool driven = false;     // a live non-observer client is attached
+    for (const auto& c : clients) {
+        if (c.detached) continue;
+        asked = asked || c.call_stack;
+        driven = driven || !c.info.observer;
+    }
+    bool on = asked;
+    if (!on && driven) {
+        // OD-2 (GH #434): the C frames lean on the tracked bases, so while a client that can
+        // look is attached, a source map with C variable records switches tracking on by itself.
+        const SourceMap* m = live_sources();
+        const auto vs = m ? m->variables() : nullptr;
+        on = vs && (!vs->functions().empty() || !vs->variables().empty());
+    }
+    if ((force && on) || on != call_stack_derived) emu.call_stack().set_enabled(on);
+    call_stack_derived = on;
 }
 
 void Debugger::Impl::compact_clients() {

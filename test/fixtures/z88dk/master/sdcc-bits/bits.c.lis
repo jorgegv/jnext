@@ -1,0 +1,373 @@
+/tmp/tmpXXXXXXXX.asm:
+     1                          MODULE bits_c
+     2                          LINE 0, "bits.c"
+bits.c:
+                                
+     1                          ;--------------------------------------------------------
+     2                          ; File Created by SDCC : free open source ISO C Compiler
+     3                          ; Version 4.6.0 #16639 (Linux)
+     4                          ;--------------------------------------------------------
+     5                          ; Processed by Z88DK
+     6                          ;--------------------------------------------------------
+     7                          
+     8                          	EXTERN __divschar
+     9                          	EXTERN __divschar_callee
+    10                          	EXTERN __divsint
+    11                          	EXTERN __divsint_callee
+    12                          	EXTERN __divslong
+    13                          	EXTERN __divslong_callee
+    14                          	EXTERN __divslonglong
+    15                          	EXTERN __divslonglong_callee
+    16                          	EXTERN __divsuchar
+    17                          	EXTERN __divsuchar_callee
+    18                          	EXTERN __divuchar
+    19                          	EXTERN __divuchar_callee
+    20                          	EXTERN __divuint
+    21                          	EXTERN __divuint_callee
+    22                          	EXTERN __divulong
+    23                          	EXTERN __divulong_callee
+    24                          	EXTERN __divulonglong
+    25                          	EXTERN __divulonglong_callee
+    26                          	EXTERN __divuschar
+    27                          	EXTERN __divuschar_callee
+    28                          	EXTERN __modschar
+    29                          	EXTERN __modschar_callee
+    30                          	EXTERN __modsint
+    31                          	EXTERN __modsint_callee
+    32                          	EXTERN __modslong
+    33                          	EXTERN __modslong_callee
+    34                          	EXTERN __modslonglong
+    35                          	EXTERN __modslonglong_callee
+    36                          	EXTERN __modsuchar
+    37                          	EXTERN __modsuchar_callee
+    38                          	EXTERN __moduchar
+    39                          	EXTERN __moduchar_callee
+    40                          	EXTERN __moduint
+    41                          	EXTERN __moduint_callee
+    42                          	EXTERN __modulong
+    43                          	EXTERN __modulong_callee
+    44                          	EXTERN __modulonglong
+    45                          	EXTERN __modulonglong_callee
+    46                          	EXTERN __moduschar
+    47                          	EXTERN __moduschar_callee
+    48                          	EXTERN __mulint
+    49                          	EXTERN __mulint_callee
+    50                          	EXTERN __mullong
+    51                          	EXTERN __mullong_callee
+    52                          	EXTERN __mullonglong
+    53                          	EXTERN __mullonglong_callee
+    54                          	EXTERN __mulschar
+    55                          	EXTERN __mulschar_callee
+    56                          	EXTERN __mulsuchar
+    57                          	EXTERN __mulsuchar_callee
+    58                          	EXTERN __muluchar
+    59                          	EXTERN __muluchar_callee
+    60                          	EXTERN __muluschar
+    61                          	EXTERN __muluschar_callee
+    62                          	EXTERN __rlslonglong
+    63                          	EXTERN __rlslonglong_callee
+    64                          	EXTERN __rlulonglong
+    65                          	EXTERN __rlulonglong_callee
+    66                          	EXTERN __rrslonglong
+    67                          	EXTERN __rrslonglong_callee
+    68                          	EXTERN __rrulonglong
+    69                          	EXTERN __rrulonglong_callee
+    70                          	EXTERN ___mulsint2slong
+    71                          	EXTERN ___mulsint2slong_callee
+    72                          	EXTERN ___muluint2ulong
+    73                          	EXTERN ___muluint2ulong_callee
+    74                          	EXTERN ___sdcc_call_hl
+    75                          	EXTERN ___sdcc_call_iy
+    76                          	EXTERN ___sdcc_enter_ix
+    77                          	EXTERN banked_call
+    78                          	EXTERN _banked_ret
+    79                          	EXTERN ___fs2schar
+    80                          	EXTERN ___fs2schar_callee
+    81                          	EXTERN ___fs2sint
+    82                          	EXTERN ___fs2sint_callee
+    83                          	EXTERN ___fs2slong
+    84                          	EXTERN ___fs2slong_callee
+    85                          	EXTERN ___fs2slonglong
+    86                          	EXTERN ___fs2slonglong_callee
+    87                          	EXTERN ___fs2uchar
+    88                          	EXTERN ___fs2uchar_callee
+    89                          	EXTERN ___fs2uint
+    90                          	EXTERN ___fs2uint_callee
+    91                          	EXTERN ___fs2ulong
+    92                          	EXTERN ___fs2ulong_callee
+    93                          	EXTERN ___fs2ulonglong
+    94                          	EXTERN ___fs2ulonglong_callee
+    95                          	EXTERN ___fsadd
+    96                          	EXTERN ___fsadd_callee
+    97                          	EXTERN ___fsdiv
+    98                          	EXTERN ___fsdiv_callee
+    99                          	EXTERN ___fseq
+   100                          	EXTERN ___fseq_callee
+   101                          	EXTERN ___fsgt
+   102                          	EXTERN ___fsgt_callee
+   103                          	EXTERN ___fslt
+   104                          	EXTERN ___fslt_callee
+   105                          	EXTERN ___fsmul
+   106                          	EXTERN ___fsmul_callee
+   107                          	EXTERN ___fsneq
+   108                          	EXTERN ___fsneq_callee
+   109                          	EXTERN ___fssub
+   110                          	EXTERN ___fssub_callee
+   111                          	EXTERN ___schar2fs
+   112                          	EXTERN ___schar2fs_callee
+   113                          	EXTERN ___sint2fs
+   114                          	EXTERN ___sint2fs_callee
+   115                          	EXTERN ___slong2fs
+   116                          	EXTERN ___slong2fs_callee
+   117                          	EXTERN ___slonglong2fs
+   118                          	EXTERN ___slonglong2fs_callee
+   119                          	EXTERN ___uchar2fs
+   120                          	EXTERN ___uchar2fs_callee
+   121                          	EXTERN ___uint2fs
+   122                          	EXTERN ___uint2fs_callee
+   123                          	EXTERN ___ulong2fs
+   124                          	EXTERN ___ulong2fs_callee
+   125                          	EXTERN ___ulonglong2fs
+   126                          	EXTERN ___ulonglong2fs_callee
+   127                          	EXTERN ____sdcc_2_copy_src_mhl_dst_deix
+   128                          	EXTERN ____sdcc_2_copy_src_mhl_dst_bcix
+   129                          	EXTERN ____sdcc_4_copy_src_mhl_dst_deix
+   130                          	EXTERN ____sdcc_4_copy_src_mhl_dst_bcix
+   131                          	EXTERN ____sdcc_4_copy_src_mhl_dst_mbc
+   132                          	EXTERN ____sdcc_4_ldi_nosave_bc
+   133                          	EXTERN ____sdcc_4_ldi_save_bc
+   134                          	EXTERN ____sdcc_4_push_hlix
+   135                          	EXTERN ____sdcc_4_push_mhl
+   136                          	EXTERN ____sdcc_lib_setmem_hl
+   137                          	EXTERN ____sdcc_ll_add_de_bc_hl
+   138                          	EXTERN ____sdcc_ll_add_de_bc_hlix
+   139                          	EXTERN ____sdcc_ll_add_de_hlix_bc
+   140                          	EXTERN ____sdcc_ll_add_de_hlix_bcix
+   141                          	EXTERN ____sdcc_ll_add_deix_bc_hl
+   142                          	EXTERN ____sdcc_ll_add_deix_hlix
+   143                          	EXTERN ____sdcc_ll_add_hlix_bc_deix
+   144                          	EXTERN ____sdcc_ll_add_hlix_deix_bc
+   145                          	EXTERN ____sdcc_ll_add_hlix_deix_bcix
+   146                          	EXTERN ____sdcc_ll_asr_hlix_a
+   147                          	EXTERN ____sdcc_ll_asr_mbc_a
+   148                          	EXTERN ____sdcc_ll_copy_src_de_dst_hlix
+   149                          	EXTERN ____sdcc_ll_copy_src_de_dst_hlsp
+   150                          	EXTERN ____sdcc_ll_copy_src_deix_dst_hl
+   151                          	EXTERN ____sdcc_ll_copy_src_deix_dst_hlix
+   152                          	EXTERN ____sdcc_ll_copy_src_deixm_dst_hlsp
+   153                          	EXTERN ____sdcc_ll_copy_src_desp_dst_hlsp
+   154                          	EXTERN ____sdcc_ll_copy_src_hl_dst_de
+   155                          	EXTERN ____sdcc_ll_copy_src_hlsp_dst_de
+   156                          	EXTERN ____sdcc_ll_copy_src_hlsp_dst_deixm
+   157                          	EXTERN ____sdcc_ll_lsl_hlix_a
+   158                          	EXTERN ____sdcc_ll_lsl_mbc_a
+   159                          	EXTERN ____sdcc_ll_lsr_hlix_a
+   160                          	EXTERN ____sdcc_ll_lsr_mbc_a
+   161                          	EXTERN ____sdcc_ll_push_hlix
+   162                          	EXTERN ____sdcc_ll_push_mhl
+   163                          	EXTERN ____sdcc_ll_sub_de_bc_hl
+   164                          	EXTERN ____sdcc_ll_sub_de_bc_hlix
+   165                          	EXTERN ____sdcc_ll_sub_de_hlix_bc
+   166                          	EXTERN ____sdcc_ll_sub_de_hlix_bcix
+   167                          	EXTERN ____sdcc_ll_sub_deix_bc_hl
+   168                          	EXTERN ____sdcc_ll_sub_deix_hlix
+   169                          	EXTERN ____sdcc_ll_sub_hlix_bc_deix
+   170                          	EXTERN ____sdcc_ll_sub_hlix_deix_bc
+   171                          	EXTERN ____sdcc_ll_sub_hlix_deix_bcix
+   172                          	EXTERN ____sdcc_load_debc_deix
+   173                          	EXTERN ____sdcc_load_dehl_deix
+   174                          	EXTERN ____sdcc_load_debc_mhl
+   175                          	EXTERN ____sdcc_load_hlde_mhl
+   176                          	EXTERN ____sdcc_store_dehl_bcix
+   177                          	EXTERN ____sdcc_store_debc_hlix
+   178                          	EXTERN ____sdcc_store_debc_mhl
+   179                          	EXTERN ____sdcc_cpu_pop_ei
+   180                          	EXTERN ____sdcc_cpu_pop_ei_jp
+   181                          	EXTERN ____sdcc_cpu_push_di
+   182                          	EXTERN ____sdcc_outi
+   183                          	EXTERN ____sdcc_outi_128
+   184                          	EXTERN ____sdcc_outi_256
+   185                          	EXTERN ____sdcc_ldi
+   186                          	EXTERN ____sdcc_ldi_128
+   187                          	EXTERN ____sdcc_ldi_256
+   188                          	EXTERN ____sdcc_4_copy_srcd_hlix_dst_deix
+   189                          	EXTERN ____sdcc_4_and_src_mbc_mhl_dst_deix
+   190                          	EXTERN ____sdcc_4_or_src_mbc_mhl_dst_deix
+   191                          	EXTERN ____sdcc_4_xor_src_mbc_mhl_dst_deix
+   192                          	EXTERN ____sdcc_4_or_src_dehl_dst_bcix
+   193                          	EXTERN ____sdcc_4_xor_src_dehl_dst_bcix
+   194                          	EXTERN ____sdcc_4_and_src_dehl_dst_bcix
+   195                          	EXTERN ____sdcc_4_xor_src_mbc_mhl_dst_debc
+   196                          	EXTERN ____sdcc_4_or_src_mbc_mhl_dst_debc
+   197                          	EXTERN ____sdcc_4_and_src_mbc_mhl_dst_debc
+   198                          	EXTERN ____sdcc_4_cpl_src_mhl_dst_debc
+   199                          	EXTERN ____sdcc_4_xor_src_debc_mhl_dst_debc
+   200                          	EXTERN ____sdcc_4_or_src_debc_mhl_dst_debc
+   201                          	EXTERN ____sdcc_4_and_src_debc_mhl_dst_debc
+   202                          	EXTERN ____sdcc_4_and_src_debc_hlix_dst_debc
+   203                          	EXTERN ____sdcc_4_or_src_debc_hlix_dst_debc
+   204                          	EXTERN ____sdcc_4_xor_src_debc_hlix_dst_debc
+   205                          
+   206                          	.zxn
+   207                          ;--------------------------------------------------------
+   208                          ; Public variables in this module
+   209                          ;--------------------------------------------------------
+   210                          	GLOBAL _main
+   211                          	GLOBAL _g_one
+   212                          	GLOBAL _g_lone
+   213                          	GLOBAL _g_bf
+   214                          ;--------------------------------------------------------
+   215                          ; Externals used
+   216                          ;--------------------------------------------------------
+   217                          ;--------------------------------------------------------
+   218                          ; special function registers
+   219                          ;--------------------------------------------------------
+   220                          ;--------------------------------------------------------
+   221                          ; ram data
+   222                          ;--------------------------------------------------------
+   223                          	SECTION bss_compiler
+   224                          _g_bf:
+   225  0000  000000000000      	DEFS 6
+   226                          _g_lone:
+   227  0006  000000            	DEFS 3
+   228                          _g_one:
+   229  0009  00                	DEFS 1
+   230                          ;--------------------------------------------------------
+   231                          ; ram data
+   232                          ;--------------------------------------------------------
+   233                          
+   234                          IF 0
+   235                          
+   236                          ; .area _INITIALIZED removed by z88dk
+   237                          
+   238                          
+   239                          ENDIF
+   240                          
+   241                          ;--------------------------------------------------------
+   242                          ; absolute ram data
+   243                          ;--------------------------------------------------------
+   244                          	SECTION IGNORE
+   245                          ;--------------------------------------------------------
+   246                          ; global & static initialisations
+   247                          ;--------------------------------------------------------
+   248                          	SECTION code_crt_init
+   249                          ;--------------------------------------------------------
+   250                          ; Home
+   251                          ;--------------------------------------------------------
+   252                          	SECTION code_home
+   253                          ;--------------------------------------------------------
+   254                          ; code
+   255                          ;--------------------------------------------------------
+   256                          	SECTION code_compiler
+   257                          C_LINE 8,"bits.c::x::0::7	"
+bits.c::x::0::7	:
+     8                          ;	---------------------------------
+     8                          ; Function main
+     8                          ; ---------------------------------
+     8                          _main:
+     8  0000  dde5              	push	ix
+     8  0002  dd210000          	ld	ix,	+0
+     8  0006  dd39              	add	ix, sp
+     8  0008  21faff            	ld	hl, -6
+     8  000b  39                	add	hl, sp
+     8  000c  f9                	ld	sp, hl
+     8                          C_LINE 11,"bits.c::x::10000::7	"
+bits.c::x::10000::7	:
+    11  000d  210000            	ld	hl,0
+    11  0010  39                	add	hl, sp
+    11  0011  eb                	ex	de, hl
+    11  0012  4b                	ld	c, e
+    11  0013  42                	ld	b, d
+    11  0014  0a                	ld	a, (bc)
+    11  0015  e6f8              	and	a,0xf8
+    11  0017  f605              	or	a,0x05
+    11  0019  02                	ld	(bc), a
+    11  001a  4b                	ld	c, e
+    11  001b  42                	ld	b, d
+    11  001c  0a                	ld	a, (bc)
+    11  001d  e607              	and	a,0x07
+    11  001f  f688              	or	a,0x88
+    11  0021  02                	ld	(bc), a
+    11  0022  6b                	ld	l, e
+    11  0023  62                	ld	h, d
+    11  0024  23                	inc	hl
+    11  0025  36c8              	ld	(hl),0xc8
+    11  0027  4b                	ld	c, e
+    11  0028  42                	ld	b, d
+    11  0029  03                	inc	bc
+    11  002a  03                	inc	bc
+    11  002b  0a                	ld	a, (bc)
+    11  002c  e6f0              	and	a,0xf0
+    11  002e  f60d              	or	a,0x0d
+    11  0030  02                	ld	(bc), a
+    11  0031  210300            	ld	hl,3
+    11  0034  39                	add	hl, sp
+    11  0035  36bc              	ld	(hl),0xbc
+    11  0037  23                	inc	hl
+    11  0038  ed67              	rrd
+    11  003a  3e0a              	ld	a,0x0a
+    11  003c  ed6f              	rld
+    11  003e  dd36ff42          	ld	(ix-1),0x42
+    11                          C_LINE 12,"bits.c::x::10000::7	"
+    12  0042  210000            	ld	hl,_g_bf+0
+    12  0045  eb                	ex	de, hl
+    12  0046  010600            	ld	bc,0x0006
+    12  0049  edb0              	ldir
+    12                          C_LINE 13,"bits.c::x::10000::7	"
+    13  004b  21ffff            	ld	hl,0xffff
+    13  004e  220600            	ld	(_g_lone), hl
+    13  0051  210600            	ld	hl,_g_lone
+    13  0054  36bc              	ld	(hl),0xbc
+    13  0056  23                	inc	hl
+    13  0057  ed67              	rrd
+    13  0059  3e0a              	ld	a,0x0a
+    13  005b  ed6f              	rld
+    13  005d  210800            	ld	hl,_g_lone + 2
+    13  0060  3609              	ld	(hl),0x09
+    13                          C_LINE 14,"bits.c::x::10000::7	"
+    14  0062  010900            	ld	bc,_g_one+0
+    14  0065  0a                	ld	a, (bc)
+    14  0066  e6f0              	and	a,0xf0
+    14  0068  f60d              	or	a,0x0d
+    14  006a  02                	ld	(bc), a
+    14                          C_LINE 15,"bits.c::x::10000::7	"
+    15                          l_main_00102:
+    15                          C_LINE 16,"bits.c::x::10000::7	"
+    16                          C_LINE 17,"bits.c::x::10000::7	"
+    17                          C_LINE 17,"bits.c::x::10000::7	"
+    17  006b  18fe              	jr	l_main_00102
+    17                          	SECTION IGNORE
+    17                          
+    17                          
+    17                          ; Embedding adb file
+    17                          PUBLIC __CDBINFO__M_3abits
+    17                          defc __CDBINFO__M_3abits=1
+    17                          
+    17                          PUBLIC __CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_36_2c_30_2c_30_2c_30
+    17                          defc __CDBINFO__F_3aG_24main_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_36_2c_30_2c_30_2c_30=1
+    17                          
+    17                          PUBLIC __CDBINFO__S_3aLbits_2emain_24l_5fbf_24_31_5f_30_24_37_28_7b_36_7dSTbf_3aS_29_2cB_2c_31_2c_2d_36
+    17                          defc __CDBINFO__S_3aLbits_2emain_24l_5fbf_24_31_5f_30_24_37_28_7b_36_7dSTbf_3aS_29_2cB_2c_31_2c_2d_36=1
+    17                          
+    17                          PUBLIC __CDBINFO__T_3aFbits_24one_5b_28_7b_30_7dS_3aS_24s_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_34_3aS_29_2cZ_2c_30_2c_30_29_5d
+    17                          defc __CDBINFO__T_3aFbits_24one_5b_28_7b_30_7dS_3aS_24s_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_34_3aS_29_2cZ_2c_30_2c_30_29_5d=1
+    17                          
+    17                          PUBLIC __CDBINFO__T_3aFbits_24lone_5b_28_7b_30_7dS_3aS_24a_24_30_5f_30_24_30_28_7b_32_7dSB_30_24_31_32_3aU_29_2cZ_2c_30_2c_30_29_28_7b_32_7dS_3aS_24c_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cZ_2c_30_2c_30_29_5d
+    17                          defc __CDBINFO__T_3aFbits_24lone_5b_28_7b_30_7dS_3aS_24a_24_30_5f_30_24_30_28_7b_32_7dSB_30_24_31_32_3aU_29_2cZ_2c_30_2c_30_29_28_7b_32_7dS_3aS_24c_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cZ_2c_30_2c_30_29_5d=1
+    17                          
+    17                          PUBLIC __CDBINFO__T_3aFbits_24bf_5b_28_7b_30_7dS_3aS_24lo_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_33_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24mid_24_30_5f_30_24_30_28_7b_31_7dSB_33_24_35_3aU_29_2cZ_2c_30_2c_30_29_28_7b_31_7dS_3aS_24hi_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_38_3aU_29_2cZ_2c_30_2c_30_29_28_7b_32_7dS_3aS_24neg_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_34_3aS_29_2cZ_2c_30_2c_30_29_28_7b_33_7dS_3aS_24wide_24_30_5f_30_24_30_28_7b_32_7dSB_30_24_31_32_3aU_29_2cZ_2c_30_2c_30_29_28_7b_35_7dS_3aS_24tag_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cZ_2c_30_2c_30_29_5d
+    17                          defc __CDBINFO__T_3aFbits_24bf_5b_28_7b_30_7dS_3aS_24lo_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_33_3aU_29_2cZ_2c_30_2c_30_29_28_7b_30_7dS_3aS_24mid_24_30_5f_30_24_30_28_7b_31_7dSB_33_24_35_3aU_29_2cZ_2c_30_2c_30_29_28_7b_31_7dS_3aS_24hi_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_38_3aU_29_2cZ_2c_30_2c_30_29_28_7b_32_7dS_3aS_24neg_24_30_5f_30_24_30_28_7b_31_7dSB_30_24_34_3aS_29_2cZ_2c_30_2c_30_29_28_7b_33_7dS_3aS_24wide_24_30_5f_30_24_30_28_7b_32_7dSB_30_24_31_32_3aU_29_2cZ_2c_30_2c_30_29_28_7b_35_7dS_3aS_24tag_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cZ_2c_30_2c_30_29_5d=1
+    17                          
+    17                          PUBLIC __CDBINFO__S_3aG_24g_5fbf_24_30_5f_30_24_30_28_7b_36_7dSTbf_3aS_29_2cE_2c_30_2c_30
+    17                          defc __CDBINFO__S_3aG_24g_5fbf_24_30_5f_30_24_30_28_7b_36_7dSTbf_3aS_29_2cE_2c_30_2c_30=1
+    17                          
+    17                          PUBLIC __CDBINFO__S_3aG_24g_5flone_24_30_5f_30_24_30_28_7b_33_7dSTlone_3aS_29_2cE_2c_30_2c_30
+    17                          defc __CDBINFO__S_3aG_24g_5flone_24_30_5f_30_24_30_28_7b_33_7dSTlone_3aS_29_2cE_2c_30_2c_30=1
+    17                          
+    17                          PUBLIC __CDBINFO__S_3aG_24g_5fone_24_30_5f_30_24_30_28_7b_31_7dSTone_3aS_29_2cE_2c_30_2c_30
+    17                          defc __CDBINFO__S_3aG_24g_5fone_24_30_5f_30_24_30_28_7b_31_7dSTone_3aS_29_2cE_2c_30_2c_30=1
+    17                          
+    17                          PUBLIC __CDBINFO__S_3aG_24main_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_36
+    17                          defc __CDBINFO__S_3aG_24main_24_30_5f_30_24_30_28_7b_32_7dDF_2cSI_3aS_29_2cC_2c_30_2c_36=1
+    17                          
+    17                          

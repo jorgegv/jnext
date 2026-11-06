@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1708,6 +1708,8 @@
       
         
       
+        
+      
     
     
     
@@ -2174,6 +2176,34 @@
     
   
     Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="16-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Variables
   
 
     
@@ -3268,6 +3298,8 @@
       
         
       
+        
+      
     
     
     
@@ -3528,6 +3560,34 @@
     
   
     In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/11-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C variables in the debugger
   
 
     
@@ -4076,7 +4136,10 @@ label, the size, the live value and the <strong>Memory</strong> the address read
 the list; you can also add a watch from the disassembly right-click menu, or
 from <strong>Watches ▸ Add Watch…</strong> in the menu bar. A watch you add by typing a
 symbol is labelled with it; a z88dk C symbol is labelled with its C name
-(<code>counter</code>, also when you typed <code>_counter</code>). See
+(<code>counter</code>, also when you typed <code>_counter</code>). A <strong>C variable</strong> is added from the <a href="16-variables.html">Variables</a> tab (right-click ▸
+<strong>Watch</strong>): its row shows the variable's path, the C type, the value and where it is, is read at each stop (not while the
+machine runs), and cannot be edited. A local says <code>(in function)</code> and reads in the newest call of that function, or
+<code>out of scope</code> when there is none. See
 <a href="../functions/04-watches-and-watch-sizes.html">Watches and watch sizes</a> for what the sizes mean.</p>
 
 

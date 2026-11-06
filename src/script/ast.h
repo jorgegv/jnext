@@ -80,6 +80,7 @@ enum class ExprKind : uint8_t {
     SnapField,  ///< `text.field` / `text.MMU[a]` (§2.5)
     Changed,    ///< `changed(text, group)`
     Depth,      ///< `depth(text)`
+    CVar,       ///< `cvar(text)`: a C variable of frame 0, as an int32 (GH #436)
 };
 
 enum class Op : uint8_t {

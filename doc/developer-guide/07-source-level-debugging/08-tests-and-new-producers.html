@@ -14,6 +14,8 @@
         <link rel="prev" href="07-frontends.html">
       
       
+        <link rel="next" href="09-c-variables.html">
+      
       
         
       
@@ -200,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2229,6 +2231,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2851,6 +2857,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2900,19 +2962,27 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 <tbody>
 <tr>
 <td><code>source_map_test</code></td>
-<td>The std-only layer, with no emulator: <code>SourceMap</code> (<code>SRCRNG-*</code>, <code>SRCMAP-*</code>, <code>SRCPATH-*</code>, <code>SRCTXT-01</code>), the SLD adapter (<code>SLD-*</code>, <code>SLDL-*</code>), the symbol table's pages (<code>SYMPG-*</code>), the NextBuild adapter (<code>NBSYM-*</code>), and the fixture manifest (<code>Z88FIX-01</code>, <code>Z88FIX-02</code>)</td>
+<td>The std-only layer, with no emulator: <code>SourceMap</code> (<code>SRCRNG-*</code>, <code>SRCMAP-*</code>, <code>SRCPATH-*</code>, <code>SRCTXT-01</code>, <code>SRCVAR-01</code>), the SLD adapter (<code>SLD-*</code>, <code>SLDL-*</code>), the symbol table's pages (<code>SYMPG-*</code>), the NextBuild adapter (<code>NBSYM-*</code>), and the fixture manifest (<code>Z88FIX-01</code>, <code>Z88FIX-02</code>)</td>
 </tr>
 <tr>
 <td><code>z88dk_map_test</code></td>
-<td>The z88dk map: the source half (<code>Z88MAP-*</code>), the symbol half and binding (<code>Z88SYM-*</code>), C names (<code>Z88CN-*</code>), dot commands (<code>Z88DOT-*</code>, <a href="04-3-z88dk-map.html">7.4.3</a> rule 5), and the size cap and BOM of the symbol loaders (<code>MAPCAP-*</code>, <code>MAPBOM-*</code>)</td>
+<td>The z88dk map: the source half (<code>Z88MAP-*</code>), the symbol half and binding (<code>Z88SYM-*</code>), C names (<code>Z88CN-*</code>), dot commands (<code>Z88DOT-*</code>, <a href="04-3-z88dk-map.html">7.4.3</a> rule 5), the C variable store (<code>Z88CDB-*</code>, <a href="09-c-variables.html">7.9</a>) and the extents and frame helpers (<code>Z88CDB-41</code>..<code>-50</code>, <a href="10-c-frames-and-values.html">7.10</a>), and the size cap and BOM of the symbol loaders (<code>MAPCAP-*</code>, <code>MAPBOM-*</code>)</td>
 </tr>
 <tr>
 <td><code>z88dk_lis_test</code></td>
 <td>The listing adapter (<code>Z88LIS-*</code>), including the placement of a label-less piece by its bytes (<code>Z88LIS-36</code> to <code>-47</code>, <a href="04-4-z88dk-listings.html">7.4.4</a> rule 5b) and the BOM (<code>Z88LIS-35</code>, <code>-44</code>)</td>
 </tr>
 <tr>
+<td><code>c_value_test</code></td>
+<td>The pure C value layer (<code>c_value.cpp</code>, <a href="10-c-frames-and-values.html">7.10</a>): the 48-bit and IEEE floats, integers, pointers, arrays, structs, bitfields, the struct type lookup and type text, the path grammar and its evaluation, visible locals, register locals (<code>CVALF-*</code>), the children of an object (<code>CVCH-*</code>), the encoder of a written value (<code>CVW-*</code>), and the int32 rule of the script atom and ZRCP (<code>CVINT-*</code>)</td>
+</tr>
+<tr>
+<td><code>cdb_record_test</code></td>
+<td>The z88dk C debug records (<code>__CDBINFO__</code>, <code>cdb_decode()</code> in <code>src/debug/cdb_record.cpp</code>): un-escaping (<code>cdb_unescape()</code>), the scope split at the last <code>.</code>, the type chain, storage, <code>T:</code> members, what views hide (<code>CdbHidden</code>), refusals with their reasons, and every record of every committed map (<code>CDB-*</code>). Records measured from the z88dk master install are quoted in the rows with the probe and command</td>
+</tr>
+<tr>
 <td><code>source_debug_test</code></td>
-<td>The backend on a real machine: identity of fetches (<code>SRCDBG-ID-*</code>), sidecars and ownership (<code>SRCDBG-SIDE-*</code>, <code>-OWN-*</code>), symbols (<code>SRCDBG-SYM-*</code>), z88dk (<code>SRCDBG-Z88-*</code>, <code>-LIS-*</code>), tapes (<code>SRCDBG-TAPE-*</code>), lifetime (<code>SRCLIFE-*</code>), dot commands (<code>SRCDOT-*</code>, <a href="06-lifetime.html">7.6</a>), breakpoints (<code>SRCBP-*</code>), run to line (<code>SRCRUN-*</code>), steps (<code>SRCSTEP-*</code>, <code>SRCDBG-STEP-*</code>, <code>-BACK-*</code>, <code>-HIST-*</code>), call stack (<code>SRCDBG-CS-*</code>), coverage (<code>SRCDBG-COV-*</code>), the long address through a machine (<code>LADDR-17</code> to <code>-20</code>; the pure formatter's <code>LADDR-01</code> to <code>-16</code> are in <code>debugger_backend_test</code>)</td>
+<td>The backend on a real machine: identity of fetches (<code>SRCDBG-ID-*</code>), sidecars and ownership (<code>SRCDBG-SIDE-*</code>, <code>-OWN-*</code>), symbols (<code>SRCDBG-SYM-*</code>), z88dk (<code>SRCDBG-Z88-*</code>, <code>-LIS-*</code>), tapes (<code>SRCDBG-TAPE-*</code>), the variable store's lifetime (<code>SRCDBG-VAR-*</code>), the tracker policy and the C frames (<code>SRCDBG-CVAL-*</code>, <a href="10-c-frames-and-values.html">7.10</a>), writing a C variable (<code>SRCDBG-CVW-*</code>), the children of a C variable on a running machine (<code>SRCDBG-CVCH-*</code>), lifetime (<code>SRCLIFE-*</code>), dot commands (<code>SRCDOT-*</code>, <a href="06-lifetime.html">7.6</a>), breakpoints (<code>SRCBP-*</code>), run to line (<code>SRCRUN-*</code>), steps (<code>SRCSTEP-*</code>, <code>SRCDBG-STEP-*</code>, <code>-BACK-*</code>, <code>-HIST-*</code>), call stack (<code>SRCDBG-CS-*</code>), coverage (<code>SRCDBG-COV-*</code>), the long address through a machine (<code>LADDR-17</code> to <code>-20</code>; the pure formatter's <code>LADDR-01</code> to <code>-16</code> are in <code>debugger_backend_test</code>)</td>
 </tr>
 <tr>
 <td><code>source_debug_posix_test</code></td>
@@ -2932,11 +3002,19 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 </tr>
 <tr>
 <td><code>gdb_rsp_test</code>, <code>zrcp_adapter_test</code>, <code>dzrp_adapter_test</code></td>
-<td><code>monitor src</code> and <code>monitor sym</code> (<code>GDB-MON-*</code>); ZRCP <code>get-memory-pages</code> names and <code>cpu-step-over</code> at a DivMMC entry (<code>LADDR-21</code>, <code>-22</code>); DZRP's <code>0xFF</code> for a ROM slot (<code>DZRP-REG-08</code>)</td>
+<td><code>monitor src</code> and <code>monitor sym</code> (<code>GDB-MON-*</code>); <code>monitor locals</code>, <code>globals</code> and <code>print</code> on the cvars fixtures (<code>GDB-CVAR-*</code>); ZRCP <code>CVAR(path)</code> in <code>evaluate</code> and conditions (<code>ZRCP-CVAR-*</code>); the C writes <code>monitor set var</code> (<code>GDB-CVW-*</code>) and <code>set-register CVAR(path)=value</code> (<code>ZRCP-CVW-*</code>); ZRCP <code>get-memory-pages</code> names and <code>cpu-step-over</code> at a DivMMC entry (<code>LADDR-21</code>, <code>-22</code>); DZRP's <code>0xFF</code> for a ROM slot (<code>DZRP-REG-08</code>)</td>
 </tr>
 <tr>
 <td><code>script_events_test</code></td>
 <td>The DSL's <code>on execute FILE:LINE</code> and <code>--map</code></td>
+</tr>
+<tr>
+<td><code>debugger_variables_panel_test</code></td>
+<td>The Qt Variables tab on a real Next running the z88dk fixtures: frames, locals, globals, lazy expansion, the Call Stack selection both ways, addresses, refresh, idle (<code>QVAR-*</code>, and editing a value <code>QVARW-*</code>, the C rows of the Watches tab included, <a href="07-frontends.html">7.7</a>); gated on Qt and the debugger</td>
+</tr>
+<tr>
+<td><code>script_eval_test</code></td>
+<td>The DSL evaluator; its <code>EVAL-CVAR-*</code> rows are the <code>cvar(PATH)</code> atom over a real Next machine and the committed cvars fixtures (scalars, members, elements, qualified names, banked globals, every refusal, no C variables, interpolation, a <code>when</code>, and a tape program's verdict applied inside a delivery)</td>
 </tr>
 <tr>
 <td><code>debugger_source_panel_test</code>, <code>debugger_verbs_test</code>, <code>debugger_panels_test</code>, <code>debugger_disasm_copy_test</code>, <code>debugger_menu_test</code></td>
@@ -3017,7 +3095,7 @@ the rules that normalise and trim the output.</p>
   values moved.</li>
 <li><strong>The script exits non-zero</strong> when a build that should succeed fails, and when
   one recorded as not producible starts to build (<code>EXPECT_FAIL=1</code>). The failures
-  are recorded too: <code>v2.4/sdcc-debug</code> and the two <code>classic-debug</code> builds keep only
+  are recorded too: <code>v2.4/sdcc-debug</code> and <code>v2.4/classic-debug</code> keep only
   a <code>build.log</code>.</li>
 <li><strong><code>MANIFEST.sha256</code></strong> lists every file the rows hash: sources, the script, the
   outputs (not <code>README.md</code>). <code>Z88FIX-01</code> checks every entry's hash; <code>Z88FIX-02</code>
@@ -3030,19 +3108,19 @@ the rules that normalise and trim the output.</p>
   address, line and section in a z88dk row comes from these files, never from the
   code under test.</li>
 </ul>
-<p>The dot-command builds (GH #351) are <code>dot:&lt;subtype&gt;</code> lines in <code>generate.sh</code>, compiled from <code>dot.c dutil.c</code>
+<p>The dot-command builds are <code>dot:&lt;subtype&gt;</code> lines in <code>generate.sh</code>, compiled from <code>dot.c dutil.c</code>
 with <code>-subtype=dot</code>, <code>dotx</code> or <code>dotn</code> instead of <code>nex</code>: <code>v2.4/sccz80-dot</code>, <code>sccz80-dotx</code>, <code>sdcc-dot</code>,
 <code>v2.4-dotn/sccz80</code> and <code>master/sccz80-dot</code>, <code>sccz80-dotx</code>, <code>sdcc-dot</code>, <code>80cc-dot</code>. The dotn lives in its own
 directory so that <code>Z88CN-10</code>'s walk over <code>v2.4/</code> and <code>master/</code> (every map shows a C name) is not tripped by
 its refused C symbols. The banked-CRT builds (<code>sccz80-banked-crt</code>, both trees) are the fixtures of the
-placement by bytes (GH #426 F4).</p>
+placement by bytes.</p>
 <p><strong><code>test/fixtures/sjasmequ/</code></strong> is made by hand with an exact command, sjasmplus
 commit and <code>sha256</code> per file (its <code>README.md</code>): <code>equlabels.asm</code> is ours, and
 <code>equlabels.sym</code>, <code>equlabels.exp</code>, <code>equlabels-win.sym</code> (a MinGW build run under
 wine), <code>equlabels-v1.17.sym</code> (a build of the v1.17.0 tag) and <code>equlabels.sld</code> are what
 sjasmplus writes for it, byte for byte.</p>
 <p><strong><code>test/fixtures/zdebugmap/</code></strong> is the trimmed 2.4 maps (<code>debug.map</code>, <code>nodebug.map</code>)
-of a small program, kept for the symbol rows <code>SYM-14</code>..<code>SYM-18</code> (GH #352); its
+of a small program, kept for the symbol rows <code>SYM-14</code>..<code>SYM-18</code>; its
 README records the trimming.</p>
 <p>There is no committed fixture for a <code>Memory.txt</code> or for the SLD identity records;
 <a href="04-5-nextbuild-memory-txt.html">7.4.5</a> and <a href="04-1-sld.html">7.4.1</a> say so and label

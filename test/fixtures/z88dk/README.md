@@ -6,15 +6,22 @@ address, line and section in a test row comes from these files, never from the c
 under test (design: `doc/design/SOURCE-LEVEL-DEBUGGING.md` section 2.3). CI has no
 z88dk, hence committed outputs and a hash check (rows Z88FIX-01/02 in `source_map_test`).
 
-## The two installs
+## The three installs
 
 | dir | commit | describe | zsdcc |
 |-----|--------|----------|-------|
 | `v2.4/` | `4d530b6eb779ad0f2a1d13c0bb670cf717477501` | v2.4 | 4.5.0 #15242 |
-| `master/` | `39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7` | v2.4-2695-g39421a01cd | 4.6.0 #16639 |
+| `master/` | `97731e4e2988543e2c849cd1ae1d0aeddf372fcd` | v2.4-2883-g97731e4e29 | 4.6.0 #16639 pr3093 Nov 3 2026 |
+| `master-fixed/`, `master-fixed-zsdcc/`, `master-fixed-80cc/`, `master-fixed-sccz80/` | `0f0a1cf70e48856af8191af6f86096d2e1362482` | v2.4-2954-g0f0a1cf70e | 4.6.0 #16639 pr3093 Nov 5 2026 |
 
-The master tree has one local modification (`include/_DEVELOPMENT/common/string.h`, the
-`__80CC` `__builtin_strlen_fastcall` block removed); our sources do not use `strlen`.
+`master/` is master BEFORE the debug-record fixes that merged on 2026-11-04 and 2026-11-05 (z88dk PRs #3227, #3229, #3230, #3231, #3237,
+#3238, #3241, #3242, #3243, #3244, #3250 to #3253, #3257, #3258, #3260 to #3265; #3240, floats, is not merged); `master-fixed/`, `master-fixed-zsdcc/`, `master-fixed-80cc/` and `master-fixed-sccz80/`
+are master with them (GH #438), the tip of z88dk master when the owner rebuilt `-latest` on 2026-11-05. The name `master-fixed` is kept from the days
+when the fixed install was a hand-patched `a52baaf7d9` (the first six fixes only); it now means "real master after the fixes". `master-fixed-zsdcc/`
+holds the zsdcc builds (own directory: the rows that walk every map of `master-fixed/` count sccz80 and 80cc modules).
+The pre-fix install is `~/src/spectrum/z88dk-original-97731e4e29`, a reflink copy kept for `master/` (never the other two); the post-fix one is
+`~/src/spectrum/z88dk-original-latest`.
+All four fixture trees have no local modification (`PROVENANCE`: `modified tracked files:` is empty) except `v2.4/`, which lists two modified yaz180 `.inc` files (a target this tree never builds), older than GH #438.
 Each `PROVENANCE` and each `build.log` (first line) record the commit. The master tools
 print a stale banner (`v23856-580777436e-20251005`, from an old generated `config.h`):
 trust the commit, not `zcc`'s banner.
@@ -23,8 +30,8 @@ trust the commit, not `zcc`'s banner.
 
     bash test/fixtures/z88dk/generate.sh
 
-Env overrides: `Z88DK_24`, `Z88DK_MASTER` (install roots; defaults
-`~/src/spectrum/z88dk-original-2.4` and `...-latest`). The output is deterministic:
+Env overrides: `Z88DK_24`, `Z88DK_MASTER`, `Z88DK_FIXED` (install roots; defaults
+`~/src/spectrum/z88dk-original-2.4`, `...-97731e4e29` (`master/`) and `...-latest` (`master-fixed*/`)). The output is deterministic:
 `git diff --stat` must be empty unless an install changed. When it did, commit the new
 outputs and `MANIFEST.sha256` together and say which rows' values moved. The script
 exits non-zero if a build that should succeed fails, or one recorded as failing starts to
@@ -32,7 +39,7 @@ build. `README.md` is not hashed; everything else (sources, script, outputs) is.
 
 ## Builds
 
-All `zcc +zxn`, `LANG=C`. Plain builds compile `main.c util.c asmfn.asm`; `subdir`
+All `zcc +zxn`, `LANG=C`. Plain builds compile `main.c util.c asmfn.asm` (the `*-cvars` builds `vars.c other.c`, `*-fc` `fc.c`; the new banked sources are `bk.c` and `bkmain.c`, since `bmain.c` is the older banked fixture's); `subdir`
 moves `util.c` to `game/util.c`; banked builds compile `banked.c` with `--codeseg<SEG>`,
 then link `bmain.c bankin.asm banked.o`. Link flags: `-m --list -subtype=nex -o prog -create-app`.
 The exact commands are the `+ zcc ...` lines of each `build.log`.
@@ -62,7 +69,26 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sccz80-dot, sccz80-dotx, sdcc-dot; v2.4-dotn/sccz80 | `dot.c dutil.c`, `-subtype=dot` / `dotx` / `dotn`, `-clib=new -debug` (sdcc-dot: `-clib=sdcc_iy -SO2 --c-code-in-asm`: lines in the `.lis` only) | ok, `PROG` (`PROG.X` for dotx) | GH #351 dot commands; dotn lives in `v2.4-dotn/` so that Z88CN-10's walk over `v2.4/` and `master/` (every map shows a C name) is not tripped by its refused C symbols |
 | master/sccz80-dot, sccz80-dotx, sdcc-dot, 80cc-dot | `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #351 |
 | master/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic page prefix; keeps the classic CRT listing (G19-G21) |
-| master/classic-debug | `-clib=classic -debug`, `BANK_10` | **fails rc=1** | Z1 |
+| master/classic-debug | `-clib=classic -debug`, `BANK_10` | ok (z88dk v2.4-2883; failed with Z1 on v2.4-2695) | Z1 fixed on master, GH #445 |
+| v2.4/sccz80-cvars, master/sccz80-cvars, master/sdcc-cvars, master/80cc-cvars | `vars.c other.c` (+ `types.h`): `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #431: C variable records of every type (section "C variables") |
+| v2.4/sdcc-cvars | `-clib=sdcc_iy -debug`, `vars.c other.c` | **fails rc=1** | z88dk#3172, as `v2.4/sdcc-debug` |
+| v2.4/sccz80-cvars-banked, master/{sccz80,sdcc,80cc}-cvars-banked | `bk.c` compiled with `--codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20`, then `bkmain.c bk.o`, the compiler flags of the line above + `-pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000` | ok | GH #431: banked code AND data (runnable, as the `-run` builds) |
+| master/sccz80-extern, master/sdcc-extern | `ext_use.c ext_def.c` (+ `ext.h`): `extern int g;` in one module, `int g = 5;` in the other; `-clib=new -debug` / `-clib=sdcc_iy -debug` | ok | GH #433: the record of an `extern` global (section "C variables") |
+| v2.4/sccz80-fc, master/{sccz80,sdcc,80cc}-fc | `fc.c` only, as the `incmid` builds | ok | GH #431: `__z88dk_fastcall` and `__z88dk_callee` |
+| v2.4/sccz80-cross, master/{sccz80,sdcc,80cc}-cross | `cross.c` only: `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #434 F-A: `cross()` holds 8192 bytes of padding (`defs 8192`: `#asm` for sccz80 and 80cc, `__asm` for zsdcc), so its code runs from the CODE slot at $8000 into $A000-$BFFF (extent `8C6B-A000` + `A000-AC81` on sccz80); `derive-scopes.py --extents` derives the pieces |
+| v2.4/sccz80-floats, master/{sccz80,sdcc}-floats | `floats.c` only: `-clib=new -debug` / `-clib=sdcc_iy -debug` | ok | GH #434 stage 2 (P2): six float constants (1.5, -2.5, 0.1, 1e10, 1e-10, 0); sccz80 stores them in z88dk's 48-bit format (`00 00 00 00 40 81` is 1.5), zsdcc as IEEE binary32 (`00 00 C0 3F`); the bytes are the oracle of `c_value_test` CVALF-01..06. Not built: `--math32` (`{4}SF` from sccz80, not measured) and `_Float16` (`S6`), so CVALF-07's binary16 rows rest on the IEEE 754 tables only |
+| master/sdcc-cvars-O0 | `vars.c other.c`, `-clib=sdcc_iy -debug -O0` | ok | GH #434 stage 3 (P1): zcc's `-O0` keeps zsdcc's `C_LINE` records (the `x::<level>::<block>` form) and writes NO `__CDBINFO__` record (`-SO0` writes all 63): the case `c_variables_status()` names "zsdcc wrote no C variable records for this build" |
+| v2.4/sccz80-{blocks,bits,fm}, master/{sccz80,sdcc,80cc}-{blocks,bits}, master/{sccz80,80cc}-fm, master-fixed/{sccz80,80cc}-{bits,fm}, master-fixed/sccz80-blocks | `blocks.c`, `bits.c` or `fm.c` only: `-clib=new [-compiler=80cc] -debug` / `-clib=sdcc_iy -debug` | ok | GH #438: block scope (`for` headers, sibling blocks), bitfields, a fastcall function with two parameters and arrays sized by their initialiser (section "Debug-record bugs") |
+| master/80cc-u5, master-fixed/80cc-u5 | `u5.c` only: `-clib=new -compiler=80cc -debug` | ok | GH #438: z88dk#3233's program, a local 80cc keeps in a register |
+| master/{sccz80,sdcc,80cc}-xmod | `./xm.c 1st.c`: `-clib=new` / `-clib=sdcc_iy` / `-clib=new -compiler=80cc`, `-debug` | ok | GH #438: z80asm prefixes `X` to a sccz80 or 80cc module whose path starts with `.` or a digit (`X__xm_c`, `X1st_c`); zsdcc names its modules `xm_c` and `_1st_c` |
+| master/classic-mbf32, master/classic-math32 | `fl.c` only: `zcc +zx -debug --math-mbf32` / `--math32` | ok, a `.tap` | GH #438: the map names the float library (`__code_fp_mbf32_size` / `__code_fp_math32_size`), the record says only `{4}SF` |
+| master-fixed/{sccz80,80cc}-cvars, master-fixed/sccz80-fc | as the `master/` builds of the same name | ok | GH #438: the records after the fixes (sccz80 and 80cc also write the `N:` / `E:` enum records of z88dk#3241) |
+| master-fixed-zsdcc/sdcc-{cvars,blocks,xmod,debug} | `-clib=sdcc_iy -debug`: `vars.c other.c`, `blocks.c`, `./xm.c 1st.c`, `main.c util.c asmfn.asm` | ok | GH #438: zsdcc after z88dk#3262 (no TAB after the `x` of a C_LINE) and #3265 (the `-debug` modules are named by the whole path: `__xm_c`, `blocks_c` with the `.c` in its `M:` and local-scope records) |
+| master-fixed-80cc/80cc-scope | `f3254.c` only: `-clib=new -compiler=80cc -debug` | ok | GH #438 S4a: our own program (z88dk issue 3254's shape): an `if` block, a `for` that declares `i`, a brace-less inner `for` over `j`, loop-rotated code; 80cc writes PR #3243's levels and blocks, with `C_LINE 10` three times. Own directory: the rows that walk `master-fixed/` count its modules |
+| master-fixed-80cc/80cc-ifelse | `ifelse.c` only: `-clib=new -compiler=80cc -debug` | ok | GH #438 S4b (review 7 F1): `f1` (if/else chains, loops, a shadowing block), `k9` (brace-less then-branch), `c1` (a trailing `if` block), `d2` (a hoisted multiply, the temporary `1licm_0`): the places where 80cc stamps code with another block's scope |
+| master-fixed-80cc/80cc-x | `x.c`: a function really named `x` | ok | GH #438 S4b: the module is 80cc, not zsdcc's `x` placeholder |
+| master-fixed-80cc/80cc-shadow, master-fixed-sccz80/sccz80-shadow, master-fixed-zsdcc/sdcc-shadow | `shadow.c`: an inner `{ int16_t t = 5; g += t; }` over the function's `t` | ok | GH #438 S4b: shadowed names (zsdcc keeps the outer t in DE and records the inner t as `[]`) |
+| master-fixed-zsdcc/sdcc-stub | `stub1.c stub2.c`: `-clib=sdcc_iy -debug`; `void p(int a) {}` | ok | GH #438 S4b (review 7 F3): a zsdcc module with only level-0 `x` records |
 
 The dot builds (`dot:<subtype>` in `generate.sh`) compile `dot.c dutil.c` with `-subtype=dot|dotx|dotn`
 instead of `-subtype=nex`. Classic dot is not built: `-debug` fails (Z1) and without it there are no lines.
@@ -75,15 +101,15 @@ CODE block at $8000 that equals `prog_CODE.bin`; link flags without `-subtype=ne
 
 Kept per successful build: `prog.map` (trimmed), every user `*.c.lis` / `*.asm.lis`,
 `prog.nex` (`prog.tap` for the tape build), every `prog_<GROUP>.bin` (classic: `prog`). `prog.lis` (the crt0
-listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master/sdcc-debug`, and both `classic-bank10`
-(`KEEP_CRT=1` in `generate.sh`, GH #348); not kept for the others, nor `.sym`, `.o`.
+listing, 12-18K lines) is kept for exactly six builds, `v2.4/sdcc-SO2`, `master/sdcc-debug`, both `classic-bank10` and both
+`sccz80-banked-crt` (`KEEP_CRT=1` in `generate.sh`, GH #348, GH #426); not kept for the others, nor `.sym`, `.o`.
 
 ### Not producible (recorded, `build.log` only)
 
 - `v2.4/sdcc-debug` (G12): `defc Gcounter0_00==.` syntax errors in 2.4's sdcc `-debug`
   (z88dk issue 3172; fixed on master).
-- `v2.4/classic-debug`, `master/classic-debug` (Z1): `Unknown option2 --hardware-keyboard`.
-  "Classic +zxn banked -debug: not producible."
+- `v2.4/sdcc-cvars` (GH #431): the same z88dk issue 3172 failure as `v2.4/sdcc-debug`, on `vars.c other.c`.
+- `v2.4/classic-debug` (Z1): `Unknown option2 --hardware-keyboard`. `master/classic-debug` failed the same way until z88dk v2.4-2883 (GH #445) and is now built (classic +zxn banked `-debug` is producible on master only).
 
 ## Findings (evidence in this tree)
 
@@ -91,7 +117,7 @@ listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master
   (`v2.4/sccz80-debug`).
 - G2 80 `= $0000 ; addr, local, , <mod>, ,` lines in that map.
 - G3 lines 14/15 share $8C92, 16/17 $8C95, 24/25 $8D12 (2.4 sccz80).
-- G4 line 20 is $8CBE on 2.4 and $8CCD on master; master 24 $8D12, 25/26 $8D22.
+- G4 line 20 is $8CBE on 2.4 and $8CBA on master; master 24 $8CFF, 25/26 $8D0F.
 - G5 `call l_debug_push_frame` in `main.c.lis`; the helper symbols are kept in the map.
 - G6 2.4 sdcc maps have no `__C_LINE_`; the lines are `;main.c:N:` comments in the
   `.lis` (`--c-code-in-asm`).
@@ -103,8 +129,8 @@ listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master
 - G11 `__CDBINFO__` count: 9 (2.4 sccz80), 9 (master sccz80), 24 (master sdcc), 11 (master 80cc), 0 (2.4 sdcc).
 - G12 see above.
 - G13 `prog.lis` lists the false branches of `IF` too, with no bytes: `__stdio_closed_file_list:` is at
-  m4 line 9207 (with bytes) and again at 9266. The map names the defining line (9207), so a label
-  matches only at that line. The m4 file's lines are 1..9689 with none missing (2.4 and master).
+  m4 line 9207 (with bytes) and again at 9266 on 2.4 (master: 9219 and 9278). The map names the defining line (9207 / master 9219), so a label
+  matches only at that line. The m4 file's lines are 1..9689 on 2.4 and 1..9701 on master, none missing.
 - G14 z80asm defines `__ASM_LINE_<n>_<file>` for a label only while the location is not C source:
   master sdcc has `__ASM_LINE_224/226_main.c` for `_counter` / `_table`, which sit before the first
   `C_LINE`; those numbers are lines of the generated assembly, not of `main.c`.
@@ -149,22 +175,153 @@ listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master
   runs from `Page{4}`/`Page{5}`) and dotn (the main part runs from pages NextZXOS allocates: $DC $DB $DE $DD
   in the run). The machine resets while NextZXOS boots, so a map attached at start-up meets a reset
   before the command can be typed. Not measured: NextZXOS's 48K personality, esxDOS proper.
-- Z3 (candidate upstream bug, GH #345): newlib `+zxn` `__banked` programs built with the
-  defaults cannot run. `CRT_ORG_PAGE_20` is 16-bit ($C000), but `banked_call` reads the page
+- Z3 (candidate upstream bug, GH #345; v2.4 only for the first half): newlib `+zxn` `__banked` programs built with the
+  defaults cannot run on v2.4. `CRT_ORG_PAGE_20` is 16-bit ($C000) there, but `banked_call` reads the page
   from bits 16-23, so `defq _banked_add` is `00 C0 00 00` and it pages in page 0; and the
   default stack ($FF58) is in the banking segment (MMU7), so `banked_call`'s `ret` pops from
   the wrong page and returns to $FFFF. The `-run` builds pass `CRT_ORG_PAGE_20=0x14C000` and
   `REGISTER_SP=0xC000` and run on both installs (`__PAGE_20_head` is then 24-bit, read by its
   low 16 bits, design 9.4). `sccz80-page20`, `sccz80-bank10`, `sccz80-banked`, `sdcc-banked`
   (and `bankin.asm`'s `bank_in`) are map/identity fixtures only and do not run.
+  On master (v2.4-2883) the default `CRT_ORG_PAGE_20` is `$14C000` (24-bit; `master/sdcc-banked/prog.map`, built
+  with no pragma), so that half is gone; the default stack was not re-measured there.
 - Z4 (candidate upstream bug, GH #345): z88dk-gdb (2.4 and master) segfaults loading a map
   with a 24-bit `__C_LINE_` value (the `-run` maps).
   Z3/Z4 are for the owner to decide on; nothing is filed by this work.
 - Z1 (candidate upstream bug): `-debug` makes zcc forward ALIAS options to the compiler.
   `zcc +zx --vt100 -c util.c -o u.o` succeeds, `zcc +zx --vt100 -debug -c util.c -o u.o`
-  fails with `Unknown option2 --vt100`, on both installs.
+  fails with `Unknown option2 --vt100` on v2.4; master v2.4-2883 accepts both (measured with the install named in `generate.sh`).
 - Z2 (known upstream TODO): master sdcc labels header code compiled into a second module
   with the wrong line (`util_inc` in `util_c` shows as `util.h:9`, really line 7).
+
+## C variables (GH #431, epic #353)
+
+The `*-cvars`, `*-cvars-banked` and `*-fc` builds exist to give the C variable records
+(`__CDBINFO__`) a ground truth. Everything below was read from the committed maps with a
+small decoder (undo z80asm's `_hh` escaping of the name; the module is the 4th comma-separated field after the line's ` ; `),
+and the `.lis` files; all builds are `-debug`, `TMPDIR=/tmp`.
+**Which install produced what:** `v2.4/` = 4d530b6eb, `master/` = 97731e4e29 (v2.4-2883, regenerated by GH #445;
+the earlier base 39421a01cd predated upstream PR #3221). 80cc exists only in `master/`.
+
+Records kept per build (F functions, M modules, S variables, T types; total in the map):
+
+| build | total | F / M / S / T |
+|-------|-------|---------------|
+| v2.4/sccz80-cvars, master/sccz80-cvars | 53 | 3 / 0 / 45 / 5 (the two record sets are identical) |
+| master/sdcc-cvars | 63 | 3 / 2 / 48 / 10 |
+| master/80cc-cvars | 55 | 3 / 2 / 45 / 5 |
+| v2.4/sdcc-cvars | none | does not build (z88dk#3172, `build.log`) |
+| banked: v2.4 sccz80, master sccz80 / sdcc / 80cc | 10 / 10 / 13 / 11 | |
+| fc: 2.4 sccz80, master sccz80 / sdcc / 80cc | 9 / 9 / 13 / 10 | |
+
+Facts the decoder and the frame rows rely on (each checked in the files named):
+
+- The kind is the first letter: `F:` function, `M:` module (zsdcc and 80cc only), `S:` variable,
+  `T:` struct/union type. `S:G$` global, `S:F<scope>$` file static, `S:L<scope>.<func>$` local or
+  parameter. The address space follows the type: `E` (data symbol), `B,1,<offset>` (stack),
+  `R,0,0,[regs]` (registers; `[]` = optimised out), `C` function, `D` literal (zsdcc `__str_2`).
+- The type chain is `({size}...)`: sccz80/80cc `DA3x`, zsdcc `DA3d` for an array of 3; `DG` pointer
+  (zsdcc function pointers `DC,DF`); `STpoint:S` struct; `SC/SI/SL/SF:{S,U}`. `char` is signed in
+  sccz80/80cc (`g_char` `SC:S`) and unsigned in zsdcc (`SC:U`); `float` is `{6}SF` (sccz80, 80cc) and
+  `{4}SF` (zsdcc); an enum variable is `SI:S` (sccz80/80cc, 2 bytes) or `SC:U` (zsdcc, 1 byte).
+- `g_float = 1.5` in the data: `00 00 00 00 40 81` (6-byte z88dk format, sccz80 and 80cc, `_g_float`
+  $904A on 2.4 / $904C on master sccz80 / $8FC7 80cc) and `00 00 c0 3f` (IEEE single, zsdcc, $8F44).
+  Read from `prog_CODE.bin` at (address - `__CODE_head` $8000).
+- sccz80 and 80cc write a second, incomplete-array record for `g_str` (zsdcc one record): `({-1}DA-1x,SC:S)` beside `({3}DA3x,SC:S)`.
+- sccz80/80cc enumerators are records with an empty type (`S:G$RED$0_0$0({0}),E,0,0`); zsdcc has none.
+- Bitfields: zsdcc `T:Fvars$flags[...({1}SB0$3:U)({1}SB3$5:U)...]` carries start and width; sccz80/80cc
+  write `({2}SI:U)` members at offsets 0, 0, 1 with no bit layout.
+- Types are scoped by the declaring header in sccz80/80cc (`T:Ftypes.h$point`, one copy), by module in
+  zsdcc (`T:Fvars$point` and `T:Fother$point`).
+- A global function's `F:G$` record is emitted by each declaring module and collapses to one map line
+  whose module column is the first declarer's: `F:G$other` has `mod=vars_c` in the sccz80/80cc maps
+  (`types.h` declares it) and `mod=other_c` in zsdcc's. Take a function's address from `_<name>`.
+- File statics with one name in two files: `_s_dup` is `other_c` $9069 and `vars_c` $909F
+  (master sccz80), $8F62 / $8F96 (master sdcc), $8FE4 / $901A (80cc); records
+  `S:Fvars.c$s_dup` / `S:Fother.c$s_dup` (zsdcc `S:Fvars$s_dup` / `S:Fother$s_dup`).
+- Static local `calls` in `sum`: sccz80/80cc `S:Fvars.c$st_sum_calls$1_0$1`, symbol `_st_sum_calls`
+  ($90A0 master sccz80, $901B 80cc); zsdcc `S:Lvars.sum$calls$1_0$10`, symbol `_sum_calls_10000_10`
+  ($8F97).
+- Stack offsets (`B,1,n`) in `sum(a, b, p, k)`: sccz80 and 80cc `a`=+10, `b`=+8, `p`=+6, `k`=+4 (first
+  argument pushed first); zsdcc `a`=+4, `b`=+6, `p`=+8, `k`=+10. Locals are negative. The frame
+  layout differs between sccz80 and 80cc: `t` is -2 / -8, `inner` -8 / -2, `main`'s `lp` -5 / -25,
+  `arr` -13 / -20.
+- zsdcc keeps `t` in `[c,b]` and `inner` in `[l,h]`, `acc`, `big`, `c`, `pp` as `[]` (optimised out)
+  and adds compiler temporaries `sum$sloc0`, `sum$sloc1`, `main$sloc0` (`B`, level/sub `0_1`); zsdcc
+  also writes `S:G$main`/`S:G$other` and `S:Fvars$sum` as `C`-space function records, and its `F:G$main`
+  has frame size 13 in field 4.
+- Frame keeping, from the listings: sccz80 `call l_debug_push_frame` in every function; zsdcc
+  `push ix` in every function; 80cc mixes the two per function (`vars.c`: `sum` and `main` `push ix`,
+  `other.c`: `other` calls `l_debug_push_frame`). Whether `fp = SP at entry - 2` for all three was
+  measured by the planner of #353 with z88dk-ticks and is not re-run by this fixture.
+- `C_LINE` block scope, `sum()` in `vars.c` (the scope string of the `__C_LINE_<n>_...` map
+  lines of module `vars_c`): sccz80 `vars.c::sum::<level>::<block>`: lines 30-36 `sum::1::1`, 37-40 `sum::2::2`,
+  41 `sum::1::2` (the level is right, the block is the last one opened, not the current one);
+  80cc `vars.c::sum::0::2` for every body line, 33-41 (no level, no block structure); zsdcc
+  `vars.c::x::<level*10000>::<block><TAB>`: 33-35 and 41-42 `10000::10`, 36 `20000::11`, 38-39
+  `30000::12` (function field `x`, the block is the current one, a TAB ends the field).
+  Upstream gap: line 44 is `int main(void)`, and sccz80 and 80cc scope it `sum::0::2`
+  (`__C_LINE_44` sits at `_main`: $8D54 sccz80, $8CD9 80cc, the address of `main::0::3` line 45);
+  zsdcc gets it right, `x::10000::14`.
+- `fc.c`: sccz80 (both installs) records the `__z88dk_fastcall` parameter `x` at `B,1,4`, its
+  nominal slot, and that record is WRONG: a fastcall caller pushes nothing, and the listing
+  (`master/sccz80-fc/fc.c.lis`: `parameter 'unsigned int x' at sp+4`, then `call l_debug_push_frame`
+  / `push hl`) stores `x` at fp-2 (its sibling `y` is correctly `B,1,-4`). The decoder must not
+  trust it (plan #353 U1, OD-14: show "location unknown"). 80cc's `B,1,-2` is right
+  (`master/80cc-fc/fc.c.lis`: `push ix; ld ix,0; add ix,sp; push hl`); zsdcc records `R,0,0,[l,h]`. `__z88dk_callee`: sccz80/80cc
+  `a`=+6, `b`=+4; zsdcc `a`=+4, `b`=+6.
+- Banked (`bk.c` in PAGE_20, code, const and data): `_btable` $14C000, `_bdata` $14C004, `_bk_sum`
+  $14C005 on sccz80 / 80cc (24-bit values, page 20); zsdcc orders them `_bk_sum` $14C000, `_btable`
+  $14C024, `_bdata` $14C028. Records are the same shape as unbanked. zsdcc writes no `S:G$btable`
+  (a `const` global), and 80cc writes no record for `main`'s `loc` (sccz80 does:
+  `S:Lbkmain.c.main$loc$1_0$2({1}SC:U),B,1,-1`; zsdcc `R,0,0,[]`).
+- `extern` (`ext_use.c` declares `extern int g;`, `ext_def.c` defines it; `master/*-extern`): zsdcc writes
+  `S:G$g` with `mod=ext_use_c`, the module that declared it, while `_g` is public in `ext_def_c` ($8E46
+  in the sdcc build); sccz80 writes the record in `ext_def_c`, the definer. So an `S:G` record joins
+  to the PUBLIC symbol of its name, never to the module of its line.
+
+Not producible: `v2.4/sdcc-cvars` (z88dk#3172). Not built here: zsdcc `-O0` (no records), `+zxn`
+classic `-debug` on v2.4 (Z1), sdcc_ix (the planner measured records identical to sdcc_iy; not re-run here).
+
+## Debug-record bugs (GH #438)
+
+What each z88dk gives the debugger for the new `blocks.c`, `bits.c`, `fm.c`, `u5.c`, `fl.c` and `xm.c`/`1st.c`
+(measured from these files; `v2.4` is the pre-fix record set, as is `master/`):
+
+- **Block scope (z88dk#3227).** sccz80 numbered a block by the last block OPENED, so a local declared after an inner block took
+  the inner block's number; `master-fixed/` numbers them in pre-order. `dofor()` raises the nesting level without a block, on
+  every sccz80 version and on 80cc (the same front end): a `for (int i ...)` variable gets its enclosing block's number at the
+  raised level, and the body has no block at the level between, until z88dk#3258: since it sccz80 opens a block of its own per `for` (every later block number of a function moves up; `master-fixed/sccz80-blocks` and `-cvars`). zsdcc gives the `for` scope a block of its own.
+- **Bitfields (z88dk#3231).** sccz80 and 80cc wrote a bitfield as a whole `int` (`{2}SI:U`, overlapping its neighbours), and from
+  z88dk#3231 as `SB<start>$<width>:S|U`; zsdcc always writes `SB`. A plain `int s:4` is **unsigned** in sccz80 and 80cc
+  (`SB0$4:U`; the code does `and 15`) and signed in zsdcc (`SB0$4:S`); `signed int n:4` is `:S` everywhere.
+- **Fastcall parameters (z88dk#3229).** Before it sccz80 recorded a `__z88dk_fastcall` function's parameter at its nominal
+  slot, where it is not (it is pushed after `call l_debug_push_frame`: `push hl`); afterwards one register parameter is recorded
+  below the frame (`fm`'s `b` at -2) and the others at their nominal slots. 80cc's record of a register-passed parameter names
+  another variable's slot before z88dk PR #3244 (`fm`'s `b` is recorded at -2, `y`'s slot; it is at IX-4).
+- **Arrays sized by their initialiser (z88dk#3229).** `char ls[] = "loc";` is `{-1}DA-1x,B,1,0` on sccz80 before #3229; static
+  and global ones are `{-1}`, the global with a stale twin; 80cc kept that for static and global arrays until z88dk#3257 (`master-fixed/80cc-fm` has four sized records and no twin).
+- **80cc frame slots (z88dk#3233).** `u5.c`: `r` stays in a register and its slot is never written.
+- **Modules.** z80asm names a module after its source path with `X` prefixed when the path starts with `.`, `/` or a digit
+  (`./xm.c` is `X__xm_c`, `1st.c` is `X1st_c`; zsdcc names its modules `xm_c` and `_1st_c`); 80cc writes `M:<file>` with the file as `C_LINE` spells it (`M:./xm.c`), zsdcc
+  `M:<module>` against the file `<module>.c`, and sccz80 writes no `M:` into the map. Since z88dk#3265 zsdcc `-debug` names a module by the whole path
+  as sccz80 does (`./xm.c` is `__xm_c`, `blocks.c` `M:blocks.c`, its locals' scope `Lblocks.c.f`) and, since #3262, writes the `x` of a `C_LINE` with no TAB after it
+  (`master-fixed-zsdcc/`).
+- **Enums (z88dk#3241).** sccz80 and 80cc write one `N:F<file>$<tag>({size}<base>)[(NAME$value)...]` per enum and an `E:` record beside the `S:` record of
+  each enum-typed object (`SEF<file>$<tag>` type); the empty enumerator records `S:G$RED$0_0$0({0})` are no longer written (`master-fixed/{sccz80,80cc}-cvars`).
+- **80cc scope data (z88dk#3243).** 80cc's `C_LINE` carries `level::block` of its own (`main::1::3`, not `main::0::3`), and since #3244 and #3264 (locals and parameters are stored to their frame
+  slots) a `-debug` function whose frame the compiler used to elide has an IX frame with its parameters at IX+4 (`master-fixed/80cc-u5`, `-cvars`).
+- **Floats (z88dk#3236).** The record says `{4}SF` for mbf32, dai32 and math32 alike; `__code_fp_<lib>_size` is the only trace
+  of the library.
+
+### Scope-table and extent goldens: `derive-scopes.py`
+
+Row `Z88CDB-40` (`test/debug/z88dk_map_test.cpp`) pins every function's whole scope table on 12 maps
+against a golden derived by `derive-scopes.py` from the RAW map lines only (no jnext code). Its header
+holds the rules and the command that prints one map's block. Re-derive, never paste the suite's output,
+whenever a fixture is regenerated or the equal-line rule changes. `--extents` prints each function's extent (pieces split at the 8 KB boundaries) for rows Z88CDB-41/42 (GH #434). The script is hashed in `MANIFEST.sha256`
+(`generate.sh` lists it), because `Z88FIX-02` demands every file here to be in the manifest; nothing runs it
+in a gate.
 
 ## Normalisation and trimming (in `generate.sh`)
 

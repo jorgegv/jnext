@@ -1,0 +1,4 @@
+# z88dk 0f0a1cf70e48856af8191af6f86096d2e1362482 (master-fixed-zsdcc)
++ zcc +zxn -clib=sdcc_iy -debug -m --list -subtype=nex -o prog -create-app vars.c other.c
+vars.c:66: warning 126: unreachable code
+rc=0
