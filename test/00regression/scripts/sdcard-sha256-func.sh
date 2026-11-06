@@ -12,7 +12,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #
 # The digest here is a fixed fake (64 x 'a'): the flag is a claim and jnext
 # never hashes the card, so the row tests the KEYING, not hashing.
-#   (a) a malformed digest exits 1, naming the argument;
+#   (a) a malformed digest exits 1, naming the argument; an all-zero one too;
 #   (b) a digest without --sdcard exits 1: it describes that file;
 #   (c) a recording is cached with the digest at header offset 40; after the
 #       card's mtime is moved to 2001 a second run still restores it, does not
@@ -38,6 +38,14 @@ if want sdcard-sha256-func; then
     [[ "$sh_rc" == 1 ]] || sh_faults+=("a: a malformed digest exited $sh_rc, not 1")
     grep -q "is not a SHA-256 (64 hex digits)" <<<"$sh_a" \
         || sh_faults+=("a: no 'is not a SHA-256' message")
+
+    # (a2) all zeros is the cache's "no digest": refused, not silently a size-only key
+    sh_rc=0
+    sh_a2=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
+        --sdcard "$sh_card" --sdcard-sha256 "$(printf '0%.0s' $(seq 1 64))" 2>&1) || sh_rc=$?
+    [[ "$sh_rc" == 1 ]] || sh_faults+=("a2: an all-zero digest exited $sh_rc, not 1")
+    grep -q "all zeros is not the SHA-256" <<<"$sh_a2" \
+        || sh_faults+=("a2: no 'all zeros' message")
 
     # (b)
     sh_rc=0

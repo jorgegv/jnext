@@ -1726,6 +1726,12 @@ int main(int argc, char* argv[]) {
                     sdcard_sha256_arg.c_str());
             return 1;
         }
+        // All zeros is the cache header's "no digest": it would silently fall
+        // back to a size-only key. No file has that SHA-256.
+        if (dg == std::array<uint8_t, 32>{}) {
+            fprintf(stderr, "--sdcard-sha256: all zeros is not the SHA-256 of any file\n");
+            return 1;
+        }
         if (sd_card_image.empty()) {
             fprintf(stderr, "--sdcard-sha256 needs --sdcard: it describes that file\n");
             return 1;

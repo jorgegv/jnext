@@ -251,7 +251,10 @@ int main() {
               "is true, a recording is made, the 'not cached' line is logged and no cache "
               "file exists",
               wrote && ok && !e.warm_start_state().empty() && tap.count(kRecorded) == 1 &&
-                  tap.count("recorded but not cached") == 1 && !std::filesystem::exists(cache, ec),
+                  tap.count("recorded but not cached") == 1 && !std::filesystem::exists(cache, ec) &&
+                  // the generation is already 1 here (the scratch write): the count is the
+                  // boot's own delta, not the absolute process-wide value
+                  tap.count("the boot wrote 0 sector(s)") == 1,
               det("wrote=%d ok=%d recorded=%d notcached=%d cache_exists=%d", wrote, ok,
                   tap.count(kRecorded), tap.count("recorded but not cached"),
                   std::filesystem::exists(cache, ec)));
