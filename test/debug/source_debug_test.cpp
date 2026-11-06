@@ -8859,6 +8859,26 @@ int main() {
                   r6 == "-3.25" && r4 == "-3.25" && w6.w.ok() && w4.w.ok() && cpk(m, 0x9000, 6) == Bytes{0x00, 0x00, 0x00, 0x00, 0x20, 0x82} && cpk(m, 0x9010, 4) == Bytes{0x00, 0x00, 0x20, 0x40},
                   r6 + " " + r4 + " " + w6.w.why + " " + w4.w.why);
         }
+        {   // SRCDBG-CVFMT-03
+            // a register-held float (80cc `R` records) in a module that records mbf32: its text and typed value are mbf32's, not binary32's
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const std::string map = (z / "cvfmt03.map").string();
+            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n"
+                            "__fp_exponent_bias = $0080 ; const, local, , t_c, code_compiler, t.c::fa::0::1:5\n"
+                            "__fp_mantissa_size = $0003 ; const, local, , t_c, code_compiler, t.c::fa::0::1:5\n"
+                            "__fp_mode = $0002 ; const, local, , t_c, code_compiler, t.c::fa::0::1:5\n" +
+                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:Lt.c.fa$w$1_0$1({4}SF:S),R,0,0,[c,b,e,d]", "t_c"));
+            const auto lr = m.dbg->load_source_map(map, true);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.BC = 0x0000;
+            r.DE = 0x82D0;   // bytes C B E D = 00 00 D0 82: mbf32 -3.25
+            m.emu.cpu().set_registers(r);
+            const Dbg::CValueResult w = m.dbg->read_c_value(0, "w");
+            check("SRCDBG-CVFMT-03", "an `R` record {4}SF local in BC:DE of a mode-2 module (00 00 D0 82) reads -3.25 as text and as the typed value (the register path's own `real`)",
+                  lr.count > 0 && w.ok && w.value == "-3.25" && w.real && *w.real == -3.25, w.ok ? w.value : w.why);
+        }
         {   // SRCDBG-ZB-10
             // z88dk#3262 + #3265 on real records: master-fixed-zsdcc/sdcc-cvars has no TAB in its C_LINE records and the -debug module names of the whole path. The program
             // and its code are those of master/sdcc-cvars (vars.c:41 is $8C97 in both), so CVAL-30's values are the oracle

@@ -165,11 +165,11 @@ std::string fp_check(const std::string& module, const CFloatFormat& f, int n)
     }
 }
 
-// Significant digits of a mantissa of `ms` bytes written out in full: floor(8 ms log10 2); a mantissa of 3 bytes or fewer is a
-// binary32's and prints as one (the shortest text that reads back).
+// Significant digits of a mantissa of `ms` bytes written out in full: floor(8 ms log10 2); a value that binary32 holds exactly prints
+// as one (the shortest text that reads back), which is every value of a 3-byte mantissa inside binary32's exponent range.
 std::string fp_text(double v, int ms)
 {
-    if (ms <= 3) return float_text(static_cast<float>(v));
+    if (ms <= 3 && static_cast<double>(static_cast<float>(v)) == v) return float_text(static_cast<float>(v));   // exact in binary32 (not inf, 0 or a rounded subnormal)
     char buf[64];
     const auto r = std::to_chars(buf, buf + sizeof buf, v, std::chars_format::general, (8 * ms * 30103) / 100000);
     return std::string(buf, r.ptr);

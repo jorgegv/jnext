@@ -2186,6 +2186,7 @@ int main() {
         const Case cases[] = {
             {7, 0, 3, "{4}SF:S", "", "float format __fp_mode 7 is not supported"},
             {0, 128, 6, "{6}SF:S", "", "float format z80 (mantissa 6 bytes) does not fit a 6-byte float"},
+            {0, 128, 5, "{10}SF:S", "", "float format z80 (mantissa 5 bytes) does not fit a 10-byte float"},
             {5, 127, 5, "{6}SF:S", "", "float format z88 (mantissa 5 bytes) does not fit a 6-byte float after its first byte"},
             {6, 0, 4, "{4}SF:S", "", "float format am9511 needs a 3-byte mantissa (the map says 4)"},
             {1, 127, 3, "{4}SF:S", "", "float format ieee with exponent bias 127 and mantissa size 3 is not IEEE binary32"},
@@ -2215,16 +2216,23 @@ int main() {
         const std::string q128 = text_of(m128.ctx, "{4}SF:S", {0x00, 0x00, 0xD0, 0x82});
         const std::string q129 = text_of(m129.ctx, "{4}SF:S", {0x00, 0x00, 0xD0, 0x82});
         const std::string wide = text_of(b4.ctx, "{6}SF:S", {0x00, 0x00, 0x00, 0xD0, 0x83, 0x00});
+        const std::string amneg = text_of(a0.ctx, "{4}SF:S", {0x00, 0x00, 0x80, 0x40});   // exponent byte 0x40 is -64 (two's complement): 2^-65
         check("CVFMT-25", "the map's bias, mantissa size and z88 offset decide: AM9511 00 00 C0 01 is 1.5 at bias 0 and 0.75 at bias 1; z88 with byte 0 = FF reads -3.25 (byte 0 ignored); "
-                          "mbf32 00 00 D0 82 is -3.25 at bias 128 and -1.625 at 129; a 4-byte mantissa at bias 129 reads -3.25",
-              am0 == k15 && am1 == "0.75" && z == "-3.25" && q128 == "-3.25" && q129 == "-1.625" && wide == "-3.25",
-              am0 + " " + am1 + " " + z + " " + q128 + " " + q129 + " " + wide);
+                          "mbf32 00 00 D0 82 is -3.25 at bias 128 and -1.625 at 129; a 4-byte mantissa at bias 129 reads -3.25; AM9511 exponent byte 40 is -64 (2^-65 = 2.7105054e-20), not +64",
+              am0 == k15 && am1 == "0.75" && z == "-3.25" && q128 == "-3.25" && q129 == "-1.625" && wide == "-3.25" && amneg == "2.7105054e-20",
+              am0 + " " + amneg + " " + am1 + " " + z + " " + q128 + " " + q129 + " " + wide);
     }
     {   // CVFMT-26: precision follows the mantissa
         const FpCtx m32(2, 128, 3), m40(3, 128, 4), m64(4, 128, 7), d48(0, 128, 5);
         const std::string a = text_of(m32.ctx, "{4}SF:S", {0xCD, 0xCC, 0x4C, 0x7D});
         const std::string b = text_of(m40.ctx, "{6}SF:S", {0xCD, 0xCC, 0xCC, 0x4C, 0x7D, 0x00});
         const std::string c = text_of(m64.ctx, "{8}SF:S", {0xD0, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x4C, 0x7D});
+        // the compiler's 12345.678 in mbf32 (probe zx-mbf32): 7 digits is wrong ("12345.68"), the shortest binary32 text is right
+        const std::string d = text_of(m32.ctx, "{4}SF:S", {0xB6, 0xE6, 0x40, 0x8E});
+        // a 3-byte mantissa with a user bias leaves binary32's exponent range: the text is never inf or 0 (2^254 and 2^-255, 7 digits)
+        const FpCtx hi(0, 0, 3), lo(0, 255, 3);
+        const std::string e = text_of(hi.ctx, "{6}SF:S", {0x00, 0x00, 0x00, 0xFF, 0x00, 0x00});
+        const std::string f = text_of(lo.ctx, "{6}SF:S", {0x00, 0x00, 0x00, 0x01, 0x00, 0x00});
         // the 48-bit text is the old c_format_float48's, byte for byte, for any bytes
         const uint8_t pats[][6] = {{0xCD, 0xCC, 0xCC, 0xCC, 0x4C, 0x7D}, {0xA2, 0x45, 0xB6, 0xE6, 0x40, 0x8E}, {0x00, 0x00, 0x00, 0x00, 0xD0, 0x82},
                                    {0x01, 0x02, 0x03, 0x04, 0x85, 0xFF}, {0x11, 0x22, 0x33, 0x44, 0x55, 0x01}, {0x11, 0x22, 0x33, 0x44, 0x55, 0x00}};
@@ -2233,8 +2241,8 @@ int main() {
             const CFormatted r = c_format_value(d48.ctx, ty("{6}SF:S"), p, 6);
             same = same && r.ok && r.text == c_format_float48(p);
         }
-        check("CVFMT-26", "precision follows the mantissa: mbf32's 0.1 prints 0.1 (not 12 digits), mbf40's and mbf64's too, and the (0,128,5) text equals c_format_float48() on six byte patterns",
-              a == "0.1" && b == "0.1" && c == "0.1" && same, a + " " + b + " " + c);
+        check("CVFMT-26", "precision follows the mantissa: mbf32's 0.1 prints 0.1 (not 12 digits), mbf40's and mbf64's too, and the (0,128,5) text equals c_format_float48() on six byte patterns; mbf32 12345.678 prints 12345.678; a 3-byte mantissa outside binary32's exponent range prints 2.894802e+76 and 1.727234e-77, never inf or 0",
+              a == "0.1" && b == "0.1" && c == "0.1" && same && d == "12345.678" && e == "2.894802e+76" && f == "1.727234e-77", a + " " + b + " " + c + " " + d + " " + e + " " + f);
     }
     {   // CVFMT-27: the size of a float, for a pointer's target
         const int want[] = {6, 4, 4, 6, 8, 6, 4};
@@ -2315,12 +2323,17 @@ int main() {
         const CdbType nested = ty("{8}STo:S");
         const CFormatted nn = c_format_value(ob, nested, obj.data(), obj.size());
         const CFormatted na = c_format_value(oa, nested, obj.data(), obj.size());
+        CLoc oroot;
+        oroot.type = nested;
+        oroot.addr = 0xA000;
+        const CEval on = c_eval_path(ob, oroot, false, c_parse_path("x.n").steps);
+        const bool nsize_unknown = c_leaf_size(ob, nested.chain) == -1;
         check("CVFMT-28", "a struct found in another module whose floats are 6 bytes, read by an object of a 4-byte-float module: the value, its members, its children and its size "
                           "are refused with the layout text (also when the float sits in a nested struct); in its own module it reads {v = 1.5, n = 7}; with no format on the "
                           "holder's module nothing changes",
               !pb.ok && pb.why == why && !mv.ok && mv.why == why && !mn.ok && mn.why == why && !ch.ok && ch.why == why && size_unknown && size_known &&
                   pa.ok && pa.text == "{v = " + k15 + ", n = 7}" && pn.ok && pn.text == pa.text && !nn.ok && nn.why.find("is laid out with 6-byte floats") != std::string::npos &&
-                  na.ok,
+                  na.ok && !on.ok && on.why.find("is laid out with 6-byte floats") != std::string::npos && nsize_unknown,
               pb.why + " | " + pa.why + " | " + pn.why + " | " + nn.why + " | " + na.why);
     }
     {   // CVFMT-29: writes, in each format, to the bytes the compilers wrote
@@ -2374,16 +2387,25 @@ int main() {
         const std::string bigam = enc_hex(am.ctx, "{4}SF:S", "1e20", {0, 0, 0, 0});
         const std::string tinyam = enc_hex(am.ctx, "{4}SF:S", "1e-20", {0, 0, 0, 0});
         const std::string big48 = enc_hex(d48.ctx, "{6}SF:S", "1e39", std::vector<uint8_t>(6, 0));
+        // the mantissa rounds up to 2^bits: carried into the exponent (0.99999999 is 1.0 x 2^0 = 0.5 x 2^1); the extreme exponents are accepted
+        const std::string c32 = enc_hex(m32.ctx, "{4}SF:S", "0.99999999", {0, 0, 0, 0});
+        const std::string c48 = enc_hex(d48.ctx, "{6}SF:S", "0.9999999999999", std::vector<uint8_t>(6, 0));
+        const std::string cam = enc_hex(am.ctx, "{4}SF:S", "0.99999999", {0, 0, 0, 0});
+        const std::string top32 = enc_hex(m32.ctx, "{4}SF:S", "1.7e38", {0, 0, 0, 0});
+        const std::string bot32 = enc_hex(m32.ctx, "{4}SF:S", "3e-39", {0, 0, 0, 0});
+        const std::string topam = enc_hex(am.ctx, "{4}SF:S", "4.611686018427388e18", {0, 0, 0, 0});   // 2^62: exponent 63
+        const std::string botam = enc_hex(am.ctx, "{4}SF:S", "2.7105054e-20", {0, 0, 0, 0});   // 2^-65: exponent -64
         const std::string nan = enc_hex(m32.ctx, "{4}SF:S", "nan", {0, 0, 0, 0});
         const std::string junk = enc_hex(m32.ctx, "{4}SF:S", "abc", {0, 0, 0, 0});
         check("CVFMT-29", "writes: -3.25, 1.5, -2, 100 and 2.5 encode to exactly the bytes the compilers wrote, in every mode (and bias 129 / 4-byte mantissa); 0.1 reads back as 0.1 in "
                           "every mode; the bytes outside the layout (mbf40's 6th, z88's 1st, a 4-byte mantissa's 6th) are kept; zero is all-zero layout bytes; a value beyond the "
-                          "format's exponent is refused with the format's name, never wrapped; nan and text are refused",
+                          "format's exponent is refused with the format's name, never wrapped; nan and text are refused; a mantissa that rounds up carries into the exponent; the largest and smallest exponents of mbf32 and AM9511 are accepted",
               bad.empty() && rt.empty() && keep40 == "00 00 00 40 81 AA" && keepz == "EE 00 00 00 40 80" && keep4 == "00 00 00 40 82 BB" && zero == "00 00 00 00 00 AA" &&
                   zeroz == "EE 00 00 00 00 00" && big32 == "!'1e39' is out of range for float (mbf32)" && tiny32 == "!'1e-39' is too small for float (mbf32): it would underflow" &&
                   bigam == "!'1e20' is out of range for float (am9511)" && tinyam == "!'1e-20' is too small for float (am9511): it would underflow" &&
-                  big48 == "!'1e39' is out of range for float (z88dk 48-bit)" && nan == "!'nan' is not a finite number" && junk == "!'abc' is not a number",
-              bad + rt + " | " + keep40 + " " + keepz + " " + keep4 + " " + zero + " " + zeroz + " | " + big32 + " " + tiny32 + " " + bigam + " " + tinyam + " " + big48 + " " + nan + " " + junk);
+                  big48 == "!'1e39' is out of range for float (z88dk 48-bit)" && nan == "!'nan' is not a finite number" && junk == "!'abc' is not a number" &&
+                  c32 == "00 00 00 81" && c48 == "00 00 00 00 00 81" && cam == "00 00 80 01" && top32 == "9E C9 7F FF" && bot32 == "1E AB 02 01" && topam == "00 00 80 3F" && botam == "00 00 80 40",
+              bad + rt + " | " + keep40 + " " + keepz + " " + keep4 + " " + zero + " " + zeroz + " | " + big32 + " " + tiny32 + " " + bigam + " " + tinyam + " " + big48 + " " + nan + " " + junk + " | " + c32 + " " + c48 + " " + cam + " " + top32 + " " + bot32 + " " + topam + " " + botam);
     }
     {   // CVFMT-30: the typed value follows the format; the format-free overload is untouched
         const FpCtx a(0, 128, 5), b(1, 126, 3), c(2, 128, 3), d(3, 128, 4), e(4, 128, 7), f(5, 127, 4), g(6, 0, 3);
