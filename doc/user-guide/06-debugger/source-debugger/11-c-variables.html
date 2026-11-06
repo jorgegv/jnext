@@ -4343,7 +4343,7 @@ the same notes reach the Watches tab and GDB's <code>monitor locals</code>, <cod
 <code>an array of unknown length: its debug record has no size</code>; <code>float format mbf32 is not read: the record does not say it</code> (also
 <code>mbf64</code>, <code>bbc</code> and <code>dai32</code>) when the map shows the program links one of those float libraries.</p>
 <h2 id="what-each-z88dk-can-show">What each z88dk can show<a class="headerlink" href="#what-each-z88dk-can-show" title="Permanent link">&para;</a></h2>
-<p>These are limits of what the compilers record, not of the debugger. One row per version and compiler. The last column is the date from which
+<p>These are limits of what the compilers record, not of the debugger. One row per limit, for each version and compiler. The last column is the date from which
 z88dk master contains the fix (a release that contains it is not tracked here); <code>not fixed yet</code> means master does not have it. Every fix listed
 with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get all of them, use a nightly named <code>z88dk-20261106-*</code> or later, or z88dk master built from source; z88dk 2.4 works with the limits below.</p>
 <table>
@@ -4389,7 +4389,7 @@ with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get
 <tr>
 <td>2.4, sccz80</td>
 <td>enumerators have no value and no type</td>
-<td>the number, not the name</td>
+<td>the number, not the name (JNEXT recognises the <code>N:</code> and <code>E:</code> records master writes from 2026-11-05 and does not read the enumerator names yet)</td>
 <td>2026-11-05</td>
 </tr>
 <tr>
@@ -4397,12 +4397,6 @@ with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get
 <td>the float format is not recorded</td>
 <td>a 6-byte float is read as z88dk's 48-bit format</td>
 <td>not fixed yet</td>
-</tr>
-<tr>
-<td>master, sccz80</td>
-<td>enumerators</td>
-<td>the number (JNEXT recognises the <code>N:</code> and <code>E:</code> records master writes from 2026-11-05 and does not read the enumerator names yet)</td>
-<td>2026-11-05</td>
 </tr>
 <tr>
 <td>master, sccz80</td>
@@ -4479,7 +4473,7 @@ with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get
 <tr>
 <td>master, 80cc</td>
 <td>enumerators</td>
-<td>as master sccz80</td>
+<td>as 2.4 sccz80</td>
 <td>2026-11-05</td>
 </tr>
 <tr>
@@ -4493,14 +4487,14 @@ with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get
 <p>More, in short:</p>
 <ul>
 <li>A plain <code>int</code> bitfield (<code>int s:4;</code>) is <strong>unsigned</strong> in sccz80 and 80cc and signed in zsdcc, so the value shown is each program's own reading; a <code>signed int</code> field is signed everywhere.</li>
-<li>On a <code>for</code> line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80 and 80cc: those lines are recorded in the enclosing block. It is listed in the body, and again from the next line. With 80cc the loop variable is listed on its <code>for</code> line too, flagged <code>scope unknown</code>, because 80cc opens no block for a <code>for</code>.</li>
+<li>On a <code>for</code> line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80: those lines are recorded in the enclosing block. It is listed in the body. With 80cc it is listed on its <code>for</code> line too, flagged <code>scope unknown</code>, because 80cc opens no block for a <code>for</code>.</li>
 <li>A source path that contains a <code>$</code> (<code>game$v2/main.c</code>): sccz80 and 80cc write the path into each local's and static's record, and <code>$</code> separates the record's fields, so JNEXT cannot read the records of that file and does not list its parameters, locals or file statics (its globals are listed). zcc itself needs the <code>$</code> escaped and cannot write <code>--list</code> listings for such a path. Keep <code>$</code> out of source paths.</li>
 <li>80cc writes one scope per source line and stamps some code with another block's scope (see the table), so its block locals are never certain. On a line that holds code of two blocks the locals hidden are those of the block 80cc wrote first. Keeping a block's statements on lines of their own does not avoid it: the stamp comes from the compiler's order of work, not from the line.</li>
 <li>A name that two visible variables share (an inner block's <code>t</code> over the function's <code>t</code>): the innermost is the one <code>print</code>, a watch, <code>cvar()</code> and a write mean, as in gdb. The Variables tab lists both; the outer one is marked <code>shadowed</code>, or <code>may be shadowed</code> when the choice is not certain, that is when the inner one is <code>scope unknown</code> (that is 80cc's block locals; a parameter or level-1 local shadowed by a certain pick is <code>shadowed</code> on every compiler). A read of an uncertain name carries <code>ambiguous: 2 variables named t may be in scope here; this is the innermost (...)</code>, and a write to it is refused. A block-scoped <code>static</code> local is in scope only in its block, like a block local: where its block is closed it is not listed and the name means the local; where it is open it wins; on 80cc it is <code>scope unknown</code> like every block local. Each of the two rows acts on the variable it shows: Edit Value writes that variable and expanding it lists that variable's members. Watch is offered only on the innermost row, because a Watch is a name and the name reaches the innermost declaration; the shadowed row's Watch is disabled and its tooltip says so. Two block statics of one name in a function (zsdcc) share the path <code>function::name</code>: that typed path is refused with <code>ambiguous: 2 statics named n in f</code>, <code>monitor globals</code> marks both entries <code>(ambiguous path)</code>, and the Globals rows read and edit their own static but cannot be watched.</li>
 <li>Not a display limit, but wrong values in the program itself: a bitfield initialiser across two bytes written as one (fixed in z88dk master from 2026-11-04), and three 80cc code-generation bugs (fixed in master on 2026-11-04 and 2026-11-05; one only on the Game Boy target).</li>
 <li>Not JNEXT: defects of z88dk's own debuggers (one fixed in master from 2026-11-04) and ticks' reading of floats (not fixed yet).</li>
 <li>No C variables at all: zsdcc on 2.4 (<code>-debug</code> does not build), and the classic library on the Next with 2.4 (<code>-debug</code> fails; it works on master from 2026-10-23).</li>
-<li>Enumerations show their number, not their name; a <code>union</code> is shown as a <code>struct</code>.</li>
+<li>A <code>union</code> is shown as a <code>struct</code>.</li>
 <li>Before a function has set up its frame, its locals are <code>not allocated</code>; a variable at an offset below the stack the frame owns, too.</li>
 <li>Some variables cannot be written: see <a href="#editing-a-value">Editing a value</a>.</li>
 </ul>

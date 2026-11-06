@@ -4238,7 +4238,7 @@ and what changes for tape builds and banked code. <a href="01-a-first-session.ht
 uses the first line below.</p>
 <p>Every command line here was run with z88dk 2.4 (commit 4d530b6eb7, sdcc 4.5.0)
 and with a master build (commit 0f0a1cf70e, v2.4-2954, sdcc 4.6.0), unless a
-table says one of them is different.</p>
+table or a section says one of them is different.</p>
 <p>For everything that z88dk master has fixed in its debug records, install a nightly named <code>z88dk-20261106-*</code> or later, or build z88dk master from source; z88dk 2.4 works with the limits listed in <a href="11-c-variables.html#what-each-z88dk-can-show">C variables</a>.</p>
 <h2 id="the-recommended-build">The recommended build<a class="headerlink" href="#the-recommended-build" title="Permanent link">&para;</a></h2>
 <pre><code>zcc +zxn -clib=new -debug -m --list -subtype=nex -create-app -o prog main.c util.c asmfn.asm
@@ -4461,8 +4461,8 @@ zcc +zxn -clib=new -debug -DUSE_BANKED_KW -pragma-define:CRT_ORG_PAGE_20=0x14C00
 banking window. Without them the program itself calls page 0 or loses its stack,
 so it cannot run. A newer z88dk (master from 2026-10-31) makes the page the
 default and documents the stack; the change's description says the pragma gives identical
-output, so it is harmless there. Only 2.4 and the 2026-10-16 master were run for
-this page; on anything newer, build the example and look.</p>
+output, so it is harmless there. This example was run with 2.4 and with the
+2026-11-03 master (commit 97731e4e29), both pragmas given.</p>
 <p>The build writes <code>prog_CODE.bin</code> and <code>prog_PAGE_20.bin</code>, and JNEXT checks both:</p>
 <pre><code>Loaded 193 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 </code></pre>

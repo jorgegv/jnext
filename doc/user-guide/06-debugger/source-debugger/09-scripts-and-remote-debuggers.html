@@ -4289,8 +4289,8 @@ break on 'main.c:19'</code>: use an address or a symbol there, or build with scc
 programs the master client crashed (segmentation fault) loading the map of the <code>-run</code> banked
 example built with both installs, which has a 24-bit line symbol; the client's <code>next</code> is also
 reported to hang in banked code, which was not re-run for this page. z88dk master from
-2026-10-31 fixes these according to the change's description; it is newer than both installs used here,
-and no case was run with it.</p>
+2026-10-31 fixes these according to the change's description; it is newer than the two installs this section used
+(2.4 and the 2026-10-16 master), and no banked case was run with a newer client.</p>
 <h2 id="c-variables">C variables<a class="headerlink" href="#c-variables" title="Permanent link">&para;</a></h2>
 <p>A z88dk <code>-debug</code> map carries the program's C variables (see <a href="02-building-with-z88dk.html">Building with
 z88dk</a>), and JNEXT reads them for scripts, for GDB and for

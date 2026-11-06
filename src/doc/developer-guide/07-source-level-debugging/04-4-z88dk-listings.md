@@ -116,19 +116,20 @@ binaries' bytes). In order:
    *unknown* (`nullopt`) when no section binary covers the byte, **when two or more do** (overlay
    sections at one ORG: `bin_for(..., &more)`, `z88dk_source_map.cpp:843`, and the `byte_at` lambda, `:912-917`), and when `place()` fails (a ROM area: the memory is not a RAM
    page, so no byte can be read). The outcome is one of three:
-   - **no start survives** (`survivors`, `z88dk_lis.cpp:662`; the search loop over `survivors`, `z88dk_lis.cpp:621-671`): the listing is dropped, with "section '<s>': its label-less lines match no
-     place in the section binary; this is not the listing of this build" (row `Z88LIS-42`);
-   - **exactly one survives and every checked byte was known:** the piece starts there (`Z88LIS-36`
-     and `-37` on the banked-CRT fixtures: the CRT piece is placed and the driver's bytes after it
-     are left without a line; `Z88LIS-38` with a patched `defw` and a `PHASE` row);
-   - **several survive, or the one left has an unknown byte:** nothing is guessed. The piece's rows
-     are not placed and are counted in the "could not be placed ... do not fit exactly one place in
-     the section binary" note, while the listing's other pieces stay (`Z88LIS-39`, `-40`, `-41`,
-     `-45`, `-46`; a data section has no checked rows, so both starts survive, `Z88LIS-43`).
+    - **no start survives** (`survivors`, `z88dk_lis.cpp:662`; the search loop over `survivors`, `z88dk_lis.cpp:621-671`): the listing is dropped, with "section '<s>': its label-less lines match no
+      place in the section binary; this is not the listing of this build" (row `Z88LIS-42`);
+    - **exactly one survives and every checked byte was known:** the piece starts there (`Z88LIS-36`
+      and `-37` on the banked-CRT fixtures: the CRT piece is placed and the driver's bytes after it
+      are left without a line; `Z88LIS-38` with a patched `defw` and a `PHASE` row);
+    - **several survive, or the one left has an unknown byte:** nothing is guessed. The piece's rows
+      are not placed and are counted in the "could not be placed ... do not fit exactly one place in
+      the section binary" note, while the listing's other pieces stay (`Z88LIS-39`, `-40`, `-41`,
+      `-45`, `-46`; a data section has no checked rows, so both starts survive, `Z88LIS-43`).
 
-   The loop stops at the second survivor (`survivors < 2`). This rule replaced "the size must be
-   equal", which left 17 lines of the CRT unplaced when the map and the listing disagreed by one byte
-   (`Z88LIS-19`, re-specified).
+    The loop stops at the second survivor (`survivors < 2`). This rule replaced "the size must be
+    equal", which left 17 lines of the CRT unplaced when the map and the listing disagreed by one byte
+    (`Z88LIS-19`, re-specified).
+
 6. **Placement and the first-byte check.** An item's map value is `offset + address`
    (a value above `0xFFFFFF` drops the listing); `place()` supplies the memory and
    16-bit address, or a reason that drops the listing. For a mnemonic row in a

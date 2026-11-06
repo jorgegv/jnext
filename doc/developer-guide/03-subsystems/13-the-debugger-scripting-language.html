@@ -3391,31 +3391,39 @@ They are reached in four ways:</p>
 <p><code>Recorder</code> is a second backend client (<code>ClientKind::Script</code>, arming). It
 OBSERVES and never drives. Its frame-edge handler does the work:</p>
 <ul>
-<li><strong>Input edges.</strong> At every frame edge E_K it reads INS-16 <code>input_state()</code> and
-  writes one level edge per change since E_K-1, stamped <code>on frame K-1</code>:</li>
+<li>
+<p><strong>Input edges.</strong> At every frame edge E_K it reads INS-16 <code>input_state()</code> and
+  writes one level edge per change since E_K-1, stamped <code>on frame K-1</code>:</p>
+<ul>
 <li>a matrix bit, by its <code>key_names.cpp</code> name, or <code>row,col</code> for CAPS SHIFT and
-    SYMBOL SHIFT;</li>
+  SYMBOL SHIFT;</li>
 <li>an extended key, as <code>ext:&lt;name&gt;</code>;</li>
 <li>a joystick connector's whole 12-bit state.</li>
 </ul>
 <p>The <code>Frame</code> delivery precedes the edge's injection drain and
-  <code>tick_auto_type()</code>. So a change applied at E_K-1, by a host key or a script
-  alike, is first seen at E_K, and replaying it at E_K-1 shows it to the guest
-  from frame K, as the original did.
-- <strong>Captures.</strong> A capture (host key <code>script8</code>, or <code>capture()</code>) is taken at the
-  NEXT frame edge, where a replay's <code>on frame K</code> rule runs:
-  - <strong><code>.scr</code></strong> when only the ULA is on (NR 0x68 b7, NR 0x15 b0/b7, NR 0x69 b7
-    and NR 0x6B b7 all clear). The recorder writes <code>ula_screen_dump()</code> itself
-    and emits <code>compare_scr</code>.
-  - <strong>PNG</strong> otherwise: through CAP-01 <code>screenshot()</code>, with a <code>screenshot</code> line
-    naming a <code>-replay.png</code>.
-- <strong>The script.</strong> <code>stop()</code> calls <code>flush_captures()</code>, so a PNG still pending is
+<code>tick_auto_type()</code>. So a change applied at E_K-1, by a host key or a script
+alike, is first seen at E_K, and replaying it at E_K-1 shows it to the guest
+from frame K, as the original did.</p>
+</li>
+<li>
+<p><strong>Captures.</strong> A capture (host key <code>script8</code>, or <code>capture()</code>) is taken at the
+  NEXT frame edge, where a replay's <code>on frame K</code> rule runs:</p>
+<ul>
+<li><strong><code>.scr</code></strong> when only the ULA is on (NR 0x68 b7, NR 0x15 b0/b7, NR 0x69 b7
+  and NR 0x6B b7 all clear). The recorder writes <code>ula_screen_dump()</code> itself
+  and emits <code>compare_scr</code>.</li>
+<li><strong>PNG</strong> otherwise: through CAP-01 <code>screenshot()</code>, with a <code>screenshot</code> line
+  naming a <code>-replay.png</code>.</li>
+</ul>
+</li>
+<li><strong>The script.</strong> <code>stop()</code> calls <code>flush_captures()</code>, so a PNG still pending is
   dropped together with its line. It then writes the script: a header, <code>once</code>
   asserts on <code>MACHINE</code> and <code>nextreg[0x05]</code>, the warnings (as comments and as
   <code>log</code> lines), the edges and captures, and <code>exit 0</code> two frames after the last
-  recorded one.
-- <strong>Cold boot.</strong> A <code>Reset{Hard}</code> — a hard reset, or a menu load — restarts the
-  recording and re-reads the header's facts through <code>recording_info_of()</code>.</p>
+  recorded one.</li>
+<li><strong>Cold boot.</strong> A <code>Reset{Hard}</code> — a hard reset, or a menu load — restarts the
+  recording and re-reads the header's facts through <code>recording_info_of()</code>.</li>
+</ul>
 <p><code>ScriptHost</code> owns the recorder: <code>start_recording()</code>, <code>capture_screen()</code>,
 <code>stop_recording()</code>. <code>--record-script</code> starts it before the first frame, in any
 frontend. The host's destructor writes the script on the way out (through
@@ -3436,17 +3444,23 @@ A file that cannot be read is a run-time error.</p>
    reading it fails at run time with <code>internal: unbound name</code>. Only a row that
    reads the name finds it (step 5). For <code>set</code>, add the write path in
    <code>ScriptEngine::exec()</code>'s <code>ActionKind::Set</code> case, through a debugger verb.</li>
-<li><strong>Tests</strong>:</li>
+<li>
+<p><strong>Tests</strong>:</p>
+<ul>
 <li>add the name to <code>script_parse_test</code>'s <code>EVAL-*</code> state-name rows, which read
-     each name against a real <code>Debugger</code>'s own answer, and to
-     <code>script_eval_test</code>'s <code>SEV-BUILTINS</code>; these are the rows that catch a
-     missing <code>read_builtin()</code> arm. <code>script_parse_test</code> also pins the payload
-     table both ways;</li>
+  each name against a real <code>Debugger</code>'s own answer, and to
+  <code>script_eval_test</code>'s <code>SEV-BUILTINS</code>; these are the rows that catch a
+  missing <code>read_builtin()</code> arm. <code>script_parse_test</code> also pins the payload
+  table both ways;</li>
 <li><code>script_eval_test</code> covers the value model;</li>
 <li><code>script_events_test</code> covers a payload as delivered.</li>
+</ul>
+<p>Pin each count in <code>test/unit-tests.conf</code>.</p>
+</li>
+<li>
+<p><strong>Docs</strong>: §2.3 of the design, and the user guide's language reference.</p>
+</li>
 </ol>
-<p>Pin each count in <code>test/unit-tests.conf</code>.
-6. <strong>Docs</strong>: §2.3 of the design, and the user guide's language reference.</p>
 <h2 id="adding-an-event-kind">Adding an event kind<a class="headerlink" href="#adding-an-event-kind" title="Permanent link">&para;</a></h2>
 <p>The backend comes first. The event must exist in <code>src/debug/events.h</code>
 (<code>EventKind</code>, its <code>EventFilter</code> fields, its <code>Event</code> payload), be latched at its
@@ -3460,19 +3474,23 @@ and <a href="10-7-extending-the-debug-subsystem.html">3.10.7</a>), and have its 
 <li><strong><code>parser.cpp</code></strong>: in <code>parse_event()</code>, parse its filter into <code>EventSpec</code>.</li>
 <li><strong><code>check.cpp</code></strong>: <code>scope_of()</code> maps it to a <code>PayloadScope</code>, and
    <code>payload_legal()</code> admits its payload names.</li>
-<li><strong><code>script_engine.cpp</code></strong>:</li>
+<li><strong><code>script_engine.cpp</code></strong>:<ul>
 <li>in <code>subscriptions_for()</code>, build the <code>dbg::Subscription</code> (kind, filter, and
-     any engine refinement in the <code>Condition</code>);</li>
+  any engine refinement in the <code>Condition</code>);</li>
 <li>in <code>describe_event()</code>, describe it for the Script tab.</li>
+</ul>
+</li>
 <li><strong><code>evaluator.cpp</code></strong>: read any new payload field from the <code>dbg::Event</code>.</li>
-<li><strong>Tests</strong>:</li>
+<li><strong>Tests</strong>:<ul>
 <li><code>script_parse_test</code>: the grammar, the payload table, what the rule
-     registers as;</li>
+  registers as;</li>
 <li><code>script_events_test</code>: a SCRIPT-EV row that drives it on a real machine and
-     asserts the payload;</li>
+  asserts the payload;</li>
 <li>if it is user-visible, a <code>script-*-func</code> row. The suite's demo is
-     <code>demo/dsl_demo/</code> — its fixtures live under <code>test/00regression/nex/</code> and its
-     scripts in <code>test/scripts/dsl/</code>.</li>
+  <code>demo/dsl_demo/</code> — its fixtures live under <code>test/00regression/nex/</code> and its
+  scripts in <code>test/scripts/dsl/</code>.</li>
+</ul>
+</li>
 </ol>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
 <table>

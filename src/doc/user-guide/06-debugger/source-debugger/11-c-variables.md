@@ -105,7 +105,7 @@ Refusals instead of a value: `location unknown (z88dk U1...)` for a `__z88dk_fas
 
 ## What each z88dk can show
 
-These are limits of what the compilers record, not of the debugger. One row per version and compiler. The last column is the date from which
+These are limits of what the compilers record, not of the debugger. One row per limit, for each version and compiler. The last column is the date from which
 z88dk master contains the fix (a release that contains it is not tracked here); `not fixed yet` means master does not have it. Every fix listed
 with a date is in z88dk master from `0f0a1cf70e` (2026-11-05). To get all of them, use a nightly named `z88dk-20261106-*` or later, or z88dk master built from source; z88dk 2.4 works with the limits below.
 
@@ -116,9 +116,8 @@ with a date is in z88dk master from `0f0a1cf70e` (2026-11-05). To get all of the
 | 2.4, sccz80 | bitfields as whole `int`s | members marked `bitfield layout unknown (z88dk U2)`. A lone field in a struct smaller than an `int` is refused, `member '<name>' lies beyond the object`; a lone field that fits the struct is shown as its whole `int`: wrong when the padding bits are not 0, and for a `signed int` field | 2026-11-04 |
 | 2.4, sccz80 | block numbers name the last block opened | a local declared after an inner block, in the same block, is not listed | 2026-11-04 |
 | 2.4, sccz80 | a `for (int i ...)` variable gets the enclosing block's number | not listed inside its loop; two listed variables that share a slot both say `shares its stack slot with ...` | 2026-11-04 |
-| 2.4, sccz80 | enumerators have no value and no type | the number, not the name | 2026-11-05 |
+| 2.4, sccz80 | enumerators have no value and no type | the number, not the name (JNEXT recognises the `N:` and `E:` records master writes from 2026-11-05 and does not read the enumerator names yet) | 2026-11-05 |
 | 2.4, sccz80 | the float format is not recorded | a 6-byte float is read as z88dk's 48-bit format | not fixed yet |
-| master, sccz80 | enumerators | the number (JNEXT recognises the `N:` and `E:` records master writes from 2026-11-05 and does not read the enumerator names yet) | 2026-11-05 |
 | master, sccz80 | the float format of classic `--math-mbf32` and `--math-dai32` | `float format mbf32 is not read` | not fixed yet |
 | master, zsdcc | a register variable has no live range | frame 0: `in BC; may be stale`; an older frame: `not available`; a removed variable: `optimised out` | not applicable |
 | master, zsdcc | a `const` global has no record | not listed | not applicable (an SDCC bug, no fix in z88dk) |
@@ -131,20 +130,20 @@ with a date is in z88dk master from `0f0a1cf70e` (2026-11-05). To get all of the
 | master, 80cc | a static or global array sized by its initialiser has no size | `an array of unknown length` | 2026-11-05 |
 | master, 80cc | bitfields as whole `int`s | as 2.4 sccz80 | 2026-11-04 |
 | master, 80cc | a `for (int i ...)` variable's block | a `for` opens no block on 80cc, so its variable and anything under the `for` stay `scope unknown` (above) | not fixed yet |
-| master, 80cc | enumerators | as master sccz80 | 2026-11-05 |
+| master, 80cc | enumerators | as 2.4 sccz80 | 2026-11-05 |
 | master, 80cc | the float format | as master sccz80 | not fixed yet |
 
 More, in short:
 
 - A plain `int` bitfield (`int s:4;`) is **unsigned** in sccz80 and 80cc and signed in zsdcc, so the value shown is each program's own reading; a `signed int` field is signed everywhere.
-- On a `for` line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80 and 80cc: those lines are recorded in the enclosing block. It is listed in the body, and again from the next line. With 80cc the loop variable is listed on its `for` line too, flagged `scope unknown`, because 80cc opens no block for a `for`.
+- On a `for` line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80: those lines are recorded in the enclosing block. It is listed in the body. With 80cc it is listed on its `for` line too, flagged `scope unknown`, because 80cc opens no block for a `for`.
 - A source path that contains a `$` (`game$v2/main.c`): sccz80 and 80cc write the path into each local's and static's record, and `$` separates the record's fields, so JNEXT cannot read the records of that file and does not list its parameters, locals or file statics (its globals are listed). zcc itself needs the `$` escaped and cannot write `--list` listings for such a path. Keep `$` out of source paths.
 - 80cc writes one scope per source line and stamps some code with another block's scope (see the table), so its block locals are never certain. On a line that holds code of two blocks the locals hidden are those of the block 80cc wrote first. Keeping a block's statements on lines of their own does not avoid it: the stamp comes from the compiler's order of work, not from the line.
 - A name that two visible variables share (an inner block's `t` over the function's `t`): the innermost is the one `print`, a watch, `cvar()` and a write mean, as in gdb. The Variables tab lists both; the outer one is marked `shadowed`, or `may be shadowed` when the choice is not certain, that is when the inner one is `scope unknown` (that is 80cc's block locals; a parameter or level-1 local shadowed by a certain pick is `shadowed` on every compiler). A read of an uncertain name carries `ambiguous: 2 variables named t may be in scope here; this is the innermost (...)`, and a write to it is refused. A block-scoped `static` local is in scope only in its block, like a block local: where its block is closed it is not listed and the name means the local; where it is open it wins; on 80cc it is `scope unknown` like every block local. Each of the two rows acts on the variable it shows: Edit Value writes that variable and expanding it lists that variable's members. Watch is offered only on the innermost row, because a Watch is a name and the name reaches the innermost declaration; the shadowed row's Watch is disabled and its tooltip says so. Two block statics of one name in a function (zsdcc) share the path `function::name`: that typed path is refused with `ambiguous: 2 statics named n in f`, `monitor globals` marks both entries `(ambiguous path)`, and the Globals rows read and edit their own static but cannot be watched.
 - Not a display limit, but wrong values in the program itself: a bitfield initialiser across two bytes written as one (fixed in z88dk master from 2026-11-04), and three 80cc code-generation bugs (fixed in master on 2026-11-04 and 2026-11-05; one only on the Game Boy target).
 - Not JNEXT: defects of z88dk's own debuggers (one fixed in master from 2026-11-04) and ticks' reading of floats (not fixed yet).
 - No C variables at all: zsdcc on 2.4 (`-debug` does not build), and the classic library on the Next with 2.4 (`-debug` fails; it works on master from 2026-10-23).
-- Enumerations show their number, not their name; a `union` is shown as a `struct`.
+- A `union` is shown as a `struct`.
 - Before a function has set up its frame, its locals are `not allocated`; a variable at an offset below the stack the frame owns, too.
 - Some variables cannot be written: see [Editing a value](#editing-a-value).
 

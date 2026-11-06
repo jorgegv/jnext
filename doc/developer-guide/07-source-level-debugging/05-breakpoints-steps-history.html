@@ -3084,8 +3084,8 @@ the pause ownership and stop evidence exactly as <code>step_into()</code> sets t
   <code>call_stack().frames().size()</code>. With <strong>no location</strong> under the PC, or <code>Out</code> with
   no tracked frame, the step is one instruction: that is how an unmapped stretch is
   left.</li>
-<li><strong>The boundary.</strong> <code>reached()</code> re-reads the location and the depth after each Step:</li>
-</ul>
+<li>
+<p><strong>The boundary.</strong> <code>reached()</code> re-reads the location and the depth after each Step:</p>
 <table>
 <thead>
 <tr>
@@ -3109,18 +3109,21 @@ the pause ownership and stop evidence exactly as <code>step_into()</code> sets t
 </tbody>
 </table>
 <p><code>Over</code> and <code>Out</code> measure depth with the call-stack tracker, so they need it on
-  (<code>set_call_stack_enabled</code>, a per-client request; with a C variable store and a non-observer client
-  attached it is on by itself, <a href="10-c-frames-and-values.html">7.10</a>).
-- <strong>The loop</strong>, per iteration: <code>debugger_step()</code>, then <code>pause()</code>; stop if an event
+(<code>set_call_stack_enabled</code>, a per-client request; with a C variable store and a non-observer client
+attached it is on by itself, <a href="10-c-frames-and-values.html">7.10</a>).</p>
+</li>
+<li>
+<p><strong>The loop</strong>, per iteration: <code>debugger_step()</code>, then <code>pause()</code>; stop if an event
   stop is latched, or the magic or watch stop fired; stop if <code>reached()</code>; stop at a
   <code>HALT</code> with interrupts disabled (<code>Warn</code>: "Source step stopped at a HALT with
   interrupts disabled"), because each Step there would spend two frames learning
   that only an NMI or a reset ends it; stop when the machine clock has advanced by
   <code>SOURCE_STEP_FRAME_LIMIT</code> frames (100, <code>SOURCE_STEP_FRAME_LIMIT</code>, <code>debugger.h:1464</code>) since the start
-  (<code>Warn</code>); then the delivery below.
-- <strong>The limit.</strong> After <code>SOURCE_STEP_LIMIT</code> instructions (1,000,000,
-  <code>SOURCE_STEP_LIMIT</code>, <code>debugger.h:1460</code>) the step ends with a <code>Warn</code>.
-- <strong>The delivery.</strong> <code>debugger_step()</code> delivers no <code>Execute</code> event, because <code>run_frame()</code>
+  (<code>Warn</code>); then the delivery below.</p>
+</li>
+<li><strong>The limit.</strong> After <code>SOURCE_STEP_LIMIT</code> instructions (1,000,000,
+  <code>SOURCE_STEP_LIMIT</code>, <code>debugger.h:1460</code>) the step ends with a <code>Warn</code>.</li>
+<li><strong>The delivery.</strong> <code>debugger_step()</code> delivers no <code>Execute</code> event, because <code>run_frame()</code>
   does that before each instruction and a Step does not run through it. So between
   instructions the loop gives the next PC <code>run_frame()</code>'s treatment itself, in its
   order: <code>DebugState::should_break(pc)</code> (the legacy PC breakpoint), then, when
@@ -3128,7 +3131,8 @@ the pause ownership and stop evidence exactly as <code>step_into()</code> sets t
   <code>GuestExecutionScope</code>. Handlers run, and a <code>Stop</code> records its hit and its
   <code>once</code>. If a handler moved the PC, the new address gets no delivery of its own
   (as in a run, the redirect target simply runs next) but the loop checks whether it
-  is already the boundary.</p>
+  is already the boundary.</li>
+</ul>
 <p>A step ends the way a Step does: <code>finish()</code> pauses, and an event's own stop becomes
 the reason in place of <code>Step</code>.</p>
 <h3 id="back-and-reverse-continue">Back and Reverse Continue<a class="headerlink" href="#back-and-reverse-continue" title="Permanent link">&para;</a></h3>
