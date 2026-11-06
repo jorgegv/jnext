@@ -106,8 +106,7 @@ with a JavaScript exception, C++ cleanup pads run `main()`'s destructors on it
 under wasm exceptions, and the page then crashes in the next frame. Everything
 that outlives `main()` is therefore not a local of it: the application is
 released to the loop, the two recorders are `static` (the emulator's callbacks
-hold references to them; they are never destroyed), logging is not shut down
-while the loop lives, and the post-run tail of a run (recorders, `shutdown()`,
+hold references to them; they are never destroyed), and the post-run tail of a run (recorders, `shutdown()`,
 the exit status) is a function, `finish`, that the loop calls once a tick ends
 the run. Its result reaches the page through `Module.onExit`. A `callMain` that
 returns with no loop installed (a refused flag) has no `onExit`: its return

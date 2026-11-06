@@ -43,6 +43,9 @@ async function open(cfg, ctxOpts = {}, { report = false } = {}) {
   await waitFor(page, () => window.jnextTest.ready || window.jnextTest.error);
   const err = await page.evaluate(() => window.jnextTest.error);
   must(!err, 'page error: ' + err);
+  // INVOKE_RUN=0: nothing runs until the page's callMain, so nothing has been logged yet.
+  const early = await page.evaluate(() => window.jnextTest.stderr.concat(window.jnextTest.stdout));
+  must(early.length === 0, 'the module ran before callMain: ' + JSON.stringify(early.slice(0, 2)));
   return page;
 }
 // main() runs inside this click and a first NEX load blocks the page for many seconds.
@@ -237,8 +240,20 @@ async function heldKeyThenLose(lose) {
   await waitLog(page, /screenshot saved/);
   await shotEquals(page, '/media/s.png', orc('key1.png'), 'single 1 tap');
 }
-row('BRW-13', 'a key held while the canvas loses focus to a page input is released (no run of 1s)',
-    () => heldKeyThenLose((page) => page.focus('#textbox')));
+row('BRW-13', 'a key held while the canvas loses focus to a page input is released (no run of 1s); a key pressed in the very task that moves the focus is never typed',
+    async () => {
+      await heldKeyThenLose((page) => page.focus('#textbox'));
+      // The release is then held back by the key latch, and only the canvas-blur listener's
+      // FOCUS_LOST (release_all) frees it before the guest has seen the key: nothing is typed.
+      const page = await open({ args: KEYED, files: [CARD], canvas: '640x512' });
+      await start(page); await waitFrame(page, 200);
+      await page.evaluate(() => {
+        document.getElementById('jnext-canvas').dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit1', key: '1', bubbles: true }));
+        document.getElementById('textbox').focus();
+      });
+      await waitLog(page, /screenshot saved/);
+      await shotEquals(page, '/media/s.png', orc('idle.png'), 'native, no typing');
+    });
 row('BRW-14', 'a key held across a window blur is released (SDL window-blur path)',
     () => heldKeyThenLose((page) => page.evaluate(() => window.dispatchEvent(new FocusEvent('blur')))));
 
