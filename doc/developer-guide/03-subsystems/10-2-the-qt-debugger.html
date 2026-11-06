@@ -3209,18 +3209,20 @@ the framebuffer generation and the upload gate that stops a paused machine re-pr
 is in <a href="../02-architecture/03-a-frame-end-to-end.html">2.3</a>.</p>
 <p><strong>The window's opening size.</strong> A window opening at its default size grows to the size where
 nothing scrolls, if the screen has room (<code>DebuggerWindow::grow_default_size_to_natural()</code>,
-<code>debugger_window.cpp:500</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
+<code>debugger_window.cpp:509</code>, queued from the first <code>showEvent()</code>); a size restored from the config file is left
 alone. The size is <em>measured</em>: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' <code>sizeHint()</code> lack, using the share of a widening the splitter really gave
 it on the previous pass (<code>fit_last_add_</code>, <code>fit_last_lacking_</code>; bounded by <code>kMaxInitialFitPasses</code> = 4
-(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:204</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:229</code>)). The frame, not the client area, must fit the screen
+(<code>kMaxInitialFitPasses</code>, <code>debugger_window.h:204</code>) and <code>kMaxWidthFitPasses</code> = 8 (<code>kMaxWidthFitPasses</code>, <code>debugger_window.h:231</code>)). The frame, not the client area, must fit the screen
 (<code>jnext::clamp_window_size_to_screen</code>). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (<code>fit_sizes_</code>, <code>fit_known_size_()</code>) is the manager's answer, not the user's, and the request is asked again,
-at most <code>kMaxFitEchoes</code> = 6 times (<code>resizeEvent()</code>, <code>debugger_window.cpp:486-497</code>); any other size is the user's and ends the fit
+at most <code>kMaxFitEchoes</code> = 6 times: the answer queues a pass, and the pass asks again and counts it, once
+(<code>resizeEvent()</code>, <code>debugger_window.cpp:496-507</code>); any other size is the user's and ends the fit
 (<code>end_fit_()</code>, <code>debugger_window.cpp:480</code>). The fit also ends by itself <code>kFitGraceMs</code> = 1000 ms after its last pass started (every
-pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:523-527</code>), after which every size is the user's and the remembered sizes are
-dropped. Rows: <code>GR-06</code> (a stale answer inside the grace window is asked again), <code>GR-07</code> (after it every size is the user's) and <code>GR-08</code> (an earlier request landing while a pass is queued), in <code>debugger_window_grow_test</code>.</p>
+pass restarts that wait, <code>kFitGraceMs</code>, <code>debugger_window.cpp:533-538</code>), after which every size is the user's and the remembered sizes are
+dropped; the grace does not end the fit while a pass is still queued (<code>fit_passes_queued_</code>, <code>queue_fit_pass_()</code>), so a stalled event loop cannot
+cut the fit short between a pass and the one it queued. Rows: <code>GR-06</code> (a stale answer inside the grace window is asked again), <code>GR-07</code> (after it every size is the user's), <code>GR-08</code> (an earlier request landing while a pass is queued), <code>GR-09</code> (a user resize while the fit runs stands), <code>GR-10</code> (each late answer counts once: the 7th stands) and <code>GR-11</code> (a loop stalled past the grace window does not end the fit), <code>GR-12</code> (the bound holds on the pass's own path), <code>GR-13</code> and <code>GR-14</code> (the grace waits for the pass a re-ask, or a late answer, queued), in <code>debugger_window_grow_test</code>; <code>GR-09</code> to <code>GR-14</code> use a window no window manager sees.</p>
 <p><strong>The breakpoint views follow the model.</strong> The Breakpoints list and the
 disassembly gutter follow <code>BreakpointModel::changed(kinds)</code>, so a breakpoint
 appears the instant it is set. <code>kinds</code> is the set of event kinds whose <em>listed</em>

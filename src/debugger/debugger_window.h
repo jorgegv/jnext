@@ -221,6 +221,8 @@ private:
     static constexpr int kMaxFitEchoes = 6;
     static constexpr int kFitGraceMs = 1000;
     unsigned fit_generation_ = 0;
+    int    fit_passes_queued_ = 0;   // fit passes queued and not yet run; the grace timer waits for them
+    void queue_fit_pass_();
     void end_fit_();
     bool   fit_known_size_(const QSize& s) const;
     int    initial_fit_width_passes_ = 0;

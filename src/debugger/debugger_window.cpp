@@ -453,7 +453,7 @@ void DebuggerWindow::showEvent(QShowEvent* event) {
     initial_fit_done_ = true;
     // Queued, not immediate: the scroll range this reads is only correct once
     // the shown window has been laid out.
-    QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+    queue_fit_pass_();
 }
 
 // GH #363 — a light/dark switch while the window is open. Painted panels pick
@@ -484,16 +484,25 @@ void DebuggerWindow::end_fit_() {
     fit_set_size_ = QSize();
 }
 
+// Every fit pass is queued here, so the grace timer can tell whether one is still to run.
+void DebuggerWindow::queue_fit_pass_() {
+    ++fit_passes_queued_;
+    QTimer::singleShot(0, this, [this]() {
+        --fit_passes_queued_;
+        grow_default_size_to_natural();
+    });
+}
+
 void DebuggerWindow::resizeEvent(QResizeEvent* event) {
     QMainWindow::resizeEvent(event);
     // While the opening fit runs (see fit_sizes_), a resize to a size the fit knows but did not just ask
     // for is the window manager's late answer: a pass is queued, which asks the current request again
-    // and measures again (bounded). Any other size is the user's; the pass ends the fit on it.
+    // and measures again. The pass counts the answer (fit_echoes_), once, so the bound is the documented
+    // kMaxFitEchoes. Any other size is the user's; the pass ends the fit on it.
     if (fit_over_ || !size_is_default_ || !fit_set_size_.isValid())
         return;
     if (size() != fit_set_size_ && fit_known_size_(size()) && fit_echoes_ < kMaxFitEchoes) {
-        ++fit_echoes_;
-        QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+        queue_fit_pass_();
     }
 }
 
@@ -524,14 +533,15 @@ void DebuggerWindow::grow_default_size_to_natural() {
     // The fit ends kFitGraceMs after its last pass started (every pass restarts the wait).
     const unsigned generation = ++fit_generation_;
     QTimer::singleShot(kFitGraceMs, this, [this, generation]() {
-        if (generation == fit_generation_) end_fit_();
+        // A stalled event loop must not end the fit between a pass and the one it queued.
+        if (generation == fit_generation_ && fit_passes_queued_ == 0) end_fit_();
     });
     if (fit_set_size_.isValid() && size() != fit_set_size_) {
         if (fit_known_size_(size()) && fit_echoes_ < kMaxFitEchoes) {
             // The manager's late answer to an earlier request: ask again, then measure again.
             ++fit_echoes_;
             resize(fit_set_size_);
-            QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+            queue_fit_pass_();
             return;
         }
         // Not a size of the fit's own: the user's. The fit is over, their size stands.
@@ -606,7 +616,7 @@ void DebuggerWindow::grow_default_size_to_natural() {
     if (scroll_pass) ++initial_fit_passes_;
     if ((scroll_pass && initial_fit_passes_ < kMaxInitialFitPasses) ||
         (width_pass && initial_fit_width_passes_ < kMaxWidthFitPasses))
-        QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+        queue_fit_pass_();
 }
 
 void DebuggerWindow::create_menus() {
