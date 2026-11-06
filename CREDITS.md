@@ -6,12 +6,13 @@ Jorge Gonzalez, aka ZXjogv <zx@jogv.es>
 
 ## Code contributors
 
-dcrespo3d, jattree, shadowphiar, vmorilla
+@dcrespo3d, @jattree, @shadowphiar, @vmorilla
 
 ## Testers and bug reporters
 
-beef-pl, bleughb, clebin, danboid, Duefectu, IndigoBeetle, janko-jj, jsmolina,
-MickeyG, Nitrowing, pavero01, suborb, tofro, Utodev, WoolyChewbakker
+@beef-pl, @bleughb, @clebin, @danboid, @Duefectu, @IndigoBeetle, @janko-jj,
+@jsmolina, @MickeyG, @Nitrowing, @pavero01, @suborb, @tofro, @Utodev,
+@WoolyChewbakker
 
 If you are listed here and would prefer not to be, or are not listed and would
 like to be, say so on [issue #200](https://github.com/jorgegv/jnext/issues/200)
