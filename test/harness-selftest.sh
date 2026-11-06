@@ -2603,7 +2603,7 @@ for which in a b c; do
           JNEXT_EMSDK_RELEASE_URL="file://$EM/release.tar.xz" JNEXT_EMSDK_RELEASE_SHA256=$rel \
           JNEXT_EMSDK_NODE_URL="file://$EM/node.tar.xz" JNEXT_EMSDK_NODE_SHA256=$nod \
           bash "$PROJECT_DIR/test/provision-emsdk.sh" 2>&1); rc=$?
-    left=$(find "$XCE" -mindepth 3 2>/dev/null | head -3)
+    left=$(find "$XCE" -mindepth 3 ! -name "*.lock" 2>/dev/null | head -3)
     badpin=$em; [[ $which == b ]] && badpin=$rel; [[ $which == c ]] && badpin=$nod
     case $which in
         a) hs_id=HS-158a ;; b) hs_id=HS-158b ;; c) hs_id=HS-158c ;;
