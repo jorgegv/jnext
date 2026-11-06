@@ -4139,8 +4139,9 @@ the first time the new version starts, and removed. Section names are
 lowercase, and a value is plain text: no <code>@Invalid()</code> or <code>@ByteArray(...)</code>.</p>
 <p>Every setting in the file can be set for a single run, without touching the file,
 with <code>--set section.key=value</code> (for example <code>--set startup.window_scale=2</code>); the
-Recent Files history (<code>[recent] files</code>) and the debugger window's <code>size</code> and
-<code>position</code> are not settings and are refused;
+Recent Files history (<code>[recent] files</code>), the joystick controller names
+(<code>joy1_device_name</code>, <code>joy2_device_name</code>), <code>[config] version</code> and the debugger
+window's <code>size</code> and <code>position</code> are not settings and are refused;
 see <a href="03-what-wins-the-command-line.html">what wins</a>.</p>
 <p>Deleting the file resets everything to defaults — that is the supported way to
 start over. A missing or corrupt entry falls back to its default rather than
