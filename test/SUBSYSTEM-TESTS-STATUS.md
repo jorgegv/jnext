@@ -95,7 +95,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SIGINT/SIGTERM quit request |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CLI options / docs    |       66 |       66 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options / docs    |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options (real binary) |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | jnext.conf key table (GH #417) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       54 |       54 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
