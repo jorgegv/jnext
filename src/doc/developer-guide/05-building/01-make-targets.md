@@ -135,6 +135,27 @@ reports its version, imports no (shared) memory, catches an exception,
 refuses the flags and `--set` keys the browser build cannot honour, and runs the
 SHA-256 suite on its portable backend. `make clean` removes the tree.
 
+`make wasm-web` builds the browser frontend, `jnext_web`, in the same
+`build/wasm-core` tree (one compile of every library, a second link). Its output
+carries the version in its name, `jnext-<version>.js` and `.wasm`, read from
+`version.yaml` through CMake's project version, so a page never loads a stale
+build. `make playwright` provides the pinned Playwright and its Chromium
+headless shell in `~/.cache/jnext/tools/playwright-1.65.0`, through
+`test/provision-playwright.sh`: it downloads `playwright-core` (the npm package,
+which has no dependencies and no test runner) and the headless shell its
+`browsers.json` names, verifies the sha256 of both before it unpacks either,
+and is a no-op once stamped. The scripts run on the SDK's own node, so there is
+no second node. `make wasm-browser-test` builds the browser frontend, provides
+Playwright and the SD image, builds the native SDL release build (the oracle), then runs
+`test/browser/browser-smoke.sh`: it builds the 40 MiB minimal NextZXOS card from
+the cached distribution image into a scratch directory under `~/tmp`, makes the
+native oracle screenshots, and runs every spec through the harness. The card is
+copyrighted content: it is handed to the page only by the harness's request
+handler, is never committed, uploaded or traced (Playwright tracing, HAR and
+video stay off), and is deleted when the run ends. The script takes more specs
+as `file:count` arguments, each printing PASS/FAIL rows and a `Total:` line whose
+count the script pins, so the JavaScript API rows run in the same target.
+
 Chapter [4. Testing](../04-testing/index.md) covers what each of these actually
 proves.
 

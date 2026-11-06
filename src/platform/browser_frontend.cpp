@@ -42,6 +42,25 @@ void frame_cb(void*)
     if (r == browser_pacing::Result::End) end_run();
 }
 
+// The canvas lost focus to another element of the same page: SDL only watches
+// the WINDOW, so it sends nothing and a held key would stick. Send the same
+// pair SDL emits on a window blur: the key-ups (through the normal poll, so the
+// Router and the latch release them) and FOCUS_LOST (on_keyboard_lost).
+EM_BOOL canvas_blur(int, const EmscriptenFocusEvent*, void*)
+{
+    SDL_ResetKeyboard();
+    int n = 0;
+    SDL_Window** wins = SDL_GetWindows(&n);
+    if (wins && n > 0) {
+        SDL_Event e{};
+        e.type = SDL_EVENT_WINDOW_FOCUS_LOST;
+        e.window.windowID = SDL_GetWindowID(wins[0]);
+        SDL_PushEvent(&e);
+    }
+    SDL_free(wins);
+    return EM_FALSE;
+}
+
 }  // namespace
 
 // A lock the browser ended itself (Escape) must release jnext's capture, as on
@@ -58,6 +77,12 @@ EM_JS(void, jnext_web_listen_pointer_lock, (const char* selector), {
         if (document.pointerLockElement !== el) _jnext_web_pointer_lock_changed(0);
     });
 });
+
+// 1 while the page's loop runs (callMain returned but the run has not ended).
+extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_loop_active()
+{
+    return g_ctx.active ? 1 : 0;
+}
 
 extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_frame()
 {
@@ -84,6 +109,7 @@ void run(SdlApp& app, std::function<int()> finish)
     g_ctx.active = true;
     const char* sel = SDL_GetHint(SDL_HINT_EMSCRIPTEN_CANVAS_SELECTOR);
     jnext_web_listen_pointer_lock(sel ? sel : "#canvas");
+    emscripten_set_blur_callback(sel ? sel : "#canvas", nullptr, EM_FALSE, canvas_blur);
     // fps 0 = requestAnimationFrame; simulate_infinite_loop 0 = main() returns.
     emscripten_set_main_loop_arg(frame_cb, nullptr, 0, 0);
 }

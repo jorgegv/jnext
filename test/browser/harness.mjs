@@ -67,3 +67,48 @@ export async function waitFor(page, fn, arg, timeoutMs = 120000) {
 
 export const frame = (page) => page.evaluate(() => window.jnextModule._jnext_web_frame());
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Wrap AudioContext.createScriptProcessor so a spec can see the contexts SDL
+// opens, their state and what reaches the output (SDL's Web Audio backend runs
+// on a ScriptProcessorNode). With `report` the page also logs one `__AU {json}`
+// console line per second, so a spec can observe WITHOUT page.evaluate: every
+// Playwright evaluate runs as a user gesture, which would resume a suspended
+// context and defeat a "no gesture" check.
+export async function installAudioHook(page, report = false) {
+  await page.addInitScript((report) => {
+    window.__au = { ctxs: [], calls: 0, max: 0 };
+    const orig = AudioContext.prototype.createScriptProcessor;
+    AudioContext.prototype.createScriptProcessor = function (...a) {
+      window.__au.ctxs.push(this);
+      const node = orig.apply(this, a);
+      let h = null;
+      Object.defineProperty(node, 'onaudioprocess', {
+        set(f) {
+          h = f;
+          node.addEventListener('audioprocess', f);   // SDL fills the buffer first
+          node.addEventListener('audioprocess', (e) => {
+            window.__au.calls++;
+            const d = e.outputBuffer.getChannelData(0);
+            let m = 0;
+            for (let i = 0; i < d.length; i++) m = Math.max(m, Math.abs(d[i]));
+            window.__au.max = Math.max(window.__au.max, m);
+          });
+        },
+        get() { return h; },
+      });
+      return node;
+    };
+    if (report) {
+      setInterval(() => {
+        const a = window.__au;
+        console.log('__AU ' + JSON.stringify({
+          n: a.ctxs.length, state: a.ctxs[0] && a.ctxs[0].state, calls: a.calls, max: a.max,
+          frame: window.jnextModule && window.jnextModule._jnext_web_frame ? window.jnextModule._jnext_web_frame() : -1 }));
+      }, 1000);
+    }
+  }, report);
+}
+
+export const audioInfo = (page) => page.evaluate(() => ({
+  n: window.__au.ctxs.length, state: window.__au.ctxs[0] && window.__au.ctxs[0].state,
+  calls: window.__au.calls, max: window.__au.max }));

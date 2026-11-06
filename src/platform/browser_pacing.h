@@ -58,6 +58,7 @@ Result run_callback(Gate& g, Now now, Tick tick, Fast fastload)
             if (after - g.due_us_ > frame_deadline::STALL_PERIODS * period) {
                 g.due_us_ = after;
                 ++g.resyncs_;
+                return Result::Continue;   // one tick now, the next on its own rAF: never a burst
             } else {
                 g.due_us_ += period;
             }
