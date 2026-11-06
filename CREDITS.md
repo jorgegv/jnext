@@ -8,7 +8,6 @@ Jorge Gonzalez, aka ZXjogv <zx@jogv.es>
 
 - dcrespo3d
 - jattree
-- jon263
 - shadowphiar
 - vmorilla
 
