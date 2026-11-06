@@ -1,6 +1,6 @@
 # ChangeLog
 
-## v1.1.121 (2026-11-06)
+## v1.2.0 (2026-11-06)
 
 ### User Features
 - Every Preferences setting can be set from the command line: --set section.key=value, plus --cpu-speed, --scale and --crt

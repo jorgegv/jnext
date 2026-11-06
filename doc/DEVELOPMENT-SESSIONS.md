@@ -227,5 +227,5 @@
 |         |      | v1.1.110->1.1.115                                                                                      |
 | 4/11    |      | #446 ffmpeg PATH lookup (janko-jj); #449 DZRP startup race. v1.1.116->1.1.117                          |
 | 5-6/11  |      | epic #353 C variables merged; #450 keys at the frame INT (jsmolina, Ms. Nam-Pac); #451                 |
-|         |      | v1.1.118->1.1.120; v1.1.121 PUBLIC RELEASE                                                             |
+|         |      | v1.1.118->1.1.120; v1.2.0 PUBLIC RELEASE                                                               |
 | TOTAL:  | 666h |                                                                                                        |
