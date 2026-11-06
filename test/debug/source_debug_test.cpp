@@ -8792,7 +8792,7 @@ int main() {
                 CwTry w;
                 Bytes before, after;
             };
-            const auto run = [&](const char* name, const std::string& extra, const Bytes& init, const char* value) {
+            const auto run = [&](const char* name, const std::string& extra, const Bytes& init, const std::string& value) {
                 FpRun r;
                 r.mp = std::make_unique<Machine>(false, MachineType::ZXN_ISSUE2);
                 Machine& fm = *r.mp;
