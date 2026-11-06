@@ -2062,6 +2062,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#the-minimal-nextzxos-image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The minimal NextZXOS image
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3130,6 +3141,33 @@ product, which is a genuinely different thing from the automatic staleness
 gates — see <a href="04-continuous-integration.html">5.4</a> and
 <a href="../04-testing/05-documentation-and-cli-gates.html">4.5</a> for what those gates do
 and do not prove.</p>
+<h2 id="the-minimal-nextzxos-image">The minimal NextZXOS image<a class="headerlink" href="#the-minimal-nextzxos-image" title="Permanent link">&para;</a></h2>
+<p>The browser build does not fetch the 1 GB distribution SD image. It fetches a
+small boot card, a 40 MiB FAT32 volume with 512-byte clusters that holds only
+what NextZXOS needs to reach its menu and to warm-start a program. The card is
+made from the distribution image by <code>tools/make-minimal-sdcard-image.sh</code>:</p>
+<pre><code class="language-bash">tools/make-minimal-sdcard-image.sh ~/.jnext/sdcard/cspect-next-1gb.img ~/tmp/nextzxos-minimal.img
+</code></pre>
+<p>The boot set (<code>TBBLUE.FW</code>, <code>MACHINES</code>, <code>NEXTZXOS</code>, <code>SYS</code>, <code>LICENSE.md</code>,
+<code>README.md</code>) is the <code>BOOT_SET</code> list at the top of the script, copied with the
+source's own spelling of each name. jnext's own two patches, the <code>config.ini</code>
+and the doubled <code>zx81.rom</code>, are applied by <code>tools/fix-sdcard-image.sh</code>, which
+the script calls unchanged. The script refuses to overwrite its destination,
+reads the source image only, and refuses a card with too few clusters for
+FatFs to take it as FAT32 (more than 65525).</p>
+<p>The output is reproducible: a fixed volume serial, <code>SOURCE_DATE_EPOCH</code> and
+<code>TZ=UTC</code> pinned inside the script, and a DOS-to-DOS copy, so the directory
+order comes from the source card and not from the builder's filesystem. The
+hash is the same only for the same mtools version, because <code>mformat</code> writes its
+version into the boot sector. The script needs mtools, <code>sfdisk</code> (util-linux)
+and coreutils; it needs no root and no loop mount.</p>
+<p>The output is copyrighted NextZXOS content. It is never committed, attached to
+an issue or a package, or uploaded; it is hosted only where the owner decides.</p>
+<p>Two tests cover it: <code>make minimal-image-test</code> (13 rows, part of <code>make
+unit-test</code>, run against the cached distribution image) and the
+<code>minimal-sdcard-image-func</code> regression row, which boots the card to the
+NextZXOS menu and warm-starts a NEX, both compared with the full card's
+references.</p>
 
 
 
