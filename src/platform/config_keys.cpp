@@ -227,6 +227,12 @@ const Key* find(std::string_view section, std::string_view name) {
     return nullptr;
 }
 
+const char* browser_refusal(const Key& k) {
+    if (k.flag == nullptr) return nullptr;
+    const cli::Option* o = cli::find(k.flag);
+    return o ? cli::browser_refusal(o->id) : nullptr;
+}
+
 bool parse_assignment(const char* arg, Assignment& out, std::string& why) {
     const std::string a = arg ? arg : "";
     const std::string quoted = "\"" + a + "\"";

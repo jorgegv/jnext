@@ -198,7 +198,7 @@ public:
         // ---- ZXSTRAMPAGE ('RAMP') × banks.size(), uncompressed ------
         constexpr int      TEMP_SLOT = 7;
         constexpr uint16_t SLOT_BASE = 0xE000;
-        constexpr size_t   PAGE_SIZE = 16384;
+        constexpr size_t   SZX_PAGE_BYTES = 16384;
         uint8_t saved_slot7 = mmu.get_page(TEMP_SLOT);
 
         for (uint8_t bank : banks) {
@@ -206,7 +206,7 @@ public:
             out.insert(out.end(), {'R', 'A', 'M', 'P'});
             out.resize(out.size() + 4);
             size_t p = out.size();
-            out.resize(p + 3 + PAGE_SIZE, 0);
+            out.resize(p + 3 + SZX_PAGE_BYTES, 0);
             put_u16(p + 0, 0);                            // wFlags: uncompressed
             out[p + 2] = bank;                             // chPageNo
 

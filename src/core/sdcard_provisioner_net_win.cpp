@@ -23,7 +23,8 @@
 // keep-or-remove rule, the per-tick decision) are shared code, the curl twin's
 // too. The
 // whole-file #ifdef pair keeps file(GLOB_RECURSE) in src/core/CMakeLists.txt
-// correct on every platform: exactly one twin has content per build.
+// correct on every platform: exactly one of the three twins (_curl, this one, _web
+// for WebAssembly) has content per build.
 //
 // ASYNCHRONOUS WinHTTP (WINHTTP_FLAG_ASYNC), because the contract cannot be met
 // synchronously: a synchronous WinHttpReadData blocks its thread until data

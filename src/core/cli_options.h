@@ -986,6 +986,38 @@ inline const Option* find(const char* name) {
     return nullptr;
 }
 
+// Why a spelling is refused by the BROWSER (WebAssembly) build, or nullptr when
+// it is accepted. One line of plain ASCII, naming what the browser lacks. The
+// function is compiled in every build so the native suites test it; only the
+// browser build's main() calls it, before the option's handler runs, and
+// `--set` derives its refusals from it through config_keys (Key::flag).
+// `--no-esp` and `--no-nextpi` are NOT refused: they ask for the only state
+// there is. The debugger-side options that jnext_debug alone serves (--wav-record,
+// --source-map, --export-*) and the joystick UART endpoints (no thread, socket
+// or process of their own) stay accepted.
+inline const char* browser_refusal(OptId id) {
+    switch (id) {
+    case OptId::Nextpi: case OptId::NextpiDir: case OptId::NextpiRelease:
+    case OptId::NextpiQemu: case OptId::NextpiAudio: case OptId::NextpiQemuArgs:
+        return "not available in the browser build (NextPi needs a QEMU process)";
+    case OptId::Esp: case OptId::EspAllow: case OptId::EspListenAddress:
+    case OptId::EspDelayedDisassociateFrames: case OptId::EspDelayedAssociateFrames:
+    case OptId::EspIpAddress: case OptId::EspIpAddressAfter:
+        return "not available in the browser build (the ESP-01 needs host sockets)";
+    case OptId::Record:
+        return "not available in the browser build (video recording needs an ffmpeg process)";
+    case OptId::DzrpPort: case OptId::GdbPort: case OptId::ZrcpPort:
+    case OptId::DebugListenAddress:
+        return "not available in the browser build (the debugger servers need to listen on TCP)";
+    case OptId::Script: case OptId::ScriptKey: case OptId::RecordScript:
+    case OptId::Map: case OptId::Annotations:
+    case OptId::ImportSkoolkit: case OptId::ImportGhidra:
+        return "not available in the browser build (the script host is not part of it)";
+    default:
+        return nullptr;
+    }
+}
+
 // Find the value of `id` without running the real parse loop (GH #235).
 //
 // Needed for exactly one reason: `--log-file` decides where the FIRST log line
@@ -1118,10 +1150,13 @@ inline bool parse_int(const char* s, long lo, long hi, long& out) {
 inline bool parse_hex16(const char* s, uint16_t& out) {
     if (s == nullptr) return false;
     if (!std::isxdigit(static_cast<unsigned char>(s[0]))) return false;
+    // A 0x/0X prefix must be followed by a hex digit. glibc's strtoul stops after
+    // the 0 of a bare "0x" (the trailing-junk check below then refuses it), but
+    // Emscripten's musl consumes both characters and would read it as 0.
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X') &&
+        !std::isxdigit(static_cast<unsigned char>(s[2]))) return false;
     char* end = nullptr;
     errno = 0;
-    // Base 16 itself accepts the 0x/0X prefix; a bare "0x" stops after the 0
-    // and is refused by the trailing-junk check.
     const unsigned long v = std::strtoul(s, &end, 16);
     if (errno != 0 || *end != '\0' || v > 0xFFFFUL) return false;
     out = static_cast<uint16_t>(v);

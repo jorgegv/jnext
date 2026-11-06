@@ -7,6 +7,13 @@ if(WIN32)
     add_link_options(-Wl,--stack,8388608)
 endif()
 
+# WebAssembly (`make wasm-core`): the test executables run under node and read
+# host files and the host environment (HOME, TMPDIR) through NODERAWFS; jnext.js
+# itself keeps the default environment and its in-memory filesystem.
+if(EMSCRIPTEN)
+    add_link_options(-sNODERAWFS=1 -sENVIRONMENT=node)
+endif()
+
 # GH #416: a compiler warning in a test is a test defect (it hid which side of
 # a row failed, truncated a failure message, narrowed a constant by accident),
 # so the test executables are built with -Werror (GNU and Clang, incl. MinGW
@@ -447,6 +454,13 @@ add_executable(sdcard_provisioner_test sdcard_provisioner/sdcard_provisioner_tes
 target_link_libraries(sdcard_provisioner_test PRIVATE jnext_core ZLIB::ZLIB)
 target_include_directories(sdcard_provisioner_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_provisioner_tests COMMAND sdcard_provisioner_test)
+
+# SHA-256 known-answer test over whichever backend the build links (OpenSSL,
+# BCrypt, or the portable one `make wasm-core` runs under node).
+add_executable(sha256_test core/sha256_test.cpp)
+target_link_libraries(sha256_test PRIVATE jnext_core)
+target_include_directories(sha256_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME sha256_tests COMMAND sha256_test)
 # The rows that need libcurl's own behaviour (a proxy put in front of it through the
 # environment, which the WinHTTP twin has no counterpart of): POSIX only (GH #385).
 if(NOT WIN32)

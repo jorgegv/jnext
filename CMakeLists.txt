@@ -192,6 +192,21 @@ if(WIN32 AND (NOT ENABLE_QT_UI OR JNEXT_FORCE_QT5))
     add_compile_definitions(_WIN32_WINNT=0x0601 WINVER=0x0601)
 endif()
 
+# WebAssembly (Emscripten) build: the SDL-only core, run in a browser or under
+# node (`make wasm-core`, toolchain from test/provision-emsdk.sh).
+if(EMSCRIPTEN)
+    if(ENABLE_QT_UI OR ENABLE_DEBUGGER)
+        message(FATAL_ERROR "The Emscripten build is the SDL-only configuration: "
+                            "configure with -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF")
+    endif()
+    # Wasm exceptions in every TU and the link (before spdlog is added): without
+    # them a caught throw aborts the module.
+    add_compile_options(-fwasm-exceptions)
+    add_link_options(-fwasm-exceptions)
+    # The default 64 KB stack is below the 256 KB frame the frame gate allows,
+    # and the default 16 MB memory is fixed.
+    add_link_options(-sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=2MB)
+endif()
 find_package(SDL3 REQUIRED)
 # One resolved SDL3 target name for the whole tree (GH #57). SDL3's own
 # SDL3Config.cmake always defines the SDL3::SDL3 alias, pointing at whichever
@@ -205,14 +220,26 @@ if(STATIC_BUILD AND TARGET SDL3::SDL3-static)
 else()
     set(JNEXT_SDL3_TARGET SDL3::SDL3)
 endif()
-find_package(ZLIB REQUIRED)
+if(EMSCRIPTEN)
+    # The sysroot's default libpng.a is the Emscripten-SJLJ variant, which does
+    # not link with Wasm exceptions; the port flags make emcc pick the variant
+    # that matches the exception model.
+    add_library(ZLIB::ZLIB INTERFACE IMPORTED)
+    set_target_properties(ZLIB::ZLIB PROPERTIES
+        INTERFACE_COMPILE_OPTIONS "-sUSE_ZLIB=1" INTERFACE_LINK_OPTIONS "-sUSE_ZLIB=1")
+    add_library(PNG::PNG INTERFACE IMPORTED)
+    set_target_properties(PNG::PNG PROPERTIES
+        INTERFACE_COMPILE_OPTIONS "-sUSE_LIBPNG=1" INTERFACE_LINK_OPTIONS "-sUSE_LIBPNG=1")
+else()
+    find_package(ZLIB REQUIRED)
+endif()
 # curl/OpenSSL back the SD-card provisioner's download + SHA-256 on POSIX
 # only. Windows uses OS-native WinHTTP + BCrypt instead (GH #108 Phase B:
 # src/core/sdcard_provisioner_net_win.cpp), so the Windows packages ship no
 # curl/OpenSSL DLLs — fedora's libcrypto-3 imports PathCchRemoveFileSpec
 # (Windows 8+), which was the single import keeping the SDL-only bundle off
 # Windows 7.
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EMSCRIPTEN)
     find_package(CURL REQUIRED)
     find_package(OpenSSL REQUIRED)
 endif()
@@ -350,11 +377,15 @@ add_subdirectory(src/esp01)
 # GH #287 — the debugger protocol servers' shared socket transport (arch §3.1,
 # `jnext_remote`). Over esp01's public socket seam and the jnext_debug backend;
 # no toolkit, so it is built in every configuration (arch §3.2).
-add_subdirectory(src/remote)
+if(NOT EMSCRIPTEN)   # the browser build has no sockets to serve on
+    add_subdirectory(src/remote)
+endif()
 # GH #26 — the debugger scripting language (arch §3.1, `jnext_script`): lexer,
 # parser, load-time checks and the expression compiler library. Over the
 # jnext_debug facade only; no toolkit, so built in every configuration (§3.2).
-add_subdirectory(src/script)
+if(NOT EMSCRIPTEN)   # no --script in the browser build
+    add_subdirectory(src/script)
+endif()
 add_subdirectory(src/peripheral)
 add_subdirectory(src/platform)
 add_subdirectory(src/save)

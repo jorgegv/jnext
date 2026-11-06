@@ -2090,6 +2090,66 @@ int main() {
         }
     }
 
+    // -----------------------------------------------------------------
+    // GH #459 - the flags the browser (WebAssembly) build refuses. Oracle: the
+    // decision list of the epic's browser build (NextPi needs QEMU and OpenSSL,
+    // the ESP-01 sockets, ICMP and a thread, --record an ffmpeg process, the
+    // debugger servers TCP listen(), the script host is not linked). The native
+    // binary never calls it; main() does only under __EMSCRIPTEN__
+    // (test/wasm-core-check.sh WCORE-04..06 run the wiring under node).
+    // -----------------------------------------------------------------
+    {
+        const std::set<std::string> want = {
+            "--nextpi", "--nextpi-dir", "--nextpi-release", "--nextpi-qemu", "--nextpi-audio",
+            "--nextpi-qemu-args",
+            "--esp", "--esp-allow", "--esp-listen-address", "--esp-delayed-disassociate-frames",
+            "--esp-delayed-associate-frames", "--esp-ip-address", "--esp-ip-address-after",
+            "--record",
+            "--dzrp-port", "--gdb-port", "--zrcp-port", "--debug-listen-address",
+            "--script", "--script-key", "--record-script", "--map", "--annotations",
+            "--import-skoolkit", "--import-ghidra",
+        };
+        std::set<std::string> got;
+        for (const cli::Option& o : cli::OPTIONS)
+            if (cli::browser_refusal(o.id)) got.insert(o.name);
+        std::vector<std::string> extra, missing;
+        for (const std::string& g : got) if (!want.count(g)) extra.push_back(g);
+        for (const std::string& w : want) if (!got.count(w)) missing.push_back(w);
+        check("CLI-WEB-01", "the spellings the browser build refuses are exactly the 25 of NextPi, "
+                            "the ESP-01, --record, the debugger servers and the script host",
+              got.size() == 25 && extra.empty() && missing.empty(),
+              "extra: " + join(extra) + "; missing: " + join(missing));
+    }
+    {
+        std::vector<std::string> bad;
+        for (const cli::Option& o : cli::OPTIONS) {
+            const char* why = cli::browser_refusal(o.id);
+            if (!why) continue;
+            const std::string w = why;
+            bool ascii = true;
+            for (unsigned char c : w) if (c < 0x20 || c > 0x7E) ascii = false;
+            if (w.empty() || !ascii || w.find("browser build") == std::string::npos)
+                bad.push_back(o.name);
+        }
+        const bool no_esp_ok = cli::browser_refusal(cli::find("--no-esp")->id) == nullptr;
+        const bool no_pi_ok  = cli::browser_refusal(cli::find("--no-nextpi")->id) == nullptr;
+        check("CLI-WEB-02", "every refusal is a non-empty ASCII reason naming the browser build; "
+                            "--no-esp and --no-nextpi are accepted",
+              bad.empty() && no_esp_ok && no_pi_ok, join(bad));
+    }
+    {
+        std::vector<std::string> bad;
+        for (const cli::Option& o : cli::OPTIONS) {
+            const std::string n = o.name;
+            const bool family = n == "--esp" || n == "--nextpi" ||
+                                n.rfind("--esp-", 0) == 0 || n.rfind("--nextpi-", 0) == 0;
+            if (family && !cli::browser_refusal(o.id)) bad.push_back(n);
+        }
+        check("CLI-WEB-03", "every --esp, --nextpi, --esp-* and --nextpi-* spelling is refused, so a "
+                            "future flag of those families cannot slip past CLI-WEB-01's list",
+              bad.empty(), join(bad));
+    }
+
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total + g_skip, g_pass, g_fail, g_skip);
