@@ -1097,6 +1097,7 @@ my %NO_MATRIX_SECTION = (
     # jnext-internal contracts. `cli_options_test` is checked against the man
     # page by `make cli-check`, which is its own two-way gate.
     'cli_options_test'              => 'CLI flag table vs the man page (see `make cli-check`)',
+    'cli_options_native_test'       => 'CLI rows that run the built jnext binary (split out of cli_options_test, GH #460; see `make cli-check`)',
     'ay_cache_test'                 => 'AY output / TurboSound mix caches vs an always-recompute reference (GH #440; equivalence of two implementations, VHDL cited in the suite header)',
     'log_test'                      => 'jnext logging façade (spdlog wiring)',
     'log_gate_test'                 => 'jnext log-level gating',

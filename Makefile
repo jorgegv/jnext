@@ -13,6 +13,7 @@ BUILD_DIR_GUI_PGO_GEN := build/gui-release-pgo-gen
 PGO_PROFILE_DIR       := build/gui-release-pgo-profile
 BUILD_DIR_WIN_RELEASE := build/win-release
 BUILD_DIR_WIN_SDL_RELEASE := build/win-sdl-release
+BUILD_DIR_WASM_UNIT_TEST := build/wasm-unit-test
 BUILD_DIR_WIN_QT5_RELEASE := build/win-qt5-release
 BUILD_DIR_QT5_CHECK   := build/qt5-check
 BUILD_DIR_WIN32_SDL_RELEASE := build/win32-sdl-release
@@ -203,7 +204,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk wasm-core wasm-core-clean
+       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk wasm-core wasm-core-clean unit-test-wasm unit-test-wasm-build
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -601,6 +602,42 @@ wasm-core: emsdk
 		"-DENABLE_TESTS=ON" && \
 	$(CMAKE) --build build/wasm-core -j$(JOBS) --target jnext sha256_test && \
 	bash test/wasm-core-check.sh build/wasm-core
+
+# Run the SDL-only unit suites built for WebAssembly, under node
+unit-test-wasm: unit-test-wasm-build sdcard-image
+	@# The same suite set `unit-test-sdl` runs, as Emscripten modules run by the
+	@# SDK's own node through test/node-run.sh. What node cannot stand in for (no
+	@# processes, threads or listening sockets) is declared absent with `# os:` in
+	@# test/unit-tests.conf, never skipped. JNEXT_UNIT_TEST_JOBS: one node process
+	@# per CPU, since each holds its own wasm memory.
+	@JNEXT_TEST_RUNNER="bash $(CURDIR)/test/node-run.sh" JNEXT_UNIT_TEST_JOBS=$(JOBS) \
+		bash test/run-unit-tests.sh $(BUILD_DIR_WASM_UNIT_TEST)
+
+# Configure + build the WebAssembly SDL-only test tree (prerequisite for unit-test-wasm)
+unit-test-wasm-build: emsdk
+	@# Configured as wasm-core is, in a tree of its own with JNEXT_ENABLE_LTO=OFF
+	@# (the Windows precedent: the unit suites need no cross-TU inlining, and an LTO
+	@# link of the whole core per suite would be about 130 times the cost). All
+	@# targets are built, the test executables included.
+	@E=$$(bash test/provision-emsdk.sh --print-path) && \
+	{ [ -f $(BUILD_DIR_WASM_UNIT_TEST)/Makefile ] || rm -rf $(BUILD_DIR_WASM_UNIT_TEST); } && \
+	bash test/cmake-configure-guard.sh $(BUILD_DIR_WASM_UNIT_TEST) \
+		"CMAKE_TOOLCHAIN_FILE=$$E/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" \
+		"CMAKE_BUILD_TYPE=Release" \
+		"ENABLE_QT_UI=OFF" \
+		"ENABLE_DEBUGGER=OFF" \
+		"ENABLE_TESTS=ON" \
+		"JNEXT_ENABLE_LTO=OFF" \
+		-- \
+		"-S" "." \
+		"-DCMAKE_TOOLCHAIN_FILE=$$E/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" \
+		"-DCMAKE_CROSSCOMPILING_EMULATOR=$$(ls -d $$E/node/*/bin/node)" \
+		"-DCMAKE_BUILD_TYPE=Release" \
+		"-DENABLE_QT_UI=OFF" \
+		"-DENABLE_DEBUGGER=OFF" \
+		"-DENABLE_TESTS=ON" \
+		"-DJNEXT_ENABLE_LTO=OFF" && \
+	$(CMAKE) --build $(BUILD_DIR_WASM_UNIT_TEST) -j$(JOBS)
 
 # Remove the WebAssembly build directory
 wasm-core-clean:
@@ -1301,7 +1338,13 @@ cli-check: unit-test-build
 	@# off unit-test-build rather than off docs-check — docs-check deliberately
 	@# needs no compiler. `make unit-test` runs the same suite via
 	@# test/unit-tests.conf, so it is covered by both entry points.
-	@./build/test/cli_options_test
+	@#
+	@# Two suites make up the family: cli_options_test (the table, the man page,
+	@# the parser) and cli_options_native_test (the rows that run the built
+	@# jnext, among them CLI-BIN-04, the binary's --help against the table). The
+	@# second is split out because a WebAssembly module starts no processes; both
+	@# run here, so the split leaves this gate as strong as it was.
+	@./build/test/cli_options_test && ./build/test/cli_options_native_test
 
 # The `.jns` JSON Schema: generated from the field declarations (GH #27 S2)
 SCHEMA_GEN     := ./build/tools/gen-snapshot-schema/gen-snapshot-schema

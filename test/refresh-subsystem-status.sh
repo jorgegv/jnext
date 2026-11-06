@@ -180,6 +180,7 @@ BEGIN {
     M["log_test"]                      = "Logging"
     M["log_gate_test"]                 = "Logging (gate)"
     M["cli_options_test"]              = "CLI options / docs"
+    M["cli_options_native_test"]       = "CLI options (real binary)"
     M["config_keys_test"]              = "jnext.conf key table (GH #417)"
     M["video_recorder_cmd_test"]       = "Video recorder (ffmpeg cmd)"
     M["nex_loader_test"]               = "NEX loader (screen ingest)"

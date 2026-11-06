@@ -1542,7 +1542,7 @@ int main()
         bool eb25 = false;
         std::string eb25_detail = fixtures_ok ? "" : "fixtures not written";
         if (fixtures_ok) {
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
             std::fflush(stdout);
             std::fflush(stderr);
             const pid_t pid = fork();

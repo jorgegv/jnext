@@ -12,6 +12,12 @@ endif()
 # itself keeps the default environment and its in-memory filesystem.
 if(EMSCRIPTEN)
     add_link_options(-sNODERAWFS=1 -sENVIRONMENT=node)
+    # 8 MB stack as the Windows tree has (fixtures hold Emulators on the stack),
+    # and an overflow check: a release wasm has no guard, so an overflow would
+    # silently overwrite static data. EXIT_RUNTIME runs static destructors and
+    # atexit and flushes stdio at exit, as a native process does. These come
+    # after the top-level -sSTACK_SIZE and win; jnext keeps its own.
+    add_link_options(-sSTACK_SIZE=8MB -sSTACK_OVERFLOW_CHECK=2 -sEXIT_RUNTIME=1)
 endif()
 
 # GH #416: a compiler warning in a test is a test defect (it hid which side of
@@ -178,7 +184,7 @@ add_test(NAME esxdos_stub_tests COMMAND esxdos_stub_test)
 # The symlink-refusal rows of the host-FS sandbox (HFS-10..12, HFS-90..92).
 # POSIX-only (GH #214; `# os: posix` in unit-tests.conf): Windows -- and wine --
 # cannot create the symbolic-link fixtures they read.
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EMSCRIPTEN)
     # GH #321 — prune must not delete symlinks.
     add_executable(quick_snapshot_posix_test core/quick_snapshot_posix_test.cpp)
     target_link_libraries(quick_snapshot_posix_test PRIVATE jnext_core spdlog::spdlog)
@@ -295,7 +301,7 @@ add_test(NAME uart_integration_tests COMMAND uart_integration_test)
 # every OS in nextpi_test since GH #331). They moved out of uart_integration_test
 # unchanged; the scaffolding is shared
 # through uart/uart_integration_includes.h + uart_integration_helpers.h.
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EMSCRIPTEN)
     add_executable(uart_posix_test uart/uart_posix_test.cpp uart/audio_log_capture.cpp)
     target_link_libraries(uart_posix_test PRIVATE
         jnext_core jnext_cpu jnext_memory jnext_video
@@ -311,18 +317,20 @@ endif()
 # by the suite as `qemu-system-arm[.exe]` / `qemu-img[.exe]` (the ffmpeg_stub
 # idiom: CreateProcess runs an .exe and nothing else). Not an add_test() -- a
 # test-support binary.
-add_executable(nextpi_qemu_stub uart/nextpi_qemu_stub.cpp)
-target_link_libraries(nextpi_qemu_stub PRIVATE esp01)
-add_executable(nextpi_test uart/nextpi_test.cpp uart/nextpi_support.cpp uart/nextpi_log_capture.cpp)
-target_link_libraries(nextpi_test PRIVATE
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(nextpi_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_dependencies(nextpi_test nextpi_qemu_stub)
-target_compile_definitions(nextpi_test PRIVATE
-    JNEXT_NEXTPI_STUB="$<TARGET_FILE:nextpi_qemu_stub>")
-add_test(NAME nextpi_tests COMMAND nextpi_test)
+if(NOT EMSCRIPTEN)
+    add_executable(nextpi_qemu_stub uart/nextpi_qemu_stub.cpp)
+    target_link_libraries(nextpi_qemu_stub PRIVATE esp01)
+    add_executable(nextpi_test uart/nextpi_test.cpp uart/nextpi_support.cpp uart/nextpi_log_capture.cpp)
+    target_link_libraries(nextpi_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(nextpi_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_dependencies(nextpi_test nextpi_qemu_stub)
+    target_compile_definitions(nextpi_test PRIVATE
+        JNEXT_NEXTPI_STUB="$<TARGET_FILE:nextpi_qemu_stub>")
+    add_test(NAME nextpi_tests COMMAND nextpi_test)
+endif()
 
 # The emulated ESP-01's own suites (esp_at_test, esp_socket_test) are NOT
 # declared here. They ship WITH the module and are registered from
@@ -334,10 +342,12 @@ add_test(NAME nextpi_tests COMMAND nextpi_test)
 # the `Uart::tick` call site that consumes its hot-path gate, and the binding
 # of the module's logging seam to jnext's `esp01` spdlog logger. None of that
 # can live in the module without dragging jnext back in.
-add_executable(esp_uart_adapter_test esp/esp_uart_adapter_test.cpp)
-target_link_libraries(esp_uart_adapter_test PRIVATE jnext_peripheral)
-target_include_directories(esp_uart_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME esp_uart_adapter_tests COMMAND esp_uart_adapter_test)
+if(NOT EMSCRIPTEN)
+    add_executable(esp_uart_adapter_test esp/esp_uart_adapter_test.cpp)
+    target_link_libraries(esp_uart_adapter_test PRIVATE jnext_peripheral)
+    target_include_directories(esp_uart_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME esp_uart_adapter_tests COMMAND esp_uart_adapter_test)
+endif()
 
 # jnext's ESP-01 security / visibility / wiring suite (GH #25 branch 4). The
 # hostname allowlist, the connection-event log the GUI reads, the transport
@@ -345,13 +355,15 @@ add_test(NAME esp_uart_adapter_tests COMMAND esp_uart_adapter_test)
 # (off by default, inert under replay, joined at destruction). It links the
 # full emulator stack because the WIRE-* rows drive a real Emulator — the only
 # way to prove the default really is "no ESP attached to UART 0".
-add_executable(esp_wiring_test esp/esp_wiring_test.cpp)
-target_link_libraries(esp_wiring_test PRIVATE
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(esp_wiring_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME esp_wiring_tests COMMAND esp_wiring_test)
+if(NOT EMSCRIPTEN)
+    add_executable(esp_wiring_test esp/esp_wiring_test.cpp)
+    target_link_libraries(esp_wiring_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(esp_wiring_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME esp_wiring_tests COMMAND esp_wiring_test)
+endif()
 
 # Multiface core class compliance test (Wave 1 B1, Task 8 plan, 2026-05-04)
 # Pins src/peripheral/multiface.{h,cpp} against multiface.vhd. Bare-class
@@ -427,7 +439,7 @@ add_executable(sdcard_file_add_test sdcard_file_add/sdcard_file_add_test.cpp)
 target_link_libraries(sdcard_file_add_test PRIVATE jnext_core)
 target_include_directories(sdcard_file_add_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_file_add_tests COMMAND sdcard_file_add_test)
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EMSCRIPTEN)
     add_executable(sdcard_file_add_posix_test sdcard_file_add/sdcard_file_add_posix_test.cpp)
     target_link_libraries(sdcard_file_add_posix_test PRIVATE jnext_core)
     target_include_directories(sdcard_file_add_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -450,10 +462,12 @@ add_test(NAME fat32_image_tests COMMAND fat32_image_test)
 
 # SD-card provisioner test (Task 27): path resolution, precedence, download
 # seam behaviour (stubbed — never touches the network), and zip extraction.
-add_executable(sdcard_provisioner_test sdcard_provisioner/sdcard_provisioner_test.cpp)
-target_link_libraries(sdcard_provisioner_test PRIVATE jnext_core ZLIB::ZLIB)
-target_include_directories(sdcard_provisioner_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME sdcard_provisioner_tests COMMAND sdcard_provisioner_test)
+if(NOT EMSCRIPTEN)
+    add_executable(sdcard_provisioner_test sdcard_provisioner/sdcard_provisioner_test.cpp)
+    target_link_libraries(sdcard_provisioner_test PRIVATE jnext_core ZLIB::ZLIB)
+    target_include_directories(sdcard_provisioner_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_provisioner_tests COMMAND sdcard_provisioner_test)
+endif()
 
 # SHA-256 known-answer test over whichever backend the build links (OpenSSL,
 # BCrypt, or the portable one `make wasm-core` runs under node).
@@ -463,7 +477,7 @@ target_include_directories(sha256_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sha256_tests COMMAND sha256_test)
 # The rows that need libcurl's own behaviour (a proxy put in front of it through the
 # environment, which the WinHTTP twin has no counterpart of): POSIX only (GH #385).
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EMSCRIPTEN)
     add_executable(sdcard_provisioner_posix_test sdcard_provisioner/sdcard_provisioner_posix_test.cpp)
     target_link_libraries(sdcard_provisioner_posix_test PRIVATE jnext_core)
     target_include_directories(sdcard_provisioner_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -668,7 +682,7 @@ add_test(NAME ay_cache_tests COMMAND ay_cache_test)
 # unit-tests.conf, GH #214): PiAudio reading QEMU's WAV stream. Windows has
 # no FIFOs, so they live apart from audio_test, whose count is the same on
 # every OS.
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EMSCRIPTEN)
     add_executable(audio_posix_test audio/audio_posix_test.cpp)
     target_link_libraries(audio_posix_test PRIVATE jnext_audio)
     target_include_directories(audio_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -860,10 +874,24 @@ target_compile_definitions(cli_options_test PRIVATE
     JNEXT_MAN_SRC="${CMAKE_SOURCE_DIR}/doc/man/jnext.1.md"
     JNEXT_MAIN_SRC="${CMAKE_SOURCE_DIR}/src/main.cpp"
     # The user guide's generated option page (GH #213) — CLI-DOC-06.
-    JNEXT_GUIDE_CLI_SRC="${CMAKE_SOURCE_DIR}/src/doc/user-guide/09-reference/01-command-line-options.md"
-    JNEXT_BINARY="$<TARGET_FILE:jnext>")
-add_dependencies(cli_options_test jnext)
+    JNEXT_GUIDE_CLI_SRC="${CMAKE_SOURCE_DIR}/src/doc/user-guide/09-reference/01-command-line-options.md")
 add_test(NAME cli_options_tests COMMAND cli_options_test)
+
+# The rows of the same family that run the built jnext binary as a child process
+# (split out of cli_options_test): a WebAssembly module starts no processes, so
+# the suite is `# os: native` and absent there.
+if(NOT EMSCRIPTEN)
+    add_executable(cli_options_native_test core/cli_options_native_test.cpp)
+    target_link_libraries(cli_options_native_test PRIVATE
+        jnext_platform jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(cli_options_native_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(cli_options_native_test PRIVATE
+        JNEXT_BINARY="$<TARGET_FILE:jnext>")
+    add_dependencies(cli_options_native_test jnext)
+    add_test(NAME cli_options_native_tests COMMAND cli_options_native_test)
+endif()
 
 # GH #417 - the table of jnext.conf keys (src/platform/config_keys.h), its setter and
 # the debugger-key override. Qt-free: it builds, and runs, in the SDL-only and
@@ -971,7 +999,7 @@ add_test(NAME recent_files_tests COMMAND recent_files_test)
 
 # RECF-17 (symlink dedup) needs a symbolic link, which Windows (and wine) cannot
 # create: POSIX only, `# os: posix` in unit-tests.conf (GH #214).
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EMSCRIPTEN)
     add_executable(recent_files_posix_test gui/recent_files_posix_test.cpp)
     target_include_directories(recent_files_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME recent_files_posix_tests COMMAND recent_files_posix_test)
@@ -1045,7 +1073,7 @@ add_test(NAME host_key_latch_tests COMMAND host_key_latch_test)
 # manifest). quit_signal.cpp is compiled in directly, like sdl_input.cpp above:
 # its only dependency is the C library, and SDL3 is linked for the QSIG-07..09
 # rows that prove the handler wins over SDL's. SDL_INIT_EVENTS only: no display.
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EMSCRIPTEN)
     add_executable(quit_signal_test platform/quit_signal_test.cpp
                                     ${CMAKE_SOURCE_DIR}/src/platform/quit_signal.cpp)
     target_include_directories(quit_signal_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -1300,7 +1328,7 @@ target_compile_definitions(source_debug_test PRIVATE
 add_test(NAME source_debug_tests COMMAND source_debug_test)
 # The rows whose sidecar fixtures are POSIX file types (a socket, a symlink,
 # a FIFO): Windows has none of them, so they live apart (GH #214).
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EMSCRIPTEN)
     add_executable(source_debug_posix_test debug/source_debug_posix_test.cpp)
     target_link_libraries(source_debug_posix_test PRIVATE
         jnext_core jnext_cpu jnext_memory jnext_video
@@ -1407,122 +1435,138 @@ add_test(NAME raster_state_tests COMMAND raster_state_test)
 # declared `gate: none` and runs in both configurations. The pump rows need a
 # real Debugger over a 48K Emulator, so it links the emulator like
 # debugger_backend_test (minus jnext_platform: no loop owner is driven).
-add_executable(remote_transport_test remote/remote_transport_test.cpp)
-target_link_libraries(remote_transport_test PRIVATE
-    jnext_remote
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(remote_transport_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME remote_transport_tests COMMAND remote_transport_test)
+if(NOT EMSCRIPTEN)
+    add_executable(remote_transport_test remote/remote_transport_test.cpp)
+    target_link_libraries(remote_transport_test PRIVATE
+        jnext_remote
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(remote_transport_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME remote_transport_tests COMMAND remote_transport_test)
+endif()
 
 # GH #12 (epic #276, package D) — the DZRP adapter (DeZog Remote Protocol) over
 # T's in-memory fake transport, on a real 48K / +3 / Next machine driven by
 # Debugger::pump(). Qt-free, so it is declared `gate: none` and runs in both
 # configurations. Links the emulator like remote_transport_test.
-add_executable(dzrp_adapter_test remote/dzrp_adapter_test.cpp)
-target_link_libraries(dzrp_adapter_test PRIVATE
-    jnext_remote
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(dzrp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME dzrp_adapter_tests COMMAND dzrp_adapter_test)
+if(NOT EMSCRIPTEN)
+    add_executable(dzrp_adapter_test remote/dzrp_adapter_test.cpp)
+    target_link_libraries(dzrp_adapter_test PRIVATE
+        jnext_remote
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(dzrp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME dzrp_adapter_tests COMMAND dzrp_adapter_test)
+endif()
 # GH #26 WP1 (epic #276 package S) — the debugger DSL's lexer, parser, load-time
 # checks and the compile_expr / eval_expr library. Qt-free, so `gate: none`: it
 # runs in both configurations. The evaluation rows need a real Debugger over a
 # 48K Emulator, so it links the emulator like remote_transport_test.
-add_executable(script_parse_test script/script_parse_test.cpp)
-target_link_libraries(script_parse_test PRIVATE
-    jnext_script
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(script_parse_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME script_parse_tests COMMAND script_parse_test)
+if(NOT EMSCRIPTEN)
+    add_executable(script_parse_test script/script_parse_test.cpp)
+    target_link_libraries(script_parse_test PRIVATE
+        jnext_script
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(script_parse_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME script_parse_tests COMMAND script_parse_test)
+endif()
 
 # GH #26 WP2 — the DSL evaluator: the value model, variables, the snapshot
 # stacks, interpolation and run-time errors, over a real Debugger (48K).
 # Qt-free: `gate: none`.
-add_executable(script_eval_test script/script_eval_test.cpp)
-target_link_libraries(script_eval_test PRIVATE
-    jnext_script
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(script_eval_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-# EVAL-CVAR-* (GH #436) read C variables of the committed z88dk fixtures; -06 loads an SLD.
-target_compile_definitions(script_eval_test PRIVATE
-    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
-    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
-add_test(NAME script_eval_tests COMMAND script_eval_test)
+if(NOT EMSCRIPTEN)
+    add_executable(script_eval_test script/script_eval_test.cpp)
+    target_link_libraries(script_eval_test PRIVATE
+        jnext_script
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(script_eval_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # EVAL-CVAR-* (GH #436) read C variables of the committed z88dk fixtures; -06 loads an SLD.
+    target_compile_definitions(script_eval_test PRIVATE
+        JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+        JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
+    add_test(NAME script_eval_tests COMMAND script_eval_test)
+endif()
 
 # GH #26 WP3 — the DSL engine: rules as backend subscriptions on a real
 # machine (48K and Next), payloads, mutations, the frame-edge actions and the
 # §3 worked scripts. Qt-free: `gate: none`.
-add_executable(script_events_test script/script_events_test.cpp)
-target_link_libraries(script_events_test PRIVATE
-    jnext_script
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(script_events_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-# The SCRIPT-HOST-MAP-* rows (GH #390) load the committed sjasmplus fixtures; the
-# SCRIPT-HOST-CN-* rows (GH #424) a committed z88dk map.
-target_compile_definitions(script_events_test PRIVATE
-    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
-    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
-add_test(NAME script_events_tests COMMAND script_events_test)
+if(NOT EMSCRIPTEN)
+    add_executable(script_events_test script/script_events_test.cpp)
+    target_link_libraries(script_events_test PRIVATE
+        jnext_script
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(script_events_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # The SCRIPT-HOST-MAP-* rows (GH #390) load the committed sjasmplus fixtures; the
+    # SCRIPT-HOST-CN-* rows (GH #424) a committed z88dk map.
+    target_compile_definitions(script_events_test PRIVATE
+        JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+        JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
+    add_test(NAME script_events_tests COMMAND script_events_test)
+endif()
 
 # GH #26 WP6 (#20) — the recorder: input edges, captures, header, warnings, a
 # cold boot, and the record -> emit -> replay round trip on a fresh machine;
 # ScriptHost's `--record-script`. Qt-free: `gate: none`.
-add_executable(script_record_test script/script_record_test.cpp)
-target_link_libraries(script_record_test PRIVATE
-    jnext_script
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(script_record_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME script_record_tests COMMAND script_record_test)
+if(NOT EMSCRIPTEN)
+    add_executable(script_record_test script/script_record_test.cpp)
+    target_link_libraries(script_record_test PRIVATE
+        jnext_script
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(script_record_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME script_record_tests COMMAND script_record_test)
+endif()
 
 # GH #281 (epic #276, package G) — the GDB Remote Serial Protocol adapter
 # (z88dk-gdb) over T's in-memory fake transport, on a real 48K / +3 / Next
 # machine driven by Debugger::pump(). Qt-free, so it is declared `gate: none`
 # and runs in both configurations. Links the emulator like dzrp_adapter_test
 # (its GDB-SES rows run the DZRP server beside it on one backend).
-add_executable(gdb_rsp_test remote/gdb_rsp_test.cpp)
-target_link_libraries(gdb_rsp_test PRIVATE
-    jnext_remote
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(gdb_rsp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-# GDB-MON-13 (GH #375) loads the committed sjasmplus SLD fixture; GDB-MON-14 (GH #424)
-# a committed z88dk map.
-target_compile_definitions(gdb_rsp_test PRIVATE
-    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
-    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
-add_test(NAME gdb_rsp_tests COMMAND gdb_rsp_test)
+if(NOT EMSCRIPTEN)
+    add_executable(gdb_rsp_test remote/gdb_rsp_test.cpp)
+    target_link_libraries(gdb_rsp_test PRIVATE
+        jnext_remote
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(gdb_rsp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # GDB-MON-13 (GH #375) loads the committed sjasmplus SLD fixture; GDB-MON-14 (GH #424)
+    # a committed z88dk map.
+    target_compile_definitions(gdb_rsp_test PRIVATE
+        JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+        JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
+    add_test(NAME gdb_rsp_tests COMMAND gdb_rsp_test)
+endif()
 
 # GH #280 (epic #276, package Z) — the ZRCP adapter (the ZEsarUX remote command
 # protocol) over T's in-memory fake transport, on a real 48K / Next machine
 # driven by Debugger::pump(). Qt-free, so it is declared `gate: none` and runs
 # in both configurations. Links the emulator like dzrp_adapter_test.
-add_executable(zrcp_adapter_test remote/zrcp_adapter_test.cpp)
-target_link_libraries(zrcp_adapter_test PRIVATE
-    jnext_remote
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(zrcp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_include_directories(zrcp_adapter_test PRIVATE "${CMAKE_BINARY_DIR}/generated")
-# ZRCP-FIX-* replay the committed fixture of ZEsarUX 12.0's recorded bytes (WP-6).
-# ZRCP-CVAR-* (GH #436) read C variables of the committed z88dk fixtures.
-target_compile_definitions(zrcp_adapter_test PRIVATE
-    JNEXT_ZRCP_FIXTURE="${CMAKE_SOURCE_DIR}/test/fixtures/zrcp/zesarux-12.0-exchanges.txt"
-    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
-add_test(NAME zrcp_adapter_tests COMMAND zrcp_adapter_test)
+if(NOT EMSCRIPTEN)
+    add_executable(zrcp_adapter_test remote/zrcp_adapter_test.cpp)
+    target_link_libraries(zrcp_adapter_test PRIVATE
+        jnext_remote
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(zrcp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_include_directories(zrcp_adapter_test PRIVATE "${CMAKE_BINARY_DIR}/generated")
+    # ZRCP-FIX-* replay the committed fixture of ZEsarUX 12.0's recorded bytes (WP-6).
+    # ZRCP-CVAR-* (GH #436) read C variables of the committed z88dk fixtures.
+    target_compile_definitions(zrcp_adapter_test PRIVATE
+        JNEXT_ZRCP_FIXTURE="${CMAKE_SOURCE_DIR}/test/fixtures/zrcp/zesarux-12.0-exchanges.txt"
+        JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
+    add_test(NAME zrcp_adapter_tests COMMAND zrcp_adapter_test)
+endif()
 
 # OpenGL CRT display filter (doc/design/CRT-GL-FILTER.md) — the pure decision rules:
 # style numbers, the fullscreen placement rule, the ARGB->GL byte order. No Qt, no GL,
@@ -2181,7 +2225,7 @@ target_include_directories(sdfile_tool PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # prove test/row_id.h keeps every row a fork()ing suite reports.
 # It needs fork(), which Windows has no counterpart for, and nothing off Linux
 # drives it (harness-selftest.sh is a Linux script).
-if(NOT WIN32)
+if(NOT WIN32 AND NOT EMSCRIPTEN)
     add_executable(row_id_fork_probe row_id_fork_probe.cpp)
 endif()
 

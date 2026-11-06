@@ -32,19 +32,33 @@ it more briefly — *this file is a contract, not a convenience.*
   it as not-run — never silently. (That is a gated-out suite, which is not a
   SKIP: a suite that reports `Skipped > 0` fails the run, see
   [4.1](01-the-test-triplet.md).)
-- A second, orthogonal directive, `# os: all | posix | linux`, says
+- A second, orthogonal directive, `# os: all | native | posix | linux`, says
   which **target operating systems** own the suites below it, until the next
-  `# os:`; `all` is in force at the top. `posix` is Linux and macOS, `linux` is
-  Linux alone, and Linux satisfies every value, so Linux still runs every suite.
+  `# os:`; `all` is in force at the top. The classes form one chain, `linux`
+  inside `posix` inside `native` inside `all`: `all` is Linux, macOS, Windows
+  and Emscripten (the WebAssembly build under node), `native` is every one of
+  them but Emscripten (a suite that needs a process, a thread, a listening
+  socket, or a feature the browser build compiles out or refuses), `posix` is
+  Linux and macOS, `linux` is Linux alone, and Linux satisfies every value, so
+  Linux still runs every suite.
   A suite is owed by a build only where both its gate and its `# os:` say so, a
   suite under a non-`all` os must carry the `?` marker, and an unknown value is a
   refusal. The OS is read from the build tree's own `CMakeCache.txt`
   (`JNEXT_TARGET_OS`, which the top `CMakeLists.txt` sets from
-  `CMAKE_SYSTEM_NAME`), so a MinGW cross build on Linux says `windows`. A row
+  `CMAKE_SYSTEM_NAME`), so a MinGW cross build on Linux says `windows` and the
+  Emscripten one says `emscripten`. A cross build that CMake runs through an
+  emulator registers every test as `add_test(<name> "<emulator>" "<suite>" ...)`;
+  the harness reads the emulator from the cache
+  (`CMAKE_CROSSCOMPILING_EMULATOR`), requires every line to start with it and
+  takes the next word as the suite, and an Emscripten suite is built when both
+  `NAME.js` and `NAME.wasm` exist (neither is executable). A row
   that cannot exist on a platform is never compiled out or skipped: it moves,
   ID and assertion unchanged, into a sibling suite whose `# os:` excludes that
   platform. `uart_posix_test`, `esxdos_symlink_test`, `esp_sigpipe_test` and
-  `sdcard_file_add_posix_test` are exactly that (`posix`), and
+  `sdcard_file_add_posix_test` are exactly that (`posix`), the CLI rows that start
+  the built `jnext` live in `cli_options_native_test` (`native`), and the suites
+  whose subject the browser build does not have (the debugger servers, the script
+  engine, the ESP-01 and NextPi, the SD-card downloader) are `native` as a whole, and
   `sdcard_file_add_linux_test`, one row that needs a case-sensitive host
   filesystem, is `linux`; the rest of each feature runs everywhere.
 - `<expected_rows>` is the exact `Total:` the suite must report, and it must be

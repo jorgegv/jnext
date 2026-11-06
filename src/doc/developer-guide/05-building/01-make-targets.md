@@ -122,6 +122,19 @@ absolute path through `JNEXT_TEST_SD_IMAGE`. A bundle (executables, the MinGW
 DLLs `packaging/windows/bundle-dlls.sh` copies, the manifest, the harness and
 the sources it reads) is feasible, but it is its own piece of work.
 
+`make unit-test-wasm` runs the same SDL-only suites as WebAssembly under node. It
+is two steps like the Windows one: `unit-test-wasm-build` configures and builds
+`build/wasm-unit-test` (the `wasm-core` configuration with LTO off, every target)
+and the run step feeds each suite to `test/node-run.sh`. The runner uses the node
+the tree was configured with, never one from `PATH`; fixes the locale and removes
+the display variables; gives each run a private `TMPDIR`, because Emscripten's
+`getpid()` is the constant 42 and dozens of suites name their scratch files after
+it; as root (the CI container) drops CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH
+with `setpriv`, as the wine runner does; and forwards TERM and INT and returns
+node's exit status. What node cannot stand in for (processes, threads, listening
+sockets) is declared absent with `# os: native`, and the run names every absent
+suite in its NOTICE. It needs the SD image like the other two.
+
 `make emsdk` provides the pinned Emscripten SDK (6.0.13) in the user cache,
 `~/.cache/jnext/tools/emsdk-6.0.13`, through `test/provision-emsdk.sh`: it
 downloads three archives (the emsdk installer, the SDK release and the node it
