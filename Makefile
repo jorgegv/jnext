@@ -203,7 +203,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra
+       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -785,7 +785,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test
+unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test minimal-image-test
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -824,6 +824,9 @@ unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text
 	@# roots, ~4 s, no compiler and no packaging toolchain. The half that actually
 	@# builds rpm/deb/win packages (~4 min) stays in `make package-test`, run as its
 	@# own parallel job in ci.yml.
+	@# minimal-image-test is a prerequisite for the same reason: no CMake suite behind it,
+	@# and hermetic apart from the cached distribution image. Linux-only (sfdisk), so it is
+	@# not a prerequisite of unit-test-sdl or unit-test-win.
 	@bash test/run-unit-tests.sh build
 	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
 	@# 'unit-test-dashboard' target, so it silently rots. This warns (never fails —
@@ -1993,6 +1996,10 @@ packaging-selftest:
 # Integration-test every package target (src/rpm/deb/win; Flatpak build is the flatpak CI job's) — a missing tool fails, macOS excluded
 package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
+
+# Test tools/make-minimal-sdcard-image.sh (16 rows) against the cached distribution image - needs mtools + sfdisk
+minimal-image-test:
+	@bash test/minimal-sdcard-image-test.sh
 
 # Contract-test the packaging scripts + package-* recipes (no builds) — hermetic, ~4s
 package-contract-test:

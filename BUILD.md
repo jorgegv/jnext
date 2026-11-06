@@ -389,7 +389,7 @@ make regression     # screenshot comparisons + functional tests, headless
 tool is an error to fix, not a row to skip. The tools the suites use are the
 `test` job's `dnf install` list in `.github/workflows/ci.yml` (the reference set:
 ImageMagick, Xvfb, xdotool, python3 with PyYAML and jsonschema, unzip, ripgrep,
-ffmpeg, mtools and dosfstools, rpm-build, libspectrum-devel, pandoc, mkdocs-material,
+ffmpeg, mtools and dosfstools, util-linux (sfdisk), rpm-build, libspectrum-devel, pandoc, mkdocs-material,
 graphviz, perl modules, dbus-daemon, ...). `color_scheme_test` starts a private
 `dbus-daemon` to serve a mock desktop portal (GH #363), so its portal rows fail
 without it. The one tool that is not a package, the `z88dk-gdb`
