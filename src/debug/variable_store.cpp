@@ -20,10 +20,12 @@ bool by_text(const T& a, const T& b)
 VariableStore::VariableStore(std::vector<CFunction> functions, std::vector<CVariable> variables,
                              std::vector<CRecord> types, std::vector<CRecord> modules,
                              std::vector<std::string> refused, CFrameHelpers helpers,
-                             CNoRecordFacts facts, std::string float_library)
+                             CNoRecordFacts facts, std::string float_library,
+                             std::map<std::string, CFloatFormat> float_formats)
     : variables_(std::move(variables)), types_(std::move(types)),
       modules_(std::move(modules)), refused_(std::move(refused)),
-      helpers_(std::move(helpers)), facts_(facts), float_library_(std::move(float_library))
+      helpers_(std::move(helpers)), facts_(facts), float_library_(std::move(float_library)),
+      float_formats_(std::move(float_formats))
 {
     std::vector<size_t> order(functions.size());
     std::iota(order.begin(), order.end(), size_t{0});

@@ -558,7 +558,8 @@ std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
     const std::vector<CdbLine>& cdb_lines, const std::vector<Z88dkMapLine>& symbols,
     const std::vector<Record>& scope_records, const PlaceSymbol& place,
     const std::map<std::string, uint64_t>& bounds, const ListedFunctions& listed,
-    const std::string& float_library, const std::vector<Record>& listing_scopes)
+    const std::string& float_library, const std::vector<Record>& listing_scopes,
+    std::map<std::string, jnext::dbg::CFloatFormat> float_formats)
 {
     SymbolIndex idx;
     for (const Z88dkMapLine& s : symbols) {
@@ -686,7 +687,7 @@ std::shared_ptr<const jnext::dbg::VariableStore> build_variable_store(
     return std::make_shared<const jnext::dbg::VariableStore>(std::move(fns), std::move(vars),
                                                            std::move(types), std::move(modules),
                                                            std::move(refused), std::move(helpers), facts,
-                                                           float_library);
+                                                           float_library, std::move(float_formats));
 }
 
 } // namespace
@@ -706,6 +707,8 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     std::vector<CdbLine> cdb_lines;           // the __CDBINFO__ records, for the variable store
     std::map<std::string, uint64_t> bounds;   // const __<group>_head / _tail, first wins
     std::string float_library;                // the first non-zero const __code_fp_<lib>_size
+    std::map<std::string, jnext::dbg::CFloatFormat> float_formats;   // per module: __fp_mode, __fp_exponent_bias, __fp_mantissa_size (GH #477)
+    std::map<std::string, int> float_seen;    // per module: bit 0 mode, 1 bias, 2 mantissa
     std::string text;
     int map_line = 0;
     while (std::getline(input, text)) {
@@ -733,6 +736,22 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             if (float_library.empty() && starts_with(parsed->name, "__code_fp_") && parsed->value != 0
                 && parsed->name.size() > 15 && parsed->name.compare(parsed->name.size() - 5, 5, "_size") == 0)
                 float_library = parsed->name.substr(10, parsed->name.size() - 15);
+            // the float format sccz80 and 80cc record in each C module they compile (z88dk#3240); a different value of one name in one
+            // module makes the module's format unusable
+            if (!parsed->module.empty()
+                && (parsed->name == "__fp_mode" || parsed->name == "__fp_exponent_bias" || parsed->name == "__fp_mantissa_size")) {
+                jnext::dbg::CFloatFormat& f = float_formats[parsed->module];
+                int& seen = float_seen[parsed->module];
+                const int bit = parsed->name == "__fp_mode" ? 1 : parsed->name == "__fp_exponent_bias" ? 2 : 4;
+                int* field = bit == 1 ? &f.mode : bit == 2 ? &f.exponent_bias : &f.mantissa_size;
+                const int v = static_cast<int>(parsed->value);
+                if ((seen & bit) && *field != v) {
+                    if (f.why.empty()) f.why = "two " + parsed->name + " values (" + std::to_string(*field) + " and " + std::to_string(v) + ")";
+                } else {
+                    *field = v;
+                }
+                seen |= bit;
+            }
             if (parsed->name == "startupoffset"   // a dot command's (design 9.4 rule 5)
                 || (starts_with(parsed->name, "__")
                     && (parsed->name.size() > 7)
@@ -742,6 +761,12 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         } else if (parsed->is_addr && !starts_with(parsed->name, "__CDBINFO__")) {
             symbols.push_back(*parsed);
         }
+    }
+
+    for (auto& [module, f] : float_formats) {
+        const int seen = float_seen[module];
+        if (!f.why.empty() || seen == 7) continue;
+        f.why = (seen & 2) ? ((seen & 4) ? "no __fp_mode" : "no __fp_mantissa_size") : "no __fp_exponent_bias";
     }
 
     const auto page_head = [&](int n) { return z88dk_page_head(bounds, n); };
@@ -1191,6 +1216,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     map.replace(std::move(ranges), std::move(aliases), std::move(identity), loaded, "z88dk",
                 std::move(listed_texts), dot != nullptr,
                 build_variable_store(cdb_lines, symbols, scope_records, place_symbol, bounds,
-                                     listed_functions, float_library, listing_scopes));
+                                     listed_functions, float_library, listing_scopes,
+                                     std::move(float_formats)));
     return result;
 }

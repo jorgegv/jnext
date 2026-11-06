@@ -3385,6 +3385,46 @@ main cross_c AC97
               one == 3 && vars);
     }
 
+    {   // Z88FP-03
+        // GH #477: the three local constants sccz80 and 80cc write into every module they compile (z88dk#3240) are the module's float format
+        int n_fp = 0;
+        const auto fp = [](const char* name, int value, const char* module, const char* kind = "const") {
+            char v[16];
+            std::snprintf(v, sizeof v, "$%04X", value);
+            return std::string(name) + " = " + v + " ; " + kind + ", local, , " + module + ", code_compiler, t.c::main::0::1:5\n";
+        };
+        const auto trio = [&](int mode, int bias, int ms, const char* module) {
+            return fp("__fp_exponent_bias", bias, module) + fp("__fp_mantissa_size", ms, module) + fp("__fp_mode", mode, module);
+        };
+        const auto fmt_of = [&](const std::string& lines, const char* module) {
+            SourceMap m;
+            load(m, zb_map(("z88fp03_" + std::to_string(n_fp++) + ".map").c_str(), lines));
+            const VariableStore* st = store_of(m);
+            const jnext::dbg::CFloatFormat* f = st ? st->float_format(module) : nullptr;
+            if (!st) return std::string("no store");
+            if (!f) return std::string("none");
+            return f->why.empty() ? std::to_string(f->mode) + "/" + std::to_string(f->exponent_bias) + "/" + std::to_string(f->mantissa_size) : "!" + f->why;
+        };
+        const std::string good = fmt_of(trio(1, 0x7E, 3, "t_c"), "t_c");
+        const std::string only_mode = fmt_of(fp("__fp_mode", 0, "t_c"), "t_c");
+        const std::string no_mant = fmt_of(fp("__fp_mode", 0, "t_c") + fp("__fp_exponent_bias", 128, "t_c"), "t_c");
+        const std::string no_mode = fmt_of(fp("__fp_exponent_bias", 128, "t_c") + fp("__fp_mantissa_size", 5, "t_c"), "t_c");
+        const std::string twice = fmt_of(trio(0, 128, 5, "t_c") + fp("__fp_mode", 1, "t_c"), "t_c");
+        const std::string same = fmt_of(trio(0, 128, 5, "t_c") + fp("__fp_mode", 0, "t_c"), "t_c");
+        const std::string two_mods_t = fmt_of(trio(0, 128, 5, "t_c") + trio(2, 128, 3, "u_c"), "t_c");
+        const std::string two_mods_u = fmt_of(trio(0, 128, 5, "t_c") + trio(2, 128, 3, "u_c"), "u_c");
+        const std::string addr_line = fmt_of(trio(0, 128, 5, "u_c") + fp("__fp_mode", 1, "t_c", "addr"), "t_c");
+        const std::string no_module = fmt_of(fp("__fp_mode", 1, ""), "");
+        const bool fp03 =
+              good == "1/126/3" && only_mode == "!no __fp_exponent_bias" && no_mant == "!no __fp_mantissa_size" && no_mode == "!no __fp_mode" &&
+                  twice == "!two __fp_mode values (0 and 1)" && same == "0/128/5" && two_mods_t == "0/128/5" && two_mods_u == "2/128/3" && addr_line == "none" && no_module == "none";
+        if (!fp03) std::printf("  Z88FP-03: %s\n", (good + " | " + only_mode + " | " + no_mant + " | " + no_mode + " | " + twice + " | " + same + " | " + two_mods_t + " | " + two_mods_u + " | " + addr_line + " | " + no_module).c_str());
+        check("Z88FP-03", "the float format of a module from its __fp_mode / __fp_exponent_bias / __fp_mantissa_size constants: $007E is 126; one without the others is unusable (no "
+                          "__fp_exponent_bias, no __fp_mantissa_size, no __fp_mode); two different values of one name are unusable (two __fp_mode values (0 and 1)), the same value twice is fine; "
+                          "two modules keep two formats; an addr line of that name and a line with no module are ignored",
+              fp03);
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

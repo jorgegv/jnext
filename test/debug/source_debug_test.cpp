@@ -8774,6 +8774,90 @@ int main() {
                       sbat && refused_with(bw, "shares its stack slot with y") && cvv(sb, 0, "y") == "5" && szat && refused_with(zw, "shares its stack slot with v") && refused_with(vw, "shares its stack slot with z") &&
                       cvv(sz, 0, "v") == "12");
         }
+        {   // SRCDBG-CVFMT-01
+            // GH #477: a module's float format (the local constants of z88dk#3240) decides the read, the typed value and the write through the facade
+            const auto fp_lines = [](int mode, int bias, int ms, const char* module) {
+                char b[400];
+                std::snprintf(b, sizeof b,
+                              "__fp_exponent_bias = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n__fp_mantissa_size = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n"
+                              "__fp_mode = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n",
+                              bias, module, ms, module, mode, module);
+                return std::string(b);
+            };
+            struct FpRun {
+                std::unique_ptr<Machine> mp;
+                std::string before_text, after_text;
+                std::optional<double> real;
+                bool read_ok = false;
+                CwTry w;
+                Bytes before, after;
+            };
+            const auto run = [&](const char* name, const std::string& extra, const Bytes& init, const char* value) {
+                FpRun r;
+                r.mp = std::make_unique<Machine>(false, MachineType::ZXN_ISSUE2);
+                Machine& fm = *r.mp;
+                const std::string map = (z / name).string();
+                write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                                "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                                "__code_compiler_tail = $8040 ; const, public, def, , ,\n" + extra +
+                                "_gf = $9000 ; addr, public, , t_c, data_compiler, t.c:3\n" +
+                                s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$gf$0_0$0({4}SF:S),E,0,0", "t_c"));
+                fm.dbg->load_source_map(map, true);
+                for (size_t i = 0; i < init.size(); ++i) fm.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), init[i]);
+                const Dbg::CValueResult rd = fm.dbg->read_c_value(0, "gf");
+                r.read_ok = rd.ok;
+                r.before_text = rd.ok ? rd.value : "!" + rd.why;
+                r.real = rd.real;
+                r.before = cpk(fm, 0x9000, 4);
+                r.w = attempt(fm, 0, "gf", value);
+                r.after = cpk(fm, 0x9000, 4);
+                const Dbg::CValueResult back = fm.dbg->read_c_value(0, "gf");
+                r.after_text = back.ok ? back.value : "!" + back.why;
+                return r;
+            };
+            const std::string c15 = std::string("1") + ".5";
+            const FpRun a = run("cvfmt01a.map", fp_lines(2, 128, 3, "t_c"), {0x00, 0x00, 0xD0, 0x82}, "1.5");
+            const FpRun b = run("cvfmt01b.map", fp_lines(2, 128, 3, "t_c") + "__code_fp_mbf32_size = $0007 ; const, public, def, , ,\n", {0x00, 0x00, 0xD0, 0x82}, "1.5");
+            const FpRun c = run("cvfmt01c.map", fp_lines(6, 0, 3, "t_c"), {0x00, 0x00, 0xC0, 0x01}, "-3.25");
+            const FpRun d = run("cvfmt01d.map", fp_lines(7, 0, 3, "t_c"), {0x00, 0x00, 0xD0, 0x82}, "1.5");
+            check("SRCDBG-CVFMT-01", "a module with mode 2 (mbf32): gf 00 00 D0 82 reads -3.25 (value and typed real), a write of 1.5 stores 00 00 40 81 and reads back 1.5; "
+                                     "with __code_fp_mbf32_size beside it, which alone refuses mbf32 floats, it still reads and writes (the format beats the library guess); mode 6 (AM9511): "
+                                     "00 00 C0 01 reads 1.5 and -3.25 is written as 00 00 D0 82; mode 7: the read and the write are refused with the reason and the bytes stay",
+                  a.read_ok && a.before_text == "-3.25" && a.real && *a.real == -3.25 && a.w.w.ok() && a.after == Bytes{0x00, 0x00, 0x40, 0x81} && a.after_text == c15 &&
+                      b.read_ok && b.before_text == "-3.25" && b.w.w.ok() && b.after == Bytes{0x00, 0x00, 0x40, 0x81} &&
+                      c.read_ok && c.before_text == c15 && c.w.w.ok() && c.after == Bytes{0x00, 0x00, 0xD0, 0x82} && c.after_text == "-3.25" &&
+                      !d.read_ok && d.before_text == "!float format __fp_mode 7 is not supported" && refused_with(d.w, "float format __fp_mode 7 is not supported") && d.after == d.before,
+                  a.before_text + " | " + b.before_text + " | " + c.before_text + " | " + d.before_text + " " + d.w.w.why);
+        }
+        {   // SRCDBG-CVFMT-02
+            // two modules in one map, each with its own format: each global reads and is written in its own module's format
+            const auto fp_lines = [](int mode, int bias, int ms, const char* module) {
+                char b[400];
+                std::snprintf(b, sizeof b,
+                              "__fp_exponent_bias = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n__fp_mantissa_size = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n"
+                              "__fp_mode = $%04X ; const, local, , %s, code_compiler, t.c::fa::0::1:5\n",
+                              bias, module, ms, module, mode, module);
+                return std::string(b);
+            };
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const std::string map = (z / "cvfmt02.map").string();
+            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "__code_compiler_tail = $8040 ; const, public, def, , ,\n" + fp_lines(0, 128, 5, "t_c") + fp_lines(1, 126, 3, "u_c") +
+                            "_g6 = $9000 ; addr, public, , t_c, data_compiler, t.c:3\n_g4 = $9010 ; addr, public, , u_c, data_compiler, u.c:3\n" +
+                            s3_rec("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0", "t_c") + s3_rec("S:G$g6$0_0$0({6}SF:S),E,0,0", "t_c") + s3_rec("S:G$g4$0_0$0({4}SF:S),E,0,0", "u_c"));
+            m.dbg->load_source_map(map, true);
+            const Bytes b6 = {0x00, 0x00, 0x00, 0x00, 0xD0, 0x82}, b4 = {0x00, 0x00, 0x50, 0xC0};   // -3.25 as sccz80's math48 and math32 wrote it
+            for (size_t i = 0; i < b6.size(); ++i) m.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), b6[i]);
+            for (size_t i = 0; i < b4.size(); ++i) m.emu.mmu().write(static_cast<uint16_t>(0x9010 + i), b4[i]);
+            const auto txt = [&](const char* name) { const Dbg::CValueResult r = m.dbg->read_c_value(0, name); return r.ok ? r.value : "!" + r.why; };
+            const std::string r6 = txt("g6"), r4 = txt("g4");
+            const CwTry w6 = attempt(m, 0, "g6", "2.5"), w4 = attempt(m, 0, "g4", "2.5");
+            check("SRCDBG-CVFMT-02", "two modules in one map: t_c (48-bit) g6 and u_c (IEEE) g4 both read -3.25 from their own bytes, and a write of 2.5 lands as 00 00 00 00 20 82 in g6 "
+                                     "and 00 00 20 40 in g4",
+                  r6 == "-3.25" && r4 == "-3.25" && w6.w.ok() && w4.w.ok() && cpk(m, 0x9000, 6) == Bytes{0x00, 0x00, 0x00, 0x00, 0x20, 0x82} && cpk(m, 0x9010, 4) == Bytes{0x00, 0x00, 0x20, 0x40},
+                  r6 + " " + r4 + " " + w6.w.why + " " + w4.w.why);
+        }
         {   // SRCDBG-ZB-10
             // z88dk#3262 + #3265 on real records: master-fixed-zsdcc/sdcc-cvars has no TAB in its C_LINE records and the -debug module names of the whole path. The program
             // and its code are those of master/sdcc-cvars (vars.c:41 is $8C97 in both), so CVAL-30's values are the oracle

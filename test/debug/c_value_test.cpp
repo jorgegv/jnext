@@ -166,6 +166,33 @@ struct CommaPunct : std::numpunct<char> {
     char do_decimal_point() const override { return ','; }
 };
 
+// GH #477: a synthetic store whose module t_c records a float format (or an unusable one: `why`).
+struct FpCtx {
+    VariableStore st;
+    CFormatCtx ctx;
+    FpCtx(int mode, int bias, int ms, const std::string& why = "")
+        : st({}, {}, {}, {}, {}, {}, {}, "", {{"t_c", CFloatFormat{mode, bias, ms, why}}}) {
+        ctx.store = &st;
+        ctx.module = "t_c";
+        ctx.scope_name = "t.c";
+    }
+};
+
+static std::string hex_of(const std::vector<uint8_t>& b) {
+    static const char* d = "0123456789ABCDEF";
+    std::string s;
+    for (uint8_t x : b) s += std::string(s.empty() ? "" : " ") + d[x >> 4] + d[x & 15];
+    return s;
+}
+
+// The bytes the encoder gives for `text` (hex), or `!<reason>`; `current` is the object's present bytes.
+static std::string enc_hex(const CFormatCtx& ctx, const char* chain, const char* text, std::vector<uint8_t> current = {}) {
+    CNewValue v;
+    v.text = text;
+    const CEncoded e = c_encode_value(ctx, ty(chain), v, current.data(), current.size());
+    return e.ok ? hex_of(e.bytes) : "!" + e.why;
+}
+
 int main() {
     Loaded sc("master/sccz80-cvars");
     Loaded sd("master/sdcc-cvars");
@@ -2105,6 +2132,277 @@ int main() {
         check("CVZB-17", "the proofs are strict: an outer entry on y's own line closes nothing (y stays `?` at lines 9 and 10 beside w); a line shared by two blocks makes no parent (y never plain, w `?`); with no level-1 data beta is "
                          "the lowest block, so at the first block's line x is `?` and y absent, and at the second's x is absent and y `?` (S4b: never plain)",
               c1 == "9=t w? y?|10=t w? y?" && c2 == "10=t w? y?" && c3 == "3=x?|5=y?", c1 + " || " + c2 + " || " + c3);
+    }
+
+    // ── GH #477: floats in the format the map records (z88dk#3240) ──────────────────────────────────────────────────────
+    // Oracles: sccz80's const.c `dofloat_*` and the bytes it wrote for -3.25, 1.5, -2, 100, 2.5 and 0.1 in 20 builds (the plan's probe
+    // builds of fpfmt.c, read by an independent Python decoder), z88math's bbcmath.asm (the z88 integer form), the C source's values.
+    {   // CVFMT-22 (the fallback part): no committed map (z88dk 2.4, master before 2026-11-06, zsdcc) records a float format
+        int maps = 0, clean = 0;
+        std::string bad;
+        for (const char* root : {"v2.4", "v2.4-dotn", "master", "master-fixed", "master-fixed-80cc", "master-fixed-sccz80", "master-fixed-zsdcc"}) {
+            if (!fs::is_directory(kFixtures / root)) continue;
+            for (const auto& d : fs::recursive_directory_iterator(kFixtures / root)) {
+                if (d.path().filename() != "prog.map") continue;
+                ++maps;
+                std::ifstream in(d.path());
+                const std::string text((std::istreambuf_iterator<char>(in)), {});
+                SourceMap map;
+                load_z88dk_source_map(map, d.path().string(), nex_space);
+                bool none = text.find("__fp_mode") == std::string::npos;
+                if (const auto st = map.variables()) {
+                    for (const CVariable& v : st->variables()) none = none && !st->float_format(v.module);
+                    for (const CFunction& f : st->functions()) none = none && !st->float_format(f.module);
+                    for (const CRecord& r : st->types()) none = none && !st->float_format(r.module);
+                }
+                if (none) ++clean;
+                else bad += " " + d.path().string();
+            }
+        }
+        check("CVFMT-22", "no map of z88dk 2.4, 2.4 dotn, master before 2026-11-06 or zsdcc (every committed root) has an __fp_mode constant or a float format on any module: "
+                          "they keep the size / library rule",
+              maps >= 100 && clean == maps, std::to_string(maps) + " maps, " + std::to_string(clean) + " clean:" + bad);
+    }
+    {   // CVFMT-23: the z88 integer form
+        const FpCtx z4(5, 127, 4), z3(5, 127, 3);
+        const std::string two = text_of(z4.ctx, "{6}SF:S", {0x00, 0x02, 0x00, 0x00, 0x00, 0x00});
+        const std::string m2 = text_of(z4.ctx, "{6}SF:S", {0x00, 0xFE, 0xFF, 0xFF, 0xFF, 0x00});
+        const std::string zero = text_of(z4.ctx, "{6}SF:S", {0, 0, 0, 0, 0, 0});
+        const std::string big = text_of(z4.ctx, "{6}SF:S", {0x00, 0x00, 0x00, 0x00, 0x80, 0x00});   // -2147483648
+        const std::string refused = text_of(z3.ctx, "{6}SF:S", {0, 0, 0, 0, 0, 0});
+        check("CVFMT-23", "z88 (BBC) format, exponent byte 0: the mantissa bytes are a 32-bit two's complement integer (2, -2, 0, -2147483648), byte 0 unused; with a 3-byte "
+                          "mantissa the integer form is refused",
+              two == "2" && m2 == "-2" && zero == "0" && big == "-2147483648" && refused == "!a z88 integer with a 3-byte mantissa is not supported",
+              two + " | " + m2 + " | " + zero + " | " + big + " | " + refused);
+    }
+    {   // CVFMT-24: every unusable format is refused with its reason, never a number
+        struct Case {
+            int mode, bias, ms;
+            const char* chain;
+            const char* why;
+            const char* text;
+        };
+        const Case cases[] = {
+            {7, 0, 3, "{4}SF:S", "", "float format __fp_mode 7 is not supported"},
+            {0, 128, 6, "{6}SF:S", "", "float format z80 (mantissa 6 bytes) does not fit a 6-byte float"},
+            {5, 127, 5, "{6}SF:S", "", "float format z88 (mantissa 5 bytes) does not fit a 6-byte float after its first byte"},
+            {6, 0, 4, "{4}SF:S", "", "float format am9511 needs a 3-byte mantissa (the map says 4)"},
+            {1, 127, 3, "{4}SF:S", "", "float format ieee with exponent bias 127 and mantissa size 3 is not IEEE binary32"},
+            {1, 126, 3, "{6}SF:S", "", "a 6-byte float is not ieee (4 bytes)"},
+            {0, 128, 5, "{6}SF:S", "no __fp_exponent_bias", "float format of module t_c is not usable: no __fp_exponent_bias"},
+            {0, 128, 5, "{6}SF:S", "two __fp_mode values (0 and 1)", "float format of module t_c is not usable: two __fp_mode values (0 and 1)"},
+        };
+        std::string bad;
+        for (const Case& c : cases) {
+            const FpCtx f(c.mode, c.bias, c.ms, c.why);
+            const std::vector<uint8_t> b(8, 0x55);
+            const CFormatted r = c_format_value(f.ctx, ty(c.chain), b.data(), 6);
+            const std::optional<double> real = c_float_value(f.ctx, ty(c.chain), b.data(), 6);
+            const std::string w = enc_hex(f.ctx, c.chain, "1.5", std::vector<uint8_t>(6, 0));
+            if (r.ok || r.why != c.text || real || w != std::string("!") + c.text) bad += std::string(" [") + c.text + " -> " + r.why + " | " + w + "]";
+        }
+        check("CVFMT-24", "an unknown mode, a mantissa that does not fit the record, a z88 one that leaves no room after byte 0, an am9511 without a 3-byte mantissa, an IEEE float "
+                          "with another bias or size, and a module whose symbols are incomplete or conflicting: the value, c_float_value and a write are all refused with the "
+                          "same stated reason",
+              bad.empty(), bad);
+    }
+    {   // CVFMT-25: the map's parameters are used, none is assumed
+        const FpCtx a0(6, 0, 3), a1(6, 1, 3), zz(5, 127, 4), m128(2, 128, 3), m129(2, 129, 3), b4(0, 129, 4);
+        const std::string am0 = text_of(a0.ctx, "{4}SF:S", {0x00, 0x00, 0xC0, 0x01});
+        const std::string am1 = text_of(a1.ctx, "{4}SF:S", {0x00, 0x00, 0xC0, 0x01});
+        const std::string z = text_of(zz.ctx, "{6}SF:S", {0xFF, 0x00, 0x00, 0x00, 0xD0, 0x81});
+        const std::string q128 = text_of(m128.ctx, "{4}SF:S", {0x00, 0x00, 0xD0, 0x82});
+        const std::string q129 = text_of(m129.ctx, "{4}SF:S", {0x00, 0x00, 0xD0, 0x82});
+        const std::string wide = text_of(b4.ctx, "{6}SF:S", {0x00, 0x00, 0x00, 0xD0, 0x83, 0x00});
+        check("CVFMT-25", "the map's bias, mantissa size and z88 offset decide: AM9511 00 00 C0 01 is 1.5 at bias 0 and 0.75 at bias 1; z88 with byte 0 = FF reads -3.25 (byte 0 ignored); "
+                          "mbf32 00 00 D0 82 is -3.25 at bias 128 and -1.625 at 129; a 4-byte mantissa at bias 129 reads -3.25",
+              am0 == k15 && am1 == "0.75" && z == "-3.25" && q128 == "-3.25" && q129 == "-1.625" && wide == "-3.25",
+              am0 + " " + am1 + " " + z + " " + q128 + " " + q129 + " " + wide);
+    }
+    {   // CVFMT-26: precision follows the mantissa
+        const FpCtx m32(2, 128, 3), m40(3, 128, 4), m64(4, 128, 7), d48(0, 128, 5);
+        const std::string a = text_of(m32.ctx, "{4}SF:S", {0xCD, 0xCC, 0x4C, 0x7D});
+        const std::string b = text_of(m40.ctx, "{6}SF:S", {0xCD, 0xCC, 0xCC, 0x4C, 0x7D, 0x00});
+        const std::string c = text_of(m64.ctx, "{8}SF:S", {0xD0, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x4C, 0x7D});
+        // the 48-bit text is the old c_format_float48's, byte for byte, for any bytes
+        const uint8_t pats[][6] = {{0xCD, 0xCC, 0xCC, 0xCC, 0x4C, 0x7D}, {0xA2, 0x45, 0xB6, 0xE6, 0x40, 0x8E}, {0x00, 0x00, 0x00, 0x00, 0xD0, 0x82},
+                                   {0x01, 0x02, 0x03, 0x04, 0x85, 0xFF}, {0x11, 0x22, 0x33, 0x44, 0x55, 0x01}, {0x11, 0x22, 0x33, 0x44, 0x55, 0x00}};
+        bool same = true;
+        for (const auto& p : pats) {
+            const CFormatted r = c_format_value(d48.ctx, ty("{6}SF:S"), p, 6);
+            same = same && r.ok && r.text == c_format_float48(p);
+        }
+        check("CVFMT-26", "precision follows the mantissa: mbf32's 0.1 prints 0.1 (not 12 digits), mbf40's and mbf64's too, and the (0,128,5) text equals c_format_float48() on six byte patterns",
+              a == "0.1" && b == "0.1" && c == "0.1" && same, a + " " + b + " " + c);
+    }
+    {   // CVFMT-27: the size of a float, for a pointer's target
+        const int want[] = {6, 4, 4, 6, 8, 6, 4};
+        const int bias[] = {128, 126, 128, 128, 128, 127, 0};
+        const int ms[] = {5, 3, 3, 4, 7, 4, 3};
+        std::string bad;
+        for (int mode = 0; mode <= 6; ++mode) {
+            const FpCtx f(mode, bias[mode], ms[mode]);
+            if (c_leaf_size(f.ctx, ty("{4}SF:S").chain) != want[mode]) bad += " mode " + std::to_string(mode);
+        }
+        const VariableStore none({}, {}, {}, {}, {});
+        CFormatCtx nctx;
+        nctx.store = &none;
+        nctx.module = "t_c";
+        const FpCtx unusable(0, 128, 5, "no __fp_mode"), mode7(7, 0, 3);
+        // `float *pf` at $A000 -> {1.5, -2} (mbf32); with a format `*pf` and `pf[1]` read, without one they are refused as before
+        const FpCtx m32(2, 128, 3);
+        Mem mem;
+        mem.put(0xA000, {0x00, 0xB0});
+        mem.put(0xB000, {0x00, 0x00, 0x40, 0x81, 0x00, 0x00, 0x80, 0x82});
+        CFormatCtx rctx = m32.ctx;
+        rctx.read = mem.reader();
+        CLoc root;
+        root.type = ty("{2}DG,SF:S");
+        root.addr = 0xA000;
+        const CEval e0 = c_eval_path(rctx, root, true, {});
+        const CEval e1 = c_eval_path(rctx, root, false, c_parse_path("pf[1]").steps);
+        const CFormatted v0 = e0.ok ? c_read_loc(rctx, e0.loc) : CFormatted{};
+        const CFormatted v1 = e1.ok ? c_read_loc(rctx, e1.loc) : CFormatted{};
+        CFormatCtx octx = nctx;
+        octx.read = mem.reader();
+        const CEval n0 = c_eval_path(octx, root, true, {});
+        check("CVFMT-27", "the width of a float is 6, 4, 4, 6, 8, 6, 4 for modes 0..6, -1 with no format, an unusable one or an unknown mode; a pointer to a float then reads: *pf is 1.5 and "
+                          "pf[1] -2 (stride 4, mbf32), and without a format *pf is refused as before",
+              bad.empty() && c_leaf_size(nctx, ty("{4}SF:S").chain) == -1 && c_leaf_size(unusable.ctx, ty("{4}SF:S").chain) == -1 && c_leaf_size(mode7.ctx, ty("{4}SF:S").chain) == -1 &&
+                  e0.ok && v0.ok && v0.text == k15 && e1.ok && e1.loc.addr == 0xB004 && v1.ok && v1.text == "-2" && !n0.ok,
+              bad + " " + v0.text + " " + v1.text);
+    }
+    {   // CVFMT-28: a struct laid out by another module's float format
+        const auto rec = [](const char* text, const char* module) {
+            CRecord r;
+            r.text = text;
+            r.module = module;
+            r.record = cdb_decode(text).record;
+            return r;
+        };
+        const std::vector<CRecord> types = {
+            rec("T:Fa.h$s[({0}S:S$v$0_0$0({6}SF:S),Z,0,0)({6}S:S$n$0_0$0({2}SI:S),Z,0,0)]", "a_c"),
+            rec("T:Fa.h$in[({0}S:S$f$0_0$0({6}SF:S),Z,0,0)]", "a_c"),
+            rec("T:Fa.h$o[({0}S:S$i$0_0$0({6}STin:S),Z,0,0)({6}S:S$n$0_0$0({2}SI:S),Z,0,0)]", "a_c"),
+        };
+        const VariableStore two({}, {}, types, {}, {}, {}, {}, "", {{"a_c", CFloatFormat{0, 128, 5, ""}}, {"b_c", CFloatFormat{1, 126, 3, ""}}});
+        const VariableStore bare({}, {}, types, {}, {}, {}, {}, "", {{"a_c", CFloatFormat{0, 128, 5, ""}}});
+        const auto ctx_in = [](const VariableStore& st, const char* module) {
+            CFormatCtx c;
+            c.store = &st;
+            c.scope_name = "x.c";
+            c.module = module;
+            return c;
+        };
+        const std::vector<uint8_t> obj = {0x00, 0x00, 0x00, 0x00, 0x40, 0x81, 0x07, 0x00};
+        const std::string why = "struct s is laid out with 6-byte floats (module a_c); this object's module b_c uses 4-byte floats";
+        const CFormatCtx ob = ctx_in(two, "b_c"), oa = ctx_in(two, "a_c"), nb = ctx_in(bare, "b_c");
+        const CdbType st = ty("{8}STs:S");
+        const CFormatted pb = c_format_value(ob, st, obj.data(), obj.size());
+        const CFormatted pa = c_format_value(oa, st, obj.data(), obj.size());
+        const CFormatted pn = c_format_value(nb, st, obj.data(), obj.size());
+        CLoc root;
+        root.type = st;
+        root.addr = 0xA000;
+        const CEval mv = c_eval_path(ob, root, false, c_parse_path("x.v").steps);
+        const CEval mn = c_eval_path(ob, root, false, c_parse_path("x.n").steps);
+        const CChildren ch = c_children(ob, root, 0, 10);
+        CFormatCtx obs = ob;
+        const bool size_unknown = c_leaf_size(obs, st.chain) == -1;
+        const bool size_known = c_leaf_size(oa, st.chain) == 8;
+        // a float only inside a nested struct member
+        const CdbType nested = ty("{8}STo:S");
+        const CFormatted nn = c_format_value(ob, nested, obj.data(), obj.size());
+        const CFormatted na = c_format_value(oa, nested, obj.data(), obj.size());
+        check("CVFMT-28", "a struct found in another module whose floats are 6 bytes, read by an object of a 4-byte-float module: the value, its members, its children and its size "
+                          "are refused with the layout text (also when the float sits in a nested struct); in its own module it reads {v = 1.5, n = 7}; with no format on the "
+                          "holder's module nothing changes",
+              !pb.ok && pb.why == why && !mv.ok && mv.why == why && !mn.ok && mn.why == why && !ch.ok && ch.why == why && size_unknown && size_known &&
+                  pa.ok && pa.text == "{v = " + k15 + ", n = 7}" && pn.ok && pn.text == pa.text && !nn.ok && nn.why.find("is laid out with 6-byte floats") != std::string::npos &&
+                  na.ok,
+              pb.why + " | " + pa.why + " | " + pn.why + " | " + nn.why + " | " + na.why);
+    }
+    {   // CVFMT-29: writes, in each format, to the bytes the compilers wrote
+        struct Build {
+            int mode, bias, ms;
+            const char* chain;
+            const char* b[5];   // -3.25, 1.5, -2, 100, 2.5
+        };
+        const Build builds[] = {
+            {0, 128, 5, "{6}SF:S", {"00 00 00 00 D0 82", "00 00 00 00 40 81", "00 00 00 00 80 82", "00 00 00 00 48 87", "00 00 00 00 20 82"}},
+            {1, 126, 3, "{4}SF:S", {"00 00 50 C0", "00 00 C0 3F", "00 00 00 C0", "00 00 C8 42", "00 00 20 40"}},
+            {2, 128, 3, "{4}SF:S", {"00 00 D0 82", "00 00 40 81", "00 00 80 82", "00 00 48 87", "00 00 20 82"}},
+            {3, 128, 4, "{6}SF:S", {"00 00 00 D0 82 00", "00 00 00 40 81 00", "00 00 00 80 82 00", "00 00 00 48 87 00", "00 00 00 20 82 00"}},
+            {4, 128, 7, "{8}SF:S", {"00 00 00 00 00 00 D0 82", "00 00 00 00 00 00 40 81", "00 00 00 00 00 00 80 82", "00 00 00 00 00 00 48 87", "00 00 00 00 00 00 20 82"}},
+            {5, 127, 4, "{6}SF:S", {"00 00 00 00 D0 81", "00 00 00 00 40 80", "00 00 00 00 80 81", "00 00 00 00 48 86", "00 00 00 00 20 81"}},
+            {6, 0, 3, "{4}SF:S", {"00 00 D0 82", "00 00 C0 01", "00 00 80 82", "00 00 C8 07", "00 00 A0 02"}},
+            {0, 129, 4, "{6}SF:S", {"00 00 00 D0 83 00", "00 00 00 40 82 00", "00 00 00 80 83 00", "00 00 00 48 88 00", "00 00 00 20 83 00"}},
+        };
+        const char* texts[] = {"-3.25", "1.5", "-2", "100", "2.5"};
+        std::string bad;
+        for (const Build& bd : builds) {
+            const FpCtx f(bd.mode, bd.bias, bd.ms);
+            const int n = c_leaf_size(f.ctx, ty("{4}SF:S").chain);
+            for (int k = 0; k < 5; ++k) {
+                const std::string got = enc_hex(f.ctx, bd.chain, texts[k], std::vector<uint8_t>(static_cast<size_t>(n), 0));
+                if (got != bd.b[k]) bad += " mode " + std::to_string(bd.mode) + "/" + std::to_string(bd.bias) + " " + texts[k] + " -> " + got;
+            }
+        }
+        // 0.1 reads back as 0.1 through every mode; outside bytes are kept; zero is all-zero layout bytes; out of range is refused per format
+        std::string rt;
+        for (const Build& bd : builds) {
+            const FpCtx f(bd.mode, bd.bias, bd.ms);
+            CNewValue v;
+            v.text = "0.1";
+            const CEncoded e = c_encode_value(f.ctx, ty(bd.chain), v, nullptr, 0);
+            const CFormatted r = e.ok ? c_format_value(f.ctx, ty(bd.chain), e.bytes.data(), e.bytes.size()) : CFormatted{};
+            if (!e.ok || !r.ok || r.text != "0.1") rt += " mode " + std::to_string(bd.mode) + "/" + std::to_string(bd.bias) + ":" + r.text + e.why;
+        }
+        const FpCtx m40(3, 128, 4), z88(5, 127, 4), b4(0, 129, 4), m32(2, 128, 3), am(6, 0, 3), d48(0, 128, 5);
+        const std::string keep40 = enc_hex(m40.ctx, "{6}SF:S", "1.5", {1, 2, 3, 4, 5, 0xAA});
+        const std::string keepz = enc_hex(z88.ctx, "{6}SF:S", "1.5", {0xEE, 1, 2, 3, 4, 5});
+        const std::string keep4 = enc_hex(b4.ctx, "{6}SF:S", "1.5", {1, 2, 3, 4, 5, 0xBB});
+        const std::string zero = enc_hex(m40.ctx, "{6}SF:S", "0", {1, 2, 3, 4, 5, 0xAA});
+        const std::string zeroz = enc_hex(z88.ctx, "{6}SF:S", "0", {0xEE, 1, 2, 3, 4, 5});
+        const std::string big32 = enc_hex(m32.ctx, "{4}SF:S", "1e39", {0, 0, 0, 0});
+        const std::string tiny32 = enc_hex(m32.ctx, "{4}SF:S", "1e-39", {0, 0, 0, 0});
+        const std::string bigam = enc_hex(am.ctx, "{4}SF:S", "1e20", {0, 0, 0, 0});
+        const std::string tinyam = enc_hex(am.ctx, "{4}SF:S", "1e-20", {0, 0, 0, 0});
+        const std::string big48 = enc_hex(d48.ctx, "{6}SF:S", "1e39", std::vector<uint8_t>(6, 0));
+        const std::string nan = enc_hex(m32.ctx, "{4}SF:S", "nan", {0, 0, 0, 0});
+        const std::string junk = enc_hex(m32.ctx, "{4}SF:S", "abc", {0, 0, 0, 0});
+        check("CVFMT-29", "writes: -3.25, 1.5, -2, 100 and 2.5 encode to exactly the bytes the compilers wrote, in every mode (and bias 129 / 4-byte mantissa); 0.1 reads back as 0.1 in "
+                          "every mode; the bytes outside the layout (mbf40's 6th, z88's 1st, a 4-byte mantissa's 6th) are kept; zero is all-zero layout bytes; a value beyond the "
+                          "format's exponent is refused with the format's name, never wrapped; nan and text are refused",
+              bad.empty() && rt.empty() && keep40 == "00 00 00 40 81 AA" && keepz == "EE 00 00 00 40 80" && keep4 == "00 00 00 40 82 BB" && zero == "00 00 00 00 00 AA" &&
+                  zeroz == "EE 00 00 00 00 00" && big32 == "!'1e39' is out of range for float (mbf32)" && tiny32 == "!'1e-39' is too small for float (mbf32): it would underflow" &&
+                  bigam == "!'1e20' is out of range for float (am9511)" && tinyam == "!'1e-20' is too small for float (am9511): it would underflow" &&
+                  big48 == "!'1e39' is out of range for float (z88dk 48-bit)" && nan == "!'nan' is not a finite number" && junk == "!'abc' is not a number",
+              bad + rt + " | " + keep40 + " " + keepz + " " + keep4 + " " + zero + " " + zeroz + " | " + big32 + " " + tiny32 + " " + bigam + " " + tinyam + " " + big48 + " " + nan + " " + junk);
+    }
+    {   // CVFMT-30: the typed value follows the format; the format-free overload is untouched
+        const FpCtx a(0, 128, 5), b(1, 126, 3), c(2, 128, 3), d(3, 128, 4), e(4, 128, 7), f(5, 127, 4), g(6, 0, 3);
+        const auto val = [](const FpCtx& x, const char* chain, std::initializer_list<uint8_t> bytes) {
+            const std::vector<uint8_t> v(bytes);
+            const auto r = c_float_value(x.ctx, ty(chain), v.data(), v.size());
+            return r ? *r : -9999.0;
+        };
+        const bool per_mode = val(a, "{6}SF:S", {0, 0, 0, 0, 0xD0, 0x82}) == -3.25 && val(b, "{4}SF:S", {0x00, 0x00, 0x50, 0xC0}) == -3.25 &&
+                              val(c, "{4}SF:S", {0, 0, 0xD0, 0x82}) == -3.25 && val(d, "{6}SF:S", {0, 0, 0, 0xD0, 0x82, 0}) == -3.25 &&
+                              val(e, "{8}SF:S", {0, 0, 0, 0, 0, 0, 0xD0, 0x82}) == -3.25 && val(f, "{6}SF:S", {0, 0, 0, 0, 0xD0, 0x81}) == -3.25 &&
+                              val(g, "{4}SF:S", {0, 0, 0xD0, 0x82}) == -3.25 && val(g, "{4}SF:S", {0, 0, 0xC8, 0x07}) == 100.0 &&
+                              val(a, "{6}SF:S", {0, 0, 0, 0, 0, 0}) == 0.0 && val(f, "{6}SF:S", {0, 2, 0, 0, 0, 0}) == 2.0;
+        // a short buffer and the unusable format give nothing; an int is not a float
+        const std::vector<uint8_t> five(5, 1);
+        const bool none = !c_float_value(a.ctx, ty("{6}SF:S"), five.data(), 5) && !c_float_value(FpCtx(7, 0, 3).ctx, ty("{4}SF:S"), five.data(), 5) &&
+                          !c_float_value(a.ctx, ty("{2}SI:S"), five.data(), 5);
+        // the 3-argument overload is the size rule, whatever the module records
+        const std::vector<uint8_t> f48 = {0, 0, 0, 0, 0xD0, 0x82}, f32 = {0x00, 0x00, 0xC0, 0x3F};
+        const auto o48 = c_float_value(ty("{6}SF:S"), f48.data(), 6);
+        const auto o32 = c_float_value(ty("{4}SF:S"), f32.data(), 4);
+        check("CVFMT-30", "c_float_value(ctx, ...) is the decoded value in every mode (-3.25 in all seven, 100 in am9511, the z88 integer 2, zero), nothing for a short buffer, an unusable "
+                          "format and an int; the three-argument overload still reads by size (48-bit -3.25, binary32 1.5)",
+              per_mode && none && o48 && *o48 == -3.25 && o32 && *o32 == 1.5);
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
