@@ -92,7 +92,7 @@ fi
 
 mkdir -p "$CACHE_ROOT"
 WORK=$(mktemp -d "$CACHE_ROOT/emsdk-build.XXXXXX")
-cleanup() { rm -rf "$WORK"; }
+cleanup() { rm -rf "$WORK"; }   # redefined below once $CACHED is in place
 trap cleanup EXIT
 
 # Download one archive and verify it BEFORE anything is unpacked. A checksum
@@ -132,6 +132,23 @@ mv "$WORK/dl/node.tar.xz"    "$SRC/downloads/node-v${NODE_VERSION}-linux-x64.tar
     export EMSDK_KEEP_DOWNLOADS=1
     timeout --kill-after=10s 1800s ./emsdk install "$VERSION"
     timeout --kill-after=10s 300s ./emsdk activate "$VERSION"
+)
+rm -rf "$SRC/downloads"
+
+# The directory is moved to its FINAL place before the ports are built: emscripten
+# records the absolute path of its LLVM in cache/sanity.txt and CLEARS its whole
+# cache (ports, their CMake config, every generated library) the first time it
+# runs from another path. The stamp, written last, is what makes it trusted; a
+# run that dies in between leaves a stampless directory, which the trap removes
+# and every later run would replace.
+if [[ -e "$CACHED" ]]; then rm -rf "$CACHED"; fi
+mv -T "$SRC" "$CACHED"
+UNSTAMPED=1
+cleanup() { rm -rf "$WORK"; if [[ "$UNSTAMPED" == 1 ]]; then rm -rf "$CACHED"; fi; }
+
+(
+    ulimit -v 8388608
+    cd "$CACHED"
     timeout --kill-after=10s 1800s upstream/emscripten/embuilder build sdl3 zlib libpng
     # Link a program that uses the three ports with the flags the build uses
     # (-fwasm-exceptions picks the libpng variant that links): emcc installs the
@@ -142,19 +159,15 @@ mv "$WORK/dl/node.tar.xz"    "$SRC/downloads/node-v${NODE_VERSION}-linux-x64.tar
     env -i timeout --kill-after=10s 1800s upstream/emscripten/emcc -fwasm-exceptions \
         -sUSE_SDL=3 -sUSE_LIBPNG=1 -sUSE_ZLIB=1 "$WORK/ports.cpp" -o "$WORK/ports.js"
 )
-rm -rf "$SRC/downloads"
-[[ -f "$SRC/upstream/emscripten/cache/sysroot/lib/cmake/SDL3/sdl3-config.cmake" ]] \
+[[ -f "$CACHED/upstream/emscripten/cache/sysroot/lib/cmake/SDL3/sdl3-config.cmake" ]] \
     || { echo "emsdk: the SDL3 port installed no sdl3-config.cmake" >&2; exit 1; }
 
 # Prove it runs, with an empty environment: no emsdk_env.sh is ever sourced.
-emcc_out=$(env -i "$SRC/upstream/emscripten/emcc" --version 2>&1 | head -1) || true
+emcc_out=$(env -i "$CACHED/upstream/emscripten/emcc" --version 2>&1 | head -1) || true
 [[ "$emcc_out" == *"$VERSION"* ]] || { echo "emsdk: emcc --version does not name $VERSION: $emcc_out" >&2; exit 1; }
-node_out=$("$SRC/node/${NODE_VERSION}_64bit/bin/node" --version)
+node_out=$("$CACHED/node/${NODE_VERSION}_64bit/bin/node" --version)
 [[ "$node_out" == "v$NODE_VERSION" ]] || { echo "emsdk: node --version is $node_out, expected v$NODE_VERSION" >&2; exit 1; }
 
-# The stamp is written LAST, then the directory is moved into place atomically,
-# replacing an unstamped (untrusted) one.
-printf '%s\n' "$STAMP_BODY" > "$SRC/$STAMP_NAME"
-if [[ -e "$CACHED" ]]; then rm -rf "$CACHED"; fi
-mv -T "$SRC" "$CACHED" 2>/dev/null || { resolve >/dev/null || { echo "emsdk: could not install $CACHED" >&2; exit 1; }; }
+printf '%s\n' "$STAMP_BODY" > "$CACHED/$STAMP_NAME"
+UNSTAMPED=0
 echo "emsdk: installed $CACHED"
