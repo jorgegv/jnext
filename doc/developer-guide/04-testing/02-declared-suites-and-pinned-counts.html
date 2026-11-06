@@ -3013,19 +3013,33 @@ it more briefly — <em>this file is a contract, not a convenience.</em></p>
   it as not-run — never silently. (That is a gated-out suite, which is not a
   SKIP: a suite that reports <code>Skipped &gt; 0</code> fails the run, see
   <a href="01-the-test-triplet.html">4.1</a>.)</li>
-<li>A second, orthogonal directive, <code># os: all | posix | linux</code>, says
+<li>A second, orthogonal directive, <code># os: all | native | posix | linux</code>, says
   which <strong>target operating systems</strong> own the suites below it, until the next
-  <code># os:</code>; <code>all</code> is in force at the top. <code>posix</code> is Linux and macOS, <code>linux</code> is
-  Linux alone, and Linux satisfies every value, so Linux still runs every suite.
+  <code># os:</code>; <code>all</code> is in force at the top. The classes form one chain, <code>linux</code>
+  inside <code>posix</code> inside <code>native</code> inside <code>all</code>: <code>all</code> is Linux, macOS, Windows
+  and Emscripten (the WebAssembly build under node), <code>native</code> is every one of
+  them but Emscripten (a suite that needs a process, a thread, a listening
+  socket, or a feature the browser build compiles out or refuses), <code>posix</code> is
+  Linux and macOS, <code>linux</code> is Linux alone, and Linux satisfies every value, so
+  Linux still runs every suite.
   A suite is owed by a build only where both its gate and its <code># os:</code> say so, a
   suite under a non-<code>all</code> os must carry the <code>?</code> marker, and an unknown value is a
   refusal. The OS is read from the build tree's own <code>CMakeCache.txt</code>
   (<code>JNEXT_TARGET_OS</code>, which the top <code>CMakeLists.txt</code> sets from
-  <code>CMAKE_SYSTEM_NAME</code>), so a MinGW cross build on Linux says <code>windows</code>. A row
+  <code>CMAKE_SYSTEM_NAME</code>), so a MinGW cross build on Linux says <code>windows</code> and the
+  Emscripten one says <code>emscripten</code>. A cross build that CMake runs through an
+  emulator registers every test as <code>add_test(&lt;name&gt; "&lt;emulator&gt;" "&lt;suite&gt;" ...)</code>;
+  the harness reads the emulator from the cache
+  (<code>CMAKE_CROSSCOMPILING_EMULATOR</code>), requires every line to start with it and
+  takes the next word as the suite, and an Emscripten suite is built when both
+  <code>NAME.js</code> and <code>NAME.wasm</code> exist (neither is executable). A row
   that cannot exist on a platform is never compiled out or skipped: it moves,
   ID and assertion unchanged, into a sibling suite whose <code># os:</code> excludes that
   platform. <code>uart_posix_test</code>, <code>esxdos_symlink_test</code>, <code>esp_sigpipe_test</code> and
-  <code>sdcard_file_add_posix_test</code> are exactly that (<code>posix</code>), and
+  <code>sdcard_file_add_posix_test</code> are exactly that (<code>posix</code>), the CLI rows that start
+  the built <code>jnext</code> live in <code>cli_options_native_test</code> (<code>native</code>), and the suites
+  whose subject the browser build does not have (the debugger servers, the script
+  engine, the ESP-01 and NextPi, the SD-card downloader) are <code>native</code> as a whole, and
   <code>sdcard_file_add_linux_test</code>, one row that needs a case-sensitive host
   filesystem, is <code>linux</code>; the rest of each feature runs everywhere.</li>
 <li><code>&lt;expected_rows&gt;</code> is the exact <code>Total:</code> the suite must report, and it must be

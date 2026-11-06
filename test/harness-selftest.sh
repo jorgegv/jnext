@@ -2884,9 +2884,15 @@ manifest "good_test 10" "# os: native" "?other_test 5"
 out=$(run_harness); rc=$?
 check "HS-160g" "an '# os: native' suite absent on windows is a refusal: native includes windows" 2 $rc "$out" \
     "REFUSES TO RUN" "other_test" "NOT registered by CMake"
-register good_test other_test
+mv "$T/build/test/good_test" "$T/build/test/good_test.exe"; mv "$T/build/test/other_test" "$T/build/test/other_test.exe"
+: > "$T/build/test/CTestTestfile.cmake"; : > "$T/sources.tsv"
+for n in good_test other_test; do
+    echo "add_test(${n}s \"$T/build/test/$n.exe\")" >> "$T/build/test/CTestTestfile.cmake"
+    printf '%s\t%s\n' "$n" "$T/build/test/$n.exe" >> "$T/sources.tsv"
+done
 out=$(run_harness); rc=$?
 check "HS-160j" "...and the control: registered on windows it runs" 0 $rc "$out" "Total: 15" "os=windows"
+rm -f "$T/build/test/good_test.exe" "$T/build/test/other_test.exe"
 
 # ---- test/node-run.sh: the runner behind make unit-test-wasm ----
 NR="$T/nr"; mkdir -p "$NR/build/test" "$NR/bin"

@@ -3040,10 +3040,12 @@ bugs" each survived four reviews before anyone noticed.</p>
 machine. The two ESP-01 suites are the exception to the layout: they live under
 <code>src/esp01/test/</code> and are declared by that module's own CMakeLists.</p>
 <h2 id="portable-suites">Portable suites<a class="headerlink" href="#portable-suites" title="Permanent link">&para;</a></h2>
-<p>The SDL-only suites run on three operating systems: natively on Linux and macOS,
-and as MinGW-built Windows executables under wine (<code>make unit-test-win</code>). So a
-suite that is not <code># os: posix</code> must build and pass on all three, which in
-practice means a handful of rules:</p>
+<p>The SDL-only suites run on three operating systems and under node: natively on
+Linux and macOS, as MinGW-built Windows executables under wine
+(<code>make unit-test-win</code>), and as WebAssembly modules (<code>make unit-test-wasm</code>). So a
+suite that is not <code># os: posix</code> must build and pass on all three native ones, and
+a suite that is not <code># os: native</code> also under node, which in practice means a
+handful of rules:</p>
 <ul>
 <li>Do not call <code>setenv</code>, <code>unsetenv</code>, <code>mkdtemp</code>, <code>localtime_r</code>, <code>mkdir(path, mode)</code>
   or <code>geteuid</code> directly. <code>test/test_portable.h</code> has <code>jtp::set_env</code>,
@@ -3065,7 +3067,12 @@ practice means a handful of rules:</p>
   script, because Windows runs <code>.exe</code> files only.</li>
 <li>A test whose fixture needs <code>fork</code>, FIFOs, ptys, symbolic links or <code>chmod 0</code>
   belongs in a suite the manifest declares <code># os: posix</code>, with the rows moved
-  there unchanged; see <a href="02-declared-suites-and-pinned-counts.html">4.2</a>.</li>
+  there unchanged; see <a href="02-declared-suites-and-pinned-counts.html">4.2</a>.
+  A test that needs a process, a thread or a listening socket (the WebAssembly
+  build has none) belongs in a suite declared <code># os: native</code>.</li>
+<li>Under node <code>getpid()</code> is the constant 42, so a scratch name built from it is not
+  unique; the runner gives every run a private <code>TMPDIR</code>, which is where
+  <code>std::filesystem::temp_directory_path()</code> points.</li>
 </ul>
 <p>A row that needs a write to FAIL (a full disk) uses <code>jtp::FullDisk</code>: <code>/dev/full</code>
 where it exists, else, on macOS, a file whose writes a zero file-size limit denies

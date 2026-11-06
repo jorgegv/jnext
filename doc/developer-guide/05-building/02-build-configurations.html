@@ -3063,10 +3063,11 @@ build through <code>make unit-test-sdl</code>. The other two, Qt without the deb
 SDL with it, are not used in practice and remain build-only. CI runs both
 targets.</p>
 <p>The configurations are about <em>what</em> is built; the suites also run on three
-operating systems. The SDL-only set runs natively on Linux
+operating systems and under node. The SDL-only set runs natively on Linux
 (<code>make unit-test-sdl</code>), natively on macOS (the same target, with Homebrew's GNU
 tools first on <code>PATH</code>), and as MinGW-built Windows executables under wine
-(<code>make unit-test-win</code>). Which suites each OS owes is declared by <code># os:</code> in
+(<code>make unit-test-win</code>), and as WebAssembly modules under node
+(<code>make unit-test-wasm</code>). Which suites each OS owes is declared by <code># os:</code> in
 <code>test/unit-tests.conf</code> (<a href="../04-testing/02-declared-suites-and-pinned-counts.html">4.2</a>).
 The Qt and debugger suites run on Linux only, and the regression suite, the
 documentation gates and the traceability matrix are Linux-only by design: they
@@ -3101,6 +3102,15 @@ growable memory, and the flags and <code>--set</code> keys that need a process, 
 or the script host refused with a message (<code>cli::browser_refusal</code>). zlib and
 libpng come from the SDK's ports (<code>-sUSE_ZLIB=1</code>, <code>-sUSE_LIBPNG=1</code>), which pick
 the libpng variant that matches the exception model.</p>
+<p><code>build/wasm-unit-test</code> (<code>make unit-test-wasm-build</code>) is the same configuration
+with <code>JNEXT_ENABLE_LTO=OFF</code> and every target built, the test executables
+included; the Windows test tree is the precedent (the suites need no cross-TU
+inlining, and an LTO link of the whole core per suite would cost about a hundred
+times as much). Its test executables link with an 8 MB stack as the Windows ones
+do, with <code>-sSTACK_OVERFLOW_CHECK=2</code> (a release module has no stack guard, so an
+overflow would silently overwrite static data) and <code>-sEXIT_RUNTIME=1</code> (static
+destructors, <code>atexit</code> and a stdio flush at exit, as natively), all in
+<code>test/CMakeLists.txt</code>; <code>jnext</code> keeps its own link options.</p>
 <h2 id="dev-build-versus-release-build">Dev build versus release build<a class="headerlink" href="#dev-build-versus-release-build" title="Permanent link">&para;</a></h2>
 <p>With no <code>-DCMAKE_BUILD_TYPE</code> given, CMake here defaults to <strong>RelWithDebInfo</strong>
 instead of to the empty build type. An unoptimised <code>build/jnext</code> measured 5.8×
