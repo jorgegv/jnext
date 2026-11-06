@@ -3068,6 +3068,18 @@ reported row ID against the suite's <em>source files</em>; the SD image is reach
 absolute path through <code>JNEXT_TEST_SD_IMAGE</code>. A bundle (executables, the MinGW
 DLLs <code>packaging/windows/bundle-dlls.sh</code> copies, the manifest, the harness and
 the sources it reads) is feasible, but it is its own piece of work.</p>
+<p><code>make emsdk</code> provides the pinned Emscripten SDK (6.0.13) in the user cache,
+<code>~/.cache/jnext/tools/emsdk-6.0.13</code>, through <code>test/provision-emsdk.sh</code>: it
+downloads three archives (the emsdk installer, the SDK release and the node it
+bundles), verifies the sha256 of all three before it unpacks any of them,
+installs them and builds the SDL3, zlib and libpng ports. It is a no-op once the
+provisioner's stamp is there, and a directory without the stamp is replaced, not
+trusted. <code>make wasm-core</code> depends on it, configures <code>build/wasm-core</code> with the
+SDK's CMake toolchain file, builds <code>jnext.js</code>/<code>jnext.wasm</code> and the <code>sha256_test</code>
+suite, and runs <code>test/wasm-core-check.sh</code> under the SDK's node: the module
+reports its version, imports no (shared) memory, catches an exception,
+refuses the flags and <code>--set</code> keys the browser build cannot honour, and runs the
+SHA-256 suite on its portable backend. <code>make clean</code> removes the tree.</p>
 <p>Chapter <a href="../04-testing/index.html">4. Testing</a> covers what each of these actually
 proves.</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>

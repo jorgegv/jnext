@@ -464,7 +464,7 @@ public:
     static inline void zero_bank5_screen_pages(Mmu& mmu) {
         constexpr int      TEMP_SLOT  = 7;
         constexpr uint16_t SLOT_BASE  = 0xE000;
-        constexpr uint16_t PAGE_SIZE  = 0x2000;  // 8 KB per MMU page
+        constexpr uint16_t MMU_PAGE_BYTES  = 0x2000;  // 8 KB per MMU page
         const uint8_t saved = mmu.get_page(TEMP_SLOT);
         // Pages 10 and 11 are bank 5 — the dedicated 16K dual-port VRAM
         // (VHDL bank5_ram dpram2, zxnext.vhd:6558; Task 25). Writing via
@@ -473,7 +473,7 @@ public:
         // standalone machines).
         for (uint8_t page = 10; page <= 11; ++page) {
             mmu.set_page(TEMP_SLOT, page);
-            for (uint16_t off = 0; off < PAGE_SIZE; ++off) {
+            for (uint16_t off = 0; off < MMU_PAGE_BYTES; ++off) {
                 mmu.write(static_cast<uint16_t>(SLOT_BASE + off), 0x00);
             }
         }

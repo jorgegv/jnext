@@ -12,7 +12,9 @@
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
 #include "platform/pok_trainers.h"
+#ifndef __EMSCRIPTEN__
 #include "script/script_host.h"
+#endif
 #include "video/renderer.h"
 
 /// Headless application shell — no display, no audio, no input.
@@ -175,7 +177,9 @@ private:
     // GH #26 WP4 — `--script` / `--script-key` / `--map` (script/script_host.h).
     // Declared AFTER debugger_ so it is destroyed FIRST: its engine and its
     // listener detach from the Debugger they were started on.
+#ifndef __EMSCRIPTEN__
     jnext::script::ScriptHost script_host_;
+#endif
 
     /// The cold boot itself (reconstruct + init, platform/emulator_boot.h) and
     /// the loop's pending-work reset — what `LoopDriver::cold_boot` runs for a

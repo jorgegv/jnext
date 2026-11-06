@@ -123,8 +123,8 @@ on failure (`-1`) the table and its owner are as they were.
 ### `--source-map`
 
 `EmulatorConfig::source_map_file` is set from `--source-map FILE`
-(`EmulatorConfig::source_map_file`, `src/main.cpp:878`, `:2193`). `EmulatorConfig::source_map_no_program` (`emulator_config.h:298`),
-set at `src/main.cpp:2207`, says which of three cases it is: `0` a program loads and the map
+(`EmulatorConfig::source_map_file`, `src/main.cpp:889`, `:2213`). `EmulatorConfig::source_map_no_program` (`emulator_config.h:298`),
+set at `src/main.cpp:2227`, says which of three cases it is: `0` a program loads and the map
 follows it; `1` there is no `--load`; `2` an RZX replay is the program (`--rzx-play`, or
 `--load R.rzx`, told by the extension).
 
@@ -140,7 +140,7 @@ attaches pending, and the loop owner watches it once per tick with
 **Without one** (`1` and `2`). There is no program to judge a map by, so only the map of a z88dk
 dot command is accepted. Each loop owner makes the load once, at start-up, before
 `ScriptHost::start()`, so a `file:line` rule in a script resolves
-(the guard is `source_map_no_program`: `headless_app.cpp:77-91`, `sdl_app.cpp:252`, `gui/qt_app.cpp:352`). The call is
+(the guard is `source_map_no_program`: `headless_app.cpp:79-90`, `src/platform/sdl_app.cpp:254`, `gui/qt_app.cpp:352`). The call is
 `emulator_attach_cli_source_map(dbg, file, deferred = false, dot_only = true, rzx = (case 2))`,
 which passes `dot_only` to `load_source_map()`. After the adapter has parsed the file,
 `dot_only && !candidate.dot()` returns `SourceMapLoad::not_dot` with the error "it is not the map

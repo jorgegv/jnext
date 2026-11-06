@@ -291,6 +291,11 @@ inline std::string path(KeyId id) {
 /// the family row when <id> is one of the debugger action ids.
 const Key* find(std::string_view section, std::string_view name);
 
+/// Why the browser (WebAssembly) build refuses to set `k`, or nullptr: the
+/// refusal of its dedicated flag (cli::browser_refusal), so `--set` and the flag
+/// cannot disagree. A key with no flag is never refused.
+const char* browser_refusal(const Key& k);
+
 // --- word lists ('|'-separated, as in Key::values) --------------------------
 
 /// The index-th word of a '|'-separated list; empty when out of range.

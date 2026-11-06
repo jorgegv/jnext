@@ -83,7 +83,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        leg: [build-matrix, unit, unit-win, regression, regression-win]
+        leg: [build-matrix, unit, unit-win, regression, regression-win, wasm]
     runs-on: ubuntu-latest
     # Same fedora:44 container release.yml builds the rpm and Windows artifacts
     # in, and the same distro the maintainer develops on. That is the point: the
@@ -317,7 +317,7 @@ jobs:
       # `make unit-test-win` provisions it itself (the `sdcard-image` target),
       # since that leg builds no PGO binary.
       - name: Cache NextZXOS SD-card image
-        if: matrix.leg != 'build-matrix'
+        if: matrix.leg != 'build-matrix' && matrix.leg != 'wasm'
         id: sdcache
         uses: actions/cache@v5
         with:
@@ -360,6 +360,18 @@ jobs:
           LANG=C make clean
           LANG=C make gui-release
 
+      # The Emscripten SDK 6.0.13 (about 1.4 GB with its ports), provisioned by
+      # `make wasm-core` itself (test/provision-emsdk.sh) from three sha256-pinned
+      # archives, so a hit only skips the downloads. The key carries the version
+      # and the three pin prefixes: a bump changes it and a stale entry is never
+      # reused (an entry without the provisioner's stamp is replaced anyway).
+      - name: Cache the Emscripten SDK
+        if: matrix.leg == 'wasm'
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/jnext/tools/emsdk-6.0.13
+          key: emsdk-6.0.13-8c04da75-cda68010-14b342e7-fedora44
+
       # Link rot only shows up at BUILD time and only in the combinations the
       # default build does not exercise: CMake derives static-link order from
       # the declared dependency graph, so a target that under-declares still
@@ -370,6 +382,13 @@ jobs:
       - name: Build matrix (every ENABLE_QT_UI x ENABLE_DEBUGGER combination)
         if: matrix.leg == 'build-matrix'
         run: LANG=C make build-matrix
+
+      # The SDL-only core built for WebAssembly and run under node (GH #459):
+      # provisions the pinned Emscripten SDK, builds jnext.js/jnext.wasm and the
+      # SHA-256 suite, and runs test/wasm-core-check.sh. BLOCKING, like the others.
+      - name: make wasm-core (the SDL-only core as WebAssembly, run under node)
+        if: matrix.leg == 'wasm'
+        run: LANG=C make wasm-core
 
       # No JNEXT_TEST_JOBS: the suite's lanes default to the runner's CPUs and
       # its timing-sensitive rows run in their own quiet phase (GH #295), so

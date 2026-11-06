@@ -16,7 +16,9 @@
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
 #include "platform/pok_trainers.h"
+#ifndef __EMSCRIPTEN__
 #include "script/script_host.h"
+#endif
 #include "video/renderer.h"
 #include "input/gamepad_host.h"
 #include "input/mouse_dispatcher.h"
@@ -147,7 +149,9 @@ private:
     // GH #26 WP4 — `--script` / `--script-key` / `--map` (script/script_host.h).
     // Declared AFTER debugger_ so it is destroyed FIRST: its engine and its
     // listener detach from the Debugger they were started on.
+#ifndef __EMSCRIPTEN__
     jnext::script::ScriptHost script_host_;
+#endif
     /// The cold boot itself — what `LoopDriver::cold_boot` runs for a client's
     /// `reset(Hard)`, which brackets it with its own capture. cold_boot() is
     /// this plus the begin/done pair.

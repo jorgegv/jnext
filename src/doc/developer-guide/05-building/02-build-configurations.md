@@ -75,6 +75,20 @@ has configured by hand with either flag off, rather than handing back a binary
 that is not what it claims to be. If you hit that refusal, `make clean` and
 retry.
 
+`build/wasm-core` is the WebAssembly build (`make wasm-core`): Release, the
+Emscripten toolchain file of the SDK that `make emsdk` provides, and only the
+SDL-only configuration, so CMake refuses it with `ENABLE_QT_UI` or
+`ENABLE_DEBUGGER` on. It builds the `jnext` and `sha256_test` targets only. The
+configuration differs from the native SDL-only one in a few places: no
+curl/OpenSSL (the SD-card provisioner's web twin,
+`sdcard_provisioner_net_web.cpp`, has a portable SHA-256 and never downloads),
+no `jnext_remote` or `jnext_script`, NextPi compiled out, no process spawning,
+`-fwasm-exceptions` in every translation unit and the link, a 2 MB stack and
+growable memory, and the flags and `--set` keys that need a process, a socket
+or the script host refused with a message (`cli::browser_refusal`). zlib and
+libpng come from the SDK's ports (`-sUSE_ZLIB=1`, `-sUSE_LIBPNG=1`), which pick
+the libpng variant that matches the exception model.
+
 ## Dev build versus release build
 
 With no `-DCMAKE_BUILD_TYPE` given, CMake here defaults to **RelWithDebInfo**

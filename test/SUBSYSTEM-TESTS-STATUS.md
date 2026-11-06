@@ -48,6 +48,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD File Add (case-sensitive host) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SHA-256 backends (GH #459) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start (GH #234)  |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -94,8 +95,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SIGINT/SIGTERM quit request |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CLI options / docs    |       63 |       63 |      0 |       0 |    100% | 🟢 All tests pass. |
-| jnext.conf key table (GH #417) |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options / docs    |       66 |       66 |      0 |       0 |    100% | 🟢 All tests pass. |
+| jnext.conf key table (GH #417) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       54 |       54 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -187,6 +188,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      271 |      271 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **15752**| **15752**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **15770**| **15770**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

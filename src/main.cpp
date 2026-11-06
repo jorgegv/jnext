@@ -390,7 +390,9 @@ int main(int argc, char* argv[]) {
     // NextPi under QEMU. Owned here, by the process, rather than by the
     // Emulator: a hard reset rebuilds the Emulator and must not reboot the Pi
     // (core/pi_qemu.h). Reset explicitly before spdlog shuts down.
+#ifndef __EMSCRIPTEN__
     std::unique_ptr<PiQemu> pi_qemu;
+#endif
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -633,6 +635,15 @@ int main(int argc, char* argv[]) {
             // loop's ++i lands on the next argument.
             const char* const* v = &argv[i + 1];
             i += opt->arity;
+
+#ifdef __EMSCRIPTEN__
+            // The browser build has no processes, sockets or script host: a
+            // flag that needs one is refused with its reason, never ignored.
+            if (const char* why = cli::browser_refusal(opt->id)) {
+                fprintf(stderr, "%s: %s\n", arg.c_str(), why);
+                return 1;
+            }
+#endif
 
             switch (opt->id) {
             case cli::OptId::LogLevel:
@@ -1369,6 +1380,12 @@ int main(int argc, char* argv[]) {
                 const config_keys::Key& info = config_keys::info(a.id);
                 const std::string key = std::string(info.section) + "." +
                     (a.id == config_keys::KeyId::DebuggerKey ? a.family_name : std::string(info.name));
+#ifdef __EMSCRIPTEN__
+                if (const char* why = config_keys::browser_refusal(info)) {
+                    fprintf(stderr, "--set %s: %s\n", key.c_str(), why);
+                    return 1;
+                }
+#endif
                 note_given(a.id, "--set " + key);
                 apply_assignment(a);
                 break;
@@ -2015,6 +2032,7 @@ int main(int argc, char* argv[]) {
     }();
     const MachineType startup_machine = emulator_startup_machine(
         load_file.empty() ? rzx_play_file : load_file, configured_machine, machine_type_set);
+#ifndef __EMSCRIPTEN__
     {
         bool gui = false, saved_enabled = false;
         nextpi::ProvisionOptions popts;
@@ -2151,6 +2169,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
+#endif
+
     AudioRecorder audio_recorder;
     DacTraceRecorder dac_trace_recorder;
 
@@ -2261,7 +2281,9 @@ int main(int argc, char* argv[]) {
         cfg.joy_uart_rx_delay_frames = static_cast<uint32_t>(joy_uart_rx_delay_frames);
         cfg.joy_uart_fifo            = joy_uart_fifo;
         cfg.joy_uart_pty             = joy_uart_pty;
+#ifndef __EMSCRIPTEN__
         if (pi_qemu) pi_qemu->link_config(cfg);   // NextPi, started before the app below
+#endif
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -2875,7 +2897,9 @@ int main(int argc, char* argv[]) {
 #endif
     }
 
+#ifndef __EMSCRIPTEN__
     pi_qemu.reset();   // stop QEMU while logging still works
+#endif
     spdlog::shutdown();
     // GH #364: the signal decides the status (128+N, WIFSIGNALED) even when
     // result is non-zero; the error behind it has been logged already.

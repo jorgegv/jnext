@@ -147,29 +147,29 @@ bool SzxLoader::parse_ramp(const uint8_t* data, uint32_t size)
     const uint8_t* page_data = data + 3;
     uint32_t data_len = size - 3;
 
-    constexpr size_t PAGE_SIZE = 16384;
+    constexpr size_t SZX_PAGE_BYTES = 16384;
 
     if (compressed) {
-        std::vector<uint8_t> decompressed(PAGE_SIZE);
-        uLongf dest_len = PAGE_SIZE;
+        std::vector<uint8_t> decompressed(SZX_PAGE_BYTES);
+        uLongf dest_len = SZX_PAGE_BYTES;
         int ret = uncompress(decompressed.data(), &dest_len, page_data, data_len);
         if (ret != Z_OK) {
             Log::emulator()->error("SZX: RAMP page {} zlib decompression failed (error {})", page_num, ret);
             return false;
         }
-        if (dest_len != PAGE_SIZE) {
+        if (dest_len != SZX_PAGE_BYTES) {
             Log::emulator()->error("SZX: RAMP page {} decompressed to {} bytes (expected {})",
-                                   page_num, dest_len, PAGE_SIZE);
+                                   page_num, dest_len, SZX_PAGE_BYTES);
             return false;
         }
         ram_pages_[page_num] = std::move(decompressed);
     } else {
-        if (data_len < PAGE_SIZE) {
+        if (data_len < SZX_PAGE_BYTES) {
             Log::emulator()->error("SZX: RAMP page {} uncompressed data too small ({} bytes)",
                                    page_num, data_len);
             return false;
         }
-        ram_pages_[page_num] = std::vector<uint8_t>(page_data, page_data + PAGE_SIZE);
+        ram_pages_[page_num] = std::vector<uint8_t>(page_data, page_data + SZX_PAGE_BYTES);
     }
 
     Log::emulator()->debug("SZX: RAMP page {} loaded ({})", page_num,
