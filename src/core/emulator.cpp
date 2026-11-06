@@ -7990,7 +7990,7 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
     if (!finish_warm_start_recording(warm_start_state_, gen_end - warm_start_begin_gen_)) {
         warm_start_state_.clear();
         warm_start_failed_image_ = config_.sd_card_image;
-        return unavailable(kWarmStartBootFrames);
+        return unavailable(prog.frames_done);
     }
 
     // The identity is rebuilt here, not carried: the machine and card are the
@@ -8014,7 +8014,7 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
             warm_start_state_.size(), id.plain_bytes);
         warm_start_state_.clear();
         warm_start_failed_image_ = config_.sd_card_image;
-        return unavailable(kWarmStartBootFrames);
+        return unavailable(prog.frames_done);
     }
 
     // The key is read AFTER the recording, never before: if the recording boot
