@@ -381,9 +381,6 @@ jobs:
         if: matrix.leg == 'build-matrix'
         run: LANG=C make build-matrix
 
-      # No JNEXT_TEST_JOBS: the suite's lanes default to the runner's CPUs and
-      # its timing-sensitive rows run in their own quiet phase (GH #295), so
-      # this is the command a human types.
       # The SDL-only core built for WebAssembly and run under node (GH #459):
       # provisions the pinned Emscripten SDK, builds jnext.js/jnext.wasm and the
       # SHA-256 suite, and runs test/wasm-core-check.sh. BLOCKING, like the others.
@@ -391,6 +388,9 @@ jobs:
         if: matrix.leg == 'wasm'
         run: LANG=C make wasm-core
 
+      # No JNEXT_TEST_JOBS: the suite's lanes default to the runner's CPUs and
+      # its timing-sensitive rows run in their own quiet phase (GH #295), so
+      # this is the command a human types.
       - name: make regression (screenshot + functional suite)
         if: matrix.leg == 'regression'
         run: LANG=C make regression

@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=311  # 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=312  # 311 -> 312: HS-159 added (GH #459 review: the emsdk provisioner re-resolves under its lock). 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2611,6 +2611,28 @@ for which in a b c; do
     check "$hs_id" "provision-emsdk.sh with a wrong sha256 for $what refuses (exit 1), names the mismatch and installs nothing, scratch removed (GH #459)" 1 $([[ $rc -eq 1 && -z "$left" ]] && echo 1 || echo 99) \
         "$out"$'\n'"left:[$left]" "SHA-256 MISMATCH" "expected $badpin" "left:[]"
 done
+
+# provision-emsdk.sh (GH #459 review): the install is built in place, so a run that waited for the lock
+# re-resolves and uses the tree the other run stamped instead of installing over it. Here the test holds
+# the lock, starts the provisioner with unreachable URLs, then plants a stamped fake tree and releases the
+# lock: the provisioner must print "using" and exit 0 without a download (a copy that skips the re-resolve
+# goes on to the unreachable download and exits 1).
+XL="$T/prov-cache-em-lock"; mkdir -p "$XL/jnext/tools"
+EMT="$XL/jnext/tools/emsdk-6.0.13"
+exec 8>"$XL/jnext/tools/emsdk-6.0.13.lock"; flock 8
+( XDG_CACHE_HOME="$XL" JNEXT_EMSDK_URL="file://$T/none.tgz" JNEXT_EMSDK_SHA256=aa \
+  JNEXT_EMSDK_RELEASE_URL="file://$T/none.xz" JNEXT_EMSDK_RELEASE_SHA256=bb \
+  JNEXT_EMSDK_NODE_URL="file://$T/none2.xz" JNEXT_EMSDK_NODE_SHA256=cc \
+  bash "$PROJECT_DIR/test/provision-emsdk.sh" > "$T/prov-lock.out" 2>&1; echo $? > "$T/prov-lock.rc" ) &
+LOCKPID=$!
+sleep 1
+mkdir -p "$EMT/upstream/emscripten"; printf '#!/bin/sh\n' > "$EMT/upstream/emscripten/emcc"; chmod +x "$EMT/upstream/emscripten/emcc"
+printf 'emsdk 6.0.13 aa bb cc\n' > "$EMT/.jnext-provisioned"
+flock -u 8; exec 8>&-
+wait $LOCKPID
+out=$(cat "$T/prov-lock.out"); rc=$(cat "$T/prov-lock.rc")
+check "HS-159" "provision-emsdk.sh re-resolves once it holds the lock: a tree stamped meanwhile is used (exit 0), nothing is downloaded or removed (GH #459)" 0 $rc "$out" "emsdk: using $EMT"
+[[ -x "$EMT/upstream/emscripten/emcc" ]] || { echo "HS-159: the stamped tree was removed"; fail=$((fail + 1)); }
 
 # ---------------- the harness's git keeps the user's own config (GH #295) ----------------
 # The suite points XDG_CONFIG_HOME at a scratch dir for Qt, and git resolves

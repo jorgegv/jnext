@@ -82,7 +82,7 @@ fi
 echo "emsdk: not provisioned; installing Emscripten $VERSION into $CACHED (a 345 MB download)"
 
 missing=""
-for tool in curl sha256sum tar python3 timeout; do
+for tool in curl sha256sum tar python3 timeout flock; do
     command -v "$tool" >/dev/null 2>&1 || missing+=" $tool"
 done
 if [[ -n "$missing" ]]; then
@@ -91,6 +91,18 @@ if [[ -n "$missing" ]]; then
 fi
 
 mkdir -p "$CACHE_ROOT"
+
+# One provisioner at a time per version: the install is built IN PLACE (see below),
+# so there is no atomic rename to make two first-time runs harmless. The lock is held
+# to the end of the script (fd 9 closes with it); a run that waited for it re-resolves,
+# and finds the tree the other run stamped.
+exec 9>"$CACHE_ROOT/emsdk-$VERSION.lock"
+flock 9
+if found=$(resolve); then
+    echo "emsdk: using $found"
+    exit 0
+fi
+
 WORK=$(mktemp -d "$CACHE_ROOT/emsdk-build.XXXXXX")
 cleanup() { rm -rf "$WORK"; }   # redefined below once $CACHED is in place
 trap cleanup EXIT

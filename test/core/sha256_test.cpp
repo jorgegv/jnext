@@ -146,6 +146,20 @@ int main() {
               miss.empty() && dd.empty(), "missing=[" + miss + "] dir=[" + dd + "]");
     }
 
+    {
+        // The bit length above 2^32 (the 1 GiB SD image is 2^33): a sparse, all-zero file of 2^29 + 1
+        // bytes, whose length field has a non-zero high word. Oracle: coreutils sha256sum.
+        const fs::path big = dir / "big_sparse.bin";
+        { std::ofstream f(big, std::ios::binary); f.put('\0'); }
+        std::error_code rec;
+        fs::resize_file(big, 536870913ULL, rec);
+        const std::string want = "7c40fe5ce847740d0f0d0cdde3949d6585804cdec3ae61a15b923165699c8137";
+        const std::string got = rec ? std::string() : sha256_file(big.string());
+        check("SHA256-15", "sha256_file of 536870913 zero bytes (bit length above 2^32: the high word of the length field)",
+              !rec && got == want, rec ? rec.message() : diff(got, want));
+        fs::remove(big, rec);
+    }
+
     std::error_code ec;
     fs::remove_all(dir, ec);
 
