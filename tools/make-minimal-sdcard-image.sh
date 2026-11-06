@@ -9,8 +9,9 @@
 # tools/fix-sdcard-image.sh, unchanged.
 #
 # Needs mtools, sfdisk (util-linux) and coreutils. No root, no loop mount. The
-# source is only read. The output is reproducible for one mtools version
-# (mformat writes its version into the boot sector): fixed volume serial,
+# source is only read. The destination filesystem must support hard links (not
+# FAT/exFAT): the card is placed with ln, which never replaces an entry. The output is
+# reproducible for one mtools version (mformat writes its version into the boot sector): fixed volume serial,
 # SOURCE_DATE_EPOCH and TZ pinned, and a DOS-to-DOS copy so the directory order
 # comes from the source card and not from the builder's host filesystem.
 #
@@ -58,6 +59,10 @@ mcopy -s -m -p -Q "${names[@]}" d:/
 unset MTOOLSRC
 bash "$FIX" "$W/card.img" "$W/fixed.img" >&2
 # ln fails on ANY existing entry (a dangling symlink too): a destination that
-# appeared during the build is never replaced, unlike mv.
-ln "$W/fixed.img" "$DST" 2>/dev/null || die "destination appeared during the build, not overwritten: $2"
+# appeared during the build is never replaced, unlike mv. It needs a filesystem
+# with hard links (not FAT/exFAT), so the two failures get different messages.
+if ! ln "$W/fixed.img" "$DST" 2>"$W/ln.err"; then
+    { [ -e "$DST" ] || [ -L "$DST" ]; } && die "destination appeared during the build, not overwritten: $2"
+    die "cannot create $2: $(cat "$W/ln.err") (the destination filesystem must support hard links)"
+fi
 echo "$DST: $(stat -c %s "$DST") bytes, sha256 $(sha256sum "$DST" | cut -d' ' -f1)"

@@ -173,7 +173,8 @@ The boot set (`TBBLUE.FW`, `MACHINES`, `NEXTZXOS`, `SYS`, `LICENSE.md`,
 source's own spelling of each name. jnext's own two patches, the `config.ini`
 and the doubled `zx81.rom`, are applied by `tools/fix-sdcard-image.sh`, which
 the script calls unchanged. The script refuses to overwrite its destination,
-reads the source image only, and refuses a card with too few clusters for
+reads the source image only (it places the card with a hard link, so the
+destination filesystem must support them: not FAT or exFAT), and refuses a card with too few clusters for
 FatFs to take it as FAT32 (more than 65525).
 
 The output is reproducible: a fixed volume serial, `SOURCE_DATE_EPOCH` and
@@ -186,7 +187,7 @@ and coreutils; it needs no root and no loop mount.
 The output is copyrighted NextZXOS content. It is never committed, attached to
 an issue or a package, or uploaded; it is hosted only where the owner decides.
 
-Two tests cover it: `make minimal-image-test` (15 rows, part of `make
+Two tests cover it: `make minimal-image-test` (16 rows, part of `make
 unit-test`, run against the cached distribution image) and the
 `minimal-sdcard-image-func` regression row, which boots the card to the
 NextZXOS menu and warm-starts a NEX, both compared with the full card's

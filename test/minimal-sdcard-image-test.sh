@@ -16,7 +16,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SCRIPT="$ROOT/tools/make-minimal-sdcard-image.sh"
 SRC="$HOME/.jnext/sdcard/cspect-next-1gb.img"   # one variable to rename for another release
-EXPECTED_ROWS=15
+EXPECTED_ROWS=16
 export MTOOLS_SKIP_CHECK=1
 
 total=0; passed=0; failed=0
@@ -57,7 +57,7 @@ if [[ ${#missing[@]} -gt 0 || ! -f "$SRC" ]]; then
     [[ ${#missing[@]} -eq 0 ]] || echo "  missing tools: ${missing[*]} (dnf install mtools util-linux coreutils)"
     [[ -f "$SRC" ]] || echo "  missing source image $SRC (make sdcard-image, or --sdcard-download-force)"
     row MINIMG-01 0 "tools and the distribution image are present"
-    for i in 02 03 04 05 06 07 08 09 10 11 12 13 14 15; do
+    for i in 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16; do
         total=$((total + 1)); failed=$((failed + 1)); echo "  FAIL MINIMG-$i not run: MINIMG-01 failed"
     done
     finish
@@ -173,10 +173,10 @@ mkdir -p "$T/d"
 echo keep > "$T/d/exists.img"
 rc_a=0; err_a=$(bash "$SCRIPT" "$SRC" "$T/d/exists.img" 2>&1 >/dev/null) || rc_a=$?
 ln -s nowhere.img "$T/d/dangle.img"
-rc_b=0; bash "$SCRIPT" "$SRC" "$T/d/dangle.img" >/dev/null 2>&1 || rc_b=$?
+rc_b=0; err_b=$(bash "$SCRIPT" "$SRC" "$T/d/dangle.img" 2>&1 >/dev/null) || rc_b=$?
 ok=1
 [[ $rc_a == 1 && "$err_a" == *"destination exists"* && "$(cat "$T/d/exists.img")" == keep ]] || ok=0
-[[ $rc_b == 1 && ! -e "$T/d/nowhere.img" && "$(readlink "$T/d/dangle.img")" == nowhere.img ]] || ok=0
+[[ $rc_b == 1 && "$err_b" == *"destination exists"* && ! -e "$T/d/nowhere.img" && "$(readlink "$T/d/dangle.img")" == nowhere.img ]] || ok=0
 compgen -G "$T/d/.minimal-sdcard.*" >/dev/null && ok=0
 row MINIMG-09 "$ok" "an existing file or dangling symlink destination is refused and untouched"
 
@@ -238,6 +238,18 @@ ok=0
 if [[ $rc == 1 && "$err" == *"destination appeared"* && "$(cat "$T/race/out/out.img")" == late ]] \
    && ! compgen -G "$T/race/out/.minimal-sdcard.*" >/dev/null; then ok=1; fi
 row MINIMG-15 "$ok" "a destination created during the build is refused, not overwritten"
+
+# ---- MINIMG-16: no hard links on the destination filesystem: the real cause is reported ----
+# A PATH stub ln fails like link(2) on FAT (EPERM) and delegates the symlink the script makes.
+mkdir -p "$T/nl/bin" "$T/nl/out"
+real_ln=$(command -v ln)
+printf '#!/usr/bin/env bash\nif [ "${1:-}" = -s ]; then exec "%s" "$@"; fi\necho "ln: failed to create hard link: Operation not permitted" >&2\nexit 1\n' "$real_ln" > "$T/nl/bin/ln"
+chmod +x "$T/nl/bin/ln"
+rc=0; err=$(PATH="$T/nl/bin:$PATH" bash "$SCRIPT" "$SRC" "$T/nl/out/out.img" 2>&1 >/dev/null) || rc=$?
+ok=0
+if [[ $rc == 1 && "$err" == *"Operation not permitted"* && "$err" == *"hard links"* && "$err" != *appeared* \
+      && ! -e "$T/nl/out/out.img" ]] && ! compgen -G "$T/nl/out/.minimal-sdcard.*" >/dev/null; then ok=1; fi
+row MINIMG-16 "$ok" "a destination filesystem without hard links is reported as such, not as a race"
 
 # ---- MINIMG-08: the source was only read ----
 src_sha1=$(sha256sum "$SRC" | cut -d' ' -f1)
