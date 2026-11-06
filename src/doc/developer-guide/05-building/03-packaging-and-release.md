@@ -186,7 +186,7 @@ and coreutils; it needs no root and no loop mount.
 The output is copyrighted NextZXOS content. It is never committed, attached to
 an issue or a package, or uploaded; it is hosted only where the owner decides.
 
-Two tests cover it: `make minimal-image-test` (13 rows, part of `make
+Two tests cover it: `make minimal-image-test` (15 rows, part of `make
 unit-test`, run against the cached distribution image) and the
 `minimal-sdcard-image-func` regression row, which boots the card to the
 NextZXOS menu and warm-starts a NEX, both compared with the full card's

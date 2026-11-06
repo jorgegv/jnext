@@ -816,9 +816,6 @@ unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text
 	@# NOTE: this proves the generated outputs match their sources. That jnext.1.md
 	@# also matches the CLI src/main.cpp parses is proven separately, by cli_options_test
 	@# (run below as a declared suite, and as `make cli-check`) — issue #43.
-	@# minimal-image-test is a prerequisite for the same reason: no CMake suite behind it,
-	@# and hermetic apart from the cached distribution image. Linux-only (sfdisk), so it is
-	@# not a prerequisite of unit-test-sdl or unit-test-win.
 	@# package-contract-test is a prerequisite for the same reason (issue #61): the
 	@# packaging scripts are hand-written, ship user-visible artifacts, and had no
 	@# automatic gate at all — `make package-test` was called by no workflow and by
@@ -827,6 +824,9 @@ unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text
 	@# roots, ~4 s, no compiler and no packaging toolchain. The half that actually
 	@# builds rpm/deb/win packages (~4 min) stays in `make package-test`, run as its
 	@# own parallel job in ci.yml.
+	@# minimal-image-test is a prerequisite for the same reason: no CMake suite behind it,
+	@# and hermetic apart from the cached distribution image. Linux-only (sfdisk), so it is
+	@# not a prerequisite of unit-test-sdl or unit-test-win.
 	@bash test/run-unit-tests.sh build
 	@# Loud, non-fatal drift guard: the dashboard only refreshes on the explicit
 	@# 'unit-test-dashboard' target, so it silently rots. This warns (never fails —
@@ -1997,7 +1997,7 @@ packaging-selftest:
 package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
 
-# Test tools/make-minimal-sdcard-image.sh (13 rows) against the cached distribution image — needs mtools + sfdisk
+# Test tools/make-minimal-sdcard-image.sh (15 rows) against the cached distribution image - needs mtools + sfdisk
 minimal-image-test:
 	@bash test/minimal-sdcard-image-test.sh
 

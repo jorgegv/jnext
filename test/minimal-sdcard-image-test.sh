@@ -16,7 +16,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SCRIPT="$ROOT/tools/make-minimal-sdcard-image.sh"
 SRC="$HOME/.jnext/sdcard/cspect-next-1gb.img"   # one variable to rename for another release
-EXPECTED_ROWS=13
+EXPECTED_ROWS=15
 export MTOOLS_SKIP_CHECK=1
 
 total=0; passed=0; failed=0
@@ -40,7 +40,7 @@ trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/a" "$T/b"
 
 finish() {
-    echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
+    printf 'Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n' "$total" "$passed" "$failed" 0
     if [[ $total -ne $EXPECTED_ROWS ]]; then
         echo "FAIL: reported $total rows, expected $EXPECTED_ROWS"; exit 1
     fi
@@ -57,7 +57,7 @@ if [[ ${#missing[@]} -gt 0 || ! -f "$SRC" ]]; then
     [[ ${#missing[@]} -eq 0 ]] || echo "  missing tools: ${missing[*]} (dnf install mtools util-linux coreutils)"
     [[ -f "$SRC" ]] || echo "  missing source image $SRC (make sdcard-image, or --sdcard-download-force)"
     row MINIMG-01 0 "tools and the distribution image are present"
-    for i in 02 03 04 05 06 07 08 09 10 11 12 13; do
+    for i in 02 03 04 05 06 07 08 09 10 11 12 13 14 15; do
         total=$((total + 1)); failed=$((failed + 1)); echo "  FAIL MINIMG-$i not run: MINIMG-01 failed"
     done
     finish
@@ -91,17 +91,22 @@ field() { sed -n "s/^$1: *\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" <<<"$mi" | head -
 reserved=$(field 'reserved (boot) sectors'); fats=$(field 'fats'); big=$(field 'big size'); big=${big%% *}
 fatlen=$(sed -n 's/^Big fatlen=\([0-9]*\)/\1/p' <<<"$mi"); csz=$(field 'cluster size')
 csz=${csz%% *}; serial=$(field 'serial number'); dtype=$(sed -n 's/^disk type="\(FAT32\) *"/\1/p' <<<"$mi")
+hidden=$(field 'hidden sectors'); hidden=${hidden%% *}; heads=$(field 'heads'); spt=$(field 'sectors per track')
+label=$(sed -n 's/^disk label="\(.*\)"$/\1/p' <<<"$mi")
+nolabel=0; mdir -i "$CARD@@32256" :: 2>/dev/null | grep -q 'has no label' && nolabel=1
 clusters=0
 if [[ -n "$reserved" && -n "$fats" && -n "$big" && -n "$fatlen" && "${csz:-0}" -gt 0 ]]; then
     clusters=$(( (big - reserved - fats * fatlen) / csz ))
 fi
 ok=0
-if [[ "$dtype" == FAT32 && "$csz" == 1 && "$serial" == 4A4E5854 && $clusters -gt 65525 ]]; then ok=1; fi
-row MINIMG-03 "$ok" "FAT32, 1-sector clusters, serial 4A4E5854, $clusters clusters (> 65525, FatFs rule)"
+if [[ "$dtype" == FAT32 && "$csz" == 1 && "$serial" == 4A4E5854 && $clusters -gt 65525 \
+      && "$hidden" == 63 && "$heads" == 255 && "$spt" == 63 \
+      && "$label" == "NO NAME    " && $nolabel == 1 ]]; then ok=1; fi
+row MINIMG-03 "$ok" "FAT32, 1-sector clusters, serial 4A4E5854, $clusters clusters (> 65525, FatFs rule), hidden 63, 255 heads, 63 sectors/track, no label"
 
 # ---- MINIMG-04: exactly the boot set ----
 card_list=$(mdir -/ -a -b -i "$CARD@@32256" ::/ 2>/dev/null | LC_ALL=C sort || true)
-start=$(sfdisk --dump "$SRC" 2>/dev/null | sed -n 's/^[^:]*: *start= *\([0-9]*\),.*/\1/p' | head -n1)
+start=$(sfdisk --dump "$SRC" 2>/dev/null | sed -n 's/^.* : start= *\([0-9]*\),.*/\1/p' | head -n1)
 src_all=$(mdir -/ -a -b -i "$SRC@@$((start * 512))" ::/ 2>/dev/null || true)
 src_list=$( { grep -iE '^::/(TBBLUE\.FW|machines|nextzxos|sys|LICENSE\.md|README\.md)(/|$)' <<<"$src_all" || true
               echo "::/machines/next/config.ini"; } | LC_ALL=C sort)
@@ -111,21 +116,29 @@ row MINIMG-04 "$ok" "card holds exactly the boot set plus config.ini ($(wc -l <<
 
 # ---- MINIMG-05: contents and mtimes ----
 mkdir -p "$T/xc" "$T/xs"
+# Only the boot set is extracted from the source: the card's own top-level names.
 ( export LC_ALL=C.UTF-8 TZ=UTC
   mcopy -s -m -n -i "$CARD@@32256" ::/ "$T/xc/" </dev/null 2>/dev/null
-  mcopy -s -m -n -i "$SRC@@$((start * 512))" ::/ "$T/xs/" </dev/null 2>/dev/null ) || true
+  while IFS= read -r top; do
+      mcopy -s -m -n -i "$SRC@@$((start * 512))" "::/${top%/}" "$T/xs/" </dev/null 2>/dev/null
+  done < <(mdir -b -i "$CARD@@32256" ::/ 2>/dev/null | sed 's|^::/||') ) || true
 ok=1; bad=""
 while IFS= read -r f; do
     case "$f" in machines/next/zx81.rom|machines/next/config.ini) continue;; esac
     if [[ ! -f "$T/xs/$f" ]] || ! cmp -s "$T/xc/$f" "$T/xs/$f"; then ok=0; bad+=" $f"; fi
 done < <(cd "$T/xc" && find . -type f -printf '%P\n' | LC_ALL=C sort)
-tl() { (cd "$1" && find . -type f -printf '%P %T@\n' | grep -v -e '^machines/next/zx81.rom ' -e '^machines/next/config.ini ' | LC_ALL=C sort); }
+tl() { (cd "$1" && find . -type f -printf '%P %T@\n' | { grep -v -e '^machines/next/zx81.rom ' -e '^machines/next/config.ini ' || true; } | LC_ALL=C sort) || true; }
 # The card is a subset of the source: compare the card's files against the same files of the source.
 tc=$(tl "$T/xc"); ts=$(tl "$T/xs" | LC_ALL=C sort)
 missing_t=$(comm -23 <(cat <<<"$tc") <(cat <<<"$ts") | head -n 3 || true)
 [[ -z "$missing_t" ]] || { ok=0; bad+=" mtime:$missing_t"; }
 [[ -n "$tc" ]] || ok=0
-row MINIMG-05 "$ok" "every copied file is byte-identical with the same mtime${bad:+ (bad:$bad)}"
+# Attributes (R/H/S/A) over the boot set; the two patched files and the root line are excluded.
+attr() { { mattrib -/ -i "$1" ::/ 2>/dev/null || true; } | { grep -iE '::/(TBBLUE\.FW|machines|nextzxos|sys|LICENSE\.md|README\.md)(/|$)' || true; } \
+         | { grep -v -e '::/machines/next/zx81\.rom$' -e '::/machines/next/config\.ini$' || true; } | LC_ALL=C sort; }
+attr_c=$(attr "$CARD@@32256"); attr_s=$(attr "$SRC@@$((start * 512))")
+[[ -n "$attr_c" && "$attr_c" == "$attr_s" ]] || { ok=0; bad+=" attributes"; }
+row MINIMG-05 "$ok" "every copied file is byte-identical with the same mtime, and every entry has the source's attributes${bad:+ (bad:$bad)}"
 
 # ---- MINIMG-06: the two patches ----
 FIXSH="$ROOT/tools/fix-sdcard-image.sh"
@@ -135,11 +148,11 @@ cmp -s "$T/config.expected" "$T/xc/machines/next/config.ini" && [[ -s "$T/config
 zsha=$(grep -oE '^ZX81_16K_SHA256=[0-9a-f]{64}$' "$FIXSH" | cut -d= -f2 || true)
 zsrc="$T/xs/machines/next/zx81.rom"; zcard="$T/xc/machines/next/zx81.rom"
 arm=passthrough
-if [[ "$(stat -c %s "$zsrc")" == 16384 && "$(sha256sum "$zsrc" | cut -d' ' -f1)" == "$zsha" ]]; then
+if [[ "$(stat -c %s "$zsrc" 2>/dev/null || echo 0)" == 16384 && "$(sha256sum "$zsrc" 2>/dev/null | cut -d' ' -f1 || true)" == "$zsha" ]]; then
     arm=doubled
     cat "$zsrc" "$zsrc" > "$T/zx81.expected"
 else
-    cp "$zsrc" "$T/zx81.expected"
+    cp "$zsrc" "$T/zx81.expected" 2>/dev/null || { : > "$T/zx81.expected"; ok=0; }
 fi
 cmp -s "$T/zx81.expected" "$zcard" || ok=0
 row MINIMG-06 "$ok" "config.ini is the script's text; zx81.rom arm: $arm"
@@ -203,6 +216,27 @@ mkdir -p "$T/h"
 rc=0; err=$(cd "$T/h" && bash "$SCRIPT" one.img 2>&1 >/dev/null) || rc=$?
 ok=0; [[ $rc == 2 && "$err" == Usage:* && -z "$(ls -A "$T/h")" ]] && ok=1
 row MINIMG-13 "$ok" "one argument gives usage and exit 2, nothing created"
+
+# ---- MINIMG-14: a ':' in the source path ----
+mkdir -p "$T/co:lon"
+cp "$T/s/synth.img" "$T/co:lon/synth.img"
+mmd -i "$T/co:lon/synth.img@@$((2048 * 512))" ::/sys ::/machines/next >/dev/null 2>&1 || true
+mkdir -p "$T/i"
+rc=0; err=$(bash "$SCRIPT" "$T/co:lon/synth.img" "$T/i/out.img" 2>&1 >/dev/null) || rc=$?
+ok=0; [[ $rc == 0 && -s "$T/i/out.img" && "$err" != *"no partition table"* ]] && ok=1
+row MINIMG-14 "$ok" "a source path containing a colon is read (partition table found, card built)"
+
+# ---- MINIMG-15: a destination that appears during the build is not replaced ----
+# A stub fix-sdcard-image.sh (beside a copy of the script) creates the destination
+# while the build is in flight, then does the card copy the real one would.
+mkdir -p "$T/race/tools" "$T/race/out"
+cp "$SCRIPT" "$T/race/tools/make-minimal-sdcard-image.sh"
+printf '#!/usr/bin/env bash\ncp "$1" "$2"\necho late > "%s"\n' "$T/race/out/out.img" > "$T/race/tools/fix-sdcard-image.sh"
+rc=0; err=$(bash "$T/race/tools/make-minimal-sdcard-image.sh" "$SRC" "$T/race/out/out.img" 2>&1 >/dev/null) || rc=$?
+ok=0
+if [[ $rc == 1 && "$err" == *"destination appeared"* && "$(cat "$T/race/out/out.img")" == late ]] \
+   && ! compgen -G "$T/race/out/.minimal-sdcard.*" >/dev/null; then ok=1; fi
+row MINIMG-15 "$ok" "a destination created during the build is refused, not overwritten"
 
 # ---- MINIMG-08: the source was only read ----
 src_sha1=$(sha256sum "$SRC" | cut -d' ' -f1)

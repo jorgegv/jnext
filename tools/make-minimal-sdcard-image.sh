@@ -29,7 +29,7 @@ SRC=$(realpath -e -- "$1") || die "no source image: $1"
 DST=$(realpath -m -s -- "$2")
 FIX="$(dirname "$(realpath "$0")")/fix-sdcard-image.sh"
 
-start=$(sfdisk --dump "$SRC" 2>/dev/null | sed -n 's/^[^:]*: *start= *\([0-9]*\),.*/\1/p' | head -n1) || true
+start=$(sfdisk --dump "$SRC" 2>/dev/null | sed -n 's/^.* : start= *\([0-9]*\),.*/\1/p' | head -n1) || true
 [ -n "$start" ] || die "no partition table in $SRC"
 
 W=$(mktemp -d "$(dirname "$DST")/.minimal-sdcard.XXXXXX")
@@ -57,5 +57,7 @@ done
 mcopy -s -m -p -Q "${names[@]}" d:/
 unset MTOOLSRC
 bash "$FIX" "$W/card.img" "$W/fixed.img" >&2
-mv "$W/fixed.img" "$DST"
+# ln fails on ANY existing entry (a dangling symlink too): a destination that
+# appeared during the build is never replaced, unlike mv.
+ln "$W/fixed.img" "$DST" 2>/dev/null || die "destination appeared during the build, not overwritten: $2"
 echo "$DST: $(stat -c %s "$DST") bytes, sha256 $(sha256sum "$DST" | cut -d' ' -f1)"
