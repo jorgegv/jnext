@@ -81,15 +81,16 @@ the pause ownership and stop evidence exactly as `step_into()` sets them.
   left.
 - **The boundary.** `reached()` re-reads the location and the depth after each Step:
 
-| Kind | Reached when |
-|---|---|
-| `Into` | the position moved (`same_position()` is false: file, line or column) |
-| `Over` | the position moved **and** `depth <= start_depth` |
-| `Out` | there is a location **and** `depth < start_depth` |
+    | Kind | Reached when |
+    |---|---|
+    | `Into` | the position moved (`same_position()` is false: file, line or column) |
+    | `Over` | the position moved **and** `depth <= start_depth` |
+    | `Out` | there is a location **and** `depth < start_depth` |
 
-  `Over` and `Out` measure depth with the call-stack tracker, so they need it on
-  (`set_call_stack_enabled`, a per-client request; with a C variable store and a non-observer client
-  attached it is on by itself, [7.10](10-c-frames-and-values.md)).
+    `Over` and `Out` measure depth with the call-stack tracker, so they need it on
+    (`set_call_stack_enabled`, a per-client request; with a C variable store and a non-observer client
+    attached it is on by itself, [7.10](10-c-frames-and-values.md)).
+
 - **The loop**, per iteration: `debugger_step()`, then `pause()`; stop if an event
   stop is latched, or the magic or watch stop fired; stop if `reached()`; stop at a
   `HALT` with interrupts disabled (`Warn`: "Source step stopped at a HALT with

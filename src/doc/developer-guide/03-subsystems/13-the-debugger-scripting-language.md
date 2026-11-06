@@ -318,22 +318,23 @@ OBSERVES and never drives. Its frame-edge handler does the work:
 
 - **Input edges.** At every frame edge E_K it reads INS-16 `input_state()` and
   writes one level edge per change since E_K-1, stamped `on frame K-1`:
-  - a matrix bit, by its `key_names.cpp` name, or `row,col` for CAPS SHIFT and
-    SYMBOL SHIFT;
-  - an extended key, as `ext:<name>`;
-  - a joystick connector's whole 12-bit state.
+    - a matrix bit, by its `key_names.cpp` name, or `row,col` for CAPS SHIFT and
+      SYMBOL SHIFT;
+    - an extended key, as `ext:<name>`;
+    - a joystick connector's whole 12-bit state.
 
-  The `Frame` delivery precedes the edge's injection drain and
-  `tick_auto_type()`. So a change applied at E_K-1, by a host key or a script
-  alike, is first seen at E_K, and replaying it at E_K-1 shows it to the guest
-  from frame K, as the original did.
+    The `Frame` delivery precedes the edge's injection drain and
+    `tick_auto_type()`. So a change applied at E_K-1, by a host key or a script
+    alike, is first seen at E_K, and replaying it at E_K-1 shows it to the guest
+    from frame K, as the original did.
+
 - **Captures.** A capture (host key `script8`, or `capture()`) is taken at the
   NEXT frame edge, where a replay's `on frame K` rule runs:
-  - **`.scr`** when only the ULA is on (NR 0x68 b7, NR 0x15 b0/b7, NR 0x69 b7
-    and NR 0x6B b7 all clear). The recorder writes `ula_screen_dump()` itself
-    and emits `compare_scr`.
-  - **PNG** otherwise: through CAP-01 `screenshot()`, with a `screenshot` line
-    naming a `-replay.png`.
+    - **`.scr`** when only the ULA is on (NR 0x68 b7, NR 0x15 b0/b7, NR 0x69 b7
+      and NR 0x6B b7 all clear). The recorder writes `ula_screen_dump()` itself
+      and emits `compare_scr`.
+    - **PNG** otherwise: through CAP-01 `screenshot()`, with a `screenshot` line
+      naming a `-replay.png`.
 - **The script.** `stop()` calls `flush_captures()`, so a PNG still pending is
   dropped together with its line. It then writes the script: a header, `once`
   asserts on `MACHINE` and `nextreg[0x05]`, the warnings (as comments and as
@@ -365,15 +366,16 @@ A file that cannot be read is a run-time error.
    reads the name finds it (step 5). For `set`, add the write path in
    `ScriptEngine::exec()`'s `ActionKind::Set` case, through a debugger verb.
 5. **Tests**:
-   - add the name to `script_parse_test`'s `EVAL-*` state-name rows, which read
-     each name against a real `Debugger`'s own answer, and to
-     `script_eval_test`'s `SEV-BUILTINS`; these are the rows that catch a
-     missing `read_builtin()` arm. `script_parse_test` also pins the payload
-     table both ways;
-   - `script_eval_test` covers the value model;
-   - `script_events_test` covers a payload as delivered.
+    - add the name to `script_parse_test`'s `EVAL-*` state-name rows, which read
+      each name against a real `Debugger`'s own answer, and to
+      `script_eval_test`'s `SEV-BUILTINS`; these are the rows that catch a
+      missing `read_builtin()` arm. `script_parse_test` also pins the payload
+      table both ways;
+    - `script_eval_test` covers the value model;
+    - `script_events_test` covers a payload as delivered.
 
-   Pin each count in `test/unit-tests.conf`.
+    Pin each count in `test/unit-tests.conf`.
+
 6. **Docs**: §2.3 of the design, and the user guide's language reference.
 
 ## Adding an event kind
@@ -391,18 +393,18 @@ and [3.10.7](10-7-extending-the-debug-subsystem.md)), and have its own
 4. **`check.cpp`**: `scope_of()` maps it to a `PayloadScope`, and
    `payload_legal()` admits its payload names.
 5. **`script_engine.cpp`**:
-   - in `subscriptions_for()`, build the `dbg::Subscription` (kind, filter, and
-     any engine refinement in the `Condition`);
-   - in `describe_event()`, describe it for the Script tab.
+    - in `subscriptions_for()`, build the `dbg::Subscription` (kind, filter, and
+      any engine refinement in the `Condition`);
+    - in `describe_event()`, describe it for the Script tab.
 6. **`evaluator.cpp`**: read any new payload field from the `dbg::Event`.
 7. **Tests**:
-   - `script_parse_test`: the grammar, the payload table, what the rule
-     registers as;
-   - `script_events_test`: a SCRIPT-EV row that drives it on a real machine and
-     asserts the payload;
-   - if it is user-visible, a `script-*-func` row. The suite's demo is
-     `demo/dsl_demo/` — its fixtures live under `test/00regression/nex/` and its
-     scripts in `test/scripts/dsl/`.
+    - `script_parse_test`: the grammar, the payload table, what the rule
+      registers as;
+    - `script_events_test`: a SCRIPT-EV row that drives it on a real machine and
+      asserts the payload;
+    - if it is user-visible, a `script-*-func` row. The suite's demo is
+      `demo/dsl_demo/` — its fixtures live under `test/00regression/nex/` and its
+      scripts in `test/scripts/dsl/`.
 
 ## Tests
 

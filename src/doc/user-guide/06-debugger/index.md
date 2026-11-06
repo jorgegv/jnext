@@ -1,6 +1,7 @@
 # 6. The debugger
 
-JNEXT ships with a full source-less debugger for ZX Spectrum Next software: it
+JNEXT ships with a full machine-level debugger for ZX Spectrum Next software (it
+needs no source; with a source map it also debugs by source line): it
 halts the machine at an instruction boundary and shows you the CPU, the memory
 map, every video layer, the Copper program, the NextREG file and the AY
 registers, all as the hardware sees them at that instant.
@@ -27,7 +28,7 @@ the debugger costs nothing — no breakpoint checking, no call-stack tracking, n
 panel refreshes. Closing it also resumes the machine if it was paused.
 
 The debugger opens in its own window, positioned to the right of the emulator
-window. It has its own menu bar — **Debug**, **Map**, **Breakpoints**,
+window. It has its own menu bar — **Debug**, **Script**, **Map**, **Breakpoints**,
 **Watches** and **Window** — and a control toolbar along the bottom.
 
 **Window ▸ Attach to emulator window** keeps it pinned to the emulator's

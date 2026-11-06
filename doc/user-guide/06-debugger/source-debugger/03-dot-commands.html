@@ -4142,16 +4142,19 @@ on master too). It writes <code>PROG</code> (the command, in capitals, whatever 
 <a href="05-loading-a-source-map.html">Loading a source map</a>).</p>
 <ol>
 <li>Put <code>PROG</code> on the card: <code>jnext --sdcard-file-add PROG --sdcard-file-dest /DOT/PROG</code>.</li>
-<li>Start JNEXT with the map and <strong>no</strong> <code>--load</code>: <code>jnext --source-map prog.map</code> (or <strong>Load
+<li>
+<p>Start JNEXT with the map and <strong>no</strong> <code>--load</code>: <code>jnext --source-map prog.map</code> (or <strong>Load
    Source Map...</strong> in the debugger). The map attaches at once and says <em>Source map not
    verified yet: it is checked when the dot command runs</em>. The log line is (z88dk 2.4 and
-   master alike):</li>
-</ol>
-<p><code>--source-map 'prog.map': 267 source lines (3 z88dk listings) (identity check pending: the dot command loads when it runs)</code></p>
-<ol>
-<li>Set <code>dot.c:8</code> in the Breakpoints panel (or in a script), and type <code>.prog</code> at the NextZXOS
+   master alike):</p>
+<pre><code>--source-map 'prog.map': 267 source lines (3 z88dk listings) (identity check pending: the dot command loads when it runs)
+</code></pre>
+</li>
+<li>
+<p>Set <code>dot.c:8</code> in the Breakpoints panel (or in a script), and type <code>.prog</code> at the NextZXOS
    prompt. The machine stops inside the command, and the Source tab, <strong>Into / Over / Out</strong>
-   and the Call Stack work in <code>dot.c</code> as for any program.</li>
+   and the Call Stack work in <code>dot.c</code> as for any program.</p>
+</li>
 </ol>
 <p>JNEXT checks the map against the command when it starts (the CPU about to execute <code>$2000</code> in
 DivMMC RAM bank 2): the log says <code>Verified z88dk source map ...: the dot command in DivMMC

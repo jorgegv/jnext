@@ -215,4 +215,17 @@
 |         |      | v1.1.77->1.1.82                                                                                        |
 | 24/10   |      | #399 pok_dialog_test; #383 wine D-Bus; #402 .jns tape reattach, one fast/real-time setting             |
 |         |      | v1.1.83->1.1.86; v1.1.87 PUBLIC RELEASE                                                                |
+| 25/10   |      | #406 Recent Files, Reload Last File; #404 macOS full screen; #403 macOS Command keys                   |
+|         |      | v1.1.88->1.1.92                                                                                        |
+| 29/10   |      | #408 fast-load window; #409 Timex ULA scroll; PR #411 #413 (shadowphiar); #414; CLI rule               |
+|         |      | v1.1.93->1.1.98                                                                                        |
+| 30/10   |      | #417 --set for every setting; #407 NextPi QEMU args (janko-jj); #415 WinHTTP on wine 11.7+             |
+|         |      | #416 #419 #425. v1.1.99->1.1.106                                                                       |
+| 1/11    |      | #428 a paused machine stays idle. v1.1.107                                                             |
+| 2/11    |      | #440 stage 1, faster CLI suite; PR #429 Pi tape audio (vmorilla). v1.1.108->1.1.109                    |
+| 3/11    |      | epic #23 source-level debugging with z88dk merged; #440 stage 2; #444 CI fixes; #443 #442 #448         |
+|         |      | v1.1.110->1.1.115                                                                                      |
+| 4/11    |      | #446 ffmpeg PATH lookup (janko-jj); #449 DZRP startup race. v1.1.116->1.1.117                          |
+| 5-6/11  |      | epic #353 C variables merged; #450 keys at the frame INT (jsmolina, Ms. Nam-Pac); #451                 |
+|         |      | v1.1.118->1.1.120; v1.2.0 PUBLIC RELEASE                                                               |
 | TOTAL:  | 666h |                                                                                                        |

@@ -299,102 +299,102 @@ in the machine-side class, plus a stated policy.
   from the centre, and re-centres only once the pointer has drifted a quarter
   of the viewport away.
 
-  Two limits are deliberate and pinned by tests. A single event moving more
-  than an eighth of the viewport straight at the centre while a warp is in
-  flight can be mistaken for the warp landing; and a warp that lands only after
-  the pointer has itself come back near the centre is forwarded as a small
-  jump. On Wayland without a working warp the motion stays exact but the
-  pointer is not confined: plain Wayland cannot hold it without the pointer
-  constraints protocol, so it can leave the window, and guest motion stops
-  until it comes back.
+    Two limits are deliberate and pinned by tests. A single event moving more
+    than an eighth of the viewport straight at the centre while a warp is in
+    flight can be mistaken for the warp landing; and a warp that lands only after
+    the pointer has itself come back near the centre is forwarded as a small
+    jump. On Wayland without a working warp the motion stays exact but the
+    pointer is not confined: plain Wayland cannot hold it without the pointer
+    constraints protocol, so it can leave the window, and guest motion stops
+    until it comes back.
 
 - **`host_key_latch.h`** (also `src/platform/`) holds two policies, and both
   exist because of the frame boundary. Host key events are delivered *between*
   `run_frame()` calls, so the matrix is sampled once per emulated frame.
 
-  `Latch` is the **minimum-hold** half: a press plus its release
-  arriving in the same gap would be invisible to the guest, so the latch defers
-  such a release until a frame has actually run.
+    `Latch` is the **minimum-hold** half: a press plus its release
+    arriving in the same gap would be invisible to the guest, so the latch defers
+    such a release until a frame has actually run.
 
-  `Router` is the **serialiser**, and it is the half that decides
-  when a *press* may land. Holding a press was never enough on its own: the
-  next key pressed while the first one's release was still deferred used to be
-  asserted on top of it, so the frame sampled a two-key chord the host never
-  had. `KEY-SCAN` rejects a two-key chord, so both characters vanished — and a
-  tap of Symbol Shift followed by a tap of `P` decoded as Symbol-Shift + `P`,
-  producing the *wrong* character rather than none. The router therefore queues
-  host events and applies a press only when the queue is empty, no release is
-  deferred, and no non-modifier press is still waiting for a frame. The SDL
-  modifier block 224..231 — the two ZX shifts and host Alt — never arms that
-  last condition, which is what keeps a genuine shift-plus-key chord in a
-  single frame; what separates "shift held as a modifier" from "shift tapped on
-  its own" is the host's own key-up event and nothing else. Autorepeat presses
-  are dropped rather than queued, because SDL forwards them and Qt does not.
+    `Router` is the **serialiser**, and it is the half that decides
+    when a *press* may land. Holding a press was never enough on its own: the
+    next key pressed while the first one's release was still deferred used to be
+    asserted on top of it, so the frame sampled a two-key chord the host never
+    had. `KEY-SCAN` rejects a two-key chord, so both characters vanished — and a
+    tap of Symbol Shift followed by a tap of `P` decoded as Symbol-Shift + `P`,
+    producing the *wrong* character rather than none. The router therefore queues
+    host events and applies a press only when the queue is empty, no release is
+    deferred, and no non-modifier press is still waiting for a frame. The SDL
+    modifier block 224..231 — the two ZX shifts and host Alt — never arms that
+    last condition, which is what keeps a genuine shift-plus-key chord in a
+    single frame; what separates "shift held as a modifier" from "shift tapped on
+    its own" is the host's own key-up event and nothing else. Autorepeat presses
+    are dropped rather than queued, because SDL forwards them and Qt does not.
 
-  Real hardware has neither problem — it scans at membrane rate and merges
-  nothing — so neither policy is a fidelity claim about the Next; both are
-  compensation for jnext delivering host input once per frame.
+    Real hardware has neither problem — it scans at membrane rate and merges
+    nothing — so neither policy is a fidelity claim about the Next; both are
+    compensation for jnext delivering host input once per frame.
 
-  **Nothing is lost** holds for the *matrix*, and it is not enough for the
-  *guest*. `48.rom`'s `KEYBOARD` routine keeps two key sets (`KSTATE`
-  at `$5C00` and `$5C04`): every interrupt decrements each busy set's counter and
-  frees it at 0 (`0x02C6-0x02D6`), a new key needs a free set (with none, `RET Z`
-  at `0x02F0` throws it away), a new key's counter is set to 5 (`LD (HL),$05` at
-  `0x02F4`), and the same key seen again while its set is busy is a repeat
-  (`K-REPEAT`, `0x0310`), not a keystroke. The same bytes are in the 128, +3 and
-  Next ROMs. A backlog replayed one keystroke per frame therefore lost the third
-  distinct key and every repeated one inside the ROM, even though each had been
-  shown to a frame. The router now spaces what *it* schedules:
-  `TAP_SPACING_FRAMES` (5) after a **stretched tap** (a press whose release
-  arrived before any frame saw it, so jnext, not the host, picks the length and
-  the next key's time), applied to *queued* presses only. A press that arrives on
-  an idle router keeps the host's own timing, so games and ordinary typing pay
-  nothing; the price is that a backlog drains at 10 keys/s at 50 FPS. Two taps of
-  the same key in one gap are now two keystrokes. The
-  spacing counts frames (`on_tick_end(frames)`), never ticks, and `attach()` and
-  `release_all()` forget it.
+    **Nothing is lost** holds for the *matrix*, and it is not enough for the
+    *guest*. `48.rom`'s `KEYBOARD` routine keeps two key sets (`KSTATE`
+    at `$5C00` and `$5C04`): every interrupt decrements each busy set's counter and
+    frees it at 0 (`0x02C6-0x02D6`), a new key needs a free set (with none, `RET Z`
+    at `0x02F0` throws it away), a new key's counter is set to 5 (`LD (HL),$05` at
+    `0x02F4`), and the same key seen again while its set is busy is a repeat
+    (`K-REPEAT`, `0x0310`), not a keystroke. The same bytes are in the 128, +3 and
+    Next ROMs. A backlog replayed one keystroke per frame therefore lost the third
+    distinct key and every repeated one inside the ROM, even though each had been
+    shown to a frame. The router now spaces what *it* schedules:
+    `TAP_SPACING_FRAMES` (5) after a **stretched tap** (a press whose release
+    arrived before any frame saw it, so jnext, not the host, picks the length and
+    the next key's time), applied to *queued* presses only. A press that arrives on
+    an idle router keeps the host's own timing, so games and ordinary typing pay
+    nothing; the price is that a backlog drains at 10 keys/s at 50 FPS. Two taps of
+    the same key in one gap are now two keystrokes. The
+    spacing counts frames (`on_tick_end(frames)`), never ticks, and `attach()` and
+    `release_all()` forget it.
 
-  **Host actions are barriers in the same queue**. A Quick Save or
-  Quick Load is requested through `Router::on_host_action(fn)`: it runs once every
-  keystroke typed before it has been shown to a frame and released, and every host
-  event typed after it queues until the frontend calls `action_done()`. `fn` only
-  raises the request (a flag; `QtApp::pending_quick_`, `SdlApp::quick_*_requested_`),
-  and the tick services it, so nothing saves or cold-boots from inside the router.
-  The user's order is kept on both sides: the save no longer overtakes the keys
-  before it, and keys typed behind a Quick Load survive its cold boot, because
-  `attach()` keeps the queue when a barrier is up (everything in it was typed
-  after the action, so it belongs to the new machine). `release_all()` drops the
-  queued keys but keeps queued actions, so a focus loss does not cancel a save the
-  user asked for. After a snapshot load wipes the matrix, `Router::reassert()`
-  puts back the keys the router holds (the four windowed-frontend load sites all go through `emulator_apply_load_keeping_keys()` in `emulator_boot.h`, so none can forget it), so
-  the guest matrix is exactly what the host holds through the router. Keys
-  typed while a Quick Save/Load is in progress are delivered afterwards, in order.
+    **Host actions are barriers in the same queue**. A Quick Save or
+    Quick Load is requested through `Router::on_host_action(fn)`: it runs once every
+    keystroke typed before it has been shown to a frame and released, and every host
+    event typed after it queues until the frontend calls `action_done()`. `fn` only
+    raises the request (a flag; `QtApp::pending_quick_`, `SdlApp::quick_*_requested_`),
+    and the tick services it, so nothing saves or cold-boots from inside the router.
+    The user's order is kept on both sides: the save no longer overtakes the keys
+    before it, and keys typed behind a Quick Load survive its cold boot, because
+    `attach()` keeps the queue when a barrier is up (everything in it was typed
+    after the action, so it belongs to the new machine). `release_all()` drops the
+    queued keys but keeps queued actions, so a focus loss does not cancel a save the
+    user asked for. After a snapshot load wipes the matrix, `Router::reassert()`
+    puts back the keys the router holds (the four windowed-frontend load sites all go through `emulator_apply_load_keeping_keys()` in `emulator_boot.h`, so none can forget it), so
+    the guest matrix is exactly what the host holds through the router. Keys
+    typed while a Quick Save/Load is in progress are delivered afterwards, in order.
 
-  `Router::release_all()` is the third policy, and it answers a different
-  question: **what if the key-up never arrives at all?** A Qt popup and a focus
-  change both take the keyboard away mid-keystroke, and the key-up then goes to
-  whatever took it. Opening the File menu with Alt+F swallows the `F` key-up
-  *and* the `Alt` key-up, which leaves host Alt asserted in `Keyboard` for the
-  rest of the session — after which E, G and C resolve to EDIT, GRAPH and
-  CAPS LOCK and those three letters silently stop typing while every other
-  letter still works. With an ordinary letter stranded instead, the ROM's own
-  auto-repeat fills the BASIC line. `MainWindow::focusOutEvent` therefore
-  reports the loss, the frontend releases everything the sink holds, and the
-  invariant is that jnext never holds a guest key down whose release it cannot
-  observe. The Router tracks what the *sink* holds separately from what the
-  *host* holds for this: releasing a key that was never pressed would clear
-  matrix bits a compound key shares — `/`, `-` and `=` each write two bits
-  directly and all three share the Symbol Shift cell.
-  The price is stated rather than hidden — a press not yet shown to a frame is
-  dropped instead of held, which is correct, because the user has moved to a
-  menu.
-  The Router is also where the **script host keys** live: Alt+1..Alt+8
-  with no other modifier held call the callback `wire_script_keys()`
-  (`host_key_wiring.h`) installs — the backend's `Host{scriptN}` — and the
-  digit's press *and* release are swallowed, script loaded or not. Alt+9/Alt+0
-  and every other key are unchanged. One place for both the Qt and the SDL
-  window, so they cannot disagree; the debugger window has its own eight
-  `QAction`s on the same chords, and the debugger keymap refuses them.
+    `Router::release_all()` is the third policy, and it answers a different
+    question: **what if the key-up never arrives at all?** A Qt popup and a focus
+    change both take the keyboard away mid-keystroke, and the key-up then goes to
+    whatever took it. Opening the File menu with Alt+F swallows the `F` key-up
+    *and* the `Alt` key-up, which leaves host Alt asserted in `Keyboard` for the
+    rest of the session — after which E, G and C resolve to EDIT, GRAPH and
+    CAPS LOCK and those three letters silently stop typing while every other
+    letter still works. With an ordinary letter stranded instead, the ROM's own
+    auto-repeat fills the BASIC line. `MainWindow::focusOutEvent` therefore
+    reports the loss, the frontend releases everything the sink holds, and the
+    invariant is that jnext never holds a guest key down whose release it cannot
+    observe. The Router tracks what the *sink* holds separately from what the
+    *host* holds for this: releasing a key that was never pressed would clear
+    matrix bits a compound key shares — `/`, `-` and `=` each write two bits
+    directly and all three share the Symbol Shift cell.
+    The price is stated rather than hidden — a press not yet shown to a frame is
+    dropped instead of held, which is correct, because the user has moved to a
+    menu.
+    The Router is also where the **script host keys** live: Alt+1..Alt+8
+    with no other modifier held call the callback `wire_script_keys()`
+    (`host_key_wiring.h`) installs — the backend's `Host{scriptN}` — and the
+    digit's press *and* release are swallowed, script loaded or not. Alt+9/Alt+0
+    and every other key are unchanged. One place for both the Qt and the SDL
+    window, so they cannot disagree; the debugger window has its own eight
+    `QAction`s on the same chords, and the debugger keymap refuses them.
 
 - **`phantom_typist.{h,cpp}`** types `LOAD ""` for you. Loading a tape on a
   real Spectrum starts with the user typing it and pressing ENTER — or, on a

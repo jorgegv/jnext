@@ -25,8 +25,10 @@ for:
 - `<name>.Memory.txt`, else `Memory.txt`, beside a `.nex`: the symbols;
 - `<name>.sld`, else `<name>.sld.txt`: the source map and its labels;
 - `<name>.map`, a z88dk map, beside a `.nex`, `.tap` or `.sna`: its source lines
-  and its symbols. Beside a tape (`.tap`, `.tzx`, `.wav`) they attach at once,
-  and are checked when the program first runs (see **Tapes** below).
+  and its symbols.
+
+Beside a tape (`.tap`, `.tzx`, `.wav`) they attach at once, and are checked when
+the program first runs (see **Tapes** below).
 
 Each one found is loaded and named in the log (`Loaded 2 NextBuild symbols
 from …`, `Loaded 12 SLD labels from …`, `Loaded 812 SLD source traces from …`,

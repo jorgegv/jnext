@@ -8,7 +8,7 @@ uses the first line below.
 
 Every command line here was run with z88dk 2.4 (commit 4d530b6eb7, sdcc 4.5.0)
 and with a master build (commit 0f0a1cf70e, v2.4-2954, sdcc 4.6.0), unless a
-table says one of them is different.
+table or a section says one of them is different.
 
 For everything that z88dk master has fixed in its debug records, install a nightly named `z88dk-20261106-*` or later, or build z88dk master from source; z88dk 2.4 works with the limits listed in [C variables](11-c-variables.md#what-each-z88dk-can-show).
 
@@ -137,8 +137,8 @@ Give both pragmas. `CRT_ORG_PAGE_20` carries the page in its top byte
 banking window. Without them the program itself calls page 0 or loses its stack,
 so it cannot run. A newer z88dk (master from 2026-10-31) makes the page the
 default and documents the stack; the change's description says the pragma gives identical
-output, so it is harmless there. Only 2.4 and the 2026-10-16 master were run for
-this page; on anything newer, build the example and look.
+output, so it is harmless there. This example was run with 2.4 and with the
+2026-11-03 master (commit 97731e4e29), both pragmas given.
 
 The build writes `prog_CODE.bin` and `prog_PAGE_20.bin`, and JNEXT checks both:
 
