@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -47,7 +48,7 @@ double ms_since(SteadyClock::time_point t0)
 }
 
 // A real SdlApp on the dummy SDL drivers: 48K, silent, no SD image.
-std::unique_ptr<SdlApp> make_app(bool& ok)
+std::unique_ptr<SdlApp> make_app(bool& ok, bool esxdos_stub = false)
 {
     jtp::set_env("SDL_VIDEODRIVER", "dummy");
     jtp::set_env("SDL_AUDIODRIVER", "dummy");
@@ -55,9 +56,18 @@ std::unique_ptr<SdlApp> make_app(bool& ok)
     EmulatorConfig cfg;
     cfg.type = MachineType::ZX48K;
     cfg.silent = true;
+    cfg.esxdos_stub = esxdos_stub;
     app->set_config(cfg);
     ok = app->init(0, nullptr);
     return app;
+}
+
+bool push_key(SDL_Scancode sc, bool down)
+{
+    SDL_Event ev{};
+    ev.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+    ev.key.scancode = sc;
+    return SDL_PushEvent(&ev);
 }
 
 long frame_ms_of(SdlApp& app)
@@ -90,31 +100,35 @@ int main()
     }
 
     // --- SDLT-02: tick() reports the sleep, it does not perform it ------------
+    // Run at --speed 10 % (frame period 200 ms) so the margin does not depend on
+    // the dummy driver's simulated 60 Hz vsync: at 1x a back-to-back tick takes
+    // ~16.7 ms inside present() and reports only 1-5 ms of sleep, and under load
+    // every tick reaches 20 ms and reports 0. At 10 % the same tick (w ~ 17 ms)
+    // reports s ~ 183 ms (measured per tick, w/s: 7/192 16/184 16/183 16/184 16/183 16/183):
+    // a tick that only reports has w + s ~ 200, one that also
+    // sleeps inside has w ~ 200 with s ~ 183 (M2) or s = 0 (M1). A good tick has
+    // s > 0 and w <= frame_ms - s + 60; most of the 6 must be good.
     {
         bool ok = false;
         auto app = make_app(ok);
-        const long frame_ms = frame_ms_of(*app);
+        app->set_speed_percent(10);
+        const long frame_ms = std::lround(app->emulator().frame_period_ms() / 0.1);
         bool bounded = true;
-        int sleeping = 0, unslept = 0;
-        for (int i = 0; i < 10; ++i) {
+        int good = 0;
+        std::string detail = "frame_ms=" + std::to_string(frame_ms);
+        for (int i = 0; i < 6; ++i) {
             uint32_t s = 12345;
             const auto t0 = SteadyClock::now();
             const bool more = app->tick(s);
             const double w = ms_since(t0);
             if (!more || s > static_cast<uint32_t>(frame_ms)) bounded = false;
-            if (s > 0) {
-                ++sleeping;
-                // A tick that slept inside lasts the whole frame period; one that
-                // only reports lasts frame_ms - s. A loaded host can stretch any
-                // single tick, so the bound is asked of most of them, not each.
-                if (w <= static_cast<double>(frame_ms) - s + 5.0) ++unslept;
-            }
+            if (s > 0 && w <= static_cast<double>(frame_ms) - s + 60.0) ++good;
+            detail += " w/s=" + std::to_string(static_cast<int>(w)) + "/" + std::to_string(s);
         }
         app->shutdown();
-        check("SDLT-02", "10 ticks: each sleep <= the frame period, at least one > 0, "
-                         "and most ticks that report a sleep did not also perform it",
-              ok && bounded && sleeping > 0 && 2 * unslept > sleeping,
-              "sleeping=" + std::to_string(sleeping) + " unslept=" + std::to_string(unslept));
+        check("SDLT-02", "speed 10%, 6 ticks: each sleep <= the frame period; most ticks report a "
+                         "sleep > 0 without having performed it",
+              ok && frame_ms == 200 && bounded && 2 * good > 6, detail);
     }
 
     // --- SDLT-03: an automatic exit ends the loop on the right tick -----------
@@ -209,6 +223,86 @@ int main()
               "t=" + std::to_string(t1) + std::to_string(t2) + std::to_string(t3) +
               " s1=" + std::to_string(s1) + " fn1=" + std::to_string(fn1) +
               " fn3=" + std::to_string(fn3));
+    }
+
+    // --- SDLT-08: a NEX .RUN request cold-boots and returns early -------------
+    // Same shape as SDLT-07 (the hard-reset sibling): the request is raised by
+    // the esxdos stub's M_EXECCMD ".RUN x.nex" (the only producer of
+    // take_nex_load_request()), the iteration that services it skips the pacing
+    // sleep and the exit countdown, so exit 1 still runs two more frames.
+    {
+        bool ok = false;
+        auto app = make_app(ok, /*esxdos_stub=*/true);
+        app->set_delayed_exit(1);
+        const char cmd[] = "run tick.nex";
+        for (size_t i = 0; i < sizeof cmd; ++i)
+            app->emulator().mmu().write(static_cast<uint16_t>(0x8000 + i),
+                                        static_cast<uint8_t>(cmd[i]));
+        Z80Registers regs{};
+        regs.IX = 0x8000;
+        const bool raised = app->emulator().cpu().on_esxdos_call &&
+                            app->emulator().cpu().on_esxdos_call(0x8F, regs) &&
+                            (regs.AF & 1) == 0;
+        uint32_t s = 12345;
+        const bool t1 = app->tick(s);
+        const uint32_t s1 = s;
+        const uint32_t fn1 = app->emulator().frame_num();
+        s = 12345;
+        const bool t2 = app->tick(s);
+        s = 12345;
+        const bool t3 = app->tick(s);
+        const uint32_t fn3 = app->emulator().frame_num();
+        app->shutdown();
+        check("SDLT-08", "NEX .RUN request + exit 1: tick 1 cold-boots (true, sleep 0, frame 0), "
+                         "then true, then false; 2 frames after the boot",
+              ok && raised && t1 && s1 == 0 && fn1 == 0 && t2 && !t3 && fn3 == 2,
+              "raised=" + std::to_string(raised) + " t=" + std::to_string(t1) +
+              std::to_string(t2) + std::to_string(t3) + " s1=" + std::to_string(s1) +
+              " fn1=" + std::to_string(fn1) + " fn3=" + std::to_string(fn3));
+    }
+
+    // --- SDLT-09: a Quick Load cold-boots and returns early -------------------
+    // Alt+Shift+F5 (save) in one tick, then Alt+Shift+F9 (load) with the exit
+    // armed after the save: the load tick cold-boots through service_quick_
+    // requests() and returns early (true, sleep 0, countdown untouched), so
+    // exit 1 still runs two more frames. The snapshots go to a private
+    // $JNEXT_CONFIG_DIR, never the developer's.
+    {
+        namespace fs = std::filesystem;
+        const fs::path cfgdir = fs::temp_directory_path() /
+                                ("jnext-sdlt09-" + jtp::process_id_string());
+        std::error_code ec;
+        fs::remove_all(cfgdir, ec);
+        fs::create_directories(cfgdir, ec);
+        jtp::set_env("JNEXT_CONFIG_DIR", cfgdir.string().c_str());
+        bool ok = false;
+        auto app = make_app(ok);
+        bool pushed = push_key(SDL_SCANCODE_LALT, true) && push_key(SDL_SCANCODE_LSHIFT, true) &&
+                      push_key(SDL_SCANCODE_F5, true) && push_key(SDL_SCANCODE_F5, false);
+        uint32_t s = 12345;
+        app->tick(s);                                   // the save
+        std::error_code ec2;
+        int snapshots = 0;
+        for (const auto& e : fs::directory_iterator(cfgdir / "snapshots", ec2)) { (void)e; ++snapshots; }
+        app->set_delayed_exit(1);
+        pushed = pushed && push_key(SDL_SCANCODE_F9, true) && push_key(SDL_SCANCODE_F9, false);
+        s = 12345;
+        const bool t1 = app->tick(s);                   // the load
+        const uint32_t s1 = s;
+        const uint32_t fn1 = app->emulator().frame_num();
+        s = 12345;
+        const bool t2 = app->tick(s);
+        s = 12345;
+        const bool t3 = app->tick(s);
+        app->shutdown();
+        jtp::unset_env("JNEXT_CONFIG_DIR");
+        fs::remove_all(cfgdir, ec);
+        check("SDLT-09", "Quick Load + exit 1: the load tick cold-boots (true, sleep 0, "
+                         "countdown untouched), then true, then false",
+              ok && pushed && snapshots == 1 && t1 && s1 == 0 && t2 && !t3,
+              "pushed=" + std::to_string(pushed) + " snapshots=" + std::to_string(snapshots) +
+              " t=" + std::to_string(t1) + std::to_string(t2) + std::to_string(t3) +
+              " s1=" + std::to_string(s1) + " fn1=" + std::to_string(fn1));
     }
 
     std::printf("\n====================================================\n");

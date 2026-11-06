@@ -657,7 +657,7 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
     // Placed HERE, not after present() where QtApp's equivalent sits, for
     // one structural reason: SDL checks its cold-boot requests AFTER the
     // frames where Qt checks them before (frame_sequencer.h:402-403), and
-    // those checks `continue`. Discharging further down would therefore be
+    // those checks return early. Discharging further down would therefore be
     // skipped on a tick that did emulate frames. The outcome is the same
     // either way — cold_boot() re-attaches, which resets the latch — but
     // this placement keeps "frames ran => the hold is discharged" true
