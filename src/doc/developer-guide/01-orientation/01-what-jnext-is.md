@@ -34,7 +34,7 @@ Pentagon. The rule: a bit `boot.c` writes the same whatever `config.ini` says
 takes the firmware's value; a config-dependent bit stays on, except the 48K AY.
 The Next itself is untouched.
 
-Per-machine geometry lives in `MachineTiming` (`src/core/emulator_config.h:565`)
+Per-machine geometry lives in `MachineTiming` (`src/core/emulator_config.h:573`)
 and is derived from `zxula_timing.vhd`: a 48K frame is 448 pixels × 312 lines,
 while 128K, +3 and Next frames are 456 × 311. Underneath all of it, everything
 is counted in 28 MHz master cycles (`MASTER_CLOCK_HZ`) — the same master clock
