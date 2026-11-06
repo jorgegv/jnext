@@ -88,7 +88,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host key minimum-hold latch |      182 |      182 |      0 |       0 |    100% | 🟢 All tests pass. |
-| sdl_app_tick_test     |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "sdl_app_tick_test" to the label map in refresh-subsystem-status.sh. |
+| SdlApp tick (frame loop) |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL Pointer Release (GH #365) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL window title (version) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SIGINT/SIGTERM quit request |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
