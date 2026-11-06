@@ -127,7 +127,7 @@ int main()
         for (bool& x : r) { uint32_t s = 12345; x = app->tick(s); }
         const uint32_t frames = app->emulator().frame_num() - f0;
         app->shutdown();
-        check("SDLT-03", "exit 3: ticks return true, true, true, false; 4 frames in total",
+        check("SDLT-03", "exit 3: the first three ticks go on, the fourth ends it; 4 frames in total",
               ok && r[0] && r[1] && r[2] && !r[3] && frames == 4,
               "frames=" + std::to_string(frames));
     }
