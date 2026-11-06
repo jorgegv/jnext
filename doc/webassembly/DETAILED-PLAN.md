@@ -98,7 +98,7 @@ Rejected suggestions, with the reason:
 | # | question | decision |
 |---|---|---|
 | D1 | **CORS on SpecNext.** Today `www.specnext.com` sends no `Access-Control-Allow-Origin` (checked 2026-11-06, also by Shrek in October), so a page on any other origin cannot fetch the image. | The owner asks Phoebus Dokos, with the image request: `Access-Control-Allow-Origin: *` on the image URL, a stable **versioned** URL, a published sha256 and size. Without it the only fallback is "the visitor picks the file by hand" (Shrek's current page). This is the critical path of the epic (S0). |
-| D2 | **The image recipe** | **The boot set only**: TBBLUE.FW, MACHINES, NEXTZXOS and SYS, plus the licences (about 2.4 MB of clusters on the CSpect image). No DOT, APPS, games, demos or docs. Correctly clustered, so the browser needs no `patch_image_fat32` step; small enough to hold in memory. Sent to Phoebus with D1. |
+| D2 | **The image recipe** | **The boot set only**: TBBLUE.FW, MACHINES, NEXTZXOS and SYS, plus the licences (about 2.4 MB of clusters on the CSpect image). No DOT, APPS, games, demos or docs. Correctly clustered, so the browser needs no `patch_image_fat32` step; small enough to hold in memory. **We make it** (owner, 2026-11-06), with a small Bash script that turns the distribution image into the minimal one (§4.4, S0), and send Phoebus the script and a tested image with D1. |
 | D3 | A "direct NEX without NextZXOS" mode (Shrek's default: a 48K ROM file injected into the ROM area) | **No.** It breaks C1, runs programs on a synthetic machine that needs invented register values (Shrek forces NR 0x4A and MAXBNK), and duplicates what the warm start gives: the NextZXOS boot is a one-time cost per visitor. |
 | D4 | Formats in v1 | **`.nex`, `.tap` and `.tzx`.** Snapshots and the other desktop formats later, one sub-issue each. |
 | D5 | Guest writes surviving a reload (saves, high scores) | **Not in v1**: guest writes live in memory for the session. A follow-on stage (S11). |
@@ -209,6 +209,45 @@ the sha256 the JS checked (one comparison, no hashing a large file).
 
 The image can also arrive zipped: `main` already reads zip archives
 (`program_archive.h`, `save/zip_interchange.h`), so no new dependency.
+
+**Making the minimal image** (S0, D2). `tools/make-minimal-sdcard-image.sh
+<distribution.img> <minimal.img>` turns the image as SpecNext publishes it into
+the minimal one. It is a minimal Bash script (`set -euo pipefail`), with no
+root and no loop mount, using only Linux tools:
+
+- the mtools `tools/fix-sdcard-image.sh` already needs (`minfo`, `mdir`,
+  `mformat`, `mmd`, `mcopy`);
+- `sfdisk` (util-linux) for the partition table, `truncate` and `sha256sum`.
+
+It works in this order:
+
+1. **Read the source in place**, read-only, through the mtools `@@offset`
+   syntax; the offset comes from the source's own partition table (`sfdisk`).
+   It runs on the distribution image directly: mtools reads the
+   under-clustered FAT32 that tbblue rejects.
+2. **Make the empty card**: a file of a fixed size (about 40 MB) with one
+   partition, type 0x0c, at sector 63, the layout of every shipped image
+   (`fix-sdcard-image.sh` assumes it). FAT32 with 512-byte clusters, so the
+   card has at least 65,525 clusters.
+3. **Copy the boot set**, which is one list at the top of the script:
+   `TBBLUE.FW`, `MACHINES`, `NEXTZXOS`, `SYS`, `LICENSE.md` and `README.md`,
+   plus any empty directory the boot turns out to need (`TMP`). The boot test
+   settles the list.
+4. **Apply jnext's two patches** by running `tools/fix-sdcard-image.sh` on the
+   small card: the `config.ini` defaults and the `zx81.rom` doubling. This is
+   the patch set jnext applies to the image it downloads (recipe 2). The
+   script reuses that code rather than repeating it, and the card needs no
+   re-clustering.
+5. **Fail loud** if a listed path is missing from the source, if the card has
+   fewer than 65,525 clusters, or if the destination already exists (the
+   script never overwrites it).
+6. **Print** the size and the sha256 for Phoebus to publish.
+
+**The output is reproducible**: the same source gives a byte-identical card, so
+the published hash means something. The volume serial and the label are fixed
+(`mformat -N`), and the timestamps are the source's (`mcopy -m`). Whether
+mtools also stamps directory entries with the copy time is unverified; S0
+checks it, and fixes it if it does.
 
 ### 4.5 JavaScript API
 
@@ -338,7 +377,7 @@ protocol step 1).
 
 | # | sub-issue | deliverable | acceptance |
 |---|---|---|---|
-| S0 | Hosting and image (no code) | D1/D2 settled with SpecNext: URL, CORS, sha256, size, recipe | a test fetch from another origin succeeds and the hash matches |
+| S0 | Minimal image and hosting | `tools/make-minimal-sdcard-image.sh` (§4.4) and a shell suite in `make unit-test`. Its rows: the cluster count is at least 65,525; the card holds exactly the listed set, each file byte-identical to the source except the two patched ones; two runs give the same sha256; a missing path and an existing destination are refused. A regression row boots the minimal card (built from the cached distribution image) to the NextZXOS menu and runs a test NEX. Developer guide: one paragraph. The script and a tested image go to Phoebus with D1 (URL, CORS, sha256, size) | rows green; the boot screenshot matches the existing NextZXOS menu reference; once the image is hosted, a fetch from another origin succeeds and the hash matches |
 | S1 | Toolchain and portable core build | `test/provision-emsdk.sh` (pinned); `EMSCRIPTEN` arms in CMake (§4.1); `sdcard_provisioner_net_web.cpp`; `PAGE_SIZE` renames; `<algorithm>` include; `-fwasm-exceptions`; `make wasm-core` | builds from clean in `fedora:44`; SHA256-01* rows pass; native `unit-test`, `unit-test-sdl`, `unit-test-win` green; wasm size recorded |
 | S2 | `make unit-test-wasm` | `test/node-run.sh`, `JNEXT_TARGET_OS` value, `# os:` lines, CI job | every declared suite passes under node, 0 SKIP, absent suites named; CI job green |
 | S3 | `make regression-wasm` | headless jnext for node | the screenshot rows match the existing references byte for byte, 0 FAIL, 0 SKIP |
