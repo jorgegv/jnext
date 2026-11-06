@@ -609,8 +609,10 @@ unit-test-wasm: unit-test-wasm-build sdcard-image
 	@# SDK's own node through test/node-run.sh. What node cannot stand in for (no
 	@# processes, threads or listening sockets) is declared absent with `# os:` in
 	@# test/unit-tests.conf, never skipped. JNEXT_UNIT_TEST_JOBS: one node process
-	@# per CPU, since each holds its own wasm memory.
-	@JNEXT_TEST_RUNNER="bash $(CURDIR)/test/node-run.sh" JNEXT_UNIT_TEST_JOBS=$(JOBS) \
+	@# per CPU, since each holds its own wasm memory. JNEXT_SUITE_TIMEOUT: the
+	@# emulation-heavy suites (rewind_test, tap_loader_test) take about 250 s of
+	@# wall time under node on a loaded host, against 300 s by default.
+	@JNEXT_TEST_RUNNER="bash $(CURDIR)/test/node-run.sh" JNEXT_UNIT_TEST_JOBS=$(JOBS) JNEXT_SUITE_TIMEOUT=1200 \
 		bash test/run-unit-tests.sh $(BUILD_DIR_WASM_UNIT_TEST)
 
 # Configure + build the WebAssembly SDL-only test tree (prerequisite for unit-test-wasm)
