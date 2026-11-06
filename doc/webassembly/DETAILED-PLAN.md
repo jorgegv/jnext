@@ -1,7 +1,8 @@
 # JNEXT in the browser: detailed plan (epic #14)
 
-Status: **DRAFT for owner review** (2026-11-06). Nothing in this plan is
-started. When the owner approves it, its stages become the sub-issues of #14.
+Status: **DRAFT for owner review** (2026-11-06; the owner's decisions of
+2026-11-06 are folded in, §3). Nothing in this plan is started. When the
+owner approves it, its stages become the sub-issues of #14.
 
 Sources:
 
@@ -92,27 +93,26 @@ Rejected suggestions, with the reason:
 
 ---
 
-## 3. Decisions for the owner
+## 3. Decisions (owner, 2026-11-06)
 
-Each has a recommendation; the plan below assumes it.
-
-| # | question | recommendation |
+| # | question | decision |
 |---|---|---|
-| D1 | **CORS on SpecNext.** Today `www.specnext.com` sends no `Access-Control-Allow-Origin` (checked 2026-11-06, also by Shrek in October), so a page on any other origin cannot fetch the image. | Ask Phoebus, with the image request: `Access-Control-Allow-Origin: *` on the image URL, a stable **versioned** URL, a published sha256 and size. Without it the only fallback is "the visitor picks the file by hand" (Shrek's current page). This is the critical path of the epic. |
-| D2 | **The image recipe.** Who prepares it; what it holds. | We send a recipe: the files needed to boot NextZXOS and run a `.nex` (TBBLUE.FW, MACHINES, NEXTZXOS, SYS; measured about 2.4 MB of clusters on the CSpect image), plus DOT only if needed. Correctly clustered FAT32, so the browser needs no `patch_image_fat32` step. Small enough to hold in memory. |
-| D3 | **A "direct NEX without NextZXOS" mode** (Shrek's default: the 48K ROM injected from a file he hosts). | **No.** It breaks C1, runs programs on a synthetic machine that needs invented register values (Shrek forces NR 0x4A and MAXBNK), and duplicates what the warm start already gives: the NextZXOS boot is a one-time cost per visitor. |
-| D4 | Formats in v1 | `.nex` only. `.tap`/`.tzx` and snapshots later, one sub-issue each. |
-| D5 | Guest writes surviving a reload (saves, high scores) | Not in v1: the card is read-only-cached, guest writes live in memory for the session. A follow-on stage (S11). |
-| D6 | **Hosting of `jnext-<ver>.js` / `.wasm`** | Release assets on GitHub, plus a copy on jnext.es at versioned URLs, as RVMPlayer does. Two files (JS + wasm), not `-sSINGLE_FILE` (base64 costs +33% and prevents streaming compilation). |
-| D7 | **Frontend: SDL3's Emscripten port, or a thin C API with a JS frontend** (Shrek's way) | **SDL3 port**, with the SDL frontend's loop turned into a per-frame `tick()` (S4). It reuses the tested `src/platform` logic (input latching, pacing, audio fill) instead of rewriting it in JS. Fallback if the port proves immature: the thin C API, decided at the end of S5's spike. |
-| D8 | **New dependencies**: a pinned Emscripten SDK (with its ports: SDL3, zlib, libpng); Playwright + Chromium for one browser smoke test | Approve both, pinned and provisioned like `z88dk-gdb` (`~/.cache/jnext/tools`, sha256-checked). |
-| D9 | **Performance floor**: which machine must reach 50 fps | A mid-range desktop browser (the dev host's Chrome and Firefox) at 3.5 MHz and at 28 MHz on the regression NEX set. #452 (HALT and Copper skip) is not a prerequisite; it is measured in S10. |
-| D10 | Mobile and touch in v1 | No (RVMPlayer does not support them either). |
-| D11 | CRT effect on the web | No in v1: the shader is GLSL 1.20 on a Qt GL 2.1 context (`src/gui/crt_gl_overlay.cpp:43-45`). |
-| D12 | **Shrek's code**: how it enters JNEXT | As separate PRs from Shrek under the PR protocol, each one topic, rebased on `main`, with tests; or reimplemented by us from his ideas where his code cannot be adapted. See §5. Credit in CREDITS and the ChangeLog; no attribution comments in the code (49 "MB Maniax" comments in his patch would go). |
-| D13 | Android and the VS Code debug server (hooks in his patch: `JNEXT_ANDROID_DIR`, `JNEXT_SERVER_DIR`) | Out of this epic. If wanted, their own epics, with their code in-tree. |
+| D1 | **CORS on SpecNext.** Today `www.specnext.com` sends no `Access-Control-Allow-Origin` (checked 2026-11-06, also by Shrek in October), so a page on any other origin cannot fetch the image. | The owner asks Phoebus Dokos, with the image request: `Access-Control-Allow-Origin: *` on the image URL, a stable **versioned** URL, a published sha256 and size. Without it the only fallback is "the visitor picks the file by hand" (Shrek's current page). This is the critical path of the epic (S0). |
+| D2 | **The image recipe** | **The boot set only**: TBBLUE.FW, MACHINES, NEXTZXOS and SYS, plus the licences (about 2.4 MB of clusters on the CSpect image). No DOT, APPS, games, demos or docs. Correctly clustered, so the browser needs no `patch_image_fat32` step; small enough to hold in memory. Sent to Phoebus with D1. |
+| D3 | A "direct NEX without NextZXOS" mode (Shrek's default: a 48K ROM file injected into the ROM area) | **No.** It breaks C1, runs programs on a synthetic machine that needs invented register values (Shrek forces NR 0x4A and MAXBNK), and duplicates what the warm start gives: the NextZXOS boot is a one-time cost per visitor. |
+| D4 | Formats in v1 | **`.nex`, `.tap` and `.tzx`.** Snapshots and the other desktop formats later, one sub-issue each. |
+| D5 | Guest writes surviving a reload (saves, high scores) | **Not in v1**: guest writes live in memory for the session. A follow-on stage (S11). |
+| D6 | Hosting of the browser build | **GitHub release assets only**: each public release carries the files; authors host them on their own pages (itch.io uploads them with the game). **Two files** (`jnext-<version>.js` + `.wasm`), not `-sSINGLE_FILE` (base64 costs +33% and prevents streaming compilation). |
+| D7 | Frontend: SDL3's Emscripten port, or a thin C API with a JS frontend (Shrek's way) | **SDL3 port**, with the SDL frontend's loop turned into a per-frame `tick()` (S4). It reuses the tested `src/platform` logic (input latching, pacing, audio fill) instead of rewriting it in JS. A spike opens S5; if the port proves immature, the thin C API is the fallback, brought back to the owner as a decision. |
+| D8 | New dependencies | **Approved**: a pinned Emscripten SDK (with its SDL3, zlib and libpng ports) and Playwright + Chromium for the browser smoke test, both pinned (version + sha256) and provisioned into `~/.cache/jnext/tools` like the `z88dk-gdb` client. |
+| D9 | Performance floor | **50 fps over the whole regression NEX set, at 3.5 and at 28 MHz**, in the dev host's Chrome and Firefox **and** in Chrome with a **2x CPU throttle** (standing for a modest laptop). Estimated 20-34 ms per frame at 2x for the heaviest programs, so this is borderline: #452 and profiling are likely needed, and S10 carries the work until it holds. (A 4x throttle was considered and rejected: 40-70 ms per frame estimated.) |
+| D10 | Mobile and touch in v1 | **No.** It may run on a phone with a hardware keyboard, unsupported. A touch keyboard is a follow-on. |
+| D11 | CRT effect on the web | **No in v1**: the shader is GLSL 1.20 on a Qt GL 2.1 context (`src/gui/crt_gl_overlay.cpp:43-45`); a WebGL port is a follow-on. |
+| D12 | How Shrek's work enters JNEXT | **We reimplement everything** from his ideas, with our tests; none of his code is merged. Shrek is credited (CREDITS, ChangeLog), and asked for the material only he has (§5). No attribution comments in the code. |
+| D13 | Android and the VS Code debug server (hooks in his patch: `JNEXT_ANDROID_DIR`, `JNEXT_SERVER_DIR`) | **Out of scope.** If wanted later, their own epics, with their code in-tree. |
 
----
+Side issues found in Shrek's patch were filed separately (§9), with the owner's
+approvals for the existing rows they may change.
 
 ## 4. Architecture
 
@@ -140,7 +140,7 @@ A new CMake configuration, built with a pinned Emscripten SDK:
 Portability fixes `main` needs anyway, found in his patch:
 
 - `src/memory/ram.cpp:32` calls `std::fill` without `#include <algorithm>`
-  (only `<cstring>`): a libc++ build error. Adopt as is.
+  (only `<cstring>`): a libc++ build error. The one-line fix, as in his patch.
 - `PAGE_SIZE` collides with a libc macro under Emscripten (`nex_loader.h:467`,
   `szx_loader.cpp:150`, `szx_saver.h:201`): rename the constants instead of
   `#undef`ing the macro.
@@ -218,7 +218,7 @@ option mapping to a CLI flag or a `--set` key (C2), so the man page and
 
 ```js
 const player = await jnext.mount(document.getElementById('game'), {
-  file:   { url: 'game.nex' },          // --load
+  file:   { url: 'game.nex' },          // --load (.nex, .tap, .tzx)
   width:  640, height: 512,             // canvas size; letterboxed
   machine: 'next',                      // --machine
   image:  { url: '<SpecNext URL>', sha256: '<published hash>' },
@@ -276,16 +276,16 @@ Disposition, item by item:
 |---|---|---|
 | HALT fast-forward (`halt_batch_size_`, `execute_halted`) | **Reimplement from the idea.** A/B check on 1.1.55: identical on 45 NEX and 3 synthetic programs. But: host NMI strobe not guarded (a mid-frame F9/F10 press is served up to a scanline late); M1 side effects skipped (DivMMC automap promotion); duplicated contention and 28 MHz wait formulas, already stale on `main`; `execute_single_instruction()` ran a whole frame in one call. Desktop gain at 3.5 MHz about zero (0.98-1.08x measured), real at 28 MHz (2.8x on a synthetic loop) | **#452** (filed, v1.3, platform-independent) |
 | Copper WAIT skip (`Copper::idle_cycles`) | **Rework**: ports almost directly (`tick_copper_for_master_cycles` is unchanged since his base), plus an equivalence row | **#452** |
-| ULA clip window cleared over the border | **He is right, `main` is wrong.** VHDL `zxula.vhd:562` and `:414-415`: the border is never clipped; `main` clears it (`renderer.cpp:643-681`, from a 2026-04 change matched to ZEsarUX). Fix needs owner approval to change UCLIP-02/03/04, which use the border as their witness | proposed bug issue (B1) |
-| NEX loader zeroes all of bank 5 | **Real bug on `main`.** nexload clears only the attributes (`nexload.asm:319-320`); jnext zeroes 16 KB (`nex_loader.cpp:998-1007`), wiping the NextZXOS sysvars at $5B00-$5FFF even on the warm-start path. His fix is web-only; `main` needs the unconditional, nexload-faithful one | proposed bug issue (B2) |
-| Magic breakpoint `FD 00` (sjasmplus `break` since CSpect 2.19.9.1) | **Rework**: `main` knows only `ED FF` and `DD 01` (`z80_cpu.cpp:1037,1202`); detection must use the fetched prefix chain; man page | proposed feature issue (F1) |
-| Writes to a read-only SD card rejected | **Rework**: right fix, but SD-RO-03 passes with or without it on libstdc++, so it can only be proven on macOS CI | proposed bug issue (B3), or with S6 |
-| Extra esxDOS host calls (unlink, rename, mkdir, rmdir, truncate, chmod, M_GETERR) | **Rework as a feature PR** (design doc, use case); oracle is NextZXOS 2.09, his probe NEX must come as a fixture; changes 9 existing rows (esx_epath to esx_enotdir): owner sign-off | proposed feature issue (F2), Shrek's PR |
+| ULA clip window cleared over the border | **He is right, `main` is wrong.** VHDL `zxula.vhd:562` and `:414-415`: the border is never clipped; `main` clears it (`renderer.cpp:643-681`, from a 2026-04 change matched to ZEsarUX). Fix needs owner approval to change UCLIP-02/03/04, which use the border as their witness | #453 |
+| NEX loader zeroes all of bank 5 | **Real bug on `main`.** nexload clears only the attributes (`nexload.asm:319-320`); jnext zeroes 16 KB (`nex_loader.cpp:998-1007`), wiping the NextZXOS sysvars at $5B00-$5FFF even on the warm-start path. His fix is web-only; `main` needs the unconditional, nexload-faithful one | #454 |
+| Magic breakpoint `FD 00` (sjasmplus `break` since CSpect 2.19.9.1) | **Rework**: `main` knows only `ED FF` and `DD 01` (`z80_cpu.cpp:1037,1202`); detection must use the fetched prefix chain; man page | #456 |
+| Writes to a read-only SD card rejected | **Rework**: right fix, but SD-RO-03 passes with or without it on libstdc++, so it can only be proven on macOS CI | #455 |
+| Extra esxDOS host calls (unlink, rename, mkdir, rmdir, truncate, chmod, M_GETERR) | **Reimplement as a feature** (design doc, use case); oracle is NextZXOS 2.09, his probe NEX must come as a fixture; may change 9 existing rows (esx_epath to esx_enotdir): approved only if the probe proves it | #457 |
 | Per-scanline "live raster" rendering (IK+ menu flicker) | **Reject**: superseded by `main`'s beam-time replays (ULA, tilemap, LoRes, Layer 2 `SramBeamLog`), which are closer to the VHDL; his version writes device state from the render path | ask Shrek for the IK+ build; a bug if it still flickers on `main` |
 | NR 0x4A = 0, MAXBNK = 111 on direct load | **Reject**: invented values (VHDL reset of NR 0x4A is 0xE3, `zxnext.vhd:5014`); D3 removes the need | none |
 | `load_nex_in_place`, `esxdos_native_only`, mouse read counter | **Reject** (Android launcher and front-end plumbing) | none |
-| `ram.cpp` `#include <algorithm>` | **Adopt as is** | S1 |
-| `sdcard_net_stub.cpp` (SHA-256 + no download) | **Adopt, reworked** (English comments, existing rows) | S1 |
+| `ram.cpp` `#include <algorithm>` | **The same one-line fix** | S1 |
+| `sdcard_net_stub.cpp` (SHA-256 + no download) | **Reimplement from the idea**: a portable FIPS 180-4 SHA-256 and "download unavailable", passing the existing rows | S1 |
 | `web/CMakeLists.txt` | **Rework** (keep the link options; guards in our CMake) | S1, S5 |
 | `web_compat.h` | **Reject**, fix the cause (rename `PAGE_SIZE`) | S1 |
 | `jnext_web.cpp` (exported C API, A/B seams) | **Reimplement from the idea** (it bypasses `Rom`/MMU to inject the ROM, reimplements reset and pacing, global raw `new`) | S5/S7 (or D7's fallback) |
@@ -293,9 +293,9 @@ Disposition, item by item:
 | `SdBackingFile`, `ffconf.h` per-platform | **Reject the form**; the seam is reconsidered in S6 (D2) | S6 |
 | `build.ps1`, `JNEXT_WEB_DIR` / `JNEXT_ANDROID_DIR` / `JNEXT_SERVER_DIR` hooks | **Reject** (make targets, in-tree code) | S1 |
 
-Asks for Shrek (D12): the IK+ program that flickered; the esxDOS probe NEX and
-its NextZXOS 2.09 results; his browser bench numbers per program, so S10 can
-compare.
+Asks for Shrek (D12, by email): the IK+ program that flickered; the esxDOS
+probe NEX and its NextZXOS 2.09 results (the oracle for #457); his browser
+bench numbers per program, so S10 can compare.
 
 ---
 
@@ -343,13 +343,13 @@ protocol step 1).
 | S2 | `make unit-test-wasm` | `test/node-run.sh`, `JNEXT_TARGET_OS` value, `# os:` lines, CI job | every declared suite passes under node, 0 SKIP, absent suites named; CI job green |
 | S3 | `make regression-wasm` | headless jnext for node | the screenshot rows match the existing references byte for byte, 0 FAIL, 0 SKIP |
 | S4 | SDL frontend loop as `tick()` | refactor, native behaviour unchanged | full native batch gate green, `host_key_latch_test` green |
-| S5 | Browser frontend | SDL3 Emscripten port: canvas, WebGL, Web Audio after a click, keyboard focus and blur release, gamepads, pointer lock; a spike first to confirm D7 | smoke test boots a test NEX; canvas matches its reference; keys and sound work after a click |
+| S5 | Browser frontend | SDL3 Emscripten port: canvas, WebGL, Web Audio after a click, keyboard focus and blur release, gamepads, pointer lock; a spike first to confirm D7 | smoke test boots a test NEX and a test TAP; canvas matches its reference; keys and sound work after a click |
 | S6 | System image in the browser | fetch + sha256 + Cache API; image handed to the FS before `callMain`; warm start recorded once with progress and restored from IndexedDB; block-device seam only if D2 needs it | first visit records with progress; second visit restores (time recorded); new rows for any new SD code |
 | S7 | JavaScript API | `jnext.mount()` and the controller (§4.5), options mapped to CLI and `--set`; example page (plain and itch.io-style iframe); user guide chapter and man page section | the examples work; `cli-check` and `docs-check` green |
-| S8 | Packaging and release | `make package-web`: `jnext-<version>.js/.wasm` + LICENSE + source link; a `release.yml` job; publishing per D6 | names from `version.yaml`; `sync-version-test` green; artifacts on a public release |
+| S8 | Packaging and release | `make package-web`: a zip with `jnext-<version>.js` + `.wasm`, an example page, LICENSE and a source link; a `release.yml` job attaching it to public releases (D6) | names from `version.yaml`; `sync-version-test` green; the asset is on a public release |
 | S9 | Documentation | user guide: embedding JNEXT in a page; developer guide: the browser build and its tests | `docs-check` green |
-| S10 | Performance | browser bench page; numbers per program at 3.5 and 28 MHz; decision on what more is needed (#452 lands separately) | D9's floor reached, or a recorded decision |
-| S11 | Follow-ons, each its own sub-issue if wanted | guest writes kept across reloads; `.tap`/`.tzx`/snapshots; touch keyboard | per D4, D5, D10 |
+| S10 | Performance | browser bench page; numbers per program at 3.5 and 28 MHz, unthrottled and at Chrome's 2x CPU throttle; profiling and optimisation until D9 holds (#452 lands separately) | 50 fps on the whole regression NEX set at both speeds, in Chrome and Firefox, and in Chrome at 2x throttle |
+| S11 | Follow-ons, each its own sub-issue if wanted | guest writes kept across reloads; snapshots and the other desktop formats; touch keyboard; WebGL CRT shader | per D4, D5, D10, D11 |
 
 S0 runs in parallel with S1-S4 and blocks S6. S1-S3 prove the core before any
 browser work; S4 is native-only and can land early. #452 is independent.
@@ -363,7 +363,7 @@ browser work; S4 is native-only and can land early. #452 is independent.
 | SpecNext serves no CORS header, or no stable URL | no page on another origin can fetch the image | raise it now (D1); fallback: the visitor picks the file by hand |
 | The minimal image is not small | memory and download time; a block-device seam needed | the recipe (D2); the seam in S6 only if needed |
 | SDL3's Emscripten port is immature | S5 slips | spike first; fallback to a thin C API (D7) |
-| Speed on modest machines | below 50 fps | measure early (S1 size, S10 speed); #452 |
+| Speed: D9's floor at 2x throttle is borderline | below 50 fps on the heaviest programs | measure early (S1, S3); #452; profiling in S10 until it holds |
 | A reached `throw` or `std::thread` aborts the page | crash | wasm exceptions; features with threads compiled out and refused at the CLI |
 | Storage partitioning: each embedding site caches its own copy of the image | the first visit on every site downloads it | accepted; documented for authors |
 | Browser-reserved keys, focus loss | keys not delivered, or stuck | release on blur; document the reserved keys |
@@ -376,13 +376,13 @@ browser work; S4 is native-only and can land early. #452 is independent.
 
 - **#452** perf: skip idle HALT repeats and unmet Copper WAITs in one step,
   bit-identical (v1.3; from Shrek's HALT and Copper work, platform-independent).
-- Proposed, to file when the owner approves this plan:
-  - **B1** bug: the ULA clip window is applied to the border (VHDL never clips
-    it); needs approval to change UCLIP-02/03/04.
-  - **B2** bug: loading a NEX zeroes all of bank 5, wiping the NextZXOS system
-    variables (nexload clears only the attributes).
-  - **B3** bug: writes to a read-only SD card reach the backing stream.
-  - **F1** feature: the `FD 00` magic breakpoint (sjasmplus `break`).
-  - **F2** feature: esxDOS host-folder calls that change files (unlink,
-    rename, mkdir, rmdir, truncate, chmod), from Shrek; needs approval for the
-    9 changed rows.
+- Filed 2026-11-06 from the review of Shrek's patch (all v1.3, independent of
+  this epic):
+  - **#453** bug: the ULA clip window is applied to the border (the VHDL never
+    clips it); owner approved changing UCLIP-02/03/04.
+  - **#454** bug: loading a NEX zeroes all of bank 5 and wipes the NextZXOS
+    system variables (nexload clears only the attributes).
+  - **#455** bug: writes to a read-only SD card reach the backing stream.
+  - **#456** feature: the `FD 00` magic breakpoint (sjasmplus `break`).
+  - **#457** feature: esxDOS calls that change files on the host folder;
+    owner approved changing 9 rows only if a kept NextZXOS probe proves it.
