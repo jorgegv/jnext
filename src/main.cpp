@@ -74,6 +74,10 @@
 #include "gui/qt_ctrl_is_command.h"   // GH #417 debugger-key --set
 #else
 #include "platform/sdl_app.h"
+#ifdef JNEXT_BROWSER
+#include "platform/browser_frontend.h"
+#include "platform/browser_page.h"
+#endif
 #endif
 
 static void crash_handler(int sig) {
@@ -643,6 +647,12 @@ int main(int argc, char* argv[]) {
                 fprintf(stderr, "%s: %s\n", arg.c_str(), why);
                 return 1;
             }
+#ifdef JNEXT_BROWSER
+            if (const char* why = browser_page::option_refusal(opt->id)) {
+                fprintf(stderr, "%s: %s\n", arg.c_str(), why);
+                return 1;
+            }
+#endif
 #endif
 
             switch (opt->id) {
@@ -1469,6 +1479,14 @@ int main(int argc, char* argv[]) {
         }
         load_file = positional_file;
     }
+#ifdef JNEXT_BROWSER
+    if (!load_file.empty()) {
+        if (const char* why = browser_page::program_refusal(load_file)) {
+            fprintf(stderr, "--load %s: %s\n", load_file.c_str(), why);
+            return 1;
+        }
+    }
+#endif
 
     // GH #392 - a program inside a .zip archive: extract the one program to a
     // file of its own extension, and carry on with that path, so every check
@@ -2171,8 +2189,19 @@ int main(int argc, char* argv[]) {
 
 #endif
 
+#ifdef JNEXT_BROWSER
+    // The page's loop outlives main(): these are captured by reference by the
+    // emulator's callbacks and read by the loop's teardown.
+    // (A lambda cannot name a static in its capture list, so the locals are
+    // references to them; a reference captured by reference binds the object.)
+    static AudioRecorder audio_recorder_static;
+    static DacTraceRecorder dac_trace_recorder_static;
+    AudioRecorder& audio_recorder = audio_recorder_static;
+    DacTraceRecorder& dac_trace_recorder = dac_trace_recorder_static;
+#else
     AudioRecorder audio_recorder;
     DacTraceRecorder dac_trace_recorder;
+#endif
 
     // Helper lambda: configure and run any app object with the common interface.
     auto configure_and_run = [&](auto& app) -> int {
@@ -2758,10 +2787,6 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Capture requests are part of the CLI contract: if one cannot start
-        // or finalize, an otherwise-clean run must not report success.
-        bool capture_ok = true;
-
         // Start video recording if requested (after init, before run).
         // A start failure aborts the run RIGHT HERE (GH #86), exactly like
         // the --wav-record/--dac-trace start blocks above: running the whole
@@ -2788,46 +2813,62 @@ int main(int argc, char* argv[]) {
             app.set_rzx_record(rzx_record_file);
         }
 
+        // The run's teardown: recorders, app.shutdown() and the exit status.
+        // A function of its own because the browser frontend runs it from the
+        // page's loop, after main() has returned.
+        auto finish = [&app, record_file, &audio_recorder, &dac_trace_recorder]() -> int {
+            // Capture requests are part of the CLI contract: if one cannot start
+            // or finalize, an otherwise-clean run must not report success.
+            bool capture_ok = true;
+
+            // Stop recording before shutdown (encodes the MP4).
+            if (app.emulator().video_recorder().is_recording()) {
+                capture_ok = app.emulator().stop_recording() && capture_ok;
+            }
+            // GH #86: a stop whose result was discarded (MainWindow::closeEvent)
+            // is latched per output path — see VideoRecorder::output_failed().
+            if (!record_file.empty() &&
+                app.emulator().video_recorder().output_failed(record_file)) {
+                capture_ok = false;
+            }
+
+            if (audio_recorder.is_recording()) {
+                app.emulator().mixer().set_capture_callback({});
+                const bool audio_ok = audio_recorder.stop();
+                capture_ok = audio_ok && capture_ok;
+                if (!audio_ok) {
+                    Log::audio()->error("Failed to finalize WAV recording: {}",
+                                        audio_recorder.last_error());
+                }
+            }
+            if (dac_trace_recorder.is_recording()) {
+                app.emulator().dac().set_write_callback({});
+                const bool trace_ok = dac_trace_recorder.stop();
+                capture_ok = capture_ok && trace_ok;
+                if (!trace_ok) {
+                    Log::audio()->error("Failed to finalize DAC trace: {}",
+                                        dac_trace_recorder.last_error());
+                }
+            }
+
+            app.shutdown();
+            // shutdown() decides the status: a --delayed-screenshot that was
+            // requested and never written exits non-zero, so a CI script cannot
+            // mistake a missing PNG for success. A capture-finalize failure makes
+            // an otherwise-clean run exit 1, but never replaces the app's own
+            // non-zero code with a less specific one.
+            if (app.exit_code() != 0) return app.exit_code();
+            return capture_ok ? 0 : 1;
+        };
+
+#ifdef JNEXT_BROWSER
+        if constexpr (std::is_same_v<std::decay_t<decltype(app)>, SdlApp>) {
+            browser_frontend::run(app, std::move(finish));
+            return 0;
+        }
+#endif
         app.run();
-
-        // Stop recording before shutdown (encodes the MP4).
-        if (app.emulator().video_recorder().is_recording()) {
-            capture_ok = app.emulator().stop_recording() && capture_ok;
-        }
-        // GH #86: a stop whose result was discarded (MainWindow::closeEvent)
-        // is latched per output path — see VideoRecorder::output_failed().
-        if (!record_file.empty() &&
-            app.emulator().video_recorder().output_failed(record_file)) {
-            capture_ok = false;
-        }
-
-        if (audio_recorder.is_recording()) {
-            app.emulator().mixer().set_capture_callback({});
-            const bool audio_ok = audio_recorder.stop();
-            capture_ok = audio_ok && capture_ok;
-            if (!audio_ok) {
-                Log::audio()->error("Failed to finalize WAV recording: {}",
-                                    audio_recorder.last_error());
-            }
-        }
-        if (dac_trace_recorder.is_recording()) {
-            app.emulator().dac().set_write_callback({});
-            const bool trace_ok = dac_trace_recorder.stop();
-            capture_ok = capture_ok && trace_ok;
-            if (!trace_ok) {
-                Log::audio()->error("Failed to finalize DAC trace: {}",
-                                    dac_trace_recorder.last_error());
-            }
-        }
-
-        app.shutdown();
-        // shutdown() decides the status: a --delayed-screenshot that was
-        // requested and never written exits non-zero, so a CI script cannot
-        // mistake a missing PNG for success. A capture-finalize failure makes
-        // an otherwise-clean run exit 1, but never replaces the app's own
-        // non-zero code with a less specific one.
-        if (app.exit_code() != 0) return app.exit_code();
-        return capture_ok ? 0 : 1;
+        return finish();
     };
 
     // GH #364: take SIGINT/SIGTERM over BEFORE any frontend's SDL_Init, so SDL
@@ -2893,12 +2934,21 @@ int main(int argc, char* argv[]) {
         result = configure_and_run(*app);
 #else
         auto app = std::make_unique<SdlApp>();
+#ifdef JNEXT_BROWSER
+        browser_frontend::prepare();
+#endif
         result = configure_and_run(*app);
+#ifdef JNEXT_BROWSER
+        if (browser_frontend::active()) (void)app.release();   // the page's loop owns it now
+#endif
 #endif
     }
 
 #ifndef __EMSCRIPTEN__
     pi_qemu.reset();   // stop QEMU while logging still works
+#endif
+#ifdef JNEXT_BROWSER
+    if (browser_frontend::active()) return result;   // the loop still logs
 #endif
     spdlog::shutdown();
     // GH #364: the signal decides the status (128+N, WIFSIGNALED) even when

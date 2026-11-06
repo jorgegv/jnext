@@ -1,0 +1,60 @@
+// Test fixture for the browser smoke test: never shipped. Query string:
+//   module=<jnext-VERSION.js>   the build output to load (served by the harness)
+//   args=<json array>           argv for callMain
+//   files=<json [[url, path]]>  fetched into MEMFS before the start
+//   canvas=WxH                  CSS size of the canvas
+//   autostart=1                 callMain on load, no click
+(function () {
+  'use strict';
+  const q = new URLSearchParams(location.search);
+  const canvas = document.getElementById('jnext-canvas');
+  const overlay = document.getElementById('overlay');
+  const out = { stdout: [], stderr: [], exit: null, started: false, ready: false, error: null };
+  window.jnextTest = out;
+
+  if (q.get('canvas')) {
+    const [w, h] = q.get('canvas').split('x');
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+  }
+
+  function start(mod) {
+    if (out.started) return;
+    out.started = true;
+    overlay.style.display = 'none';
+    canvas.focus();
+    try {
+      out.mainResult = mod.callMain(JSON.parse(q.get('args') || '[]'));
+    } catch (e) {
+      out.error = String(e);
+    }
+  }
+
+  async function boot() {
+    const script = document.createElement('script');
+    script.src = q.get('module');
+    await new Promise((res, rej) => { script.onload = res; script.onerror = () => rej(new Error('module load failed')); document.head.appendChild(script); });
+    const mod = await createJnextModule({
+      canvas: canvas,
+      print: (s) => out.stdout.push(s),
+      printErr: (s) => out.stderr.push(s),
+      onExit: (c) => { out.exit = c; },
+      locateFile: (p) => (p.endsWith('.wasm') ? q.get('module').replace(/\.js$/, '.wasm') : p),
+      preRun: [(m) => { m.ENV.SDL_EMSCRIPTEN_CANVAS_SELECTOR = '#jnext-canvas'; }],
+    });
+    window.jnextModule = mod;
+    for (const [url, path] of JSON.parse(q.get('files') || '[]')) {
+      overlay.textContent = 'Loading ' + url;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('fetch ' + url + ': ' + r.status);
+      const dir = path.substring(0, path.lastIndexOf('/'));
+      if (dir) mod.FS.mkdirTree(dir);
+      mod.FS.writeFile(path, new Uint8Array(await r.arrayBuffer()));
+    }
+    out.ready = true;
+    overlay.textContent = 'Click to start';
+    if (q.get('autostart') === '1') start(mod);
+    else overlay.addEventListener('click', () => start(mod));
+  }
+  boot().catch((e) => { out.error = String(e); });
+})();

@@ -203,7 +203,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk wasm-core wasm-core-clean
+       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk wasm-core wasm-web wasm-core-clean
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -601,6 +601,10 @@ wasm-core: emsdk
 		"-DENABLE_TESTS=ON" && \
 	$(CMAKE) --build build/wasm-core -j$(JOBS) --target jnext sha256_test && \
 	bash test/wasm-core-check.sh build/wasm-core
+
+# Build the browser frontend jnext-<version>.js/.wasm into build/wasm-core
+wasm-web: wasm-core
+	$(CMAKE) --build build/wasm-core -j$(JOBS) --target jnext_web
 
 # Remove the WebAssembly build directory
 wasm-core-clean:

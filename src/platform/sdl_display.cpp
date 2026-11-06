@@ -14,8 +14,16 @@ bool SdlDisplay::init(int native_w, int native_h, int display_h) {
     // shown by default (SDL_WINDOW_SHOWN is gone). Centring is a separate,
     // best-effort call — a window manager may place the window itself, which
     // was equally true of SDL2's SDL_WINDOWPOS_CENTERED hint.
+#ifdef __EMSCRIPTEN__
+    // The page owns the canvas size and the document title: no title (SDL
+    // would set document.title), follow CSS resizes and render at device
+    // pixels.
+    window_ = SDL_CreateWindow(nullptr, native_w * scale_, display_h * scale_,
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+#else
     window_ = SDL_CreateWindow(JNEXT_WINDOW_TITLE,
         native_w * scale_, display_h * scale_, 0);
+#endif
     if (!window_) {
         Log::platform()->error("SDL_CreateWindow: {}", SDL_GetError());
         return false;
@@ -86,6 +94,10 @@ void SdlDisplay::toggle_fullscreen() {
 }
 
 void SdlDisplay::set_scale(int scale) {
+#ifdef __EMSCRIPTEN__
+    (void)scale;   // the page owns the canvas size
+    return;
+#endif
     if (scale < 2) scale = 2;
     if (scale > 4) scale = 4;
     scale_ = scale;
