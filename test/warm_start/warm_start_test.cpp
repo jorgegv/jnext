@@ -100,6 +100,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -1424,7 +1425,8 @@ int main()
         // A cache entry keyed {digest, size, mtime 0}, taken from this
         // machine's own stream (plant()'s way).
         auto plant_dig = [&](const std::string& card, const std::string& hex) {
-            Emulator probe;
+            auto probe_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& probe = *probe_heap;
             make_dig_emu(probe, card, hex, card);
             StateWriter measure;
             probe.save_state(measure);
@@ -1453,7 +1455,8 @@ int main()
             Emulator::reset_warm_start_memo_for_test();
             const bool planted = plant_dig(card, kHexA);
             LogTap tap(Log::emulator());
-            Emulator e1;
+            auto e1_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e1 = *e1_heap;
             make_dig_emu(e1, card, kHexA, card);
             const bool hit1 = e1.ensure_warm_start_state();
             const int64_t recorded = mtime_of(card);
@@ -1461,7 +1464,8 @@ int main()
                 std::chrono::duration_cast<fs::file_time_type::duration>(
                     std::chrono::hours(1)).count());
             const bool moved = set_mtime(card, recorded + hour) && mtime_of(card) != recorded;
-            Emulator e2;
+            auto e2_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e2 = *e2_heap;
             make_dig_emu(e2, card, kHexA, card);
             const bool hit2 = e2.ensure_warm_start_state();
             check("WSR-SHA-01",
@@ -1480,7 +1484,8 @@ int main()
             Emulator::reset_warm_start_memo_for_test();
             const bool planted = plant_dig(card, kHexA);
             LogTap tap(Log::emulator());
-            Emulator e;
+            auto e_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e = *e_heap;
             make_dig_emu(e, card, kHexA, g_dir + "/some-other-card.img");
             const bool hit = e.ensure_warm_start_state();
             check("WSR-SHA-02",
@@ -1499,11 +1504,13 @@ int main()
             const bool planted = plant_dig(card, kHexA);   // its probe is the first mount
             const auto before = read_file(warm_start::cache_path(
                 static_cast<uint8_t>(MachineType::ZXN_ISSUE2)));
-            Emulator e1;
+            auto e1_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e1 = *e1_heap;
             make_dig_emu(e1, card, kHexA, card);
             const bool wrote = write_sector(e1);
             LogTap tap(Log::emulator());
-            Emulator e2;
+            auto e2_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e2 = *e2_heap;
             make_dig_emu(e2, card, kHexA, card);
             const bool hit = e2.ensure_warm_start_state();
             const auto after = read_file(warm_start::cache_path(
@@ -1528,7 +1535,8 @@ int main()
             blob(card);
             fs::remove_all(warm_start::cache_dir(), ec);
             Emulator::reset_warm_start_memo_for_test();
-            Emulator e;
+            auto e_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e = *e_heap;
             make_emu(e, card);
             LogTap tap(Log::emulator());
             bool ok = true;
@@ -1558,7 +1566,8 @@ int main()
             fs::remove_all(warm_start::cache_dir(), ec);
             Emulator::reset_warm_start_memo_for_test();
             const bool planted = plant(card);
-            Emulator e;
+            auto e_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e = *e_heap;
             make_emu(e, card);
             LogTap tap(Log::emulator());
             const auto p = e.prepare_warm_start(100);
@@ -1577,7 +1586,8 @@ int main()
             blob(card_b);
             fs::remove_all(warm_start::cache_dir(), ec);
             Emulator::reset_warm_start_memo_for_test();
-            Emulator e;
+            auto e_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e = *e_heap;
             make_emu(e, card_a);
             LogTap tap(Log::emulator());
             const auto p1 = e.prepare_warm_start(100);
@@ -1594,7 +1604,8 @@ int main()
         }
         // WSR-STEP-04
         {
-            Emulator e48;
+            auto e48_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e48 = *e48_heap;
             EmulatorConfig c48;
             c48.type = MachineType::ZX48K;
             c48.rewind_buffer_frames = 0;
@@ -1615,7 +1626,8 @@ int main()
             blob(card);
             fs::remove_all(warm_start::cache_dir(), ec);
             Emulator::reset_warm_start_memo_for_test();
-            Emulator e;
+            auto e_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e = *e_heap;
             make_emu(e, card);
             LogTap tap(Log::emulator());
             const auto p = e.prepare_warm_start(100);
