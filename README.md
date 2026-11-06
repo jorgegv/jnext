@@ -38,6 +38,9 @@ under CI.
   the 8-slot MMU, all 256 NextREGs, 128 sprites, the Copper, the tilemap, the
   layer compositor, the AY chips — plus **backwards execution**: step back,
   frame back, scrub a rewind slider.
+- **Source-level debugging.** Load a z88dk `-debug` map or a sjasmplus SLD and
+  debug by source line: line breakpoints, source steps, Run to Here and, for C
+  built with z88dk, the locals, globals and statics of every call frame, editable.
 - **Every layer, on its own.** See the ULA, Layer 2, sprites and the tilemap
   rendered separately, next to the composite the hardware would show you
 - **Headless and scriptable.** Deterministic PNG screenshots (frame-accurate,
