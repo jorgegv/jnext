@@ -93,7 +93,8 @@ fatlen=$(sed -n 's/^Big fatlen=\([0-9]*\)/\1/p' <<<"$mi"); csz=$(field 'cluster 
 csz=${csz%% *}; serial=$(field 'serial number'); dtype=$(sed -n 's/^disk type="\(FAT32\) *"/\1/p' <<<"$mi")
 hidden=$(field 'hidden sectors'); hidden=${hidden%% *}; heads=$(field 'heads'); spt=$(field 'sectors per track')
 label=$(sed -n 's/^disk label="\(.*\)"$/\1/p' <<<"$mi")
-nolabel=0; mdir -i "$CARD@@32256" :: 2>/dev/null | grep -q 'has no label' && nolabel=1
+mdir_out=$(mdir -i "$CARD@@32256" :: 2>/dev/null || true)
+nolabel=0; grep -q 'has no label' <<<"$mdir_out" && nolabel=1
 clusters=0
 if [[ -n "$reserved" && -n "$fats" && -n "$big" && -n "$fatlen" && "${csz:-0}" -gt 0 ]]; then
     clusters=$(( (big - reserved - fats * fatlen) / csz ))
