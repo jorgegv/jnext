@@ -1040,7 +1040,9 @@ static void mutation_rows() {
 static const std::vector<uint8_t> kKeyPoll = {0x01, 0xFE, 0xFB, 0xED, 0x78, 0x18, 0xFC};
 
 struct PortLog {
-    std::vector<std::pair<uint32_t, uint8_t>> reads;  // (frame, value)
+    /// (frame, value). The frame is counted INTERRUPT-TO-INTERRUPT (see
+    /// watch_port): the guest sees an input change from a frame's interrupt on.
+    std::vector<std::pair<uint32_t, uint8_t>> reads;
     /// Frames in which at least one read saw `bit` clear / set.
     bool any_down(uint32_t f, int bit) const {
         for (auto& r : reads) if (r.first == f && !(r.second & (1 << bit))) return true;
@@ -1069,8 +1071,15 @@ static void watch_port(Rig& g, PortLog& p) {
     s.kind = EventKind::Port; s.access = Access::Read;
     s.filter.port_mask = 0x00FF; s.filter.port_value = 0xFE;
     s.action = jnext::dbg::Action::Continue;
-    s.handler = [&p](const DbgEvent& e, Debugger&) {
-        p.reads.emplace_back(e.frame, e.value);
+    // A frame is binned INTERRUPT-TO-INTERRUPT: a read before frame K's ULA
+    // interrupt position belongs to frame K-1. That is the contract of an input
+    // change (REQ-dsl-20, as amended 2026-11-05): issued in frame N it is seen by
+    // the guest from frame N+1's interrupt on, FUSE spectrum.c:91-103 (input
+    // after z80_interrupt()), and not by any read before it.
+    s.handler = [&p, &g](const DbgEvent& e, Debugger&) {
+        const uint64_t off = g.emu.video_timing().frame_int_master_cycle_offset() + 4;
+        const bool after_int = (e.cycle - g.emu.current_frame_cycle()) >= off;
+        p.reads.emplace_back(after_int ? e.frame : e.frame - 1, e.value);
         return jnext::dbg::Action::Continue;
     };
     g.dbg->subscribe(g.tc, s);
@@ -1079,7 +1088,8 @@ static void watch_port(Rig& g, PortLog& p) {
 static void input_rows() {
     {
         // SCRIPT-EV-INJ-ORDER: a level press issued mid-frame 2 is seen by no
-        // read of frame 2 and by every read of frame 3.
+        // read of frame 2 and by every read from frame 3's interrupt on
+        // (frames counted interrupt-to-interrupt, see watch_port).
         Rig g(kKeyPoll);
         PortLog p;
         watch_port(g, p);
@@ -1087,8 +1097,8 @@ static void input_rows() {
                                "on frame 4 do release \"q\" end\n");
         g.frames(7);
         check("SCRIPT-EV-INJ-ORDER", "a level `press` issued in frame 2 is visible to every port read of frame "
-                                     "3 and to none of frame 2; `release` in frame 4 (at its edge) clears it "
-                                     "from frame 5",
+                                     "3 (from its interrupt) and to none of frame 2; `release` in frame 4 (at "
+                                     "its edge) clears it from frame 5's interrupt",
               ok && !p.any_down(2, 0) && p.all_down(3, 0) && p.all_down(4, 0) && !p.any_down(5, 0) &&
                   !p.any_down(6, 0),
               "down in frames: " + p.frames_down(0));
@@ -1102,9 +1112,11 @@ static void input_rows() {
         // The backend's auto-type pulse (IN-01, `tick_auto_type`, the one
         // `--delayed-keypress-frames` uses): pressed by the tick at E_2,
         // released by the tick at E_4 — a hold of 3 ticks is visible to the
-        // guest for frames 3 and 4 (backend row IN-01-07 pins the same span).
+        // guest for frames 3 and 4, counted interrupt-to-interrupt (backend row
+        // IN-01-07 pins the same span).
         check("SCRIPT-EV-PULSE", "`press \"w\" for 3` issued at frame 2's edge is pressed AT that edge and "
-                                 "released 3 ticks later: down for every read of frames 3 and 4, none of 2 or 5",
+                                 "released 3 ticks later: down for every read of frames 3 and 4 (each from its "
+                                 "interrupt), none of 2 or 5",
               ok && !p.any_down(2, 1) && p.all_down(3, 1) && p.all_down(4, 1) && !p.any_down(5, 1) &&
                   !p.any_down(6, 1),
               "down in frames: " + p.frames_down(1));

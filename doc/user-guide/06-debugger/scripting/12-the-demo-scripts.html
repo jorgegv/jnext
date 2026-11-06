@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.119</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.119</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3357,10 +3357,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#replay_edgejds-input-lands-at-the-frame-edge" class="md-nav__link">
+  <a href="#replay_edgejds-input-lands-at-the-frame-interrupt" class="md-nav__link">
     <span class="md-ellipsis">
       
-        replay_edge.jds: input lands at the frame edge
+        replay_edge.jds: input lands at the frame interrupt
       
     </span>
   </a>
@@ -4599,9 +4599,9 @@ Headless, <code>--script-key 560 1</code>:</p>
 </tr>
 </tbody>
 </table>
-<h2 id="replay_edgejds-input-lands-at-the-frame-edge"><code>replay_edge.jds</code>: input lands at the frame edge<a class="headerlink" href="#replay_edgejds-input-lands-at-the-frame-edge" title="Permanent link">&para;</a></h2>
-<p>A key pressed during frame <em>N</em> is seen from frame <em>N</em>+1 — never later in frame
-<em>N</em>, never at <em>N</em>+2. The program polls Q in its main loop after <code>main_loop</code>,
+<h2 id="replay_edgejds-input-lands-at-the-frame-interrupt"><code>replay_edge.jds</code>: input lands at the frame interrupt<a class="headerlink" href="#replay_edgejds-input-lands-at-the-frame-interrupt" title="Permanent link">&para;</a></h2>
+<p>A key pressed during frame <em>N</em> is seen from frame <em>N</em>+1's interrupt — never in
+frame <em>N</em>, never at <em>N</em>+2. The program polls Q in its main loop after <code>main_loop</code>,
 and latches its frame counter at the first Q it sees:</p>
 <pre><code>on execute @main_loop once when mem16[@magic] == 0xD5D5 and mem[@frames] == 30 do
     press &quot;q&quot;

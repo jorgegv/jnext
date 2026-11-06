@@ -6283,10 +6283,10 @@ static void test_gh289_autotype_ranges() {
         int32_t at16 = 0;
         std::memcpy(&at16, buf + 16, sizeof(at16));
         check("GH289-14",
-              "bytes 16-19 of Keyboard's 342-byte block are auto-type slot 0's "
+              "bytes 16-19 of Keyboard's 353-byte block are auto-type slot 0's "
               "row1 — the field the next row forges, proved by an honest save "
               "of a known key",
-              n == 342 && at16 == 6, DETAIL("n=%zu at16=%d", n, at16));
+              n == 353 && at16 == 6, DETAIL("n=%zu at16=%d", n, at16));
 
         const int32_t forged = 0x40000000;
         std::memcpy(buf + 16, &forged, sizeof(forged));
@@ -6296,9 +6296,9 @@ static void test_gh289_autotype_ranges() {
         const std::string after = jns_doc(back);
         check("GH289-15",
               "a forged coordinate in the REWIND stream leaves the queue at "
-              "its pre-load value and still consumes the declared 342 bytes — "
+              "its pre-load value and still consumes the declared 353 bytes — "
               "the refusal must not desync a positional stream",
-              r.position() == 342 &&
+              r.position() == 353 &&
                   jns_int(after, "auto_queue_count") == 1 &&
                   jns_int(after, "auto00_row1") == 1,
               DETAIL("pos=%zu n=%ld r1=%ld", r.position(),
