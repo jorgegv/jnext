@@ -582,7 +582,10 @@ wasm-core: emsdk
 	@# toolchain file is used directly (no emcmake, no emsdk_env.sh); node is the
 	@# SDK's own, as the cross-compiling emulator. A cache configured with Qt, the
 	@# debugger or another SDK is reconfigured by the guard.
-	@E=$$(bash test/provision-emsdk.sh --print-path) && 	bash test/cmake-configure-guard.sh build/wasm-core \
+	@# A configure that failed leaves a cache the guard accepts but no Makefile.
+	@E=$$(bash test/provision-emsdk.sh --print-path) && \
+	{ [ -f build/wasm-core/Makefile ] || rm -rf build/wasm-core; } && \
+	bash test/cmake-configure-guard.sh build/wasm-core \
 		"CMAKE_TOOLCHAIN_FILE=$$E/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" \
 		"CMAKE_BUILD_TYPE=Release" \
 		"ENABLE_QT_UI=OFF" \

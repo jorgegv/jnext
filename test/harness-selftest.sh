@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=308  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=311  # 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2582,6 +2582,35 @@ out=$(XDG_CACHE_HOME="$XC2" JNEXT_GHIDRA_URL="file://$PV/ghidra.zip" JNEXT_GHIDR
 left=$(find "$XC2" -mindepth 3 2>/dev/null | head -3)
 check "HS-101" "provision-ghidra.sh with a wrong JNEXT_GHIDRA_SHA256 refuses (exit 1), names the mismatch and installs nothing, scratch removed (GH #389)" 1 $([[ $rc -eq 1 && -z "$left" ]] && echo 1 || echo 99) \
     "$out"$'\n'"left:[$left]" "SHA-256 MISMATCH" "expected $BADSHA" "left:[]"
+
+# provision-emsdk.sh (GH #459) pins THREE archives and verifies each before it unpacks any: a wrong
+# sha256 on the emsdk archive, on the release or on node is refused (exit 1), names the mismatch and
+# leaves nothing in the cache. Fake file:// archives; for b and c the earlier pins are the fakes' real
+# sha256, so the check failing is the one under test.
+EM="$T/prov-emsdk"; mkdir -p "$EM"
+printf 'fake emsdk\n' > "$EM/emsdk.tar.gz"; printf 'fake release\n' > "$EM/release.tar.xz"; printf 'fake node\n' > "$EM/node.tar.xz"
+EM_OK=$(sha256sum "$EM/emsdk.tar.gz" | cut -d' ' -f1)
+EM_REL_OK=$(sha256sum "$EM/release.tar.xz" | cut -d' ' -f1)
+EM_NODE_OK=$(sha256sum "$EM/node.tar.xz" | cut -d' ' -f1)
+for which in a b c; do
+    case $which in
+        a) em=$BADSHA; rel=$EM_REL_OK; nod=$EM_NODE_OK; what="the emsdk archive" ;;
+        b) em=$EM_OK;  rel=$BADSHA;    nod=$EM_NODE_OK; what="the release tarball" ;;
+        c) em=$EM_OK;  rel=$EM_REL_OK; nod=$BADSHA;     what="the node tarball" ;;
+    esac
+    XCE="$T/prov-cache-em-$which"
+    out=$(XDG_CACHE_HOME="$XCE" JNEXT_EMSDK_URL="file://$EM/emsdk.tar.gz" JNEXT_EMSDK_SHA256=$em \
+          JNEXT_EMSDK_RELEASE_URL="file://$EM/release.tar.xz" JNEXT_EMSDK_RELEASE_SHA256=$rel \
+          JNEXT_EMSDK_NODE_URL="file://$EM/node.tar.xz" JNEXT_EMSDK_NODE_SHA256=$nod \
+          bash "$PROJECT_DIR/test/provision-emsdk.sh" 2>&1); rc=$?
+    left=$(find "$XCE" -mindepth 3 2>/dev/null | head -3)
+    badpin=$em; [[ $which == b ]] && badpin=$rel; [[ $which == c ]] && badpin=$nod
+    case $which in
+        a) hs_id=HS-158a ;; b) hs_id=HS-158b ;; c) hs_id=HS-158c ;;
+    esac
+    check "$hs_id" "provision-emsdk.sh with a wrong sha256 for $what refuses (exit 1), names the mismatch and installs nothing, scratch removed (GH #459)" 1 $([[ $rc -eq 1 && -z "$left" ]] && echo 1 || echo 99) \
+        "$out"$'\n'"left:[$left]" "SHA-256 MISMATCH" "expected $badpin" "left:[]"
+done
 
 # ---------------- the harness's git keeps the user's own config (GH #295) ----------------
 # The suite points XDG_CONFIG_HOME at a scratch dir for Qt, and git resolves

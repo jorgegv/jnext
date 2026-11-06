@@ -122,6 +122,19 @@ absolute path through `JNEXT_TEST_SD_IMAGE`. A bundle (executables, the MinGW
 DLLs `packaging/windows/bundle-dlls.sh` copies, the manifest, the harness and
 the sources it reads) is feasible, but it is its own piece of work.
 
+`make emsdk` provides the pinned Emscripten SDK (6.0.13) in the user cache,
+`~/.cache/jnext/tools/emsdk-6.0.13`, through `test/provision-emsdk.sh`: it
+downloads three archives (the emsdk installer, the SDK release and the node it
+bundles), verifies the sha256 of all three before it unpacks any of them,
+installs them and builds the SDL3, zlib and libpng ports. It is a no-op once the
+provisioner's stamp is there, and a directory without the stamp is replaced, not
+trusted. `make wasm-core` depends on it, configures `build/wasm-core` with the
+SDK's CMake toolchain file, builds `jnext.js`/`jnext.wasm` and the `sha256_test`
+suite, and runs `test/wasm-core-check.sh` under the SDK's node: the module
+reports its version, imports no (shared) memory, catches an exception,
+refuses the flags and `--set` keys the browser build cannot honour, and runs the
+SHA-256 suite on its portable backend. `make clean` removes the tree.
+
 Chapter [4. Testing](../04-testing/index.md) covers what each of these actually
 proves.
 

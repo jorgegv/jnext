@@ -81,7 +81,7 @@ wine. This is a documented local check, not a CI step.
 
 ## The jobs in `ci.yml`
 
-**`test`** is the main job: one definition, a matrix of five legs that run in
+**`test`** is the main job: one definition, a matrix of six legs that run in
 parallel on runners of their own. Every leg installs the same
 dependency set and checks out the repository with submodules; then
 
@@ -95,7 +95,12 @@ dependency set and checks out the repository with submodules; then
   `make unit-test-win`: the SDL-only suites as Windows executables under wine. It
   builds no PGO binary, so on an SD-image cache miss `make unit-test-win`
   provisions the image itself (`make sdcard-image`);
-- **`regression`** runs `make clean && make gui-release` and `make regression`.
+- **`regression`** runs `make clean && make gui-release` and `make regression`;
+- **`wasm`** runs `make wasm-core`: the SDL-only core built for WebAssembly and
+  run under node. It needs no SD image. The Emscripten SDK is provisioned by the
+  target itself (`test/provision-emsdk.sh`, pinned by three sha256) into
+  `~/.cache/jnext/tools/emsdk-6.0.13`, which the leg caches under a key carrying
+  the version and the pins, so a hit only skips the downloads.
 
 They used to be steps of one job, so the 28-minute build matrix and the
 regression ran back to back although neither uses the other's output. Each leg
