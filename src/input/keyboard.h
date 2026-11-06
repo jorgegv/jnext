@@ -67,6 +67,39 @@ public:
     void set_cursor_key_target(int slot) { cursor_target_slot_ = slot; }
     int  cursor_key_target() const { return cursor_target_slot_; }
 
+    // -----------------------------------------------------------------------
+    // The guest's view of the membrane: WHEN a key change becomes visible.
+    //
+    // Writers (set_key, set_matrix_bit, set_extended_key, the auto-type tick,
+    // the queued levels, release_all_keys) change `matrix_` / `ex_matrix_` at
+    // once. What the GUEST reads is a separate copy while a frame runs:
+    //
+    //   * latch_guest_view()   frame edge, BEFORE the edge's own writers: the
+    //                          copy becomes what the frame that just ended saw;
+    //   * hold_guest_view()    start of the next frame (begin_new_frame): guest
+    //                          reads (read_rows, tick_scan, NR 0xB0/0xB1) use
+    //                          the copy;
+    //   * release_guest_view() the ULA interrupt position of that frame
+    //                          (Emulator::begin_new_frame schedules it): guest
+    //                          reads see `matrix_` again.
+    //
+    // So a change made between frames N and N+1 is invisible to the guest until
+    // frame N+1's interrupt. Oracle: FUSE spectrum.c:91-103 runs z80_interrupt()
+    // and only then ui_event(), so host input lands after the ISR is entered.
+    // The VHDL has no phase (membrane.vhd:99-155 scans freely), so this is a
+    // host policy; the cycle itself is the VHDL INT position.
+    //
+    // NOT held outside a running frame: no guest instruction runs there, so a
+    // test or a debugger panel reading between frames sees the live state.
+    // matrix_row() and live_extended_keys() are always the raw write side.
+    // -----------------------------------------------------------------------
+    void latch_guest_view();
+    void hold_guest_view()    { guest_view_held_ = true; }
+    void release_guest_view() { guest_view_held_ = false; }
+
+    /// The extended-key register as written (ACTIVE-HIGH), never the guest copy.
+    uint16_t live_extended_keys() const { return ex_matrix_; }
+
     /// Called by port 0xFE read.
     /// addr_high = upper byte of the 16-bit port address.
     /// Returns 5-bit OR of selected rows (bits 0-4), active-low.
@@ -327,4 +360,14 @@ private:
     /// to hold a releasing CS or SYM bit for one extra scan
     /// (membrane.vhd:178 "holding shift key state an extra scan").
     uint8_t shift_hist_[2] = { 0xFF, 0xFF };
+
+    /// The guest's copy of matrix_ / ex_matrix_ (see latch_guest_view()). Machine
+    /// state: a rewind or .jns taken at a frame boundary must replay the frame
+    /// with the same pre-interrupt view. Defaults equal the reset() values.
+    uint8_t  guest_matrix_[8] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+    uint16_t guest_ex_matrix_ = 0x0000;
+    bool     guest_view_held_ = false;
+
+    const uint8_t* rd_matrix() const { return guest_view_held_ ? guest_matrix_ : matrix_; }
+    uint16_t       rd_ex()     const { return guest_view_held_ ? guest_ex_matrix_ : ex_matrix_; }
 };

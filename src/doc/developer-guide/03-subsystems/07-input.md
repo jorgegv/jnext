@@ -88,6 +88,94 @@ model the PS/2 protocol at all — SDL key events replace it. Both matrix bits
 are therefore asserted directly, with no raw register behind them and nothing
 to read back.
 
+## When the guest sees a key change
+
+Hardware has no answer to this: the membrane is scanned continuously
+(`membrane.vhd:99-155`, a free-running row scanner), so a real key change is
+asynchronous to the frame. Emulating a frame as an indivisible unit forces a
+choice, and it is a **host policy** with an emulator as its oracle, not a VHDL
+transcription.
+
+The policy: **a keyboard change made between frames *N* and *N*+1 becomes
+visible to the guest at the ULA interrupt position of frame *N*+1** (the
+extended keys and NR `0xB0`/`0xB1` with it), and to no read before it. The
+position itself is the VHDL one, `(c_int_h, c_int_v)` of
+`zxula_timing.vhd:551` with the per-timing constants: Pentagon `(439,319)`
+(`zxula_timing.vhd:155` and `zxula_timing.vhd:163`), 128K `(128,1)`
+(`zxula_timing.vhd:187` and `zxula_timing.vhd:199`), +3 and the Next's default
+timing `(126,1)` (`zxula_timing.vhd:189` and `zxula_timing.vhd:199`), 48K
+`(116,0)` (`zxula_timing.vhd:257` and `zxula_timing.vhd:265`).
+
+The oracle for the *order* is FUSE 1.5.7. Its frame-end event handler,
+`spectrum_frame_event_fn()`, runs (the excerpt is its lines 91 to 103 in FUSE's
+`spectrum.c`)
+
+```c
+  z80_interrupt();
+  ui_joystick_poll();
+  timer_estimate_speed();
+  debugger_add_time_events();
+  ui_event();
+```
+
+in that order: the interrupt is taken first and host input (`ui_event()`)
+lands after it. A program polling the keys therefore cannot act on a key
+before its own interrupt routine has run, and a program whose key handler
+changes machine state with interrupts enabled (paging a bank that holds music,
+say) cannot have the interrupt land in the middle of that response because the
+key arrived a few hundred T-states before it. jnext used to apply every key at
+its frame boundary, 292 T before the 128K interrupt; a 128K game that pages a
+second bank in for ~150-300 T on its first sight of a key then read its IM 2
+vector from the wrong bank and jumped to `$0000` at the start of play
+(`msnampac`, found 2026-11). The race is real on hardware, where a key lands at
+a random phase and the window is hit rarely; jnext made it certain.
+
+How it is built (`Keyboard`, `Emulator::begin_new_frame()`):
+
+- Writers (`set_key`, `set_matrix_bit`, `set_extended_key`, the auto-type tick,
+  the queued levels, `release_all_keys`) change `matrix_` / `ex_matrix_` at once,
+  as before. Every producer is covered: host keys, `--delayed-keypress`, the
+  phantom typist, the tape `LOAD ""` keys, and the debugger's levels and pulses.
+- The guest reads a separate copy while a frame runs. `latch_guest_view()` copies
+  the state at the **frame edge**, first thing, before the edge's own writers
+  (the debugger drain and `tick_auto_type()`), so the copy is what the frame that
+  just ended showed the guest. `hold_guest_view()` is called by
+  `begin_new_frame()`. A release event on `scheduler_` at the interrupt cycle (the
+  same expression as the interrupt request, plus one pixel) calls
+  `release_guest_view()`. Held, `read_rows()`, `tick_scan()` (so the Caps/Symbol
+  Shift history latches what the guest saw) and the NR `0xB0`/`0xB1` readbacks use
+  the copy.
+- **Which side of the instruction the commit lands on.** The interrupt request
+  and the release both sit in `irq_scheduler_`, due at the same cycle, and are
+  applied at the end of the instruction the edge falls in. The next instruction
+  is the ISR's first when the interrupt is accepted there, and it reads the new
+  state, which is FUSE's order (the interrupt entered, then the input). An `IN`
+  that begins before the edge has already read the old one. `irq_scheduler_` is
+  also drained mid-instruction by the reads that call `sync_io_devices_to()`;
+  the keyboard reads (port `0xFE`, NR `0xB0`/`0xB1`) never do, so a read cannot
+  tell the two drain points apart. The release is deliberately not on
+  `scheduler_`, the video-row queue the Copper walk splits instruction windows
+  at. With interrupts disabled (or the ULA interrupt off, NR `0x22` bit 2) the
+  release still fires at the same position: the commit is a raster position, not
+  the interrupt.
+- Nothing is held outside `run_frame()`. No guest instruction runs between
+  frames, so the test or debugger panel that reads between them sees the live
+  state: `matrix_row()` and `live_extended_keys()` (what `input_state()` reports)
+  are always the raw write side.
+- The copy and its held flag are machine state (the release event is not:
+  `begin_new_frame()` schedules it again for every frame, including a replayed one):
+  `describe_state` carries `guest_view_held`, `guest_ex_matrix` and
+  `guest_matrix_0..7`, each with a declared default equal to the `reset()` value,
+  so a `.jns` written before they existed loads as "nothing held", and a rewind
+  replay of a frame whose boundary snapshot has a pending key shows it at the
+  interrupt, as the original run did.
+- Joystick and mouse input are **not** covered: they still change at the frame
+  boundary (decision, 2026-11-05; no program in hand needs it).
+
+Rows `HIC-01` to `HIC-11` of `input_integration_test` pin the policy;
+`input-int-commit-func` runs it end to end on an injected program that
+reproduces the paging mechanism.
+
 ## Joysticks
 
 `joystick.{h,cpp}` is the machine side. It decodes NR `0x05` into a

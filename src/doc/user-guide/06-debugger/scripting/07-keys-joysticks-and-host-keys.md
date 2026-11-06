@@ -11,11 +11,16 @@ script from the keyboard with the host keys.
 | `release "KEY"` | KEY goes up (releasing a key that is up does nothing) |
 | `press "KEY" for n` | a **pulse**: KEY down for `n` frames, then up |
 
-All three land at the **next frame edge**: a key pressed during frame *N* is
-seen by the guest from frame *N*+1, and by nothing in frame *N*. The guest
-never sees the keyboard change in the middle of a frame, which is what keeps a
-scripted run repeatable. It also means a `press` from an `on write` rule lands
-at the same instant as one from an `on frame` rule.
+All three land at the **next frame edge**, and the guest sees the change from
+the **interrupt of the frame after it**: a key pressed during frame *N* is seen
+by the guest from frame *N*+1's interrupt onwards, and by nothing before it. A
+program polling the keyboard in its main code therefore cannot act on a new key
+before its interrupt routine has run, as on an emulator that delivers host
+input just after the interrupt (FUSE does). The guest never sees a keyboard
+change at any other moment, which is what keeps a scripted run repeatable. It
+also means a `press` from an `on write` rule lands at the same instant as one
+from an `on frame` rule. This holds for the keyboard and the extended keys;
+joystick and mouse changes are seen from the start of the frame.
 
 A pulse is the same press `--delayed-keypress-frames` makes: `press "KEY" for
 5` in an `on frame N` rule is exactly `--delayed-keypress-frames N KEY`. The

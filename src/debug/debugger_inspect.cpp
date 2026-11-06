@@ -1169,8 +1169,9 @@ InputState Debugger::input_state() const {
     for (int r = 0; r < 8; ++r) st.matrix[r] = kb.matrix_row(r);
     // ACTIVE-HIGH, as NR 0xB0 / 0xB1 read it back — the opposite polarity from
     // `matrix`, which is why both are documented at the struct.
-    st.ext_keys = static_cast<uint16_t>(kb.nr_b0_byte() |
-                                        (static_cast<uint16_t>(kb.nr_b1_byte()) << 8));
+    // The written state, not the guest's view (Keyboard::latch_guest_view()):
+    // inspection shows what is pressed, not what the guest has seen yet.
+    st.ext_keys = kb.live_extended_keys();
     const Joystick& joy = impl_->emu.joystick();
     st.joy_left12  = joy.joy_left_bits();
     st.joy_right12 = joy.joy_right_bits();

@@ -1067,6 +1067,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#when-the-guest-sees-a-key-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the guest sees a key change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#joysticks" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3068,6 +3079,86 @@ keymap's <code>SYMBOL</code> bit (<code>keymaps.vhd</code>, <code>ps2_keyb.vhd:1
 model the PS/2 protocol at all — SDL key events replace it. Both matrix bits
 are therefore asserted directly, with no raw register behind them and nothing
 to read back.</p>
+<h2 id="when-the-guest-sees-a-key-change">When the guest sees a key change<a class="headerlink" href="#when-the-guest-sees-a-key-change" title="Permanent link">&para;</a></h2>
+<p>Hardware has no answer to this: the membrane is scanned continuously
+(<code>membrane.vhd:99-155</code>, a free-running row scanner), so a real key change is
+asynchronous to the frame. Emulating a frame as an indivisible unit forces a
+choice, and it is a <strong>host policy</strong> with an emulator as its oracle, not a VHDL
+transcription.</p>
+<p>The policy: <strong>a keyboard change made between frames <em>N</em> and <em>N</em>+1 becomes
+visible to the guest at the ULA interrupt position of frame <em>N</em>+1</strong> (the
+extended keys and NR <code>0xB0</code>/<code>0xB1</code> with it), and to no read before it. The
+position itself is the VHDL one, <code>(c_int_h, c_int_v)</code> of
+<code>zxula_timing.vhd:551</code> with the per-timing constants: Pentagon <code>(439,319)</code>
+(<code>zxula_timing.vhd:155</code> and <code>zxula_timing.vhd:163</code>), 128K <code>(128,1)</code>
+(<code>zxula_timing.vhd:187</code> and <code>zxula_timing.vhd:199</code>), +3 and the Next's default
+timing <code>(126,1)</code> (<code>zxula_timing.vhd:189</code> and <code>zxula_timing.vhd:199</code>), 48K
+<code>(116,0)</code> (<code>zxula_timing.vhd:257</code> and <code>zxula_timing.vhd:265</code>).</p>
+<p>The oracle for the <em>order</em> is FUSE 1.5.7. Its frame-end event handler,
+<code>spectrum_frame_event_fn()</code>, runs (the excerpt is its lines 91 to 103 in FUSE's
+<code>spectrum.c</code>)</p>
+<pre><code class="language-c">  z80_interrupt();
+  ui_joystick_poll();
+  timer_estimate_speed();
+  debugger_add_time_events();
+  ui_event();
+</code></pre>
+<p>in that order: the interrupt is taken first and host input (<code>ui_event()</code>)
+lands after it. A program polling the keys therefore cannot act on a key
+before its own interrupt routine has run, and a program whose key handler
+changes machine state with interrupts enabled (paging a bank that holds music,
+say) cannot have the interrupt land in the middle of that response because the
+key arrived a few hundred T-states before it. jnext used to apply every key at
+its frame boundary, 292 T before the 128K interrupt; a 128K game that pages a
+second bank in for ~150-300 T on its first sight of a key then read its IM 2
+vector from the wrong bank and jumped to <code>$0000</code> at the start of play
+(<code>msnampac</code>, found 2026-11). The race is real on hardware, where a key lands at
+a random phase and the window is hit rarely; jnext made it certain.</p>
+<p>How it is built (<code>Keyboard</code>, <code>Emulator::begin_new_frame()</code>):</p>
+<ul>
+<li>Writers (<code>set_key</code>, <code>set_matrix_bit</code>, <code>set_extended_key</code>, the auto-type tick,
+  the queued levels, <code>release_all_keys</code>) change <code>matrix_</code> / <code>ex_matrix_</code> at once,
+  as before. Every producer is covered: host keys, <code>--delayed-keypress</code>, the
+  phantom typist, the tape <code>LOAD ""</code> keys, and the debugger's levels and pulses.</li>
+<li>The guest reads a separate copy while a frame runs. <code>latch_guest_view()</code> copies
+  the state at the <strong>frame edge</strong>, first thing, before the edge's own writers
+  (the debugger drain and <code>tick_auto_type()</code>), so the copy is what the frame that
+  just ended showed the guest. <code>hold_guest_view()</code> is called by
+  <code>begin_new_frame()</code>. A release event on <code>scheduler_</code> at the interrupt cycle (the
+  same expression as the interrupt request, plus one pixel) calls
+  <code>release_guest_view()</code>. Held, <code>read_rows()</code>, <code>tick_scan()</code> (so the Caps/Symbol
+  Shift history latches what the guest saw) and the NR <code>0xB0</code>/<code>0xB1</code> readbacks use
+  the copy.</li>
+<li><strong>Which side of the instruction the commit lands on.</strong> The interrupt request
+  and the release both sit in <code>irq_scheduler_</code>, due at the same cycle, and are
+  applied at the end of the instruction the edge falls in. The next instruction
+  is the ISR's first when the interrupt is accepted there, and it reads the new
+  state, which is FUSE's order (the interrupt entered, then the input). An <code>IN</code>
+  that begins before the edge has already read the old one. <code>irq_scheduler_</code> is
+  also drained mid-instruction by the reads that call <code>sync_io_devices_to()</code>;
+  the keyboard reads (port <code>0xFE</code>, NR <code>0xB0</code>/<code>0xB1</code>) never do, so a read cannot
+  tell the two drain points apart. The release is deliberately not on
+  <code>scheduler_</code>, the video-row queue the Copper walk splits instruction windows
+  at. With interrupts disabled (or the ULA interrupt off, NR <code>0x22</code> bit 2) the
+  release still fires at the same position: the commit is a raster position, not
+  the interrupt.</li>
+<li>Nothing is held outside <code>run_frame()</code>. No guest instruction runs between
+  frames, so the test or debugger panel that reads between them sees the live
+  state: <code>matrix_row()</code> and <code>live_extended_keys()</code> (what <code>input_state()</code> reports)
+  are always the raw write side.</li>
+<li>The copy and its held flag are machine state (the release event is not:
+  <code>begin_new_frame()</code> schedules it again for every frame, including a replayed one):
+  <code>describe_state</code> carries <code>guest_view_held</code>, <code>guest_ex_matrix</code> and
+  <code>guest_matrix_0..7</code>, each with a declared default equal to the <code>reset()</code> value,
+  so a <code>.jns</code> written before they existed loads as "nothing held", and a rewind
+  replay of a frame whose boundary snapshot has a pending key shows it at the
+  interrupt, as the original run did.</li>
+<li>Joystick and mouse input are <strong>not</strong> covered: they still change at the frame
+  boundary (decision, 2026-11-05; no program in hand needs it).</li>
+</ul>
+<p>Rows <code>HIC-01</code> to <code>HIC-11</code> of <code>input_integration_test</code> pin the policy;
+<code>input-int-commit-func</code> runs it end to end on an injected program that
+reproduces the paging mechanism.</p>
 <h2 id="joysticks">Joysticks<a class="headerlink" href="#joysticks" title="Permanent link">&para;</a></h2>
 <p><code>joystick.{h,cpp}</code> is the machine side. It decodes NR <code>0x05</code> into a
 per-connector mode (Sinclair 1/2, Cursor, Kempston 1/2, MD3 left/right, I/O
