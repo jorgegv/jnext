@@ -3,6 +3,7 @@
 #include "core/cli_options.h"
 #include "core/log.h"
 #include "core/program_archive.h"
+#include "core/warm_start_cache.h"
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
 #include "core/esxdos_hostfs.h"
 #include "core/rzx_recorder.h"
@@ -28,6 +29,7 @@
 #include "video/renderer.h"
 #include "version.h"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cerrno>
 #include <climits>
@@ -36,6 +38,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -288,6 +291,8 @@ int main(int argc, char* argv[]) {
     bool        sdcard_download_confirm = false;
     bool        sdcard_readonly = false;
     bool        warm_start_regenerate = false;
+    std::string sdcard_sha256_arg;     // --sdcard-sha256 as given
+    bool        sdcard_sha256_given = false;
     bool        sdcard_download_force   = false;
     // GH #269 — the copy-and-exit SD-card mode.
     std::string sdcard_file_add;       // host file or directory to copy onto the card
@@ -701,6 +706,10 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::WarmStartRegenerate:
                 warm_start_regenerate = true;
+                break;
+            case cli::OptId::SdcardSha256:
+                sdcard_sha256_arg = v[0];
+                sdcard_sha256_given = true;
                 break;
             case cli::OptId::DelayedScreenshot:
                 screenshot_file = v[0];
@@ -1707,6 +1716,25 @@ int main(int argc, char* argv[]) {
     if (source_dirs_text)
         qt_assignments.push_back({ config_keys::KeyId::PathsSourceDirs, {}, *source_dirs_text });
 
+    // --sdcard-sha256: 64 hex digits, and a claim about the --sdcard file the
+    // CLI names (never a default image chosen later), so both are checked now.
+    std::string sdcard_sha256_norm;
+    if (sdcard_sha256_given) {
+        std::array<uint8_t, 32> dg{};
+        if (!warm_start::parse_sha256_hex(sdcard_sha256_arg, dg)) {
+            fprintf(stderr, "--sdcard-sha256: '%s' is not a SHA-256 (64 hex digits)\n",
+                    sdcard_sha256_arg.c_str());
+            return 1;
+        }
+        if (sd_card_image.empty()) {
+            fprintf(stderr, "--sdcard-sha256 needs --sdcard: it describes that file\n");
+            return 1;
+        }
+        sdcard_sha256_norm = sdcard_sha256_arg;
+        for (auto& c : sdcard_sha256_norm)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+
     // Task 66 (Configurability) — load saved GUI preferences once, early
     // enough to seed the SD-card resolution below. Only ever done for the
     // real (non-headless) Qt GUI path: HeadlessApp never runs through here
@@ -1777,6 +1805,18 @@ int main(int argc, char* argv[]) {
         opts.auto_confirm    = sdcard_download_confirm;
         opts.force_download  = sdcard_download_force;
         opts.download        = sdcard::default_http_download;
+#ifdef __EMSCRIPTEN__
+        // The browser cannot download an image and has no terminal to ask on
+        // (a stdin read there is window.prompt()): decline without reading
+        // stdin. A page supplies the card with --sdcard.
+        opts.confirm  = [](const std::string&) {
+            Log::emulator()->error("SD-card image: the WebAssembly build cannot download "
+                                   "one; give --sdcard FILE (a web page provides it)");
+            return false;
+        };
+        opts.progress = sdcard::make_cli_progress();
+        opts.busy     = sdcard::cli_busy;
+#else
 #ifdef ENABLE_QT_UI
         // GUI helper owns a single temporary QApplication spanning both the
         // confirm prompt and the progress dialog (torn down when it leaves
@@ -1803,6 +1843,7 @@ int main(int argc, char* argv[]) {
         opts.progress = sdcard::make_cli_progress();
         opts.busy     = sdcard::cli_busy;
 #endif
+#endif   // __EMSCRIPTEN__
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
         if (res.status == sdcard::ProvisionStatus::Ok) {
             sd_card_image = res.path;
@@ -1835,6 +1876,29 @@ int main(int argc, char* argv[]) {
                 "Use --sdcard-download-confirm to confirm download without asking.\n");
             return 1;
         }
+    }
+
+    // A ZIP archive is not an SD card. The firmware would read garbage and the
+    // ROM extractor would fail without saying why. The browser build is given
+    // the page's download as a zip and extracts its single .img (the zip's
+    // SHA-256 stands for its member); every other build refuses.
+    if (program_archive::is_archive_path(sd_card_image)) {
+#ifdef __EMSCRIPTEN__
+        std::string extracted, member, why;
+        if (!program_archive::extract_single_sd_image(sd_card_image, extracted, why, &member)) {
+            fprintf(stderr, "--sdcard %s: %s.\n", sd_card_image.c_str(), why.c_str());
+            return 1;
+        }
+        Log::emulator()->info("SD card image: using {} from {}",
+                              program_archive::display_name(member), sd_card_image);
+        std::error_code rm_ec;
+        std::filesystem::remove(sd_card_image, rm_ec);   // the page keeps the original
+        sd_card_image = extracted;
+#else
+        fprintf(stderr, "--sdcard %s: is a ZIP archive, not an SD card image; unzip it first\n",
+                sd_card_image.c_str());
+        return 1;
+#endif
     }
 
     // ---------------------------------------------------------------------
@@ -2161,6 +2225,10 @@ int main(int argc, char* argv[]) {
         cfg.type = configured_machine;
         cfg.sd_card_image = sd_card_image;
         cfg.sd_card_readonly = sdcard_readonly;
+        if (!sdcard_sha256_norm.empty()) {
+            cfg.sd_card_sha256     = sdcard_sha256_norm;
+            cfg.sd_card_sha256_for = sd_card_image;   // the (extracted) card it describes
+        }
         cfg.warm_start_regenerate = warm_start_regenerate;
         // Propagate --load path to EmulatorConfig so the boot-ROM auto-load
         // gate (Emulator::init) can distinguish "firmware boot" from

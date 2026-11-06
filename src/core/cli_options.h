@@ -57,6 +57,7 @@ enum class OptId {
     SdcardFileDest,
     SdcardFileForce,
     WarmStartRegenerate,
+    SdcardSha256,
     DelayedScreenshot,
     DelayedScreenshotTime,
     DelayedScreenshotFrames,
@@ -305,6 +306,16 @@ inline constexpr Option OPTIONS[] = {
       "recording of a real firmware boot (nextboot.rom -> TBBLUE.FW\n"
       "-> NextZXOS) by default; use this after changing the firmware\n"
       "or NextZXOS on the card." },
+    { "--sdcard-sha256", 1, Doc::Documented, OptId::SdcardSha256,
+      "HEX",
+      "The SHA-256 of the --sdcard image, as the caller has already\n"
+      "checked it. The warm-start recording is keyed on it instead\n"
+      "of on the image's size and modification time. jnext does not\n"
+      "hash the image: HEX must describe the file as it is. The\n"
+      "browser build uses this flag, because its page rewrites the\n"
+      "card into memory on every visit and has already checked the\n"
+      "hash. Needs --sdcard. A recording taken after jnext has\n"
+      "written to the card in this run is used, but not cached." },
     // GH #417 - the three Startup settings that have a menu of their own
     // (Machine > CPU Speed, View > Scale, View > CRT) and so get a flag; every
     // other jnext.conf setting is reached with --set.

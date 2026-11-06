@@ -2458,6 +2458,28 @@ int main()
                   "why='" + why + "'");
         }
 
+        // EB-72: a ZIP archive is not a card (its local-header magic, whatever
+        // the name); the card in the slot and the configured path stay.
+        {
+            const std::string zipped = (tmp / "jnext-eb72-card.img").string();
+            {
+                std::ofstream f(zipped, std::ios::binary | std::ios::trunc);
+                const char hdr[] = {'P', 'K', 3, 4};
+                f.write(hdr, sizeof hdr);
+                const std::string pad(600, 'x');
+                f.write(pad.data(), static_cast<std::streamsize>(pad.size()));
+            }
+            Emulator emu;
+            emu.init(with_a);
+            const std::string why = emu.change_sd_card({zipped, false});
+            check("EB-72", "a ZIP archive is refused as a card, and the card in the slot stays",
+                  why.find("is a ZIP archive") != std::string::npos &&
+                      card_sector0(emu.sd_card()) == 0xA1 &&
+                      emu.config().sd_card_image == card_a,
+                  "why='" + why + "'");
+            std::remove(zipped.c_str());
+        }
+
         std::remove(card_a.c_str());
         std::remove(card_b.c_str());
     }

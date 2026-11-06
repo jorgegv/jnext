@@ -5,6 +5,7 @@
 
 #include <zlib.h>
 
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -53,7 +54,8 @@ namespace {
 //       16     8  PLAIN payload length        (u64 LE)  <- identity
 //       24     8  SD image size in bytes      (u64 LE)  <- identity
 //       32     8  SD image mtime, file_clock ticks (i64 LE) <- identity
-//       40    48  reserved, zero
+//       40    32  SD image SHA-256 (zero = none)   <- identity
+//       72    16  reserved, zero
 //       88     8  STORED payload length       (u64 LE)  <- bytes on disk
 //       96   ...  zlib stream, exactly `stored` bytes
 //
@@ -74,6 +76,7 @@ constexpr size_t kOffMachineType  = 12;   // u32
 constexpr size_t kOffPlainBytes   = 16;   // u64 — uncompressed stream length
 constexpr size_t kOffSdBytes      = 24;   // u64 — SD image size
 constexpr size_t kOffSdMtime      = 32;   // i64 — SD image mtime, raw file_clock ticks
+constexpr size_t kOffSdSha256     = 40;   // 32 bytes — SD image SHA-256, zero = none
 constexpr size_t kOffStoredBytes  = 88;   // u64 — compressed payload length
 
 void put_u32(uint8_t* p, uint32_t v) {
@@ -146,7 +149,35 @@ bool inflate_exact(const uint8_t* src, size_t src_len, uint64_t expect_plain,
     return true;
 }
 
+std::string sha256_to_hex(const std::array<uint8_t, 32>& d)
+{
+    static const char* kHex = "0123456789abcdef";
+    std::string s;
+    for (uint8_t b : d) {
+        s += kHex[b >> 4];
+        s += kHex[b & 15];
+    }
+    return s;
+}
+
 }  // namespace
+
+bool parse_sha256_hex(const std::string& hex, std::array<uint8_t, 32>& out)
+{
+    if (hex.size() != 64) return false;
+    std::array<uint8_t, 32> tmp{};
+    for (size_t i = 0; i < 64; ++i) {
+        const char c = hex[i];
+        uint8_t v;
+        if (c >= '0' && c <= '9') v = static_cast<uint8_t>(c - '0');
+        else if (c >= 'a' && c <= 'f') v = static_cast<uint8_t>(c - 'a' + 10);
+        else if (c >= 'A' && c <= 'F') v = static_cast<uint8_t>(c - 'A' + 10);
+        else return false;
+        tmp[i / 2] = static_cast<uint8_t>((tmp[i / 2] << 4) | v);
+    }
+    out = tmp;
+    return true;
+}
 
 std::string cache_dir()
 {
@@ -204,6 +235,8 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
 
     const uint64_t sd_bytes = get_u64(hdr + kOffSdBytes);
     const int64_t  sd_mtime = static_cast<int64_t>(get_u64(hdr + kOffSdMtime));
+    std::array<uint8_t, 32> sd_sha{};
+    std::memcpy(sd_sha.data(), hdr + kOffSdSha256, sd_sha.size());
 
     // Each mismatch names BOTH values: a stale cache that silently served the
     // wrong machine is the worst failure this mechanism can have, so when it
@@ -218,11 +251,16 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
               std::to_string(static_cast<int>(want.machine_type));
         return false;
     }
-    if (sd_bytes != want.sd_image_bytes || sd_mtime != want.sd_image_mtime) {
+    if (sd_bytes != want.sd_image_bytes || sd_mtime != want.sd_image_mtime ||
+        sd_sha != want.sd_image_sha256) {
         why = "recorded from a different SD image state (size " +
               std::to_string(sd_bytes) + ", mtime " + std::to_string(sd_mtime) +
               " != size " + std::to_string(want.sd_image_bytes) + ", mtime " +
               std::to_string(want.sd_image_mtime) + ")";
+        if (want.has_sha256() || sd_sha != std::array<uint8_t, 32>{}) {
+            why += " (sha256 " + sha256_to_hex(sd_sha) + " != " +
+                   sha256_to_hex(want.sd_image_sha256) + ")";
+        }
         return false;
     }
     // The PLAIN length is the identity check — what this build's save_state
@@ -301,6 +339,7 @@ bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& w
     put_u64(hdr + kOffPlainBytes, id.plain_bytes);
     put_u64(hdr + kOffSdBytes, id.sd_image_bytes);
     put_u64(hdr + kOffSdMtime, static_cast<uint64_t>(id.sd_image_mtime));
+    std::memcpy(hdr + kOffSdSha256, id.sd_image_sha256.data(), id.sd_image_sha256.size());
     put_u64(hdr + kOffStoredBytes, static_cast<uint64_t>(packed.size()));
 
     // Write to a sibling temporary and rename: a jnext killed mid-write must

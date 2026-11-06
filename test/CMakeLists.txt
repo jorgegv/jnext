@@ -464,6 +464,12 @@ target_link_libraries(warm_start_test PRIVATE jnext_core)
 target_include_directories(warm_start_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME warm_start_tests COMMAND warm_start_test)
 
+# GH #464: digest-keyed and stepped warm start against the run's real SD clone.
+add_executable(warm_start_card_test warm_start/warm_start_card_test.cpp)
+target_link_libraries(warm_start_card_test PRIVATE jnext_core)
+target_include_directories(warm_start_card_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME warm_start_card_tests COMMAND warm_start_card_test)
+
 # `.jns` snapshot CONTAINER test (GH #27 stage S1). The ZIP framing, the
 # manifest.json grammar, the two version fields, the SD identity and the
 # reader-rule table of doc/design/NEXT-SNAPSHOT-FORMAT.md §12.4. No subsystem
