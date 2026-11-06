@@ -66,6 +66,7 @@ struct Sim {
                 ++ticks; ++n;
                 t += cost();
                 s = sleep();
+                if (n > 1000) return false;                 // a runaway callback: stop it, the row fails on the count
                 if (end_on) { ended = true; return false; }
                 return true;
             },
@@ -149,18 +150,20 @@ int main()
               first == 1 && s.last_callback_ticks == 1,
               "first=" + num(first) + " second=" + num(s.last_callback_ticks));
     }
-    // BRP-07: a 1 s stall: one tick, one resync, then 50/s.
+    // BRP-07: a 1 s stall: one tick, one resync, the next callback ticks at once, then 50/s.
     {
         Sim s; s.run(16667, 1'000'000);
         s.callback(2'000'000);                       // first callback after the stall
         const int after_stall = s.last_callback_ticks;
         const int resyncs = s.gate.resyncs();
+        s.callback(2'016'667);                       // the next animation frame: the resync is due at once
+        const int next_cb = s.last_callback_ticks;
         const size_t from = s.tick_starts.size();
-        for (int64_t at = 2'016'667; at < 12'000'000; at += 16667) s.callback(at);
+        for (int64_t at = 2'033'334; at < 12'000'000; at += 16667) s.callback(at);
         const int rate = static_cast<int>(s.tick_starts.size() - from);
-        check("BRP-07", "callbacks stop for 1 s: the first resumed callback runs 1 tick, resyncs()==1, then 50/s",
-              after_stall == 1 && resyncs == 1 && rate >= 497 && rate <= 501,
-              "stall ticks=" + num(after_stall) + " resyncs=" + num(resyncs) + " 10s ticks=" + num(rate));
+        check("BRP-07", "callbacks stop for 1 s: the first resumed callback runs 1 tick, resyncs()==1, the next callback ticks at once, then 50/s",
+              after_stall == 1 && resyncs == 1 && next_cb == 1 && rate >= 496 && rate <= 500,
+              "stall ticks=" + num(after_stall) + " resyncs=" + num(resyncs) + " next=" + num(next_cb) + " 10s ticks=" + num(rate));
     }
     // BRP-08: one callback 30 ms late (< 2 periods): no resync, the rate is unchanged.
     {
