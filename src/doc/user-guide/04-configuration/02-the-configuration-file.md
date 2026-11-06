@@ -15,8 +15,10 @@ A `~/.jnext/Debugger.conf` left by an older version is merged into that section
 the first time the new version starts, and removed. Section names are
 lowercase, and a value is plain text: no `@Invalid()` or `@ByteArray(...)`.
 
-Every key in the file can be set for a single run, without touching the file,
-with `--set section.key=value` (for example `--set startup.window_scale=2`);
+Every setting in the file can be set for a single run, without touching the file,
+with `--set section.key=value` (for example `--set startup.window_scale=2`); the
+Recent Files history (`[recent] files`) and the debugger window's `size` and
+`position` are not settings and are refused;
 see [what wins](03-what-wins-the-command-line.md).
 
 Deleting the file resets everything to defaults — that is the supported way to

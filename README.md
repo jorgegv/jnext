@@ -53,7 +53,7 @@ under CI.
 
 ## What it emulates
 
-- **Machines** — 48K, 128K, +3 and ZX Spectrum Next (Issue 2)
+- **Machines** — 48K, 128K, Pentagon 128K, +3 and ZX Spectrum Next (Issue 2)
 - **CPU** — Z80N, with IM1/IM2 interrupts
 - **Video** — ULA (48K + Timex modes), Layer 2, 128 hardware sprites, tilemap,
   Copper, and the layer compositor
