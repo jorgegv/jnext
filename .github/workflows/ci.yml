@@ -160,10 +160,12 @@ jobs:
             qt6-qtbase-devel qt6-qtsvg-devel libspectrum-devel \
             ImageMagick xorg-x11-server-Xvfb openbox xdotool python3 python3-pyyaml python3-jsonschema unzip diffutils \
             ripgrep ffmpeg-free bc file xxd dbus-daemon \
-            mtools dosfstools rpm-build \
+            mtools dosfstools rpm-build util-linux \
             pandoc mkdocs-material graphviz liberation-sans-fonts \
             perl-interpreter perl-FindBin perl-File-Temp perl-File-Find perl-PathTools \
             mesa-dri-drivers mesa-libGL java-25-openjdk-devel
+          # util-linux: sfdisk, for tools/make-minimal-sdcard-image.sh (the bare
+          # fedora:44 has only util-linux-core).
           # mtools + dosfstools are the FOREIGN validators the GH #269
           # sdcard-file-add-func row reads the SD image back with (mdir,
           # mcopy, fsck.vfat). They are not a convenience: jnext writes FAT32

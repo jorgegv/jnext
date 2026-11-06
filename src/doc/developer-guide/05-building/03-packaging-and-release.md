@@ -156,3 +156,39 @@ product, which is a genuinely different thing from the automatic staleness
 gates — see [5.4](04-continuous-integration.md) and
 [4.5](../04-testing/05-documentation-and-cli-gates.md) for what those gates do
 and do not prove.
+
+## The minimal NextZXOS image
+
+The browser build does not fetch the 1 GB distribution SD image. It fetches a
+small boot card, a 40 MiB FAT32 volume with 512-byte clusters that holds only
+what NextZXOS needs to reach its menu and to warm-start a program. The card is
+made from the distribution image by `tools/make-minimal-sdcard-image.sh`:
+
+```bash
+tools/make-minimal-sdcard-image.sh ~/.jnext/sdcard/cspect-next-1gb.img ~/tmp/nextzxos-minimal.img
+```
+
+The boot set (`TBBLUE.FW`, `MACHINES`, `NEXTZXOS`, `SYS`, `LICENSE.md`,
+`README.md`) is the `BOOT_SET` list at the top of the script, copied with the
+source's own spelling of each name. jnext's own two patches, the `config.ini`
+and the doubled `zx81.rom`, are applied by `tools/fix-sdcard-image.sh`, which
+the script calls unchanged. The script refuses to overwrite its destination,
+reads the source image only (it places the card with a hard link, so the
+destination filesystem must support them: not FAT or exFAT), and refuses a card with too few clusters for
+FatFs to take it as FAT32 (more than 65525).
+
+The output is reproducible: a fixed volume serial, `SOURCE_DATE_EPOCH` and
+`TZ=UTC` pinned inside the script, and a DOS-to-DOS copy, so the directory
+order comes from the source card and not from the builder's filesystem. The
+hash is the same only for the same mtools version, because `mformat` writes its
+version into the boot sector. The script needs mtools, `sfdisk` (util-linux)
+and coreutils; it needs no root and no loop mount.
+
+The output is copyrighted NextZXOS content. It is never committed, attached to
+an issue or a package, or uploaded; it is hosted only where the owner decides.
+
+Two tests cover it: `make minimal-image-test` (16 rows, part of `make
+unit-test`, run against the cached distribution image) and the
+`minimal-sdcard-image-func` regression row, which boots the card to the
+NextZXOS menu and warm-starts a NEX, both compared with the full card's
+references.
