@@ -22,7 +22,7 @@ export class Harness {
   async launch(extraArgs = []) {
     this.browser = await chromium.launch({
       executablePath: env.JNEXT_PLAYWRIGHT_DIR + '/chromium/chrome-headless-shell-linux64/chrome-headless-shell',
-      args: ['--autoplay-policy=user-gesture-required', '--force-color-profile=srgb', ...extraArgs],
+      args: ['--force-color-profile=srgb', ...extraArgs],
     });
   }
 
@@ -50,13 +50,14 @@ export class Harness {
   async close() { if (this.browser) await this.browser.close(); }
 }
 
-export function pageUrl({ module, args = [], files = [], canvas, autostart }) {
+export function pageUrl({ module, args = [], files = [], canvas, autostart, env }) {
   const q = new URLSearchParams();
   q.set('module', '/build/' + module);
   q.set('args', JSON.stringify(args));
   q.set('files', JSON.stringify(files));
   if (canvas) q.set('canvas', canvas);
   if (autostart) q.set('autostart', '1');
+  if (env) q.set('env', JSON.stringify(env));
   return 'http://localhost/page/index.html?' + q.toString();
 }
 

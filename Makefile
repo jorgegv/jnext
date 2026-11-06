@@ -203,7 +203,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk wasm-core wasm-web wasm-core-clean
+       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web wasm-core-clean
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -574,6 +574,14 @@ emsdk:
 	@# ~/.cache/jnext/tools/emsdk-6.0.13 and builds the SDL3/zlib/libpng ports. A
 	@# no-op once stamped; needs the network once (about 345 MB).
 	bash test/provision-emsdk.sh
+
+# Provide the pinned Playwright and its Chromium headless shell in the user cache
+playwright:
+	@# The browser smoke test drives a headless Chromium through playwright-core on
+	@# emsdk's node. test/provision-playwright.sh downloads both archives, verifies
+	@# both sha256 before unpacking and installs into ~/.cache/jnext/tools/playwright-<V>.
+	@# A no-op once stamped; needs the network once (about 135 MB).
+	bash test/provision-playwright.sh
 
 # Build the SDL-only core for WebAssembly into build/wasm-core and check it under node
 wasm-core: emsdk

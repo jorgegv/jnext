@@ -3,6 +3,7 @@
 //   args=<json array>           argv for callMain
 //   files=<json [[url, path]]>  fetched into MEMFS before the start
 //   canvas=WxH                  CSS size of the canvas
+//   env=<json object>           extra environment (SDL hints) for the module
 //   autostart=1                 callMain on load, no click
 (function () {
   'use strict';
@@ -40,7 +41,10 @@
       printErr: (s) => out.stderr.push(s),
       onExit: (c) => { out.exit = c; },
       locateFile: (p) => (p.endsWith('.wasm') ? q.get('module').replace(/\.js$/, '.wasm') : p),
-      preRun: [(m) => { m.ENV.SDL_EMSCRIPTEN_CANVAS_SELECTOR = '#jnext-canvas'; }],
+      preRun: [(m) => {
+        m.ENV.SDL_EMSCRIPTEN_CANVAS_SELECTOR = '#jnext-canvas';
+        Object.assign(m.ENV, JSON.parse(q.get('env') || '{}'));
+      }],
     });
     window.jnextModule = mod;
     for (const [url, path] of JSON.parse(q.get('files') || '[]')) {
