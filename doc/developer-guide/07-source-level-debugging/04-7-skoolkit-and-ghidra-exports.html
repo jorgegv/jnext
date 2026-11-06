@@ -3206,8 +3206,8 @@ are unique in each submenu; <code>DACC-05</code> pins the new popups and mnemoni
 <h2 id="4-the-frontends">4. The frontends<a class="headerlink" href="#4-the-frontends" title="Permanent link">&para;</a></h2>
 <p><code>write_re_exports_at_exit()</code> (<code>re_export_at_exit.h:39</code>)
 is called from the three loop owners' <code>shutdown()</code>:
-<code>write_re_exports_at_exit()</code> (<code>headless_app.cpp:1075</code>),
-<code>write_re_exports_at_exit()</code> (<code>sdl_app.cpp:822</code>) and
+<code>write_re_exports_at_exit()</code> (<code>headless_app.cpp:1085</code>),
+<code>write_re_exports_at_exit()</code> (<code>sdl_app.cpp:832</code>) and
 <code>write_re_exports_at_exit()</code> (<code>qt_app.cpp:522</code>).
 A failure logs and sets the exit code to 1. <code>--export-skoolkit</code>, <code>--export-ghidra</code>, <code>--import-skoolkit</code>
 and <code>--import-ghidra</code> are in <code>src/core/cli_options.h</code>.</p>
