@@ -1,0 +1,17 @@
+/tmp/tmpXXXXXXXX.asm:
+     1                          MODULE asmfn_asm
+     2                          LINE 0, "asmfn.asm"
+asmfn.asm:
+                                
+     1                              SECTION code_user
+     2                              PUBLIC _asm_bump
+     3                              EXTERN _counter
+     4                          ; void asm_bump(void): counter += 3
+     5                          _asm_bump:
+     6  0000  210000                ld hl,_counter
+     7  0003  7e                    ld a,(hl)
+     8  0004  c603                  add a,3
+     9  0006  77                    ld (hl),a
+    10                          .bump_done
+    11  0007  c9                    ret
+    12                          

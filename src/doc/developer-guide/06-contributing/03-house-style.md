@@ -24,7 +24,7 @@ request, or as a new issue. Just do not fix it in the same change.
 
 ## Program text is ASCII
 
-*(Owner decision, 2026-10-17, GH #382; enforced by `test/lint-ascii-text.sh`.)*
+*(Owner decision, 2026-10-17; enforced by `test/lint-ascii-text.sh`.)*
 
 The text jnext writes to a console is ASCII. A Windows console decodes the
 program's bytes in its OEM code page, so the three UTF-8 bytes of an em dash

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2333,6 +2333,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2875,6 +2879,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2938,8 +2998,7 @@ Makefile is full of those, and they are where the reasoning actually lives.</p>
 <code>-debug</code> and a <code>-release</code> flavour. Every build variant also has a <code>-run</code> target,
 which builds and then runs, and a <code>-clean</code> target; <code>make clean</code> removes all of
 them along with <code>build/</code>.</p>
-<p><code>gui-release</code> is the binary JNEXT ships and tests, and it is a <strong>PGO build</strong>
-(GH #297): it depends on <code>gui-release-pgo-gen</code>, the instrumented twin, runs the
+<p><code>gui-release</code> is the binary JNEXT ships and tests, and it is a <strong>PGO build</strong>: it depends on <code>gui-release-pgo-gen</code>, the instrumented twin, runs the
 training and then compiles <code>build/gui-release</code> with the profile — see
 <a href="05-performance-and-optimisation.html#profile-guided-optimisation">5.5</a>.
 <code>gui-release-non-pgo</code> is the same Release build without PGO, in its own tree;
@@ -2970,7 +3029,7 @@ frontend options, <code>make unit-test-sdl</code> runs the declared suites a sec
 the SDL-only configuration (its own <code>build/sdl-unit-test</code> tree, so <code>build/</code> stays
 the Qt one), and <code>make unit-test-dashboard</code> runs the unit tests and refreshes the
 committed per-subsystem status table.</p>
-<p>Two more targets run the SDL-only suites on other operating systems (GH #214).
+<p>Two more targets run the SDL-only suites on other operating systems.
 <code>make unit-test-sdl</code> also works on macOS, where the test harness needs Homebrew's
 <code>bash</code>, <code>coreutils</code> and <code>grep</code> (<code>brew install bash coreutils grep</code>; the target
 puts them first on <code>PATH</code> for its own recipe only, and the harness refuses with
@@ -2992,13 +3051,13 @@ jnext's own download if it is missing. <code>make unit-test-win</code> is two st
 <code>unit-test-win-build</code> (cross-build the tree) and <code>unit-test-win-run</code> (run it under
 wine, no compiler needed), so the run step could later be taken over by a real
 Windows host; it is part of the merge gate for every code change.</p>
-<p><code>make regression-win</code> (GH #319) runs the regression suite's screenshots and the
+<p><code>make regression-win</code> runs the regression suite's screenshots and the
 functional rows Windows can run against MinGW-built exes under wine: the Qt exe
 as shipped minus PGO (<code>win-release-non-pgo</code>, with <code>qoffscreen.dll</code> bundled into
 that test tree only), the SDL-only exe, and the native helpers from the SDL
 unit-test tree. <code>make regression-macos</code> is its macOS twin (CI <code>macos-regression</code>).
 <code>ROWS="..."</code> names rows. Neither is stamped; see
-<a href="../04-testing/03-the-regression-suite.html#platform-runs-macos-and-windows-under-wine-gh-319">the regression suite</a>.</p>
+<a href="../04-testing/03-the-regression-suite.html#platform-runs-macos-and-windows-under-wine">the regression suite</a>.</p>
 <p>The built tree is <strong>not yet a relocatable directory</strong>, so there is no recipe for
 running it by hand on a real Windows machine, and none has been tried. What
 stands in the way, in order of effort: <code>JNEXT_BINARY</code> (the CLI suite) and the

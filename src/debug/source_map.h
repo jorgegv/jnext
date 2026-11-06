@@ -5,12 +5,19 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+namespace jnext {
+namespace dbg {
+class VariableStore;   // variable_store.h
+}
+}
 
 /// A position in the source. No address and no page: where it was emitted is
 /// the store's business (SourceRange).
@@ -89,13 +96,21 @@ public:
     /// every replace() drops the previous ones.
     /// `dot` (GH #351): the map is a z88dk dot command's, which the guest loads
     /// into DivMMC RAM when it runs it (see `dot()`).
+    /// `variables` (GH #433): the C variable store a z88dk map carries (see
+    /// `variables()`); every replace() drops the previous one, as it drops `texts`.
     void replace(std::vector<SourceRange> ranges,
                  std::vector<SourceAlias> aliases,
                  std::optional<SourceProgramIdentity> identity,
                  std::string loaded_file,
                  std::string format = "SLD",
                  std::map<std::string, SourceText> texts = {},
-                 bool dot = false);
+                 bool dot = false,
+                 std::shared_ptr<const jnext::dbg::VariableStore> variables = {});
+
+    /// The C variable store of the z88dk map (GH #433, epic #353), or null (an SLD,
+    /// or nothing loaded). Shared and immutable: a copy of the map shares it, and
+    /// clear() / replace() without one drop it.
+    const std::shared_ptr<const jnext::dbg::VariableStore>& variables() const { return variables_; }
 
     /// The embedded text of `file` (the exact normalised name), or null.
     const SourceText* embedded_text(std::string_view file) const;
@@ -206,5 +221,6 @@ private:
     std::string format_ = "SLD";
     bool dot_ = false;
     std::map<std::string, SourceText> texts_;
+    std::shared_ptr<const jnext::dbg::VariableStore> variables_;
     std::optional<SourceProgramIdentity> identity_;
 };

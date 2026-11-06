@@ -26,12 +26,20 @@ public:
 
     QSize sizeHint() const override { return QSize(400, 300); }
 
+    /// GH #435 - select row `row` (0 = the newest call) without telling anyone; -1 clears the selection.
+    void select_row(int row);
+
+signals:
+    /// The USER chose row `row` (0 = the newest call). A refresh or `select_row` does not emit it.
+    void call_selected(int row);
+
 private:
     void create_ui();
 
     const jnext::dbg::Debugger* dbg_;
     const SymbolTable* symbol_table_ = nullptr;
     bool paused_ = false;
+    bool programmatic_ = false;   ///< a refresh or select_row() is changing the selection: not the user's choice
     jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     QTableWidget* table_ = nullptr;
 };

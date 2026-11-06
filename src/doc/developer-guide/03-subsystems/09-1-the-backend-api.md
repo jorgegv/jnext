@@ -138,7 +138,7 @@ and follow the contract of [3.9.2](09-2-event-delivery-and-mutation.md).
 | audio | `ay_registers(chip)`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()`, `audio_mute_mask()` | `set_audio_mute_mask(by, m)` (host-side, never in a snapshot or an RZX) |
 | video | `framebuffer()`, `render_layer(layer, vc, dst, stride)`, `palette(id)`, `active_ula_palette_bank()`, `ula_screen_regs()`, `clip_window(layer)` | `set_palette(...)`, `set_border(by, colour)` |
 | disassembly | `disassemble(addr, n, symbols)`, `instruction_length(addr)`, `is_call_like(addr)` | — |
-| call stack and trace | `call_stack()`, `trace_entries()`, `trace_export(path)` | `set_call_stack_enabled`, `set_trace_enabled`, `trace_clear`, `trace_resize` |
+| call stack and trace | `call_stack()`, `trace_entries()`, `trace_export(path)` | `set_call_stack_enabled(by, on)` (a per-client request, [7.10](../07-source-level-debugging/10-c-frames-and-values.md)); C variables: `c_frames()`, `c_locals(frame)`, `c_globals()`, `read_c_value(frame, path)`, `c_variables_status()` (all `const`, none bumps the revision), `set_trace_enabled`, `trace_clear`, `trace_resize` |
 | coverage | `coverage()`, `coverage_enabled()`; INS-21: `mem_coverage_enabled()`, `mem_coverage(space, addr, n, out)`, `mem_coverage_fetch(addr)`, `mem_coverage_spaces()`, `executed_source_lines(file)` | `coverage_enable`, `coverage_clear`; INS-21: `mem_coverage_enable`, `mem_coverage_clear` |
 | input | `input_state()` | see input injection below |
 | the event model | `subscriptions(include_transient)`, `events_fired_since(seq)` | see [3.9.2](09-2-event-delivery-and-mutation.md) |
@@ -292,7 +292,7 @@ other loaders are 7.4.1, 7.4.2 and 7.4.5.
 
 ### User labels and comments — CAP-ANN
 
-A second layer beside the toolchain's symbols: the user's labels and comments (GH #387), keyed by memory and
+A second layer beside the toolchain's symbols: the user's labels and comments, keyed by memory and
 address. `symbols()`, `lookup()` and `lookup_name()` return the composition of the two layers, the user's first,
 so no consumer merges them. The store has no lifetime: loads, resets, state loads and rewinds leave it alone, and
 it is not in `.jns`.
@@ -350,7 +350,7 @@ INS-20 coverage is recorded in `step_one_instruction()`, the one body that
 and only for a slot that fetched the opcode at PC. An NMI or INT acknowledge
 does not run it. Switched off it costs one pointer test per instruction.
 
-**INS-21, memory coverage by execute, read and write** (GH #388, CAP-INS-21) is
+**INS-21, memory coverage by execute, read and write** (CAP-INS-21) is
 the physical-memory counterpart, with a separate switch: INS-20 holds 16-bit
 logical PCs (ZRCP `cpu-code-coverage` returns them, and the logical address a page
 ran at cannot be rebuilt from a physical byte), INS-21 holds one byte of flags
@@ -388,7 +388,7 @@ column after it (`space_tag()` of `fetch_space()`, never the GUI's address style
 
 ### Reverse-engineering exports — CAP-REX
 
-`export_skoolkit(dir, report, why)` and `export_ghidra(dir, report, why)` (GH #389) write the
+`export_skoolkit(dir, report, why)` and `export_ghidra(dir, report, why)` write the
 labels the disassembly shows, and for skoolkit the `mem_coverage()` code/data map, into a
 directory, as skoolkit control files and Ghidra symbol files. They are reads (`peek()`, coverage
 and the symbol table are side-effect free): no machine state changes, and they are allowed while

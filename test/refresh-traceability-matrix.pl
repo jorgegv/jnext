@@ -1143,6 +1143,8 @@ my %NO_MATRIX_SECTION = (
     'source_map_test'           => 'source-map and compiler-symbol file adapters (sjasmplus SLD, NextBuild Memory.txt; jnext-internal); the T80N core has no debugger',
     'z88dk_map_test'            => 'z88dk -debug map source adapter (sections to pages, extents, identity; jnext-internal); the T80N core has no debugger',
     'z88dk_lis_test'            => 'z88dk --list listing source adapter (relocation by labels, every occurrence of a C line, the start-up code, cross-check; jnext-internal); the T80N core has no debugger',
+    'cdb_record_test'           => 'z88dk CDB C-variable record decoder (un-escaping, scope split, type chain, storage, T: members, hidden classes, refusals; jnext-internal); the T80N core has no debugger',
+    'c_value_test'              => 'C value formatting, type lookup, paths, visible locals (pure; jnext-internal); the T80N core has no debugger',
     'source_debug_test'         => 'debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger',
     'source_debug_posix_test'   => 'source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger',
     'reexport_test'             => 'skoolkit control-file and Ghidra symbol-file exports of debugger labels and the coverage code/data map (GH #389, jnext-internal); the T80N core has no debugger',
@@ -1188,6 +1190,7 @@ my %NO_MATRIX_SECTION = (
     'debugger_panels_test'      => 'debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite',
     'debugger_verbs_test'       => 'debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger',
     'debugger_source_panel_test' => 'debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger',
+    'debugger_variables_panel_test' => 'debugger Variables tab: C locals per frame, globals, lazy expansion, Call Stack selection (GH #435, host GUI, jnext-internal); the T80N core has no debugger',
 );
 
 # The head Summary table is generated between these markers. They are HTML

@@ -3,7 +3,8 @@
 The z88dk linker map is the one file that feeds both stores, by two separate
 loads. Its `addr` lines are the symbols. A build with `-debug` adds two kinds of
 marker symbol, `__C_LINE_` and `__ASM_LINE_`, whose names and addresses are the
-source lines, and a third kind, `__CDBINFO__`, which JNEXT does not interpret.
+source lines, and a third kind, `__CDBINFO__`, the C debug information, which the variable store
+reads ([7.9](09-c-variables.md)).
 The map carries no length for a line and no page for an address: both have to be
 derived from the section a symbol lives in.
 
@@ -17,13 +18,14 @@ exact commands are the `+ zcc ...` lines of each `build.log`):
 | Fixtures | Tree | Commit |
 |---|---|---|
 | `test/fixtures/z88dk/v2.4/` | `z88dk 2.4`, `~/src/spectrum/z88dk-original-2.4` | `4d530b6eb779ad0f2a1d13c0bb670cf717477501` (v2.4) |
-| `test/fixtures/z88dk/master/` | `z88dk master`, `~/src/spectrum/z88dk-original-latest` | `39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7` (v2.4-2695-g39421a01cd) |
+| `test/fixtures/z88dk/master/` | `z88dk master` before the debug-record fixes, `~/src/spectrum/z88dk-original-97731e4e29` | `97731e4e2988543e2c849cd1ae1d0aeddf372fcd` (v2.4-2883-g97731e4e29) |
+| `test/fixtures/z88dk/master-fixed/`, `master-fixed-zsdcc/` | `z88dk master` after them, `~/src/spectrum/z88dk-original-latest` | `0f0a1cf70e48856af8191af6f86096d2e1362482` (v2.4-2954-g0f0a1cf70e) |
 
 A map built without `-debug` has symbols and no source lines. Several
 `-debug` builds do not exist: 2.4's sdcc `-debug` fails to assemble
-(`defc Gcounter0_00==.` syntax errors, z88dk issue 3172, fixed on master) and the
-classic `+zxn` banked `-debug` is not producible (`Unknown option2
---hardware-keyboard`). `test/fixtures/z88dk/README.md` records both.
+(`defc Gcounter0_00==.` syntax errors, fixed on z88dk master) and the
+classic `+zxn` banked `-debug` is not producible on 2.4 (`Unknown option2
+--hardware-keyboard`; master builds it since v2.4-2883). `test/fixtures/z88dk/README.md` records both.
 
 ## 2. The producer's writer
 
@@ -86,7 +88,7 @@ symbols.
 
 1. Names starting `__C_LINE_`, `__ASM_LINE_` or `__CDBINFO__` are skipped: they
    are not symbols, and sorted by name they would otherwise win the address of the
-   function label (GH #352).
+   function label.
 2. A `const` line goes to a table of constants (first wins, 64-bit; the page heads
    come from it) and, when the value fits 16 bits, becomes a **name-only value**
    (`add_value()`): `lookup_name()` and `@name` resolve it, but it never names an
@@ -95,7 +97,7 @@ symbols.
    wins. A value above `0xFFFFFF` is skipped. Otherwise `z88dk_section_space()`
    (below) decides: a *paged* label; a label bound at load; an *unpaged* label
    (only if the value fits 16 bits); or nothing.
-4. **C symbols (GH #424).** An `addr` symbol whose name starts with `_` and a
+4. **C symbols.** An `addr` symbol whose name starts with `_` and a
    second character other than `_`, and whose module ends in `_c`, is a C
    symbol: zcc's compilers write every C identifier with a leading `_`, and
    `__x` names are runtime internals. `add_label(..., c_symbol=true)` records its
@@ -144,7 +146,7 @@ The rules, in order of the section name:
 1. **`PAGE_<n>`** and `<KIND>_PAGE_<n>` (KIND is `CODE`, `RODATA`, `DATA` or
    `BSS`): a section that starts in page `n` and may run into the next ones. The
    head is `z88dk_page_head()`: the *low 16 bits* of the constant `__PAGE_<n>_head`
-   (newlib puts the page in bits 16-23, which are not read; GH #345). The page is
+   (newlib puts the page in bits 16-23, which are not read). The page is
    `n + (((head & 0x1FFF) + (addr16 - head)) >> 13)`. With no such constant, an
    address below the head, or a result past page 223, the value is *unpaged*.
 2. **`BANK_<n>`** and `<KIND>_<n>`, with `_L` or `_H`, and for `RODATA`/`DATA` also
@@ -170,15 +172,15 @@ bank is the one the program, or a dotn command's allocator, chooses when it runs
 the program's to choose, so the map cannot say it. The symbol half keeps a 16-bit symbol of it
 as an unpaged label, and the source half refuses a line record in it.
 
-5. **A dot command (GH #351).** NextZXOS copies a dot command's file into a DivMMC RAM bank and
+5. **A dot command.** NextZXOS copies a dot command's file into a DivMMC RAM bank and
    runs it from `$2000` there; the map names no bank. `z88dk_dot_command(consts, &why)`
    (`z88dk_space.cpp:136`) says whether a map is one: the constant `startupoffset` is `$0100` (dot),
    `$0200` (dotx) or `$0300` (dotn) and `__CODE_head` is `$2000`. No `startupoffset`, or another
    value, is not a dot and has no reason; a dot whose `__CODE_head` is not `$2000` is not a dot
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
-   (`dot_why`, `z88dk_source_map.cpp:201-203`), while the symbol half places the map as any other
+   (`dot_why`, `z88dk_source_map.cpp:748-750`), while the symbol half places the map as any other
    (`z88dk_dot_command()`, `symbol_table.cpp:82`, no reason asked). Both halves read the
-   `__<s>_head`/`_tail` constants and `startupoffset` (`z88dk_source_map.cpp:187`; the symbol half keeps every constant). For a dot,
+   `__<s>_head`/`_tail` constants and `startupoffset` (`z88dk_source_map.cpp:736`; the symbol half keeps every constant). For a dot,
    `z88dk_section_space()` takes it as a last argument, after rules 1 to 3 (a value above `0xFFFF` in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:
    - an unnumbered section at `$2000`-`$3FFF` is `DivMmcRam{kNextZxosDotBank}`, bank 2
@@ -259,9 +261,9 @@ line markers:
   (function), `S:` (symbol) or `T:` (type). The reference decoder is z88dk's own
   `debug_add_info_encoded()` (`src/ticks/debug.c:656`), called from `src/ticks/syms.c:173`.
 - **Duplicates.** `z80asm` ignores a second definition (`symtab1.c:117`).
-- **In JNEXT.** The symbol loader skips them (`symbol_table.cpp`, rule 1 above) and
-  so does the source half (`z88dk_source_map.cpp`, pass 1, `!starts_with(name,
-  "__CDBINFO__")`). Nothing else in `src/` reads them. Only a test does: it decodes
+- **In JNEXT.** The symbol loader skips them (`symbol_table.cpp`, rule 1 above). The
+  source half keeps the `const` lines that start `__CDBINFO__` and decodes them into
+  the C variable store ([7.9](09-c-variables.md)); it takes no symbol from them. A test also decodes
   the names of the C identifiers to check the C names above (`Z88CN-01`).
 
 ## 8. Excerpts

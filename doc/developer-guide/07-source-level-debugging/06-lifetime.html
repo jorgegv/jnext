@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2231,6 +2231,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2811,10 +2815,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#a-dot-commands-map-judged-at-its-entry-gh-351" class="md-nav__link">
+  <a href="#a-dot-commands-map-judged-at-its-entry" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A dot command's map: judged at its entry (GH #351)
+        A dot command's map: judged at its entry
       
     </span>
   </a>
@@ -2908,6 +2912,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2942,6 +3002,8 @@ describe a program that is no longer there. This page is the set of rules that
 decides, for each store and each kind of replacement, between <em>keep</em>, <em>drop</em> and
 <em>stale</em>. (The user's labels and comments are not among the stores that follow
 these rules: that store is kept across every replacement, <a href="04-6-user-annotations.html">7.4.6</a>.)
+The C variable store (<a href="09-c-variables.html">7.9</a>) is not a fourth store: it is part
+of the <code>SourceMap</code> it was read from, so these rules apply to it with no code of its own.
 All the rules run in one place, <code>Impl::recheck()</code>
 (<code>src/debug/debugger_source.cpp</code>).</p>
 <p><img alt="What happens to an attachment when the machine is replaced" src="../img/srcdbg-lifetime.svg" /></p>
@@ -2978,7 +3040,7 @@ restored generation), or, for any other landing, begins a generation and sets
 <code>landing_pending</code>. It does nothing else, because the machine may still be
 half-built when the hook fires (inside <code>init()</code>, or a warm start).</p>
 <p><code>Impl::recheck()</code> does the work, when somebody looks. Every reader runs it first
-(<code>source_map()</code>, <code>source_map_status()</code>, <code>source_location()</code>, <code>lookup()</code>,
+(<code>source_map()</code>, <code>source_map_status()</code>, <code>variables()</code>, <code>source_location()</code>, <code>lookup()</code>,
 <code>lookup_name()</code>, <code>symbols()</code>, <code>executed_source_lines()</code>, <code>source_step()</code>), and so
 does every writer (<code>load_map()</code>, <code>clear_symbols()</code>, <code>load_source_map()</code>,
 <code>clear_source_map()</code>, <code>load_program_sidecars()</code>), so a pending landing is judged
@@ -3096,15 +3158,15 @@ where the loader puts the bytes.</p>
 <li><strong><code>--source-map</code> with a tape.</strong> The loop owner polls <code>source_map_status()</code> once per
   tick; a map dropped by the check exits 1 (<a href="03-loaders.html">7.3</a>).</li>
 </ul>
-<h2 id="a-dot-commands-map-judged-at-its-entry-gh-351">A dot command's map: judged at its entry (GH #351)<a class="headerlink" href="#a-dot-commands-map-judged-at-its-entry-gh-351" title="Permanent link">&para;</a></h2>
+<h2 id="a-dot-commands-map-judged-at-its-entry">A dot command's map: judged at its entry<a class="headerlink" href="#a-dot-commands-map-judged-at-its-entry" title="Permanent link">&para;</a></h2>
 <p>A z88dk dot command is not a program the emulator loads. NextZXOS copies the file into a DivMMC RAM
 bank when the command is typed and runs it from <code>$2000</code> there, so at the moment the map is attached
 nothing says whether the right command is in memory, and a landing says nothing about it either.
 The map therefore has its own rule, on top of the tape machinery above. <code>SourceMap::dot()</code>
-(<code>source_map.h:179</code>) is set by the z88dk adapter (<a href="04-3-z88dk-map.html">7.4.3</a>, rule 5).</p>
+(<code>source_map.h:194</code>) is set by the z88dk adapter (<a href="04-3-z88dk-map.html">7.4.3</a>, rule 5).</p>
 <ul>
 <li><strong>Always deferred.</strong> <code>load_source_map()</code> defers a dot map whatever <code>verify_at_first_execution</code> says
-  (<code>verify_at_first_execution</code>, <code>debugger_source.cpp:497</code>), when it has any byte check. <code>add_check()</code> marks the check <code>dot</code> only if
+  (<code>verify_at_first_execution</code>, <code>debugger_source.cpp:502</code>), when it has any byte check. <code>add_check()</code> marks the check <code>dot</code> only if
   one of its units is the DivMMC bank, <code>dot_entry_unit()</code> = <code>DivmmcRam{kNextZxosDotBank}</code> (bank 2,
   <code>kNextZxosDotBank</code>, <code>z88dk_space.h:46</code>); a dot map with no byte check of the DivMMC part has no entry to judge and takes the
   tape rule (<code>add_check()</code>, <code>debugger_source.cpp:161-176</code>).</li>
@@ -3122,8 +3184,8 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
   <code>Verified ... the dot command in &lt;space&gt; matches its binary identity</code>) and keeps the check: it is
   never finished (<code>checks.push_back</code> at <code>debugger_source.cpp:430</code>), so a later entry that does not match puts the map back
   to pending.</li>
-<li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>debugger_source.cpp:959</code>): for a user's map that is a dot map,
-  <code>verify_user()</code> returns at once, keeping the map live and not stale (<code>verify_user</code>, <code>debugger_source.cpp:968-977</code>); the checks are
+<li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>debugger_source.cpp:976</code>): for a user's map that is a dot map,
+  <code>verify_user()</code> returns at once, keeping the map live and not stale (<code>verify_user</code>, <code>debugger_source.cpp:990-999</code>); the checks are
   re-derived by <code>dot_landing(fresh)</code> (<code>debugger_source.cpp:233</code>). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (<code>dot_landing()</code> skips the others) to <code>dot_reset()</code>: pending until the next entry. A ring restore reads back what the
   original run showed at the landed cycle.</li>
@@ -3138,13 +3200,13 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
 <li><strong>A hand load made while the command already runs.</strong> <code>load_source_map()</code> calls <code>dot_adopt()</code> (<code>debugger_source.cpp:256</code>)
   for a dot map: if <code>predict_fetch(PC)</code> is the entry unit and the bank holds this command, it judges like
   a landing and is verified at once (<code>dot_match()</code>); the result is no longer pending and its note is the
-  ordinary identity note (<code>dot_adopt()</code>, <code>debugger_source.cpp:517-523</code>).</li>
+  ordinary identity note (<code>dot_adopt()</code>, <code>debugger_source.cpp:522-528</code>).</li>
 <li><strong>RZX.</strong> An RZX playback start is a landing like any other (<a href="#tier-2-any-other-landing">above</a>), and
   <code>--source-map</code> with a replay accepts only a dot map (<a href="03-loaders.html">7.3</a>): the map attaches pending
   at start-up and the verify hook does not distinguish a replayed session from a live one
   (<code>replay_mode()</code> is the rewind replay's flag, <code>emulator.h:1180</code>, not RZX's). What the row
   <code>z88dk-dot-source-rzx-func</code> pins is the attach and the refusal, not a verdict reached during playback.</li>
-<li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1206</code>, set at <code>SourceMapStatus::dot</code>, <code>debugger_source.cpp:591</code>) tells the Source tab to word its pending note
+<li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1214</code>, set at <code>SourceMapStatus::dot</code>, <code>debugger_source.cpp:603</code>) tells the Source tab to word its pending note
   <em>...when the dot command runs</em> (<a href="07-frontends.html">7.7</a>).</li>
 </ul>
 <h2 id="what-the-backend-cannot-see">What the backend cannot see<a class="headerlink" href="#what-the-backend-cannot-see" title="Permanent link">&para;</a></h2>

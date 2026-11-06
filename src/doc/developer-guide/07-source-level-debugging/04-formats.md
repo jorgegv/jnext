@@ -27,7 +27,7 @@ There is one `SymbolTable` (`src/debug/symbol_table.*`), owned by the backend. T
 `@name`, the GDB server's `monitor sym` and `--map` all read it, so a symbol loaded by one client shows
 in every other. How the formats differ is only in what they put in it.
 
-- **Keyed by memory and address (GH #375).** `add_label(name, addr, space, bind_at_load, c_symbol)`
+- **Keyed by memory and address.** `add_label(name, addr, space, bind_at_load, c_symbol)`
   stores a label that is *paged* (assembled for one `FetchSource` such as `Page{20}`, naming the address
   only while that memory supplies it) or *unpaged* (naming it in every memory: the sjasmplus EQU,
   Simple and NextBuild loaders make these). There is no address-only lookup:
@@ -85,9 +85,9 @@ Producer sources are cited as `<tree> <path>:<line>`:
 
 - `sjasmplus` is `~/src/spectrum/sjasmplus` at v1.23.1, commit `46aae3f`.
 - `z88dk 2.4` is `~/src/spectrum/z88dk-original-2.4` at `4d530b6eb7` (v2.4) and
-  `z88dk master` is `~/src/spectrum/z88dk-original-latest` at `39421a01cd`
-  (`v2.4-2695-g39421a01cd`). These are the two installs the z88dk fixtures were
-  made with (`test/fixtures/z88dk/PROVENANCE` files).
+  `z88dk master` is `~/src/spectrum/z88dk-original-97731e4e29` at `97731e4e29`
+  (`v2.4-2883-g97731e4e29`), master before the debug-record fixes of 2026-11-04 and -05, which `~/src/spectrum/z88dk-original-latest` (`0f0a1cf70e`) has. These are the installs the
+  z88dk fixtures were made with (`test/fixtures/z88dk/*/PROVENANCE` files).
 - Boriel ZX Basic and NextBuild are read on GitHub: `boriel-basic/zxbasic` at
   `29f0b2f0ce` and `em00k/NextBuild` at `364b2d13c5`, both on 2026-11-01. The
   URLs are in `doc/REFERENCES.md`.

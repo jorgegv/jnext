@@ -26,6 +26,12 @@
 //    `changed(`, `depth(` — with no space before the bracket. That is what
 //    tells the accessor `page[s]` from the event keyword `page` of an
 //    `addr_spec`, and `nextreg[r]` from the event `on nextreg`.
+//  * `cvar(PATH)` (GH #436) is one token too, with the RAW text of the C path up to the
+//    first `)` on the same line (trimmed) in `text`: the C path grammar (`->`, `::`, `*`,
+//    `$1F`, `file.c`) is not the DSL's, and re-spelling it from DSL tokens would lose the
+//    `->` and lex `x:19` as a `FileLine`. A `(`, a `"`, a line end or the end of the text
+//    before the `)`, and an empty path, are lexical errors; the path itself is checked by
+//    the checker. `cvar` with no `(` directly after it is an ordinary identifier.
 //  * `@name` is one token (a MAP symbol reference), the name being any
 //    identifier — keywords included, since a MAP symbol is not a keyword.
 //    It may also be identifiers joined by `.` (`@main.loop`, an sjasmplus
@@ -61,6 +67,7 @@ enum class Tok : uint8_t {
 
     // The bracketed accessors, one token each (see the banner).
     MemL, Mem16L, PhysL, NextRegL, MmuL, PageL, StackL, ChangedL, DepthL,
+    CVar,     ///< `cvar(PATH)`: the raw path in `text` (GH #436)
 
     LParen, RParen, LBracket, RBracket, Comma, Colon, Dot, DotDot, Assign,
 
@@ -90,7 +97,7 @@ struct StrPiece {
 struct Token {
     Tok         kind = Tok::Eof;
     SourcePos   pos;
-    std::string text;            ///< Ident / Symbol spelling
+    std::string text;            ///< Ident / Symbol spelling; CVar: the raw C path
     int32_t     value = 0;       ///< Int value (the 32-bit pattern)
     std::vector<StrPiece> pieces;  ///< String contents
 };

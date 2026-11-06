@@ -20,6 +20,7 @@ namespace zrcp {
 using jnext::dbg::Action;
 using jnext::dbg::ClientInfo;
 using jnext::dbg::ClientKind;
+using jnext::dbg::CNewValue;
 using jnext::dbg::CLIENT_NONE;
 using jnext::dbg::MemSpace;
 using jnext::dbg::PauseReason;
@@ -310,7 +311,7 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
     U("esxdoshandler-get-open-files", "|esxgof"),
     {"evaluate", "|e", "expression",
      "Evaluate expression. It's the same parser as breakpoint conditions (see help "
-     "set-breakpoint); the result is decimal",
+     "set-breakpoint, including jnext's CVAR(path) for a C variable); the result is decimal",
      CommandClass::Served, &ZrcpServer::cmd_evaluate},
     {"exit-cpu-step", "|ecs", nullptr, "Exit cpu step to step mode: the machine resumes",
      CommandClass::Served, &ZrcpServer::cmd_exit_cpu_step},
@@ -468,7 +469,9 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      "operator, then its first comparison, then its first + or -, then its first other "
      "operator. Integers are 32-bit signed. SEG0..SEG7 (Next), ROM and RAM (128K, +3) are "
      "honoured as a comparison with a number that is part of the top-level AND chain, the form"
-     " DeZog sends. Declined in jnext: MRA MRV MWA MWV PRA PRV PWA PWV TSTATES TSTATESL "
+     " DeZog sends. CVAR(path) reads a C variable of the stopped program (a jnext extension: "
+     "frame 0, an integer or pointer, e.g. CVAR(p->x)); put a PC=<number> term first, since "
+     "any other condition builds the C frames at every instruction. Declined in jnext: MRA MRV MWA MWV PRA PRV PWA PWV TSTATES TSTATESL "
      "TSTATESP SCANLINE OUTFIRED INFIRED INTFIRED ENTERROM EXITROM HILOWMAPPED PD765PCN USP "
      "EPC COPPERPC D0..D7 A0..A7 AC ER SR P1..P3, and FPEEK IN ABS BYTE WORD OPMWA OPMRA OPMWV"
      " OPMRV. A condition whose first term is PC=<number> is checked only at that address; any"
@@ -501,7 +504,8 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
     U("set-memory-zone", "|smz"),
     {"set-register", "|sr", "register=value",
      "Changes register value. Example: set-register DE=3344H. Divergence from ZEsarUX 12.0: IM "
-     "can be set too",
+     "can be set too, and jnext's CVAR(path)=value writes a C variable of frame 0 "
+     "(e.g. set-register CVAR(g_int)=10)",
      CommandClass::Served, &ZrcpServer::cmd_set_register},
     U("set-text-brightness", nullptr),
     U("set-ui-io-ports", nullptr),
@@ -729,7 +733,6 @@ void ZrcpServer::end_session() {
     // WP-5 — the machine-wide switches this session turned on go off with it;
     // one that was already on when it asked stays on. The view state goes too.
     if (hist_.owned) dbg_.set_trace_enabled(false);
-    if (xstack_.owned) dbg_.set_call_stack_enabled(false);
     if (cov_.owned) dbg_.coverage_enable(false);
     hist_ = xstack_ = cov_ = Owned{};
     hist_started_ = ign_halt_ = ign_ldxr_ = false;
@@ -1187,6 +1190,31 @@ void ZrcpServer::cmd_get_registers(const Cmd&) {
 void ZrcpServer::cmd_set_register(const Cmd& c) {
     // `NAME=VALUE`, one register (ZEsarUX `debug_change_register`). Every
     // failure is ZEsarUX's one text; the value is a number (§1.1).
+    // GH #437: `CVAR(path)=value` writes a C variable of frame 0 (a jnext extension of this one assignment verb: a new command
+    // would break the table's census of ZEsarUX's). ZEsarUX's one failure text, whatever the reason.
+    std::size_t first = c.params.find_first_not_of(" \t");
+    if (first != std::string::npos && c.params.size() - first >= 5 && iequals(c.params.substr(first, 5), "CVAR(")) {
+        const std::size_t close = c.params.find(')', first);
+        const std::size_t sign  = close == std::string::npos ? close : c.params.find_first_not_of(" \t", close + 1);
+        std::string       value;
+        if (sign != std::string::npos && c.params[sign] == '=') {
+            const std::size_t vb = c.params.find_first_not_of(" \t", sign + 1);
+            const std::size_t ve = c.params.find_last_not_of(" \t");
+            if (vb != std::string::npos) value = c.params.substr(vb, ve - vb + 1);
+        }
+        std::uint32_t hex = 0;
+        if (!value.empty() && parse_number(value, hex)) value = std::to_string(hex);   // ZRCP's decimal and nnnnH forms
+        const std::string path = close == std::string::npos ? std::string() : c.params.substr(first + 5, close - first - 5);
+        CNewValue         nv;
+        nv.text = value;
+        if (value.empty() || path.find_first_not_of(" \t") == std::string::npos ||
+            !dbg_.write_c_value(cid_, 0, path, nv).ok()) {
+            reply("Error changing register");
+            return;
+        }
+        reply(register_line(dbg_.registers(), dbg_.mmu_slots(), dbg_.machine().type));
+        return;
+    }
     const std::size_t eq = c.params.find('=');
     RegId             id;
     std::uint32_t     v = 0;
@@ -2481,17 +2509,16 @@ void ZrcpServer::cmd_extended_stack(const Cmd& c) {
         if (is_yes(value)) {
             if (xstack_.on) out = "Error. Already enabled";
             else {
+                // GH #434 F-B: this session's own request. The backend derives the machine's
+                // state from every client's, so another client switching tracking off (the
+                // debugger window closing) no longer takes this one's away.
                 xstack_.on = true;
-                if (!dbg_.call_stack_enabled()) {
-                    dbg_.set_call_stack_enabled(true);
-                    xstack_.owned = true;
-                }
+                dbg_.set_call_stack_enabled(cid_, true);
             }
         } else {
             if (!xstack_.on) out = "Error. Already disabled";
             xstack_.on = false;
-            if (xstack_.owned) dbg_.set_call_stack_enabled(false);
-            xstack_.owned = false;
+            dbg_.set_call_stack_enabled(cid_, false);
         }
         return reply(out);
     }

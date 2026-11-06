@@ -8,6 +8,7 @@
 #include <string>
 
 #include "debug/debugger.h"
+#include "debug/c_value.h"
 #include "script/names.h"
 #include "script/state.h"
 
@@ -342,6 +343,16 @@ int32_t eval_int(const Expr& e, const EvalContext& ctx) {
             return snap_field(e, ctx);
         case ExprKind::Changed:
             return script_state(e, ctx).changed(e.slot, e.group, ctx.dbg, e.pos) ? 1 : 0;
+        case ExprKind::CVar: {
+            // GH #436: a C variable of frame 0, where the CPU is. The store is looked up per evaluation
+            // (a script compiled before the program loaded works once its map attaches). Every refusal
+            // is a run-time error with the facade's reason, never a 0.
+            const dbg::Debugger::CValueResult r = ctx.dbg.read_c_value(0, e.text);
+            if (!r.ok) fail(e, "cvar(" + e.text + "): " + r.why);
+            const dbg::CInt32 v = dbg::c_int32_scalar(r.loc, r.integer);
+            if (!v.ok) fail(e, "cvar(" + e.text + "): " + v.why);
+            return v.value;
+        }
         case ExprKind::Depth:
             return static_cast<int32_t>(script_state(e, ctx).depth(e.slot));
         case ExprKind::Str:

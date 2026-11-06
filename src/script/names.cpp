@@ -22,7 +22,7 @@ const char* const RESERVED[] = {
     // operators and literals
     "and", "or", "not", "true", "false",
     // accessor stems (lexed as one token with their bracket)
-    "mem", "mem16", "phys", "mmu", "stack", "changed", "depth",
+    "mem", "mem16", "phys", "mmu", "stack", "changed", "depth", "cvar",
 };
 
 struct NameRow {

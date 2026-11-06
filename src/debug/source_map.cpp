@@ -51,7 +51,8 @@ void SourceMap::replace(std::vector<SourceRange> ranges,
                         std::string loaded_file,
                         std::string format,
                         std::map<std::string, SourceText> texts,
-                        bool dot)
+                        bool dot,
+                        std::shared_ptr<const jnext::dbg::VariableStore> variables)
 {
     SourceMap next;
     std::map<std::tuple<std::string, int, int>, size_t> location_ids;
@@ -123,6 +124,7 @@ void SourceMap::replace(std::vector<SourceRange> ranges,
     next.format_ = std::move(format);
     next.dot_ = dot;
     for (auto& [file, text] : texts) next.texts_.emplace(normalized_file(file), std::move(text));
+    next.variables_ = std::move(variables);
     *this = std::move(next);
 }
 
@@ -342,5 +344,6 @@ void SourceMap::clear()
     format_ = "SLD";
     dot_ = false;
     texts_.clear();
+    variables_.reset();
     identity_.reset();
 }

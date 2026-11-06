@@ -89,7 +89,7 @@ compare a ROM bank byte against:
 - `CMD_GET_REGISTERS` sends 0xFF for every slot with `SlotInfo::is_rom`, not the raw
   NR value: MMU0/1 = 0xE0..0xFE read ROM (zxnext.vhd:2964, :3052) and DeZog has no bank
   for them. A floating slot (NR >= 0xE0 in slots 2-7) and an overlay have no DZRP value
-  and keep the NR value (GH #360). DeZog's long address is `((bank + 1) << 16) | addr`,
+  and keep the NR value. DeZog's long address is `((bank + 1) << 16) | addr`,
   so a RAM page `n` is bank `n`, and ROM is 0xFF;
 - `READ_BANK_MEM` bank 0xFF is DeZog 3.8's 16 KB ROM bank: offsets
   0x0000-0x1FFF are slot 0's half, 0x2000-0x3FFF slot 1's. While a slot holds

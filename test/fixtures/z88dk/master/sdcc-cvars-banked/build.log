@@ -1,0 +1,6 @@
+# z88dk 97731e4e2988543e2c849cd1ae1d0aeddf372fcd (master)
++ zcc +zxn -clib=sdcc_iy -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000 --codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20 --list -c bk.c -o bk.o
++ zcc +zxn -clib=sdcc_iy -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000 -m --list -subtype=nex -o prog -create-app bkmain.c bk.o
+bkmain.c:9: warning 126: unreachable code
+Bank 10, 16343 tail bytes free
+rc=0

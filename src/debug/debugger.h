@@ -60,8 +60,10 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "debug/c_value.h"
 #include "debug/events.h"
 #include "debug/inspect.h"
 #include "debug/result.h"
@@ -665,12 +667,20 @@ public:
     /// "`disasm_text::*`" is unreachable from a frontend.
     DisasmReadFn memory_reader() const;
 
-    /// INS-12 — the shadow call stack, most recent first.
+    /// INS-12 — the shadow call stack, OLDEST first (`back()` is the newest frame).
     const std::vector<CallFrame>& call_stack() const;
 
-    /// INS-12 — tracking costs per instruction; off by default.
+    /// INS-12 — tracking costs per instruction. The EFFECTIVE state: on while any live
+    /// client asked for it (`set_call_stack_enabled`), or, with no request, while the live
+    /// source map carries C variable records and a non-observer client is attached (GH #434,
+    /// OD-2: the C frames need the tracked bases). Off otherwise.
     bool   call_stack_enabled() const;
-    Result set_call_stack_enabled(bool enabled);
+
+    /// INS-12 — `by`'s own request for call-stack tracking; the effective state is derived
+    /// from every client's request (GH #434 F-B: one client switching it off cannot take
+    /// another's tracking away). A detach drops the request with the client.
+    /// `RefusedUnavailable` for a client that is not attached.
+    Result set_call_stack_enabled(ClientId by, bool enabled);
 
     /// INS-13 — the trace log.
     bool   trace_enabled() const;
@@ -832,8 +842,8 @@ public:
     bool   client_enabled(ClientId cid) const;
     Result set_client_enabled(ClientId cid, bool enabled);
 
-    /// CAP-EVT — "which `Execute` subscriptions would fire here?" A PURE query
-    /// for step loops: the GH #221 step-off arm skips exactly the address it
+    /// CAP-EVT — "which `Execute` subscriptions would fire here?" A query that
+    /// arms and fires nothing (a condition's `cvar()` may run `recheck()`, GH #436) for step loops: the GH #221 step-off arm skips exactly the address it
     /// landed on, and needs to know what is there without arming anything.
     /// Returns the ids of every live `Execute` subscription whose filter (range
     /// and page) covers `pc` AND whose condition, evaluated now against the
@@ -1207,6 +1217,144 @@ public:
     };
     SourceMapStatus source_map_status() const;
 
+    /// CAP-SRC (GH #433, epic #353) - the C variable store of the live source map: the
+    /// __CDBINFO__ records of a z88dk -debug map, joined to its symbols by module. Null when
+    /// there is no live source map or the live one carries none (an SLD); a z88dk map carries
+    /// one, empty when it has no record. Part of the source map (`SourceMap::variables()`), so
+    /// it is attached, dropped, made stale and restored with it, by the same rules.
+    std::shared_ptr<const jnext::dbg::VariableStore> variables() const;
+
+    /// CAP-SRC (GH #434, epic #353) - one frame of the C call chain at the stop.
+    struct CFrame {
+        /// Index into `variables()->functions()`; -1: not C code (assembly, the CRT, `banked_call`).
+        int function = -1;
+        /// Frame 0: the stop PC. A tracked older frame: the CALL (`caller_pc`, `caller_space`); a
+        /// frame found through the chain: the return address - 1. Always inside the call.
+        SourceAddress pc;
+        std::optional<SourceLocation> line;   ///< the source map at `pc`
+        /// How `fp` was found: `Tracked` from the call-stack tracker (the CALL that entered the
+        /// frame's code), `Prologue` from the entry bytes at frame 0, `Chain` from the saved frame
+        /// pointer of the frame above, `Unknown` when none applies.
+        enum class Base : uint8_t { Tracked, Prologue, Chain, Unknown };
+        Base how = Base::Unknown;
+        uint16_t fp = 0;      ///< the frame base: B offsets are relative to it; meaningful unless Unknown
+        uint16_t floor = 0;   ///< the lowest stack address holding this frame's data (validity)
+        std::string note;     ///< why Unknown, or how found
+    };
+
+    /// CAP-SRC (GH #434) - the C frames at the stop, NEWEST first (frame 0 is where the CPU is).
+    /// Tracked frames first, then the fallback (the entry bytes of frame 0, the saved frame
+    /// pointers of the older ones, which stops at a change of frame style). Empty without a live
+    /// source map store. Runs `recheck()` first, like every CAP-SRC reader.
+    std::vector<CFrame> c_frames() const;
+
+    /// CAP-SRC (GH #434 stage 3) - where a C value lives, structured so a frontend formats it its own way.
+    struct CWhere {
+        enum class Kind : uint8_t {
+            None,       ///< no place: the value could not be located
+            Page,       ///< `source`: a page-aware address (a global, a static)
+            Cpu,        ///< `cpu`: the live CPU view (a stack slot, what a pointer points at)
+            Register,   ///< `regs`: register names, e.g. "BC"
+        };
+        Kind kind = Kind::None;
+        SourceAddress source;   ///< Page (also DivMmcRam): the space and the 16-bit logical address
+        uint16_t cpu = 0;       ///< Cpu
+        std::string regs;       ///< Register
+    };
+
+    /// One C variable with its value, or why it has none. `value` is empty when `ok` is false: a failed read is never `0`.
+    struct CValueRow {
+        std::string name;
+        std::string path;       ///< round-trips through `read_c_value(frame, path)`
+        /// The path a user types to reach THIS variable by name, `path` unless `path` is a handle (`#12`, used when the name would reach another variable: a shadowed local, two block
+        /// statics of one name in a function). Empty: no typed name reaches it (a shadowed local). A Watch is a name expression, so it is offered only when this is not empty.
+        std::string name_path;
+        bool ambiguous_path = false;   ///< `name_path` names more than one variable (two block statics `f::n`): a typed read or write of it is refused
+        std::string file;       ///< the source file (`vars.c`) of a file-level or static variable, else the function's
+        std::string type;       ///< `c_type_text()` of the variable
+        enum class Kind : uint8_t { Param, Local, StaticLocal, FileStatic, Global };
+        Kind kind = Kind::Local;
+        CWhere where;
+        bool ok = false;
+        std::string value;      ///< ok: the formatted value
+        std::string why;        ///< !ok: "optimised out", "not allocated", "out of scope at vars.c:41", ...
+        bool aggregate = false; ///< a struct or an array
+        std::vector<std::string> notes;   ///< "in BC; may be stale outside its live range", "page 20 is not mapped at $C000 now", ...
+    };
+
+    /// `read_c_value()`: the object a C path names in frame `frame`, typed and read. `loc` is the (peeled) location the path
+    /// ended at; `integer` is set for Char, Int, Long, Scalar, Bitfield and Pointer (a pointer's address), `real` for the floats.
+    struct CValueResult {
+        bool ok = false;
+        std::string why;
+        std::string type;           ///< the type text of the object the path ended at
+        std::string value;
+        std::vector<std::string> notes;
+        CLoc loc;                   ///< valid when `where` is Page or Cpu; for a Register value only `loc.type` is set (no address)
+        CWhere where;
+        std::optional<int64_t> integer;
+        std::optional<double> real;
+        bool aggregate = false;
+    };
+
+    struct CLocalsResult {
+        bool ok = false;
+        std::string why;            ///< !ok: "no frame 3 (there are 2)", "frame 1 is not in a C function", "no source map is attached", ...
+        std::vector<CValueRow> rows;
+    };
+
+    /// Whether C variables can be shown, and if not why (the texts of plan 2.8).
+    struct CVariablesStatus {
+        bool available = false;
+        std::string why;
+    };
+
+    /// CAP-SRC (GH #434 stage 3) - the C variables of frame `frame` (an index into `c_frames()`, newest first): its parameters
+    /// (by stack position), the locals visible at its PC, then its static locals. A row that cannot be read says why.
+    CLocalsResult c_locals(size_t frame) const;
+    /// All the globals, file statics and static locals, ordered by file then name, each with a path qualified so no local can
+    /// shadow it (`vars.c::s_dup`, `sum::calls`).
+    std::vector<CValueRow> c_globals() const;
+    /// A C path (`['*'] name | fn::name | file.c::name`, then `.m`, `->m`, `[i]`) read in frame `frame`.
+    CValueResult read_c_value(size_t frame, std::string_view path) const;
+    /// The Variables panel's own entry points (`write_c_value_row()`, `c_children_row()`, below): the same as `write_c_value()` and `c_children()` but for a `CValueRow::path` as c_locals(), c_globals() and c_children() give it, which
+    /// can be an internal handle (`#12`) where the C name would reach another variable. A typed surface (watch, script, ZRCP, GDB) uses the plain functions, which refuse a leading `#`.
+
+    /// GH #437 - what `write_c_value()` did. `status`: Ok, a poke() refusal (RefusedRzx, RefusedReadOnly, InvalidPage, Unsupported),
+    /// or RefusedUnavailable for every refusal decided before a byte is written; `why` is set whenever it is not Ok.
+    struct CWriteResult {
+        Result status = Result::RefusedUnavailable;
+        std::string why;
+        std::string type;        ///< the type text of the object (when it could be read)
+        std::string old_value;   ///< the value text before the write (when it could be read)
+        std::string value;       ///< Ok: the value read back after it
+        std::vector<std::string> notes;   ///< GH #438: the notes the object's read carries (80cc's frame-slot note, ...); set once the read succeeded
+        CWhere where;
+        size_t landed = 0;       ///< bytes that landed (a RefusedReadOnly partial write reports it)
+        bool ok() const { return status == Result::Ok; }
+    };
+    /// GH #437 - write the C object `path` names in frame `frame`: the place is `read_c_value()`'s own, so whatever a read refuses
+    /// a write refuses too, plus a register variable, an aggregate, a member of an overlapping struct (z88dk U2) and a local whose
+    /// scope is unknown. A mutation by `by`: exactly one poke() on success (one MUTATE line, one state_revision() bump). A refusal decided before the poke writes,
+    /// logs and bumps nothing; a write that lands only some bytes (it straddles ROM and RAM) is RefusedReadOnly, and carries the one MUTATE line and the one
+    /// bump of the bytes that did land. A value out of the type's range is refused, never truncated (`c_encode_value()`).
+    CWriteResult write_c_value(ClientId by, size_t frame, std::string_view path, const CNewValue& value);
+    CWriteResult write_c_value_row(ClientId by, size_t frame, std::string_view row_path, const CNewValue& value);   ///< the panel's row path, which may be a handle: see above
+    CVariablesStatus c_variables_status() const;
+    /// CAP-SRC (GH #435) - what a tree view lists under the object `path` names in frame `frame`: a struct's members, an array's
+    /// elements `first`..`first + max` (`total` is the element count), a pointer's pointee (a struct's members as `p->x`, anything else
+    /// as `p[0]`, named `*`). Each row's `path` is `path` plus its suffix and round-trips through `read_c_value`, so a row reads,
+    /// places and notes itself exactly as `read_c_value` would. `total` 0 and `ok`: a leaf. `!ok`: `why` is what `read_c_value(frame,
+    /// path)` would say, or a NULL / unreadable pointer's.
+    struct CChildRows {
+        bool ok = false;
+        std::string why;
+        size_t total = 0;
+        std::vector<CValueRow> rows;
+    };
+    CChildRows c_children(size_t frame, std::string_view path, size_t first = 0, size_t max = 100) const;
+    CChildRows c_children_row(size_t frame, std::string_view row_path, size_t first = 0, size_t max = 100) const;   ///< the panel's row path, which may be a handle: see above
+
     /// CAP-SRC — the primary source position of `addr` as it is mapped NOW (what
     /// `source_page(addr)` says supplies it), or of the current PC. Null when
     /// unmapped. A pointer into the store, valid until the store changes: copy
@@ -1418,6 +1566,8 @@ public:
     uint64_t state_revision() const;
 
 private:
+    CWriteResult write_c_value_impl(ClientId by, size_t frame, std::string_view path, const CNewValue& value, bool rows);
+    CChildRows c_children_impl(size_t frame, std::string_view path, size_t first, size_t max, bool rows) const;
     // ── The ONE thing B1 added to this frozen header ────────────────────────
     //
     // (B3 added one public declaration to this header: `on_cold_boot_begin()`

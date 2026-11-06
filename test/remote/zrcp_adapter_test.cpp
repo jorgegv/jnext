@@ -49,6 +49,7 @@
 #include "core/log.h"
 #include "core/rzx.h"
 #include "debug/debugger.h"
+#include "platform/emulator_boot.h"
 #include "version.h"
 
 #include <algorithm>
@@ -4517,7 +4518,10 @@ static void wp5_stack_coverage_rows() {
     }
     {
         Rig rig;
-        rig.dbg->set_call_stack_enabled(true);
+        jnext::dbg::ClientInfo other_info;   // GH #434: "another client" is a client with its own request
+        other_info.name = "other";
+        other_info.kind = jnext::dbg::ClientKind::Test;
+        rig.dbg->set_call_stack_enabled(rig.dbg->attach(other_info).value, true);
         {
             Zc c(rig);
             const std::string a = c.cmd("extended-stack enabled no");
@@ -4574,6 +4578,21 @@ static void wp5_stack_coverage_rows() {
         check("ZRCP-XST-04", "a session that turned call tracking and coverage on, and hangs "
                              "up, leaves both off",
               xst_on && cov_on && !rig.dbg->call_stack_enabled() && !rig.dbg->coverage_enabled());
+    }
+    {
+        // GH #434 review F6: the session is the only requester, so `enabled no` switches tracking off at once.
+        Rig rig;
+        bool on = false, off = true;
+        {
+            Zc c(rig);
+            c.cmd("extended-stack enabled yes");
+            on = rig.dbg->call_stack_enabled();
+            c.cmd("extended-stack enabled no");
+            off = rig.dbg->call_stack_enabled();
+        }
+        check("ZRCP-XST-05", "extended-stack enabled yes turns call tracking on and enabled no turns it off, when this session "
+                             "is the only client that asked",
+              on && !off);
     }
 }
 
@@ -4967,6 +4986,158 @@ static void fixture_rows() {
     }
 }
 
+
+// ── ZRCP-CVAR: CVAR(path), jnext's extension (GH #436) ────────────────────
+// Oracle: the C source of the fixture (vars.c: at the vars.c:41 stop of the first call t = 122, k = 120, b = -5, *p = {3, 4, 5},
+// g_uint = 40000, g_matrix[1][2] = 6; at the third call a = 2 and t = 124), its map (vars.c:41 = $8D3E), and ZEsarUX's own
+// reply texts ("Error parsing" for what does not tokenise, "Error evaluating parsed string: <canonical>"), which a
+// failed CVAR() keeps with no reason added.
+static void cvar_rows() {
+    const std::string nex = JNEXT_Z88DK_FIXTURE_DIR "/master/sccz80-cvars/prog.nex";
+    // ZRCP-CVAR-01
+    {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        const bool loaded = emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 PC=8D3EH");
+        const std::string stop = run_to_stop(c, 120);
+        const auto val = [&c](const std::string& e) {   // the reply of `evaluate` in cpu-step mode, without its prompt
+            const std::string r = c.cmd("evaluate " + e);
+            const std::string tail = std::string("\n") + PROMPT_STEP;
+            return ends_with(r, tail) ? r.substr(0, r.size() - tail.size()) : r;
+        };
+        const std::string t = val("CVAR(t)"), k = val("cvar(k)"), b = val("CVAR(b)"), xy = val("CVAR(p->x)+CVAR(p->y)"),
+                          u = val("CVAR(g_uint)"), m = val("CVAR(g_matrix[1][2])=6"), tag = val("CVAR( p -> tag )"),
+                          q = val("CVAR(vars.c::s_dup)+1");
+        check("ZRCP-CVAR-01", "evaluate reads C variables at vars.c:41 of the first call: CVAR(t)=122, cvar(k)=120 (any case), CVAR(b)=-5, "
+                              "CVAR(p->x)+CVAR(p->y)=7 (the path is one token, and keeps its case), CVAR(g_uint)=40000, "
+                              "CVAR(g_matrix[1][2])=6 is 1, `CVAR( p -> tag )`=5, a `::` path works",
+              loaded && fired_stop(stop, 0x8D3E, "PC=8D3EH") && t == "122" && k == "120" && b == "-5" && xy == "7" && u == "40000" &&
+                  m == "1" && tag == "5" && q == "1",
+              esc(stop) + " " + t + " " + k + " " + b + " " + xy + " " + u + " " + m + " " + tag + " " + q);
+        // ZRCP-CVAR-02 (same stop): refusals keep ZEsarUX's texts
+        const std::string inner = c.cmd("evaluate CVAR(inner)"), star = c.cmd("evaluate CVAR(*p)"), open = c.cmd("evaluate CVAR(p->x"),
+                          empty = c.cmd("evaluate CVAR()"), nested = c.cmd("evaluate CVAR((x))"),
+                          quote = c.cmd("evaluate CVAR(\"x\")");
+        Rig nm(MachineType::ZXN_ISSUE2);
+        Zc  c2(nm);
+        const std::string nomap = c2.cmd("evaluate CVAR(t)");
+        // ZRCP-CVAR-04 (same stop): a row handle is internal to the Variables panel; CVAR(#4) is refused like any bad path and CVAR(t) still reads
+        const std::string hnd = c.cmd("evaluate CVAR(#4)"), hnd2 = c.cmd("evaluate CVAR(#4.x)");
+        check("ZRCP-CVAR-04", "CVAR(#4) and CVAR(#4.x) are not read (the reply has no value), CVAR(t) is still 122: a handle is not a typed path",
+              hnd.find("122") == std::string::npos && hnd2.find("Error") != std::string::npos && hnd.find("Error") != std::string::npos && t == "122", esc(hnd) + " | " + esc(hnd2));
+        check("ZRCP-CVAR-02", "a CVAR() that cannot be read answers ZEsarUX's `Error evaluating parsed string: <canonical>` with no reason: "
+                              "CVAR(inner) (out of scope), CVAR(*p) (an aggregate), CVAR(t) on a Next with no map; what does not tokenise "
+                              "(an unclosed `CVAR(p->x`, an empty `CVAR()`, a nested `CVAR((x))`, a quote `CVAR(\"x\")`) is `Error parsing`",
+              inner == reply_of("Error evaluating parsed string: CVAR(inner)", true) &&
+                  star == reply_of("Error evaluating parsed string: CVAR(*p)", true) && open == reply_of("Error parsing", true) &&
+                  empty == reply_of("Error parsing", true) && nested == reply_of("Error parsing", true) &&
+                  quote == reply_of("Error parsing", true) &&
+                  nomap == reply_of("Error evaluating parsed string: CVAR(t)"),
+              esc(inner) + esc(star) + esc(open) + esc(nomap));
+    }
+    // ZRCP-CVAR-03
+    {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Zc c(rig);
+        bp_on(c);
+        const std::string set = c.cmd("set-breakpoint 1 PC=8D3EH AND CVAR(a)=2");
+        const std::string lst = c.cmd("get-breakpoints 1");
+        const std::string stop = run_to_stop(c, 160);
+        const std::string t3 = c.cmd("evaluate CVAR(t)");
+        check("ZRCP-CVAR-03", "a condition may carry CVAR(): `PC=8D3EH AND CVAR(a)=2` is accepted, listed as written, and fires at "
+                              "vars.c:41 of the THIRD call, where CVAR(t) is 124",
+              set == reply_of("", true) && lst == "Breakpoints: On\nEnabled 1: PC=8D3EH AND CVAR(a)=2\n\ncommand@cpu-step> " &&
+                  fired_stop(stop, 0x8D3E, "PC=8D3EH AND CVAR(a)=2") && t3 == reply_of("124", true),
+              esc(set) + esc(lst) + esc(stop) + esc(t3));
+    }
+}
+
+// ── ZRCP-CVW: `set-register CVAR(path)=value` writes a C variable (GH #437) ──────────────────────────
+// Oracle: vars.c (at the vars.c:41 stop of the first call g_int = -5, t = 122, p->x = 3, g_uint = 40000; sum's second call
+// reads b = g_int), the map ($903E = _g_int), ZEsarUX's own reply for a failed set-register (`Error changing register`, no
+// reason), and the register line a successful one answers. Existing rows pin that the command table's census and an
+// ordinary register assignment are untouched.
+static void cvw_rows() {
+    const std::string nex = JNEXT_Z88DK_FIXTURE_DIR "/master/sccz80-cvars/prog.nex";
+    const auto at_41 = [&nex](Rig& rig, Zc& c) {
+        emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 PC=8D3EH");
+        return fired_stop(run_to_stop(c, 120), 0x8D3E, "PC=8D3EH");
+    };
+    const auto val = [](Zc& c, const std::string& e) {
+        const std::string r = c.cmd("evaluate " + e);
+        const std::string tail = std::string("\n") + PROMPT_STEP;
+        return ends_with(r, tail) ? r.substr(0, r.size() - tail.size()) : r;
+    };
+    {   // ZRCP-CVW-01
+        Rig rig(MachineType::ZXN_ISSUE2);
+        Zc  c(rig);
+        const bool at = at_41(rig, c);
+        const std::string r1 = c.cmd("set-register CVAR(g_int)=20");
+        const std::string g1 = val(c, "CVAR(g_int)");
+        const std::string r2 = c.cmd("set-register cvar(t)=1000");
+        const std::string t1 = val(c, "CVAR(t)");
+        const std::string r3 = c.cmd("set-register CVAR(g_int)=0AH");
+        const std::string g2 = val(c, "CVAR(g_int)");
+        const std::string r4 = c.cmd("set-register CVAR( p -> x )=9");
+        const std::string x1 = val(c, "CVAR(p->x)");
+        const std::string r5 = c.cmd("set-register CVAR(g_schar)=-7");
+        const std::string s1 = val(c, "CVAR(g_schar)");
+        const std::string stop2 = run_to_stop(c, 120);   // sum's second call
+        const std::string b2 = val(c, "CVAR(b)");
+        check("ZRCP-CVW-01", "at vars.c:41 of the first call `set-register CVAR(g_int)=20` answers the register line and CVAR(g_int) reads 20; "
+                             "`cvar(t)=1000` (any case) makes CVAR(t) 1000; the ZRCP hex form `0AH` stores 10; a spaced path `CVAR( p -> x )=9` "
+                             "writes through the pointer; a negative decimal is accepted; continued to the second call CVAR(b), which is g_int, is 10",
+              at && starts_with(r1, "PC=8d3e ") && starts_with(r2, "PC=8d3e ") && starts_with(r3, "PC=8d3e ") && starts_with(r4, "PC=8d3e ") &&
+                  starts_with(r5, "PC=8d3e ") && g1 == "20" && t1 == "1000" && g2 == "10" && x1 == "9" && s1 == "-7" &&
+                  fired_stop(stop2, 0x8D3E, "PC=8D3EH") && b2 == "10",
+              esc(r1) + " " + g1 + " " + t1 + " " + g2 + " " + x1 + " " + s1 + " " + b2);
+    }
+    {   // ZRCP-CVW-02
+        Rig rig(MachineType::ZXN_ISSUE2);
+        Zc  c(rig);
+        const bool at = at_41(rig, c);
+        const std::string bad = reply_of("Error changing register", true);
+        const std::string inner = c.cmd("set-register CVAR(inner)=1"), agg = c.cmd("set-register CVAR(g_pt)=1"),
+                          neg = c.cmd("set-register CVAR(g_uint)=-1"), noval = c.cmd("set-register CVAR(t)="),
+                          open = c.cmd("set-register CVAR(t=1"), noeq = c.cmd("set-register CVAR(t)"), empty = c.cmd("set-register CVAR()=1"),
+                          junk = c.cmd("set-register CVAR(t)=12ab");
+        const std::string uint_after = val(c, "CVAR(g_uint)"), t_after = val(c, "CVAR(t)");
+        const std::uint64_t rev = rig.dbg->state_revision();
+        std::string rzx_reply;
+        {
+            RzxOn rzx(rig.emu);
+            rzx_reply = c.cmd("set-register CVAR(g_int)=1");
+        }
+        Rig nm(MachineType::ZXN_ISSUE2);
+        Zc  c2(nm);
+        const std::string nomap = c2.cmd("set-register CVAR(t)=1");
+        check("ZRCP-CVW-02", "every refusal answers `Error changing register` with no reason and writes nothing: CVAR(inner) (out of scope), CVAR(g_pt) "
+                             "(an aggregate), CVAR(g_uint)=-1 (out of range), an empty value, an unclosed path, no `=`, an empty path, a value that is "
+                             "no number, a Next with no map, and a write under an RZX playback (g_int keeps -5)",
+              at && inner == bad && agg == bad && neg == bad && noval == bad && open == bad && noeq == bad && empty == bad && junk == bad &&
+                  uint_after == "40000" && t_after == "122" && rig.emu.mmu().peek(0x903E) == 0xFB && rig.emu.mmu().peek(0x903F) == 0xFF &&
+                  rzx_reply == reply_of("Error changing register", true) && rig.dbg->state_revision() == rev &&
+                  nomap == reply_of("Error changing register"),
+              esc(inner) + esc(agg) + esc(neg) + esc(rzx_reply) + esc(nomap));
+    }
+    {   // ZRCP-CVW-03
+        Rig rig;
+        Zc  c(rig);
+        const std::string help = c.cmd("help set-register");
+        const std::string pc   = c.cmd("set-register PC=4660");
+        check("ZRCP-CVW-03", "help set-register names the CVAR(path)=value extension, and an ordinary `set-register PC=...` is untouched",
+              help.find("CVAR(path)=value") != std::string::npos && starts_with(pc, "PC=1234 ") && rig.pc() == 0x1234, esc(help) + esc(pc));
+    }
+}
+
 int main() {
     std::printf("zrcp_adapter_test — the ZRCP adapter over T's fake transport (GH #280)\n");
     framing_rows();
@@ -5000,6 +5171,8 @@ int main() {
     wp5_load_rows();
     wp5_snapshot_rows();
     fixture_rows();
+    cvar_rows();
+    cvw_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,

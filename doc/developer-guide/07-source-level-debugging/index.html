@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2231,6 +2231,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2773,6 +2777,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2805,7 +2865,7 @@
 instead of by address: a breakpoint set on a line, a step that moves a
 statement at a time, a Source tab that follows the program counter. JNEXT does
 this from files the toolchain already writes (an sjasmplus SLD, a z88dk map and
-its listings, a NextBuild <code>Memory.txt</code>). It reads them into two stores (and the user's own labels and comments into a third, 7.4.6) and
+its listings, a NextBuild <code>Memory.txt</code>). It reads them into two stores (and the user's own labels and comments into a third, 7.4.6; a z88dk map's C variables ride inside the source map, 7.9) and
 answers every question about them from those stores plus one fact only the
 running machine knows: which memory supplies the instruction at an address
 right now.</p>
@@ -2881,6 +2941,14 @@ meaningful for one of them.</p>
 <tr>
 <td><a href="08-tests-and-new-producers.html">7.8 Tests, fixtures and adding a producer</a></td>
 <td>The suites, where the fixtures come from, and the checklist for supporting another toolchain</td>
+</tr>
+<tr>
+<td><a href="10-c-frames-and-values.html">7.10 C frames and values</a></td>
+<td>The C frames at a stop (the frame base of each compiler, tracked and fallback walks, the floor of a frame), the function extents they stand on, and who keeps the call-stack tracker running</td>
+</tr>
+<tr>
+<td><a href="09-c-variables.html">7.9 C variables</a></td>
+<td>The variable store a z88dk map carries: the <code>__CDBINFO__</code> records joined to the map's symbols by module, the storage of each variable, each function's scope table, and its lifetime</td>
 </tr>
 </tbody>
 </table>

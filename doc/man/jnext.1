@@ -3066,7 +3066,14 @@ page/bank selector
 \f[B]Stack\f[R] \- SP\-relative word view, SP row highlighted
 .IP \(bu 2
 \f[B]Call stack\f[R] \- CALL/RST/INT/RET tracking, with symbol
-resolution
+resolution; a click on a row chooses the C frame the Variables tab shows
+.IP \(bu 2
+\f[B]Variables\f[R] \- with a z88dk \f[CR]\-debug\f[R] source map, the C
+variables of a call frame (chosen in a selector or in the Call stack)
+and the globals and statics, as a tree that opens onto struct members,
+array elements and what a pointer points at; the type, the value (or why
+there is none) and where it is; paused only.
+Double\-click a value to edit it; right\-click a row to watch it
 .IP \(bu 2
 \f[B]Breakpoints\f[R] \- execution, read, write and I/O watchpoints, in
 one panel.
@@ -3085,7 +3092,9 @@ breakpoint is drawn in the gutter as a hollow ring rather than a filled
 dot
 .IP \(bu 2
 \f[B]Watch expressions\f[R] \- byte, word or long at arbitrary
-addresses, with custom labels
+addresses, with custom labels; and C variables pinned from the Variables
+tab (a local follows its function and says so when it is out of scope;
+read at each stop)
 .IP \(bu 2
 \f[B]Video panels\f[R] \- All layers (the real composite, through the
 live compositor), ULA (primary and shadow), Layer 2 (active and shadow),
@@ -3329,6 +3338,28 @@ memory of an address), \f[CR]time\f[R],
 \f[CR]reset soft\f[R]/\f[CR]reset hard\f[R] and \f[CR]bp\f[R].
 \f[CR]monitor help\f[R] lists them.
 .IP \(bu 2
+\f[B]C variables\f[R] of a program built with a z88dk \f[CR]\-debug\f[R]
+map: \f[CR]monitor locals\f[R] [\f[I]FRAME\f[R]] (the parameters and
+locals of a C frame, 0 is where the CPU is), \f[CR]monitor globals\f[R]
+(every global, file static and static local, with the memory it lives
+in; two block statics of one name in a function share their path, are
+marked \f[CR](ambiguous path)\f[R] and are refused by
+\f[CR]monitor print\f[R]) and \f[CR]monitor print\f[R] [\f[I]FRAME\f[R]]
+\f[I]PATH\f[R] (one value: \f[CR]p\->x\f[R], \f[CR]*p\f[R],
+\f[CR]g_matrix[1][2]\f[R], \f[CR]fn::x\f[R], \f[CR]file.c::x\f[R]).
+They read the right module\(cqs file statics, z88dk\(cqs 48\-bit floats,
+array counts and paged globals, which z88dk\-gdb\(cqs own
+\f[CR]info locals\f[R] / \f[CR]print\f[R] can get wrong.
+A refusal (no map, an unknown name, a variable the compiler optimised
+out) prints its reason.
+\f[CR]monitor set var\f[R] [\f[I]FRAME\f[R]] \f[I]PATH\f[R] \f[CR]=\f[R]
+\f[I]VALUE\f[R] writes one (an integer, a \f[CR]\(aqc\(aq\f[R]
+character, a float for a float variable, an address for a pointer; a
+value out of the type\(cqs range is refused, never truncated); a refusal
+prints \f[CR]refused:\f[R] and its reason and the reply is
+\f[CR]E01\f[R].
+Only z88dk\-gdb versions that have \f[CR]monitor\f[R] can send them.
+.IP \(bu 2
 \f[B]Either side may pause or resume\f[R], as with DeZog: the client is
 told the machine stopped when something else stops it while the client
 has it running.
@@ -3369,6 +3400,31 @@ machine only through \f[CR]set\f[R] and \f[CR]out\f[R], and each such
 write is logged as a \f[CR]MUTATE\f[R] line.
 Script output goes to the log as \f[CR][jds F:\f[R]\f[I]frame\f[R]
 \f[CR]C:\f[R]\f[I]cycle\f[R]\f[CR]]\f[R] lines.
+.PP
+\f[B]C variables.\f[R] With a z88dk \f[CR]\-debug\f[R] map loaded (the
+source map carries the program\(cqs C variable records),
+\f[CR]cvar(\f[R]\f[I]PATH\f[R]\f[CR])\f[R] reads a C variable of the
+frame the CPU is in, as a 32\-bit integer:
+\f[CR]on execute vars.c:41 when cvar(t) > 100\f[R].
+\f[I]PATH\f[R] is \f[CR]name\f[R], \f[CR]function::name\f[R],
+\f[CR]file.c::name\f[R] or \f[CR]file.c::function::name\f[R], optionally
+with a leading \f[CR]*\f[R] and then \f[CR].member\f[R],
+\f[CR]\->member\f[R] and \f[CR][index]\f[R] steps.
+An integer or a pointer (its address) reads as itself and an unsigned
+32\-bit value keeps its bit pattern; a struct, an array, a float and a
+value wider than 32 bits are refused, naming the type.
+The path is checked when the script loads.
+Every other refusal (no C variables, an unknown name, a variable out of
+scope or optimised out, a null pointer, an index past the end) is a
+run\-time error, never a zero: in a \f[CR]when\f[R] it disables the rule
+and the run exits 1, so put the rule on a line where the variable is in
+scope.
+\f[CR]set cvar(\f[R]\f[I]PATH\f[R]\f[CR]) =\f[R] \f[I]value\f[R] writes
+one (frame 0): the value is a 32\-bit integer, a 4\-byte integer takes
+its bit pattern, a smaller one must fit its type (never truncated), and
+a float, a struct, an array, a register variable and the other things a
+C variable cannot be written to (see the user guide) are run\-time
+errors that name the reason.
 .PP
 \f[B]Source lines.\f[R] With a source map loaded,
 \f[CR]on execute main.c:19\f[R] (or
@@ -3537,7 +3593,12 @@ machine, complete before the reply; a paused machine stays paused.
 \f[CR]SP>=65280\f[R], \f[CR]PC=PEEKW(SP\-2) AND SP>=65280\f[R],
 \f[CR]A<>0 AND (HL&FFH)=5\f[R] \&...), grouped the way ZEsarUX groups
 them; \f[CR]help set\-breakpoint\f[R] lists what is honoured and what is
-declined.
+declined; \f[CR]CVAR(\f[R]\f[I]path\f[R]\f[CR])\f[R], a jnext extension,
+reads a C variable of the stopped program
+(\f[CR]PC=8D3EH AND CVAR(a)=2\f[R], \f[CR]evaluate CVAR(p\->x)\f[R]);
+\f[CR]set\-register CVAR(\f[R]\f[I]path\f[R]\f[CR])=\f[R]\f[I]value\f[R]
+writes one (\f[CR]set\-register CVAR(g_int)=10\f[R]; every refusal is
+\f[CR]Error changing register\f[R]).
 A condition with no \f[CR]PC=\f[R] first term fires only when it turns
 from false to true, as in ZEsarUX: one that stays true stops (or prints)
 once.

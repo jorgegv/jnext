@@ -586,31 +586,29 @@ dot.c::main::0::4:
     20                          	C_LINE	16,"dot.c::main::0::4"
     16  0022  3a0000            	ld	a,(_total)
     16  0025  6f                	ld	l,a
-    16  0026  2600              	ld	h,0
-    16  0028  e5                	push	hl
-    16  0029  cd0000            	call	_add3
-    16  002c  c1                	pop	bc
-    16  002d  7d                	ld	a,l
-    16  002e  320000            	ld	(_total),a
+    16  0026  e5                	push	hl
+    16  0027  cd0000            	call	_add3
+    16  002a  c1                	pop	bc
+    16  002b  7d                	ld	a,l
+    16  002c  320000            	ld	(_total),a
     16                          L_f3_bb_3:
     16                          	C_LINE	16,"dot.c::main::0::4"
-    16  0031  dd35ff            	dec	(ix-1)
-    16  0034  20ec              	jr	nz,L_f3_bb_1
+    16  002f  dd35ff            	dec	(ix-1)
+    16  0032  20ee              	jr	nz,L_f3_bb_1
     16                          L_f3_bb_2:
     16                          	C_LINE	18,"dot.c::main::0::4"
-    18  0036  3a0000            	ld	a,(_total)
-    18  0039  6f                	ld	l,a
-    18  003a  2600              	ld	h,0
-    18  003c  e5                	push	hl
-    18  003d  cd0000            	call	_dutil_twice
-    18  0040  c1                	pop	bc
-    18  0041  7d                	ld	a,l
-    18  0042  320000            	ld	(_total),a
+    18  0034  3a0000            	ld	a,(_total)
+    18  0037  6f                	ld	l,a
+    18  0038  e5                	push	hl
+    18  0039  cd0000            	call	_dutil_twice
+    18  003c  c1                	pop	bc
+    18  003d  7d                	ld	a,l
+    18  003e  320000            	ld	(_total),a
     18                          	C_LINE	19,"dot.c::main::0::4"
-    19  0045  210000            	ld	hl,0
-    19  0048  ddf9              	ld	sp,ix
-    19  004a  dde1              	pop	ix
-    19  004c  c9                	ret
+    19  0041  210000            	ld	hl,0
+    19  0044  ddf9              	ld	sp,ix
+    19  0046  dde1              	pop	ix
+    19  0048  c9                	ret
     19                          	SECTION	bss_compiler
     19                          	SECTION	code_compiler
     19                          ; --- Start of Optimiser additions ---

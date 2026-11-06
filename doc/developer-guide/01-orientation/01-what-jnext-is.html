@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2322,6 +2322,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2864,6 +2868,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2916,7 +2976,7 @@ running. <code>Emulator::init</code> builds the whole personality for a plain
 <code>--machine pentagon</code>: the 128K ROM, NR 0x03 = 0x44, the firmware's mode-3 port
 enables and the Covox DAC. Every standalone personality (48K, 128K, +3,
 Pentagon) gets the port enables <code>tbblue.fw</code> <code>boot.c</code> writes for its mode, on a
-cold boot only (GH #325): NR 0x82 = 0xC0 / 0xC2 / 0xDA / 0xC6, NR 0x83 bits 7:6
+cold boot only: NR 0x82 = 0xC0 / 0xC2 / 0xDA / 0xC6, NR 0x83 bits 7:6
 clear (Layer 2, sprites), NR 0x85 bits 7, 3 and 2 clear (so a soft reset keeps
 them; no CTC, no 0xEFF7), NR 0x84 bit 0 clear on the 48K (AY) and bit 2 on the
 Pentagon. The rule: a bit <code>boot.c</code> writes the same whatever <code>config.ini</code> says
@@ -2994,7 +3054,7 @@ fetch guest memory at the beam — the ULA, the tilemap and LoRes from the
 bank-5 / bank-7 VRAM and Layer 2 from the SRAM — so a byte written after the
 beam has passed it belongs to the next frame, not to the one being drawn.
 Reading the memory at the end of the frame gets that wrong (a game that
-rewrites its tile map in the vertical blank tore its own scroll, GH #362), so
+rewrites its tile map in the vertical blank tore its own scroll), so
 the <code>Mmu</code> keeps a per-frame log of those writes and the renderer asks it "what
 did the fetch at this scanline and column read".</p>
 <p>Extreme cycle-exactness is deliberately not a goal; "good enough to develop

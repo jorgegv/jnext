@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1706,6 +1706,8 @@
       
         
       
+        
+      
     
     
     
@@ -2162,6 +2164,34 @@
     
   
     Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="panels/16-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Variables
   
 
     
@@ -3256,6 +3286,8 @@
       
         
       
+        
+      
     
     
     
@@ -3516,6 +3548,34 @@
     
   
     In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="source-debugger/11-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C variables in the debugger
   
 
     
@@ -4119,7 +4179,7 @@ sessions; <code>--set debugger.physical_addresses=true</code> applies it to one 
 <p><img alt="The debugger window" src="../img/debugger-window.png" /></p>
 <p>The layout is fixed: video-related tabs on the top left, disassembly in the
 centre, CPU registers and MMU down the right, and memory/stack tabs and
-watch/breakpoint tabs along the bottom. The splitters between the areas can be
+watch, variables and breakpoint tabs along the bottom. The splitters between the areas can be
 dragged.</p>
 <p>The window itself can be made smaller than the panels need. When it is, the
 panel area gains scrollbars and pans instead of cutting anything off, and the
@@ -4127,8 +4187,8 @@ control toolbar along the bottom stays put — buttons that no longer fit move
 into a <strong>»</strong> overflow menu at its right-hand end. The size is remembered
 between sessions, and is clamped to the screen it reopens on, so a window saved
 on a large monitor never comes back unreachable on a small one.</p>
-<p>Four panels — CPU Registers, Disassembly, Stack and Call Stack — only show data
-while the machine is <strong>paused</strong>, and are greyed out while it runs. That is
+<p>Five panels — CPU Registers, Disassembly, Stack, Call Stack and Variables — only show data
+while the machine is <strong>paused</strong> (CPU Registers and Disassembly are also greyed out while it runs). That is
 deliberate: reading them every frame would slow the emulation down for no
 benefit, since the values would be a blur. The rest refresh about four times a
 second while the machine is running, except the Video panel's layer views, which

@@ -1,11 +1,12 @@
 #!/bin/bash
 # Regenerates the z88dk ground-truth fixtures (GH #343): builds src/ with the
-# two local z88dk installs and writes the normalised outputs under $DEST
+# three local z88dk installs (2.4, master before the fixes, master after them) and writes the normalised outputs under $DEST
 # (default: this script's directory). See README.md.
 #   bash test/fixtures/z88dk/generate.sh
 # Exits non-zero if a build's outcome differs from its expected one.
 #   Z88DK_24      z88dk 2.4 install  (default ~/src/spectrum/z88dk-original-2.4)
-#   Z88DK_MASTER  master install     (default ~/src/spectrum/z88dk-original-latest)
+#   Z88DK_MASTER  master BEFORE the debug-record fixes, 97731e4e29 (default ~/src/spectrum/z88dk-original-97731e4e29)
+#   Z88DK_FIXED   master AFTER the fixes, 0f0a1cf70e (default ~/src/spectrum/z88dk-original-latest; GH #438)
 set -euo pipefail
 export LANG=C LC_ALL=C
 
@@ -13,7 +14,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 DEST=${DEST:-$HERE}
 SRC=$HERE/src
 Z24=$(realpath "${Z88DK_24:-$HOME/src/spectrum/z88dk-original-2.4}")
-ZM=$(realpath "${Z88DK_MASTER:-$HOME/src/spectrum/z88dk-original-latest}")
+ZM=$(realpath "${Z88DK_MASTER:-$HOME/src/spectrum/z88dk-original-97731e4e29}")
+ZF=$(realpath "${Z88DK_FIXED:-$HOME/src/spectrum/z88dk-original-latest}")
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/z88fix.XXXXXX")
 
 # z80asm's symbol-name encoding of a path: [A-Za-z0-9] kept, anything else _%02x.
@@ -22,7 +24,7 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|dot_c|dutil_c)$'
+MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|blocks_c|bits_c|fm_c|u5_c|fl_c|X__xm_c|X1st_c|xm_c|_1st_c|__xm_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c|cross_c|floats_c|f3254_c|ifelse_c|x_c|shadow_c|stub1_c|stub2_c|statics_c|shadowagg_c)$'
 
 trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT), $3 = for a dot command, the groups that have a prog_<G>.bin; stdout = kept lines, original order
     awk -v MODS="$MODS" -v CRT="${2:-}" -v BINS="${3:-}" -v EXTRA="${KEEP_EXTRA:-}" '
@@ -59,6 +61,14 @@ BAD=0
 #          tape   : main.c util.c asmfn.asm for +zx (a .tap, GH #344 stage 3)
 #          dot:<subtype> : dot.c dutil.c as a NextZXOS dot command (-subtype=dot|dotx|dotn, GH #351)
 #          banked:<SEG>[:kw] : banked.c -c --codeseg<SEG>, then bmain.c bankin.asm banked.o
+#          xmod   : ./xm.c 1st.c (GH #438: z80asm names the modules X__xm_c and X1st_c; the file list keeps the ./)
+#          classic1:<file> : just that file for +zx with the classic library (GH #438: the float-library builds)
+#          cvars  : vars.c other.c (GH #431: C variables of every type, -debug records)
+#          extern : ext_use.c ext_def.c (GH #433: `extern int g;` in one module, `int g` in the other)
+#          cbanked: bk.c -c with code, const and data in PAGE_20, then bkmain.c bk.o (GH #431)
+#          (GH #434: the floats builds use single:floats.c, float constants whose bytes are the value formatter's oracle)
+#          (GH #434: the cross builds use single:cross.c, a function whose body crosses an 8 KB slot)
+#          (GH #431: the fc builds use single:fc.c, a __z88dk_fastcall and a __z88dk_callee function)
 build() {
     local Z=$1 inst=$2 name=$3 kind=$4; shift 4
     local b=$WORK/$inst/$name out=$DEST/$inst/$name
@@ -69,9 +79,16 @@ build() {
     case $kind in
         plain)  files=(main.c util.c asmfn.asm) ;;
         tape)   files=(main.c util.c asmfn.asm); zcc[${#zcc[@]}-1]=+zx; link=(-m --list -o prog -create-app) ;;
+        xmod)   files=(./xm.c 1st.c) ;;
+        classic1:*) files=("${kind#classic1:}"); zcc[${#zcc[@]}-1]=+zx; link=(-m --list -o prog -create-app) ;;
         single:*) IFS=, read -ra files <<< "${kind#single:}" ;;
         dot:*)  files=(dot.c dutil.c); link=(-m --list "-subtype=${kind#dot:}" -o prog -create-app) ;;
         subdir) mkdir -p "$b/game"; mv "$b/util.c" "$b/game/util.c"; files=(main.c game/util.c asmfn.asm); set -- "$@" -I. ;;
+        cvars)  files=(vars.c other.c) ;;
+        extern) files=(ext_use.c ext_def.c) ;;
+        cbanked) echo "+ zcc +zxn $* --codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20 --list -c bk.c -o bk.o"
+                 (cd "$b" && "${zcc[@]}" "$@" --codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20 --list -c bk.c -o bk.o) || rc=$?
+                 files=(bkmain.c bk.o) ;;
         banked:*) local seg=${kind#banked:} kw=; [[ $seg == *:kw ]] && { kw=-DUSE_BANKED_KW; seg=${seg%:kw}; }
                   echo "+ zcc +zxn $* $kw --codeseg$seg --list -c banked.c -o banked.o"
                   (cd "$b" && "${zcc[@]}" "$@" $kw "--codeseg$seg" --list -c banked.c -o banked.o) || rc=$?
@@ -122,8 +139,8 @@ provenance() {  # $1 = install, $2 = dir name
     } > "$d/PROVENANCE"
 }
 
-for z in "$Z24" "$ZM"; do [[ -x $z/bin/zcc ]] || { echo "no zcc in $z" >&2; exit 1; }; done
-rm -rf "${DEST:?}/v2.4" "${DEST:?}/v2.4-dotn" "${DEST:?}/master"
+for z in "$Z24" "$ZM" "$ZF"; do [[ -x $z/bin/zcc ]] || { echo "no zcc in $z" >&2; exit 1; }; done
+rm -rf "${DEST:?}/v2.4" "${DEST:?}/v2.4-dotn" "${DEST:?}/master" "${DEST:?}/master-fixed" "${DEST:?}/master-fixed-zsdcc" "${DEST:?}/master-fixed-80cc" "${DEST:?}/master-fixed-sccz80"
 provenance "$Z24" v2.4
 build "$Z24" v2.4 sccz80-debug  plain          -clib=new -debug
 build "$Z24" v2.4 sdcc-SO0      plain          -clib=sdcc_iy -SO0 --c-code-in-asm
@@ -157,6 +174,20 @@ build "$Z24" v2.4 sdcc-dot      dot:dot        -clib=sdcc_iy -SO2 --c-code-in-as
 # The dotn build lives beside, not under, v2.4/: its C symbols are refused (main bank unplaceable), and
 # Z88CN-10 walks every map under v2.4/ and master/ expecting each to show a C name.
 build "$Z24" v2.4-dotn sccz80 dot:dotn -clib=new -debug
+# GH #431: C variable records (__CDBINFO__) of every type, per compiler; see README "C variables"
+RUN="-pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000"
+build "$Z24" v2.4 sccz80-cvars        cvars   -clib=new -debug
+EXPECT_FAIL=1 build "$Z24" v2.4 sdcc-cvars cvars -clib=sdcc_iy -debug
+build "$Z24" v2.4 sccz80-cvars-banked cbanked -clib=new -debug $RUN
+build "$Z24" v2.4 sccz80-fc           single:fc.c -clib=new -debug
+# GH #434: cross() is 8 KB of code, so its tail is in the next 8 KB slot (F-A)
+build "$Z24" v2.4 sccz80-cross        single:cross.c -clib=new -debug
+# GH #434 stage 2: float constants in z88dk's 48-bit format
+build "$Z24" v2.4 sccz80-floats       single:floats.c -clib=new -debug
+# GH #438: the debug-record bugs (block scope, bitfields, fastcall parameters, unsized arrays): README "Debug-record bugs"
+build "$Z24" v2.4 sccz80-blocks single:blocks.c -clib=new -debug
+build "$Z24" v2.4 sccz80-bits   single:bits.c   -clib=new -debug
+build "$Z24" v2.4 sccz80-fm     single:fm.c     -clib=new -debug
 
 provenance "$ZM" master
 build "$ZM" master sccz80-debug plain          -clib=new -debug
@@ -177,9 +208,80 @@ build "$ZM" master sdcc-banked  banked:PAGE_20:kw -clib=sdcc_iy -debug
 build "$ZM" master sdcc-banked-run banked:PAGE_20:kw -clib=sdcc_iy -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000
 KEEP_CRT=1 build "$ZM" master sccz80-banked-crt banked:PAGE_20:kw -clib=new -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000
 KEEP_CRT=1 build "$ZM" master classic-bank10 banked:BANK_10 -clib=classic
-EXPECT_FAIL=1 build "$ZM" master classic-debug  banked:BANK_10 -clib=classic -debug
+# GH #445: producible since z88dk v2.4-2883 (Z1 is fixed on master; v2.4 still fails)
+build "$ZM" master classic-debug  banked:BANK_10 -clib=classic -debug
+build "$ZM" master sccz80-cvars        cvars   -clib=new -debug
+build "$ZM" master sdcc-cvars          cvars   -clib=sdcc_iy -debug
+build "$ZM" master 80cc-cvars          cvars   -clib=new -compiler=80cc -debug
+build "$ZM" master sccz80-cvars-banked cbanked -clib=new -debug $RUN
+build "$ZM" master sdcc-cvars-banked   cbanked -clib=sdcc_iy -debug $RUN
+build "$ZM" master 80cc-cvars-banked   cbanked -clib=new -compiler=80cc -debug $RUN
+build "$ZM" master sccz80-extern     extern  -clib=new -debug
+build "$ZM" master sdcc-extern       extern  -clib=sdcc_iy -debug
+build "$ZM" master sccz80-fc           single:fc.c -clib=new -debug
+build "$ZM" master sdcc-fc             single:fc.c -clib=sdcc_iy -debug
+build "$ZM" master 80cc-fc             single:fc.c -clib=new -compiler=80cc -debug
+build "$ZM" master sccz80-cross        single:cross.c -clib=new -debug
+build "$ZM" master sdcc-cross          single:cross.c -clib=sdcc_iy -debug
+build "$ZM" master 80cc-cross          single:cross.c -clib=new -compiler=80cc -debug
+build "$ZM" master sccz80-floats       single:floats.c -clib=new -debug
+build "$ZM" master sdcc-floats         single:floats.c -clib=sdcc_iy -debug
+# GH #434 stage 3 (P1): zcc -O0 keeps zsdcc's C_LINE records but drops every __CDBINFO__ record
+build "$ZM" master sdcc-cvars-O0       cvars   -clib=sdcc_iy -debug -O0
 
-# every file the rows hash: sources, this script, the outputs (README.md and the manifest itself excluded)
-(cd "$DEST" && find src generate.sh v2.4 v2.4-dotn master -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"
+# GH #438: the same bugs on master before the six fixes (97731e4e29), plus 80cc, zsdcc and the float libraries
+build "$ZM" master sccz80-blocks single:blocks.c -clib=new -debug
+build "$ZM" master sccz80-bits   single:bits.c   -clib=new -debug
+build "$ZM" master sccz80-fm     single:fm.c     -clib=new -debug
+build "$ZM" master sccz80-xmod   xmod            -clib=new -debug
+build "$ZM" master sdcc-blocks   single:blocks.c -clib=sdcc_iy -debug
+build "$ZM" master sdcc-bits     single:bits.c   -clib=sdcc_iy -debug
+build "$ZM" master sdcc-xmod     xmod            -clib=sdcc_iy -debug
+build "$ZM" master 80cc-blocks   single:blocks.c -clib=new -compiler=80cc -debug
+build "$ZM" master 80cc-bits     single:bits.c   -clib=new -compiler=80cc -debug
+build "$ZM" master 80cc-fm       single:fm.c     -clib=new -compiler=80cc -debug
+build "$ZM" master 80cc-u5       single:u5.c     -clib=new -compiler=80cc -debug
+build "$ZM" master 80cc-xmod     xmod            -clib=new -compiler=80cc -debug
+build "$ZM" master classic-mbf32  classic1:fl.c  -debug --math-mbf32
+build "$ZM" master classic-math32 classic1:fl.c  -debug --math32
+
+# GH #438: master after the debug-record fixes (upstream 0f0a1cf70e: sccz80, 80cc, ticks and, with #3262 and #3265, zsdcc changed since 97731e4e29)
+provenance "$ZF" master-fixed
+provenance "$ZF" master-fixed-zsdcc
+provenance "$ZF" master-fixed-80cc
+provenance "$ZF" master-fixed-sccz80
+build "$ZF" master-fixed sccz80-cvars  cvars         -clib=new -debug
+build "$ZF" master-fixed sccz80-fc     single:fc.c   -clib=new -debug
+build "$ZF" master-fixed sccz80-blocks single:blocks.c -clib=new -debug
+build "$ZF" master-fixed sccz80-bits   single:bits.c   -clib=new -debug
+build "$ZF" master-fixed sccz80-fm     single:fm.c     -clib=new -debug
+build "$ZF" master-fixed 80cc-cvars    cvars         -clib=new -compiler=80cc -debug
+build "$ZF" master-fixed 80cc-bits     single:bits.c -clib=new -compiler=80cc -debug
+build "$ZF" master-fixed 80cc-fm       single:fm.c   -clib=new -compiler=80cc -debug
+build "$ZF" master-fixed 80cc-u5       single:u5.c   -clib=new -compiler=80cc -debug
+# zsdcc after the fixes (GH #438): #3262 (no TAB after the C_LINE function name) and #3265 (the -debug module names are the whole source path)
+build "$ZF" master-fixed-zsdcc sdcc-cvars    cvars         -clib=sdcc_iy -debug
+build "$ZF" master-fixed-zsdcc sdcc-blocks   single:blocks.c -clib=sdcc_iy -debug
+build "$ZF" master-fixed-zsdcc sdcc-xmod     xmod          -clib=sdcc_iy -debug
+build "$ZF" master-fixed-zsdcc sdcc-debug    plain         -clib=sdcc_iy -debug
+# 80cc with the block records of PR #3243 (GH #438 S4a): a function with a `for` that declares a variable, a brace-less inner `for` and code out of source order
+build "$ZF" master-fixed-80cc 80cc-scope single:f3254.c -clib=new -compiler=80cc -debug
+# GH #438 S4b: 80cc stamps some code with another block's scope (an if/else's then-branch jump, a trailing block's epilogue, hoisted loop code); a function named x; shadowing on the three compilers
+build "$ZF" master-fixed-80cc 80cc-ifelse single:ifelse.c -clib=new -compiler=80cc -debug
+build "$ZF" master-fixed-80cc 80cc-x single:x.c -clib=new -compiler=80cc -debug
+build "$ZF" master-fixed-80cc 80cc-shadow single:shadow.c -clib=new -compiler=80cc -debug
+build "$ZF" master-fixed-sccz80 sccz80-shadow single:shadow.c -clib=new -debug
+build "$ZF" master-fixed-zsdcc sdcc-shadow single:shadow.c -clib=sdcc_iy -debug
+build "$ZF" master-fixed-zsdcc sdcc-stub single:stub1.c,stub2.c -clib=sdcc_iy -debug
+# GH #438 S4b2 (review 8): block-scoped static locals (G1) and zsdcc writing two F: records for a function that has one (G3)
+build "$ZF" master-fixed-sccz80 sccz80-static single:statics.c -clib=new -debug
+build "$ZF" master-fixed-80cc 80cc-static single:statics.c -clib=new -compiler=80cc -debug
+build "$ZF" master-fixed-zsdcc sdcc-static single:statics.c -clib=sdcc_iy -debug
+# GH #353 review (epic): an aggregate shadowed by an inner aggregate of its name, and two block statics of one name in one function (zsdcc; sccz80 rejects the program)
+build "$ZF" master-fixed-zsdcc sdcc-shadowagg single:shadowagg.c -clib=sdcc_iy -debug
+build "$ZF" master-fixed-80cc 80cc-shadowagg single:shadowagg.c -clib=new -compiler=80cc -debug
+
+# every file the rows hash: sources, this script, derive-scopes.py, the outputs (README.md and the manifest itself excluded)
+(cd "$DEST" && find src generate.sh derive-scopes.py v2.4 v2.4-dotn master master-fixed master-fixed-zsdcc master-fixed-80cc master-fixed-sccz80 -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"
 if (( BAD )); then echo "unexpected build outcome; scratch kept: $WORK" >&2; exit 1; fi
 rm -rf "$WORK"

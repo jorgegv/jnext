@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1706,6 +1706,8 @@
       
         
       
+        
+      
     
     
     
@@ -2162,6 +2164,34 @@
     
   
     Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../panels/16-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Variables
   
 
     
@@ -3371,6 +3401,8 @@
       
         
       
+        
+      
     
     
     
@@ -3631,6 +3663,34 @@
     
   
     In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/11-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C variables in the debugger
   
 
     
@@ -4277,7 +4337,11 @@ the machine by hand.</p>
   enable breakpoints first</code>. They are removed when the client leaves.
   Conditions are ZEsarUX's (<code>PC=8000H</code>, <code>SP&gt;=65280</code>,
   <code>PC=PEEKW(SP-2) AND SP&gt;=65280</code>, <code>A&lt;&gt;0 AND (HL&amp;FFH)=5</code>, ...); <code>help
-  set-breakpoint</code> lists the terms JNEXT honours.
+  set-breakpoint</code> lists the terms JNEXT honours. JNEXT adds <code>CVAR(path)</code>, a C
+  variable of the stopped program (<code>PC=8D3EH AND CVAR(a)=2</code>, <code>evaluate CVAR(p-&gt;x)</code>): see
+  <a href="../source-debugger/09-scripts-and-remote-debuggers.html#c-variables">C variables</a>.
+  <code>set-register CVAR(path)=value</code> writes one (<code>set-register CVAR(g_int)=10</code>), in the same extension: see
+  <a href="../source-debugger/09-scripts-and-remote-debuggers.html#changing-a-c-variable">Changing a C variable</a>.
   With JNEXT's debugger window open they appear in its Breakpoints panel as <code>Execute (client N)</code>, read-only, but
   are not drawn as a dot in the Disassembly or Source breakpoint columns, and a click there does not remove them
   (see <a href="../panels/08-breakpoints.html#whose-breakpoints-the-gutters-show-and-change">Whose breakpoints the gutters show and change</a>).</li>

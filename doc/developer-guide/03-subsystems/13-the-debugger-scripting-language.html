@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.117</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.118</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1631,10 +1631,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-recorder-gh-20-and-compare_scr" class="md-nav__link">
+  <a href="#the-recorder-and-compare_scr" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The recorder (GH #20) and compare_scr
+        The recorder and compare_scr
       
     </span>
   </a>
@@ -2412,6 +2412,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2954,6 +2958,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2982,13 +3042,13 @@
 
 
 <h1 id="3106-the-debugger-scripting-language">3.10.6 The debugger scripting language<a class="headerlink" href="#3106-the-debugger-scripting-language" title="Permanent link">&para;</a></h1>
-<p>A debugger script (<code>.jds</code>, GH #26, carrying #279's use cases) is a list of
+<p>A debugger script (<code>.jds</code>) is a list of
 rules. Each rule is an event and the actions to run when it happens. The
 language lives in <strong><code>src/script/</code></strong> (CMake target <code>jnext_script</code>). It has no
 toolkit dependency, so it is built in every configuration, and it reaches the
 machine only through the published <code>jnext::dbg::Debugger</code> facade of
 <a href="09-1-the-backend-api.html">3.9.1</a> — never through <code>Emulator</code>. The record /
-replay workflow of GH #20 is built on top of it (the recorder, below).</p>
+replay workflow is built on top of it (the recorder, below).</p>
 <p>The design and the reason behind each rule is
 <code>doc/design/debug-subsystem/dsl-frontend.md</code>. Its "as built" appendices (G to
 M) record every choice made where the design was silent, and every place the
@@ -3005,7 +3065,7 @@ code departs from it. This page describes the code.</p>
 <tbody>
 <tr>
 <td><code>lexer.{h,cpp}</code></td>
-<td>tokens; comments <code>;</code> <code>//</code> <code>#</code>; integers (decimal, <code>0x</code>, <code>$</code>, <code>0b</code>, 32-bit wrapping); strings with <code>${expr[:x2\|x4\|d]}</code> interpolation; <code>file:line</code> as one <code>FileLine</code> token, recognised by lookahead (GH #346); the bracketed accessors (<code>mem[</code>, <code>mem16[</code>, <code>phys[</code>, <code>nextreg[</code>, <code>mmu[</code>, <code>page[</code>, <code>stack[</code>, <code>changed(</code>, <code>depth(</code>) as single tokens</td>
+<td>tokens; comments <code>;</code> <code>//</code> <code>#</code>; integers (decimal, <code>0x</code>, <code>$</code>, <code>0b</code>, 32-bit wrapping); strings with <code>${expr[:x2\|x4\|d]}</code> interpolation; <code>file:line</code> as one <code>FileLine</code> token, recognised by lookahead; the bracketed accessors (<code>mem[</code>, <code>mem16[</code>, <code>phys[</code>, <code>nextreg[</code>, <code>mmu[</code>, <code>page[</code>, <code>stack[</code>, <code>changed(</code>, <code>depth(</code>) as single tokens; <code>cvar(PATH)</code> as one <code>CVar</code> token carrying the raw C path</td>
 </tr>
 <tr>
 <td><code>parser.{h,cpp}</code>, <code>ast.h</code></td>
@@ -3041,7 +3101,7 @@ code departs from it. This page describes the code.</p>
 </tr>
 <tr>
 <td><code>recorder.{h,cpp}</code>, <code>key_names.{h,cpp}</code></td>
-<td>the GH #20 recorder, and the key names it writes</td>
+<td>the recorder, and the key names it writes</td>
 </tr>
 <tr>
 <td><code>src/platform/recording_info.h</code></td>
@@ -3092,6 +3152,17 @@ is both is the address (row SYM-13). A z88dk C symbol (module <code>&lt;file&gt;
 <code>@counter</code> for <code>_counter</code>, after the exact names and constants (rows SCRIPT-HOST-CN-01/02).
 The <code>-debug</code> records of a map (names starting <code>__C_LINE_</code>, <code>__ASM_LINE_</code> or
 <code>__CDBINFO__</code>) are not symbols: the loader drops them (rows SYM-14 to SYM-18).</p>
+<p><strong><code>cvar(PATH)</code></strong> (<a href="../07-source-level-debugging/07-frontends.html">7.7</a>) is the atom that reads a C variable of frame 0, as
+an int32. Its path is not the DSL's grammar (<code>-&gt;</code>, <code>::</code>, <code>*</code>, <code>$1F</code>, a file name with a <code>.</code>), so <code>lex_ident()</code> takes <code>cvar</code> directly
+followed by <code>(</code> as one <code>Tok::CVar</code> and <code>lex_cvar()</code> (<code>lexer.cpp:195</code>) captures the raw text to the first <code>)</code> on the line, trimmed;
+a <code>(</code>, a <code>"</code>, a missing <code>)</code> and an empty path are lexical errors, and <code>cvar</code> is a reserved word (<code>RESERVED</code> in <code>names.cpp</code>, as <code>depth</code> and <code>changed</code> are), so <code>var cvar</code> is refused at load. The word was
+not free before: <code>dump_mem</code> and <code>out</code> take two expressions side by side, so <code>dump_mem cvar(4)</code> with a <code>var cvar</code> was two operands; it
+now fails to load, loudly, rather than meaning something else. Inside a <code>${...}</code> interpolation a <code>::</code> is not the format separator. <code>parse_primary()</code> makes an
+<code>ExprKind::CVar</code> whose <code>text</code> is the path (<code>parse_lvalue()</code> also accepts it as a <code>set</code> target: <code>ActionKind::Set</code> calls <code>write_c_value(cid_, 0, path, int32)</code>, and a refusal is <code>fail()</code> with the facade's reason).
+<code>check_script()</code> checks the syntax with <code>c_parse_path()</code> at load, in every scope (it reads the machine, like <code>mem[]</code>); what the path
+names is looked up at each evaluation, by <code>eval_int()</code>, as <code>read_c_value(0, path)</code> then <code>c_int32_scalar()</code>. Every refusal is an
+<code>EvalError</code> carrying the facade's reason, which in a <code>when</code> disables the rule; none is a 0. The <code>-Werror=switch</code> of <code>jnext_script</code>
+is what forced the arms in both switches.</p>
 <p>An sjasmplus <code>--sym</code> / <code>--exp</code> file loads into the same table (<code>--map</code> picks it
 by contents). Its names are dotted (<code>main.loop</code>, <code>gfx.draw.loop</code>), so
 <code>lex_symbol()</code> lets a <code>.</code> continue an <code>@name</code> when a letter or <code>_</code> follows it: <code>@a..@b</code>
@@ -3145,7 +3216,7 @@ own <code>Listener</code>. <code>load(text, file)</code> does four things, in th
 <li>only then registers each rule (<code>subscriptions_for()</code>).</li>
 </ol>
 <p>A script with any error registers nothing.</p>
-<p><code>on execute FILE:LINE</code> (GH #346) is resolved here, in <code>subscriptions_for()</code>, by
+<p><code>on execute FILE:LINE</code> is resolved here, in <code>subscriptions_for()</code>, by
 <code>SourceMap::resolve()</code> (the resolver the GUI's source breakpoints use): one
 template per start, <code>filter.lo = hi = address</code> and <code>filter.space</code> the start's
 memory, <code>page = PAGE_ANY</code>; <code>once</code>, <code>enable</code> and <code>unload</code> treat them as the
@@ -3316,7 +3387,7 @@ They are reached in four ways:</p>
   (<code>queue_host_key()</code>). <code>run_edge()</code> raises it at the edge of that frame,
   before the deferred actions run.</li>
 </ul>
-<h2 id="the-recorder-gh-20-and-compare_scr">The recorder (GH #20) and <code>compare_scr</code><a class="headerlink" href="#the-recorder-gh-20-and-compare_scr" title="Permanent link">&para;</a></h2>
+<h2 id="the-recorder-and-compare_scr">The recorder and <code>compare_scr</code><a class="headerlink" href="#the-recorder-and-compare_scr" title="Permanent link">&para;</a></h2>
 <p><code>Recorder</code> is a second backend client (<code>ClientKind::Script</code>, arming). It
 OBSERVES and never drives. Its frame-edge handler does the work:</p>
 <ul>
@@ -3442,7 +3513,7 @@ and <a href="10-7-extending-the-debug-subsystem.html">3.10.7</a>), and have its 
 <ul>
 <li>the three frontends' exit codes;</li>
 <li>the dsl_demo suite, each row with a red twin against <code>dsl_demo_buggy.nex</code>. The
-  three #279 ChaseTheBug cases are <code>script-guard-func</code>, <code>script-mmu-func</code> and
+  three ChaseTheBug cases are <code>script-guard-func</code>, <code>script-mmu-func</code> and
   <code>script-isr-func</code>;</li>
 <li>the two DAPR recordings;</li>
 <li>a headless record → replay round trip;</li>

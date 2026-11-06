@@ -1,9 +1,9 @@
 # Source-level debugging: design (CAP-SRC)
 
 > Status: **implemented** (epic #23, source-level debugging with z88dk; the epic branch, closed out by
-> E23-19 (#349)). Everything in section 3.3 is DONE except the two entries that are deliberately not
-> built: `.cdb` / `.adb` (E23-20 (#350): z88dk, with its sdcc, writes no such file; 9.6) and C variables,
-> types and scopes (the follow-up epic #353, OD-9; the C variables row of 3.3). File > Reload program (#374) is a separate issue, still
+> E23-19 (#349)). Everything in section 3.3 is DONE except the entry that is deliberately not
+> built: `.cdb` / `.adb` (E23-20 (#350): z88dk, with its sdcc, writes no such file; 9.6). C variables, types and scopes
+> (the follow-up epic #353, OD-9) are built: section 14. File > Reload program (#374) is a separate issue, still
 > planned (6.7).
 > The sections below are the design the code follows; section 3.3 lists, mechanism by mechanism, what
 > the tree does and which sub-issue built it. `E23-NN (#NNN)` names the sub-issue, and `OD-n` are the
@@ -40,7 +40,7 @@ on #378): user labels and comments, E23-24 (#387), memory coverage, E23-25 (#388
 and ghidra interop, E23-26 (#389). E23-22 (#360) follows E23-08 (#340). The GUI items cut 1
 leaves out are done after it too (OD-8).
 
-**Out of scope.** C variables, types and scopes (follow-up epic #353, OD-9); a built-in Z80N
+**Out of scope.** C variables, types and scopes were out of scope here (follow-up epic #353, OD-9: section 14); a built-in Z80N
 assembler; a native export of source that assembles again (#378).
 
 ## 2. Inputs
@@ -391,7 +391,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Dot commands | DONE (E23-21 (#351)): rule 5, `peek(DivMmcRam)`, a map judged at the command's entry, `--source-map` without `--load` | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none: no such file | 9.6 | E23-20 (#350), closed |
 | Fixtures | DONE (E23-12 (#343)): `test/fixtures/z88dk/` (`generate.sh`, `MANIFEST.sha256`, the `v2.4`, `master` and `v2.4-dotn` build trees, rows Z88FIX-01/02); `test/fixtures/zdebugmap/` keeps the trimmed 2.4 sccz80 maps (#352) | 2.3, 13 | E23-12 (#343) |
-| C variables | NOT BUILT, deliberately: the follow-up epic #353 (OD-9); its input is the map's `__CDBINFO__` records (9.6, 12) | 12 | #353 |
+| C variables | DONE (epic #353, #431-#438): the Variables tab, C watches, editing, `cvar()` and ZRCP, GDB `monitor`; as built in 14 | 14 | #353 |
 | skoolkit / ghidra | DONE (E23-26 (#389)): `Debugger::export_skoolkit()` / `export_ghidra()` and `import_skoolkit()` / `import_ghidra()` (CAP-REX, `debug/debugger_reinterop.cpp`) over the pure writers and readers `debug/skoolkit_ctl.h` and `debug/ghidra_symbols.h`; `--export-skoolkit`, `--export-ghidra` (at exit), `--import-skoolkit`, `--import-ghidra` (at start, after `--annotations`); in Qt, Map > Import and Export; the writers are proved by running SkoolKit 10.1 and Ghidra 12.2 (`make skoolkit`, `make ghidra`) | 11.2 | E23-26 (#389) |
 
 Done: E23-01, E23-03 and E23-04 (v1.1.64: the backend capability, the SLD and `Memory.txt`
@@ -1737,8 +1737,7 @@ assembles again.
 
 ## 12. Non-goals and known limits
 
-- C variables, types and scopes: the follow-up epic #353 (OD-9); the CDB records of G11 are its
-  input.
+- C variables, types and scopes: built in the follow-up epic #353 (OD-9); section 14.
 - Executing a source step in the background: a step is synchronous and bounded (OD-11).
 - Editing source; a built-in Z80N assembler; a native export of source that assembles again
   (11.3).
@@ -1949,3 +1948,34 @@ a running machine drops the caller's earlier transient target, not another clien
 E23-16 (#347) added QSRC-170 to QSRC-189 and QSRC-201 to QSRC-208 (`debugger_source_panel_test`: the current-line wedge, the `also:` list, selection sync
 both ways, the reveal and browse rules, Go to PC Line, Show in Source, the real z88dk map's two-start line, and the tint in
 every colour scheme).
+
+## 14. C variables (epic #353), as built
+
+Written when epic #353 closed (issue #438). The design of the epic lives in its issues; this section says what the code does and which decisions shaped it. The developer guide
+(7.9 to 7.10) is the reference for the code; the user guide (11-c-variables.md) is the reference for what each z88dk can show.
+
+**Inputs.** The map's `__CDBINFO__` records (F functions, S variables, T types, M modules), decoded by `cdb_decode()` (plus the `N:` and `E:` enum records of z88dk#3241, recognised and not read: the `S:` record still carries the integer type), joined to the map's symbols and scoped by the map's own `C_LINE` records
+(`VariableStore`, part of the `SourceMap` it came from, so it has the map's lifetime). The listings beside the map add one fact, which function is `__z88dk_fastcall`. Nothing is read from `.cdb` files.
+
+**The store.** An immutable object: functions (with their extent, scope table, `trail` and `CCompiler`), variables (with the storage of an E-space record), types, modules, the refused
+records, the frame helpers, the float library the map names. The compiler of a module is told from the map alone (an `M:` record naming a file field of the module's own `C_LINE` records is
+80cc; none is sccz80; the rest is zsdcc), never from the name z80asm gives the module, which gets an `X` prefix for some paths.
+
+**Frames (OD-1, OD-2).** The frame base is tracked from `__debug_framepointer` when the call-stack tracker runs, from the prologue otherwise, and a frame is a call of the tracker's stack or a link
+found by following saved frame pointers. A function that crosses an 8 KB slot has several pieces.
+
+**Scope.** zsdcc: exact blocks, a `for` has its own. 80cc: hidden or `scope unknown`, never plain (S4a, S4b): with PR #3243's levels and the listing's own `C_LINE` occurrences (the map keeps one per line and scope, and 80cc's code is out of source order) a block local is hidden when its block is provably closed and flagged otherwise, because 80cc stamps some code with another block's scope (an `if`/`else`'s then-branch jump, the code after a trailing block, hoisted loop code), which no record can exclude; a then-branch local can be hidden at that jump (the Source tab shows the jump on the else line too). Without the listing, or before #3243, every block local is `scope unknown`. A `for` opens no block on 80cc and one scope is written per source line, which only adds flags. A block-scoped static is judged like a block local of its block. Shadowed names: the innermost wins as in gdb; the other rows are marked `shadowed` or `may be shadowed`, an uncertain read is noted and a write refused. sccz80: the trail replay (`replay_trail()`), which is right on the three
+generations of its records (block number = last block opened; = the block being parsed, z88dk#3227; a `for` that opens a block, z88dk#3254). A guard marks variables whose slots overlap (`shares`), on every compiler.
+
+**Values.** The pure layer formats from the type chain (integers, chars, 48-bit and IEEE floats, pointers, arrays, structs, bitfields), with refusals that say why: `location unknown (z88dk U1)`,
+`an array of unknown length`, `float format <lib> is not read`, `not allocated`, `optimised out`. The 80cc frame-slot note and the guard's note ride on the result. Every global is read from its own page.
+
+**Surfaces.** The Variables tab and C watches (Qt), `cvar()` and `set cvar()` in scripts, `CVAR()` over ZRCP, GDB `monitor locals`, `globals`, `print` and `set var`. Notes reach the tab and GDB; `cvar()` and ZRCP carry none (OD-C).
+
+**Writes (#437).** One path: a write needs a successful read of the same path, and refuses what the read refuses, plus an aggregate, a register variable, an overlapping bitfield member, an 80cc block local whose
+scope is unknown, and a variable that shares its slot. One poke, one MUTATE line, one revision bump. `CWriteResult::notes` carries the read's notes.
+
+**Gaps.** What the compilers record wrongly, version by version, and what JNEXT shows for it: the user guide's table "What each z88dk can show".
+
+**Decisions.** Always show the 80cc note (nothing in the map says which z88dk built it). A prologue that looks like a fastcall entry is U1 evidence only when no listing names the function. The overlap guard marks and
+does not hide. Unsized arrays are listed and refused. Floats are refused only when the map names the library. A lone pre-z88dk#3231 bitfield is documented, not detected.
