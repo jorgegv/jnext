@@ -164,14 +164,6 @@ The rules, in order of the section name:
    sidecar `<stem>.map` (a tape's too, at the attach) and for the user's store at
    every program load.
 
-A number above the limit of its family (223 for a page, 111 for a bank, 15 for
-DivMMC) makes the value unpaged when it fits 16 bits and refused otherwise.
-
-A `DIV_<n>` or `<KIND>_DIV_<n>` section (DivMMC memory) is unpaged with the reason "a DIV_n
-bank is the one the program, or a dotn command's allocator, chooses when it runs": the bank is
-the program's to choose, so the map cannot say it. The symbol half keeps a 16-bit symbol of it
-as an unpaged label, and the source half refuses a line record in it.
-
 5. **A dot command.** NextZXOS copies a dot command's file into a DivMMC RAM bank and
    runs it from `$2000` there; the map names no bank. `z88dk_dot_command(consts, &why)`
    (`z88dk_space.cpp:136`) says whether a map is one: the constant `startupoffset` is `$0100` (dot),
@@ -196,6 +188,14 @@ as an unpaged label, and the source half refuses a line record in it.
     the file lands in bank 2, `E3` becomes `$82` (conmem and bank 2) and the CPU executes `$2000`
     (fixtures README, G24; `kNextZxosDotBank`, `z88dk_space.h:46`). `SourceMap::replace(..., dot)`
     remembers the verdict (`SourceMap::dot()`), which [7.6](06-lifetime.md) uses for the identity.
+
+A number above the limit of its family (223 for a page, 111 for a bank, 15 for
+DivMMC) makes the value unpaged when it fits 16 bits and refused otherwise.
+
+A `DIV_<n>` or `<KIND>_DIV_<n>` section (DivMMC memory) is unpaged with the reason "a DIV_n
+bank is the one the program, or a dotn command's allocator, chooses when it runs": the bank is
+the program's to choose, so the map cannot say it. The symbol half keeps a 16-bit symbol of it
+as an unpaged label, and the source half refuses a line record in it.
 
 In a numbered section the bits of `value` above 15 are not read.
 
