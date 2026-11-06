@@ -26,7 +26,7 @@ public:
     /// GH #428 — the window needs the current frame drawn again although the
     /// emulator wrote no new one (exposed, resized, fullscreen, scale).
     /// Set by SdlInput's window events and by toggle_fullscreen()/set_scale();
-    /// SdlApp::run() consumes it with take_redraw_request().
+    /// SdlApp::tick() consumes it with take_redraw_request().
     void request_redraw() { redraw_requested_ = true; }
     bool take_redraw_request() { const bool r = redraw_requested_; redraw_requested_ = false; return r; }
     int  get_scale() const { return scale_; }

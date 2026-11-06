@@ -64,7 +64,7 @@ regression row runs the real GUI binary and pins the first three.
 framebuffer_generation()` advances at every write of the framebuffer (the
 end-of-frame render, both rewind re-renders, a cold boot); it is never reset.
 `render_policy::upload_needed()` decides, for `EmulatorWidget::update_frame()`
-(also in front of the CRT overlay's `submit()`) and for `SdlApp::run()`: upload
+(also in front of the CRT overlay's `submit()`) and for `SdlApp::tick()`: upload
 when the generation differs from the last one uploaded, when the target changed
 (physical size, pixel ratio, fullscreen, source size; in SDL an exposed, resized
 or fullscreen-toggled window, via `SdlDisplay::request_redraw()`), or when

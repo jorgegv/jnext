@@ -2185,6 +2185,18 @@ if(NOT WIN32)
     add_executable(row_id_fork_probe row_id_fork_probe.cpp)
 endif()
 
+# GH #462 - SdlApp::tick(): one frame-loop iteration that reports its pacing
+# sleep instead of doing it. Drives a real SdlApp on the dummy SDL drivers
+# (48K, --silent, no SD image), like debugger_backend_test drives a HeadlessApp.
+add_executable(sdl_app_tick_test platform/sdl_app_tick_test.cpp)
+target_link_libraries(sdl_app_tick_test PRIVATE
+    jnext_platform
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(sdl_app_tick_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME sdl_app_tick_tests COMMAND sdl_app_tick_test)
+
 # Pin the C locale for every registered test, so `ctest` matches what
 # test/run-unit-tests.sh and regression.sh do. A test's verdict must depend on the
 # code, not on the user's LANG: Qt's QApplication calls setlocale(LC_ALL, "") on
