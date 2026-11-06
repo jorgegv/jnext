@@ -464,7 +464,7 @@ int main() {
         };
         std::set<std::string> got;
         std::string bad;
-        for (const Key& k : KEYS) {
+        for (const config_keys::Key& k : config_keys::KEYS) {
             const bool refused = config_keys::browser_refusal(k) != nullptr;
             if (refused) got.insert(full_name(k));
             const std::string sec = k.section;
