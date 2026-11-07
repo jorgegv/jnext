@@ -3690,6 +3690,101 @@ The magic debug port logs writes to a configurable port to stderr as
 hex, decimal, ASCII or line\-buffered text.
 Enable it with \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R] and
 \f[B]\-\-magic\-port\-mode\f[R] \f[I]MODE\f[R].
+.SH THE BROWSER BUILD
+The same emulator, built for WebAssembly, runs inside a web page.
+The page loads one script, \f[CR]jnext\-VERSION.js\f[R] (with
+\f[CR]jnext\-VERSION.wasm\f[R] beside it), which defines one global,
+\f[CR]jnext\f[R]; \f[B]jnext.mount\f[R](\f[I]container\f[R],
+\f[I]options\f[R]) puts a player in a DOM element and returns a promise
+for it.
+Every option of \f[B]mount\f[R] is a command\-line flag or a
+\f[B]\-\-set\f[R] key, so what the page asks for is what the command
+line would ask for; the player\(cqs \f[CR]argv\f[R] property shows that
+command line.
+A browser page loads only \f[CR].nex\f[R], \f[CR].tap\f[R] and
+\f[CR].tzx\f[R] programs.
+.PP
+The page supplies the SD\-card image by URL and SHA\-256 (the browser
+fetches it, checks it on every visit and keeps it in its cache); the
+machine starts when the visitor clicks the player, because browsers
+allow sound only after a click.
+The image is fetched from another origin, so that server must send an
+\f[CR]Access\-Control\-Allow\-Origin\f[R] header.
+The page must be a secure context: \f[CR]https://\f[R],
+\f[CR]http://localhost\f[R] or \f[CR]http://127.0.0.1\f[R].
+.SS JavaScript options
+.TP
+\f[CR]image\f[R] \f[I]{url, sha256}\f[R]
+Required.
+\f[B]\-\-sdcard\f[R] and \f[B]\-\-sdcard\-sha256\f[R], after the page
+has fetched and checked the image.
+.TP
+\f[CR]file\f[R] \f[I]URL | {url} | {data, name}\f[R]
+\f[B]\-\-load\f[R].
+The program to run (\f[CR].nex\f[R], \f[CR].tap\f[R] or
+\f[CR].tzx\f[R]); without it the machine boots to the NextZXOS menu.
+.TP
+\f[CR]machine\f[R] \f[I]string\f[R]
+\f[B]\-\-machine\f[R].
+.TP
+\f[CR]muted\f[R] \f[I]boolean\f[R]
+\f[CR]startup.silent\f[R]: no audio device for the session.
+.TP
+\f[CR]set\f[R] \f[I]{\(lqsection.key\(rq: value}\f[R]
+One \f[B]\-\-set\f[R] \f[I]section.key=value\f[R] per entry, in key
+order.
+.TP
+\f[CR]args\f[R] \f[I]array of strings\f[R]
+Further command\-line arguments, appended last, so they win over
+everything above.
+.TP
+\f[CR]width\f[R], \f[CR]height\f[R] \f[I]number | CSS length\f[R]
+Not a jnext setting: the box the player fills in the page.
+.TP
+\f[CR]wasmUrl\f[R] \f[I]string\f[R]
+Not a jnext setting: where the page serves the \f[CR].wasm\f[R] file
+from.
+.TP
+\f[CR]onProgress\f[R], \f[CR]onReady\f[R], \f[CR]onError\f[R] \f[I]function\f[R]
+Not a jnext setting: functions of the page, called with
+\f[CR](phase, fraction)\f[R] while the image loads or the first boot is
+recorded, when the program is in the machine and a frame has been shown,
+and with a message on every failure.
+.SS The player
+\f[CR]state\f[R] is \f[CR]waiting\f[R], \f[CR]starting\f[R],
+\f[CR]running\f[R], \f[CR]paused\f[R], \f[CR]exited\f[R] or
+\f[CR]destroyed\f[R]; \f[CR]ready\f[R] is a promise for the first ready.
+\f[CR]pause()\f[R] and \f[CR]resume()\f[R] stop and restart the frame
+loop.
+\f[CR]reset(kind)\f[R] restarts the program (\f[CR]\(aqprogram\(aq\f[R],
+the default), powers the machine on again (\f[CR]\(aqhard\(aq\f[R]) or
+resets it (\f[CR]\(aqsoft\(aq\f[R]).
+\f[CR]load(file)\f[R] loads another program while the machine runs.
+\f[CR]setVolume(v)\f[R] sets the master output level, \f[CR]0\f[R] to
+\f[CR]1\f[R].
+\f[CR]destroy()\f[R] stops the machine and removes the player.
+.SS Not available in the browser
+A page has no processes, sockets or terminal, so these are refused with
+a message that says so: \f[B]\-\-nextpi\f[R], \f[B]\-\-nextpi\-dir\f[R],
+\f[B]\-\-nextpi\-release\f[R], \f[B]\-\-nextpi\-qemu\f[R],
+\f[B]\-\-nextpi\-audio\f[R], \f[B]\-\-nextpi\-qemu\-args\f[R],
+\f[B]\-\-esp\f[R], \f[B]\-\-esp\-allow\f[R],
+\f[B]\-\-esp\-listen\-address\f[R],
+\f[B]\-\-esp\-delayed\-disassociate\-frames\f[R],
+\f[B]\-\-esp\-delayed\-associate\-frames\f[R],
+\f[B]\-\-esp\-ip\-address\f[R], \f[B]\-\-esp\-ip\-address\-after\f[R],
+\f[B]\-\-record\f[R], \f[B]\-\-dzrp\-port\f[R], \f[B]\-\-gdb\-port\f[R],
+\f[B]\-\-zrcp\-port\f[R], \f[B]\-\-debug\-listen\-address\f[R],
+\f[B]\-\-script\f[R], \f[B]\-\-script\-key\f[R],
+\f[B]\-\-record\-script\f[R], \f[B]\-\-map\f[R],
+\f[B]\-\-annotations\f[R], \f[B]\-\-import\-skoolkit\f[R],
+\f[B]\-\-import\-ghidra\f[R], \f[B]\-\-headless\f[R] (it would block the
+tab for ever), \f[B]\-\-rzx\-play\f[R] and \f[B]\-\-rzx\-record\f[R].
+The settings of the refused flags are refused when given as set entries
+too: \f[CR]esp.enabled\f[R], \f[CR]esp.allowed_hosts\f[R],
+\f[CR]nextpi.enabled\f[R], \f[CR]nextpi.dir\f[R],
+\f[CR]nextpi.release\f[R], \f[CR]nextpi.qemu_binary\f[R],
+\f[CR]nextpi.audio\f[R], \f[CR]nextpi.qemu_args\f[R].
 .SH EXAMPLES
 Boot NextZXOS / the TBBlue firmware (the default machine is
 \f[CR]next\f[R]):

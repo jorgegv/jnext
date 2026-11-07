@@ -2320,6 +2320,21 @@ add_executable(browser_policy_test platform/browser_policy_test.cpp)
 target_include_directories(browser_policy_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME browser_policy_tests COMMAND browser_policy_test)
 
+# GH #465 - the browser build's JavaScript API, native half: the option table and its
+# argv builder, the volume map, the man page section diffed against the tables, and the
+# SdlApp load hook the page's "ready" rests on (a real SdlApp on the dummy SDL drivers).
+add_executable(web_api_test platform/web_api_test.cpp)
+target_link_libraries(web_api_test PRIVATE
+    jnext_platform
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(web_api_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(web_api_test PRIVATE
+    JNEXT_MAN_SRC="${CMAKE_SOURCE_DIR}/doc/man/jnext.1.md"
+    JNEXT_TAP_FIXTURE="${CMAKE_SOURCE_DIR}/test/00regression/tap/rom_charset_test.tap")
+add_test(NAME web_api_tests COMMAND web_api_test)
+
 # Pin the C locale for every registered test, so `ctest` matches what
 # test/run-unit-tests.sh and regression.sh do. A test's verdict must depend on the
 # code, not on the user's LANG: Qt's QApplication calls setlocale(LC_ALL, "") on

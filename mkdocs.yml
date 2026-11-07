@@ -157,6 +157,11 @@ nav:
       - 9.2 Files and directories: 09-reference/02-files-and-directories.md
       - 9.3 ZX Spectrum Next hardware documentation: 09-reference/03-zx-spectrum-next-hardware-documentation.md
       - 9.4 The project: 09-reference/04-the-project.md
+  - 10. JNEXT in a web page:
+      - 10-web-page/index.md
+      - 10.1 A page with a game: 10-web-page/01-a-page-with-a-game.md
+      - 10.2 Options and the player: 10-web-page/02-options-and-the-player.md
+      - 10.3 On itch.io, and what the browser build does not do: 10-web-page/03-itch-and-limits.md
 
 # Make `mkdocs build --strict` fail on the two classes of breakage this guide
 # is most exposed to now that it is split across 70 files: a page missing from

@@ -61,6 +61,10 @@ the two can never disagree. For building jnext from source, see
 - [SCRIPTING](#scripting)
 - [REMOTE DEBUGGING (ZRCP)](#remote-debugging-zrcp)
 - [MAGIC BREAKPOINT AND MAGIC PORT](#magic-breakpoint-and-magic-port)
+- [THE BROWSER BUILD](#the-browser-build)
+  - [JavaScript options](#javascript-options)
+  - [The player](#the-player)
+  - [Not available in the browser](#not-available-in-the-browser)
 - [EXAMPLES](#examples)
 - [FILES](#files)
 - [EXIT STATUS](#exit-status)
@@ -2978,6 +2982,89 @@ and overwriting `BC`. Enable it with **--magic-breakpoint** or **Debug
 The magic debug port logs writes to a configurable port to stderr as
 hex, decimal, ASCII or line-buffered text. Enable it with
 **--magic-port** *PORT* and **--magic-port-mode** *MODE*.
+
+## THE BROWSER BUILD
+
+The same emulator, built for WebAssembly, runs inside a web page. The
+page loads one script, `jnext-VERSION.js` (with `jnext-VERSION.wasm`
+beside it), which defines one global, `jnext`;
+**jnext.mount**(*container*, *options*) puts a player in a DOM element
+and returns a promise for it. Every option of **mount** is a
+command-line flag or a **--set** key, so what the page asks for is what
+the command line would ask for; the player’s `argv` property shows that
+command line. A browser page loads only `.nex`, `.tap` and `.tzx`
+programs.
+
+The page supplies the SD-card image by URL and SHA-256 (the browser
+fetches it, checks it on every visit and keeps it in its cache); the
+machine starts when the visitor clicks the player, because browsers
+allow sound only after a click. The image is fetched from another
+origin, so that server must send an `Access-Control-Allow-Origin`
+header. The page must be a secure context: `https://`,
+`http://localhost` or `http://127.0.0.1`.
+
+### JavaScript options
+
+`image` *{url, sha256}*  
+Required. **--sdcard** and **--sdcard-sha256**, after the page has
+fetched and checked the image.
+
+`file` *URL \| {url} \| {data, name}*  
+**--load**. The program to run (`.nex`, `.tap` or `.tzx`); without it
+the machine boots to the NextZXOS menu.
+
+`machine` *string*  
+**--machine**.
+
+`muted` *boolean*  
+`startup.silent`: no audio device for the session.
+
+`set` *{“section.key”: value}*  
+One **--set** *section.key=value* per entry, in key order.
+
+`args` *array of strings*  
+Further command-line arguments, appended last, so they win over
+everything above.
+
+`width`, `height` *number \| CSS length*  
+Not a jnext setting: the box the player fills in the page.
+
+`wasmUrl` *string*  
+Not a jnext setting: where the page serves the `.wasm` file from.
+
+`onProgress`, `onReady`, `onError` *function*  
+Not a jnext setting: functions of the page, called with
+`(phase, fraction)` while the image loads or the first boot is recorded,
+when the program is in the machine and a frame has been shown, and with
+a message on every failure.
+
+### The player
+
+`state` is `waiting`, `starting`, `running`, `paused`, `exited` or
+`destroyed`; `ready` is a promise for the first ready. `pause()` and
+`resume()` stop and restart the frame loop. `reset(kind)` restarts the
+program (`'program'`, the default), powers the machine on again
+(`'hard'`) or resets it (`'soft'`). `load(file)` loads another program
+while the machine runs. `setVolume(v)` sets the master output level, `0`
+to `1`. `destroy()` stops the machine and removes the player.
+
+### Not available in the browser
+
+A page has no processes, sockets or terminal, so these are refused with
+a message that says so: **--nextpi**, **--nextpi-dir**,
+**--nextpi-release**, **--nextpi-qemu**, **--nextpi-audio**,
+**--nextpi-qemu-args**, **--esp**, **--esp-allow**,
+**--esp-listen-address**, **--esp-delayed-disassociate-frames**,
+**--esp-delayed-associate-frames**, **--esp-ip-address**,
+**--esp-ip-address-after**, **--record**, **--dzrp-port**,
+**--gdb-port**, **--zrcp-port**, **--debug-listen-address**,
+**--script**, **--script-key**, **--record-script**, **--map**,
+**--annotations**, **--import-skoolkit**, **--import-ghidra**,
+**--headless** (it would block the tab for ever), **--rzx-play** and
+**--rzx-record**. The settings of the refused flags are refused when
+given as set entries too: `esp.enabled`, `esp.allowed_hosts`,
+`nextpi.enabled`, `nextpi.dir`, `nextpi.release`, `nextpi.qemu_binary`,
+`nextpi.audio`, `nextpi.qemu_args`.
 
 ## EXAMPLES
 

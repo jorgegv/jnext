@@ -3,6 +3,7 @@
 #include "platform/cli_delay.h"
 #include "platform/pointer_capture.h"
 #include <SDL3/SDL.h>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -79,6 +80,16 @@ public:
 
     /// Schedule a file load (e.g. .nex) after `delay_frames` frames.
     void set_pending_load(const std::string& file, int delay_frames);
+
+    /// GH #465 - the file of a load still waiting to be applied, or "" when none is.
+    std::string pending_load_file() const { return load_countdown_ >= 0 ? load_file_ : std::string(); }
+
+    /// GH #465 - called from tick() right after a pending load was applied, for both
+    /// outcomes: (file, true) when the program is in the machine, (file, false) when
+    /// the load failed. The browser page's controller uses it to say "ready".
+    void set_on_load_applied(std::function<void(const std::string&, bool)> cb) {
+        on_load_applied_ = std::move(cb);
+    }
 
     /// Schedule a screenshot after `delay_frames` frames. `layer_mask` is a
     /// Renderer::LayerMask bitmask (--delayed-screenshot-layers), armed on the
@@ -219,6 +230,7 @@ private:
     // Pending --load state
     std::string load_file_;
     int         load_countdown_ = -1;    // -1 = no pending load
+    std::function<void(const std::string&, bool)> on_load_applied_;   // see set_on_load_applied()
     bool        source_map_watch_ = false;   // --source-map attached pending (a tape): GH #344
 
     // Pending --delayed-pok-frames request (GH #381); empty when not given.

@@ -5,7 +5,8 @@
 #   bash test/browser/browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]
 #
 # Specs default to `smoke.mjs:29` (rows BRW-01..29, this directory) and `image.mjs:8`
-# (rows WBI-PW-01..08, the SD-card image and the warm start in the browser). Further specs
+# (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:29`
+# (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,
 # and its row count is pinned here, so a spec that loses rows fails the run.
@@ -30,7 +31,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:29" "image.mjs:8" "$@")
+SPECS=("smoke.mjs:29" "image.mjs:8" "api.mjs:29" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)

@@ -597,7 +597,8 @@ target_include_directories(jnext PRIVATE src "${CMAKE_BINARY_DIR}/generated")
 # same tree (one compile of every library). The output names carry the version
 # (jnext-<version>.js/.wasm) so a page never loads a stale build.
 if(EMSCRIPTEN)
-    add_executable(jnext_web src/main.cpp src/platform/browser_frontend.cpp)
+    add_executable(jnext_web src/main.cpp src/platform/browser_frontend.cpp
+                   src/platform/web/web_controller.cpp)
     set_target_properties(jnext_web PROPERTIES OUTPUT_NAME "jnext-${PROJECT_VERSION}")
     target_compile_definitions(jnext_web PRIVATE JNEXT_BROWSER=1)
     target_link_libraries(jnext_web PRIVATE
@@ -611,8 +612,21 @@ if(EMSCRIPTEN)
     target_link_options(jnext_web PRIVATE
         -sENVIRONMENT=web -sMODULARIZE=1 -sEXPORT_NAME=createJnextModule
         -sINVOKE_RUN=0 -sEXIT_RUNTIME=0
-        -sEXPORTED_RUNTIME_METHODS=FS,ENV,callMain,IDBFS
-        -lidbfs.js)
+        -sEXPORTED_RUNTIME_METHODS=FS,ENV,callMain,IDBFS,UTF8ToString,stringToNewUTF8
+        -sEXPORTED_FUNCTIONS=_main,_malloc,_free
+        -lidbfs.js
+        # The JavaScript API (GH #465), appended after the emulator's own code, in this
+        # order: the image helpers, then jnext.mount() (which calls them).
+        # SHELL: keeps each flag with its file (CMake de-duplicates a repeated bare option).
+        "SHELL:--extern-post-js ${CMAKE_SOURCE_DIR}/web/jnext-image.js"
+        "SHELL:--extern-post-js ${CMAKE_BINARY_DIR}/web/jnext_api.js")
+    configure_file(web/jnext_api.js.in "${CMAKE_BINARY_DIR}/web/jnext_api.js" @ONLY)
+    set_property(TARGET jnext_web APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_SOURCE_DIR}/web/jnext-image.js" "${CMAKE_BINARY_DIR}/web/jnext_api.js")
+    # The example pages, beside the .js/.wasm they load.
+    foreach(page plain itch-host itch-game)
+        configure_file(web/examples/${page}.html.in "${CMAKE_BINARY_DIR}/${page}.html" @ONLY)
+    endforeach()
     if(JNEXT_FRAME_GATE)
         target_compile_options(jnext_web PRIVATE ${JNEXT_FRAME_GATE})
         target_link_options(jnext_web PRIVATE ${JNEXT_FRAME_GATE})

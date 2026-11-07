@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>JNEXT in a web page</title>
+<style>
+  body { margin: 1em; font: 14px sans-serif; }
+  #player { width: 640px; height: 512px; }
+  #status { margin: .5em 0; font-family: monospace; }
+  button { margin-right: .3em; }
+</style>
+</head>
+<body>
+<h1>JNEXT</h1>
+<div id="player"></div>
+<p id="status">loading</p>
+<p>
+  <button id="pause">Pause</button><button id="resume">Resume</button>
+  <button id="reset">Reset</button><button id="mute">Mute</button>
+  <button id="other">Load other</button>
+</p>
+<script src="jnext-@PROJECT_VERSION@.js"></script>
+<script>
+(function () {
+  // The SD-card image, its SHA-256 and the program come from the query string
+  // (?image=URL&sha256=HEX&file=URL), falling back to these constants.
+  var IMAGE_URL = '';
+  var IMAGE_SHA256 = '';
+  var PROGRAM_URL = '';
+  var OTHER_URL = '';
+
+  var q = new URLSearchParams(location.search);
+  // Not `status`: a global of that name is window.status, a string.
+  var statusEl = document.getElementById('status');
+  function say(t) { statusEl.textContent = t; }
+
+  var options = {
+    image: { url: q.get('image') || IMAGE_URL, sha256: q.get('sha256') || IMAGE_SHA256 },
+    width: 640,
+    height: 512,
+    onProgress: function (phase, fraction) { say(phase + ' ' + Math.round(fraction * 100) + '%'); },
+    onReady: function () { say('ready'); },
+    onError: function (message) { say('error: ' + message); }
+  };
+  var file = q.get('file') || PROGRAM_URL;
+  if (file) options.file = file;
+  if (!options.image.url) {
+    say('error: image: no URL configured');
+  } else {
+    jnext.mount(document.getElementById('player'), options).then(function (player) {
+      window.player = player;
+      say('click the player to start');
+      document.getElementById('pause').onclick = function () { player.pause(); };
+      document.getElementById('resume').onclick = function () { player.resume(); };
+      document.getElementById('reset').onclick = function () { player.reset(); };
+      var muted = false;
+      document.getElementById('mute').onclick = function () {
+        muted = !muted;
+        player.setVolume(muted ? 0 : 1);
+        this.textContent = muted ? 'Unmute' : 'Mute';
+      };
+      document.getElementById('other').onclick = function () {
+        var f = q.get('other') || OTHER_URL;
+        if (f) player.load(f).catch(function () {});
+      };
+    }, function () {});
+  }
+})();
+</script>
+</body>
+</html>

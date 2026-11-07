@@ -655,7 +655,7 @@ wasm-web: wasm-core
 
 # Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
 wasm-browser-test: wasm-web playwright sdl-release sdcard-image
-	@# BRW-01..29 on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# BRW-01..29, WBI-PW-01..08 and WEBAPI-01..29 on the pinned Playwright + Chromium headless shell. sdl-release is the
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core
@@ -1380,6 +1380,10 @@ cli-check: unit-test-build
 	@# second is split out because a WebAssembly module starts no processes; both
 	@# run here, so the split leaves this gate as strong as it was.
 	@./build/test/cli_options_test && ./build/test/cli_options_native_test
+	@# The browser build's JavaScript options are the same kind of seam: web_api_test
+	@# diffs the WEB_OPTIONS table and the refusal functions against the man page's
+	@# THE BROWSER BUILD section in both directions.
+	@./build/test/web_api_test
 
 # The `.jns` JSON Schema: generated from the field declarations (GH #27 S2)
 SCHEMA_GEN     := ./build/tools/gen-snapshot-schema/gen-snapshot-schema

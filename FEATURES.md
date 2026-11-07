@@ -157,6 +157,10 @@
 - **Record and replay (#20)**: **Script > Record Script...** (or `--record-script FILE`, any frontend) writes an interactive session as a replay script — every keyboard, Next extended-key and joystick change at the frame it landed on, and a screen capture at each **Alt+8** (`.scr` with a byte comparison when only the ULA is on, otherwise a PNG). Replayed with `--headless --script`, it asserts the machine and joystick mode it was recorded on, presents the same input at the same frames and exits 3 when a `.scr` capture differs; what cannot be replayed exactly (a key changed while paused mid-frame, input held before recording began) is written into the script as a warning
 - **Remote debugging over ZRCP (DeZog's `zrcp` remote)**: `--zrcp-port N` serves ZEsarUX's remote command protocol in every frontend (Qt, SDL, `--headless`), alongside DZRP and GDB — registers (the legacy `MMU=` on 48K/128K/+3), memory read/write/hexdump/CRC-32, disassembly, memory pages, `cpu-step`/step-over/`run`/`run n`, hard and soft reset, NMI, the TBBlue register and palette reads, and breakpoints — ZEsarUX's 100 condition slots (`PC=…`, `SP>=…`, `PC=PEEKW(SP-2) AND …`, `SEGn` long addresses) compiled through the debugger scripting language's expression library, print actions, memory breakpoints and `evaluate`; reverse-debugging history (`cpu-history`), code coverage, the typed extended stack, `smartload`, `load-binary` / `save-binary` and in-memory `snapshot-save` / `snapshot-load`; checked byte for byte against replies recorded from the real ZEsarUX 12.0
 
+## Browser build
+
+- Embed JNEXT in a web page or an itch.io game with `jnext.mount()`; pause, reset, load and volume from JavaScript; several players per page; every option is a command-line flag or `--set` key, documented in the man page and diffed against the code.
+
 ## CLI
 - `--machine`, `--load`, `--headless`, `--tape-realtime`, `--tape-save`, `--esxdos-stub`
 - `--esxdos-stub-root DIR`, `--esxdos-stub-writable` (host directory for a directly loaded NEX / dot commands; not visible to NextZXOS — see File format support)
