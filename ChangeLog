@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 - Loading a NEX keeps the NextZXOS system variables and screen pixels, and sets the border as the NEX loaders do
+- SD card: a refused write no longer leaves a read-only card unreadable (macOS) or lands later after a host write error
 
 ### Contributors in this release
 - @shrek128
