@@ -1886,6 +1886,42 @@ void test_bank5_clear() {
               f.apply_ok && f.emu.ula().get_border() == 6,
               fmt("border=%d (want 6)", f.emu.ula().get_border()));
     }
+    // Every block kind that reaches LoadScreenBlock writes BORDERCOL there
+    // (nexload2.asm:304-311 trigger, :630-635). preserve=1, so the clear does
+    // not run and only the block can set the border: header 5, preset 6.
+    {
+        struct Kind { const char* id; const char* desc; uint8_t sf; uint8_t sf2; };
+        static const Kind kinds[] = {
+            {"NEXB5-V13-08", "V1.3 preserve=1, Layer 2 256x192 block (LOADSCR 0x01): border is 5 (LoadScreenBlock :634-635)", 0x01, 0},
+            {"NEXB5-V13-09", "V1.3 preserve=1, ULA block (LOADSCR 0x02): border is 5 (LoadScreenBlock :634-635)", 0x02, 0},
+            {"NEXB5-V13-10", "V1.3 preserve=1, LoRes block (LOADSCR 0x04): border is 5 (LoadScreenBlock :634-635)", 0x04, 0},
+            {"NEXB5-V13-11", "V1.3 preserve=1, HiRes block (LOADSCR 0x08): border is 5 (LoadScreenBlock :634-635)", 0x08, 0},
+            {"NEXB5-V13-12", "V1.3 preserve=1, HiColour block (LOADSCR 0x10): border is 5 (LoadScreenBlock :634-635)", 0x10, 0},
+            {"NEXB5-V13-13", "V1.3 preserve=1, Layer 2 320x256 block (0x40, LOADSCR2 1): border is 5 (LoadScreenBlock :634-635)", 0x40, 1},
+            {"NEXB5-V13-14", "V1.3 preserve=1, Layer 2 640x256 block (0x40, LOADSCR2 2): border is 5 (LoadScreenBlock :634-635)", 0x40, 2},
+        };
+        int n = 0;
+        for (const Kind& k : kinds) {
+            V13Opts o; o.border = 5; o.preserve_regs = 1; o.preset_border = 6;
+            o.screen_flags = k.sf; o.screen_flags2 = k.sf2;
+            char tag[16]; std::snprintf(tag, sizeof(tag), "b5k%d", n++);
+            Fixture f(o, tag);
+            check(k.id, k.desc, f.apply_ok && f.emu.ula().get_border() == 5,
+                  fmt("border=%d (want 5)", f.emu.ula().get_border()));
+        }
+    }
+    {
+        // Raw byte (nexload2.asm:1115-1116 out ($FE),a; :1123-1126 .3 add a,a):
+        // header 0x15 gives attributes 0xA8, not the masked 0x28; OUT 0xFE bit 4
+        // is the EAR latch and IN 0xFE bit 6 reads it back.
+        V13Opts o; o.border = 0x15; o.seed_bank5 = true; o.preset_border = 6;
+        Fixture f(o, "b5r");
+        const int at = f.apply_ok ? b5_first_not(f, 0x5800, 0x5AFF, 0xA8) : 0x5800;
+        const uint8_t in_fe = f.apply_ok ? f.emu.port().in(0x00FE) : 0;
+        check("NEXB5-V13-15", "V1.3 preserve=0, header border 0x15: attributes are 0xA8, border is 5, EAR latch set so IN 0xFE bit 6 reads 1 (raw byte, nexload2.asm:1115-1126)",
+              f.apply_ok && at < 0 && f.emu.ula().get_border() == 5 && (in_fe & 0x40) != 0,
+              fmt("first bad attr $%04X, border=%d, IN 0xFE=%02X", at, f.emu.ula().get_border(), in_fe));
+    }
 }
 
 } // namespace

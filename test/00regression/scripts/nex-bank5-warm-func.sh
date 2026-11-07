@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # One functional test of the regression suite. Sourced by regression.sh (the
-# driver); also directly executable — the lib then self-initializes and
+# driver); also directly executable - the lib then self-initializes and
 # standalone_summary prints the totals.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
-# GH #454 — what a NEX load leaves of bank 5 on the warm start, end to end.
+# GH #454 - what a NEX load leaves of bank 5 on the warm start, end to end.
 # A `--load` on a Next applies the NEX on top of a recorded, resident
 # NextZXOS, so bank 5 holds its system variables when apply() runs. The loader
 # used to zero all 16 KB of it; neither nexload.asm (:319-320: border 0 and the

@@ -1865,6 +1865,26 @@ void test_bank5_clear() {
         check("NEXB5-08", "V1.1 file carrying bank 5: all 16 KB is the bank payload, loaded after the clear (nexload.asm:525 ld ix,$4000:ld bc,$4000)",
               f.ok && bad < 0, fmt("first bad $%04X", bad));
     }
+    {
+        // LOADSCR = 0x80 (NOPAL alone) is non-zero, so nexload.asm:424 does not
+        // skip :425; :426 skips the palette, no block loads, :512 writes the border.
+        B5Opts o; o.screen_flag = 0x80; o.border = 5;
+        B5Fixture f(o, "b5n");
+        check("NEXB5-09", "V1.1 LOADSCR=0x80 (NOPAL only, no block), header border 5, preset 6: border is 5 (nexload.asm:424-426, :512 test the whole LOADSCR byte)",
+              f.ok && f.emu.ula().get_border() == 5,
+              fmt("border=%d (want 5)", f.emu.ula().get_border()));
+    }
+    {
+        // The loaders write the raw header byte (nexload.asm:512 out (254),a).
+        // 0x15 = border 5 plus OUT 0xFE bit 4 (the EAR latch): IN 0xFE bit 6 reads
+        // it back ORed (an idle Next reads 0xBF, bit 6 clear).
+        B5Opts o; o.screen_flag = 0x02; o.screen_bytes = 6912; o.border = 0x15;
+        B5Fixture f(o, "b5r");
+        const uint8_t in_fe = f.ok ? f.emu.port().in(0x00FE) : 0;
+        check("NEXB5-10", "V1.1 ULA screen, header border 0x15: border is 5 and the raw byte reaches port 0xFE, so the EAR latch reads back in IN 0xFE bit 6 (nexload.asm:512 writes the unmasked byte)",
+              f.ok && f.emu.ula().get_border() == 5 && (in_fe & 0x40) != 0,
+              fmt("border=%d (want 5) IN 0xFE=%02X (bit 6 want set)", f.emu.ula().get_border(), in_fe));
+    }
 }
 
 } // namespace
@@ -2895,7 +2915,7 @@ int main() {
     // GH #228 — the experimental-V1.3 entry-point gate.
     test_v13_gate();
 
-    // GH #454 — what apply() clears in bank 5, and the border.
+    // GH #454 - what apply() clears in bank 5, and the border.
     test_bank5_clear();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

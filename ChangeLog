@@ -3,7 +3,7 @@
 ## Unreleased (2026-11-07)
 
 ### Bug Fixes
-- Loading a NEX keeps the NextZXOS system variables and screen pixels, and sets the border as nexload does
+- Loading a NEX keeps the NextZXOS system variables and screen pixels, and sets the border as the NEX loaders do
 
 ### Contributors in this release
 - @shrek128
