@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=339  # 330 -> 339: HS-166a..i (GH #461: the emscripten platform run, its opt-in os= grammar and pin, the .js + .wasm binary check, node-run.sh --jnext). 315 -> 330: HS-162a..j (GH #460: the emscripten target OS, `# os: native`, the emulator-led add_test() and NAME.js + NAME.wasm) and HS-163a..e (test/node-run.sh) added. 312 -> 315: HS-160a..b, HS-161 added (GH #463: the Playwright provisioner refuses a wrong sha256 on each of its two pins and re-resolves under its lock). 311 -> 312: HS-159 added (GH #459 review: the emsdk provisioner re-resolves under its lock). 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=343  # 339 -> 343: HS-166j..m (the wasm run settings: SHOT_WALL_FACTOR and JNEXT_NATIVE plumbing, the wall-bound formula). 330 -> 339: HS-166a..i (GH #461: the emscripten platform run, its opt-in os= grammar and pin, the .js + .wasm binary check, node-run.sh --jnext). 315 -> 330: HS-162a..j (GH #460: the emscripten target OS, `# os: native`, the emulator-led add_test() and NAME.js + NAME.wasm) and HS-163a..e (test/node-run.sh) added. 312 -> 315: HS-160a..b, HS-161 added (GH #463: the Playwright provisioner refuses a wrong sha256 on each of its two pins and re-resolves under its lock). 311 -> 312: HS-159 added (GH #459 review: the emsdk provisioner re-resolves under its lock). 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -3199,8 +3199,8 @@ cp "$PROJECT_DIR/test/00regression/regression.sh" "$PROJECT_DIR/test/00regressio
 cp "$PROJECT_DIR/test/regression-stamp.sh" "$PL/test/"
 printf '# expect: 2\nshot-a\nshot-b\n' > "$PLT/regression_tests.conf"
 printf 'touch "%s/lint-ran"\nfor lint_n in 1 2 3 4 5 6; do CURRENT_ROW="lint-$lint_n"; pass_row; done\n' "$PLM" > "$PLT/scripts/00-preflight-lint.sh"
-printf 'CURRENT_ROW=sdcard-provision; pass_row\n' > "$PLT/scripts/01-sdcard-provision.sh"
-printf 'ORDERED_TESTS=(shot-a shot-b)\nfor shot_n in shot-a shot-b; do CURRENT_ROW=$shot_n; pass_row; done\n' > "$PLT/scripts/screenshots.sh"
+printf 'echo "jnext_native=${JNEXT_NATIVE:-unset}"\nCURRENT_ROW=sdcard-provision; pass_row\n' > "$PLT/scripts/01-sdcard-provision.sh"
+printf 'echo "shot_wall_factor=${SHOT_WALL_FACTOR:-unset}"\nORDERED_TESTS=(shot-a shot-b)\nfor shot_n in shot-a shot-b; do CURRENT_ROW=$shot_n; pass_row; done\n' > "$PLT/scripts/screenshots.sh"
 printf 'if want adm-a-func; then begin_func adm-a-func; pass_row; fi\n' > "$PLT/scripts/adm-a-func.sh"
 printf 'if want adm-b-func; then begin_func adm-b-func; pass_row; fi\n' > "$PLT/scripts/adm-b-func.sh"
 printf 'if want abs-c-func; then touch "%s/ran-abs-c"; begin_func abs-c-func; pass_row; fi\n' "$PLM" > "$PLT/scripts/abs-c-func.sh"
@@ -3214,7 +3214,7 @@ sg_pl() { git -C "$PL" -c user.name=t -c user.email=t@t "$@" >/dev/null 2>&1; }
 sg_pl init -q; sg_pl add -A; sg_pl commit -qm fixture --allow-empty
 pl_run() {   # pl_run <regression.sh args...>
     rm -f "$PLM/lint-ran" "$PLM/ran-abs-c"
-    ( cd "$PL" && HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/bq" JNEXT_TARGET_SDL_BUILD="$PL/bs" TEST_BIN_DIR="$PL/helpers" \
+    ( cd "$PL" && SHOT_WALL_FACTOR=9 HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/bq" JNEXT_TARGET_SDL_BUILD="$PL/bs" TEST_BIN_DIR="$PL/helpers" \
       JNEXT_REGRESSION_LOCK_FILE="$T/pl.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
       JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
       JNEXT_TEST_JOBS=1 timeout --kill-after=5s 120s bash "$PLT/regression.sh" "$@" 2>&1 )
@@ -3224,6 +3224,7 @@ out=$(pl_run --platform); rc=$?; out+=$'\n'"$(pl_marks)"
 check "HS-95a" "a full platform run starts only the admitted rows and reports provision + screenshots + admitted (5/5), no lints" 0 $rc "$out" \
     "[adm-a-func]" "[adm-b-func]" "5/5 declared tests reported" "abs_ran=0 lint_ran=0"
 check "HS-95b" "...and prints the absent row by name" 0 $rc "$out" "absent: abs-c-func" "1 declared absent on macos"
+check "HS-166j" "a macOS platform run has SHOT_WALL_FACTOR=1 although the caller exported 9 (the wasm widening cannot leak)" 0 $rc "$out" "shot_wall_factor=1"
 # an admitted row that reports nothing
 cp "$PLT/scripts/adm-b-func.sh" "$T/adm-b.good"
 printf 'if want adm-b-func; then :; fi\n' > "$PLT/scripts/adm-b-func.sh"
@@ -3259,7 +3260,7 @@ plw_serve() {   # plw_serve <serve behaviour> [<--jnext behaviour; default: the 
 }
 plw_run() {
     rm -f "$PLM/lint-ran" "$PLM/ran-abs-c"
-    ( cd "$PL" && PATH="$T/plwin-bin:$PATH" HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/bw" JNEXT_TARGET_SDL_BUILD="$PL/bsw" TEST_BIN_DIR="$PL/helpers" \
+    ( cd "$PL" && SHOT_WALL_FACTOR=9 PATH="$T/plwin-bin:$PATH" HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/bw" JNEXT_TARGET_SDL_BUILD="$PL/bsw" TEST_BIN_DIR="$PL/helpers" \
       JNEXT_REGRESSION_LOCK_FILE="$T/pl.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
       JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
       JNEXT_TEST_JOBS=1 timeout --kill-after=5s 120s bash "$PLT/regression.sh" --platform "$@" 2>&1 )
@@ -3268,6 +3269,7 @@ plw_serve "\"$T/explorer.exe\" 600 </dev/null >/dev/null 2>&1 & echo \$! | tee \
 out=$(plw_run); rc=$?
 kill "$(cat "$T/expl.pid")" 2>/dev/null || true
 check "HS-95f" "a windows platform run whose recorded wine desktop process survives the run passes" 0 $rc "$out" "[abs-c-func]"
+check "HS-166k" "a windows platform run has SHOT_WALL_FACTOR=1 (caller exported 9) and the host's own jnext as JNEXT_NATIVE" 0 $rc "$out" "shot_wall_factor=1" "jnext_native=$PL/jnext"
 cp "$PLT/scripts/adm-a-func.sh" "$T/adm-a.good"
 printf 'if want adm-a-func; then begin_func adm-a-func; kill "$(cat "%s/expl.pid")"; sleep 0.3; pass_row; fi\n' "$T" > "$PLT/scripts/adm-a-func.sh"
 plw_serve "\"$T/explorer.exe\" 600 </dev/null >/dev/null 2>&1 & echo \$! | tee \"$T/expl.pid\""
@@ -3312,7 +3314,7 @@ for pe_d in pe1 pe2; do
 done
 pe_run() {
     rm -f "$PLM/lint-ran" "$PLM/ran-abs-c"
-    ( cd "$PL" && HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/pe1" JNEXT_TARGET_SDL_BUILD="$PL/pe2" TEST_BIN_DIR="$PL/helpers" \
+    ( cd "$PL" && SHOT_WALL_FACTOR=9 HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/pe1" JNEXT_TARGET_SDL_BUILD="$PL/pe2" TEST_BIN_DIR="$PL/helpers" \
       JNEXT_REGRESSION_LOCK_FILE="$T/pl.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
       JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
       JNEXT_TEST_JOBS=1 timeout --kill-after=5s 120s bash "$PLT/regression.sh" --platform "$@" 2>&1 )
@@ -3320,6 +3322,9 @@ pe_run() {
 out=$(pe_run); rc=$?; out+=$'\n'"$(pl_marks)"
 check "HS-166f" "the control: a complete emscripten tree (non-executable .js and .wasm) runs: provision + screenshots, every functional row absent by name" 0 $rc "$out" \
     "(Qt: $PL/pe1/jnext.js, SDL-only: $PL/pe2/jnext.js)" "3/3 declared tests reported" "absent: adm-a-func" "absent: abs-c-func" "abs_ran=0 lint_ran=0"
+check "HS-166l" "an emscripten platform run sets SHOT_WALL_FACTOR=4 (caller exported 9) and the SDL unit-test tree's jnext as JNEXT_NATIVE" 0 $rc "$out" "shot_wall_factor=4" "jnext_native=$PL/jnext"
+SW=$(bash -c 'source "$1/test/00regression/test-functions.inc"; echo "$(SHOT_WALL_FACTOR=4 shot_wall_bound 125) $(unset SHOT_WALL_FACTOR; shot_wall_bound 125)"' _ "$PROJECT_DIR" 2>&1 | tail -1)
+check "HS-166m" "the screenshot wall bound is (exit_delay + 5) * 4 * SHOT_WALL_FACTOR: 2080 s at factor 4, 520 s with it unset, for a 125 s exit delay" 0 $(( ${#SW} > 0 ? 0 : 1 )) "$SW" "2080 520"
 mv "$PL/pe2/jnext.wasm" "$PL/pe2/jnext.wasm.away"
 out=$(pe_run); rc=$?
 check "HS-166g" "an emscripten tree whose jnext.wasm is missing is a harness fault naming the .wasm" 2 $rc "$out" "HARNESS FAULT" "not built" "pe2/jnext.wasm"

@@ -40,7 +40,7 @@ while IFS= read -r line; do
     [[ $exit_delay -lt 15 ]] && exit_delay=15
     # SHOT_WALL_FACTOR (regression.sh sets it for the WebAssembly run only) widens
     # the bound for a runtime that is slower than native; the emulated exit is untouched.
-    wall_timeout=$(( (exit_delay + 5) * 4 * ${SHOT_WALL_FACTOR:-1} ))
+    wall_timeout=$(shot_wall_bound "$exit_delay")
 
     cmd=("timeout" "--kill-after=5s" "${wall_timeout}s"
          "$JNEXT" "--headless"
