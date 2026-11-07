@@ -61,8 +61,8 @@ what it covers), the numbered findings (G1...G24, Z1...Z4) that rows cite, and
 the rules that normalise and trim the output.
 
 - **Regenerate with `bash test/fixtures/z88dk/generate.sh`.** Overrides:
-  `Z88DK_24` and `Z88DK_MASTER` (the install roots; defaults
-  `~/src/spectrum/z88dk-original-2.4` and `...-latest`). The output is
+  `Z88DK_24`, `Z88DK_MASTER`, `Z88DK_FIXED` and `Z88DK_NIGHTLY` (the install roots; defaults
+  `~/src/spectrum/z88dk-original-2.4`, `...-97731e4e29`, `...-latest` and `...-965fd0e628`). The output is
   deterministic: `git diff --stat` must be empty unless an install changed. When
   one did, commit the new outputs and `MANIFEST.sha256` together and say which rows'
   values moved.

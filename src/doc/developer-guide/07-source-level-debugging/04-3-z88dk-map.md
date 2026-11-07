@@ -20,6 +20,8 @@ exact commands are the `+ zcc ...` lines of each `build.log`):
 | `test/fixtures/z88dk/v2.4/` | `z88dk 2.4`, `~/src/spectrum/z88dk-original-2.4` | `4d530b6eb779ad0f2a1d13c0bb670cf717477501` (v2.4) |
 | `test/fixtures/z88dk/master/` | `z88dk master` before the debug-record fixes, `~/src/spectrum/z88dk-original-97731e4e29` | `97731e4e2988543e2c849cd1ae1d0aeddf372fcd` (v2.4-2883-g97731e4e29) |
 | `test/fixtures/z88dk/master-fixed/`, `master-fixed-zsdcc/` | `z88dk master` after them, `~/src/spectrum/z88dk-original-latest` | `0f0a1cf70e48856af8191af6f86096d2e1362482` (v2.4-2954-g0f0a1cf70e) |
+| `test/fixtures/z88dk/nightly/` | the nightly `z88dk-20261107-965fd0e628-26852`, `~/src/spectrum/z88dk-original-965fd0e628`: the float-format symbols of every C module (`__fp_mode`, `__fp_exponent_bias`, `__fp_mantissa_size`) | `965fd0e628` (master, 2026-11-06) |
+| `test/fixtures/z88dk/v2.4-fp/` | the same float program as `nightly/`, built by 2.4 (no such symbols) | `4d530b6eb779ad0f2a1d13c0bb670cf717477501` (v2.4) |
 
 A map built without `-debug` has symbols and no source lines. Several
 `-debug` builds do not exist: 2.4's sdcc `-debug` fails to assemble
