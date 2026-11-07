@@ -132,7 +132,7 @@ reached, and no read goes past that struct.
 `c_parse_path()` (`c_value.cpp:788`) parses the C paths: `['*'] primary {'.' name | '->' name | '[' index ']'}`,
 the primary a name, `fn::name`, `file.c::name` or `file.c::fn::name` (the file names which `fn` when two modules have a function of that name), the index decimal, `0x<hex>` or `$<hex>` with no sign. A leading `#` is refused: `c_parse_path(text, allow_handle)` accepts `#<n>` (an index into `VariableStore::variables()`, followed by the usual steps) only for the Variables panel's own rows, which reach the facade through `write_c_value_row()` and `c_children_row()` (a read of a row is the row's own value, already in the `CValueRow`); every typed surface (watches, scripts, ZRCP, GDB) uses the plain functions and so cannot name a handle, which is an index that means another variable after a rebuild. As in C the
 postfix operators bind tighter than the `*`: `*x[1]` is `*(x[1])` and `*head->next` is `*(head->next)`.
-`c_eval_path()` (`c_value.cpp:898`) walks the steps over a typed location (an array index is checked against its
+`c_eval_path()` (`c_value.cpp:900`) walks the steps over a typed location (an array index is checked against its
 count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
 refused), then applies the `*`, and `c_read_loc()` reads and formats it. Every refusal says why.
 
@@ -158,7 +158,7 @@ and level-1 locals are always visible. Which block is open depends on the compil
 - **The guard** (`CLocalRef::shares`, `c_shares_note()`): every pair of visible B-space variables whose byte ranges overlap is marked, each naming the other, and neither is hidden.
   `c_locals` rows and `read_c_value` carry the note; a write is refused. `c_children` rows do not carry it (a member of a shared aggregate shows no note, but its write is refused).
 
-`c_read_register_local()` (`c_value.cpp:1393`) reads an `R` local of frame 0 (`[c,b]` is C | B << 8, with a note
+`c_read_register_local()` (`c_value.cpp:1395`) reads an `R` local of frame 0 (`[c,b]` is C | B << 8, with a note
 that it may be stale), refuses `[]` as optimised out and an outer frame as not available.
 `c_fastcall_records_nominal()` is the U1 rule, per function: true iff the function is fastcall and none of its parameters (level 0, space B) is recorded at a negative offset,
 that is, the records are the pre-2026-11-04 ones, every parameter at its nominal slot, where none of them is. Fastcall is `CConv::ListedFastcall` (a listing flags it), or the caller's
@@ -177,7 +177,7 @@ that is, the records are the pre-2026-11-04 ones, every parameter at its nominal
 | `read_c_value(frame, path)` (`debugger_cvalues.cpp:617`) | the object a C path names in that frame: `ok` or `why`, the type text, the value text, `notes`, the typed location `loc`, `where`, `integer` (Char, Int, Long, Scalar, Bitfield and Pointer: the address) and `real` (the floats) |
 | `c_children(frame, path, first, max)` (`debugger_cvalues.cpp:713`) | what a tree lists under an object: a struct's members, an array's elements `first`..`first + max` (`total` is the element COUNT), a pointer's pointee (a struct's members as `p->x`, anything else as `p[0]`, named `*`); `void *`, a function pointer and a scalar have none (`ok`, `total` 0). Each row's `path` is the parent's plus a suffix and round-trips through `read_c_value` (through `c_children_row()` when its root is a handle) (for a `*E` path the base is `E[0]`, since the grammar applies a leading `*` after the postfix steps: `*p` + `.x` would read `*(p.x)`); a row is read, placed and noted exactly as `read_c_value` would, so a banked global's elements carry its page. `!ok` gives `read_c_value`'s own reason, or `null pointer` / the unreadable address. The root variable's `scope unknown`, `shares` and `ambiguous` notes are added to every child row whose read succeeded, as `read_c_value()` adds them; a child of a handle path has an empty `name_path`. `c_children_row()` and `write_c_value_row()` take the panel's row paths, which may be handles; the plain functions refuse them. |
 
-The children come from the pure `c_children()` (`c_value.cpp:1011`; `CChild`, `CChildren`): a struct's visible named members in record order
+The children come from the pure `c_children()` (`c_value.cpp:1013`; `CChild`, `CChildren`): a struct's visible named members in record order
 (an unnamed C11 member has no path and is left out), an array's elements scaled by the element size, one pointee for a pointer.
 
 A `CValueRow` carries `name`, `path` (which round-trips through `read_c_value`, or through `c_children_row()` and `write_c_value_row()` when it is an internal handle), `name_path` (the typed path that reaches this variable, empty when none does, as for a shadowed local), `ambiguous_path` (the typed path names more than one static), `file`, `type`, `kind` (Param, Local,
@@ -212,7 +212,7 @@ local from any frame, and a local of `fn` only from a frame of `fn`; `file.c::na
 
 ## The int32 atom: `c_int32_scalar()`
 
-`c_int32_scalar(loc, integer)` (`c_value.cpp:1483`) is the one rule for what a C value is as a 32-bit integer; the script atom `cvar()`
+`c_int32_scalar(loc, integer)` (`c_value.cpp:1485`) is the one rule for what a C value is as a 32-bit integer; the script atom `cvar()`
 and, through its translation, ZRCP's `CVAR()` both reach it through the evaluator, so there is nothing to keep in step. It reads
 `loc.type` (the head of the chain and the size) and `loc.note`, so a register-held value (no address) passes a `CLoc` with just its
 type, which `read_c_value()` fills for it. `integer` is the facade's `CValueResult::integer`.
@@ -258,7 +258,7 @@ refusal decided before it is `RefusedUnavailable` with the reason in `why`. Ther
 debugger (unsupported)`. After an `Ok` the object is read back into `CWriteResult::value`. `CWriteResult::notes` holds the notes of the read that preceded the write (the 80cc frame-slot note, a `not mapped` note): the Qt edit message and GDB `monitor set var` print them. A `Page` object cannot half-land: the read already
 refused a page crossing.
 
-`c_encode_value(type, CNewValue, current, avail)` (`c_value.cpp:1790`) and its overload with a `CFormatCtx`, which the facade calls, are pure, with no printf or ostream (the `c_value.h` rule: locale
+`c_encode_value(type, CNewValue, current, avail)` (`c_value.cpp:1792`) and its overload with a `CFormatCtx`, which the facade calls, are pure, with no printf or ostream (the `c_value.h` rule: locale
 independent). `CNewValue` is a text a person typed (the Qt panel, ZRCP, GDB) or a script's 32-bit value:
 
 | Type | Text | Int32 (a script) |
@@ -268,20 +268,20 @@ independent). `CNewValue` is a text a person typed (the Qt panel, ZRCP, GDB) or 
 | the same, 8 bytes | the int64 / uint64 range | refused: `does not fit the script's 32 bits` |
 | Pointer | 0..65535 | 0..65535 |
 | `SF` with a recorded format | the inverse of the decoder, in the overload with a `CFormatCtx` (`fp_encode()`): rounded to nearest on the format's mantissa bits, the exponent byte biased by the map's value and refused outside 1..255 (am9511: -64..63) with the format's name (`out of range for float (mbf32)`; `z88dk 48-bit` for mode 0 with bias 128 and 5 mantissa bytes); the bytes outside the layout (mbf40's last, z88's first) are kept from `current`; zero is all-zero layout bytes; ieee is the binary32 row; a format refused for reading is refused for writing with the same text | refused: `float is not an integer` |
-| `{6}SF` (z88dk 48-bit, no format) | rounded to nearest; refused when the exponent leaves 1..255 (`encode_float48()`, `c_value.cpp:1725`) | refused: `float is not an integer` |
+| `{6}SF` (z88dk 48-bit, no format) | rounded to nearest; refused when the exponent leaves 1..255 (`encode_float48()`, `c_value.cpp:1727`) | refused: `float is not an integer` |
 | `{4}SF` (binary32) | the C library's `strtof` through an `istringstream` (correctly rounded), out of range refused | refused |
-| `S6` (binary16) | through float, nearest even, refused when it rounds to infinity or to zero (`encode_float16()`, `c_value.cpp:1756`) | refused |
+| `S6` (binary16) | through float, nearest even, refused when it rounds to infinity or to zero (`encode_float16()`, `c_value.cpp:1758`) | refused |
 | `SQ` | refused: `fixed-point layout not decoded` | refused |
 
-A text is trimmed, then an optional sign and decimal, `0x` or `$` digits (`parse_int_text()`, `c_value.cpp:1597`), or a `'c'` character, or for a
-float type a decimal number (`float_from_text()`, `c_value.cpp:1680`: its syntax is checked first, then the text is read by an `istringstream` imbued with the classic
+A text is trimmed, then an optional sign and decimal, `0x` or `$` digits (`parse_int_text()`, `c_value.cpp:1599`), or a `'c'` character, or for a
+float type a decimal number (`float_from_text()`, `c_value.cpp:1682`: its syntax is checked first, then the text is read by an `istringstream` imbued with the classic
 locale, because `QApplication` calls `setlocale(LC_ALL, "")` and a comma host would read `1.5` as `1`; `std::from_chars` for floating point is
 missing from libc++ before LLVM 20, so the macOS build could not use it). `nan` and `inf` are refused.
 A value out of range is refused, never truncated: a person typing `-1` into an unsigned long made a mistake, not
 a bit pattern, which is why only a script's int32 is a pattern. **The 48-bit encoder rounds to nearest because the compiler does:** the constants z88dk
 compiled into `master/sccz80-floats` are `0.1` = `CD CC CC CC 4C 7D` and `1e-10` = `BE CE FE E6 5B 5F`, which truncation gets wrong (`CC ...`
 and `BD ...`), and `CVW-05` reads those bytes from the fixture at run time, never from a copy. A bitfield reads its unit's bytes, replaces its
-bits and writes the whole unit back (`int_fits()`, `c_value.cpp:1698`, is its range check, on the field's width).
+bits and writes the whole unit back (`int_fits()`, `c_value.cpp:1700`, is its range check, on the field's width).
 
 **F1, found while planning:** the reader ignored a bitfield's sign. `c_format_value()` and `c_integer_value()` returned the unsigned field for
 `SB<s>$<w>:S`, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so `CVW-10`

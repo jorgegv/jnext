@@ -3192,7 +3192,7 @@ reached, and no read goes past that struct.</p>
 <p><code>c_parse_path()</code> (<code>c_value.cpp:788</code>) parses the C paths: <code>['*'] primary {'.' name | '-&gt;' name | '[' index ']'}</code>,
 the primary a name, <code>fn::name</code>, <code>file.c::name</code> or <code>file.c::fn::name</code> (the file names which <code>fn</code> when two modules have a function of that name), the index decimal, <code>0x&lt;hex&gt;</code> or <code>$&lt;hex&gt;</code> with no sign. A leading <code>#</code> is refused: <code>c_parse_path(text, allow_handle)</code> accepts <code>#&lt;n&gt;</code> (an index into <code>VariableStore::variables()</code>, followed by the usual steps) only for the Variables panel's own rows, which reach the facade through <code>write_c_value_row()</code> and <code>c_children_row()</code> (a read of a row is the row's own value, already in the <code>CValueRow</code>); every typed surface (watches, scripts, ZRCP, GDB) uses the plain functions and so cannot name a handle, which is an index that means another variable after a rebuild. As in C the
 postfix operators bind tighter than the <code>*</code>: <code>*x[1]</code> is <code>*(x[1])</code> and <code>*head-&gt;next</code> is <code>*(head-&gt;next)</code>.
-<code>c_eval_path()</code> (<code>c_value.cpp:898</code>) walks the steps over a typed location (an array index is checked against its
+<code>c_eval_path()</code> (<code>c_value.cpp:900</code>) walks the steps over a typed location (an array index is checked against its
 count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
 refused), then applies the <code>*</code>, and <code>c_read_loc()</code> reads and formats it. Every refusal says why.</p>
 <p><code>c_visible_locals()</code> lists which locals show at a PC: the parameters (ordered by stack position),
@@ -3217,7 +3217,7 @@ and level-1 locals are always visible. Which block is open depends on the compil
 <li><strong>The guard</strong> (<code>CLocalRef::shares</code>, <code>c_shares_note()</code>): every pair of visible B-space variables whose byte ranges overlap is marked, each naming the other, and neither is hidden.
   <code>c_locals</code> rows and <code>read_c_value</code> carry the note; a write is refused. <code>c_children</code> rows do not carry it (a member of a shared aggregate shows no note, but its write is refused).</li>
 </ul>
-<p><code>c_read_register_local()</code> (<code>c_value.cpp:1393</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
+<p><code>c_read_register_local()</code> (<code>c_value.cpp:1395</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
 that it may be stale), refuses <code>[]</code> as optimised out and an outer frame as not available.
 <code>c_fastcall_records_nominal()</code> is the U1 rule, per function: true iff the function is fastcall and none of its parameters (level 0, space B) is recorded at a negative offset,
 that is, the records are the pre-2026-11-04 ones, every parameter at its nominal slot, where none of them is. Fastcall is <code>CConv::ListedFastcall</code> (a listing flags it), or the caller's
@@ -3255,7 +3255,7 @@ that is, the records are the pre-2026-11-04 ones, every parameter at its nominal
 </tr>
 </tbody>
 </table>
-<p>The children come from the pure <code>c_children()</code> (<code>c_value.cpp:1011</code>; <code>CChild</code>, <code>CChildren</code>): a struct's visible named members in record order
+<p>The children come from the pure <code>c_children()</code> (<code>c_value.cpp:1013</code>; <code>CChild</code>, <code>CChildren</code>): a struct's visible named members in record order
 (an unnamed C11 member has no path and is left out), an array's elements scaled by the element size, one pointee for a pointer.</p>
 <p>A <code>CValueRow</code> carries <code>name</code>, <code>path</code> (which round-trips through <code>read_c_value</code>, or through <code>c_children_row()</code> and <code>write_c_value_row()</code> when it is an internal handle), <code>name_path</code> (the typed path that reaches this variable, empty when none does, as for a shadowed local), <code>ambiguous_path</code> (the typed path names more than one static), <code>file</code>, <code>type</code>, <code>kind</code> (Param, Local,
 StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code>value</code> or <code>why</code>, <code>aggregate</code> and <code>notes</code>. A failed read has an empty
@@ -3286,7 +3286,7 @@ StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code
 locals, the file's statics, the globals. A local that exists but is hidden is <code>out of scope at &lt;file&gt;:&lt;line&gt;</code>. <code>fn::name</code> names a static
 local from any frame, and a local of <code>fn</code> only from a frame of <code>fn</code>; <code>file.c::name</code> names that file's statics and globals.</p>
 <h2 id="the-int32-atom-c_int32_scalar">The int32 atom: <code>c_int32_scalar()</code><a class="headerlink" href="#the-int32-atom-c_int32_scalar" title="Permanent link">&para;</a></h2>
-<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1483</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
+<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1485</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
 and, through its translation, ZRCP's <code>CVAR()</code> both reach it through the evaluator, so there is nothing to keep in step. It reads
 <code>loc.type</code> (the head of the chain and the size) and <code>loc.note</code>, so a register-held value (no address) passes a <code>CLoc</code> with just its
 type, which <code>read_c_value()</code> fills for it. <code>integer</code> is the facade's <code>CValueResult::integer</code>.</p>
@@ -3380,7 +3380,7 @@ refusal decided before it is <code>RefusedUnavailable</code> with the reason in 
 <code>DivMmcRam</code>, which <code>poke()</code> refuses (<code>identity_only()</code>, INS-02-30), so it is <code>Unsupported</code> with <code>DivMMC RAM bank 2 cannot be written by the
 debugger (unsupported)</code>. After an <code>Ok</code> the object is read back into <code>CWriteResult::value</code>. <code>CWriteResult::notes</code> holds the notes of the read that preceded the write (the 80cc frame-slot note, a <code>not mapped</code> note): the Qt edit message and GDB <code>monitor set var</code> print them. A <code>Page</code> object cannot half-land: the read already
 refused a page crossing.</p>
-<p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1790</code>) and its overload with a <code>CFormatCtx</code>, which the facade calls, are pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
+<p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1792</code>) and its overload with a <code>CFormatCtx</code>, which the facade calls, are pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
 independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRCP, GDB) or a script's 32-bit value:</p>
 <table>
 <thead>
@@ -3418,7 +3418,7 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 <tr>
 <td><code>{6}SF</code> (z88dk 48-bit, no format)</td>
-<td>rounded to nearest; refused when the exponent leaves 1..255 (<code>encode_float48()</code>, <code>c_value.cpp:1725</code>)</td>
+<td>rounded to nearest; refused when the exponent leaves 1..255 (<code>encode_float48()</code>, <code>c_value.cpp:1727</code>)</td>
 <td>refused: <code>float is not an integer</code></td>
 </tr>
 <tr>
@@ -3428,7 +3428,7 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 <tr>
 <td><code>S6</code> (binary16)</td>
-<td>through float, nearest even, refused when it rounds to infinity or to zero (<code>encode_float16()</code>, <code>c_value.cpp:1756</code>)</td>
+<td>through float, nearest even, refused when it rounds to infinity or to zero (<code>encode_float16()</code>, <code>c_value.cpp:1758</code>)</td>
 <td>refused</td>
 </tr>
 <tr>
@@ -3438,15 +3438,15 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 </tbody>
 </table>
-<p>A text is trimmed, then an optional sign and decimal, <code>0x</code> or <code>$</code> digits (<code>parse_int_text()</code>, <code>c_value.cpp:1597</code>), or a <code>'c'</code> character, or for a
-float type a decimal number (<code>float_from_text()</code>, <code>c_value.cpp:1680</code>: its syntax is checked first, then the text is read by an <code>istringstream</code> imbued with the classic
+<p>A text is trimmed, then an optional sign and decimal, <code>0x</code> or <code>$</code> digits (<code>parse_int_text()</code>, <code>c_value.cpp:1599</code>), or a <code>'c'</code> character, or for a
+float type a decimal number (<code>float_from_text()</code>, <code>c_value.cpp:1682</code>: its syntax is checked first, then the text is read by an <code>istringstream</code> imbued with the classic
 locale, because <code>QApplication</code> calls <code>setlocale(LC_ALL, "")</code> and a comma host would read <code>1.5</code> as <code>1</code>; <code>std::from_chars</code> for floating point is
 missing from libc++ before LLVM 20, so the macOS build could not use it). <code>nan</code> and <code>inf</code> are refused.
 A value out of range is refused, never truncated: a person typing <code>-1</code> into an unsigned long made a mistake, not
 a bit pattern, which is why only a script's int32 is a pattern. <strong>The 48-bit encoder rounds to nearest because the compiler does:</strong> the constants z88dk
 compiled into <code>master/sccz80-floats</code> are <code>0.1</code> = <code>CD CC CC CC 4C 7D</code> and <code>1e-10</code> = <code>BE CE FE E6 5B 5F</code>, which truncation gets wrong (<code>CC ...</code>
 and <code>BD ...</code>), and <code>CVW-05</code> reads those bytes from the fixture at run time, never from a copy. A bitfield reads its unit's bytes, replaces its
-bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:1698</code>, is its range check, on the field's width).</p>
+bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:1700</code>, is its range check, on the field's width).</p>
 <p><strong>F1, found while planning:</strong> the reader ignored a bitfield's sign. <code>c_format_value()</code> and <code>c_integer_value()</code> returned the unsigned field for
 <code>SB&lt;s&gt;$&lt;w&gt;:S</code>, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so <code>CVW-10</code>
 uses a synthetic record.</p>
