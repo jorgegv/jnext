@@ -787,7 +787,7 @@ add_test(NAME program_archive_tests COMMAND program_archive_test)
 # skip) are bit-identical to the per-slot, per-cycle paths. Two suites run the same
 # machine with the switches off and on and compare video, audio and the whole
 # save_state() stream after every frame: synthetic fixtures (halt_batch_equiv_test)
-# and every NEX program the project keeps (halt_batch_corpus_test).
+# and every NEX program the project keeps (halt_batch_corpus_1..8_test).
 add_executable(halt_batch_equiv_test core/halt_batch_equiv_test.cpp)
 target_link_libraries(halt_batch_equiv_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video

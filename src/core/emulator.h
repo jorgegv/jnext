@@ -1310,10 +1310,10 @@ public:
     bool prev_pulse_int_n_for_test() const { return prev_pulse_int_n_; }
     void set_prev_pulse_int_n_for_test(bool v) { prev_pulse_int_n_ = v; }
 
-    /// GH #452 — A/B switches for the cycle-batching optimisations (the HALT
+    /// GH #452 - A/B switches for the cycle-batching optimisations (the HALT
     /// repeat batch and the Copper unmet-WAIT skip). Both default ON; a test
     /// turns one off to run the unbatched path, the oracle the equivalence
-    /// suites (`halt_batch_equiv_test`, `halt_batch_corpus_test`) compare
+    /// suites (`halt_batch_equiv_test`, `halt_batch_corpus_1..8_test`) compare
     /// against, frame by frame. Not a user setting (no CLI flag, no config
     /// key), not machine state (never saved). The counters say how much each
     /// optimisation engaged: HALT repeats absorbed into a batched slot, and

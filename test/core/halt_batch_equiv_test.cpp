@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <string>
 #include <vector>
 #include "../row_id.h"
@@ -157,16 +158,19 @@ Scenario line_int() {
     return s;
 }
 
-// CTC channel 0 as a timer, period 944 T (59 x 16): not a multiple of the 228 T line.
-// A CTC interrupt reaches the CPU only through the IM 2 fabric in hardware mode
-// (NR 0xC0 b0), where the vector comes from the device; the ULA interrupt is masked so
-// the CTC is the only source.
+// CTC channel 0 as a timer, period 59 x 16 = 944 master (28 MHz) cycles = 118 T at 3.5 MHz
+// (the CTC counts the 28 MHz clock), which is no multiple of the 1824-cycle line. The
+// handler (about 132 T with the acknowledge) outlasts one period, so the CPU halts only
+// between bursts of back-to-back interrupts (about half of the master cycles measured):
+// the fixture exercises CTC events landing at every phase of a HALT, not long idle spans.
+// Pulse mode (NR 0xC0 b0 = 0): an enabled CTC request drives a /INT pulse there as well
+// (im2_peripheral.vhd:184-187, zxnext.vhd:2270-2305, :2326-2339, :2150). The ULA interrupt
+// is masked so the CTC is the only source.
 Scenario ctc_int() {
     Scenario s = im2_halt("ctc-int", 0, 0xFF);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
         base(e);
-        nr(e, 0xC0, 0x01);
         nr(e, 0x22, 0x04);                       // ULA interrupt off
         nr(e, 0xC5, 0x01);                       // CTC channel 0 may interrupt
         e.port().out(0x183B, 0x87);              // int enable, timer, /16, auto trigger, TC follows, reset
@@ -272,8 +276,8 @@ int main() {
     check_ab("HBQ-07", "line interrupt at line 100 (NR 0x22 / 0x23) while halted: identical per frame",
              {line_int()});
 
-    // HBQ-09: CTC channel timer interrupts (ctc_chan.vhd:143-170) at a period that is no
-    // multiple of a line.
+    // HBQ-09: CTC channel timer interrupts (ctc_chan.vhd:143-170), pulse mode, at a period
+    // that is no multiple of a line.
     check_ab("HBQ-09", "CTC channel 0 timer interrupts, period off the line grid: identical per frame",
              {ctc_int()});
 
@@ -329,23 +333,74 @@ int main() {
               "; 28 bram: t=" + std::to_string(s28b.t) + " mc=" + std::to_string(s28b.dc));
     }
 
-    // HBQ-36: the rig itself. Two unbatched runs of one fixture are bit-identical, and the
-    // three hashes cover what they claim: the run produced video, audio samples, and a
-    // different save_state in different frames.
+    // The rig's own controls. An "identical" row proves nothing if the rig is blind to a
+    // component or to a frame, so each control disturbs EXACTLY ONE component of EXACTLY ONE
+    // late frame (k = 40, past frame 0) and asserts the exact first_diff text. Every
+    // comparison is unbatched vs unbatched: only the disturbance differs.
+    constexpr int kCtl = 40;
+    auto control_run = [&](std::function<void(Emulator&, int)> after) {
+        Scenario sc = im2_halt("rig-control", 0, 0xFF, 60);
+        Scenario mut = sc;
+        mut.after_frame = after;
+        const Run a = batch_ab::run(sc, false, false, g_scratch);
+        const Run b = batch_ab::run(mut, false, false, g_scratch);
+        return batch_ab::first_diff(a, b);
+    };
+
+    // HBQ-90: determinism, and that the hashes cover what they claim: two unbatched runs of
+    // one fixture are identical; the run has audio samples, an audio hash that changes from
+    // frame to frame (the beeper toggles), a video hash and a state that change.
     {
         const Scenario sc = im2_halt("rig-control", 0, 0xFF, 60);
         const Run a = batch_ab::run(sc, false, false, g_scratch);
         const Run b = batch_ab::run(sc, false, false, g_scratch);
-        bool varies = a.built && a.frames.size() > 2 &&
-                      a.frames[1].state != a.frames[2].state &&
-                      a.audio_pairs > 0;
-        check("HBQ-36", "rig control: two unbatched runs are identical; the run has audio and a state that changes",
+        bool varies = a.built && a.frames.size() > 2 && a.audio_pairs > 0;
+        if (varies) {
+            bool audio_changes = false, state_changes = false;
+            for (size_t i = 1; i < a.frames.size(); ++i) {
+                audio_changes |= a.frames[i].audio != a.frames[i - 1].audio;
+                state_changes |= a.frames[i].state != a.frames[i - 1].state;
+            }
+            varies = audio_changes && state_changes;
+        }
+        check("HBQ-90", "rig control: two unbatched runs are identical; the run has audio samples, an audio hash and a state that change from frame to frame",
               batch_ab::first_diff(a, b).empty() && varies,
               "diff=" + batch_ab::first_diff(a, b) + " audio_pairs=" + std::to_string(a.audio_pairs));
     }
 
-    // HBQ-37: the rig discriminates. The same fixture with its handler no longer toggling
-    // the beeper must be reported as different, naming a frame.
+    // HBQ-91: a one-pixel framebuffer change (not in save_state) at frame 40 is reported as
+    // exactly "frame 40 video": the video hash is live, and compared on every frame.
+    {
+        const std::string d = control_run([&](Emulator& e, int f) {
+            if (f == kCtl) e.get_framebuffer()[1000] ^= 0x00010101u;
+        });
+        check("HBQ-91", "rig control: one framebuffer pixel changed at frame 40 is reported as exactly 'frame 40 video'",
+              d == "frame 40 video", "diff=" + d);
+    }
+
+    // HBQ-92: one stereo pair taken out of the mixer at frame 40 is reported as exactly
+    // "frame 40 audio": the audio hash (samples and count) is live. Taking a pair out is
+    // not machine state.
+    {
+        const std::string d = control_run([&](Emulator& e, int f) {
+            if (f == kCtl) { int16_t pair[2]; e.mixer().read_samples(pair, 1); }
+        });
+        check("HBQ-92", "rig control: one audio pair taken from the mixer at frame 40 is reported as exactly 'frame 40 audio'",
+              d == "frame 40 audio", "diff=" + d);
+    }
+
+    // HBQ-93: one unused RAM byte written at frame 40 (no video or audio effect) is
+    // reported as exactly "frame 40 state": the save_state hash is live.
+    {
+        const std::string d = control_run([&](Emulator& e, int f) {
+            if (f == kCtl) e.mmu().write(0x9000, 0x5A);
+        });
+        check("HBQ-93", "rig control: one unused RAM byte written at frame 40 is reported as exactly 'frame 40 state'",
+              d == "frame 40 state", "diff=" + d);
+    }
+
+    // HBQ-94: a fixture that differs from the first instruction (its handler no longer
+    // toggles the beeper) is reported as different at frame 0.
     {
         Scenario sc = im2_halt("rig-discriminates", 0, 0xFF, 60);
         Scenario mutated = sc;
@@ -357,7 +412,7 @@ int main() {
         const Run a = batch_ab::run(sc, false, false, g_scratch);
         const Run b = batch_ab::run(mutated, false, false, g_scratch);
         const std::string d = batch_ab::first_diff(a, b);
-        check("HBQ-37", "rig control: a fixture whose handler stops toggling the beeper is reported as different",
+        check("HBQ-94", "rig control: a fixture whose handler stops toggling the beeper is reported as different",
               d.rfind("frame ", 0) == 0, "diff=" + d);
     }
 

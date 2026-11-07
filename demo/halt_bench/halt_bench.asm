@@ -9,7 +9,10 @@
 ;                           that spends the frame in unmet WAITs
 ;   halt_idle_28   28 MHz   the same
 ;   ctc_dac_28     28 MHz   EI;HALT, CTC channel 0 timer interrupts at ~16 kHz,
-;                           the ISR writes a DAC sample (CTC sample playback)
+;                           the ISR writes a DAC sample (CTC sample playback).
+;                           A HARDWARE-MODE workload (NR 0xC0 b0 = 1): the CTC
+;                           interrupt also reaches the CPU in pulse mode, but
+;                           this is how a real player runs it
 ;
 ; Build (defines select the workload; see the Makefile):
 ;   zcc +zxn -vn -startup=31 -clib=sdcc_ix halt_bench.asm -subtype=nex \
@@ -21,7 +24,8 @@
 ; CTC: control word 0x87 = interrupt enable, timer mode, prescaler 16, auto
 ; trigger, time constant follows, software reset, control word. 28 MHz / (16 * 109)
 ; = 16.06 kHz. Ports 0x183B.. and the interrupt enable NR 0xC5 b0: ctc.vhd.
-; DAC: NR 0x08 b3 enables it; port 0xDF is the Specdrum mono port (zxnext.vhd:2661).
+; DAC: NR 0x08 b3 enables it; port 0xDF is the Specdrum mono port (enable
+; port_dac_mono_AD_df_io_en, zxnext.vhd:2751; decode X"DF", :2878).
 
         IFNDEF SPEED
         defc SPEED = 0
@@ -50,7 +54,7 @@ _main:
 
         IF CTCDAC
         nextreg $22, $04                ; the ULA frame interrupt off: the CTC is the only source
-        nextreg $C0, $01                ; IM 2 hardware mode: a CTC interrupt reaches the CPU only through the fabric
+        nextreg $C0, $01                ; IM 2 hardware mode, as a real CTC sample player (NXModPlayer) runs
         nextreg $C5, $01                ; CTC channel 0 may interrupt
         ld bc, $243B                    ; DAC on: NR 0x08 b3
         ld a, $08

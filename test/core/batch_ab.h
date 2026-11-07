@@ -1,5 +1,5 @@
-// GH #452 - the A/B rig shared by halt_batch_equiv_test and
-// halt_batch_corpus_test.
+// GH #452 - the A/B rig shared by halt_batch_equiv_test and the
+// halt_batch_corpus_1..8_test shards.
 //
 // The cycle-batching optimisations (the HALT repeat batch, the Copper unmet-WAIT
 // skip) are claimed BIT-IDENTICAL to the per-slot, per-cycle paths they replace.
@@ -104,6 +104,9 @@ struct Scenario {
     std::function<void(Emulator&)>         setup;
     // Runs before frame `f` (0-based).
     std::function<void(Emulator&, int)>    before_frame;
+    // Runs after frame `f`'s run_frame() and before its hashes are taken: the seam the
+    // rig's own controls use to disturb exactly one component of exactly one frame.
+    std::function<void(Emulator&, int)>    after_frame;
     // A predicate on the final machine: "the fixture did what it exists to do".
     // A fixture that silently stops doing its job is a named failure.
     std::function<bool(Emulator&)>         alive;
@@ -124,6 +127,7 @@ inline Run run(const Scenario& sc, bool halt_batch, bool copper_skip, Scratch& s
     for (int f = 0; f < sc.frames; ++f) {
         if (sc.before_frame) sc.before_frame(*emu, f);
         emu->run_frame();
+        if (sc.after_frame) sc.after_frame(*emu, f);
         r.frames.push_back(capture(*emu, scratch));
         r.audio_pairs += static_cast<uint64_t>(r.frames.back().samples);
     }

@@ -3,8 +3,9 @@
 // test/nex-nonworking (46 programs; nextipede.tap is a TAP and is out).
 //
 // Each program is loaded the way `jnext --load X.nex` loads it (the NextZXOS
-// warm start, from the SD image the unit harness provisions as a per-run clone,
-// opened read-only; never the master), runs the same scripted keys with the
+// warm start). The SD image is $JNEXT_TEST_SD_IMAGE, which the unit harness sets to
+// its per-run clone; run standalone, the suite falls back to the master under
+// ~/.jnext/sdcard. Either way it is opened read-only. Each program runs the same scripted keys with the
 // batching switches off and on, and must agree after every frame on the
 // framebuffer, the drained audio and the full save_state() stream
 // (batch_ab.h). The oracle is the unbatched path of the same binary.

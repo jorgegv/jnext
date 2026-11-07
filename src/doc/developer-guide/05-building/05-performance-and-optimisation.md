@@ -93,7 +93,7 @@ path, once, rather than to run a lot of anything.
 
 | Run | What it adds |
 |---|---|
-| boot-48k, boot-nextzxos, copper-demo, beast, bifrost | the `make bench` workloads |
+| boot-48k, boot-nextzxos, copper-demo, beast, bifrost | the five original `make bench` workloads |
 | parallax, trainyard-express, beanbros | three Next games; the first two upload sprites by DMA, beanbros plays AY music |
 | `ay_envelope_sweep.bin` (128K) | a 128K machine driving the AY |
 | `beeper_demo.tap` | a real-time tape load: the EAR input, edge by edge |
