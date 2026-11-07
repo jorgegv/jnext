@@ -479,18 +479,6 @@ int main()
         const bool stopped = started && rec.stop();
         check("SF-04", "a failed encode makes stop() return false AND latch stop_failed()",
               started && !stopped && rec.stop_failed());
-        check("SF-05", "a failed encode leaves no 0-byte artifact behind (GH #86 cosmetic)",
-              started && !sf_output_exists("encfail.mp4"));
-    }
-    {
-        VideoRecorder rec;
-        sf_mode("empty-success");
-        const bool started = sf_ready && sf_start_with_frame(rec, "empty.mp4");
-        const bool stopped = started && rec.stop();
-        check("SF-06", "encoder success with a 0-byte output makes stop() false and latches",
-              started && !stopped && rec.stop_failed());
-        check("SF-07", "the 0-byte 'successful' output is removed (GH #86 cosmetic)",
-              started && !sf_output_exists("empty.mp4"));
     }
     {
         VideoRecorder rec;

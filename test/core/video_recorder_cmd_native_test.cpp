@@ -1,7 +1,9 @@
-// video_recorder_cmd_test rows that need a child process (SF-08, 09, 11, 12, 13).
+// video_recorder_cmd_test rows that need a child process (SF-05, 06, 07, 08, 09, 11, 12, 13).
 //
-// These record "successfully" through the stand-in ffmpeg, a program the recorder starts
-// as a child process, which the WebAssembly build cannot do, so they moved, IDs,
+// These run the stand-in ffmpeg, a program the recorder starts as a child process, which the
+// WebAssembly build cannot do (there ffmpeg never starts, so SF-05..07 would pass without
+// exercising what they describe: an artifact the encoder wrote, a "successful" empty output),
+// so they moved, IDs,
 // fixtures and assertions unchanged, out of video_recorder_cmd_test into a suite that is
 // `# os: native` in test/unit-tests.conf. The harness (sf_setup, sf_mode, ...) is shared
 // through video_recorder_sf_common.h.
@@ -40,6 +42,25 @@ using namespace vr_sf;
 int main()
 {
     const bool sf_ready = sf_setup();
+    {
+        // SF-05 stands on its own here: the setup of SF-04's block is repeated, the check is SF-05's.
+        VideoRecorder rec;
+        sf_mode("encode-fail");
+        const bool started = sf_ready && sf_start_with_frame(rec, "encfail.mp4");
+        if (started) rec.stop();
+        check("SF-05", "a failed encode leaves no 0-byte artifact behind (GH #86 cosmetic)",
+              started && !sf_output_exists("encfail.mp4"));
+    }
+    {
+        VideoRecorder rec;
+        sf_mode("empty-success");
+        const bool started = sf_ready && sf_start_with_frame(rec, "empty.mp4");
+        const bool stopped = started && rec.stop();
+        check("SF-06", "encoder success with a 0-byte output makes stop() false and latches",
+              started && !stopped && rec.stop_failed());
+        check("SF-07", "the 0-byte 'successful' output is removed (GH #86 cosmetic)",
+              started && !sf_output_exists("empty.mp4"));
+    }
     {
         VideoRecorder rec;
         sf_mode("success");
