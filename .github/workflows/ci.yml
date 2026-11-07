@@ -83,7 +83,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        leg: [build-matrix, unit, unit-win, regression, regression-win, wasm, unit-wasm]
+        leg: [build-matrix, unit, unit-win, regression, regression-win, wasm, unit-wasm, browser]
     runs-on: ubuntu-latest
     # Same fedora:44 container release.yml builds the rpm and Windows artifacts
     # in, and the same distro the maintainer develops on. That is the point: the
@@ -163,7 +163,12 @@ jobs:
             mtools dosfstools rpm-build util-linux \
             pandoc mkdocs-material graphviz liberation-sans-fonts \
             perl-interpreter perl-FindBin perl-File-Temp perl-File-Find perl-PathTools \
-            mesa-dri-drivers mesa-libGL java-25-openjdk-devel
+            mesa-dri-drivers mesa-libGL java-25-openjdk-devel \
+            nss nspr atk at-spi2-atk alsa-lib libXcomposite libXdamage libXfixes libXrandr libXi \
+            mesa-libgbm libxkbcommon libdrm
+          # nss ... libdrm (the last line): the shared libraries the pinned Chromium headless
+          # shell of `make wasm-browser-test` links (`ldd` on it), declared rather than
+          # inherited. The browser comes from test/provision-playwright.sh, like the SDK.
           # util-linux: sfdisk, for tools/make-minimal-sdcard-image.sh (the bare
           # fedora:44 has only util-linux-core).
           # mtools + dosfstools are the FOREIGN validators the GH #269
@@ -366,11 +371,21 @@ jobs:
       # and the three pin prefixes: a bump changes it and a stale entry is never
       # reused (an entry without the provisioner's stamp is replaced anyway).
       - name: Cache the Emscripten SDK
-        if: matrix.leg == 'wasm' || matrix.leg == 'unit-wasm'
+        if: matrix.leg == 'wasm' || matrix.leg == 'unit-wasm' || matrix.leg == 'browser'
         uses: actions/cache@v5
         with:
           path: ~/.cache/jnext/tools/emsdk-6.0.13
           key: emsdk-6.0.13-8c04da75-cda68010-14b342e7-fedora44
+
+      # playwright-core and the Chromium headless shell (about 135 MB), provisioned by
+      # `make wasm-browser-test` itself (test/provision-playwright.sh), pinned by two
+      # sha256, so a hit only skips the downloads. The key carries the pin prefixes.
+      - name: Cache Playwright
+        if: matrix.leg == 'browser'
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/jnext/tools/playwright-1.65.0
+          key: playwright-1.65.0-315247c5-18352d22-fedora44
 
       # Link rot only shows up at BUILD time and only in the combinations the
       # default build does not exercise: CMake derives static-link order from
@@ -404,6 +419,15 @@ jobs:
       - name: make unit-test-wasm (the SDL-only suites as WebAssembly under node)
         if: matrix.leg == 'unit-wasm'
         run: LANG=C make unit-test-wasm
+
+      # The browser frontend (GH #463): builds jnext-<version>.js/.wasm, the native SDL
+      # oracle, the run-time minimal card from the cached distribution image (kept in
+      # ~/tmp/jnext-browser-smoke.* and deleted by the script; the failure-artifact step below
+      # uploads only fixed paths that cannot reach it), and runs the BRW rows in the pinned
+      # headless Chromium. The JavaScript API rows join the same target. BLOCKING.
+      - name: make wasm-browser-test (the browser frontend in headless Chromium)
+        if: matrix.leg == 'browser'
+        run: LANG=C make wasm-browser-test
 
       # No JNEXT_TEST_JOBS: the suite's lanes default to the runner's CPUs and
       # its timing-sensitive rows run in their own quiet phase (GH #295), so

@@ -2299,6 +2299,13 @@ target_link_libraries(sdl_app_tick_test PRIVATE
 target_include_directories(sdl_app_tick_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdl_app_tick_tests COMMAND sdl_app_tick_test)
 
+# GH #463 - the browser frontend's policy: the rAF callback gate that maps
+# SdlApp::tick()'s sleep onto the animation-frame grid, and the page's refusals.
+# Header-only code with no Emscripten include, compiled natively here.
+add_executable(browser_policy_test platform/browser_policy_test.cpp)
+target_include_directories(browser_policy_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME browser_policy_tests COMMAND browser_policy_test)
+
 # Pin the C locale for every registered test, so `ctest` matches what
 # test/run-unit-tests.sh and regression.sh do. A test's verdict must depend on the
 # code, not on the user's LANG: Qt's QApplication calls setlocale(LC_ALL, "") on

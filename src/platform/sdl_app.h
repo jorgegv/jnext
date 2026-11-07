@@ -40,6 +40,11 @@ public:
 
     Emulator& emulator() { return emulator_; }
 
+#ifdef __EMSCRIPTEN__
+    /// The browser ended the pointer lock itself (Escape): follow it.
+    void release_mouse_capture() { set_mouse_captured(false); }
+#endif
+
     /// Set emulator config before calling init().
     void set_config(const EmulatorConfig& cfg) { config_ = cfg; config_set_ = true; }
 
