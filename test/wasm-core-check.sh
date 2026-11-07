@@ -4,7 +4,7 @@
 #
 #   bash test/wasm-core-check.sh <build-dir>      e.g. build/wasm-core
 #
-# Rows WCORE-01..08, printed in the suite's uniform format; exits non-zero on any
+# Rows WCORE-01..09, printed in the suite's uniform format; exits non-zero on any
 # FAIL or SKIP. The oracle is the native binary's behaviour for the same command
 # where one exists (the CLI refusals, the log-file error), else the SDK's own
 # contract (no shared memory). The node is the SDK's, resolved through
@@ -13,7 +13,7 @@ set -uo pipefail
 
 export LC_ALL=C LANG=C
 
-EXPECTED_TOTAL=8
+EXPECTED_TOTAL=9
 
 BUILD=${1:?usage: wasm-core-check.sh <build-dir>}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -121,6 +121,14 @@ row WCORE-07 "sha256_test under node runs $SHA_ROWS rows (the count pinned in un
 run_jnext --inject-org 0x --version
 row WCORE-08 "--inject-org 0x is refused (exit 1), as natively" \
     $([[ $RC -eq 1 && "$OUT" != jnext* ]] && echo 1 || echo 0) "rc=$RC out=[$OUT] err=[$ERR]"
+
+# WCORE-09: no SD card given and none found: the provisioner declines without reading stdin
+# (in a browser a stdin read is window.prompt()). A 'y' is offered on stdin and must not be read.
+RC=0
+printf 'y\n' | timeout --kill-after=5s 60s "$NODE" "$JS" --headless --machine next >"$SCRATCH/out" 2>"$SCRATCH/err" || RC=${PIPESTATUS[1]}
+OUT=$(<"$SCRATCH/out"); ERR=$(<"$SCRATCH/err")
+row WCORE-09 "with no SD image the WebAssembly build declines the download without a prompt (exit 1, no [y/N])" \
+    $([[ $RC -eq 1 && "$ERR$OUT" == *"WebAssembly build cannot download"* && "$ERR$OUT" != *"[y/N]"* ]] && echo 1 || echo 0) "rc=$RC out=[$OUT] err=[$ERR]"
 
 RAW=$(stat -c %s "$WASM")
 GZ=$(gzip -9 -c "$WASM" | wc -c)

@@ -210,6 +210,18 @@ are unaffected either way.
 
 **--sdcard** *FILE*  
 Mount SD-card image *FILE* (`.img`). Optional; see **SD CARD AND ROMS**.
+A ZIP archive is not an image and is refused (exit status 1): unzip it
+first. The WebAssembly build extracts the single `.img` inside one.
+
+**--sdcard-sha256** *HEX*  
+The SHA-256 of the **--sdcard** image, as the caller has already checked
+it. The warm-start recording is keyed on it instead of on the image’s
+size and modification time. **jnext** does not hash the image: *HEX*
+must describe the file as it is. The browser build uses this option,
+because its page rewrites the card into memory on every visit (so the
+time changes) and has already checked the hash. *HEX* is 64 hexadecimal
+digits, in either case. Requires **--sdcard**. A recording taken after
+**jnext** has written to the card in this run is used, but not cached.
 
 **--sdcard-download-confirm**  
 Skip the download prompt for the default-location image and proceed.
@@ -261,16 +273,17 @@ card with no firmware on it, a recording that will not load back —
 **jnext** says so on standard error and falls back to the machine it has
 always assembled.
 
-The recording is keyed by the SD image’s size and modification time, the
-machine type and the state format, and it is also dropped when **jnext**
-itself writes to the image, so it invalidates itself whenever any of
-those change. The image’s contents are not read: an image replaced or
-edited from outside with the same size and the same modification time
-(`cp -p`, `touch -r`) is served the old recording. Use this option to
-force the issue in that case, and after replacing `TBBLUE.FW` or
-NextZXOS on the card. It applies to `.nex` files on the Next only: the
-other machine types run no firmware, and snapshots and tapes are loaded
-by mechanisms a firmware-resident machine does not have.
+The recording is keyed by the SD image’s size and modification time (or
+by the **--sdcard-sha256** digest), the machine type and the state
+format, and it is also dropped when **jnext** itself writes to the
+image, so it invalidates itself whenever any of those change. The
+image’s contents are not read: an image replaced or edited from outside
+with the same size and the same modification time (`cp -p`, `touch -r`)
+is served the old recording. Use this option to force the issue in that
+case, and after replacing `TBBLUE.FW` or NextZXOS on the card. It
+applies to `.nex` files on the Next only: the other machine types run no
+firmware, and snapshots and tapes are loaded by mechanisms a
+firmware-resident machine does not have.
 
 The recording is made on your machine from the image you mounted, and is
 never shipped with **jnext**: it contains NextZXOS and DivMMC ROM
@@ -3104,10 +3117,10 @@ keeps the newest 20 files it made (see **--quick-snapshot-keep**).
 The recorded NextZXOS-resident machine a **--load** of a `.nex` starts
 from, one file per machine type, around 100 KB each. Written on the
 first such load with a given SD image and re-recorded whenever the
-image’s size or modification time changes, or JNEXT writes to it, or the
-machine type or the state format changes - see
-**--warm-start-regenerate**. Deleting it costs one cold boot, nothing
-else.
+image’s size or modification time (or **--sdcard-sha256** digest)
+changes, or JNEXT writes to it, or the machine type or the state format
+changes - see **--warm-start-regenerate**. Deleting it costs one cold
+boot, nothing else.
 
 `~/.jnext/sdcard/cspect-next-1gb-fixed.img`  
 The default SD-card image, used when **--sdcard** is not given.

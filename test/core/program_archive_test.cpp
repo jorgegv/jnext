@@ -826,6 +826,69 @@ int main() {
               ok && fs::path(path).filename() == "_CON.TAP" && slurp(path) == pattern(9), path + " " + why);
     }
 
+    // SD card images (jnext-internal): a zipped card is unpacked by exactly one
+    // `.img` member. Oracle: the rule in the issue plan (one non-directory
+    // member whose basename ends .img, case-insensitive, ignoring __MACOSX/
+    // and ._*); bytes and CRC checks are PKWARE APPNOTE 4.3.7 / 4.4.7.
+    {
+        const Bytes card = pattern(1500);
+        for (int method : {0, 8}) {
+            spit(files + "/sd" + std::to_string(method) + ".zip",
+                 zipfx::build({mem("README.txt", pattern(7)), mem("Card.IMG", card, static_cast<uint16_t>(method))}));
+            std::string path, why, member;
+            const bool ok = pa::extract_single_sd_image(files + "/sd" + std::to_string(method) + ".zip",
+                                                         path, why, &member);
+            const bool bytes = ok && slurp(path) == card;
+            const bool name = ok && fs::path(path).filename() == pa::extraction_name("Card.IMG") &&
+                              member == "Card.IMG";
+            if (method == 0)
+                check("ZIPL-35", "a stored-method zip with one .img member extracts byte-identically under its extraction name",
+                      bytes && name, path + " " + why);
+            else
+                check("ZIPL-36", "a deflated .img member extracts byte-identically under its extraction name",
+                      bytes && name, path + " " + why);
+        }
+    }
+    {
+        spit(files + "/sdnone.zip", zipfx::build({mem("a.txt", pattern(3)), mem("b.nex", pattern(4))}));
+        spit(files + "/sdtwo.zip", zipfx::build({mem("one.img", pattern(3)), mem("two.IMG", pattern(4))}));
+        std::string p1, p2, w1, w2;
+        const bool n1 = pa::extract_single_sd_image(files + "/sdnone.zip", p1, w1);
+        const bool n2 = pa::extract_single_sd_image(files + "/sdtwo.zip", p2, w2);
+        check("ZIPL-37", "no .img member is refused naming the members it holds; two are refused naming both",
+              !n1 && !n2 && has(w1, "holds no SD card image") && has(w1, "a.txt") && has(w1, "b.nex") &&
+                  p1.empty() && p2.empty() && has(w2, "holds 2 SD card images") && has(w2, "one.img") &&
+                  has(w2, "two.IMG"),
+              w1 + " | " + w2);
+    }
+    {
+        spit(files + "/sdmac.zip", zipfx::build({mem("__MACOSX/._card.img", pattern(5)), mem("card.img", pattern(60)),
+                                                  mem("._other.img", pattern(6))}));
+        std::string path, why, member;
+        const bool ok = pa::extract_single_sd_image(files + "/sdmac.zip", path, why, &member);
+        check("ZIPL-38", "__MACOSX/ entries and ._ resource forks are ignored: the real card.img extracts",
+              ok && member == "card.img" && slurp(path) == pattern(60), path + " " + why + " " + member);
+    }
+    {
+        Member m = mem("bad.img", pattern(80));
+        m.crc_override = static_cast<int64_t>(crc32(0, pattern(80).data(), 80)) + 1;
+        spit(files + "/sdbad.zip", zipfx::build({m}));
+        auto count_files = [] {
+            const std::string d = pa::process_scratch().process_dir();
+            size_t n = 0;
+            std::error_code e;
+            if (!d.empty() && fs::exists(d, e))
+                for (auto it = fs::recursive_directory_iterator(d, e); it != fs::recursive_directory_iterator(); it.increment(e))
+                    if (it->is_regular_file(e)) ++n;
+            return n;
+        };
+        const size_t before = count_files();
+        std::string path, why;
+        const bool ok = pa::extract_single_sd_image(files + "/sdbad.zip", path, why);
+        check("ZIPL-39", "a member with a corrupt CRC is refused and no output file is left in the scratch directory",
+              !ok && has(why, "CRC") && path.empty() && count_files() == before, why);
+    }
+
     fs::remove_all(root, ec);
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", total, passed, failed, 0);

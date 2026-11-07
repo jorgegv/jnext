@@ -3,6 +3,7 @@
 #include "platform/sdl_app.h"
 #include "core/emulator.h"
 #include "core/log.h"
+#include "core/warm_start_cache.h"
 
 #include <SDL3/SDL.h>
 #include <emscripten.h>
@@ -89,12 +90,23 @@ extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_frame()
     return g_ctx.app ? static_cast<double>(g_ctx.app->emulator().frame_num()) : 0.0;
 }
 
+// Make a warm-start recording durable: the page mounts IndexedDB (IDBFS) on the
+// warm-start directory only, and store() calls this once after writing a file.
+// With no IDBFS mounted (node, a page that did not ask) syncfs has nothing to
+// flush and calls back at once.
+EM_JS(void, jnext_web_persist_warm_start, (), {
+    if (typeof FS !== 'undefined' && FS.syncfs) {
+        FS.syncfs(false, (e) => { if (e) console.warn('jnext: warm-start state not persisted: ' + e); });
+    }
+});
+
 namespace browser_frontend {
 
 bool active() { return g_ctx.active; }
 
 void prepare()
 {
+    warm_start::set_persist_hook(jnext_web_persist_warm_start);
     // SDL's keyboard default is #window: it would capture every key of the
     // page. Follow the canvas selector instead (a page ENV value wins).
     const char* sel = SDL_GetHint(SDL_HINT_EMSCRIPTEN_CANVAS_SELECTOR);

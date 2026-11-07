@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -96,8 +97,20 @@ struct Identity {
     /// replaced or edited from outside with the SAME size and the SAME mtime
     /// (`cp -p`, `touch -r`) serves the stale recording; `--warm-start-
     /// regenerate` is the escape hatch.
+    ///
+    /// The BROWSER build keys on a digest instead (`--sdcard-sha256`): its
+    /// page rewrites the card into memory on every visit, so the mtime is
+    /// the time of the visit, and the page has already checked the hash. In
+    /// that mode `sd_image_sha256` is the page's digest and `sd_image_mtime`
+    /// is 0. All zero means "no digest" (the desktop key). The digest sits
+    /// in the same refusal branch as size and mtime.
     uint64_t sd_image_bytes = 0;
     int64_t  sd_image_mtime = 0;
+    std::array<uint8_t, 32> sd_image_sha256{};
+    bool has_sha256() const {
+        for (uint8_t b : sd_image_sha256) if (b) return true;
+        return false;
+    }
 
     /// `MachineType` ordinal. Only the Next has firmware to record; the field
     /// is here so a cache can never be served to the machine it was not taken
@@ -129,6 +142,10 @@ struct Identity {
     uint64_t plain_bytes = 0;
 };
 
+/// Parse 64 hex digits (any case) into 32 bytes. False for any other input
+/// (wrong length, a non-hex character, empty); `out` is then untouched.
+bool parse_sha256_hex(const std::string& hex, std::array<uint8_t, 32>& out);
+
 /// `<config-dir>/warm-start`, where `<config-dir>` is `$JNEXT_CONFIG_DIR` when
 /// set and non-empty, else `$HOME/.jnext` — i.e. beside the SD image, and
 /// following the same override, because it is derived from
@@ -153,6 +170,13 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why);
 /// a failed store is never fatal to the caller, it only costs the next run
 /// another boot.
 bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& why);
+
+/// Called once after every SUCCESSFUL store(), when set. The browser build
+/// installs one that flushes its IndexedDB-backed warm-start directory, so the
+/// one place a recording is written is the one place it is made durable. A
+/// store() that is refused or fails never calls it.
+using PersistHook = void (*)();
+void set_persist_hook(PersistHook hook);
 
 /// Byte length of the on-disk header that precedes the compressed payload.
 /// PLAIN — never compressed. See the file-layout comment in the .cpp for why
