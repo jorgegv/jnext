@@ -451,6 +451,16 @@ endif()
 
 add_executable(jnext src/main.cpp)
 
+# The Emscripten `jnext` is the node build (`make regression-wasm`, the WCORE
+# rows): NODERAWFS gives it the host filesystem (the SD image, the PNG written
+# to a host path) instead of a private MEMFS, and EXIT_RUNTIME flushes stdio and
+# runs the static destructors at exit, as natively. The browser build is the
+# separate jnext_web target below, whose options these per-target ones do not
+# reach.
+if(EMSCRIPTEN)
+    target_link_options(jnext PRIVATE -sNODERAWFS=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1)
+endif()
+
 # GH #308 -- stack-frame gate. No production function may need a frame over
 # 256 KiB. jnext relies on MinGW's default 2 MB main-thread reserve on Windows
 # (no linker stack override); the frame of main() once outgrew it, and the size

@@ -312,6 +312,11 @@ standalone_summary() {
     [[ "$fail" -eq 0 ]] || exit 1
 }
 
+# shot_wall_bound <exit_delay_s> -- the wall-clock bound, in seconds, of one screenshot
+# row: its emulated exit delay plus a 5 s buffer, times 4, times SHOT_WALL_FACTOR
+# (1 unless regression.sh widens it for a slower runtime, the WebAssembly run).
+shot_wall_bound() { echo $(( ($1 + 5) * 4 * ${SHOT_WALL_FACTOR:-1} )); }
+
 # png_diff <a> <b> [sentinel] — count pixels whose channels differ exactly.
 #
 # Do not use `compare -metric AE` here. ImageMagick 7.1.2 Q16-HDRI reports
