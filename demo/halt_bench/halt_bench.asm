@@ -50,6 +50,7 @@ _main:
 
         IF CTCDAC
         nextreg $22, $04                ; the ULA frame interrupt off: the CTC is the only source
+        nextreg $C0, $01                ; IM 2 hardware mode: a CTC interrupt reaches the CPU only through the fabric
         nextreg $C5, $01                ; CTC channel 0 may interrupt
         ld bc, $243B                    ; DAC on: NR 0x08 b3
         ld a, $08

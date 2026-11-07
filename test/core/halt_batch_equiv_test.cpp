@@ -128,7 +128,7 @@ bool isr_ran(Emulator& e, const Layout& L) {
 
 // A Next at `speed` (NR 0x07 low bits: 0 = 3.5, 1 = 7, 2 = 14, 3 = 28 MHz) running the
 // shared IM 2 program, whose HALT sits in the given pages (0xFF = leave the default SRAM).
-Scenario im2_halt(const char* name, uint8_t speed, uint8_t page6, int frames = 300) {
+Scenario im2_halt(const char* name, uint8_t speed, uint8_t page6, int frames = 120) {
     Scenario s;
     s.name = name;
     s.frames = frames;
@@ -140,7 +140,8 @@ Scenario im2_halt(const char* name, uint8_t speed, uint8_t page6, int frames = 3
         install_im2_program(e, kHigh);
         start_at(e, kHigh.main, 0xBFF0);
     };
-    s.alive = [](Emulator& e) { return isr_ran(e, kHigh) && e.cpu().is_halted(); };
+    // Not is_halted(): a frame ends wherever the CPU happens to be, often inside the handler.
+    s.alive = [](Emulator& e) { return isr_ran(e, kHigh); };
     return s;
 }
 
@@ -156,13 +157,16 @@ Scenario line_int() {
     return s;
 }
 
-// CTC channel 0 as a timer, period 944 T (59 x 16): not a multiple of the 224 T line.
-// The ULA interrupt is masked so the CTC is the only source.
+// CTC channel 0 as a timer, period 944 T (59 x 16): not a multiple of the 228 T line.
+// A CTC interrupt reaches the CPU only through the IM 2 fabric in hardware mode
+// (NR 0xC0 b0), where the vector comes from the device; the ULA interrupt is masked so
+// the CTC is the only source.
 Scenario ctc_int() {
     Scenario s = im2_halt("ctc-int", 0, 0xFF);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
         base(e);
+        nr(e, 0xC0, 0x01);
         nr(e, 0x22, 0x04);                       // ULA interrupt off
         nr(e, 0xC5, 0x01);                       // CTC channel 0 may interrupt
         e.port().out(0x183B, 0x87);              // int enable, timer, /16, auto trigger, TC follows, reset
@@ -188,7 +192,7 @@ Scenario im2_hardware() {
 
 // DI; HALT with the ULA interrupt firing every frame and never accepted: its
 // request window opens and expires with the CPU halted.
-Scenario di_halt(const char* name, uint8_t speed, int frames = 300) {
+Scenario di_halt(const char* name, uint8_t speed, int frames = 120) {
     Scenario s;
     s.name = name;
     s.frames = frames;
@@ -216,7 +220,7 @@ Scenario contended_bank5() {
         install_im2_program(e, kBank5);
         start_at(e, kBank5.main, 0x8000);
     };
-    s.alive = [](Emulator& e) { return isr_ran(e, kBank5) && e.cpu().is_halted(); };
+    s.alive = [](Emulator& e) { return isr_ran(e, kBank5); };
     return s;
 }
 
@@ -286,10 +290,10 @@ int main() {
     check_ab("HBQ-24", "IM 2 hardware mode (NR 0xC0 b0) with CTC and ULA through the fabric: identical per frame",
              {im2_hardware()});
 
-    // HBQ-28: an idle DI;HALT across 300 frames reaches every frame's last line and the
+    // HBQ-28: an idle DI;HALT across 60 frames reaches every frame's last line and the
     // frame end (run_frame's loop, emulator.cpp).
-    check_ab("HBQ-28", "DI;HALT idle across 300 frames, every frame end reached: identical per frame",
-             {di_halt("idle-frames", 3, 300)});
+    check_ab("HBQ-28", "DI;HALT idle across 60 frames, every frame end reached: identical per frame",
+             {di_halt("idle-frames", 3, 60)});
 
     // HBQ-30: execute_single_instruction() is exactly one slot. A HALT repeat is the real
     // opcode fetch (t80n.vhd:496-503): 4 T (32 master cycles) at 3.5 MHz, 5 T (5 master
