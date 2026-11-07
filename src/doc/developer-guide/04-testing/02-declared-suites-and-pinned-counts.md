@@ -56,7 +56,10 @@ it more briefly — *this file is a contract, not a convenience.*
   ID and assertion unchanged, into a sibling suite whose `# os:` excludes that
   platform. `uart_posix_test`, `esxdos_symlink_test`, `esp_sigpipe_test` and
   `sdcard_file_add_posix_test` are exactly that (`posix`), the CLI rows that start
-  the built `jnext` live in `cli_options_native_test` (`native`), and the suites
+  the built `jnext` live in `cli_options_native_test` (`native`), so do the rows that
+  need a worker thread (`emulator_boot_native_test`, `uart_integration_native_test`),
+  a child process (`video_recorder_cmd_native_test`) or a joystick the SDL port does not
+  map (`input_integration_native_test`), and the suites
   whose subject the browser build does not have (the debugger servers, the script
   engine, the ESP-01 and NextPi, the SD-card downloader) are `native` as a whole, and
   `sdcard_file_add_linux_test`, one row that needs a case-sensitive host

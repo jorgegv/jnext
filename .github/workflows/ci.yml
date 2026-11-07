@@ -398,6 +398,9 @@ jobs:
       # test/unit-tests.conf (cross-checked both ways, never skipped) and named in
       # the run's NOTICE. As root, node-run.sh drops CAP_DAC_OVERRIDE with setpriv
       # (util-linux, in the container), as wine-run.sh does. BLOCKING, like unit-win.
+      # tap_loader_test peaks at about 1.5 GB of resident memory under node (the rest
+      # stay under 0.5 GB), so JNEXT_UNIT_TEST_JOBS (one per CPU) needs a runner with
+      # a few GB free.
       - name: make unit-test-wasm (the SDL-only suites as WebAssembly under node)
         if: matrix.leg == 'unit-wasm'
         run: LANG=C make unit-test-wasm

@@ -3037,7 +3037,10 @@ it more briefly — <em>this file is a contract, not a convenience.</em></p>
   ID and assertion unchanged, into a sibling suite whose <code># os:</code> excludes that
   platform. <code>uart_posix_test</code>, <code>esxdos_symlink_test</code>, <code>esp_sigpipe_test</code> and
   <code>sdcard_file_add_posix_test</code> are exactly that (<code>posix</code>), the CLI rows that start
-  the built <code>jnext</code> live in <code>cli_options_native_test</code> (<code>native</code>), and the suites
+  the built <code>jnext</code> live in <code>cli_options_native_test</code> (<code>native</code>), so do the rows that
+  need a worker thread (<code>emulator_boot_native_test</code>, <code>uart_integration_native_test</code>),
+  a child process (<code>video_recorder_cmd_native_test</code>) or a joystick the SDL port does not
+  map (<code>input_integration_native_test</code>), and the suites
   whose subject the browser build does not have (the debugger servers, the script
   engine, the ESP-01 and NextPi, the SD-card downloader) are <code>native</code> as a whole, and
   <code>sdcard_file_add_linux_test</code>, one row that needs a case-sensitive host

@@ -49,6 +49,7 @@
 
 #include "../row_id.h"
 #include "../test_portable.h"
+#include "video_recorder_sf_common.h"
 
 namespace {
 
@@ -112,62 +113,7 @@ VideoRecorder::EncodeSpec spec_with_audio(const std::string& dir, char sep)
 // ---------------------------------------------------------------
 namespace fs = std::filesystem;
 
-fs::path g_sf_dir;  // scratch dir for the SF rows
-
-bool sf_setup()
-{
-    g_sf_dir = fs::temp_directory_path() /
-               ("jnext_vr_stopfail_" + jtp::process_id_string());
-    std::error_code ec;
-    fs::create_directories(g_sf_dir, ec);
-    if (ec) return false;
-
-    // The stand-in is a real program (core/ffmpeg_stub.cpp), copied under the
-    // name the recorder runs: `ffmpeg` on POSIX, `ffmpeg.exe` on Windows (where
-    // CreateProcess searches PATH for the name plus ".exe").
-#ifdef _WIN32
-    const fs::path stub = g_sf_dir / "ffmpeg.exe";
-#else
-    const fs::path stub = g_sf_dir / "ffmpeg";
-#endif
-    fs::copy_file(JNEXT_FFMPEG_STUB, stub, fs::copy_options::overwrite_existing, ec);
-    if (ec) return false;
-
-#ifdef _WIN32
-    const char path_sep = ';';
-#else
-    const char path_sep = ':';
-#endif
-    const char* old_path = std::getenv("PATH");
-    const std::string new_path =
-        g_sf_dir.string() + path_sep + (old_path ? old_path : "/usr/bin:/bin");
-    return jtp::set_env("PATH", new_path.c_str()) == 0;
-}
-
-void sf_mode(const char* mode)
-{
-    jtp::set_env("JNEXT_TEST_FFMPEG_MODE", mode);
-}
-
-/// start() + one captured frame, so stop() reaches the encode step.
-bool sf_start_with_frame(VideoRecorder& rec, const std::string& name)
-{
-    if (!rec.start((g_sf_dir / name).string())) return false;
-    const uint32_t frame[16] = {};  // 4x4 ARGB
-    rec.capture_frame(frame, 4, 4);
-    return true;
-}
-
-std::string sf_path(const std::string& name)
-{
-    return (g_sf_dir / name).string();
-}
-
-bool sf_output_exists(const std::string& name)
-{
-    std::error_code ec;
-    return fs::exists(g_sf_dir / name, ec);
-}
+using namespace vr_sf;
 
 }  // namespace
 
@@ -549,76 +495,10 @@ int main()
     {
         VideoRecorder rec;
         sf_mode("success");
-        const bool started = sf_ready && sf_start_with_frame(rec, "good.mp4");
-        const bool stopped = started && rec.stop();
-        check("SF-08", "a successful recording: stop() true, stop_failed() stays false",
-              started && stopped && !rec.stop_failed());
-    }
-    {
-        // Sticky across a DIFFERENT path: the failed recording at sticky1
-        // never materialized; a later success at sticky2 must not clear it.
-        // (A success at the SAME path does clear it — SF-12.)
-        VideoRecorder rec;
-        sf_mode("encode-fail");
-        bool ok = sf_ready && sf_start_with_frame(rec, "sticky1.mp4");
-        ok = ok && !rec.stop() && rec.stop_failed();
-        sf_mode("success");
-        ok = ok && sf_start_with_frame(rec, "sticky2.mp4");
-        const bool second_ok = ok && rec.stop();
-        check("SF-09", "the latch is STICKY: a later successful recording does not clear it",
-              ok && second_ok && rec.stop_failed());
-    }
-    {
-        VideoRecorder rec;
-        sf_mode("success");
         const bool started = sf_ready && rec.start((g_sf_dir / "noframes.mp4").string());
         const bool stopped = started && rec.stop();  // no capture_frame(): nothing to encode
         check("SF-10", "stop() with no frames captured returns false and latches",
               started && !stopped && rec.stop_failed());
-    }
-    {
-        // GH #86 review round 2 BLOCKER row — REVERSE ordering. The CLI
-        // file (A) records fine FIRST; an unrelated ad-hoc recording (B)
-        // fails LATER. The path-scoped check main.cpp uses must stay clean
-        // for A while reporting B — an object-scoped latch cannot pass.
-        VideoRecorder rec;
-        sf_mode("success");
-        bool ok = sf_ready && sf_start_with_frame(rec, "cli_a.mp4");
-        ok = ok && rec.stop();
-        sf_mode("encode-fail");
-        ok = ok && sf_start_with_frame(rec, "adhoc_b.mp4");
-        const bool b_failed = ok && !rec.stop();
-        check("SF-11", "an unrelated later failure (B) does not mark an earlier successful output (A)",
-              ok && b_failed && !rec.output_failed(sf_path("cli_a.mp4")) &&
-                  rec.output_failed(sf_path("adhoc_b.mp4")));
-    }
-    {
-        // Same-path retry: a later SUCCESSFUL recording to the SAME path
-        // clears that path's failure — the requested artifact now exists.
-        VideoRecorder rec;
-        sf_mode("encode-fail");
-        bool ok = sf_ready && sf_start_with_frame(rec, "retry.mp4");
-        ok = ok && !rec.stop() && rec.output_failed(sf_path("retry.mp4"));
-        sf_mode("success");
-        ok = ok && sf_start_with_frame(rec, "retry.mp4");
-        const bool second_ok = ok && rec.stop();
-        check("SF-12", "a successful re-record to the SAME path clears that path's failure",
-              ok && second_ok && !rec.output_failed(sf_path("retry.mp4")) &&
-                  !rec.stop_failed());
-    }
-    {
-        // A PARTIAL, NON-EMPTY artifact from a failing encoder is KEPT for
-        // inspection (only 0-byte leftovers are removed) — and the failure
-        // still latches.
-        VideoRecorder rec;
-        sf_mode("partial-fail");
-        const bool started = sf_ready && sf_start_with_frame(rec, "partial.mp4");
-        const bool stopped = started && rec.stop();
-        std::error_code sz_ec;
-        const auto sz = fs::file_size(g_sf_dir / "partial.mp4", sz_ec);
-        check("SF-13", "a failed encode's partial non-empty output is kept, and still latches",
-              started && !stopped && rec.output_failed(sf_path("partial.mp4")) &&
-                  !sz_ec && sz > 0);
     }
     if (sf_ready) {
         std::error_code ec;

@@ -234,6 +234,18 @@ target_link_libraries(input_integration_test PRIVATE
 target_include_directories(input_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME input_integration_tests COMMAND input_integration_test)
 
+# GPA-03, split out of input_integration_test: it needs a joystick the SDL port does not
+# map (the Emscripten port maps every joystick), so it is `# os: native` and absent there.
+if(NOT EMSCRIPTEN)
+    add_executable(input_integration_native_test input/input_integration_native_test.cpp)
+    target_link_libraries(input_integration_native_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(input_integration_native_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME input_integration_native_tests COMMAND input_integration_native_test)
+endif()
+
 # Phantom Typist compliance test (Task 19, instant TAP loading).
 # Exercises src/input/phantom_typist.{h,cpp} — the FUSE-style
 # "wait for ROM to be ready" auto-typer. Pure unit test against the
@@ -293,6 +305,18 @@ target_link_libraries(uart_integration_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(uart_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME uart_integration_tests COMMAND uart_integration_test)
+
+# ESP-01..04, split out of uart_integration_test: a live emulated ESP runs on a worker
+# thread, which the WebAssembly build does not have (`# os: native`).
+if(NOT EMSCRIPTEN)
+    add_executable(uart_integration_native_test uart/uart_integration_native_test.cpp)
+    target_link_libraries(uart_integration_native_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(uart_integration_native_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME uart_integration_native_tests COMMAND uart_integration_native_test)
+endif()
 
 # The rows of the integration suite that need POSIX (GH #214; `# os: posix` in
 # unit-tests.conf): the joystick-port cable over FIFOs and a pty (JOY-15..22)
@@ -744,6 +768,22 @@ target_compile_definitions(video_recorder_cmd_test PRIVATE
     JNEXT_FFMPEG_STUB="$<TARGET_FILE:ffmpeg_stub>")
 add_test(NAME video_recorder_cmd_tests COMMAND video_recorder_cmd_test)
 
+# SF-08, 09, 11, 12, 13, split out of video_recorder_cmd_test: they record through the
+# stand-in ffmpeg as a child process, which the WebAssembly build cannot start
+# (`# os: native`).
+if(NOT EMSCRIPTEN)
+    add_executable(video_recorder_cmd_native_test core/video_recorder_cmd_native_test.cpp)
+    target_link_libraries(video_recorder_cmd_native_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(video_recorder_cmd_native_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_dependencies(video_recorder_cmd_native_test ffmpeg_stub)
+    target_compile_definitions(video_recorder_cmd_native_test PRIVATE
+        JNEXT_FFMPEG_STUB="$<TARGET_FILE:ffmpeg_stub>")
+    add_test(NAME video_recorder_cmd_native_tests COMMAND video_recorder_cmd_native_test)
+endif()
+
 # NEX loader screen-ingest test (issue #68). Drives the real
 # NexLoader::load() + apply() against a real Emulator, so it pins the
 # actual LoRes / HiRes / HiColour / ULA call sites in nex_loader.cpp and
@@ -971,6 +1011,18 @@ target_link_libraries(emulator_boot_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(emulator_boot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME emulator_boot_tests COMMAND emulator_boot_test)
+
+# EB-18a..d, split out of emulator_boot_test: a live emulated ESP runs on a worker thread,
+# which the WebAssembly build does not have (`# os: native`).
+if(NOT EMSCRIPTEN)
+    add_executable(emulator_boot_native_test platform/emulator_boot_native_test.cpp)
+    target_link_libraries(emulator_boot_native_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(emulator_boot_native_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME emulator_boot_native_tests COMMAND emulator_boot_native_test)
+endif()
 
 # Preferences "Apply" decision policy (issue #40). Pure decision helper under
 # test (src/gui/preferences_apply_policy.h) — header-only, no Qt, so the rule

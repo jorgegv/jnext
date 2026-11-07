@@ -354,8 +354,16 @@ my @SUBSYS = (
      'nmi_integration_test'],
     ['### Companion integration suite — `test/input/input_integration_test.cpp`',
      'input_integration_test'],
+    # GPA-03, moved out of input_integration_test: it needs a joystick the SDL port
+    # does not map (`# os: native`, GH #460).
+    ['### Companion native-only suite — `test/input/input_integration_native_test.cpp`',
+     'input_integration_native_test'],
     ['### Companion integration suite — `test/uart/uart_integration_test.cpp`',
      'uart_integration_test'],
+    # ESP-01..04, moved out of uart_integration_test: a live ESP needs a worker thread
+    # (`# os: native`, GH #460).
+    ['### Companion native-only suite — `test/uart/uart_integration_native_test.cpp`',
+     'uart_integration_native_test'],
     # JOY-15..22 and PI-*, moved out of uart_integration_test into a POSIX-only
     # suite (FIFO/pty cables, the NextPi link, QEMU; GH #214).
     ['### Companion POSIX-only suite — `test/uart/uart_posix_test.cpp`',
@@ -389,6 +397,7 @@ my %PLAN_DOC = (
     'ctc_interrupts_test'         => 'CTC-INTERRUPTS',
     'uart_test'                   => 'UART-I2C',
     'uart_integration_test'       => 'UART-I2C',
+    'uart_integration_native_test' => 'UART-I2C',
     'uart_posix_test'             => 'UART-I2C',
     'nextpi_test'                 => 'UART-I2C',
     'nextreg_test'                => 'NEXTREG',
@@ -396,6 +405,7 @@ my %PLAN_DOC = (
     'port_test'                   => 'IO-PORT-DISPATCH',
     'input_test'                  => 'INPUT',
     'input_integration_test'      => 'INPUT',
+    'input_integration_native_test' => 'INPUT',
     'floating_bus_test'           => 'FLOATING-BUS',
     'videotiming_test'            => 'VIDEOTIMING',
     'contention_test'             => 'CONTENTION',
@@ -980,6 +990,7 @@ my %NO_MATRIX_SECTION = (
     'jns_host_path_linux_test' => 'GH #401: a non-UTF-8 host path is written with U+FFFD and never aborts a .jns save; jnext-internal host behaviour, the FPGA core has no counterpart',
     'sd_no_digest_linux_test' => 'GH #396: no whole-card read on .jns save/probe/load or a warm-start hit, measured by Linux /proc/self/io rchar; jnext-internal host behaviour (a UI-thread stall), the FPGA core has no counterpart',
     'video_recorder_cmd_test' => 'FFmpeg command-line construction (host encoder)',
+    'video_recorder_cmd_native_test' => 'FFmpeg recording through a stand-in child process (host encoder, split out of video_recorder_cmd_test, GH #460)',
 
     # ── Guest-firmware surfaces jnext stands in for ──────────────────
     # The oracle is the NextZXOS/esxDOS API contract and jnext's own trap
@@ -1019,6 +1030,7 @@ my %NO_MATRIX_SECTION = (
     'tick_stats_test'      => 'host tick accounting for the status bar',
     'speed_report_test'    => 'host speed-percentage reporting',
     'emulator_boot_test'   => 'host cold-boot choreography (GH #40 contract, no VHDL oracle)',
+    'emulator_boot_native_test' => 'host cold-boot of a live emulated ESP-01 (threaded; split out of emulator_boot_test, GH #460; no VHDL oracle)',
     'video_recorder_posix_test' => 'GH #446 ffmpeg PATH lookup rows needing exec bits, symlinks and a decoy script (POSIX-only); host tooling, no VHDL oracle',
     'quick_snapshot_posix_test' => 'GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle',
     'pgo_map_parse_test'        => 'GH #416 PGO link-map reader contract (POSIX-only, drives cmake -P); build tooling, no VHDL oracle',
