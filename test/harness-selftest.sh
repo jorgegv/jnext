@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=308  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=314  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -3356,6 +3356,71 @@ out=$(JNEXT_WINE_STALL_AFTER_S=7 JNEXT_WINE_STALL_FLAT_S=8 JNEXT_WINE_STALL_POLL
 kill "$(cat "$T/expl.pid")" 2>/dev/null || true
 check "HS-99t" "the test-only watchdog and winedbg overrides a developer has exported never reach the rows (GH #383)" 0 $rc "$out"$'\n'"$(cat "$T/rowenv" 2>/dev/null)" "env=unset/unset/unset/unset"
 cp "$T/adm-a.good" "$PLT/scripts/adm-a-func.sh"
+
+# ---- a run's cleanup never removes the shared ~/.jnext/runs (GH #460) ----
+# Every run used to prune the (empty) $HOME/.jnext/runs when it ended. That rmdir could land
+# between a concurrent run's `mkdir -p`/`mktemp -d` creating the parent and creating its leaf,
+# which then failed with ENOENT: the unit harness fell back to the shared master (a warning,
+# green), the regression harness gave a spurious sdcard-provision FAIL (measured: 6 in 4290 and
+# 2 in 4284 attempts under two concurrent loops). The cause is removed rather than retried
+# around: only a run's OWN directory is removed, and the parent stays, so no create under it can
+# lose at any site. Pinned for both harnesses, with another run's directory in the parent and
+# with the parent empty (HS-69o reads `ls -A`, so an empty runs/ counts as clean there too).
+# Oracle: the harness contract (an isolated clone per run, GH #75; no run disturbs another).
+RUNSFIX="$T/runsfix"
+runs_probe() {   # runs_probe <unit|regr> <other|empty> -- after one run: own dir, parent, other run's dir
+    local who=$1 mode=$2 h="$RUNSFIX/$1-$2"
+    rm -rf "$h"; mkdir -p "$h/.jnext/sdcard"
+    printf card > "$h/.jnext/sdcard/cspect-next-1gb-fixed.img"
+    if [[ $who == unit ]]; then
+        cache ON ON linux
+        stub good_test 10 0; register good_test; manifest "good_test 10"
+        if [[ $mode == other ]]; then mkdir -p "$h/.jnext/runs/other-live-run"; : > "$h/.jnext/runs/other-live-run/payload.img"; fi
+        ( unset JNEXT_TEST_SD_IMAGE; export HOME="$h"; run_harness ) > "$h.out" 2>&1 || true
+    else
+        HOME="$h" OTHER_MODE="$mode" timeout --kill-after=3s 40s bash -c \
+            "set -euo pipefail
+             source '$PROJECT_DIR/test/00regression/test-functions.inc'
+             if [[ \$OTHER_MODE == other ]]; then mkdir -p \"\$HOME/.jnext/runs/other-live-run\"; : > \"\$HOME/.jnext/runs/other-live-run/payload.img\"; fi
+             [[ -d \"\$RUN_DIR\" ]] && echo own-existed=y
+             regression_cleanup" > "$h.out" 2>&1 || true
+    fi
+    local own parent other
+    own=$(find "$h/.jnext/runs" -mindepth 1 -maxdepth 1 -not -name other-live-run 2>/dev/null | wc -l)
+    [[ -d "$h/.jnext/runs" ]] && parent=kept || parent=gone
+    [[ -e "$h/.jnext/runs/other-live-run/payload.img" ]] && other=intact || other=none
+    echo "own-left=$own parent=$parent other=$other ran=$(grep -c "clone for this run\|own-existed=y" "$h.out")"
+}
+out=$(runs_probe unit other)
+check "HS-164a" "the unit harness's cleanup removes its own run directory and leaves the shared runs/ parent, with another run's directory in it, untouched (GH #460)" 0 0 "$out" \
+    "own-left=0 parent=kept other=intact ran=1"
+out=$(runs_probe unit empty)
+check "HS-164b" "...and leaves an EMPTY runs/ parent in place (GH #460)" 0 0 "$out" "own-left=0 parent=kept other=none ran=1"
+out=$(runs_probe regr other)
+check "HS-164c" "the regression harness's cleanup removes its own run directory and leaves the shared runs/ parent, with another run's directory in it, untouched (GH #460)" 0 0 "$out" \
+    "own-left=0 parent=kept other=intact ran=1"
+out=$(runs_probe regr empty)
+check "HS-164d" "...and leaves an EMPTY runs/ parent in place (GH #460)" 0 0 "$out" "own-left=0 parent=kept other=none ran=1"
+
+# ---- a unit run that cannot make its private SD clone FAILS (owner, 2026-11-07) ----
+# It used to warn and read the shared master, which every other run clones from, and stay
+# green. Now it refuses (exit 2) naming the master, the clone and the cause. Two causes: the
+# run directory cannot be created (runs/ is a plain file here) and the copy itself fails (a
+# `cp` first on PATH that reports a full disk). Oracle: the regression harness's rule, which
+# fails the run when its clone fails.
+CLF="$T/clonefail"; rm -rf "$CLF"; mkdir -p "$CLF/home1/.jnext/sdcard" "$CLF/home2/.jnext/sdcard" "$CLF/shim"
+printf card > "$CLF/home1/.jnext/sdcard/cspect-next-1gb-fixed.img"; printf card > "$CLF/home2/.jnext/sdcard/cspect-next-1gb-fixed.img"
+: > "$CLF/home1/.jnext/runs"
+printf '#!/usr/bin/env bash\necho "cp: error writing: No space left on device" >&2\nexit 1\n' > "$CLF/shim/cp"; chmod +x "$CLF/shim/cp"
+cache ON ON linux; stub good_test 10 0; register good_test; manifest "good_test 10"
+out=$( unset JNEXT_TEST_SD_IMAGE; export HOME="$CLF/home1"; run_harness ); rc=$?
+check "HS-165a" "a unit run whose private SD clone cannot be created refuses to run, naming the master and the cause, and does not read the shared master (owner decision 2026-11-07)" 2 $rc "$out" \
+    "REFUSES TO RUN" "Cannot make this run's private clone of the SD master" "master: $CLF/home1/.jnext/sdcard/cspect-next-1gb-fixed.img" "cause:"
+[[ "$out" != *"Total:"* ]] || { echo "  HS-165a: a suite ran after the clone failed"; fail=$((fail + 1)); }
+out=$( unset JNEXT_TEST_SD_IMAGE; export HOME="$CLF/home2" PATH="$CLF/shim:$PATH"; run_harness ); rc=$?
+check "HS-165b" "...and so does a copy that fails (cause: the cp error is shown), again with no suite run (owner decision 2026-11-07)" 2 $rc "$out" \
+    "REFUSES TO RUN" "No space left on device"
+[[ "$out" != *"Total:"* ]] || { echo "  HS-165b: a suite ran after the clone failed"; fail=$((fail + 1)); }
 
 echo ""
 echo "====================================="
