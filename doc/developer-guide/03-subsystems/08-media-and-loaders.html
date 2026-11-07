@@ -3442,6 +3442,18 @@ starts at 14 MHz, not at the speed it found; and both loaders act on the
 expansion-bus byte at header offset 142 whatever the file's version. What
 NextZXOS itself leaves in registers no loader writes (its config, its NMI
 setup) jnext does not reproduce; the list is in <code>apply()</code>.</p>
+<p>Neither loader clears all of bank 5, and <code>apply()</code> writes no more than they do.
+The V1.0–V1.2 loader sets the border to 0 and the attributes (<code>$5800</code>–<code>$5AFF</code>)
+to 0 on every load, DONTRESETNEXTREGS or not (<code>nexload.asm:319-320</code>, above that
+gate); pixels and <code>$5B00</code>–<code>$7FFF</code> are left alone. The V1.3 loader, unless the
+file says PRESERVENEXTREG, sets the border to the header colour, clears the
+pixels and fills the attributes with the colour times 8
+(<code>nexload2.asm:1114-1126</code>); a preserving file gets no clear at all. After that
+the header border is written only when a loading-screen block is loaded
+(<code>nexload.asm:424-425</code>, <code>nexload2.asm:634-635</code>), so a file with no screen runs
+with a black border (V1.0–V1.2) or the border it found (V1.3, preserving).
+<code>NEXB5-*</code> pin each case against a bank 5 seeded with a sentinel, which is the
+warm-start situation.</p>
 <h2 id="the-warm-start-applying-a-nex-to-a-machine-the-firmware-made">The warm start: applying a NEX to a machine the firmware made<a class="headerlink" href="#the-warm-start-applying-a-nex-to-a-machine-the-firmware-made" title="Permanent link">&para;</a></h2>
 <p>The warm start replaces the synthetic
 machine at the top of <code>Emulator::load_nex()</code> with a recording of a real boot.
@@ -3558,6 +3570,10 @@ bank 2 at <code>$8000</code>. Both reference loaders set them explicitly
 machine the defaults do not hold — a measured MMU3 = page 17 sent every write
 to <code>$6000-$7FFF</code> into Layer 2's bank 8. <code>apply()</code> now writes them, which is a
 no-op on the synthetic path and pinned by <code>NEXMMU-01..07</code>.</p>
+<p>The same holds for the rest of bank 5. <code>apply()</code> used to zero all 16 KB first,
+which on a warm start erased the NextZXOS system variables (<code>$5B00</code>–<code>$5CBF</code>:
+the paging stubs, <code>CHANS</code>, <code>STRMS</code>, <code>CHARS</code>); they now survive the load, as
+they do under the real <code>nexload</code>.</p>
 <p><strong>The cost.</strong> A miss costs a 500-frame boot, ~3.5 s headless. A hit costs one
 <code>stat</code> of the SD image plus inflating the ~100 KB cache. The key is the image's
 (size, mtime) read after the recording, plus a process-wide write generation

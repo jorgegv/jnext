@@ -46,8 +46,12 @@ class Emulator;
 ///    a fixed nexload.asm-equivalent NextREG initialisation sequence on
 ///    load, regardless of what this saver wrote.
 ///
+/// The border colour does NOT survive: the file carries no loading screen,
+/// and the loader writes the header border only when one is shown
+/// (nexload.asm:424-425), setting it to 0 otherwise (:319).
+///
 /// What DOES survive a full save→reload cycle through jnext's own
-/// pipeline: PC, SP, border colour, and the full byte content of every
+/// pipeline: PC, SP, and the full byte content of every
 /// saved 16K RAM bank (including the code/data the program needs to
 /// resume execution at PC).
 class NexSaver {

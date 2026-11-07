@@ -188,6 +188,13 @@ static void write_to_ram(Mmu& mmu, uint16_t start_page, size_t start_offset,
     }
 }
 
+/// Fill `len` bytes of bank 5 from bank-5 offset `off` (< 0x2000) with `value`.
+static void clear_bank5(Mmu& mmu, size_t off, size_t len, uint8_t value)
+{
+    const std::vector<uint8_t> fill(len, value);
+    write_to_ram(mmu, 10, off, fill.data(), len);
+}
+
 /// Ingest one 12288-byte NEX LoRes / HiRes / HiColour screen block into
 /// bank 5 the way the reference loader does: TWO 6144-byte reads separated
 /// by a 2048-byte hole — NOT one contiguous 12288-byte run (issue #68).
@@ -225,7 +232,7 @@ static void write_split_screen_block(Mmu& mmu, const uint8_t* src)
 
 // render_progress_mark — defined inline in nex_loader.h (G156). Inline
 // keeps unit tests linkable without jnext_core, same rationale as
-// ram_required_kb / zero_bank5_screen_pages above.
+// ram_required_kb above.
 
 /// Apply the three writes that end a loading-screen block in nexload.asm,
 /// making the just-ingested screen actually visible. The values come from
@@ -995,16 +1002,35 @@ bool NexLoader::apply(Emulator& emu) const
     // looks at it.
     const uint8_t sf2_raw = header_.screen_flags2;
 
-    // G16: pre-zero bank 5 (pages 10+11, 16 KB) before any of the optional
-    // ULA / LoRes / HiRes / HiColour screen-format ingest paths runs. They
-    // each write to page 10 offset 0 with 6912 / 12288 / 12288 / 12288
-    // bytes respectively, leaving the residual upper portion of bank 5 with
-    // stale RAM contents from before the load — observable as attribute /
-    // pixel leak in shadow-screen and certain ULA modes. The Layer 2
-    // screen ingest writes pages 16-21 (banks 8/9/10), so bank 5 is not
-    // in that range and Layer 2 remains untouched. See header doc-comment
-    // for full rationale (BEAST-NEX-INVESTIGATION.md § Verdict).
-    zero_bank5_screen_pages(mmu);
+    // The loaders' own screen clear, and nothing more. The old G16
+    // pre-zero wrote all 16 KB of bank 5, which neither loader does: on a
+    // warm start it wiped the NextZXOS system variables ($5B00-$5CBF) and
+    // the rest of bank 5 that the recorded machine holds. What each loader
+    // really writes, and the border with it:
+    //
+    //   V1.0-V1.2, nexload.asm:319-320, above the DONTRESETNEXTREGS gate
+    //   (:323), so on every load:
+    //       xor a:out (254),a
+    //       ld hl,$5800:ld de,$5801:ld bc,$2ff:ld (hl),0:ldir
+    //     = border 0 and the attributes $5800-$5AFF set to 0. Pixels and
+    //     $5B00-$7FFF are not touched.
+    //   V1.3, nexload2.asm clsWithBordercol (:1114-:1126), reached from
+    //   setupBeforeBlockLoading (:828) only AFTER the `ret nz` of
+    //   PRESERVENEXTREG (:781-:783):
+    //       out ($FE),BORDERCOL ; $4000-$57FF = 0 ; $5800-$5AFF = BORDERCOL*8
+    //     A file with PRESERVENEXTREG set gets no clear at all.
+    //
+    // Bank 5 is MMU pages 10/11; write_to_ram() reaches it through the
+    // temp slot, which routes to the bank-5 BRAM in Next mode.
+    if (!v13) {
+        emu.port().out(0x00FE, 0x00);                          // nexload.asm:319
+        clear_bank5(mmu, 0x1800, 0x0300, 0x00);                // :320
+    } else if (header_.preserve_regs == 0) {
+        emu.port().out(0x00FE, header_.border_colour);         // nexload2.asm:1115-1116
+        clear_bank5(mmu, 0x0000, 0x1800, 0x00);                // :1117-1122
+        clear_bank5(mmu, 0x1800, 0x0300,                       // :1123-1126
+                    static_cast<uint8_t>(header_.border_colour << 3));
+    }
 
     // Seed the tilemap palette with the ULA classic palette.
     //
@@ -1573,8 +1599,22 @@ bool NexLoader::apply(Emulator& emu) const
     // 5. Border colour (via ULA port 0xFE)
     // ---------------------------------------------------------------
 
-    emu.port().out(0x00FE, header_.border_colour & 0x07);
-    Log::emulator()->debug("NEX: border colour set to {}", header_.border_colour & 0x07);
+    // Both loaders write the raw header byte, and only when a loading
+    // screen is shown. V1.0-V1.2: BorderCol is read and written only past
+    // `or a:jp z,.skpbmp` on LOADSCR (nexload.asm:424-425, :512), so a file
+    // with no screen keeps the border 0 set at :319. V1.3: LoadScreenBlock
+    // writes BORDERCOL once per block that loads (nexload2.asm:634-635); a
+    // block loads for a classic LOADSCR bit (second byte NONE) or for one of
+    // the three EXT2 kinds (:623-:625), the same decode the ingest above
+    // uses. The preserve=0 border was already written by the clear.
+    const bool v13_block = (sf & 0x1F) != 0 ||
+        sf2 == NexHeader::SCREEN2_L2_320x256 ||
+        sf2 == NexHeader::SCREEN2_L2_640x256 ||
+        sf2 == NexHeader::SCREEN2_TILEMODE;
+    if (v13 ? v13_block : sf != 0) {
+        emu.port().out(0x00FE, header_.border_colour);
+        Log::emulator()->debug("NEX: border colour set to {}", header_.border_colour);
+    }
 
     // ---------------------------------------------------------------
     // 6. Map entry_bank to MMU slots 6+7 (0xC000-0xFFFF)
