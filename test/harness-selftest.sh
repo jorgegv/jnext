@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=315  # 314 -> 315: HS-167 (the self-test runs in a scratch HOME and never reaches the real ~/.jnext; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=318  # 314 -> 318: HS-167, HS-168a..c (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -128,10 +128,22 @@ trap 'rm -rf "$T"' EXIT
 # clones), each a full copy where reflink is unavailable (CI's ext4), and a SIGKILL leaks it.
 # So no row reaches the real ~/.jnext. The master here is 4 bytes of non-image data: the
 # clone modes only need a regular file to copy, and a row that sets its own HOME (HS-164,
-# HS-165, the fixtures) keeps it. HS-167 pins the property.
-export HOME="$T/home"
-mkdir -p "$HOME/.jnext/sdcard"
-printf card > "$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"
+# HS-165, the fixtures) keeps it. HS-167 pins the property, HS-168 guards the real master.
+#
+# The stand-in is written through SCRATCH_HOME, never through $HOME: a self-test whose export
+# is lost (a mutation of this block, an edit) must not be able to write "card" over the real
+# 1 GB master. That happened on 2026-11-07 (a mutation run replaced the export with `true`
+# while the printf kept using $HOME). HS-168c is the hard guard: the real master's identity
+# (size, mtime, inode) is recorded here and compared at the end of the run.
+master_sig() {   # master_sig <file> -- "size:mtime:inode", or "absent"; metadata only, never opened
+    stat -c '%s:%Y:%i' "$1" 2>/dev/null || echo absent
+}
+REAL_MASTER="${HOME:-/nonexistent}/.jnext/sdcard/cspect-next-1gb-fixed.img"
+REAL_MASTER_SIG=$(master_sig "$REAL_MASTER")
+SCRATCH_HOME="$T/home"
+mkdir -p "$SCRATCH_HOME/.jnext/sdcard"
+printf card > "$SCRATCH_HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"
+export HOME="$SCRATCH_HOME"
 
 # The harness reads the build's configuration out of its CMakeCache.txt to decide
 # which `# gate:`d suites this build owes it (GH #273), so every fake build tree
@@ -3459,6 +3471,21 @@ res+=" unit=$([[ "$unit_img" == "$T/home/.jnext/runs/unit-"* ]] && echo scratch 
 res+=" regr=$([[ "$regr_dir" == "$T/home/.jnext/runs/"* ]] && echo scratch || echo "OTHER:$regr_dir")"
 check "HS-167" "a self-test run clones the SD master only inside its scratch HOME: unit suite image and regression RUN_DIR (owner decision 2026-11-07)" 0 $rc "$res" \
     "home=scratch unit=scratch regr=scratch"
+
+# ---- the real SD master is never touched by the self-test (HS-168) ----
+# Hard guard, from the 2026-11-07 incident (the real master became the 4-byte stand-in).
+# a/b prove the guard on scratch files (an unchanged file reads the same, an appended byte
+# reads different), c compares the REAL master's size/mtime/inode with the start of the run.
+# It is metadata only. A false red needs another process re-provisioning the master DURING
+# this run: loud on purpose, rerun once to confirm.
+gf="$T/guardfix"; printf 'abcd' > "$gf"; g0=$(master_sig "$gf")
+res="same=$([[ "$(master_sig "$gf")" == "$g0" ]] && echo yes || echo no)"
+check "HS-168a" "the master guard reads an untouched file as unchanged (the 2026-11-07 incident)" 0 0 "$res" "same=yes"
+sleep 1; printf x >> "$gf"
+res="same=$([[ "$(master_sig "$gf")" == "$g0" ]] && echo yes || echo no) absent=$(master_sig "$T/nonexistent-file")"
+check "HS-168b" "...and an appended byte (a write to the master) reads as changed; a missing file reads absent" 0 0 "$res" "same=no" "absent=absent"
+res="before=$REAL_MASTER_SIG after=$(master_sig "$REAL_MASTER")"
+check "HS-168c" "the REAL SD master's size, mtime and inode are unchanged since the start of the self-test (the 2026-11-07 incident)" 0 0 "$res" "before=$REAL_MASTER_SIG after=$REAL_MASTER_SIG"
 
 echo ""
 echo "====================================="
