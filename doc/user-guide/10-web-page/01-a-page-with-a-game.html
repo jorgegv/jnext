@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4302,7 +4302,7 @@
 <p>What happens, in order:</p>
 <ol>
 <li><code>mount()</code> checks the options. A name it does not know, or a value of the wrong
-   type, rejects the promise at once and names the option; nothing is downloaded.</li>
+   type, rejects the promise at once and names the option; the SD-card image is not downloaded.</li>
 <li>The page fetches the SD-card image from <code>image.url</code>, checks its SHA-256 and keeps
    it in the browser's cache. The next visit checks the cached copy and does not
    download it again. <code>onProgress('download', fraction)</code> reports the download.</li>

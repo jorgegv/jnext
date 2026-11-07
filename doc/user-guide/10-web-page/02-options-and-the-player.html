@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4429,7 +4429,9 @@
 <li><code>onProgress(phase, fraction)</code>: <code>phase</code> is <code>download</code>, <code>warm-start</code> or <code>restore</code>;
   <code>fraction</code> runs from 0 to 1.</li>
 <li><code>onReady()</code>: after the mount's click, after <code>load()</code> and after <code>reset()</code>: the
-  program is in the machine and a frame has been shown.</li>
+  program is in the machine and a frame has been shown. A load the program itself
+  asks for (a NEX that runs another) is not the page's: it fires no <code>onReady</code> and
+  <code>reset()</code> still restarts the page's program.</li>
 <li><code>onError(message)</code>: on every failure (a refused option, a bad image, a program that
   does not load, an exit with an error). The promise of the call that failed rejects
   with the same message.</li>
@@ -4449,7 +4451,7 @@
 </tr>
 <tr>
 <td><code>ready</code></td>
-<td>A promise for the first ready; it rejects if the machine does not start.</td>
+<td>A promise for the first ready; it rejects if the machine does not start, or if the startup program does not load.</td>
 </tr>
 <tr>
 <td><code>pause()</code>, <code>resume()</code></td>
