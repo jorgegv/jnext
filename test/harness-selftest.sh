@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=314  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=315  # 314 -> 315: HS-166 (the self-test runs in a scratch HOME and never reaches the real ~/.jnext; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -121,6 +121,18 @@ proc_with_args() {   # proc_with_args <exact argv string> — the pids running i
 
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
+
+# A scratch $HOME for the WHOLE self-test. The real run-unit-tests.sh and regression_lib_init
+# each clone the SD master from $HOME/.jnext/sdcard into $HOME/.jnext/runs, and many rows run
+# them end to end: 85 reads of the real 1 GB master per run (33 unit clones, 52 regression
+# clones), each a full copy where reflink is unavailable (CI's ext4), and a SIGKILL leaks it.
+# So no row reaches the real ~/.jnext. The master here is 4 bytes of non-image data: the
+# clone modes only need a regular file to copy, and a row that sets its own HOME (HS-164,
+# HS-165, the fixtures) keeps it. HS-166 pins the property.
+REAL_HOME_AT_START=${HOME:-}
+export HOME="$T/home"
+mkdir -p "$HOME/.jnext/sdcard"
+printf card > "$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"
 
 # The harness reads the build's configuration out of its CMakeCache.txt to decide
 # which `# gate:`d suites this build owes it (GH #273), so every fake build tree
@@ -3421,6 +3433,36 @@ out=$( unset JNEXT_TEST_SD_IMAGE; export HOME="$CLF/home2" PATH="$CLF/shim:$PATH
 check "HS-165b" "...and so does a copy that fails (cause: the cp error is shown), again with no suite run (owner decision 2026-11-07)" 2 $rc "$out" \
     "REFUSES TO RUN" "No space left on device"
 [[ "$out" != *"Total:"* ]] || { echo "  HS-165b: a suite ran after the clone failed"; fail=$((fail + 1)); }
+
+# ---- the self-test never reaches the real ~/.jnext (HS-166) ----
+# The scratch $HOME exported at the top of this file is what keeps run-unit-tests.sh and
+# regression_lib_init away from the real SD master and the real runs/ parent. Pinned from the
+# real scripts, end to end: a unit run's suite sees its private clone under the scratch HOME,
+# a regression library init puts RUN_DIR there, and neither run's pid names an entry in the
+# REAL runs/ (keyed on pids, so another agent's concurrent runs cannot disturb the row).
+# Oracle: the harness contract (an isolated clone per run, GH #75) and the owner's rule of
+# 2026-11-07 (a self-test never reads or clones the real master).
+cache ON ON linux
+stub sdhome_test 10 0 'echo "SDIMG=${JNEXT_TEST_SD_IMAGE:-unset}" >> "$T_SDHOME_OUT"'
+register sdhome_test; manifest "sdhome_test 10"
+rm -f "$T/sdhome.out"
+out=$( unset JNEXT_TEST_SD_IMAGE; T_SDHOME_OUT="$T/sdhome.out" run_harness ); rc=$?
+unit_img=$(sed -n 's/^SDIMG=//p' "$T/sdhome.out" 2>/dev/null | head -1)
+regr_out=$(timeout --kill-after=3s 40s bash -c \
+    "set -euo pipefail
+     source '$PROJECT_DIR/test/00regression/test-functions.inc'
+     echo \"REGPID=\$\$ RUN_DIR=\$RUN_DIR\"
+     regression_cleanup" 2>&1 || true)
+regr_dir=$(sed -n 's/.*RUN_DIR=//p' <<<"$regr_out" | head -1)
+regr_pid=$(sed -n 's/.*REGPID=\([0-9]*\) .*/\1/p' <<<"$regr_out" | head -1)
+real_runs="${REAL_HOME_AT_START:-/nonexistent}/.jnext/runs"
+real_hits=$(ls -A "$real_runs" 2>/dev/null | grep -c -E "^(unit-)?${regr_pid:-NOPID}-" || true)
+res="home=$([[ "$HOME" == "$T/home" ]] && echo scratch || echo REAL)"
+res+=" unit=$([[ "$unit_img" == "$T/home/.jnext/runs/unit-"* ]] && echo scratch || echo "OTHER:$unit_img")"
+res+=" regr=$([[ "$regr_dir" == "$T/home/.jnext/runs/"* ]] && echo scratch || echo "OTHER:$regr_dir")"
+res+=" real-runs-hits=$real_hits"
+check "HS-166" "a self-test run clones the SD master only inside its scratch HOME: unit suite image, regression RUN_DIR, no entry in the real runs/ (owner decision 2026-11-07)" 0 $rc "$res" \
+    "home=scratch unit=scratch regr=scratch real-runs-hits=0"
 
 echo ""
 echo "====================================="
