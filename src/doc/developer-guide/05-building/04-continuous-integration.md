@@ -96,13 +96,16 @@ dependency set and checks out the repository with submodules; then
   builds no PGO binary, so on an SD-image cache miss `make unit-test-win`
   provisions the image itself (`make sdcard-image`);
 - **`unit-wasm`** runs `make unit-test-wasm`: the SDL-only suites as WebAssembly
-  under node, in the same SDK cache as `wasm`. It builds no PGO binary, so on an
+  under node, in the same SDK cache as `regression-wasm`. It builds no PGO binary, so on an
   SD-image cache miss the target provisions the image itself. Run as root in the
   container, the runner drops CAP_DAC_OVERRIDE with `setpriv` (util-linux);
 - **`regression`** runs `make clean && make gui-release` and `make regression`;
-- **`wasm`** runs `make wasm-core`: the SDL-only core built for WebAssembly and
-  run under node. It needs no SD image. The Emscripten SDK is provisioned by the
-  target itself (`test/provision-emsdk.sh`, pinned by three sha256) into
+- **`regression-wasm`** runs `make regression-wasm`: the regression suite's
+  screenshot rows against the SDL-only core built for WebAssembly and run under
+  node (`make wasm-core`, with its WCORE rows, is a prerequisite, so the leg has no
+  step of its own for it). It uses the SD-image cache, as every leg that boots
+  NextZXOS does. The Emscripten SDK is provisioned by the target itself
+  (`test/provision-emsdk.sh`, pinned by three sha256) into
   `~/.cache/jnext/tools/emsdk-6.0.13`, which the leg caches under a key carrying
   the version and the pins, so a hit only skips the downloads;
 - **`browser`** runs `make wasm-browser-test`: the browser frontend in the pinned

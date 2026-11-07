@@ -151,6 +151,7 @@ never from the caller, and the two trees must agree. Use the make targets:
 ```console
 $ make regression-win      # Linux host: MinGW exes under wine
 $ make regression-macos    # macOS host (CI: macos-regression)
+$ make regression-wasm     # WebAssembly build under node (CI: regression-wasm)
 ```
 
 `regression-win` builds the Qt exe as the shipped build minus PGO (Release +
@@ -161,9 +162,9 @@ tree (`TEST_BIN_DIR`). A full run takes the host lock like `make regression`.
 `ROWS="a-func b-func"` runs named rows. Platform runs are never stamped.
 
 Which rows an OS runs is declared in `functional_tests.conf` by the `os=<list>`
-tag (a subset of `linux,macos,windows`; `linux` is mandatory, so a Linux run is
-unchanged; no tag means all three), with a `# os:` reason on the line above the
-row. `# expect-macos: N` and `# expect-windows: N` pin the counts both ways. The
+tag (a subset of `linux,macos,windows,emscripten`; `linux` is mandatory, so a Linux run is
+unchanged; no tag means linux, macos and windows; `emscripten` is opt-in), with a `# os:` reason on the line above the
+row. `# expect-macos: N`, `# expect-windows: N` and `# expect-emscripten: N` pin the counts both ways. The
 run prints the absent rows by name; they are not SKIPs and are not counted. The
 6 lints (tree checks) run in the Linux run only. Currently absent: the X11
 key-injection rows and the rows that do not run jnext (Linux only); the
@@ -171,6 +172,15 @@ key-injection rows and the rows that do not run jnext (Linux only); the
 `audio-underrun`, `sdl-options` and `dzrp-paused-headless` (the macOS CI runner's
 timers inflate a 5 ms sleep to 26 ms; measured, reason beside each tag) and the two libspectrum `snapshot-foreign-*` rows (no
 Homebrew formula) on macOS.
+
+`regression-wasm` runs the 68 screenshot rows (no functional row names emscripten
+yet, so all are printed absent) against `build/wasm-core/jnext.js`, linked for node
+(NODERAWFS), through shims that run `test/node-run.sh --jnext`. Every screenshot is
+compared at tolerance 0 against the committed native reference; nothing is
+regenerated. The rows' wall-clock bound is widened by `SHOT_WALL_FACTOR` (4) for
+this run only; the emulated exit is unchanged. The SD master is derived by the
+host's own `jnext` (the SDL unit-test tree), since the WebAssembly build declines
+downloads.
 
 Rows reach the binaries through `$JNEXT` and `$JNEXT_SDL`, the helpers through
 `$TEST_BIN_DIR`, and read `$JNEXT_TARGET_OS` where a row must differ (offscreen

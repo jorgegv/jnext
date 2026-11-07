@@ -79,7 +79,11 @@ retry.
 `build/wasm-core` is the WebAssembly build (`make wasm-core`): Release, the
 Emscripten toolchain file of the SDK that `make emsdk` provides, and only the
 SDL-only configuration, so CMake refuses it with `ENABLE_QT_UI` or
-`ENABLE_DEBUGGER` on. It builds the `jnext` and `sha256_test` targets only. The
+`ENABLE_DEBUGGER` on. `make wasm-core` builds the `jnext` and `sha256_test` targets
+only. `jnext` there is the node build: it links with `-sNODERAWFS=1
+-sENVIRONMENT=node -sEXIT_RUNTIME=1`, so it sees the host filesystem (what
+`make regression-wasm` needs), and its size is not the browser's, which is
+`jnext_web`'s. The
 configuration differs from the native SDL-only one in a few places: no
 curl/OpenSSL (the SD-card provisioner's web twin,
 `sdcard_provisioner_net_web.cpp`, has a portable SHA-256 and never downloads),
