@@ -3119,8 +3119,9 @@ that outlives <code>main()</code> is therefore not a local of it: the applicatio
 released to the loop, the two recorders are <code>static</code> (the emulator's callbacks
 hold references to them; they are never destroyed), logging is not shut down
 while the loop lives (<code>spdlog::shutdown()</code> drops every registered logger, and one
-first used inside the loop would be built afresh, without <code>--log-level</code> or
-<code>--log-file</code>), and the post-run tail of a run (recorders, <code>shutdown()</code>,
+first used inside the loop would be built afresh, without its <code>--log-level</code>
+and, for the peripheral loggers that fall back to <code>spdlog::stderr_color_mt</code>,
+without <code>--log-file</code>), and the post-run tail of a run (recorders, <code>shutdown()</code>,
 the exit status) is a function, <code>finish</code>, that the loop calls once a tick ends
 the run. Its result reaches the page through <code>Module.onExit</code>. A <code>callMain</code> that
 returns with no loop installed (a refused flag) has no <code>onExit</code>: its return

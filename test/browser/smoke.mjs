@@ -1,4 +1,4 @@
-// Browser smoke rows BRW-01..26 (make wasm-browser-test), run by browser-smoke.sh
+// Browser smoke rows BRW-01..29 (make wasm-browser-test), run by browser-smoke.sh
 // on the SDK's node. Each row prints PASS|FAIL <ID> <text>; the run ends with the
 // suite's `Total:` line and exits non-zero on any FAIL. Oracles are NATIVE runs
 // of the same arguments, made by browser-smoke.sh into $SMOKE_ORACLE (build/

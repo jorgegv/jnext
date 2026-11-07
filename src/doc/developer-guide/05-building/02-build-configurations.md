@@ -108,8 +108,9 @@ that outlives `main()` is therefore not a local of it: the application is
 released to the loop, the two recorders are `static` (the emulator's callbacks
 hold references to them; they are never destroyed), logging is not shut down
 while the loop lives (`spdlog::shutdown()` drops every registered logger, and one
-first used inside the loop would be built afresh, without `--log-level` or
-`--log-file`), and the post-run tail of a run (recorders, `shutdown()`,
+first used inside the loop would be built afresh, without its `--log-level`
+and, for the peripheral loggers that fall back to `spdlog::stderr_color_mt`,
+without `--log-file`), and the post-run tail of a run (recorders, `shutdown()`,
 the exit status) is a function, `finish`, that the loop calls once a tick ends
 the run. Its result reaches the page through `Module.onExit`. A `callMain` that
 returns with no loop installed (a refused flag) has no `onExit`: its return

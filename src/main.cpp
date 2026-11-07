@@ -2949,7 +2949,8 @@ int main(int argc, char* argv[]) {
 #endif
 #ifdef JNEXT_BROWSER
     // The loop still logs, and spdlog::shutdown() drops every registered logger: one first
-    // touched inside the loop would then be built fresh, without --log-level / --log-file.
+    // touched inside the loop would then be built fresh, without its --log-level (and, for the
+    // peripheral loggers that fall back to spdlog::stderr_color_mt, without --log-file).
     if (browser_frontend::active()) return result;
 #endif
     spdlog::shutdown();
