@@ -2774,7 +2774,8 @@ one script, `jnext-VERSION.js` (with `jnext-VERSION.wasm` beside it), which defi
 one global, `jnext`; **jnext.mount**(*container*, *options*) puts a player in a DOM
 element and returns a promise for it. Every option of **mount** is a command-line
 flag or a **\--set** key, so what the page asks for is what the command line would
-ask for; the player's `argv` property shows that command line.
+ask for; the player's `argv` property shows that command line. A browser page loads
+only `.nex`, `.tap` and `.tzx` programs.
 
 The page supplies the SD-card image by URL and SHA-256 (the browser fetches it,
 checks it on every visit and keeps it in its cache); the machine starts when the
@@ -2837,11 +2838,9 @@ that says so: **\--nextpi**, **\--nextpi-dir**, **\--nextpi-release**,
 **\--zrcp-port**, **\--debug-listen-address**, **\--script**, **\--script-key**,
 **\--record-script**, **\--map**, **\--annotations**, **\--import-skoolkit**,
 **\--import-ghidra**, **\--headless** (it would block the tab for ever),
-**\--rzx-play** and **\--rzx-record**. The **\--set** keys of the refused flags are
-refused too: `esp.enabled`, `esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`,
+**\--rzx-play** and **\--rzx-record**. The settings of the refused flags are refused
+when given as set entries too: `esp.enabled`, `esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`,
 `nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args`.
-
-A browser page loads only `.nex`, `.tap` and `.tzx` programs.
 
 # EXAMPLES
 
