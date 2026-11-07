@@ -48,7 +48,7 @@ function files(log) {
     const m = /^\/([^/]+)\/([^/]+)$/.exec(u.pathname);
     const f = m && ROOTS[m[1]] && path.join(ROOTS[m[1]], decodeURIComponent(m[2]));
     if (!f || !fs.existsSync(f) || !fs.statSync(f).isFile()) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'Content-Type': MIMES[path.extname(f)] || 'application/octet-stream' });
+    res.writeHead(200, { 'Content-Type': MIMES[path.extname(f)] || 'application/octet-stream', 'Access-Control-Allow-Origin': '*' });
     res.end(fs.readFileSync(f));
   };
 }
@@ -139,6 +139,9 @@ function diff(a, b) {
   for (let i = 0; i < a.d.length; i += 4) if (a.d[i] !== b.d[i] || a.d[i + 1] !== b.d[i + 1] || a.d[i + 2] !== b.d[i + 2]) n++;
   return n;
 }
+const memInfo = (page, ids) => page.evaluate((ids) => ({
+  wasm_mib: ids.map((i) => window['player' + i]._module.HEAP8.length / 1048576),
+  js_heap_mib: performance.memory ? performance.memory.usedJSHeapSize / 1048576 : -1 }), ids);
 const RED = { file: '/nex/red.nex', machine: 'next', muted: true };
 const BLUE = { file: '/nex/blue.nex', machine: 'next', muted: true };
 let main = null;   // the page rows 01-11 share: one context, so the warm start is recorded once
@@ -215,6 +218,7 @@ row('WEBAPI-06', 'pause(): the frame counter stops and state is paused; resume()
   await sleep(500);
   const f3 = await frame(main);
   const st2 = await main.evaluate(() => window.player0.state);
+  console.log(`# WEBAPI-06 resume: ${f3 - f2} frames in the first 500 ms after a 500 ms pause`);
   must(f3 - f2 >= 5 && f3 - f2 <= 30 && st2 === 'running', `advanced ${f3 - f2} frames in 500 ms, state ${st2}`);
 });
 
@@ -314,6 +318,7 @@ row('WEBAPI-15', 'two players on one page: own canvases (red, blue); pausing one
   await click(page, 0); await click(page, 1);
   await waitReady(page, 0, 1); await waitReady(page, 1, 1);
   await waitColour(page, 0, isRed); await waitColour(page, 1, isBlue);
+  console.log('# WEBAPI-15 memory, two Next players: ' + JSON.stringify(await memInfo(page, [0, 1])));
   await page.evaluate(() => window.player0.pause());
   const a = await frame(page, 0), b = await frame(page, 1);
   await sleep(500);
@@ -389,6 +394,13 @@ row('WEBAPI-19', 'build/ holds jnext-<version>.js and .wasm; jnext.version equal
   let found = '';
   try { found = execFileSync('git', ['-C', ROOT, 'grep', '-n', '-F', VERSION, '--', 'web'], { encoding: 'utf8' }); } catch (e) { found = ''; }
   must(found === '', 'version literal under web/: ' + found);
+  // The wasmUrl option decides where the .wasm comes from: another server's copy is fetched, and the player starts.
+  const page = await newPage(); attach(page);
+  const n = cLog.length;
+  await open(page, [{ machine: '48k', muted: true, wasmUrl: `${CURL}/build/jnext-${VERSION}.wasm` }]);
+  const r = await rec(page);
+  must(!r.mountError && cLog.slice(n).includes(`/build/jnext-${VERSION}.wasm`), `wasmUrl: mount ${r.mountError}, other server saw ${JSON.stringify(cLog.slice(n))}`);
+  await page.ctx.close();
 });
 
 row('WEBAPI-20', 'two Next players share the warm-start store on a first visit; after a reload both restore and reach ready; IndexedDB holds a whole recording', async () => {
@@ -418,6 +430,8 @@ row('WEBAPI-21', 'a real image host that sends Access-Control-Allow-Origin: the 
   const r = await rec(page);
   const mine = bLog.slice(n).filter((x) => x.url === '/card.img');
   must(!r.mountError && r.state === 'waiting', 'mount: ' + r.mountError);
+  await click(page); await waitReady(page, 0, 1);
+  console.log('# WEBAPI-21 memory, one 48K player: ' + JSON.stringify(await memInfo(page, [0])));
   must(mine.length === 1 && mine[0].origin === AURL, 'server log ' + JSON.stringify(bLog.slice(n)));
   await page.ctx.close();
 });
