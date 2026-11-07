@@ -37,8 +37,8 @@ Three ULA-slot passes then run, in the order the VHDL applies them.
 `apply_lores()` substitutes the LoRes pixel into the ULA slot — LoRes is **not**
 a layer of its own; it replaces the ULA pixel before palette lookup. NR 0x68
 bit 7 blanks the entire ULA output if the row's snapshot says the ULA was
-disabled. And `apply_ula_clip()` masks off everything outside the NR 0x1A clip
-window.
+disabled. And `apply_ula_clip()` masks the display-area pixels outside the NR 0x1A clip
+window; the border is never clipped, as on the hardware.
 
 Finally `composite_scanline()` dispatches on the row's NR 0x15 layer priority
 into a `composite_scanline_mode<PRIO>` template. There are eight
