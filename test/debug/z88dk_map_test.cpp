@@ -1597,9 +1597,9 @@ int main() {
         // GH #477: a constant wider than 32 bits (z88dk writes `__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF`) must be skipped, never throw: `unsigned long` is 32 bits on Windows
         // and std::stoul threw std::out_of_range there. Oracle: z88dk's own map line (nightly maps), and an address is 16 bits.
         SymbolTable wide;
-        const int nw = wide.load_simple_map(synth("wide.simple", "first = $9000\n__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF\nover32 = $100000000\nover64 = $1FFFFFFFFFFFFFFFF\nlast = $9100\n").string());
-        check("Z88HEX-01", "load_simple_map() skips constants that do not fit 16 bits without throwing, whatever their width ($FFFFFFFFFFFFFFFF, $100000000, 17 digits) and keeps the symbols around them",
-              nw == 2 && wide.lookup_name("first") == 0x9000 && wide.lookup_name("last") == 0x9100 && !wide.lookup_name("__clib_malloc_heap_size") && !wide.lookup_name("over32") && !wide.lookup_name("over64"));
+        const int nw = wide.load_simple_map(synth("wide.simple", "first = $9000\nmid = $12345\n__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF\nover32 = $100000000\nover64 = $1FFFFFFFFFFFFFFFF\nlast = $9100\n").string());
+        check("Z88HEX-01", "load_simple_map() skips constants that do not fit 16 bits without throwing, whatever their width ($12345, $FFFFFFFFFFFFFFFF, $100000000, 17 digits) and keeps the symbols around them",
+              nw == 2 && wide.lookup_name("first") == 0x9000 && wide.lookup_name("last") == 0x9100 && !wide.lookup_name("__clib_malloc_heap_size") && !wide.lookup_name("mid") && !wide.lookup_name("over32") && !wide.lookup_name("over64"));
         SymbolTable nb;
         const int nn = nb.load_nextbuild_memory(synth("bom.mem", bom + "ACB5: ._FillScreen\n7335: ._Other\n").string());
         check("MAPBOM-06", "load_nextbuild_memory() skips a UTF-8 BOM: the first line's label is not dropped",
