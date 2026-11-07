@@ -68,7 +68,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6163 | 6163 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6163**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5663**. Rows the 180 suites declared in `test/unit-tests.conf` run live: **15756**.
+Rows the sections above carry: **6163**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5663**. Rows the 180 suites declared in `test/unit-tests.conf` run live: **15779**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 133 suites (10177 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 133 suites (10200 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -153,10 +153,10 @@ These 133 suites (10177 live rows) have no VHDL-derived plan row to map, so they
 | `step_out_test` | 50 | debugger Step Out execution control (jnext-internal); the T80N core has no debugger |
 | `source_map_test` | 130 | source-map and compiler-symbol file adapters (sjasmplus SLD, NextBuild Memory.txt; jnext-internal); the T80N core has no debugger |
 | `reexport_test` | 47 | skoolkit control-file and Ghidra symbol-file exports of debugger labels and the coverage code/data map (GH #389, jnext-internal); the T80N core has no debugger |
-| `z88dk_map_test` | 143 | z88dk -debug map source adapter (sections to pages, extents, identity; jnext-internal); the T80N core has no debugger |
+| `z88dk_map_test` | 145 | z88dk -debug map source adapter (sections to pages, extents, identity; jnext-internal); the T80N core has no debugger |
 | `z88dk_lis_test` | 47 | z88dk --list listing source adapter (relocation by labels, every occurrence of a C line, the start-up code, cross-check; jnext-internal); the T80N core has no debugger |
 | `cdb_record_test` | 55 | z88dk CDB C-variable record decoder (un-escaping, scope split, type chain, storage, T: members, hidden classes, refusals; jnext-internal); the T80N core has no debugger |
-| `c_value_test` | 104 | C value formatting, type lookup, paths, visible locals (pure; jnext-internal); the T80N core has no debugger |
+| `c_value_test` | 125 | C value formatting, type lookup, paths, visible locals (pure; jnext-internal); the T80N core has no debugger |
 | `source_debug_test` | 530 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
 | `source_debug_posix_test` | 11 | source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger |
 | `debugger_backend_test` | 1567 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
