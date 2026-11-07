@@ -1210,7 +1210,7 @@ selector, so it never disturbs emulation state.
 | ~~DVP-04d~~ | …and the debug render leaves it exactly as it found it        | PASS   |
 | ~~DVP-12~~   | the debug views apply the NR 0x1A clip window                    | PASS   |
 | ~~DVP-12a~~  | …keeping display cells inside the window                         | PASS   |
-| ~~DVP-12b~~  | …and clipping the border strips when clip_x1>0 / clip_x2<255     | PASS   |
+| ~~DVP-12b~~  | …and keeping the border strips whatever the window               | PASS   |
 
 ### ULA clip window in the debug path
 
