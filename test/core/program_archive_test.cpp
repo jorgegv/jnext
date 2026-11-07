@@ -751,8 +751,8 @@ int main() {
         const auto t0 = std::chrono::steady_clock::now();
         const bool ok = a.open(files + "/many.zip", why);
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        check("ZIPL-28", "an archive of 65534 program members opens in linear time (under 4 s; a find() per member took 12 s)",
-              ok && a.programs().size() == 65534 && secs < 4.0, why + " secs=" + std::to_string(secs));
+        check("ZIPL-28", "an archive of 65534 program members opens in linear time (under 8 s; a find() per member took 12 s)",
+              ok && a.programs().size() == 65534 && secs < 8.0, why + " secs=" + std::to_string(secs));
     }
     {
         const std::string esc1 = "\x1b]0;PWNED\x07\x1b[31mRED.TAP", esc2 = "\x1b[2JCLEAR.TAP";

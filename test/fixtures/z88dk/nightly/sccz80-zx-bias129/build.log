@@ -1,0 +1,3 @@
+# z88dk 965fd0e628 (nightly)
++ zcc +zx -debug --math48 -Cc-fp-exponent-bias=129 -Cc-fp-mantissa-size=4 -m --list -o prog -create-app fpfmt.c
+rc=0

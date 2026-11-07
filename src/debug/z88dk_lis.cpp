@@ -385,7 +385,9 @@ std::optional<Z88dkListing> parse_z88dk_listing(const std::string& path, std::st
             if (s[12] != ' ' || s[13] != ' ' || !parse_bytes(s, row.bytes) || !is_blank(s, 30, kTextAt))
                 return bad("a malformed byte field");
             row.has_addr = true;
-            row.addr = static_cast<uint32_t>(std::stoul(s.substr(8, 4), nullptr, 16));
+            unsigned addr = 0;   // the four digits were checked above
+            std::from_chars(s.data() + 8, s.data() + 12, addr, 16);
+            row.addr = addr;
             row.text = line.size() > kTextAt ? line.substr(kTextAt) : std::string();
         }
         out.rows.push_back(std::move(row));

@@ -1,12 +1,14 @@
 #!/bin/bash
 # Regenerates the z88dk ground-truth fixtures (GH #343): builds src/ with the
-# three local z88dk installs (2.4, master before the fixes, master after them) and writes the normalised outputs under $DEST
+# local z88dk installs (2.4, master before the fixes, master after them, and a nightly with the float-format symbols) and writes the normalised outputs under $DEST
 # (default: this script's directory). See README.md.
 #   bash test/fixtures/z88dk/generate.sh
 # Exits non-zero if a build's outcome differs from its expected one.
 #   Z88DK_24      z88dk 2.4 install  (default ~/src/spectrum/z88dk-original-2.4)
 #   Z88DK_MASTER  master BEFORE the debug-record fixes, 97731e4e29 (default ~/src/spectrum/z88dk-original-97731e4e29)
 #   Z88DK_FIXED   master AFTER the fixes, 0f0a1cf70e (default ~/src/spectrum/z88dk-original-latest; GH #438)
+#   Z88DK_NIGHTLY the nightly z88dk-20261107-965fd0e628-26852 (default ~/src/spectrum/z88dk-original-965fd0e628; GH #477): a source kit with
+#                 its own prebuilt libraries and no .git, its commit is in its NIGHTLY file; the only install with the float-format map symbols
 set -euo pipefail
 export LANG=C LC_ALL=C
 
@@ -16,7 +18,11 @@ SRC=$HERE/src
 Z24=$(realpath "${Z88DK_24:-$HOME/src/spectrum/z88dk-original-2.4}")
 ZM=$(realpath "${Z88DK_MASTER:-$HOME/src/spectrum/z88dk-original-97731e4e29}")
 ZF=$(realpath "${Z88DK_FIXED:-$HOME/src/spectrum/z88dk-original-latest}")
+ZN=$(realpath "${Z88DK_NIGHTLY:-$HOME/src/spectrum/z88dk-original-965fd0e628}")
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/z88fix.XXXXXX")
+
+commit_of() {  # $1 = install: its git HEAD, or the commit in its NIGHTLY file (a nightly tarball has no .git)
+    if [[ -f $1/NIGHTLY ]]; then awk '/^commit:/ { print $2 }' "$1/NIGHTLY"; else git -C "$1" rev-parse HEAD; fi; }
 
 # z80asm's symbol-name encoding of a path: [A-Za-z0-9] kept, anything else _%02x.
 enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
@@ -24,7 +30,7 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|blocks_c|bits_c|fm_c|u5_c|fl_c|X__xm_c|X1st_c|xm_c|_1st_c|__xm_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c|cross_c|floats_c|f3254_c|ifelse_c|x_c|shadow_c|stub1_c|stub2_c|statics_c|shadowagg_c)$'
+MODS='^(fpfmt_c|fpmix48_c|fpmix32_c|main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|blocks_c|bits_c|fm_c|u5_c|fl_c|X__xm_c|X1st_c|xm_c|_1st_c|__xm_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c|cross_c|floats_c|f3254_c|ifelse_c|x_c|shadow_c|stub1_c|stub2_c|statics_c|shadowagg_c)$'
 
 trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT), $3 = for a dot command, the groups that have a prog_<G>.bin; stdout = kept lines, original order
     awk -v MODS="$MODS" -v CRT="${2:-}" -v BINS="${3:-}" -v EXTRA="${KEEP_EXTRA:-}" '
@@ -63,6 +69,7 @@ BAD=0
 #          banked:<SEG>[:kw] : banked.c -c --codeseg<SEG>, then bmain.c bankin.asm banked.o
 #          xmod   : ./xm.c 1st.c (GH #438: z80asm names the modules X__xm_c and X1st_c; the file list keeps the ./)
 #          classic1:<file> : just that file for +zx with the classic library (GH #438: the float-library builds)
+#          fpmix  : fpmix48.c --math48 and fpmix32.c --math32 compiled apart, linked with --math32 for +zx (GH #477: two float formats in one map)
 #          cvars  : vars.c other.c (GH #431: C variables of every type, -debug records)
 #          extern : ext_use.c ext_def.c (GH #433: `extern int g;` in one module, `int g` in the other)
 #          cbanked: bk.c -c with code, const and data in PAGE_20, then bkmain.c bk.o (GH #431)
@@ -84,6 +91,12 @@ build() {
         single:*) IFS=, read -ra files <<< "${kind#single:}" ;;
         dot:*)  files=(dot.c dutil.c); link=(-m --list "-subtype=${kind#dot:}" -o prog -create-app) ;;
         subdir) mkdir -p "$b/game"; mv "$b/util.c" "$b/game/util.c"; files=(main.c game/util.c asmfn.asm); set -- "$@" -I. ;;
+        fpmix)  zcc[${#zcc[@]}-1]=+zx; link=(-m --list -o prog -create-app)
+                for u in fpmix48:--math48 fpmix32:--math32; do
+                    echo "+ zcc +zx $* ${u#*:} --list -c ${u%%:*}.c -o ${u%%:*}.o"
+                    (cd "$b" && "${zcc[@]}" "$@" "${u#*:}" --list -c "${u%%:*}.c" -o "${u%%:*}.o") || rc=$?
+                done
+                set -- "$@" --math32; files=(fpmix48.o fpmix32.o) ;;
         cvars)  files=(vars.c other.c) ;;
         extern) files=(ext_use.c ext_def.c) ;;
         cbanked) echo "+ zcc +zxn $* --codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20 --list -c bk.c -o bk.o"
@@ -99,7 +112,7 @@ build() {
         (cd "$b" && "${zcc[@]}" "$@" "${link[@]}" "${files[@]}") || rc=$?
     fi
     } > "$b/build.log" 2>&1
-    { echo "# z88dk $(git -C "$Z" rev-parse HEAD) ($inst)"; normalise "$Z" < "$b/build.log" | sed "s|$b/||g"; } > "$out/build.log"
+    { echo "# z88dk $(commit_of "$Z") ($inst)"; normalise "$Z" < "$b/build.log" | sed "s|$b/||g"; } > "$out/build.log"
     echo "rc=$rc" >> "$out/build.log"
     if (( rc != 0 )); then
         echo "NOT PRODUCIBLE: $inst/$name (rc=$rc)"
@@ -131,16 +144,20 @@ provenance() {  # $1 = install, $2 = dir name
     zcc_out=$(env PATH="$Z/bin:$PATH" ZCCCFG="$Z/lib/config" zcc 2>&1 || true)
     zsdcc_out=$("$Z/bin/z88dk-zsdcc" --version </dev/null 2>&1 || true)
     {
-        echo "commit: $(git -C "$Z" rev-parse HEAD)"
-        echo "describe: $(git -C "$Z" describe --tags)"
-        echo "modified tracked files: $(git -C "$Z" status --porcelain --untracked-files=no | awk '{print $2}' | tr '\n' ' ')"
+        if [[ -f $Z/NIGHTLY ]]; then
+            sed 's/^/nightly /' "$Z/NIGHTLY"
+        else
+            echo "commit: $(git -C "$Z" rev-parse HEAD)"
+            echo "describe: $(git -C "$Z" describe --tags)"
+            echo "modified tracked files: $(git -C "$Z" status --porcelain --untracked-files=no | awk '{print $2}' | tr '\n' ' ')"
+        fi
         echo "zcc: $(head -n1 <<<"$zcc_out")"
         echo "zsdcc: $(grep -m1 '^Build' <<<"$zsdcc_out")"
     } > "$d/PROVENANCE"
 }
 
-for z in "$Z24" "$ZM" "$ZF"; do [[ -x $z/bin/zcc ]] || { echo "no zcc in $z" >&2; exit 1; }; done
-rm -rf "${DEST:?}/v2.4" "${DEST:?}/v2.4-dotn" "${DEST:?}/master" "${DEST:?}/master-fixed" "${DEST:?}/master-fixed-zsdcc" "${DEST:?}/master-fixed-80cc" "${DEST:?}/master-fixed-sccz80"
+for z in "$Z24" "$ZM" "$ZF" "$ZN"; do [[ -x $z/bin/zcc ]] || { echo "no zcc in $z" >&2; exit 1; }; done
+rm -rf "${DEST:?}/v2.4" "${DEST:?}/v2.4-dotn" "${DEST:?}/master" "${DEST:?}/master-fixed" "${DEST:?}/master-fixed-zsdcc" "${DEST:?}/master-fixed-80cc" "${DEST:?}/master-fixed-sccz80" "${DEST:?}/nightly" "${DEST:?}/v2.4-fp"
 provenance "$Z24" v2.4
 build "$Z24" v2.4 sccz80-debug  plain          -clib=new -debug
 build "$Z24" v2.4 sdcc-SO0      plain          -clib=sdcc_iy -SO0 --c-code-in-asm
@@ -281,7 +298,38 @@ build "$ZF" master-fixed-zsdcc sdcc-static single:statics.c -clib=sdcc_iy -debug
 build "$ZF" master-fixed-zsdcc sdcc-shadowagg single:shadowagg.c -clib=sdcc_iy -debug
 build "$ZF" master-fixed-80cc 80cc-shadowagg single:shadowagg.c -clib=new -compiler=80cc -debug
 
+# GH #477: z88dk master from 2026-11-06 writes the float format of every C module into the map (__fp_mode, __fp_exponent_bias,
+# __fp_mantissa_size); one build per format and compiler, every one -debug. nightly/ is the only root built with that install; v2.4-fp/
+# is the same program on 2.4, which writes none (the fallback A/B). Spectrum builds only: README "Floats".
+provenance "$ZN" nightly
+provenance "$Z24" v2.4-fp
+FP='single:fpfmt.c'
+build "$ZN" nightly sccz80-zx-math48  classic1:fpfmt.c -debug --math48
+build "$ZN" nightly sccz80-zx-genmath classic1:fpfmt.c -debug --genmath
+build "$ZN" nightly sccz80-zx-lmz     classic1:fpfmt.c -debug -lmz
+build "$ZN" nightly sccz80-zx-math32  classic1:fpfmt.c -debug --math32
+build "$ZN" nightly sccz80-zx-lm      classic1:fpfmt.c -debug -lm
+build "$ZN" nightly sccz80-zx-am9511  classic1:fpfmt.c -debug --am9511
+build "$ZN" nightly sccz80-zx-mbf32   classic1:fpfmt.c -debug --math-mbf32
+build "$ZN" nightly sccz80-zx-mbf40   classic1:fpfmt.c -debug -Cc-fp-mode=mbf40
+build "$ZN" nightly sccz80-zx-mbf64   classic1:fpfmt.c -debug --math-mbf64
+build "$ZN" nightly sccz80-zx-bbc     classic1:fpfmt.c -debug --math-bbc
+build "$ZN" nightly sccz80-zx-z88     classic1:fpfmt.c -debug -Cc-math-z88 -lz88_math
+build "$ZN" nightly sccz80-zx-dai32   classic1:fpfmt.c -debug --math-dai32
+build "$ZN" nightly sccz80-zx-bias129 classic1:fpfmt.c -debug --math48 -Cc-fp-exponent-bias=129 -Cc-fp-mantissa-size=4
+build "$ZN" nightly 80cc-zx-math48    classic1:fpfmt.c -debug -compiler=80cc --math48
+build "$ZN" nightly 80cc-zx-math32    classic1:fpfmt.c -debug -compiler=80cc --math32
+build "$ZN" nightly 80cc-zx-mbf32     classic1:fpfmt.c -debug -compiler=80cc --math-mbf32
+# fl.c does float arithmetic, so these two link their library and the map names it (__code_fp_<lib>_size): the format beats that guess
+build "$ZN" nightly sccz80-zx-fl-mbf32 classic1:fl.c -debug --math-mbf32
+build "$ZN" nightly sccz80-zx-fl-dai32 classic1:fl.c -debug --math-dai32
+build "$ZN" nightly sccz80-zxn        $FP -clib=new -debug
+build "$ZN" nightly sccz80-zxn-math32 $FP -clib=new -debug --math32
+build "$ZN" nightly 80cc-zxn          $FP -clib=new -compiler=80cc -debug
+build "$ZN" nightly sccz80-zx-mix     fpmix -debug
+build "$Z24" v2.4-fp sccz80-zxn       $FP -clib=new -debug
+
 # every file the rows hash: sources, this script, derive-scopes.py, the outputs (README.md and the manifest itself excluded)
-(cd "$DEST" && find src generate.sh derive-scopes.py v2.4 v2.4-dotn master master-fixed master-fixed-zsdcc master-fixed-80cc master-fixed-sccz80 -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"
+(cd "$DEST" && find src generate.sh derive-scopes.py v2.4 v2.4-dotn master master-fixed master-fixed-zsdcc master-fixed-80cc master-fixed-sccz80 nightly v2.4-fp -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"
 if (( BAD )); then echo "unexpected build outcome; scratch kept: $WORK" >&2; exit 1; fi
 rm -rf "$WORK"

@@ -1,0 +1,6 @@
+nightly tarball: z88dk-20261107-965fd0e628-26852.tgz
+nightly sha256: 8362689a3cd10138c3c082eadb2cb8f947ad32220150e667ff1a5c7ca60736db
+nightly url: http://nightly.z88dk.org/z88dk-20261107-965fd0e628-26852.tgz
+nightly commit: 965fd0e628 (master, 2026-11-06 21:28 UTC)
+zcc: zcc - Frontend for the z88dk Cross-C Compiler - v26852-965fd0e628-20261107
+zsdcc: 

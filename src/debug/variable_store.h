@@ -25,6 +25,7 @@
 #include "debug/source_map.h"
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -113,6 +114,16 @@ struct CFrameHelpers {
     CStorage pop_frame;      ///< `l_debug_pop_frame`
 };
 
+/// The float format a C module's map records (the local constants `__fp_mode`, `__fp_exponent_bias` and `__fp_mantissa_size` that
+/// sccz80 and 80cc write into every module they compile; GH #477). `why` non-empty: the module's symbols are unusable (an incomplete
+/// set, or two different values), and a float of that module is refused with it.
+struct CFloatFormat {
+    int mode = -1;             ///< 0 z80 (48-bit), 1 ieee, 2 mbf32, 3 mbf40, 4 mbf64, 5 z88, 6 am9511
+    int exponent_bias = 0;
+    int mantissa_size = 0;     ///< bytes
+    std::string why;
+};
+
 /// What the adapter knows of a map without variables (GH #434, OD-13).
 struct CNoRecordFacts {
     bool c_line_records = false;   ///< the map has `__C_LINE_` records that carry a scope
@@ -132,7 +143,8 @@ public:
     VariableStore(std::vector<CFunction> functions, std::vector<CVariable> variables,
                   std::vector<CRecord> types, std::vector<CRecord> modules,
                   std::vector<std::string> refused, CFrameHelpers helpers = {},
-                  CNoRecordFacts facts = {}, std::string float_library = {});
+                  CNoRecordFacts facts = {}, std::string float_library = {},
+                  std::map<std::string, CFloatFormat> float_formats = {});
 
     const std::vector<CFunction>& functions() const { return functions_; }
     const std::vector<CVariable>& variables() const { return variables_; }
@@ -145,6 +157,14 @@ public:
     /// The float library the map names (`math32`, `mbf32`, ...: the first non-zero `__code_fp_<lib>_size`),
     /// empty when it names none (GH #438, z88dk#3236: the records do not say the float format).
     const std::string& float_library() const { return float_library_; }
+
+    /// The float format module `module` records, null when it records none (zsdcc, assembly, z88dk 2.4 and master before 2026-11-06:
+    /// the caller then decides by the record's size, as before).
+    const CFloatFormat* float_format(const std::string& module) const
+    {
+        const auto it = float_formats_.find(module);
+        return it == float_formats_.end() ? nullptr : &it->second;
+    }
 
     /// The function whose extent holds `at` (the space and the address both), and the offset
     /// into it; nothing else is used: neither the nearest symbol nor a jump target. nullopt: in
@@ -164,6 +184,7 @@ private:
     CFrameHelpers helpers_;
     CNoRecordFacts facts_;
     std::string float_library_;
+    std::map<std::string, CFloatFormat> float_formats_;
 };
 
 }  // namespace dbg

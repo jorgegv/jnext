@@ -12,7 +12,7 @@ address is in. Reading a value, a frame or a type is not here (last section).
 
 ## What the store holds
 
-`VariableStore` (`class VariableStore`, `src/debug/variable_store.h:128`) is immutable once
+`VariableStore` (`class VariableStore`, `src/debug/variable_store.h:139`) is immutable once
 built. Its five vectors:
 
 | Accessor | Holds |
@@ -22,7 +22,8 @@ built. Its five vectors:
 | `types()` | Every `T:` record with its module; the lookup rules (own scope, then a unique tag) belong to the first consumer |
 | `modules()` | Every `M:` record (zsdcc and 80cc only) |
 | `refused()` | `"<escaped symbol>: <reason>"` of every record the decoder refused |
-| `float_library()` | the float library the map names (`math32`, `mbf32`, ...: the first non-zero `__code_fp_<lib>_size`), empty when it names none |
+| `float_format(module)` | the float format the module records: the local constants `__fp_mode`, `__fp_exponent_bias` and `__fp_mantissa_size` that sccz80 and 80cc write into every C module they compile (z88dk master from 2026-11-06). A `CFloatFormat` (`mode`, `exponent_bias`, `mantissa_size`, and `why` when the module's symbols are unusable: an incomplete set, or two different values of one name); null when the module records none (zsdcc, assembly, z88dk 2.4 and older master) |
+| `float_library()` | the fallback for a module with no `float_format()`: the float library the map names (`math32`, `mbf32`, ...: the first non-zero `__code_fp_<lib>_size`), empty when it names none |
 
 A `CStorage` is `resolved` or it says `why` not: a resolved one has the page-aware
 address (`SourceAddress`, the same type as a line's start, so a banked variable is
@@ -62,15 +63,15 @@ no store, because it replaces nothing. `Load MAP` (symbols only) never has one.
 ## How it is filled
 
 `load_z88dk_source_map()` reads the map once. Pass 1 keeps a `const` line that
-starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:728`),
+starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:731`),
 and the parser gained `Z88dkMapLine::is_public` (the scope field). The line records
 of code sections are copied to `scope_records` right after they are placed and
-**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:795`):
+**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:820`):
 a listing's `C_LINE` keeps only the file, so the scope comes from the map; for an 80cc function the table is replaced by the listing's own occurrences (`fill_listing_scopes()`, S4a).
 Just before `map.replace()`, `build_variable_store()`
 (`src/debug/z88dk_source_map.cpp:557`)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:1036`),
+space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:1061`),
 shared by the extent code and the store, so no rule is kept twice.
 
 ## The joins

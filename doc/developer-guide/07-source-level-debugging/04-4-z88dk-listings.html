@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.4</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.4</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3143,7 +3143,7 @@ binaries' bytes). In order:</p>
    placed".
    <strong>5b. A label-less piece smaller than its section is placed by its bytes</strong> (design 9.5). Another module can put code in the same section: the banking driver shares
    <code>code_crt_init</code> with the CRT in the banked-CRT fixtures, so the CRT's own piece has no label in
-   the map and is smaller than the section. <code>place_z88dk_listing()</code> (<code>z88dk_lis.cpp:396</code>) tries
+   the map and is smaller than the section. <code>place_z88dk_listing()</code> (<code>z88dk_lis.cpp:398</code>) tries
    every start <code>c</code> from <code>__&lt;s&gt;_head</code> to <code>__&lt;s&gt;_tail</code> minus the piece's size and excludes it when,
    at any <em>checked row</em>, the section binary holds a byte other than the listing's first byte. A
    checked row is the first byte of a mnemonic row, outside <code>PHASE</code>, in a non-data section; the
@@ -3151,10 +3151,10 @@ binaries' bytes). In order:</p>
    patches an opcode, so a listing of this build is never excluded at its true start. The byte at
    <code>c + row address</code> comes from <code>view.byte_at(value, space)</code>, where <code>place()</code> gave the space; it is
    <em>unknown</em> (<code>nullopt</code>) when no section binary covers the byte, <strong>when two or more do</strong> (overlay
-   sections at one ORG: <code>bin_for(..., &amp;more)</code>, <code>z88dk_source_map.cpp:843</code>, and the <code>byte_at</code> lambda, <code>:912-917</code>), and when <code>place()</code> fails (a ROM area: the memory is not a RAM
+   sections at one ORG: <code>bin_for(..., &amp;more)</code>, <code>z88dk_source_map.cpp:868</code>, and the <code>byte_at</code> lambda, <code>:940-945</code>), and when <code>place()</code> fails (a ROM area: the memory is not a RAM
    page, so no byte can be read). The outcome is one of three:</p>
 <ul>
-<li><strong>no start survives</strong> (<code>survivors</code>, <code>z88dk_lis.cpp:662</code>; the search loop over <code>survivors</code>, <code>z88dk_lis.cpp:621-671</code>): the listing is dropped, with "section '<s>': its label-less lines match no
+<li><strong>no start survives</strong> (<code>survivors</code>, <code>z88dk_lis.cpp:664</code>; the search loop over <code>survivors</code>, <code>z88dk_lis.cpp:621-671</code>): the listing is dropped, with "section '<s>': its label-less lines match no
   place in the section binary; this is not the listing of this build" (row <code>Z88LIS-42</code>);</li>
 <li><strong>exactly one survives and every checked byte was known:</strong> the piece starts there (<code>Z88LIS-36</code>
   and <code>-37</code> on the banked-CRT fixtures: the CRT piece is placed and the driver's bytes after it
