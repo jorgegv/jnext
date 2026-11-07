@@ -10,6 +10,7 @@
 // tick() is one such iteration; it reports the sleep instead of doing it.
 
 #include "platform/sdl_app.h"
+#include "platform/host_modifier.h"
 #include "../test_portable.h"
 #include "../row_id.h"
 
@@ -262,7 +263,7 @@ int main()
     }
 
     // --- SDLT-09: a Quick Load cold-boots and returns early -------------------
-    // Alt+Shift+F5 (save) in one tick, then Alt+Shift+F9 (load) with the exit
+    // Host-modifier+Shift+F5 (save) in one tick, then +F9 (load) with the exit
     // armed after the save: the load tick cold-boots through service_quick_
     // requests() and returns early (true, sleep 0, countdown untouched), so
     // exit 1 still runs two more frames. The snapshots go to a private
@@ -277,7 +278,10 @@ int main()
         jtp::set_env("JNEXT_CONFIG_DIR", cfgdir.string().c_str());
         bool ok = false;
         auto app = make_app(ok);
-        bool pushed = push_key(SDL_SCANCODE_LALT, true) && push_key(SDL_SCANCODE_LSHIFT, true) &&
+        // The frontend's host modifier: Alt, or Command on macOS (GH #403).
+        const SDL_Scancode host_mod =
+            host_modifier::kIsGui ? SDL_SCANCODE_LGUI : SDL_SCANCODE_LALT;
+        bool pushed = push_key(host_mod, true) && push_key(SDL_SCANCODE_LSHIFT, true) &&
                       push_key(SDL_SCANCODE_F5, true) && push_key(SDL_SCANCODE_F5, false);
         uint32_t s = 12345;
         app->tick(s);                                   // the save
