@@ -74,11 +74,15 @@ cd "$PROJECT_DIR"
 #
 # A missing master is NOT fatal here. The suite has its own honest refusal for
 # that case and the rest of the run is unaffected; failing the whole harness
-# because one fixture is unprovisioned would be a worse trade.
+# because one fixture is unprovisioned would be a worse trade. A master that is
+# there but cannot be CLONED is fatal (see sd_clone_for_run).
 UNIT_RUN_DIR=""
 unit_cleanup() {
     [[ -n "$UNIT_RUN_DIR" ]] && rm -rf "$UNIT_RUN_DIR"
-    rmdir "$HOME/.jnext/runs" 2>/dev/null || true
+    # The shared parent $HOME/.jnext/runs is NEVER removed, by this or any other script: only a run's
+    # own directory is. A run that pruned the parent when it ended raced every concurrent run's
+    # `mkdir -p`/`mktemp -d`/QTemporaryDir under it (ENOENT, a lost clone), and a parent that is
+    # never deleted cannot be lost at any site, present or future.
     return 0
 }
 # Armed HERE, before the clone exists, because every preflight `die()` exits
@@ -127,26 +131,28 @@ sd_clone_for_run() {
 
     UNIT_RUN_DIR="$HOME/.jnext/runs/unit-$$-$RANDOM"
     local sd_clone="$UNIT_RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
-    if mkdir -p "$UNIT_RUN_DIR/sdcard" 2>/dev/null; then
+    local why=""
+    if why=$(mkdir -p "$UNIT_RUN_DIR/sdcard" 2>&1); then
         if   cp --reflink=always "$sd_master" "$sd_clone" 2>/dev/null; then SD_CLONE_MODE=reflink
-        elif cp --reflink=auto   "$sd_master" "$sd_clone" 2>/dev/null; then SD_CLONE_MODE=copy
+        elif why=$(cp --reflink=auto "$sd_master" "$sd_clone" 2>&1); then SD_CLONE_MODE=copy
         else SD_CLONE_MODE=failed; fi
     else
         SD_CLONE_MODE=failed
     fi
 
     if [[ "$SD_CLONE_MODE" == failed ]]; then
-        # Do not silently fall back to the shared master — say so, so the
-        # suite reads it knowingly rather than by accident. Named explicitly:
-        # the suites run with their own $HOME (TEST_HOME below), where the
-        # default location holds no image.
+        # A run that cannot make its private clone FAILS, exactly as the regression harness
+        # does (owner, 2026-11-07, reversing the GH #75 fallback). Reading the shared master
+        # instead would let a suite write to the image every other run clones from, and the
+        # run would stay green while it did: an isolation failure must never look like a pass.
         rm -rf "$UNIT_RUN_DIR"; UNIT_RUN_DIR=""
-        printf "  WARNING: could not clone the SD master; suites needing it will read %s directly\n" \
-               "$sd_master" >&2
-        export JNEXT_TEST_SD_IMAGE="$sd_master"
-    else
-        export JNEXT_TEST_SD_IMAGE="$sd_clone"
+        die "Cannot make this run's private clone of the SD master." \
+            "  master: $sd_master" \
+            "  clone:  $sd_clone" \
+            "  cause:  ${why:-the copy failed}" \
+            "Fix the cause (space, permissions, ~/.jnext/runs). The suites never read the shared master."
     fi
+    export JNEXT_TEST_SD_IMAGE="$sd_clone"
     return 0
 }
 
@@ -525,13 +531,11 @@ mkdir -p "$TEST_HOME"
 sd_clone_for_run
 
 # Say which SD image the suites that need one will read, and how it was
-# obtained. Silence here would make "isolated clone" and "the shared master,
-# because the clone failed" look identical.
+# obtained. (A failed clone never reaches here: sd_clone_for_run refuses the run.)
 case "$SD_CLONE_MODE" in
     reflink|copy) printf "  ${CYAN}sd-clone${RESET} private %s clone for this run\n" "$SD_CLONE_MODE" ;;
     preset)       printf "  ${CYAN}sd-clone${RESET} skipped — JNEXT_TEST_SD_IMAGE preset by the caller\n" ;;
     absent)       printf "  ${CYAN}sd-clone${RESET} skipped — no SD master to clone\n" ;;
-    failed)       printf "  ${CYAN}sd-clone${RESET} FAILED — suites will read the shared master\n" ;;
 esac
 
 rm -f "$SUMMARY"

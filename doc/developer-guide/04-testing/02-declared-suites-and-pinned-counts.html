@@ -3077,6 +3077,12 @@ everything look as though it were registered twice. It refuses when:</p>
   manifest, checks for the <code>.exe</code>, and prefixes every suite with
   <code>JNEXT_TEST_RUNNER</code> (wine, see <a href="../05-building/01-make-targets.html#test">5.1</a>),
   and <code>JNEXT_UNIT_TEST_JOBS</code> caps how many run at once (unset: all of them).</li>
+<li>the run cannot make its <strong>private clone of the SD master</strong> under
+  <code>~/.jnext/runs/</code> (no space, no permission): the run fails naming the cause,
+  and never falls back to reading the shared master, which every other run
+  clones from. A run removes only its own directory there; the parent
+  <code>~/.jnext/runs/</code> is never removed, so no concurrent run's <code>mkdir</code> under it can
+  lose a race with another run's cleanup.</li>
 </ul>
 <p>The first of those conditions is the subtle one, and it is what makes the whole check
 more than bookkeeping. Without it, "N declared equals N registered" is a

@@ -220,7 +220,10 @@ mkdir -p "$HOME/.jnext/runs"
 RUN_DIR=$(mktemp -d "$HOME/.jnext/runs/pgo-XXXXXXXX")
 cleanup() {
     rm -rf "$RUN_DIR"
-    rmdir "$HOME/.jnext/runs" 2>/dev/null || true
+    # The shared parent $HOME/.jnext/runs is NEVER removed, by this or any other script: only a run's
+    # own directory is. A run that pruned the parent when it ended raced every concurrent run's
+    # `mkdir -p`/`mktemp -d`/QTemporaryDir under it (ENOENT, a lost clone), and a parent that is
+    # never deleted cannot be lost at any site, present or future.
     return 0
 }
 # INT/TERM exit explicitly: a handler that only cleans up would RESUME the

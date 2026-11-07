@@ -230,8 +230,10 @@ regression_cleanup() {
     [[ -n "${REG_WINE_PREFIX:-}" ]] && WINEPREFIX="$REG_WINE_PREFIX" wineserver -k >/dev/null 2>&1
     [[ -n "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR"
     [[ -n "${RUN_DIR:-}" ]] && rm -rf "$RUN_DIR"
-    # Prune the (now likely empty) runs/ parent; harmless if other runs are live.
-    rmdir "$HOME/.jnext/runs" 2>/dev/null || true
+    # The shared parent $HOME/.jnext/runs is NEVER removed, by this or any other script: only a run's
+    # own directory is. A run that pruned the parent when it ended raced every concurrent run's
+    # `mkdir -p`/`mktemp -d`/QTemporaryDir under it (ENOENT, a lost clone), and a parent that is
+    # never deleted cannot be lost at any site, present or future.
     return 0
 }
 

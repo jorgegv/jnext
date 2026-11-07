@@ -1426,7 +1426,7 @@ docs-screenshots: unit-test-build
 	 run_dir="$$HOME/.jnext/runs/docshot-$$$$"; \
 	 docshot_cleanup() { \
 	   [ -n "$$run_dir" ] && rm -rf "$$run_dir"; \
-	   rmdir "$$HOME/.jnext/runs" 2>/dev/null || true; \
+	   : the shared parent $$HOME/.jnext/runs is never pruned, a concurrent run would lose its mkdir; \
 	   return 0; \
 	 }; \
 	 trap 'docshot_cleanup' EXIT; \
