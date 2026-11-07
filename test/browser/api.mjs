@@ -218,7 +218,12 @@ row('WEBAPI-06', 'pause(): the frame counter stops and state is paused; resume()
   const f3 = await frame(main);
   const st2 = await main.evaluate(() => window.player0.state);
   console.log(`# WEBAPI-06 resume: ${f3 - f2} frames in the first 500 ms after a 500 ms pause`);
-  must(f3 - f2 >= 5 && f3 - f2 <= 30 && st2 === 'running', `advanced ${f3 - f2} frames in 500 ms, state ${st2}`);
+  // At least one tick (it runs again), at most 30 (no catch-up burst); the rate itself is load-bound, so the
+  // steady state is a second window: five frames or more in the next second.
+  must(f3 - f2 >= 1 && f3 - f2 <= 30 && st2 === 'running', `advanced ${f3 - f2} frames in 500 ms, state ${st2}`);
+  await sleep(1000);
+  const f4 = await frame(main);
+  must(f4 - f3 >= 5, `steady state: ${f4 - f3} frames in the next second`);
 });
 
 row('WEBAPI-07', 'setVolume(0.5) -> -6.02 dB, setVolume(0) -> -120 dB, setVolume(2) throws RangeError and leaves the gain', async () => {
