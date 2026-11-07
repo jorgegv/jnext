@@ -3109,7 +3109,9 @@ inlining, and an LTO link of the whole core per suite would cost about a hundred
 times as much). Its test executables link with an 8 MB stack as the Windows ones
 do, with <code>-sSTACK_OVERFLOW_CHECK=2</code> (a release module has no stack guard, so an
 overflow would silently overwrite static data) and <code>-sEXIT_RUNTIME=1</code> (static
-destructors, <code>atexit</code> and a stdio flush at exit, as natively), all in
+destructors, <code>atexit</code> and a stdio flush at exit, as natively) and a link at <code>-O1</code>
+(the objects stay <code>-O3</code>; skipping the final wasm-opt pass turns a link of up to two
+minutes into one second with no measurable cost in run time), all in
 <code>test/CMakeLists.txt</code>; <code>jnext</code> keeps its own link options.</p>
 <h2 id="dev-build-versus-release-build">Dev build versus release build<a class="headerlink" href="#dev-build-versus-release-build" title="Permanent link">&para;</a></h2>
 <p>With no <code>-DCMAKE_BUILD_TYPE</code> given, CMake here defaults to <strong>RelWithDebInfo</strong>

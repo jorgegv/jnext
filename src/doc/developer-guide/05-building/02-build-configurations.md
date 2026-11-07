@@ -97,7 +97,9 @@ inlining, and an LTO link of the whole core per suite would cost about a hundred
 times as much). Its test executables link with an 8 MB stack as the Windows ones
 do, with `-sSTACK_OVERFLOW_CHECK=2` (a release module has no stack guard, so an
 overflow would silently overwrite static data) and `-sEXIT_RUNTIME=1` (static
-destructors, `atexit` and a stdio flush at exit, as natively), all in
+destructors, `atexit` and a stdio flush at exit, as natively) and a link at `-O1`
+(the objects stay `-O3`; skipping the final wasm-opt pass turns a link of up to two
+minutes into one second with no measurable cost in run time), all in
 `test/CMakeLists.txt`; `jnext` keeps its own link options.
 
 ## Dev build versus release build

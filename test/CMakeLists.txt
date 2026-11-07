@@ -18,6 +18,12 @@ if(EMSCRIPTEN)
     # atexit and flushes stdio at exit, as a native process does. These come
     # after the top-level -sSTACK_SIZE and win; jnext keeps its own.
     add_link_options(-sSTACK_SIZE=8MB -sSTACK_OVERFLOW_CHECK=2 -sEXIT_RUNTIME=1)
+    # -O1 at link time: the objects stay -O3, but the final wasm-opt -O3 pass is skipped.
+    # Measured on the heavy suites: a link of 25-127 s becomes 1 s, and rewind_test and
+    # tap_loader_test run as fast (172 s and 201 s at -O3, 170 s and 188 s at -O1). The
+    # shipped -O3 link of jnext is what the browser test covers; the unit suites test
+    # the code, not the optimiser.
+    add_link_options(-O1)
 endif()
 
 # GH #416: a compiler warning in a test is a test defect (it hid which side of
