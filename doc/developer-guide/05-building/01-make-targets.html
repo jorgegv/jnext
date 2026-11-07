@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3057,7 +3057,7 @@ as shipped minus PGO (<code>win-release-non-pgo</code>, with <code>qoffscreen.dl
 that test tree only), the SDL-only exe, and the native helpers from the SDL
 unit-test tree. <code>make regression-macos</code> is its macOS twin (CI <code>macos-regression</code>).
 <code>ROWS="..."</code> names rows. Neither is stamped; see
-<a href="../04-testing/03-the-regression-suite.html#platform-runs-macos-and-windows-under-wine">the regression suite</a>.</p>
+<a href="../04-testing/03-the-regression-suite.html#platform-runs-macos-windows-under-wine-and-webassembly-under-node">the regression suite</a>.</p>
 <p>The built tree is <strong>not yet a relocatable directory</strong>, so there is no recipe for
 running it by hand on a real Windows machine, and none has been tried. What
 stands in the way, in order of effort: <code>JNEXT_BINARY</code> (the CLI suite) and the
@@ -3080,6 +3080,12 @@ with <code>setpriv</code>, as the wine runner does; and forwards TERM and INT an
 node's exit status. What node cannot stand in for (processes, threads, listening
 sockets) is declared absent with <code># os: native</code>, and the run names every absent
 suite in its NOTICE. It needs the SD image like the other two.</p>
+<p><code>make regression-wasm</code> runs the regression suite's screenshot rows against
+<code>build/wasm-core/jnext.js</code> under node (<code>wasm-core</code> is a prerequisite, so the WCORE
+rows run first; the native helpers and the host <code>jnext</code> that derives the SD master
+come from the SDL unit-test tree). Every screenshot must equal the committed
+native reference pixel for pixel. <code>ROWS="..."</code> names rows; a full run takes the
+host lock like <code>make regression</code>; it is not stamped.</p>
 <p><code>make emsdk</code> provides the pinned Emscripten SDK (6.0.13) in the user cache,
 <code>~/.cache/jnext/tools/emsdk-6.0.13</code>, through <code>test/provision-emsdk.sh</code>: it
 downloads three archives (the emsdk installer, the SDK release and the node it

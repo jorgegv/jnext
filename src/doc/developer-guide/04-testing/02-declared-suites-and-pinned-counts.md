@@ -115,6 +115,12 @@ everything look as though it were registered twice. It refuses when:
   manifest, checks for the `.exe`, and prefixes every suite with
   `JNEXT_TEST_RUNNER` (wine, see [5.1](../05-building/01-make-targets.md#test)),
   and `JNEXT_UNIT_TEST_JOBS` caps how many run at once (unset: all of them).
+- the run cannot make its **private clone of the SD master** under
+  `~/.jnext/runs/` (no space, no permission): the run fails naming the cause,
+  and never falls back to reading the shared master, which every other run
+  clones from. A run removes only its own directory there; the parent
+  `~/.jnext/runs/` is never removed, so no concurrent run's `mkdir` under it can
+  lose a race with another run's cleanup.
 
 The first of those conditions is the subtle one, and it is what makes the whole check
 more than bookkeeping. Without it, "N declared equals N registered" is a
@@ -206,7 +212,9 @@ change a result.
 `functional_tests.conf` has the same discipline for the platform runs. Besides
 `# expect: N` (the rows declared) it carries `# expect-macos: N` and
 `# expect-windows: N` (the rows each OS runs), and a row opts out of an OS with
-an `os=<list>` tag (`linux` mandatory) and a `# os:` reason above it. Retagging a
+an `os=<list>` tag (`linux` mandatory) and a `# os:` reason above it. WebAssembly
+is the opposite way round: a row runs there only when its tag names `emscripten`,
+and `# expect-emscripten: N` (0 today) pins how many do. Retagging a
 row without moving the pin, in either direction, is a harness fault; so is a
 tagged manifest with a pin missing. The run prints the rows an OS does not run by
-name. See [the regression suite](03-the-regression-suite.md#platform-runs-macos-and-windows-under-wine).
+name. See [the regression suite](03-the-regression-suite.md#platform-runs-macos-windows-under-wine-and-webassembly-under-node).

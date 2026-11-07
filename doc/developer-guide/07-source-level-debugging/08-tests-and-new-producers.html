@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3088,8 +3088,8 @@ what it covers), the numbered findings (G1...G24, Z1...Z4) that rows cite, and
 the rules that normalise and trim the output.</p>
 <ul>
 <li><strong>Regenerate with <code>bash test/fixtures/z88dk/generate.sh</code>.</strong> Overrides:
-  <code>Z88DK_24</code> and <code>Z88DK_MASTER</code> (the install roots; defaults
-  <code>~/src/spectrum/z88dk-original-2.4</code> and <code>...-latest</code>). The output is
+  <code>Z88DK_24</code>, <code>Z88DK_MASTER</code>, <code>Z88DK_FIXED</code> and <code>Z88DK_NIGHTLY</code> (the install roots; defaults
+  <code>~/src/spectrum/z88dk-original-2.4</code>, <code>...-97731e4e29</code>, <code>...-latest</code> and <code>...-965fd0e628</code>). The output is
   deterministic: <code>git diff --stat</code> must be empty unless an install changed. When
   one did, commit the new outputs and <code>MANIFEST.sha256</code> together and say which rows'
   values moved.</li>

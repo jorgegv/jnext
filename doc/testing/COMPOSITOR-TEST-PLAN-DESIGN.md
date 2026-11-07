@@ -1013,7 +1013,8 @@ the reset were tagged at the top of the frame.
 
 The last instance of the Task 43/45/46 per-line-deferral bug class.
 `Renderer::apply_ula_clip` (the compositor-stage consumer of the ULA
-clip — VHDL `zxnext.vhd:7104`, `ula_clipped` feeds `ula_transparent`)
+clip — VHDL `zxula.vhd:562` `o_ula_clipped`, `zxnext.vhd:7063`/`7100`/`7103`,
+`ula_clipped` feeds `ula_transparent`)
 read the LIVE `Ula::clip_x1()/clip_x2()/clip_y1()/clip_y2()` getters at
 render time, so a mid-frame NR 0x1A write (Copper MOVE / CPU racing the
 beam) retroactively re-masked every row rendered after the write. Per
@@ -1031,20 +1032,39 @@ auto-sync exists for this array, so the deferral assertions cannot be
 made vacuous by a helper. Window A (x1=128, x2=255) is deliberately
 NOT the reset default (0/255/0/191) so a dead capture (array left at
 the reset default) is distinguishable from a stale-but-captured
-snapshot via the left-border clip (`left_clipped = cx1 > 0` in
-`renderer.cpp`).
+snapshot via display column 100, which A clips (100 < x1) and the reset
+default keeps. The witnesses are display cells, never border cells: the
+ULA's clip is forced to "not clipped" for every border cell
+(`zxula.vhd:414-415` `border_active`, ORed into `o_ula_clipped` at `:562`),
+so a border cell cannot distinguish the two windows. UCLIP-05..09 pin that
+border rule itself, in the mode-independent function (05-08) and end to end
+through `render_row` in Timex hi-res (09); LoRes is LR-129.
 
 | ID       | Title                                                                                           | Stimulus                                                                                                                                       | Expected                                                                                                 | VHDL               |
 |----------|-------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|--------------------|
 | UCLIP-01 | **Deferral**: mid-frame NR 0x1A write does not retroactively re-mask an already-snapshotted row | Row 52's clip snapshot captured with window A (128,255,0,191); write window B (0,127,0,191) live; `apply_ula_clip(row 52)` on a full-ink line | Display col 200 (fb cell 464) survives — stale window A masks the row; live window B would clip it        | 988-991, 6779-6783 |
-| UCLIP-02 | Snapshot is genuinely CAPTURED, not the reset default                                           | Same buffer as UCLIP-01                                                                                                                        | Left border cell clipped (snapshotted A has x1=128>0; the reset-default window would keep it)             | 6779-6783          |
-| UCLIP-03 | The SAME row takes window B only once its snapshot is refreshed                                 | Re-snapshot row 52 (mirrors the next `on_scanline()` capture), re-apply on a fresh full-ink line                                               | Col 200 clipped, left border kept (x1=0), right border clipped (x2=127<255)                               | 988-991, 6779-6783 |
-| UCLIP-04 | Split frame: rows < S masked with window A, rows >= S with window B                             | Snapshot rows 32..51 under A, write B, snapshot rows 52..71; apply per row on fresh buffers                                                    | Every row < 52 shows A masking (col kept, border clipped); every row >= 52 shows B masking (inverse)      | 988-991            |
+| UCLIP-02 | Snapshot is genuinely CAPTURED, not the reset default                                           | Same buffer as UCLIP-01                                                                                                                        | Display col 100 (fb cell 264) clipped (snapshotted A has x1=128>100; the reset-default window would keep it) | 562; 6779-6783     |
+| UCLIP-03 | The SAME row takes window B only once its snapshot is refreshed                                 | Re-snapshot row 52 (mirrors the next `on_scanline()` capture), re-apply on a fresh full-ink line                                               | Col 200 clipped (x2=127), col 100 kept (x1=0)                                                             | 562; 988-991, 6779-6783 |
+| UCLIP-04 | Split frame: rows < S masked with window A, rows >= S with window B                             | Snapshot rows 32..51 under A, write B, snapshot rows 52..71; apply per row on fresh buffers                                                    | Every row < 52 shows A masking (col 200 kept, col 100 clipped); every row >= 52 shows B masking (inverse) | 562; 988-991       |
+| UCLIP-05 | The border is never clipped by an x-narrowed window | Window (64,191,0,191), every fb row filled with `PIX_ULA`, `apply_ula_clip` | Every border cell kept; display src cols 64 and 191 kept (inclusive), cols 63 and 192 clipped | 415, 562 |
+| UCLIP-06 | The border is never clipped by a y-narrowed window | Window (0,255,64,127), every fb row | Border rows and the left/right border of clipped display rows kept; clipped display rows lose the 512-cell strip only | 414-415, 562 |
+| UCLIP-07 | `clip_ula(255,255,255,255)` (the nexlib call): raw y2 255 reads back 0xBF | Window (255,255,255,255), every fb row | Every display cell clipped, every border cell kept | 414-415, 562; 6779-6782 |
+| UCLIP-08 | An inverted x window (x1 > x2) clips the display and never the border | Window (200,100,0,191), every fb row | Every display cell clipped, every border cell kept | 415, 562 |
+| UCLIP-09 | Timex hi-res, end to end through `render_row` | `set_screen_mode(0x16)`, window (64,191,32,159), every fb row, against a default-window render | Border cells equal the default render and `border_clr_tmx` (paper pixel 0x1D); display cells inside the window unchanged, outside it the NR 0x4A fallback | 415, 419, 426-427, 562; 4446 |
 
-Mutation coverage (both halves of the dead-snapshot trap, verified at
-authoring time): reverting `apply_ula_clip` to the live getters fails
-UCLIP-01/02/04; stubbing the capture (snapshot never writes) fails
-UCLIP-02/03/04.
+Mutation coverage (verified at authoring time, each mutation alone on
+`apply_ula_clip` or `snapshot_ula_clip_for_line`): reverting to the live
+getters fails UCLIP-01/02/04; stubbing the capture (snapshot never writes)
+fails UCLIP-02/03/04. For the border rule: restoring the top-border-row clear
+fails UCLIP-06/07/09 and LR-129; the bottom-row clear, UCLIP-06/09 and LR-129;
+the empty-window bottom clause alone, UCLIP-07; a whole-line clear of a
+y-clipped row, UCLIP-06/07/09 and LR-129; a left-border clear when `cx1 > 0`
+or a right-border clear when `cx2 < 255`, UCLIP-05/08/09 and LR-129; a
+right-border clear when `cx1 > cx2` alone, UCLIP-08; dropping the x compare,
+UCLIP-02/03/04/05/08/09 and LR-127a; dropping the y compare, UCLIP-06/07/09
+and LR-127a; an exclusive left edge, UCLIP-05/06/09 and many LoRes rows; the
+x compare run over the whole 640-cell row, UCLIP-05/06/08/09 and LR-129.
+UCLIP-01 survives "drop the x compare" by design (it asserts a kept cell).
 
 ### Group BLANK — Output blanking
 
@@ -1222,8 +1242,8 @@ as the fallback colour) and pass once it is present. Screenshot-level twin:
 > The LMASK figure counts the 22 parser rows individually (GH #201 spelled
 > `LMASK-P01..P08` / `LMASK-E01..E14` out); it was already the runtime count,
 > because the suite always emitted 22 rows there.
-| UCLIP (NR 0x1A per-line deferral)  |  4 |
-| **Total**                          |**155** |
+| UCLIP (NR 0x1A per-line deferral + border never clipped) |  9 |
+| **Total**                          |**160** |
 
 ## Open Questions (Honest)
 

@@ -23,7 +23,7 @@
 
 ## Implementation status (2026-07-22, v0.98.91+ — amended; skips resolved 2026-07-24)
 
-**Implemented against this plan; all 91 catalogued rows are live `check()`
+**Implemented against this plan; all 92 catalogued rows are live `check()`
 rows** (LR-140 became live on 2026-07-24 — see below).
 `src/video/lores.{h,cpp}` (the pixel generator, a 1:1 model of
 `lores.vhd`) plus `Renderer::apply_lores` (the ULA-slot substitution). The
@@ -252,7 +252,7 @@ Rows are tagged with the tier that owns them:
 - **C** — compositor: rows about substitution into the ULA slot, transparency,
   fallback, stencil/blend and priority. These belong in `compositor_test`
   (which already drives the real `Renderer::render_row`), not in `lores_test`.
-  *As shipped:* 27 of the 29 C rows are in `compositor_test`; LR-163 and LR-164
+  *As shipped:* 28 of the 30 C rows are in `compositor_test`; LR-163 and LR-164
   (contention and floating bus) landed in `test/lores/lores_integration_test.cpp`
   instead, because they need a whole `Emulator`, not a `Renderer`.
 - **N** — NextREG: register decode / read-back / reset rows. *As shipped:* they
@@ -404,7 +404,7 @@ All rows: `mode = 1` (NR `$6A` bit 5 = 1), scrolls 0 unless stated.
 | LR-110 | U | The quirk's address consequence: the 3-bit `+1` field wraps to 0 | `y = 224` (`scroll_y=255`, `vc=161` ⇒ `y_pre=416`), `phc=0` | `addr_pre = 0x3800`, `addr = 0x0000` (bits 13:11 = `7 + 1 → 0`) | lores.vhd:93-94 |
 | LR-111 | U | Scroll registers are independent | `scroll_x=6`, `scroll_y=8` | `addr = 0x0203` at `phc=0, vc=0` | lores.vhd:82, 84, 91 |
 
-### Group 7 — Clip window (LR-120 … LR-126, LR-127a)
+### Group 7 — Clip window (LR-120 … LR-126, LR-127a, LR-129)
 
 The clip window is the **shared ULA** window, NR `$1A`. LoRes has no window of
 its own.
@@ -421,6 +421,7 @@ its own.
 | ~~LR-127~~ | — | **RETIRED 2026-07-22 — the row was wrong.** See below. | — | — | — |
 | ~~LR-128~~ | — | **RETIRED 2026-07-22 — the row was wrong.** See below. | — | — | — |
 | LR-127a | C | LoRes and the ULA share **one** clip window and are suppressed **together**: inside NR `$1A` the LoRes pixel draws; outside it the pixel falls to the NR `$4A` fallback, and no ULA colour reaches the display area anywhere | `$15`[7]=1, clip = (64,191,32,159), distinct ULA content in bank 5, NR `$4A` set to a colour in neither content set | `phc=100,vc=100` → the LoRes colour; `phc=32,vc=100` and `phc=100,vc=10` → the NR `$4A` fallback; no display pixel in the whole frame carries a ULA colour | lores.vhd:115; zxula.vhd:562; zxnext.vhd:4258-4261 vs 4437-4471, 7100-7104 |
+| LR-129 | C | LoRes never clips the **border**: with LoRes on and a narrowed shared window, every border cell of every row keeps the port `$FE` colour | `$15`[7]=1, border colour 2, clip = (64,191,32,159), every framebuffer row rendered through `render_row` | every border cell (rows outside the 192 display rows, and the left/right strips of display rows) = the port `$FE` paper colour | zxnext.vhd:6980, 7063, 7100; lores.vhd:115; zxula.vhd:415, 562 |
 
 #### LR-127 and LR-128 — retired, with the reason
 
@@ -585,14 +586,14 @@ byte must still show the frame's bytes, not the live bank.
 | 4 — Radastan addressing | 10 | U + C | 8 | 2 | 0 |
 | 5 — Palette offset / pixel composition | 9 | U + C | 8 | 1 | 0 |
 | 6 — Scrolling | 12 | U | 12 | 0 | 0 |
-| 7 — Clip window | 8 | U + C/N | 6 | 1 | 1 |
+| 7 — Clip window | 9 | U + C/N | 6 | 2 | 1 |
 | 8 — Compositor interaction | 8 | C | 0 | 8 | 0 |
 | 9 — Negative / non-behaviour | 8 | U/C/N | 1 | 6 | 1 |
 | 10 — Beam-time fetch | 9 | U | 9 | 0 | 0 |
-| **Total** | **100** | | **57** | **29** | **14** |
+| **Total** | **101** | | **57** | **30** | **14** |
 
 (Rows tagged `U/C` or `N/C` are counted once, in the first-named tier.
-57 + 29 + 14 = 100. Group 10 is GH #362's: 91 + 9 = 100, all U.)
+57 + 30 + 14 = 101. Group 10 is GH #362's: 92 + 9 = 101.)
 
 **Amendment arithmetic (2026-07-22).** Group 7 lost the two retired rows LR-127
 and LR-128 (both tier C) and gained LR-127a (tier C): 9 − 2 + 1 = **8**, C going
@@ -607,16 +608,16 @@ history, not coverage.
 | Tier | Suite | Catalogued rows | live `check()` | `skip()` |
 |------|-------|-----------------|----------------|----------|
 | U | `test/lores/lores_test.cpp` | 57 | 57 | 0 |
-| C | `test/compositor/compositor_test.cpp` (group `LR`) | 27 | 27 | 0 |
+| C | `test/compositor/compositor_test.cpp` (group `LR`) | 28 | 28 | 0 |
 | C | `test/lores/lores_integration_test.cpp` | 2 | 2 | 0 |
 | N | `test/nextreg/nextreg_integration_test.cpp` (group `LoRes-NR`) | 14 | 14 | 0 |
-| | **Total** | **100** | **100** | **0** |
+| | **Total** | **101** | **101** | **0** |
 
-C rows split 27 + 2 = 29. From 2026-07-22 to 2026-07-24 `compositor_test`
+C rows split 28 + 2 = 30. From 2026-07-22 to 2026-07-24 `compositor_test`
 additionally emitted two `skip()` rows for the **retired** LR-127 / LR-128
 tombstones (29 printed `LR` rows); both tombstones and the LR-140 skip were
 resolved on 2026-07-24 (see group 7 and group 8), so the suite now prints exactly
-the 27 catalogued C rows, all live.
+the 28 catalogued C rows, all live.
 
 Suggested implementation order — each block is independently mergeable and each
 one leaves the suite green:

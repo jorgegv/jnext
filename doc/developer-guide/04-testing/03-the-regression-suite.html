@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1865,10 +1865,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#platform-runs-macos-and-windows-under-wine" class="md-nav__link">
+  <a href="#platform-runs-macos-windows-under-wine-and-webassembly-under-node" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Platform runs: macOS and Windows under wine
+        Platform runs: macOS, Windows under wine and WebAssembly under node
       
     </span>
   </a>
@@ -3307,23 +3307,48 @@ regardless of what it produced, so a genuine regression quietly becomes the new
 baseline and every future run agrees with it. Regenerate only when a rendering
 change is both intentional and understood, name the specific rows wherever you
 can, and treat a reference diff appearing in a review as a claim to be checked.</p>
-<h2 id="platform-runs-macos-and-windows-under-wine">Platform runs: macOS and Windows under wine<a class="headerlink" href="#platform-runs-macos-and-windows-under-wine" title="Permanent link">&para;</a></h2>
-<p><code>regression.sh --platform</code> (<code>make regression-win</code>, <code>make regression-macos</code>) runs
+<h2 id="platform-runs-macos-windows-under-wine-and-webassembly-under-node">Platform runs: macOS, Windows under wine and WebAssembly under node<a class="headerlink" href="#platform-runs-macos-windows-under-wine-and-webassembly-under-node" title="Permanent link">&para;</a></h2>
+<p><code>regression.sh --platform</code> (<code>make regression-win</code>, <code>make regression-macos</code>,
+<code>make regression-wasm</code>) runs
 the screenshots and the functional rows an OS can run against that OS's
 binaries. It reuses the whole driver: the manifest pins, the per-row processes,
 SKIP = failure and the completeness accounting stay as they are; only the
 selection, the binaries and the accounting change.</p>
 <p><strong>Declaring applicability.</strong> A row's line in <code>functional_tests.conf</code> may carry
-<code>os=&lt;list&gt;</code>, a comma-separated subset of <code>linux,macos,windows</code>. <code>linux</code> is
-mandatory (a Linux run runs every row; the Linux pins never change), no tag means
-all three, and an unknown or empty element, or a list without <code>linux</code>, is a
+<code>os=&lt;list&gt;</code>, a comma-separated subset of <code>linux,macos,windows,emscripten</code>. <code>linux</code>
+is mandatory (a Linux run runs every row; the Linux pins never change), no tag
+means linux, macos and windows (<code>emscripten</code> is opt-in: that run executes a row
+only when its tag names it), and an unknown or empty element, or a list without <code>linux</code>, is a
 harness fault. The reason sits in a <code># os:</code> comment on the line above the row.
-<code># expect-macos: N</code> and <code># expect-windows: N</code> beside <code># expect:</code> pin how many rows
-each OS runs; once any row is tagged both are required, and a mismatch in either
-direction is a harness fault, so retagging a row is a deliberate edit. Absent rows
+<code># expect-macos: N</code>, <code># expect-windows: N</code> and <code># expect-emscripten: N</code> beside
+<code># expect:</code> pin how many rows each OS runs; once any row is tagged the first two
+are required (the third as soon as a row names emscripten; it is 0 until then),
+and a mismatch in either direction is a harness fault, so retagging a row is a
+deliberate edit. Absent rows
 are printed by name; a named row the OS does not run is refused; an absent row
 that reports is a harness fault. A platform run's total is 1 provision + the
 screenshots + the admitted rows (no lints, no stamp).</p>
+<p><strong>The WebAssembly run.</strong> <code>make regression-wasm</code> builds <code>build/wasm-core</code> (the one
+tree stands for both: there is no Qt build for the web) and runs every screenshot
+row against <code>jnext.js</code> under the SDK's node. No functional row runs yet: none
+names emscripten, so all are printed absent and a WebAssembly run reports 1
+provision + the screenshots. <code>jnext</code> in that tree is linked for node
+(<code>-sNODERAWFS=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1</code>, per target; the browser
+build is <code>jnext_web</code>, which does not inherit them): NODERAWFS gives it the host
+filesystem, which is how it finds the run's SD clone and writes the PNG to the
+row's path. The driver writes one-line shims that <code>exec</code> <code>test/node-run.sh
+--jnext</code> (the node the tree was configured with, never one from <code>PATH</code>; locale
+fixed; no display; a private <code>TMPDIR</code>; TERM and INT forwarded; node's exit
+status returned), so a row invokes <code>"$JNEXT"</code> as one word. emcc's <code>jnext.js</code> and
+<code>jnext.wasm</code> are not executable, so the driver checks both with <code>-f</code>. The SD
+master is derived by the host's own <code>jnext</code> (the SDL unit-test tree), because the
+WebAssembly build declines downloads, as under wine. The screenshots are compared
+exactly as everywhere else, decoded pixels at tolerance 0, against the committed
+native references; none is regenerated for WebAssembly. The only
+concession is the wall-clock safety bound: the emulated exit is untouched (it
+counts emulated seconds), but a row's <code>timeout</code> is widened by
+<code>SHOT_WALL_FACTOR</code> (4, set by the driver for this run only), because node runs the
+core slower than the native build the bound was written for.</p>
 <p><strong>The Windows runner.</strong> <code>test/wine-run.sh --jnext</code> runs <code>jnext.exe</code> as <code>$JNEXT</code>
 (two one-line shims in the run's <code>$TMP_DIR</code> call it, so rows keep invoking
 <code>"$JNEXT"</code> as one word). Each of these was measured to be necessary under wine

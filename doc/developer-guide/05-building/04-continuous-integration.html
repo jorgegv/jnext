@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3069,13 +3069,16 @@ dependency set and checks out the repository with submodules; then</p>
   builds no PGO binary, so on an SD-image cache miss <code>make unit-test-win</code>
   provisions the image itself (<code>make sdcard-image</code>);</li>
 <li><strong><code>unit-wasm</code></strong> runs <code>make unit-test-wasm</code>: the SDL-only suites as WebAssembly
-  under node, in the same SDK cache as <code>wasm</code>. It builds no PGO binary, so on an
+  under node, in the same SDK cache as <code>regression-wasm</code>. It builds no PGO binary, so on an
   SD-image cache miss the target provisions the image itself. Run as root in the
   container, the runner drops CAP_DAC_OVERRIDE with <code>setpriv</code> (util-linux);</li>
 <li><strong><code>regression</code></strong> runs <code>make clean &amp;&amp; make gui-release</code> and <code>make regression</code>;</li>
-<li><strong><code>wasm</code></strong> runs <code>make wasm-core</code>: the SDL-only core built for WebAssembly and
-  run under node. It needs no SD image. The Emscripten SDK is provisioned by the
-  target itself (<code>test/provision-emsdk.sh</code>, pinned by three sha256) into
+<li><strong><code>regression-wasm</code></strong> runs <code>make regression-wasm</code>: the regression suite's
+  screenshot rows against the SDL-only core built for WebAssembly and run under
+  node (<code>make wasm-core</code>, with its WCORE rows, is a prerequisite, so the leg has no
+  step of its own for it). It uses the SD-image cache, as every leg that boots
+  NextZXOS does. The Emscripten SDK is provisioned by the target itself
+  (<code>test/provision-emsdk.sh</code>, pinned by three sha256) into
   <code>~/.cache/jnext/tools/emsdk-6.0.13</code>, which the leg caches under a key carrying
   the version and the pins, so a hit only skips the downloads;</li>
 <li><strong><code>browser</code></strong> runs <code>make wasm-browser-test</code>: the browser frontend in the pinned

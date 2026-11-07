@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3039,7 +3039,7 @@ joins those records to the map's symbols, so that a later consumer can ask where
 a C variable lives, which function a local belongs to and which scope a code
 address is in. Reading a value, a frame or a type is not here (last section).</p>
 <h2 id="what-the-store-holds">What the store holds<a class="headerlink" href="#what-the-store-holds" title="Permanent link">&para;</a></h2>
-<p><code>VariableStore</code> (<code>class VariableStore</code>, <code>src/debug/variable_store.h:128</code>) is immutable once
+<p><code>VariableStore</code> (<code>class VariableStore</code>, <code>src/debug/variable_store.h:139</code>) is immutable once
 built. Its five vectors:</p>
 <table>
 <thead>
@@ -3070,8 +3070,12 @@ built. Its five vectors:</p>
 <td><code>"&lt;escaped symbol&gt;: &lt;reason&gt;"</code> of every record the decoder refused</td>
 </tr>
 <tr>
+<td><code>float_format(module)</code></td>
+<td>the float format the module records: the local constants <code>__fp_mode</code>, <code>__fp_exponent_bias</code> and <code>__fp_mantissa_size</code> that sccz80 and 80cc write into every C module they compile (z88dk master from 2026-11-06). A <code>CFloatFormat</code> (<code>mode</code>, <code>exponent_bias</code>, <code>mantissa_size</code>, and <code>why</code> when the module's symbols are unusable: an incomplete set, or two different values of one name); null when the module records none (zsdcc, assembly, z88dk 2.4 and older master)</td>
+</tr>
+<tr>
 <td><code>float_library()</code></td>
-<td>the float library the map names (<code>math32</code>, <code>mbf32</code>, ...: the first non-zero <code>__code_fp_&lt;lib&gt;_size</code>), empty when it names none</td>
+<td>the fallback for a module with no <code>float_format()</code>: the float library the map names (<code>math32</code>, <code>mbf32</code>, ...: the first non-zero <code>__code_fp_&lt;lib&gt;_size</code>), empty when it names none</td>
 </tr>
 </tbody>
 </table>
@@ -3107,15 +3111,15 @@ information" is told from "there is no z88dk map". A map with no lines at all ge
 no store, because it replaces nothing. <code>Load MAP</code> (symbols only) never has one.</p>
 <h2 id="how-it-is-filled">How it is filled<a class="headerlink" href="#how-it-is-filled" title="Permanent link">&para;</a></h2>
 <p><code>load_z88dk_source_map()</code> reads the map once. Pass 1 keeps a <code>const</code> line that
-starts <code>__CDBINFO__</code> in <code>cdb_lines</code> (<code>src/debug/z88dk_source_map.cpp:728</code>),
+starts <code>__CDBINFO__</code> in <code>cdb_lines</code> (<code>src/debug/z88dk_source_map.cpp:731</code>),
 and the parser gained <code>Z88dkMapLine::is_public</code> (the scope field). The line records
 of code sections are copied to <code>scope_records</code> right after they are placed and
-<strong>before</strong> a listing replaces its module's lines (<code>scope_records</code>, <code>src/debug/z88dk_source_map.cpp:795</code>):
+<strong>before</strong> a listing replaces its module's lines (<code>scope_records</code>, <code>src/debug/z88dk_source_map.cpp:820</code>):
 a listing's <code>C_LINE</code> keeps only the file, so the scope comes from the map; for an 80cc function the table is replaced by the listing's own occurrences (<code>fill_listing_scopes()</code>, S4a).
 Just before <code>map.replace()</code>, <code>build_variable_store()</code>
 (<code>src/debug/z88dk_source_map.cpp:557</code>)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, <code>place_symbol</code> (<code>src/debug/z88dk_source_map.cpp:1036</code>),
+space by one lambda, <code>place_symbol</code> (<code>src/debug/z88dk_source_map.cpp:1061</code>),
 shared by the extent code and the store, so no rule is kept twice.</p>
 <h2 id="the-joins">The joins<a class="headerlink" href="#the-joins" title="Permanent link">&para;</a></h2>
 <p>The key is the <strong>module</strong>, not the file name (a wrong

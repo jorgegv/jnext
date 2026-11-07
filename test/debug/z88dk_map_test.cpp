@@ -37,6 +37,7 @@
 #include <unistd.h>
 #include <vector>
 #include "../row_id.h"
+#include "../hex_value.h"
 
 namespace fs = std::filesystem;
 using jnext::dbg::FetchSource;
@@ -1593,6 +1594,12 @@ int main() {
         const int ns = simple.load_simple_map(synth("bom.simple", bom + "alpha = $9000\nbeta = $9100\n").string());
         check("MAPBOM-05", "load_simple_map() skips a UTF-8 BOM: the first line's symbol keeps its name",
               ns == 2 && simple.lookup_name("alpha") == 0x9000 && simple.lookup_name("beta") == 0x9100);
+        // GH #477: a constant wider than 32 bits (z88dk writes `__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF`) must be skipped, never throw: `unsigned long` is 32 bits on Windows
+        // and std::stoul threw std::out_of_range there. Oracle: z88dk's own map line (nightly maps), and an address is 16 bits.
+        SymbolTable wide;
+        const int nw = wide.load_simple_map(synth("wide.simple", "first = $9000\nmid = $12345\n__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF\nover32 = $100000000\nover64 = $1FFFFFFFFFFFFFFFF\nlast = $9100\n").string());
+        check("Z88HEX-01", "load_simple_map() skips constants that do not fit 16 bits without throwing, whatever their width ($12345, $FFFFFFFFFFFFFFFF, $100000000, 17 digits) and keeps the symbols around them",
+              nw == 2 && wide.lookup_name("first") == 0x9000 && wide.lookup_name("last") == 0x9100 && !wide.lookup_name("__clib_malloc_heap_size") && !wide.lookup_name("mid") && !wide.lookup_name("over32") && !wide.lookup_name("over64"));
         SymbolTable nb;
         const int nn = nb.load_nextbuild_memory(synth("bom.mem", bom + "ACB5: ._FillScreen\n7335: ._Other\n").string());
         check("MAPBOM-06", "load_nextbuild_memory() skips a UTF-8 BOM: the first line's label is not dropped",
@@ -3061,10 +3068,11 @@ main cross_c AC97
             // raw: `__C_LINE_<n>_... = $<addr> ; addr, local, , blocks_c, code_compiler, blocks.c::g2::<level>::<block>:<line>`
             // (the extent is [g2's entry, h's entry): a record of another function's line at the entry address, such as f's closing line, belongs to the trail too)
             const CFunction* h = fn_named(*st, "h", "blocks_c");
-            std::vector<std::pair<unsigned long, int>> raw;
+            std::vector<std::pair<uint64_t, int>> raw;
             for (const std::string& l : map_lines(kFixtures / fixture / "prog.map")) {
                 if (l.compare(0, 9, "__C_LINE_") != 0 || l.find(", blocks_c, code_compiler,") == std::string::npos) continue;
-                const unsigned long addr = std::stoul(l.substr(l.find('$') + 1), nullptr, 16);
+                uint64_t addr = 0;
+                if (!parse_hex64(l, l.find('$') + 1, &addr)) continue;
                 if (addr >= g2->entry.at.address && h && addr < h->entry.at.address) raw.push_back({addr, std::stoi(l.substr(l.rfind(':') + 1))});
             }
             std::sort(raw.begin(), raw.end());
@@ -3383,6 +3391,110 @@ main cross_c AC97
         }
         check("Z88ZB-17", "statics.c on zsdcc (two `F:` records per function), sccz80 and 80cc: f and f2 are one function each, with a, t (the local and the static) and u, and a and two t",
               one == 3 && vars);
+    }
+
+    {   // Z88FP-01
+        // GH #477: every nightly map records, for each module of ours, exactly the float format of its build; the mixed link keeps its two modules apart
+        struct B { const char* dir; int mode, bias, ms; };
+        const B builds[] = {
+            {"sccz80-zx-math48", 0, 128, 5}, {"sccz80-zx-genmath", 0, 128, 5}, {"sccz80-zx-lmz", 0, 128, 5}, {"sccz80-zx-math32", 1, 126, 3}, {"sccz80-zx-lm", 1, 126, 3},
+            {"sccz80-zx-am9511", 1, 126, 3}, {"sccz80-zx-mbf32", 2, 128, 3}, {"sccz80-zx-mbf40", 3, 128, 4}, {"sccz80-zx-mbf64", 4, 128, 7}, {"sccz80-zx-bbc", 5, 127, 4},
+            {"sccz80-zx-z88", 5, 127, 4}, {"sccz80-zx-dai32", 6, 0, 3}, {"sccz80-zx-bias129", 0, 129, 4}, {"80cc-zx-math48", 0, 128, 5}, {"80cc-zx-math32", 1, 126, 3},
+            {"80cc-zx-mbf32", 2, 128, 3}, {"sccz80-zxn", 0, 128, 5}, {"sccz80-zxn-math32", 1, 126, 3}, {"80cc-zxn", 0, 128, 5}};
+        std::string bad;
+        int maps = 0;
+        for (const B& b : builds) {
+            SourceMap m;
+            load(m, kFixtures / "nightly" / b.dir / "prog.map");
+            const VariableStore* st = store_of(m);
+            ++maps;
+            const jnext::dbg::CFloatFormat* f = st ? st->float_format("fpfmt_c") : nullptr;
+            if (!f || f->mode != b.mode || f->exponent_bias != b.bias || f->mantissa_size != b.ms || !f->why.empty()) bad += std::string(" ") + b.dir;
+            if (st)
+                for (const CVariable& v : st->variables())
+                    if (const auto* g = st->float_format(v.module); g && !g->why.empty()) bad += std::string(" why:") + b.dir;
+        }
+        const struct { const char* dir; int mode, bias, ms; } fl[] = {{"sccz80-zx-fl-mbf32", 2, 128, 3}, {"sccz80-zx-fl-dai32", 6, 0, 3}};
+        for (const auto& b : fl) {
+            SourceMap m;
+            load(m, kFixtures / "nightly" / b.dir / "prog.map");
+            const VariableStore* st = store_of(m);
+            const jnext::dbg::CFloatFormat* f = st ? st->float_format("fl_c") : nullptr;
+            if (!f || f->mode != b.mode || f->exponent_bias != b.bias || f->mantissa_size != b.ms || !f->why.empty()) bad += std::string(" ") + b.dir;
+        }
+        SourceMap mix;
+        load(mix, kFixtures / "nightly/sccz80-zx-mix/prog.map");
+        const VariableStore* ms = store_of(mix);
+        const jnext::dbg::CFloatFormat* a = ms ? ms->float_format("fpmix48_c") : nullptr;
+        const jnext::dbg::CFloatFormat* c = ms ? ms->float_format("fpmix32_c") : nullptr;
+        const bool mixed = a && c && a->mode == 0 && a->exponent_bias == 128 && a->mantissa_size == 5 && c->mode == 1 && c->exponent_bias == 126 && c->mantissa_size == 3 &&
+                           a->why.empty() && c->why.empty();
+        check("Z88FP-01", "the 19 fpfmt.c nightly maps carry, for module fpfmt_c, exactly the triple of their build (math48/genmath/lmz 0/128/5, math32/lm/am9511 1/126/3, mbf32 2/128/3, "
+                          "mbf40 3/128/4, mbf64 4/128/7, bbc and z88 5/127/4, dai32 6/0/3, bias 129 0/129/4, 80cc and +zxn the same), none unusable; the mixed link keeps fpmix48_c 0/128/5 and fpmix32_c 1/126/3 apart; the two fl.c maps (library linked) record fl_c 2/128/3 (mbf32) and 6/0/3 (dai32)",
+              maps == 19 && bad.empty() && mixed);
+        if (!bad.empty()) std::printf("  Z88FP-01:%s\n", bad.c_str());
+    }
+    {   // Z88FP-02
+        // no map built by z88dk 2.4, by master before 2026-11-06 or by zsdcc has a float format on any module (the symbols are written by sccz80 and 80cc of the nightly only)
+        int maps = 0;
+        std::string bad;
+        for (const char* root : {"v2.4", "v2.4-dotn", "v2.4-fp", "master", "master-fixed", "master-fixed-80cc", "master-fixed-sccz80", "master-fixed-zsdcc"}) {
+            if (!fs::is_directory(kFixtures / root)) { bad += std::string(" no ") + root; continue; }
+            for (const auto& d : fs::recursive_directory_iterator(kFixtures / root)) {
+                if (d.path().filename() != "prog.map") continue;
+                ++maps;
+                SourceMap m;
+                load(m, d.path());
+                if (const VariableStore* st = store_of(m)) {
+                    bool any = false;
+                    for (const CVariable& v : st->variables()) any = any || st->float_format(v.module);
+                    for (const CFunction& f : st->functions()) any = any || st->float_format(f.module);
+                    for (const jnext::dbg::CRecord& r : st->types()) any = any || st->float_format(r.module);
+                    if (any) bad += " " + d.path().string();
+                }
+            }
+        }
+        check("Z88FP-02", "no module of any committed map of z88dk 2.4 (also v2.4-fp, the fpfmt.c build), master before 2026-11-06 or zsdcc has a float format", maps >= 100 && bad.empty());
+        if (!bad.empty()) std::printf("  Z88FP-02: %d maps%s\n", maps, bad.c_str());
+    }
+    {   // Z88FP-03
+        // GH #477: the three local constants sccz80 and 80cc write into every module they compile (z88dk#3240) are the module's float format
+        int n_fp = 0;
+        const auto fp = [](const char* name, int value, const char* module, const char* kind = "const") {
+            char v[16];
+            std::snprintf(v, sizeof v, "$%04X", value);
+            return std::string(name) + " = " + v + " ; " + kind + ", local, , " + module + ", code_compiler, t.c::main::0::1:5\n";
+        };
+        const auto trio = [&](int mode, int bias, int ms, const char* module) {
+            return fp("__fp_exponent_bias", bias, module) + fp("__fp_mantissa_size", ms, module) + fp("__fp_mode", mode, module);
+        };
+        const auto fmt_of = [&](const std::string& lines, const char* module) {
+            SourceMap m;
+            load(m, zb_map(("z88fp03_" + std::to_string(n_fp++) + ".map").c_str(), lines));
+            const VariableStore* st = store_of(m);
+            const jnext::dbg::CFloatFormat* f = st ? st->float_format(module) : nullptr;
+            if (!st) return std::string("no store");
+            if (!f) return std::string("none");
+            return f->why.empty() ? std::to_string(f->mode) + "/" + std::to_string(f->exponent_bias) + "/" + std::to_string(f->mantissa_size) : "!" + f->why;
+        };
+        const std::string good = fmt_of(trio(1, 0x7E, 3, "t_c"), "t_c");
+        const std::string only_mode = fmt_of(fp("__fp_mode", 0, "t_c"), "t_c");
+        const std::string no_mant = fmt_of(fp("__fp_mode", 0, "t_c") + fp("__fp_exponent_bias", 128, "t_c"), "t_c");
+        const std::string no_mode = fmt_of(fp("__fp_exponent_bias", 128, "t_c") + fp("__fp_mantissa_size", 5, "t_c"), "t_c");
+        const std::string twice = fmt_of(trio(0, 128, 5, "t_c") + fp("__fp_mode", 1, "t_c"), "t_c");
+        const std::string same = fmt_of(trio(0, 128, 5, "t_c") + fp("__fp_mode", 0, "t_c"), "t_c");
+        const std::string two_mods_t = fmt_of(trio(0, 128, 5, "t_c") + trio(2, 128, 3, "u_c"), "t_c");
+        const std::string two_mods_u = fmt_of(trio(0, 128, 5, "t_c") + trio(2, 128, 3, "u_c"), "u_c");
+        const std::string addr_line = fmt_of(trio(0, 128, 5, "u_c") + fp("__fp_mode", 1, "t_c", "addr"), "t_c");
+        const std::string no_module = fmt_of(fp("__fp_mode", 1, ""), "");
+        const bool fp03 =
+              good == "1/126/3" && only_mode == "!no __fp_exponent_bias" && no_mant == "!no __fp_mantissa_size" && no_mode == "!no __fp_mode" &&
+                  twice == "!two __fp_mode values (0 and 1)" && same == "0/128/5" && two_mods_t == "0/128/5" && two_mods_u == "2/128/3" && addr_line == "none" && no_module == "none";
+        if (!fp03) std::printf("  Z88FP-03: %s\n", (good + " | " + only_mode + " | " + no_mant + " | " + no_mode + " | " + twice + " | " + same + " | " + two_mods_t + " | " + two_mods_u + " | " + addr_line + " | " + no_module).c_str());
+        check("Z88FP-03", "the float format of a module from its __fp_mode / __fp_exponent_bias / __fp_mantissa_size constants: $007E is 126; one without the others is unusable (no "
+                          "__fp_exponent_bias, no __fp_mantissa_size, no __fp_mode); two different values of one name are unusable (two __fp_mode values (0 and 1)), the same value twice is fine; "
+                          "two modules keep two formats; an addr line of that name and a line with no module are ignored",
+              fp03);
     }
 
     fs::remove_all(dir);

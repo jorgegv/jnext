@@ -13,9 +13,11 @@ if want harness-selftest-func; then
     begin_func harness-selftest-func
     # Timeout-wrapped like every other invocation here. Its only other time
     # bound would be the per-suite timeout inside the very harness it is
-    # testing — circular. 480 s: the self-test takes ~85 s on a quiet host
-    # since GH #295 added its lock, load-wait and stamp rows, ~110 s inside
-    # the parallel phase, and ~270 s with 12 extra busy loops on 12 CPUs.
+    # testing — circular. 480 s, a hang bound: MEASURED, the self-test takes
+    # 281 s run directly at load 4 and 443 s at load 10 on the 12-CPU dev host
+    # (the old figure of ~85 s is long gone), and the row failed at 488 s and
+    # 567 s at load 16-29. The row runs in the quiet
+    # phase (functional_tests.conf); the bound is not raised.
     if hs_out=$(timeout --foreground --kill-after=5s 480s bash "$PROJECT_DIR/test/harness-selftest.sh" 2>&1); then
         hs_line=$(echo "$hs_out" | grep -E '^Total:' | tail -1)
         pass_row " ($hs_line)"

@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# Run a WebAssembly test module under node: the runner behind
-# `make unit-test-wasm`, handed to test/run-unit-tests.sh as JNEXT_TEST_RUNNER.
+# Run a WebAssembly module under node: the runner behind `make unit-test-wasm`
+# (handed to test/run-unit-tests.sh as JNEXT_TEST_RUNNER) and, in --jnext mode,
+# behind `make regression-wasm` (the shims test/00regression/regression.sh writes).
 # Its model is test/wine-run.sh, far simpler: node needs no prefix, no server and
 # no CRLF folding.
 #
 #   node-run.sh <build_dir>/test/X.js [args...]
+#   node-run.sh --jnext <build_dir>/jnext.js [args...]
+#
+# --jnext is the same run with the build tree at dirname(js) instead of one level
+# above it. The regression suite's rows invoke "$JNEXT" as one word with their own
+# environment, stdin and exit status, all passed straight through; there is no
+# CRLF folding and no server to start, node needs neither.
 #
 # Run with `bash`, never sourced, so the trap below is its own.
 #
@@ -41,14 +48,16 @@ set -euo pipefail
 
 export PATH=/usr/bin:/bin
 
-EXE=${1:?usage: node-run.sh <build_dir>/test/X.js [args...]}
+UP=..
+if [[ ${1:-} == --jnext ]]; then UP=.; shift; fi
+EXE=${1:?usage: node-run.sh [--jnext] <build_dir>/[test/]X.js [args...]}
 shift
 case "$EXE" in
     *.js) ;;
     *) echo "node-run: ${EXE} is not a .js module" >&2; exit 2 ;;
 esac
 [[ $EXE == /* ]] || EXE=$PWD/$EXE
-BUILD=$(cd "${EXE%/*}/.." && pwd)
+BUILD=$(cd "${EXE%/*}/$UP" && pwd)
 
 [[ -f "${EXE%.js}.wasm" ]] \
     || { echo "node-run: ${EXE%.js}.wasm is missing beside ${EXE##*/}" >&2; exit 2; }

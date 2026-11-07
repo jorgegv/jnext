@@ -13,13 +13,15 @@
 # Usage: bash test/00regression/regression.sh [--update] [--preflight-only] [--platform] [test_name...]
 #   --update          Update reference screenshots instead of comparing
 #   --platform        Run the suite against ANOTHER OS's binaries (GH #319): macOS
-#                     natively, Windows as MinGW exes under wine. The target is read
+#                     natively, Windows as MinGW exes under wine, WebAssembly as
+#                     Emscripten modules under node. The target is read
 #                     from the build trees (JNEXT_TARGET_BUILD / JNEXT_TARGET_SDL_BUILD,
 #                     JNEXT_TARGET_OS in their CMakeCache.txt), never from the caller.
 #                     Runs the screenshots and the functional rows whose `os=` tag in
-#                     functional_tests.conf admits that OS; the 6 lints (tree checks)
-#                     and the stamp stay with the Linux run. `make regression-win` /
-#                     `make regression-macos`.
+#                     functional_tests.conf admits that OS (emscripten only the rows
+#                     whose tag NAMES it); the 6 lints (tree checks) and the stamp
+#                     stay with the Linux run. `make regression-win` /
+#                     `make regression-macos` / `make regression-wasm`.
 #   --preflight-only  Run only the harness preflight checks and exit (no tests).
 #                     This is the seam test/harness-selftest.sh drives.
 #   test_name         Run only the named tests (default: all); a name neither manifest
@@ -298,6 +300,7 @@ fi
 # (JNEXT_TARGET_OS, set by CMakeLists.txt from CMAKE_SYSTEM_NAME), never taken
 # from the caller; both trees (the Qt one and the SDL-only one) must agree.
 TARGET_OS=linux
+SHOT_WALL_FACTOR=1   # widened for emscripten only (screenshots.sh)
 if $PLATFORM_MODE; then
     $UPDATE_MODE && harness_fault "${BOLD}--platform${RESET} cannot be combined with --update" \
                                   "Reference screenshots are regenerated on Linux only."
@@ -307,17 +310,17 @@ if $PLATFORM_MODE; then
     for plat_var in JNEXT_TARGET_BUILD JNEXT_TARGET_SDL_BUILD; do
         plat_dir=${!plat_var:-}
         [[ -n "$plat_dir" ]] || harness_fault "${BOLD}--platform${RESET} needs ${BOLD}$plat_var${RESET} (the build tree whose binary is under test)" \
-                                              "Use ${BOLD}make regression-win${RESET} or ${BOLD}make regression-macos${RESET}."
+                                              "Use ${BOLD}make regression-win${RESET}, ${BOLD}make regression-macos${RESET} or ${BOLD}make regression-wasm${RESET}."
         plat_cache="$plat_dir/CMakeCache.txt"
         [[ -f "$plat_cache" ]] || harness_fault "no CMakeCache.txt in ${BOLD}$plat_dir${RESET} ($plat_var): not a configured build tree"
         plat_os=$(grep -m1 -oP '^JNEXT_TARGET_OS:[A-Z]+=\K.*' "$plat_cache" || true)
         [[ -n "$plat_os" ]] || harness_fault "$plat_cache does not define ${BOLD}JNEXT_TARGET_OS${RESET}" \
                                              "Every build of this project sets it; the harness will not guess."
         case $plat_os in
-            macos|windows) ;;
+            macos|windows|emscripten) ;;
             linux) harness_fault "${BOLD}$plat_dir${RESET} targets linux: --platform is for another OS" \
                                  "A Linux run is plain ${BOLD}make regression${RESET}." ;;
-            *) harness_fault "unknown target OS '${BOLD}$plat_os${RESET}' in $plat_cache" "Known: linux, macos, windows." ;;
+            *) harness_fault "unknown target OS '${BOLD}$plat_os${RESET}' in $plat_cache" "Known: linux, macos, windows, emscripten." ;;
         esac
         [[ -z "$plat_tos" || "$plat_tos" == "$plat_os" ]] \
             || harness_fault "the two build trees disagree about the target OS: ${BOLD}$plat_tos${RESET} and ${BOLD}$plat_os${RESET}" \
@@ -418,19 +421,20 @@ while read -r name tags; do
             os=*)
                 # `os=<list>` (GH #319): the OSes whose run includes this row.
                 # A closed set, comma-separated; linux is mandatory, so a Linux
-                # run still runs every row. No tag = all three.
+                # run still runs every row. No tag = linux, macos and windows;
+                # emscripten is OPT-IN: it runs a row only when the tag names it.
                 [[ -z "${FUNC_OS[$name]:-}" ]] \
                     || harness_fault "functional test ${BOLD}$name${RESET} carries two ${BOLD}os=${RESET} tags"
                 os_list=${tag#os=}
                 [[ -n "$os_list" ]] || harness_fault "functional test ${BOLD}$name${RESET} carries an empty ${BOLD}os=${RESET} tag" \
-                                                     "Known OSes: linux, macos, windows."
+                                                     "Known OSes: linux, macos, windows, emscripten."
                 os_has_linux=false
                 for os_one in ${os_list//,/ }; do
                     case $os_one in
                         linux) os_has_linux=true ;;
-                        macos|windows) ;;
+                        macos|windows|emscripten) ;;
                         *) harness_fault "functional test ${BOLD}$name${RESET} names an unknown OS ${BOLD}$os_one${RESET} in ${BOLD}$tag${RESET}" \
-                                         "Known OSes: linux, macos, windows." ;;
+                                         "Known OSes: linux, macos, windows, emscripten." ;;
                     esac
                 done
                 [[ -n "$os_list" && "$os_list" != ,* && "$os_list" != *, && "$os_list" != *,,* ]] \
@@ -441,7 +445,7 @@ while read -r name tags; do
                 FUNC_HAS_OS_TAG=true
                 ;;
             *) harness_fault "functional test ${BOLD}$name${RESET} carries an unknown tag ${BOLD}$tag${RESET}" \
-                             "Known tags: quiet, serial, private-sd, os=<linux[,macos][,windows]>." ;;
+                             "Known tags: quiet, serial, private-sd, os=<linux[,macos][,windows][,emscripten]>." ;;
         esac
     done
     [[ -z "${IS_QUIET[$name]:-}" || -z "${IS_SERIAL[$name]:-}" ]] \
@@ -476,18 +480,24 @@ for script in "$SCRIPTS_DIR"/*.sh; do
 done
 
 # Which rows each OS runs, and the per-OS pins. A row with no `os=` tag runs
-# everywhere. `# expect-macos: N` / `# expect-windows: N` (beside `# expect:`)
-# state how many rows that OS runs, so retagging a row is a deliberate edit of
+# everywhere except emscripten, which runs only the rows whose tag names it.
+# `# expect-macos: N` / `# expect-windows: N` / `# expect-emscripten: N` (beside
+# `# expect:`) state how many rows that OS runs, so retagging a row is a deliberate edit of
 # the pin, exactly like adding one is of `# expect:`. Once any row carries a tag,
-# both pins are required; a pin present without tags must equal the total.
+# the macos and windows pins are required (emscripten's once a row names it); a
+# pin present without tags must equal the total.
 row_admits() {   # row_admits <row> <os> — does the <os> run include <row>?
-    [[ -z "${FUNC_OS[$1]:-}" || "${FUNC_OS[$1]}" == *",$2,"* ]]
+    [[ "${FUNC_OS[$1]:-}" == *",$2,"* ]] && return 0
+    [[ -z "${FUNC_OS[$1]:-}" && "$2" != emscripten ]]
 }
-for os_one in macos windows; do
+for os_one in macos windows emscripten; do
     have=0
     for name in "${DECLARED_FUNC[@]}"; do row_admits "$name" "$os_one" && have=$(( have + 1 )); done
     pin=$(grep -oP "^#\s*expect-$os_one:\s*\K[0-9]+" "$FUNC_CONF" 2>/dev/null | head -1 || true)
     if [[ -z "$pin" ]]; then
+        # emscripten is opt-in, so a manifest no row names it in has nothing to
+        # pin (zero by construction); once a row opts in, the pin is required.
+        [[ "$os_one" != emscripten || $have -gt 0 ]] || continue
         ! $FUNC_HAS_OS_TAG || harness_fault "No '# expect-$os_one: N' pin in ${BOLD}$FUNC_CONF${RESET}" \
                                             "Rows carry os= tags, so the manifest must state how many rows $os_one runs."
     else
@@ -587,11 +597,21 @@ wine_capture_selfcheck() {   # $1 = the Qt build dir
 # sdfile_tool, the probes) are Linux/macOS binaries of the SDL unit-test tree.
 if $PLATFORM_MODE; then
     plat_exe=""; [[ "$TARGET_OS" == windows ]] && plat_exe=.exe
+    [[ "$TARGET_OS" == emscripten ]] && plat_exe=.js
     plat_qt="$JNEXT_TARGET_BUILD/jnext$plat_exe"
     plat_sdl="$JNEXT_TARGET_SDL_BUILD/jnext$plat_exe"
+    plat_make=macos; [[ $TARGET_OS == windows ]] && plat_make=win; [[ $TARGET_OS == emscripten ]] && plat_make=wasm
     for plat_bin in "$plat_qt" "$plat_sdl"; do
-        [[ -x "$plat_bin" ]] || harness_fault "the $TARGET_OS binary under test is not built: ${BOLD}$plat_bin${RESET}" \
-                                              "Build it with ${BOLD}make regression-$([[ $TARGET_OS == windows ]] && echo win || echo macos)${RESET}, which does."
+        if [[ "$TARGET_OS" == emscripten ]]; then
+            # emcc writes jnext.js and jnext.wasm, neither executable: both must be regular files.
+            for plat_part in "$plat_bin" "${plat_bin%.js}.wasm"; do
+                [[ -f "$plat_part" ]] || harness_fault "the $TARGET_OS binary under test is not built: ${BOLD}$plat_part${RESET}" \
+                                                      "Build it with ${BOLD}make regression-$plat_make${RESET}, which does."
+            done
+        else
+            [[ -x "$plat_bin" ]] || harness_fault "the $TARGET_OS binary under test is not built: ${BOLD}$plat_bin${RESET}" \
+                                                  "Build it with ${BOLD}make regression-$plat_make${RESET}, which does."
+        fi
     done
     if [[ "$TARGET_OS" == windows ]]; then
         command -v wine >/dev/null 2>&1 || harness_fault "wine is not installed" "dnf install wine-core wine-common"
@@ -629,6 +649,27 @@ if $PLATFORM_MODE; then
         [[ -x "$JNEXT_NATIVE" ]] || harness_fault "the host's jnext is not built: ${BOLD}$JNEXT_NATIVE${RESET}" \
                                                   "The SDL unit-test tree provides it (make unit-test-sdl-build)."
         export JNEXT_NATIVE
+    elif [[ "$TARGET_OS" == emscripten ]]; then
+        # One-line shims that run the module under the build tree's own node
+        # (test/node-run.sh --jnext), so a row invokes "$JNEXT" as one word.
+        mkdir -p "$TMP_DIR/platform"
+        for plat_pair in "jnext:$JNEXT_TARGET_BUILD" "jnext-sdl:$JNEXT_TARGET_SDL_BUILD"; do
+            printf '#!/bin/bash\nexec /bin/bash %q --jnext %q "$@"\n' \
+                "$PROJECT_DIR/test/node-run.sh" "$(cd "${plat_pair#*:}" && pwd)/jnext.js" \
+                > "$TMP_DIR/platform/${plat_pair%%:*}"
+            chmod +x "$TMP_DIR/platform/${plat_pair%%:*}"
+        done
+        JNEXT="$TMP_DIR/platform/jnext"
+        JNEXT_SDL="$TMP_DIR/platform/jnext-sdl"
+        # The host's own jnext derives the SD master, as under wine (the WebAssembly
+        # build declines downloads): the SDL unit-test tree's.
+        JNEXT_NATIVE="$(cd "$TEST_BIN_DIR/.." && pwd)/jnext"
+        [[ -x "$JNEXT_NATIVE" ]] || harness_fault "the host's jnext is not built: ${BOLD}$JNEXT_NATIVE${RESET}" \
+                                                  "The SDL unit-test tree provides it (make unit-test-sdl-build)."
+        export JNEXT_NATIVE
+        # A screenshot row counts EMULATED frames, but its wall-clock bound
+        # (screenshots.sh) assumes native speed; node runs the core slower.
+        SHOT_WALL_FACTOR=4
     else
         JNEXT=$(cd "$JNEXT_TARGET_BUILD" && pwd)/jnext
         JNEXT_SDL=$(cd "$JNEXT_TARGET_SDL_BUILD" && pwd)/jnext

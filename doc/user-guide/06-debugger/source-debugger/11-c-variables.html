@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4498,13 +4498,21 @@ the same notes reach the Watches tab and GDB's <code>monitor locals</code>, <cod
 <li><strong><code>scope unknown: shown whatever block the PC is in</code></strong>: JNEXT cannot place this local's block, so it is listed, flagged, and not hidden. Writing one is refused. With 80cc <strong>every block local</strong> is flagged (or hidden where its block is provably closed): 80cc stamps some code with another block's scope, so JNEXT never lists an 80cc block local as certainly in scope. Also the case when there is no <code>--list</code> listing beside the map, or the build predates z88dk master of 2026-11-04 (which adds the block records).</li>
 </ul>
 <p>The words <code>U1</code> and <code>U2</code> in the messages are JNEXT's names for two z88dk record bugs (a fastcall parameter's slot, a bitfield written as an <code>int</code>).</p>
+<p>Floats: the debug record gives a <code>float</code>'s size and not its format, and z88dk has seven (its own 48-bit one, IEEE 754 single, <code>mbf32</code>, <code>mbf40</code>, <code>mbf64</code>, the BBC / z88
+one with its integer form, and the AM9511 one of <code>--math-dai32</code>). sccz80 and 80cc of z88dk master from 2026-11-06 write each C module's float format into the map, and
+JNEXT then reads every float of that module in it, whatever library the program links: a variable, an array element, a struct member, and what a pointer points at
+(<code>*p</code>, <code>p[1]</code>). Typing a value writes it back in the same format. A map without the format (z88dk 2.4, master before 2026-11-06, zsdcc, assembly modules) keeps the old
+rule: a 6-byte float is the 48-bit format, a 4-byte one IEEE single, and a pointer to a float is refused (its size is not known). A format that cannot read the bytes the
+record gives (an unknown format, a mantissa that does not fit the float, two different formats in one module, a struct laid out with another float width than the module
+that uses it) is refused with its reason, never shown as a number.</p>
 <p>Refusals instead of a value: <code>location unknown (z88dk U1...)</code> for a <code>__z88dk_fastcall</code> parameter that sccz80 recorded where it is not;
 <code>an array of unknown length: its debug record has no size</code>; <code>float format mbf32 is not read: the record does not say it</code> (also
-<code>mbf64</code>, <code>bbc</code> and <code>dai32</code>) when the map shows the program links one of those float libraries.</p>
+<code>mbf64</code>, <code>bbc</code> and <code>dai32</code>) when the map records no float format and shows the program links one of those float libraries; <code>float format of module &lt;m&gt; is not usable: ...</code>
+and <code>float format __fp_mode &lt;n&gt; is not supported</code> for a recorded format JNEXT cannot read.</p>
 <h2 id="what-each-z88dk-can-show">What each z88dk can show<a class="headerlink" href="#what-each-z88dk-can-show" title="Permanent link">&para;</a></h2>
 <p>These are limits of what the compilers record, not of the debugger. One row per limit, for each version and compiler. The last column is the date from which
 z88dk master contains the fix (a release that contains it is not tracked here); <code>not fixed yet</code> means master does not have it. Every fix listed
-with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get all of them, use a nightly named <code>z88dk-20261106-*</code> or later, or z88dk master built from source; z88dk 2.4 works with the limits below.</p>
+with a date is in z88dk master from <code>965fd0e628</code> (2026-11-06). To get all of them, use the nightly <code>z88dk-20261107-965fd0e628-26852</code> (2026-11-07) or a later one, or z88dk master built from source at that commit or later; z88dk 2.4 works with the limits below.</p>
 <table>
 <thead>
 <tr>
@@ -4554,14 +4562,14 @@ with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get
 <tr>
 <td>2.4, sccz80</td>
 <td>the float format is not recorded</td>
-<td>a 6-byte float is read as z88dk's 48-bit format</td>
-<td>not fixed yet</td>
+<td>a 6-byte float is read as z88dk's 48-bit format and a pointer to a float is refused; with master's map symbols (next row) every float is read in its recorded format</td>
+<td>2026-11-06</td>
 </tr>
 <tr>
 <td>master, sccz80</td>
-<td>the float format of classic <code>--math-mbf32</code> and <code>--math-dai32</code></td>
-<td><code>float format mbf32 is not read</code></td>
-<td>not fixed yet</td>
+<td>the float format of the classic float libraries (<code>--math-mbf32</code>, <code>--math-dai32</code>, ...) before 2026-11-06</td>
+<td><code>float format mbf32 is not read</code>; from 2026-11-06 the map records the format of each module and JNEXT reads it</td>
+<td>2026-11-06</td>
 </tr>
 <tr>
 <td>master, zsdcc</td>
@@ -4625,9 +4633,9 @@ with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get
 </tr>
 <tr>
 <td>master, 80cc</td>
-<td>a <code>for (int i ...)</code> variable's block</td>
-<td>a <code>for</code> opens no block on 80cc, so its variable and anything under the <code>for</code> stay <code>scope unknown</code> (above)</td>
-<td>not fixed yet</td>
+<td>a <code>for (int i ...)</code> variable's block: a <code>for</code> opened no block</td>
+<td>the loop variable is listed on the <code>for</code> line and in the loop body and hidden after the loop, flagged <code>scope unknown</code> like every 80cc block local (above)</td>
+<td>2026-11-05</td>
 </tr>
 <tr>
 <td>master, 80cc</td>
@@ -4639,19 +4647,19 @@ with a date is in z88dk master from <code>0f0a1cf70e</code> (2026-11-05). To get
 <td>master, 80cc</td>
 <td>the float format</td>
 <td>as master sccz80</td>
-<td>not fixed yet</td>
+<td>2026-11-06</td>
 </tr>
 </tbody>
 </table>
 <p>More, in short:</p>
 <ul>
 <li>A plain <code>int</code> bitfield (<code>int s:4;</code>) is <strong>unsigned</strong> in sccz80 and 80cc and signed in zsdcc, so the value shown is each program's own reading; a <code>signed int</code> field is signed everywhere.</li>
-<li>On a <code>for</code> line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80: those lines are recorded in the enclosing block. It is listed in the body. With 80cc it is listed on its <code>for</code> line too, flagged <code>scope unknown</code>, because 80cc opens no block for a <code>for</code>.</li>
+<li>On a <code>for</code> line itself (its initialiser, condition and increment), the loop variable is not listed with sccz80: those lines are recorded in the enclosing block. It is listed in the body. With 80cc it is listed on its <code>for</code> line too, flagged <code>scope unknown</code> like every 80cc block local.</li>
 <li>A source path that contains a <code>$</code> (<code>game$v2/main.c</code>): sccz80 and 80cc write the path into each local's and static's record, and <code>$</code> separates the record's fields, so JNEXT cannot read the records of that file and does not list its parameters, locals or file statics (its globals are listed). zcc itself needs the <code>$</code> escaped and cannot write <code>--list</code> listings for such a path. Keep <code>$</code> out of source paths.</li>
-<li>80cc writes one scope per source line and stamps some code with another block's scope (see the table), so its block locals are never certain. On a line that holds code of two blocks the locals hidden are those of the block 80cc wrote first. Keeping a block's statements on lines of their own does not avoid it: the stamp comes from the compiler's order of work, not from the line.</li>
+<li>80cc stamps some code with another block's scope (see the table), so its block locals are never certain. Before z88dk master of 2026-11-06 it wrote one scope per source line, and on a line that holds code of two blocks (<code>if (a) { int p; ... } else { int q; ... }</code> on one line) no block local of either was listed; from that date it writes a scope for each block of the line and each branch lists its own local. Keeping a block's statements on lines of their own does not avoid it: the stamp comes from the compiler's order of work, not from the line.</li>
 <li>A name that two visible variables share (an inner block's <code>t</code> over the function's <code>t</code>): the innermost is the one <code>print</code>, a watch, <code>cvar()</code> and a write mean, as in gdb. The Variables tab lists both; the outer one is marked <code>shadowed</code>, or <code>may be shadowed</code> when the choice is not certain, that is when the inner one is <code>scope unknown</code> (that is 80cc's block locals; a parameter or level-1 local shadowed by a certain pick is <code>shadowed</code> on every compiler). A read of an uncertain name carries <code>ambiguous: 2 variables named t may be in scope here; this is the innermost (...)</code>, and a write to it is refused. A block-scoped <code>static</code> local is in scope only in its block, like a block local: where its block is closed it is not listed and the name means the local; where it is open it wins; on 80cc it is <code>scope unknown</code> like every block local. Each of the two rows acts on the variable it shows: Edit Value writes that variable and expanding it lists that variable's members. Watch is offered only on the innermost row, because a Watch is a name and the name reaches the innermost declaration; the shadowed row's Watch is disabled and its tooltip says so. Two block statics of one name in a function (zsdcc) share the path <code>function::name</code>: that typed path is refused with <code>ambiguous: 2 statics named n in f</code>, <code>monitor globals</code> marks both entries <code>(ambiguous path)</code>, and the Globals rows read and edit their own static but cannot be watched.</li>
 <li>Not a display limit, but wrong values in the program itself: a bitfield initialiser across two bytes written as one (fixed in z88dk master from 2026-11-04), and three 80cc code-generation bugs (fixed in master on 2026-11-04 and 2026-11-05; one only on the Game Boy target).</li>
-<li>Not JNEXT: defects of z88dk's own debuggers (one fixed in master from 2026-11-04) and ticks' reading of floats (not fixed yet).</li>
+<li>Not JNEXT: defects of z88dk's own debuggers (one fixed in master from 2026-11-04) and ticks' reading of floats (fixed in master from 2026-11-06).</li>
 <li>No C variables at all: zsdcc on 2.4 (<code>-debug</code> does not build), and the classic library on the Next with 2.4 (<code>-debug</code> fails; it works on master from 2026-10-23).</li>
 <li>A <code>union</code> is shown as a <code>struct</code>.</li>
 <li>Before a function has set up its frame, its locals are <code>not allocated</code>; a variable at an offset below the stack the frame owns, too.</li>

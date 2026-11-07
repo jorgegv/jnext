@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.0</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3092,7 +3092,11 @@ retry.</p>
 <p><code>build/wasm-core</code> is the WebAssembly build (<code>make wasm-core</code>): Release, the
 Emscripten toolchain file of the SDK that <code>make emsdk</code> provides, and only the
 SDL-only configuration, so CMake refuses it with <code>ENABLE_QT_UI</code> or
-<code>ENABLE_DEBUGGER</code> on. It builds the <code>jnext</code> and <code>sha256_test</code> targets only. The
+<code>ENABLE_DEBUGGER</code> on. <code>make wasm-core</code> builds the <code>jnext</code> and <code>sha256_test</code> targets
+only. <code>jnext</code> there is the node build: it links with <code>-sNODERAWFS=1
+-sENVIRONMENT=node -sEXIT_RUNTIME=1</code>, so it sees the host filesystem (what
+<code>make regression-wasm</code> needs), and its size is not the browser's, which is
+<code>jnext_web</code>'s. The
 configuration differs from the native SDL-only one in a few places: no
 curl/OpenSSL (the SD-card provisioner's web twin,
 <code>sdcard_provisioner_net_web.cpp</code>, has a portable SHA-256 and never downloads),

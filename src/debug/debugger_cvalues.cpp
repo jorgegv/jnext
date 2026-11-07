@@ -260,7 +260,7 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
             out.where.kind = Debugger::CWhere::Kind::Register;
             out.where.regs = rr.note.substr(3, rr.note.find(';') - 3);
             out.integer = c_integer_value(cv.type, rr.bytes.data(), rr.bytes.size());
-            out.real = c_float_value(cv.type, rr.bytes.data(), rr.bytes.size());
+            out.real = c_float_value(ctx, cv.type, rr.bytes.data(), rr.bytes.size());
             return out;
         }
     } else {
@@ -302,7 +302,7 @@ Debugger::CValueResult eval_var(const Env& e, size_t k, const CVariable& v, bool
     if (!ev.loc.note.empty() && std::find(out.notes.begin(), out.notes.end(), ev.loc.note) == out.notes.end())
         out.notes.push_back(ev.loc.note);
     out.integer = c_integer_value(ev.loc.type, bytes.data(), bytes.size());
-    out.real = c_float_value(ev.loc.type, bytes.data(), bytes.size());
+    out.real = c_float_value(ctx, ev.loc.type, bytes.data(), bytes.size());
     return out;
 }
 
@@ -683,7 +683,7 @@ Debugger::CWriteResult Debugger::write_c_value_impl(ClientId by, size_t frame, s
     std::vector<uint8_t> cur(n, 0);
     const auto pk = peek(space, at, n, cur.data());
     if (pk.status != Result::Ok || pk.value != n) return refuse("the object cannot be read back for the write");
-    const CEncoded enc = c_encode_value(r.loc.type, value, cur.data(), cur.size());
+    const CEncoded enc = c_encode_value(var_ctx(e, *f.v), r.loc.type, value, cur.data(), cur.size());
     if (!enc.ok) return refuse(enc.why);
 
     const auto w = poke(by, space, at, enc.bytes.size(), enc.bytes.data());   // the ONE poke: one MUTATE line and one revision bump when something lands (all of it, or the bytes of a partial ROM landing)
