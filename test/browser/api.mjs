@@ -388,7 +388,10 @@ row('WEBAPI-18', 'itch-style: a host page embeds the game page from another site
 row('WEBAPI-19', 'build/ holds jnext-<version>.js and .wasm; jnext.version equals version.yaml; the page asked for the versioned .wasm, never jnext_web.wasm; no version literal under web/', async () => {
   must(fs.existsSync(path.join(BUILD, `jnext-${VERSION}.js`)) && fs.existsSync(path.join(BUILD, `jnext-${VERSION}.wasm`)), 'files missing');
   const yaml = fs.readFileSync(path.join(ROOT, 'version.yaml'), 'utf8').match(/^version: *(.+)$/m)[1].trim();
-  const v = await main.evaluate(() => jnext.version);
+  const dflt = await newPage(); attach(dflt);
+  await open(dflt, [{ machine: '48k', muted: true }]);   // the default .wasm location
+  const v = await dflt.evaluate(() => jnext.version);
+  await dflt.ctx.close();
   must(v === yaml && yaml === VERSION, `jnext.version ${v}, version.yaml ${yaml}, build ${VERSION}`);
   must(aLog.includes(`/build/jnext-${VERSION}.wasm`) && !aLog.some((p) => /jnext_web/.test(p)), 'wasm requests: ' + JSON.stringify([...new Set(aLog.filter((p) => /wasm/.test(p)))]));
   let found = '';
