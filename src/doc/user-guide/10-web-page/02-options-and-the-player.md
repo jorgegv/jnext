@@ -21,7 +21,9 @@
 - `onProgress(phase, fraction)`: `phase` is `download`, `warm-start` or `restore`;
   `fraction` runs from 0 to 1.
 - `onReady()`: after the mount's click, after `load()` and after `reset()`: the
-  program is in the machine and a frame has been shown.
+  program is in the machine and a frame has been shown. A load the program itself
+  asks for (a NEX that runs another) is not the page's: it fires no `onReady` and
+  `reset()` still restarts the page's program.
 - `onError(message)`: on every failure (a refused option, a bad image, a program that
   does not load, an exit with an error). The promise of the call that failed rejects
   with the same message.
@@ -31,7 +33,7 @@
 | member | what it does |
 |---|---|
 | `state` | `waiting` (before the click), `starting`, `running`, `paused`, `exited`, `destroyed`. |
-| `ready` | A promise for the first ready; it rejects if the machine does not start. |
+| `ready` | A promise for the first ready; it rejects if the machine does not start, or if the startup program does not load. |
 | `pause()`, `resume()` | Stop and restart the frame loop. |
 | `reset(kind)` | `'program'` (default): restart the program. `'hard'`: power on again. `'soft'`: reset. Returns a promise. |
 | `load(file)` | Load another program (same forms as `file`) while the machine runs. Resolves when it is in the machine. |

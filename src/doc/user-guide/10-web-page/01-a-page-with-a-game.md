@@ -20,7 +20,7 @@ The release ships `plain.html`, a whole page in one file. Its core is this:
 What happens, in order:
 
 1. `mount()` checks the options. A name it does not know, or a value of the wrong
-   type, rejects the promise at once and names the option; nothing is downloaded.
+   type, rejects the promise at once and names the option; the SD-card image is not downloaded.
 2. The page fetches the SD-card image from `image.url`, checks its SHA-256 and keeps
    it in the browser's cache. The next visit checks the cached copy and does not
    download it again. `onProgress('download', fraction)` reports the download.

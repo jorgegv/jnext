@@ -1,4 +1,4 @@
-// Browser rows WEBAPI-01..21: the JavaScript API (jnext.mount) in headless Chromium
+// Browser rows WEBAPI-01..28: the JavaScript API (jnext.mount) in headless Chromium
 // (make wasm-browser-test, spec api.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Pages: test/browser/page/api.html (the fixture, mounts one or two players with the options
@@ -10,7 +10,7 @@
 // page's THE BROWSER BUILD, #463's keyed-screen protocol (frame 200, P 1 2 Enter, screenshot at 320),
 // and version.yaml. The card is copyrighted: it lives in the scratch directory and in the page's
 // storage only; tracing, video and HAR are never enabled.
-import { Harness, waitFor, sleep } from './harness.mjs';
+import { Harness, waitFor, sleep, installAudioHook } from './harness.mjs';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import http from 'http';
@@ -246,8 +246,14 @@ row('WEBAPI-09', 'reset() resolves with onReady and the program is back; reset(s
   const r = await rec(main);
   must(r.ready === before.ready + 1, `ready ${before.ready} -> ${r.ready}`);
   await waitColour(main, 0, isBlue);
+  // F4 keeps the emulated frame count going, F1 powers on again and restarts it: the two arms are told apart.
+  const fb = await frame(main);
   await main.evaluate(() => window.player0.reset('soft'));
+  const fs_ = await frame(main);
+  must(fs_ >= fb, `soft reset: frame ${fb} -> ${fs_}`);
+  const fh = await frame(main);
   await main.evaluate(() => window.player0.reset('hard'));
+  await waitFor(main, (n) => window.player0._module._jnext_web_frame() < n, fh, 5000);
   const e = (await rec(main)).errors;
   must(e.length === 0, 'errors ' + JSON.stringify(e));
   await main.evaluate(() => window.player0.reset());   // the program again, for the next rows
@@ -352,7 +358,15 @@ row('WEBAPI-17', 'destroy() resolves after the machine exits, removes the player
   await open(page, [{ machine: '48k', muted: true }, { machine: '48k', muted: true }]);
   await click(page, 0); await click(page, 1);
   await waitReady(page, 0, 1); await waitReady(page, 1, 1);
+  await page.evaluate(() => { window.__m0 = window.player0._module; });
+  const td = Date.now();
   await page.evaluate(() => window.player0.destroy());
+  const destroyMs = Date.now() - td;
+  const g1 = await page.evaluate(() => window.__m0._jnext_web_frame());
+  await sleep(500);
+  const g2 = await page.evaluate(() => window.__m0._jnext_web_frame());
+  must(destroyMs < 1500, `destroy took ${destroyMs} ms: it resolved on its 2 s timer, not through onExit`);
+  must(g1 === g2, `the destroyed machine still runs: frame ${g1} -> ${g2}`);
   const left = await page.evaluate(() => document.querySelectorAll('.jnext-player').length);
   const thrown = await page.evaluate(() => { try { window.player0.pause(); return 'no throw'; } catch (e) { return e.message; } });
   const f = await frame(page, 1);
@@ -435,6 +449,105 @@ row('WEBAPI-21', 'a real image host that sends Access-Control-Allow-Origin: the 
   await click(page); await waitReady(page, 0, 1);
   console.log('# WEBAPI-21 memory, one 48K player: ' + JSON.stringify(await memInfo(page)));
   must(mine.length === 1 && mine[0].origin === AURL, 'server log ' + JSON.stringify(bLog.slice(n)));
+  await page.ctx.close();
+});
+
+
+row('WEBAPI-22', 'an unmuted player\'s AudioContext runs after the click and is closed by destroy()', async () => {
+  const page = await newPage(); attach(page);
+  await installAudioHook(page);
+  await open(page, [{ machine: '48k' }]);
+  await click(page); await waitReady(page, 0, 1);
+  await waitFor(page, () => window.__au.ctxs.length > 0 && window.__au.ctxs[0].state === 'running', null, 30000);
+  await page.evaluate(() => window.player0.destroy());
+  await sleep(200);
+  const st = await page.evaluate(() => window.__au.ctxs.map((c) => c.state));
+  must(st.length >= 1 && st.every((x) => x === 'closed'), 'contexts after destroy: ' + JSON.stringify(st));
+  await page.ctx.close();
+});
+
+row('WEBAPI-23', 'a host page given ?game=javascript:... runs no script and embeds the default game page instead', async () => {
+  const page = await newPage(); attach(page);
+  await page.goto(AURL + '/build/itch-host.html?game=' + encodeURIComponent('javascript:top.__xss=1;parent.__xss=1'));
+  await sleep(1500);
+  const r = await page.evaluate(() => ({ xss: window.__xss === undefined ? null : window.__xss, src: document.getElementById('game').src }));
+  must(r.xss === null, 'the javascript: URL ran in the host page');
+  must(/^http:\/\//.test(r.src) && /itch-game\.html$/.test(r.src), 'iframe src: ' + r.src);
+  await page.ctx.close();
+});
+
+row('WEBAPI-24', 'a width string with declarations in it sets no other style of the player', async () => {
+  const page = await newPage(); attach(page);
+  await open(page, [{ machine: '48k', muted: true, width: '100px;position:fixed;left:50px', height: 50 }]);
+  const st = await page.evaluate(() => { const b = document.querySelector('#p0 .jnext-player'); return { pos: b.style.position, left: b.style.left, h: b.style.height }; });
+  must(st.pos === 'relative' && st.left === '' && st.h === '50px', JSON.stringify(st));
+  await page.ctx.close();
+});
+
+row('WEBAPI-25', 'plain.html: the status line follows the player (click to start, ready, error) and its Mute and Pause buttons act', async () => {
+  const page = await newPage(); attach(page);
+  const q = new URLSearchParams({ image: IMAGE.url, sha256: SHA, file: '/nex/red.nex' });
+  await page.goto(`${AURL}/build/plain.html?` + q.toString());
+  await waitFor(page, () => document.getElementById('status').textContent === 'click the player to start', null, 300000);
+  await page.click('.jnext-overlay', { timeout: 600000, noWaitAfter: true });
+  await waitFor(page, () => document.getElementById('status').textContent === 'ready', null, 300000);
+  await page.click('#mute');
+  const db = await page.evaluate(() => window.player._module._jnext_web_gain_db());
+  await page.click('#pause');
+  const st = await page.evaluate(() => window.player.state);
+  must(db === -120 && st === 'paused', `gain ${db}, state ${st}`);
+  const bad = await newPage(); attach(bad);
+  await bad.goto(`${AURL}/build/plain.html`);
+  const txt = await bad.evaluate(() => document.getElementById('status').textContent);
+  must(/no URL configured/.test(txt), 'status with no image: ' + txt);
+  await page.ctx.close(); await bad.ctx.close();
+});
+
+row('WEBAPI-26', 'a startup program the loader refuses: ready rejects with the loader message, onError fires once, the machine stays up', async () => {
+  fs.writeFileSync(path.join(SCRATCH, 'bad.nex'), Buffer.from(Array.from({ length: 16 }, (_, i) => (i * 37 + 11) & 255)));
+  const page = await newPage(); attach(page);
+  await open(page, [{ machine: 'next', muted: true, file: '/scratch/bad.nex' }]);
+  await click(page);
+  const out = await page.evaluate(() => window.player0.ready.then(() => 'resolved', (e) => e.message));
+  await sleep(1000);
+  const r = await rec(page);
+  must(/bad\.nex/.test(out), 'ready: ' + out);
+  must(r.errors.length === 1 && /bad\.nex/.test(r.errors[0]), 'errors ' + JSON.stringify(r.errors));
+  must(r.state === 'running', 'state ' + r.state);
+  await page.ctx.close();
+});
+
+row('WEBAPI-27', 'a load the guest asks for (menu.nex runs red.nex) fires no onReady and reset() still restarts the page\'s program', async () => {
+  const page = await newPage(); attach(page);
+  await open(page, [{ machine: 'next', muted: true, file: '/nex/menu.nex', args: ['--esxdos-stub'] }]);
+  await page.evaluate(async () => {
+    const m = window.player0._module;
+    m.FS.mkdirTree('/media');
+    for (const n of ['red.nex', 'blue.nex', 'menu.nex']) m.FS.writeFile('/media/' + n, new Uint8Array(await (await fetch('/nex/' + n)).arrayBuffer()));
+  });
+  await click(page); await waitReady(page, 0, 1);
+  const f = await frame(page);
+  await waitFrame(page, 0, f + 100);
+  await page.focus('#p0 canvas');
+  await page.keyboard.press('1', { delay: 100 });
+  let red = false;
+  for (let i = 0; i < 60 && !red; i++) { await sleep(500); red = isRed(await centre(page)); }
+  must(red, 'the chained program did not run');
+  must((await rec(page)).ready === 1, 'onReady fired for the guest load');
+  await page.evaluate(() => window.player0.reset());
+  const r = await rec(page);
+  must(r.ready === 2 && r.errors.length === 0, `ready ${r.ready} errors ${JSON.stringify(r.errors)}`);
+  await waitFrame(page, 0, (await frame(page)) + 100);
+  must(!isRed(await centre(page)), 'reset restarted the chained program');
+  await page.ctx.close();
+});
+
+row('WEBAPI-28', 'an unknown function-valued option and a non-function callback both reject mount(), naming the option', async () => {
+  const page = await newPage(); attach(page);
+  await open(page, [{ machine: '48k', __fn: 'onready' }, { __raw: true, machine: '48k', onReady: true }]);
+  const a = await rec(page, 0), b = await rec(page, 1);
+  must(a.mountError && a.mountError.includes('onready'), 'unknown fn: ' + a.mountError);
+  must(b.mountError && b.mountError.includes('onReady') && /function/.test(b.mountError), 'non-function: ' + b.mountError);
   await page.ctx.close();
 });
 

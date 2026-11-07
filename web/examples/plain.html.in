@@ -21,6 +21,7 @@
 </p>
 <script src="jnext-@PROJECT_VERSION@.js"></script>
 <script>
+(function () {
   // The SD-card image, its SHA-256 and the program come from the query string
   // (?image=URL&sha256=HEX&file=URL), falling back to these constants.
   var IMAGE_URL = '';
@@ -29,8 +30,9 @@
   var OTHER_URL = '';
 
   var q = new URLSearchParams(location.search);
-  var status = document.getElementById('status');
-  function say(t) { status.textContent = t; }
+  // Not `status`: a global of that name is window.status, a string.
+  var statusEl = document.getElementById('status');
+  function say(t) { statusEl.textContent = t; }
 
   var options = {
     image: { url: q.get('image') || IMAGE_URL, sha256: q.get('sha256') || IMAGE_SHA256 },
@@ -63,6 +65,7 @@
       };
     }, function () {});
   }
+})();
 </script>
 </body>
 </html>

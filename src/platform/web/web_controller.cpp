@@ -22,6 +22,7 @@ namespace {
 SdlApp*     g_app = nullptr;
 std::string g_program;          // the program a reset('program') restarts; empty = none
 bool        g_paused = false;
+bool        g_page_load = false;     // the load now pending was started by the page (startup, load(), reset('program'))
 bool        g_want_frame = false;    // ready is pending: the program is in, a frame must follow
 uint64_t    g_gen_mark = 0;
 bool        g_load_failed = false;
@@ -55,6 +56,11 @@ void attach(SdlApp& app)
     g_program.clear();
     g_paused = false;
     app.set_on_load_applied([](const std::string& file, bool ok) {
+        // A load the guest asked for (a NEX that runs another) is not the page's program:
+        // it neither fires ready nor becomes what reset('program') restarts.
+        const bool mine = g_page_load;
+        g_page_load = false;
+        if (!mine) return;
         if (ok) {
             g_program = file;
             ++g_load_applied;
@@ -66,7 +72,8 @@ void attach(SdlApp& app)
         }
     });
     // No program: ready is the first frame shown.
-    if (app.pending_load_file().empty()) arm_ready();
+    g_page_load = !app.pending_load_file().empty();
+    if (!g_page_load) arm_ready();
     event("started");
 }
 
@@ -136,6 +143,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_reset(int kind)
     } else if (kind == 2) {
         g_app->emulator().on_hotkey_f4_soft_reset();
     } else if (!g_program.empty()) {
+        g_page_load = true;
         g_app->cold_boot(g_program);
     } else {
         g_app->emulator().on_hotkey_f1_hard_reset();
@@ -152,6 +160,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_load(const char* path)
     if (const char* why = browser_page::program_refusal(path ? path : "")) return why;
     // g_program becomes `path` only when the load succeeds (the hook), so a refused or
     // failed load never becomes the program a reset restarts.
+    g_page_load = true;
     g_app->cold_boot(path);
     return nullptr;
 }

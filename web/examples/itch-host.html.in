@@ -15,8 +15,14 @@
 <p id="msg"></p>
 <script>
   // ?game=URL of the uploaded page (itch-game.html on another origin).
+  // Only an http(s) URL: ?game=javascript:... would run script in this page's origin.
   var q = new URLSearchParams(location.search);
-  document.getElementById('game').src = q.get('game') || 'itch-game.html';
+  var game = 'itch-game.html';
+  try {
+    var u = new URL(q.get('game') || game, location.href);
+    if (u.protocol === 'http:' || u.protocol === 'https:') game = u.href;
+  } catch (e) { /* not a URL: the default */ }
+  document.getElementById('game').src = game;
   window.messages = [];
   window.addEventListener('message', function (e) {
     window.messages.push(String(e.data));

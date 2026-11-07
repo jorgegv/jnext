@@ -273,6 +273,8 @@ int main()
             {"file", "{" + IMG + ",\"file\":7}"},
             {"width", "{" + IMG + ",\"width\":true}"},
             {"wasmUrl", "{" + IMG + ",\"wasmUrl\":3}"},
+            {"options", "[]"},
+            {"options", "5"},
         };
         std::string bad;
         for (const Case& c : cases) if (!refused_naming(c.json, c.name)) bad += std::string(" ") + c.name;

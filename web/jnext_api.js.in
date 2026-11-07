@@ -98,6 +98,12 @@
     if (options === null || typeof options !== 'object' || Array.isArray(options)) {
       return Promise.reject(new TypeError('jnext.mount: options must be an object'));
     }
+    for (var ci = 0; ci < CALLBACKS.length; ci++) {
+      var cv = options[CALLBACKS[ci]];
+      if (cv !== undefined && typeof cv !== 'function') {
+        return Promise.reject(new TypeError("jnext.mount: option '" + CALLBACKS[ci] + "' must be a function"));
+      }
+    }
     var n = ++counter;
     var cb = {};
     CALLBACKS.forEach(function (k) { if (typeof options[k] === 'function') cb[k] = options[k]; });
@@ -109,9 +115,11 @@
     // ---- DOM ----
     var box = document.createElement('div');
     box.className = 'jnext-player';
-    box.style.cssText = 'position:relative;background:#000;overflow:hidden;width:' +
-      px(options.width === undefined ? '100%' : options.width) + ';height:' +
-      px(options.height === undefined ? '100%' : options.height);
+    box.style.cssText = 'position:relative;background:#000;overflow:hidden';
+    // Property assignments, not cssText concatenation: a string that is not one length
+    // is ignored by the browser and can never add declarations of its own.
+    box.style.width = px(options.width === undefined ? '100%' : options.width);
+    box.style.height = px(options.height === undefined ? '100%' : options.height);
     var canvas = document.createElement('canvas');
     canvas.id = 'jnext-canvas-' + n;
     canvas.tabIndex = 0;
@@ -168,6 +176,7 @@
         w.forEach(function (x) { x.resolve(); });
       } else if (type === 'error') {
         var e = fail(text);
+        if (!readyDone) readyReject(e);   // an error before the first ready: ready never comes
         rejectWaiters(e);
       }
     }
@@ -273,6 +282,10 @@
       live();
       var wasUp = machineUp();
       var finish = function () {
+        // SDL closes its AudioContext only with the playback device, and the loop's exit leaves it
+        // running: close it here, after the machine has exited, so a destroyed player holds no audio.
+        var ac = mod && mod.SDL3 && mod.SDL3.audioContext;
+        if (ac && ac.state !== 'closed') { try { ac.close(); } catch (e) { /* already gone */ } }
         state = 'destroyed';
         if (box.parentNode) box.parentNode.removeChild(box);
         mod = null;
