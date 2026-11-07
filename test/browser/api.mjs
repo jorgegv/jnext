@@ -22,10 +22,12 @@ const VERSION = E.SMOKE_BUILD_VERSION;
 const MODULE = `/build/jnext-${VERSION}.js`;
 const SHA = E.SMOKE_CARD_SHA256;
 
-const h = new Harness({ build: BUILD, page: path.join(ROOT, 'test/browser/page'),
-                        nex: path.join(ROOT, 'test/00regression/nex'), scratch: SCRATCH });
+const h = new Harness({});   // only for launching and closing the pinned browser: every server below is real
 
-// Real servers (ephemeral ports on 127.0.0.1). B: the image, with CORS. C: another site's game page.
+// Real servers (ephemeral ports on 127.0.0.1). A: the page host (http://localhost:<A>), B: the image,
+// with CORS, C: another site's game page. Nothing is intercepted: Chromium applies its own CORS,
+// secure-context and network-address rules to every request (a response the harness fulfils itself
+// skips the CORS check and is not treated as a loopback origin).
 const bLog = [];
 const B = http.createServer((req, res) => {
   bLog.push({ url: req.url, origin: req.headers.origin || null });
@@ -37,21 +39,27 @@ const B = http.createServer((req, res) => {
 });
 await new Promise((r) => B.listen(0, '127.0.0.1', r));
 const MIMES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.nex': 'application/octet-stream' };
+const ROOTS = { build: BUILD, page: path.join(ROOT, 'test/browser/page'), nex: path.join(ROOT, 'test/00regression/nex'), scratch: SCRATCH };
+const aLog = [];
+function files(log) {
+  return (req, res) => {
+    const u = new URL(req.url, 'http://x');
+    log.push(u.pathname);
+    const m = /^\/([^/]+)\/([^/]+)$/.exec(u.pathname);
+    const f = m && ROOTS[m[1]] && path.join(ROOTS[m[1]], decodeURIComponent(m[2]));
+    if (!f || !fs.existsSync(f) || !fs.statSync(f).isFile()) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': MIMES[path.extname(f)] || 'application/octet-stream' });
+    res.end(fs.readFileSync(f));
+  };
+}
+const A = http.createServer(files(aLog));
+await new Promise((r) => A.listen(0, '127.0.0.1', r));
 const cLog = [];
-const C = http.createServer((req, res) => {
-  const u = new URL(req.url, 'http://x');
-  cLog.push(u.pathname);
-  const m = /^\/(build|nex)\/([^/]+)$/.exec(u.pathname);
-  const f = m && path.join(m[1] === 'build' ? BUILD : path.join(ROOT, 'test/00regression/nex'), m[2]);
-  if (!f || !fs.existsSync(f)) { res.writeHead(404); res.end(); return; }
-  res.writeHead(200, { 'Content-Type': MIMES[path.extname(f)] || 'application/octet-stream' });
-  res.end(fs.readFileSync(f));
-});
+const C = http.createServer(files(cLog));
 await new Promise((r) => C.listen(0, '127.0.0.1', r));
+const AURL = `http://localhost:${A.address().port}`;
 const BURL = `http://127.0.0.1:${B.address().port}`;
 const CURL = `http://127.0.0.1:${C.address().port}`;
-h.origins[BURL] = { passthrough: true };
-h.origins[CURL] = { passthrough: true };
 const IMAGE = { url: BURL + '/card.img', sha256: SHA };
 
 await h.launch();
@@ -63,6 +71,12 @@ const row = (id, text, fn) => rows.push({ id, text, fn });
 const must = (cond, detail) => { if (!cond) throw new Error(detail || 'condition failed'); };
 
 // ---- helpers -------------------------------------------------------------------------------
+async function newPage() {
+  const ctx = await h.browser.newContext({ viewport: { width: 1000, height: 800 }, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  page.ctx = ctx;
+  return page;
+}
 function attach(page) {
   page.msgs = [];
   page.on('console', (m) => page.msgs.push(m.text()));
@@ -72,7 +86,7 @@ const pageErrors = (page) => page.msgs.filter((m) => m.startsWith('PAGEERROR'));
 // Load the fixture with `players` (option objects), wait until every mount() settled.
 async function open(page, players, extra = {}) {
   const q = new URLSearchParams({ module: MODULE, image: JSON.stringify(extra.image || IMAGE), players: JSON.stringify(players) });
-  await page.goto('http://localhost/page/api.html?' + q.toString());
+  await page.goto(AURL + '/page/api.html?' + q.toString());
   await waitFor(page, (n) => window.apiTest && window.apiTest.players.length === n && window.apiTest.players.every((p) => p.settled), players.length);
 }
 const rec = (page, i = 0) => page.evaluate((i) => {
@@ -142,7 +156,7 @@ const IDB_FILES = () => new Promise((res, rej) => {
 
 // ---- rows ------------------------------------------------------------------------------------
 row('WEBAPI-01', 'mount() resolves; player.argv is the documented command line, its first four elements equal installImage\'s; state is waiting', async () => {
-  main = await h.newPage(); attach(main);
+  main = await newPage(); attach(main);
   await open(main, [RED]);
   const r = await rec(main);
   must(!r.mountError, 'mount: ' + r.mountError);
@@ -245,7 +259,7 @@ row('WEBAPI-10', 'load() of 16 random bytes named bad.nex rejects, onError gets 
   must(out !== 'resolved' && /bad\.nex/.test(out), 'rejection: ' + out);
   must(r.errors.length === before + 1 && /bad\.nex/.test(r.errors[r.errors.length - 1]), 'errors ' + JSON.stringify(r.errors));
   must(r.state === 'running', 'state ' + r.state);
-  await main.evaluate(() => window.player0.reset());   // blue back for the next row
+  await main.evaluate(() => window.player0.reset());   // the program again (a failed load never replaces it)
   await waitColour(main, 0, isBlue);
 });
 
@@ -260,13 +274,13 @@ row('WEBAPI-11', 'load(x.sna) rejects with the format refusal (.nex, .tap, .tzx)
 });
 
 row('WEBAPI-12', 'args --esp and --headless: ready rejects with the browser refusal; state is exited', async () => {
-  const a = await h.newPage(); attach(a);
+  const a = await newPage(); attach(a);
   await open(a, [{ args: ['--esp'] }]);
   await click(a);
   const ra = await a.evaluate(() => window.player0.ready.then(() => 'ok', (e) => e.message));
   const sa = await a.evaluate(() => window.player0.state);
   must(/not available in the browser build/.test(ra) && sa === 'exited', `${ra} / ${sa}`);
-  const b = await h.newPage(); attach(b);
+  const b = await newPage(); attach(b);
   await open(b, [{ args: ['--headless'] }]);
   await click(b);
   const rb = await b.evaluate(() => window.player0.ready.then(() => 'ok', (e) => e.message));
@@ -276,7 +290,7 @@ row('WEBAPI-12', 'args --esp and --headless: ready rejects with the browser refu
 });
 
 row('WEBAPI-13', 'an unknown option (machin) rejects mount(), naming it, before any request reaches the image server', async () => {
-  const page = await h.newPage(); attach(page);
+  const page = await newPage(); attach(page);
   const n = bLog.length;
   await open(page, [{ machin: 'next' }]);
   const r = await rec(page);
@@ -286,7 +300,7 @@ row('WEBAPI-13', 'an unknown option (machin) rejects mount(), naming it, before 
 });
 
 row('WEBAPI-14', 'an unknown --set key: ready rejects with the --set error naming the key', async () => {
-  const page = await h.newPage(); attach(page);
+  const page = await newPage(); attach(page);
   await open(page, [{ machine: '48k', set: { 'startup.nope': '1' } }]);
   await click(page);
   const out = await page.evaluate(() => window.player0.ready.then(() => 'ok', (e) => e.message));
@@ -295,7 +309,7 @@ row('WEBAPI-14', 'an unknown --set key: ready rejects with the --set error namin
 });
 
 row('WEBAPI-15', 'two players on one page: own canvases (red, blue); pausing one leaves the other running', async () => {
-  const page = await h.newPage(); attach(page);
+  const page = await newPage(); attach(page);
   await open(page, [RED, BLUE]);
   await click(page, 0); await click(page, 1);
   await waitReady(page, 0, 1); await waitReady(page, 1, 1);
@@ -310,8 +324,8 @@ row('WEBAPI-15', 'two players on one page: own canvases (red, blue); pausing one
 
 row('WEBAPI-16', 'two 48K players, keys typed into the focused one only: player 2 equals the native typist, player 1 the native untyped run', async () => {
   const M = 320, F0 = 200;
-  const mk = () => ({ machine: '48k', muted: true, args: ['--delayed-screenshot', '/media/s.png', '--delayed-screenshot-frames', String(M)] });
-  const page = await h.newPage(); attach(page);
+  const mk = () => ({ machine: '48k', muted: true, args: ['--delayed-screenshot', '/tmp/s.png', '--delayed-screenshot-frames', String(M)] });
+  const page = await newPage(); attach(page);
   await open(page, [mk(), mk()]);
   await click(page, 0); await click(page, 1);
   await waitReady(page, 0, 1); await waitReady(page, 1, 1);
@@ -319,7 +333,10 @@ row('WEBAPI-16', 'two 48K players, keys typed into the focused one only: player 
   await page.focus('#p1 canvas');
   for (const k of ['p', '1', '2', 'Enter']) { await page.keyboard.press(k, { delay: 60 }); await sleep(120); }
   await waitFrame(page, 0, M + 5); await waitFrame(page, 1, M + 5);
-  const typed = await grabPng(page, 1, '/media/s.png'), idle = await grabPng(page, 0, '/media/s.png');
+  for (const i of [0, 1]) {
+    await waitFor(page, (i) => window['player' + i]._module.FS.analyzePath('/tmp/s.png').exists, i, 60000);
+  }
+  const typed = await grabPng(page, 1, '/tmp/s.png'), idle = await grabPng(page, 0, '/tmp/s.png');
   const dk = diff(typed, await decode(fs.readFileSync(path.join(ORACLE, 'keys.png'))));
   const di = diff(idle, await decode(fs.readFileSync(path.join(ORACLE, 'idle.png'))));
   must(dk === 0 && di === 0, `typed vs keys.png: ${dk}; idle vs idle.png: ${di}`);
@@ -327,7 +344,7 @@ row('WEBAPI-16', 'two 48K players, keys typed into the focused one only: player 
 });
 
 row('WEBAPI-17', 'destroy() resolves after the machine exits, removes the player, later calls throw; the other player runs on, no page error', async () => {
-  const page = await h.newPage(); attach(page);
+  const page = await newPage(); attach(page);
   await open(page, [{ machine: '48k', muted: true }, { machine: '48k', muted: true }]);
   await click(page, 0); await click(page, 1);
   await waitReady(page, 0, 1); await waitReady(page, 1, 1);
@@ -345,9 +362,9 @@ row('WEBAPI-17', 'destroy() resolves after the machine exits, removes the player
 });
 
 row('WEBAPI-18', 'itch-style: a host page embeds the game page from another site (iframe); a click inside gives onReady and a red canvas', async () => {
-  const page = await h.newPage(); attach(page);
+  const page = await newPage(); attach(page);
   const game = `${CURL}/build/itch-game.html?` + new URLSearchParams({ image: IMAGE.url, sha256: SHA, file: `${CURL}/nex/red.nex` });
-  await page.goto('http://localhost/build/itch-host.html?game=' + encodeURIComponent(game));
+  await page.goto(AURL + '/build/itch-host.html?game=' + encodeURIComponent(game));
   const frm = page.frameLocator('#game');
   await frm.locator('.jnext-overlay').waitFor({ timeout: 300000 });
   // The overlay says "Loading..." until the image is installed, then "Click to start".
@@ -368,14 +385,14 @@ row('WEBAPI-19', 'build/ holds jnext-<version>.js and .wasm; jnext.version equal
   const yaml = fs.readFileSync(path.join(ROOT, 'version.yaml'), 'utf8').match(/^version: *(.+)$/m)[1].trim();
   const v = await main.evaluate(() => jnext.version);
   must(v === yaml && yaml === VERSION, `jnext.version ${v}, version.yaml ${yaml}, build ${VERSION}`);
-  must(h.requests.includes(`/build/jnext-${VERSION}.wasm`) && !h.requests.some((p) => /jnext_web/.test(p)), 'wasm requests: ' + JSON.stringify([...new Set(h.requests.filter((p) => /wasm/.test(p)))]));
+  must(aLog.includes(`/build/jnext-${VERSION}.wasm`) && !aLog.some((p) => /jnext_web/.test(p)), 'wasm requests: ' + JSON.stringify([...new Set(aLog.filter((p) => /wasm/.test(p)))]));
   let found = '';
   try { found = execFileSync('git', ['-C', ROOT, 'grep', '-n', '-F', VERSION, '--', 'web'], { encoding: 'utf8' }); } catch (e) { found = ''; }
   must(found === '', 'version literal under web/: ' + found);
 });
 
 row('WEBAPI-20', 'two Next players share the warm-start store on a first visit; after a reload both restore and reach ready; IndexedDB holds a whole recording', async () => {
-  const page = await h.newPage(); attach(page);
+  const page = await newPage(); attach(page);
   await open(page, [RED, BLUE]);
   await click(page, 0); await click(page, 1);
   await waitReady(page, 0, 1); await waitReady(page, 1, 1);
@@ -395,23 +412,25 @@ row('WEBAPI-20', 'two Next players share the warm-start store on a first visit; 
 });
 
 row('WEBAPI-21', 'a real image host that sends Access-Control-Allow-Origin: the load succeeds and the request carried the page origin', async () => {
-  const page = await h.newPage(); attach(page);
+  const page = await newPage(); attach(page);
   const n = bLog.length;
   await open(page, [{ machine: '48k', muted: true }]);
   const r = await rec(page);
   const mine = bLog.slice(n).filter((x) => x.url === '/card.img');
   must(!r.mountError && r.state === 'waiting', 'mount: ' + r.mountError);
-  must(mine.length === 1 && mine[0].origin === 'http://localhost', 'server log ' + JSON.stringify(bLog.slice(n)));
+  must(mine.length === 1 && mine[0].origin === AURL, 'server log ' + JSON.stringify(bLog.slice(n)));
   await page.ctx.close();
 });
 
 // ---- run -------------------------------------------------------------------------------------
 let pass = 0, fail = 0;
+const only = E.JNEXT_BROWSER_ROWS ? E.JNEXT_BROWSER_ROWS.split(',') : null;   // debugging only: a partial run fails the count
 for (const r of rows) {
+  if (only && !only.includes(r.id)) continue;
   try { await r.fn(); pass++; console.log(`PASS ${r.id} ${r.text}`); }
   catch (e) { fail++; console.log(`FAIL ${r.id} ${r.text} [${String(e.message || e).slice(0, 600)}]`); }
 }
-B.close(); C.close();
+A.close(); B.close(); C.close();
 await h.close();
 console.log(`\nTotal: ${String(rows.length).padStart(4)}  Passed: ${String(pass).padStart(4)}  Failed: ${String(fail).padStart(4)}  Skipped: ${String(0).padStart(4)}`);
 process.exit(fail ? 1 : 0);

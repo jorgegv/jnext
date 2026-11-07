@@ -150,8 +150,9 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_load(const char* path)
 {
     if (!g_app) return "the machine is not running";
     if (const char* why = browser_page::program_refusal(path ? path : "")) return why;
-    g_program = path;
-    g_app->cold_boot(g_program);
+    // g_program becomes `path` only when the load succeeds (the hook), so a refused or
+    // failed load never becomes the program a reset restarts.
+    g_app->cold_boot(path);
     return nullptr;
 }
 
