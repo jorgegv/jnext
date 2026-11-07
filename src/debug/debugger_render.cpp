@@ -231,8 +231,8 @@ Result Debugger::render_layer(Layer layer, int vc, uint32_t* dst,
                         emu.renderer().fallback_for_line(row)));
                 // The ULA is the one layer whose clip window (NR 0x1A) is
                 // applied by the COMPOSITOR rather than inside its own
-                // render_scanline (VHDL zxnext.vhd:7104 — ula_clipped feeds
-                // ula_transparent).  Layer 2 / Tilemap / Sprites all clip
+                // render_scanline (VHDL zxnext.vhd:7063/7100/7103 and
+                // zxula.vhd:562 - ula_clipped feeds ula_transparent).  Layer 2 / Tilemap / Sprites all clip
                 // themselves, so without this the ULA view was the only layer
                 // view showing content the compositor suppresses.
                 // apply_ula_clip zeroes the clipped-away cells, which the

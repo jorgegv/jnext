@@ -28,7 +28,7 @@ mentions them, so a test can no longer be absent from this document.
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
 | Tilemap                                    |   123 |  123 |    0 |    0 |       0 |          0 |
 | Copper                                     |   110 |  110 |    0 |    0 |       0 |          0 |
-| Compositor                                 |   294 |  294 |    0 |    0 |       0 |          0 |
+| Compositor                                 |   300 |  300 |    0 |    0 |       0 |          0 |
 | Audio                                      |   275 |  275 |    0 |    0 |       0 |          0 |
 | DMA                                        |   186 |  186 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   163 |  163 |    0 |    0 |       0 |          0 |
@@ -42,8 +42,9 @@ mentions them, so a test can no longer be absent from this document.
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
 | Contention                                 |   178 |  178 |    0 |    0 |       0 |          0 |
-| LoRes                                      |   100 |  100 |    0 |    0 |       0 |          0 |
-| SD Card                                    |    88 |   88 |    0 |    0 |       0 |          0 |
+| LoRes                                      |   101 |  101 |    0 |    0 |       0 |          0 |
+| SD Card                                    |    94 |   94 |    0 |    0 |       0 |          0 |
+| Companion: sdcard_posix_test               |     5 |    5 |    0 |    0 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
@@ -68,9 +69,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6163 | 6163 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6181 | 6181 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6163**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5663**. Rows the 189 suites declared in `test/unit-tests.conf` run live: **15849**.
+Rows the sections above carry: **6181**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5680**. Rows the 190 suites declared in `test/unit-tests.conf` run live: **15866**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -420,8 +421,8 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | BOOT-NEX-05 | start_delay honoured unconditionally before code-entry, on top of any inter-bank loading_delay total | — | pass | test/mmu/mmu_test.cpp:4072 |
 | BOOT-NEX-06 | loading_bar_colour byte is written verbatim, not a fixed default — nexload.asm:617,619-620 `ld a,(LoadCol):ld e,a` | — | pass | test/mmu/mmu_test.cpp:4040 |
 | BOOT-NEX-07 | G16 fix: zero_bank5_screen_pages() clears pages 10+11 (16 KB) before screen-format ingest, eliminating attribute-area leak from stale pre-load RAM (BEAST-NEX-INVESTIGATION.md §Verdict) | — | pass | test/mmu/mmu_test.cpp:4152 |
-| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1126 |
-| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2319 |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1429 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2624 |
 | BOOT-TAPESAVE-01 | TapSaver::build_block header block: LE length prefix (payload+2), flag 0x00, payload verbatim, XOR checksum — hand-computed TAP image (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:4213 |
 | BOOT-TAPESAVE-02 | TapSaver data block (non-trivial XOR checksum) + append_block file ordering: file bytes == header-block \|\| data-block, hand-computed images (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:4282 |
 | BOOT-TAPESAVE-03 | TapSaver → TapLoader::parse_blocks round-trip: 2 blocks, correct boundaries/flags, payload identity, loader checksum verification, zero parse warnings (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:4330 |
@@ -1526,8 +1527,8 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | FB-15 | Opaque sprite overrides fallback (VHDL zxnext.vhd:7222) | zxnext.vhd:7222 | pass | test/compositor/compositor_test.cpp:1182 |
 | FB-16 | Reset default fallback = 0xE3 (VHDL zxnext.vhd:5014 nr_4a_fallback_rgb reset) | zxnext.vhd:5014 | pass | test/compositor/compositor_test.cpp:1191 |
 | FB-17 | All 8 modes -> fallback when all layers transp; 0x42 9-bit=0x085 (VHDL zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1211 |
-| FB9-01 | NR $4A fallback is 9-bit: blue LSB = B1\|B0 on all 256 values, display and border (zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:6217 |
-| FB9-02 | ULAnext select_bgnd takes the 9-bit NR $4A colour (blue LSB = B1\|B0) on 255 values (zxnext.vhd:6990) | zxnext.vhd:6990 | pass | test/compositor/compositor_test.cpp:6253 |
+| FB9-01 | NR $4A fallback is 9-bit: blue LSB = B1\|B0 on all 256 values, display and border (zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:6435 |
+| FB9-02 | ULAnext select_bgnd takes the 9-bit NR $4A colour (blue LSB = B1\|B0) on 255 values (zxnext.vhd:6990) | zxnext.vhd:6990 | pass | test/compositor/compositor_test.cpp:6471 |
 | PRI-010-SLU-3 | Mode 000, all three opaque | zxnext.vhd:7222 | pass | test/compositor/compositor_test.cpp:1255 |
 | PRI-010-SLU-LU | Mode 000, only L+U | zxnext.vhd:7224 | pass | test/compositor/compositor_test.cpp:1256 |
 | PRI-010-SLU-U | Mode 000, only U | zxnext.vhd:7226 | pass | test/compositor/compositor_test.cpp:1257 |
@@ -1581,9 +1582,9 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | BL-27 | mode 111: only L2 opaque, sub formula skipped (VHDL 7314,7350) | — | pass | test/compositor/compositor_test.cpp:1773 |
 | BL-28 | mode 110: L2 priority bit overrides mix_top (VHDL 7300) | — | pass | test/compositor/compositor_test.cpp:1789 |
 | BL-29 | mode 111: L2 priority bit overrides mix_top (VHDL 7342) | — | pass | test/compositor/compositor_test.cpp:1804 |
-| BLC-01 | mode 110: blue is a 3-bit channel, L2+mix summed and clamped at 7 for all 64 pairs (zxnext.vhd:7203,7286-7298) | zxnext.vhd:7203,7286-7298 | pass | test/compositor/compositor_test.cpp:6294 |
-| BLC-02 | mode 111: blue is a 3-bit channel, subtractive rule for all 64 pairs (zxnext.vhd:7203,7312-7352) | zxnext.vhd:7203,7312-7352 | pass | test/compositor/compositor_test.cpp:6316 |
-| BLC-03 | stencil: ula_rgb AND tm_rgb over all 9 bits, blue is 3 bits, for all 64 blue pairs (zxnext.vhd:7113) | zxnext.vhd:7113 | pass | test/compositor/compositor_test.cpp:6343 |
+| BLC-01 | mode 110: blue is a 3-bit channel, L2+mix summed and clamped at 7 for all 64 pairs (zxnext.vhd:7203,7286-7298) | zxnext.vhd:7203,7286-7298 | pass | test/compositor/compositor_test.cpp:6512 |
+| BLC-02 | mode 111: blue is a 3-bit channel, subtractive rule for all 64 pairs (zxnext.vhd:7203,7312-7352) | zxnext.vhd:7203,7312-7352 | pass | test/compositor/compositor_test.cpp:6534 |
+| BLC-03 | stencil: ula_rgb AND tm_rgb over all 9 bits, blue is 3 bits, for all 64 blue pairs (zxnext.vhd:7113) | zxnext.vhd:7113 | pass | test/compositor/compositor_test.cpp:6561 |
 | UTB-10 | NR0x68 mode 00 TM above: TM wins in U slot (VHDL 7142-7148) | — | pass | test/compositor/compositor_test.cpp:2056 |
 | UTB-11 | NR0x68 mode 00 TM below: ULA wins in U slot (VHDL 7142-7148) | — | pass | test/compositor/compositor_test.cpp:2069 |
 | UTB-20 | NR0x68 mode 10: mix_rgb = ula_final_rgb (VHDL 7149-7155) | — | pass | test/compositor/compositor_test.cpp:2082 |
@@ -1670,10 +1671,15 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | SRST-16 | Attribute writes made after a mid-frame soft reset land on the rows drawn after them, not on rows drawn before the reset (zxula.vhd:218-263; zxnext.vhd:6370) | zxula.vhd:218-263, zxnext.vhd:6370 | pass | test/compositor/compositor_integration_test.cpp:1870 |
 | SRST-17 | A soft reset leaves the FLASH phase running: frames 20..31 after a reset at frame 20 stay swapped, frame 32 is not (zxula.vhd:470,474-480 — no reset) | zxula.vhd:470,474-480 | pass | test/compositor/compositor_integration_test.cpp:1900 |
 | SRST-18 | A soft reset does not blank the picture: after a guest reset the debugger stops on, and after F4 while paused, the screen still shows the last frame drawn (zxnext.vhd:6370; zxula_timing.vhd — no reset) | zxnext.vhd:6370, zxula_timing.vhd | pass | test/compositor/compositor_integration_test.cpp:1943 |
-| UCLIP-01 | mid-frame NR 0x1A write does not retroactively re-mask a row whose per-line snapshot already ran — col 200 survives under the stale window A (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4615 |
-| UCLIP-02 | …and the left border is clipped per the SNAPSHOTTED window A (x1=128>0) — proves the snapshot is captured, not the reset default (renderer.cpp left_clipped; VHDL 6779-6783) | — | pass | test/compositor/compositor_test.cpp:4626 |
-| UCLIP-03 | after the deferred snapshot lands, the SAME row selects window B: col 200 clipped, left border kept, right border clipped (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4645 |
-| UCLIP-04 | split frame: rows < S masked with window A, rows >= S with window B — mid-frame NR 0x1A change lands exactly at the scanline where it was written (VHDL zxnext.vhd:988-991) | zxnext.vhd:988-991 | pass | test/compositor/compositor_test.cpp:4681 |
+| UCLIP-01 | mid-frame NR 0x1A write does not retroactively re-mask a row whose per-line snapshot already ran — col 200 survives under the stale window A (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4621 |
+| UCLIP-02 | …and display col 100 is clipped per the SNAPSHOTTED window A (x1=128>100) - proves the snapshot is captured, not the reset default (zxula.vhd:562; zxnext.vhd:6779-6783) | zxula.vhd:562, zxnext.vhd:6779-6783 | pass | test/compositor/compositor_test.cpp:4632 |
+| UCLIP-03 | after the deferred snapshot lands, the SAME row selects window B: col 200 clipped, col 100 kept (zxula.vhd:562; zxnext.vhd:6779-6783) | zxula.vhd:562, zxnext.vhd:6779-6783 | pass | test/compositor/compositor_test.cpp:4650 |
+| UCLIP-04 | split frame: rows < S masked with window A, rows >= S with window B — mid-frame NR 0x1A change lands exactly at the scanline where it was written (zxula.vhd:562; zxnext.vhd:988-991, 6779-6783) | zxula.vhd:562, zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4685 |
+| UCLIP-05 | x-narrowed window (64,191): every border cell keeps its pixel, src cols 64 and 191 are kept (inclusive), cols 63 and 192 are clipped (zxula.vhd:415, 562) | zxula.vhd:415,562 | pass | test/compositor/compositor_test.cpp:4737 |
+| UCLIP-06 | y-narrowed window (y 64..127): border rows and the left/right border of clipped display rows keep their pixels; clipped display rows lose the display strip only (zxula.vhd:414-415, 562) | zxula.vhd:414-415,562 | pass | test/compositor/compositor_test.cpp:4751 |
+| UCLIP-07 | clip_ula(255,255,255,255): every display cell of every row is clipped, every border cell of every row is kept (zxula.vhd:414-415, 562; zxnext.vhd:6779-6782) | zxula.vhd:414-415,562, zxnext.vhd:6779-6782 | pass | test/compositor/compositor_test.cpp:4767 |
+| UCLIP-08 | x-inverted window (200,100): every display cell is clipped, every border cell is kept (zxula.vhd:415, 562) | zxula.vhd:415,562 | pass | test/compositor/compositor_test.cpp:4782 |
+| UCLIP-09 | Timex hi-res with window (64,191,32,159): every border cell equals the default-window render and border_clr_tmx; display cells inside the window are unchanged, outside it fall to the NR $4A fallback (zxula.vhd:415, 419, 426-427, 562; zxnext.vhd:4446) | zxula.vhd:415,419,426-427,562, zxnext.vhd:4446 | pass | test/compositor/compositor_test.cpp:6382 |
 | BLANK-10 | Active area: rgb_out = composited rgb (VHDL 7395-7412) | — | pass | test/compositor/compositor_test.cpp:2778 |
 | BLANK-11 | Horizontal blanking: rgb_out_o = 0 (VHDL 7395-7412) | — | pass | test/compositor/compositor_test.cpp:2792 |
 | BLANK-12 | Vertical blanking: rgb_out_o = 0 (VHDL 7395-7412) | — | pass | test/compositor/compositor_test.cpp:2795 |
@@ -1689,44 +1695,44 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | RST-11 | Reset: mode=000 (SLU), L2 wins when no S/ULA (VHDL 4951, 7222) | — | pass | test/compositor/compositor_test.cpp:2982 |
 | RST-12 | Reset: NR 0x4A = 0xE3 (VHDL reset clause) | — | pass | test/compositor/compositor_test.cpp:2991 |
 | RST-13 | Reset: NR 0x14 = 0xE3 (VHDL 4946) | — | pass | test/compositor/compositor_test.cpp:3001 |
-| LMASK-P01 | single name 'ula' | — | pass | test/compositor/compositor_test.cpp:4726 |
-| LMASK-P02 | single name 'layer2' | — | pass | test/compositor/compositor_test.cpp:4727 |
-| LMASK-P03 | single name 'sprites' | — | pass | test/compositor/compositor_test.cpp:4728 |
-| LMASK-P04 | single name 'tiles' | — | pass | test/compositor/compositor_test.cpp:4729 |
-| LMASK-P05 | 'all' selects every layer | — | pass | test/compositor/compositor_test.cpp:4730 |
-| LMASK-P06 | two names | — | pass | test/compositor/compositor_test.cpp:4731 |
-| LMASK-P07 | order does not matter | — | pass | test/compositor/compositor_test.cpp:4734 |
-| LMASK-P08 | all four names spelled out == 'all' | — | pass | test/compositor/compositor_test.cpp:4737 |
-| LMASK-E01 | empty list is an error | — | pass | test/compositor/compositor_test.cpp:4754 |
-| LMASK-E02 | unknown name is an error | — | pass | test/compositor/compositor_test.cpp:4755 |
-| LMASK-E03 | names are lowercase only — 'ULA' is unknown | — | pass | test/compositor/compositor_test.cpp:4756 |
-| LMASK-E04 | mixed case is unknown | — | pass | test/compositor/compositor_test.cpp:4757 |
-| LMASK-E05 | one bad name in a good list still errors | — | pass | test/compositor/compositor_test.cpp:4758 |
-| LMASK-E06 | no whitespace tolerance — ' ' is part of the name | — | pass | test/compositor/compositor_test.cpp:4759 |
-| LMASK-E07 | duplicate name is an error | — | pass | test/compositor/compositor_test.cpp:4760 |
-| LMASK-E08 | 'all' plus another name double-selects — error | — | pass | test/compositor/compositor_test.cpp:4761 |
-| LMASK-E09 | …in either order | — | pass | test/compositor/compositor_test.cpp:4762 |
-| LMASK-E10 | 'all' twice is an error | — | pass | test/compositor/compositor_test.cpp:4763 |
-| LMASK-E11 | trailing comma leaves an empty name — error | — | pass | test/compositor/compositor_test.cpp:4764 |
-| LMASK-E12 | leading comma leaves an empty name — error | — | pass | test/compositor/compositor_test.cpp:4765 |
-| LMASK-E13 | empty element in the middle — error | — | pass | test/compositor/compositor_test.cpp:4766 |
-| LMASK-E14 | a lone comma is an error | — | pass | test/compositor/compositor_test.cpp:4767 |
-| LMASK-S01 | layer_mask_to_string: ALL->'all', ula\|tiles->'ula,tiles', 0->'none' | — | pass | test/compositor/compositor_test.cpp:4785 |
-| LMASK-C01 | default mask is LAYER_ALL and composes every layer (SLU: sprite wins) | — | pass | test/compositor/compositor_test.cpp:4820 |
-| LMASK-C02 | 'sprites' alone -> sprite pixel (ULA/L2/TM suppressed) | zxnext.vhd:7118 | pass | test/compositor/compositor_test.cpp:4831 |
-| LMASK-C03 | 'layer2' alone -> L2 pixel even though SLU puts sprites on top | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:4836 |
-| LMASK-C04 | 'ula' alone -> ULA pixel (TM masked, so no ULA/TM override) | zxnext.vhd:7103 | pass | test/compositor/compositor_test.cpp:4841 |
-| LMASK-C05 | 'tiles' alone -> TM pixel (ULA transparent, TM wins the merge) | zxnext.vhd:7109 | pass | test/compositor/compositor_test.cpp:4846 |
-| LMASK-C06 | 'layer2' alone with L2 transparent -> NR 0x4A fallback, no leakage from the masked ULA/sprite/TM pixels (VHDL 7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:4863 |
-| LMASK-C07 | excluding 'ula' removes the BORDER as well; those pixels take the NR 0x4A fallback (== hardware ula_en=0, VHDL 7103) | — | pass | test/compositor/compositor_test.cpp:4888 |
-| LMASK-C08 | mode 100 border exception survives masking: sprite still wins over the border ULA (VHDL 7266); masking the sprite away hands the border back to the ULA | zxnext.vhd:7266 | pass | test/compositor/compositor_test.cpp:4916 |
-| LMASK-C10 | masking 'layer2' out also cancels its priority-bit promotion over the sprites (VHDL 7220) | — | pass | test/compositor/compositor_test.cpp:5035 |
-| LMASK-C11 | blend mode 110: masking 'ula' zeroes the mix_rgb contribution, so the mixer emits Layer 2 alone (VHDL 7101/7122, 7288-7298) | — | pass | test/compositor/compositor_test.cpp:5068 |
-| LMASK-C09-00 | stencil, neither layer masked -> AND-branch live, ULA AND TM (VHDL 7130, 7112-7113) | — | pass | test/compositor/compositor_test.cpp:4956 |
-| LMASK-C09-01 | stencil, 'tiles' masked -> AND-branch off (tm_en=0), ulatm merge shows the ULA (VHDL 7130, 7134-7135) | — | pass | test/compositor/compositor_test.cpp:4966 |
-| LMASK-C09-10 | stencil, 'ula' masked -> AND-branch off (ula_en=0), ulatm merge shows the TILE, NOT the fallback (VHDL 7130, 7134-7135) | — | pass | test/compositor/compositor_test.cpp:4979 |
-| LMASK-C09-11 | stencil, both 'ula' and 'tiles' masked -> ulatm merge transparent, NR 0x4A fallback (VHDL 7214) | — | pass | test/compositor/compositor_test.cpp:4991 |
-| LMASK-C09-SPR | stencil, CLI mask 'layer2,sprites,tiles' (i.e. only 'ula' excluded) -> tile survives (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:5007 |
+| LMASK-P01 | single name 'ula' | — | pass | test/compositor/compositor_test.cpp:4828 |
+| LMASK-P02 | single name 'layer2' | — | pass | test/compositor/compositor_test.cpp:4829 |
+| LMASK-P03 | single name 'sprites' | — | pass | test/compositor/compositor_test.cpp:4830 |
+| LMASK-P04 | single name 'tiles' | — | pass | test/compositor/compositor_test.cpp:4831 |
+| LMASK-P05 | 'all' selects every layer | — | pass | test/compositor/compositor_test.cpp:4832 |
+| LMASK-P06 | two names | — | pass | test/compositor/compositor_test.cpp:4833 |
+| LMASK-P07 | order does not matter | — | pass | test/compositor/compositor_test.cpp:4836 |
+| LMASK-P08 | all four names spelled out == 'all' | — | pass | test/compositor/compositor_test.cpp:4839 |
+| LMASK-E01 | empty list is an error | — | pass | test/compositor/compositor_test.cpp:4856 |
+| LMASK-E02 | unknown name is an error | — | pass | test/compositor/compositor_test.cpp:4857 |
+| LMASK-E03 | names are lowercase only — 'ULA' is unknown | — | pass | test/compositor/compositor_test.cpp:4858 |
+| LMASK-E04 | mixed case is unknown | — | pass | test/compositor/compositor_test.cpp:4859 |
+| LMASK-E05 | one bad name in a good list still errors | — | pass | test/compositor/compositor_test.cpp:4860 |
+| LMASK-E06 | no whitespace tolerance — ' ' is part of the name | — | pass | test/compositor/compositor_test.cpp:4861 |
+| LMASK-E07 | duplicate name is an error | — | pass | test/compositor/compositor_test.cpp:4862 |
+| LMASK-E08 | 'all' plus another name double-selects — error | — | pass | test/compositor/compositor_test.cpp:4863 |
+| LMASK-E09 | …in either order | — | pass | test/compositor/compositor_test.cpp:4864 |
+| LMASK-E10 | 'all' twice is an error | — | pass | test/compositor/compositor_test.cpp:4865 |
+| LMASK-E11 | trailing comma leaves an empty name — error | — | pass | test/compositor/compositor_test.cpp:4866 |
+| LMASK-E12 | leading comma leaves an empty name — error | — | pass | test/compositor/compositor_test.cpp:4867 |
+| LMASK-E13 | empty element in the middle — error | — | pass | test/compositor/compositor_test.cpp:4868 |
+| LMASK-E14 | a lone comma is an error | — | pass | test/compositor/compositor_test.cpp:4869 |
+| LMASK-S01 | layer_mask_to_string: ALL->'all', ula\|tiles->'ula,tiles', 0->'none' | — | pass | test/compositor/compositor_test.cpp:4887 |
+| LMASK-C01 | default mask is LAYER_ALL and composes every layer (SLU: sprite wins) | — | pass | test/compositor/compositor_test.cpp:4922 |
+| LMASK-C02 | 'sprites' alone -> sprite pixel (ULA/L2/TM suppressed) | zxnext.vhd:7118 | pass | test/compositor/compositor_test.cpp:4933 |
+| LMASK-C03 | 'layer2' alone -> L2 pixel even though SLU puts sprites on top | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:4938 |
+| LMASK-C04 | 'ula' alone -> ULA pixel (TM masked, so no ULA/TM override) | zxnext.vhd:7103 | pass | test/compositor/compositor_test.cpp:4943 |
+| LMASK-C05 | 'tiles' alone -> TM pixel (ULA transparent, TM wins the merge) | zxnext.vhd:7109 | pass | test/compositor/compositor_test.cpp:4948 |
+| LMASK-C06 | 'layer2' alone with L2 transparent -> NR 0x4A fallback, no leakage from the masked ULA/sprite/TM pixels (VHDL 7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:4965 |
+| LMASK-C07 | excluding 'ula' removes the BORDER as well; those pixels take the NR 0x4A fallback (== hardware ula_en=0, VHDL 7103) | — | pass | test/compositor/compositor_test.cpp:4990 |
+| LMASK-C08 | mode 100 border exception survives masking: sprite still wins over the border ULA (VHDL 7266); masking the sprite away hands the border back to the ULA | zxnext.vhd:7266 | pass | test/compositor/compositor_test.cpp:5018 |
+| LMASK-C10 | masking 'layer2' out also cancels its priority-bit promotion over the sprites (VHDL 7220) | — | pass | test/compositor/compositor_test.cpp:5137 |
+| LMASK-C11 | blend mode 110: masking 'ula' zeroes the mix_rgb contribution, so the mixer emits Layer 2 alone (VHDL 7101/7122, 7288-7298) | — | pass | test/compositor/compositor_test.cpp:5170 |
+| LMASK-C09-00 | stencil, neither layer masked -> AND-branch live, ULA AND TM (VHDL 7130, 7112-7113) | — | pass | test/compositor/compositor_test.cpp:5058 |
+| LMASK-C09-01 | stencil, 'tiles' masked -> AND-branch off (tm_en=0), ulatm merge shows the ULA (VHDL 7130, 7134-7135) | — | pass | test/compositor/compositor_test.cpp:5068 |
+| LMASK-C09-10 | stencil, 'ula' masked -> AND-branch off (ula_en=0), ulatm merge shows the TILE, NOT the fallback (VHDL 7130, 7134-7135) | — | pass | test/compositor/compositor_test.cpp:5081 |
+| LMASK-C09-11 | stencil, both 'ula' and 'tiles' masked -> ulatm merge transparent, NR 0x4A fallback (VHDL 7214) | — | pass | test/compositor/compositor_test.cpp:5093 |
+| LMASK-C09-SPR | stencil, CLI mask 'layer2,sprites,tiles' (i.e. only 'ula' excluded) -> tile survives (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:5109 |
 | TR-24 | GH#113: textmode paper opaque + below=0 hides ULA (VHDL 7116) | tilemap.vhd:388, tilemap.vhd:429, zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:561 |
 | TR-25 | GH#113 control: textmode paper with below=1 => ULA wins (VHDL 7116) | zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:580 |
 | BL-30 | mode "01" prio6: mix_bot=ULA wins (zxnext.vhd:7163-7176) | zxnext.vhd:7163-7176 | pass | test/compositor/compositor_test.cpp:1829 |
@@ -1753,33 +1759,34 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | PSCAN-VBLANK-ULA-PORTFF | Ula::flush_remaining_changes drains port-0xFF entry tagged at line >= FB_HEIGHT | — | pass | test/compositor/compositor_test.cpp:3465 |
 | PSCAN-VBLANK-ULA-SCROLL | Ula::flush_remaining_scroll_changes drains scroll entry tagged at line >= FB_HEIGHT | — | pass | test/compositor/compositor_test.cpp:3491 |
 | PSCAN-VBLANK-ULA-PALSEL | Ula::palsel_flush_remaining_changes drains NR 0x43 + NR 0x6B b4 entries tagged at line >= FB_HEIGHT | — | pass | test/compositor/compositor_test.cpp:3521 |
-| LR-20 | with NR $15 bit 7 = 0 every framebuffer cell is bit-identical to the pure-ULA pipeline — LoRes content in bank 5 is invisible (zxnext.vhd:6933, 6980) | zxnext.vhd:6933,6980 | pass | test/compositor/compositor_test.cpp:5252 |
-| LR-21 | with NR $15 bit 7 = 1 all 256x192 display pixels take LoRes values and none takes a ULA value (zxnext.vhd:6980) | zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5280 |
-| LR-22 | LoRes never paints the border — every border cell keeps the port $FE colour (lores.vhd:115; zxula.vhd:414-415) | lores.vhd:115, zxula.vhd:414-415 | pass | test/compositor/compositor_test.cpp:5318 |
-| LR-26 | LoRes occupies the ULA slot in NR $15 priority — in every mode 000..101 it wins or loses exactly where the ULA would, and the winning colour is the LoRes one (zxnext.vhd:6980-6981) | zxnext.vhd:6980-6981 | pass | test/compositor/compositor_test.cpp:5374 |
-| LR-27 | NR $68 bit 7 (ULA disable) blanks LoRes too — the display falls through to the NR $4A fallback, no LoRes pixel survives (zxnext.vhd:7103-7104) | zxnext.vhd:7103-7104 | pass | test/compositor/compositor_test.cpp:5400 |
-| LR-28 | in Timex hi-res mode both 512-grid half-pixels take the SAME LoRes colour and no hi-res detail survives (zxnext.vhd:6843 vs 6858, 6980, 6986) | zxnext.vhd:6843 | pass | test/compositor/compositor_test.cpp:5433 |
-| LR-29 | ULA attribute FLASH does not modulate a LoRes pixel — both flash phases render the display area identically (zxula.vhd:470; zxnext.vhd:6980) | zxula.vhd:470, zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5458 |
-| LR-30 | the LoRes byte indexes the ULA palette, not the Layer 2 / sprite / tilemap palette (zxnext.vhd:6960-6978, 6981) | zxnext.vhd:6960-6978,6981 | pass | test/compositor/compositor_test.cpp:5489 |
-| LR-31 | NR $43 bit 1 selects which of the two ULA palette banks LoRes indexes (zxnext.vhd:6825, 6981) | zxnext.vhd:6825,6981 | pass | test/compositor/compositor_test.cpp:5522 |
-| LR-49 | LoRes reads physical bank 5 regardless of the MMU slot mapping (zxnext.vhd:6631, 6558-6578; lores.vhd:56) | zxnext.vhd:6631,6558-6578, lores.vhd:56 | pass | test/compositor/compositor_test.cpp:5543 |
-| LR-50 | LoRes is unaffected by the port $7FFD bit 3 shadow-screen select — it always shows bank-5 content (zxnext.vhd:6631 vs 6651-6655) | zxnext.vhd:6631 | pass | test/compositor/compositor_test.cpp:5567 |
-| LR-66 | dfile = port $FF bit 0 XOR NR $6A bit 4: (0,0)->half 0, (1,0)->half 1, (0,1)->half 1, (1,1)->half 0 (zxnext.vhd:6796) | zxnext.vhd:6796 | pass | test/compositor/compositor_test.cpp:5606 |
-| LR-69 | Radastan and 8-bit mode reach different bytes for the same screen position: (phc=8, vc=4) reads 0x0104 vs 0x0082 (lores.vhd:91, 96) | lores.vhd:91,96 | pass | test/compositor/compositor_test.cpp:5632 |
-| LR-87 | ULANext cancels the ULA+ translation of the Radastan high nibble — pixel 0x1A, not 0xDA (zxnext.vhd:4246) | zxnext.vhd:4246 | pass | test/compositor/compositor_test.cpp:5668 |
-| LR-140 | a LoRes pixel never shows the NR $4A fallback: with the ULA asserting ula_select_bgnd (ULAnext format 0x00 paper, zxula.vhd:525) the LoRes palette colour is emitted (zxnext.vhd:6986-6991); the identical state without LoRes takes the fallback, proving the stimulus | zxula.vhd:525, zxnext.vhd:6986-6991 | pass | test/compositor/compositor_test.cpp:5734 |
-| LR-141 | the LoRes colour is subject to NR $14 global transparency — matching the key makes the pixel transparent and the layer below shows (zxnext.vhd:7100-7101) | zxnext.vhd:7100-7101 | pass | test/compositor/compositor_test.cpp:5779 |
-| LR-142 | transparency compares the palette RGB[8:1], not the palette index — only the entry whose RGB is the key goes transparent (zxnext.vhd:7100) | zxnext.vhd:7100 | pass | test/compositor/compositor_test.cpp:5820 |
-| LR-143 | LoRes participates in ULA/tilemap stencil mode as the ULA colour — the AND uses the LoRes RGB (zxnext.vhd:7112-7113, 7130-7132) | zxnext.vhd:7112-7113,7130-7132 | pass | test/compositor/compositor_test.cpp:5875 |
-| LR-144 | LoRes participates in NR $15 blend mode 110 as the ULA operand of the mixer (zxnext.vhd:7100-7101, 7139-7148) | zxnext.vhd:7100-7101,7139-7148 | pass | test/compositor/compositor_test.cpp:5905 |
-| LR-145 | the tilemap 'below ULA' ordering applies unchanged to LoRes: tilemap over the LoRes colour when above, LoRes over the tilemap when below (zxnext.vhd:7116) | zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:5928 |
-| LR-146 | sprite and Layer 2 priority relative to the ULA slot is unchanged by LoRes — only the ULA-slot colour changes (zxnext.vhd:6980, 7139+) | zxnext.vhd:6980,7139 | pass | test/compositor/compositor_test.cpp:5971 |
-| LR-127a | LoRes and the ULA share ONE clip window and are suppressed together: inside NR $1A the LoRes pixel draws, outside it the pixel falls to the NR $4A fallback and no ULA pixel shows through (zxula.vhd:562; lores.vhd:115; zxnext.vhd:4258-4261, 7100/7104) | zxula.vhd:562, lores.vhd:115, zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6032 |
-| LR-PSCAN | NR $15 bit 7 / $32 / $33 / $6A are replayed per scanline — a mid-frame enable+scroll affects only the rows from the write onward, never the rows the beam already passed (zxnext.vhd:6768-6802, 6817) | zxnext.vhd:6768-6802,6817 | pass | test/compositor/compositor_test.cpp:6083 |
-| LR-161 | NR $68 bit 2 (ULA half-pixel scroll) does not move the LoRes image (zxnext.vhd:4241-4271 — no such port on the LoRes module) | zxnext.vhd:4241-4271 | pass | test/compositor/compositor_test.cpp:6113 |
-| LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:6133 |
-| LR-166 | NR $19 (sprite clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4366-4369) | zxnext.vhd:4258-4261,4366-4369 | pass | test/compositor/compositor_test.cpp:6158 |
-| LR-167 | NR $1B (tilemap clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4424-4427) | zxnext.vhd:4258-4261,4424-4427 | pass | test/compositor/compositor_test.cpp:6167 |
+| LR-20 | with NR $15 bit 7 = 0 every framebuffer cell is bit-identical to the pure-ULA pipeline — LoRes content in bank 5 is invisible (zxnext.vhd:6933, 6980) | zxnext.vhd:6933,6980 | pass | test/compositor/compositor_test.cpp:5354 |
+| LR-21 | with NR $15 bit 7 = 1 all 256x192 display pixels take LoRes values and none takes a ULA value (zxnext.vhd:6980) | zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5382 |
+| LR-22 | LoRes never paints the border — every border cell keeps the port $FE colour (lores.vhd:115; zxula.vhd:414-415) | lores.vhd:115, zxula.vhd:414-415 | pass | test/compositor/compositor_test.cpp:5420 |
+| LR-26 | LoRes occupies the ULA slot in NR $15 priority — in every mode 000..101 it wins or loses exactly where the ULA would, and the winning colour is the LoRes one (zxnext.vhd:6980-6981) | zxnext.vhd:6980-6981 | pass | test/compositor/compositor_test.cpp:5476 |
+| LR-27 | NR $68 bit 7 (ULA disable) blanks LoRes too — the display falls through to the NR $4A fallback, no LoRes pixel survives (zxnext.vhd:7103-7104) | zxnext.vhd:7103-7104 | pass | test/compositor/compositor_test.cpp:5502 |
+| LR-28 | in Timex hi-res mode both 512-grid half-pixels take the SAME LoRes colour and no hi-res detail survives (zxnext.vhd:6843 vs 6858, 6980, 6986) | zxnext.vhd:6843 | pass | test/compositor/compositor_test.cpp:5535 |
+| LR-29 | ULA attribute FLASH does not modulate a LoRes pixel — both flash phases render the display area identically (zxula.vhd:470; zxnext.vhd:6980) | zxula.vhd:470, zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5560 |
+| LR-30 | the LoRes byte indexes the ULA palette, not the Layer 2 / sprite / tilemap palette (zxnext.vhd:6960-6978, 6981) | zxnext.vhd:6960-6978,6981 | pass | test/compositor/compositor_test.cpp:5591 |
+| LR-31 | NR $43 bit 1 selects which of the two ULA palette banks LoRes indexes (zxnext.vhd:6825, 6981) | zxnext.vhd:6825,6981 | pass | test/compositor/compositor_test.cpp:5624 |
+| LR-49 | LoRes reads physical bank 5 regardless of the MMU slot mapping (zxnext.vhd:6631, 6558-6578; lores.vhd:56) | zxnext.vhd:6631,6558-6578, lores.vhd:56 | pass | test/compositor/compositor_test.cpp:5645 |
+| LR-50 | LoRes is unaffected by the port $7FFD bit 3 shadow-screen select — it always shows bank-5 content (zxnext.vhd:6631 vs 6651-6655) | zxnext.vhd:6631 | pass | test/compositor/compositor_test.cpp:5669 |
+| LR-66 | dfile = port $FF bit 0 XOR NR $6A bit 4: (0,0)->half 0, (1,0)->half 1, (0,1)->half 1, (1,1)->half 0 (zxnext.vhd:6796) | zxnext.vhd:6796 | pass | test/compositor/compositor_test.cpp:5708 |
+| LR-69 | Radastan and 8-bit mode reach different bytes for the same screen position: (phc=8, vc=4) reads 0x0104 vs 0x0082 (lores.vhd:91, 96) | lores.vhd:91,96 | pass | test/compositor/compositor_test.cpp:5734 |
+| LR-87 | ULANext cancels the ULA+ translation of the Radastan high nibble — pixel 0x1A, not 0xDA (zxnext.vhd:4246) | zxnext.vhd:4246 | pass | test/compositor/compositor_test.cpp:5770 |
+| LR-140 | a LoRes pixel never shows the NR $4A fallback: with the ULA asserting ula_select_bgnd (ULAnext format 0x00 paper, zxula.vhd:525) the LoRes palette colour is emitted (zxnext.vhd:6986-6991); the identical state without LoRes takes the fallback, proving the stimulus | zxula.vhd:525, zxnext.vhd:6986-6991 | pass | test/compositor/compositor_test.cpp:5836 |
+| LR-141 | the LoRes colour is subject to NR $14 global transparency — matching the key makes the pixel transparent and the layer below shows (zxnext.vhd:7100-7101) | zxnext.vhd:7100-7101 | pass | test/compositor/compositor_test.cpp:5881 |
+| LR-142 | transparency compares the palette RGB[8:1], not the palette index — only the entry whose RGB is the key goes transparent (zxnext.vhd:7100) | zxnext.vhd:7100 | pass | test/compositor/compositor_test.cpp:5922 |
+| LR-143 | LoRes participates in ULA/tilemap stencil mode as the ULA colour — the AND uses the LoRes RGB (zxnext.vhd:7112-7113, 7130-7132) | zxnext.vhd:7112-7113,7130-7132 | pass | test/compositor/compositor_test.cpp:5977 |
+| LR-144 | LoRes participates in NR $15 blend mode 110 as the ULA operand of the mixer (zxnext.vhd:7100-7101, 7139-7148) | zxnext.vhd:7100-7101,7139-7148 | pass | test/compositor/compositor_test.cpp:6007 |
+| LR-145 | the tilemap 'below ULA' ordering applies unchanged to LoRes: tilemap over the LoRes colour when above, LoRes over the tilemap when below (zxnext.vhd:7116) | zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:6030 |
+| LR-146 | sprite and Layer 2 priority relative to the ULA slot is unchanged by LoRes — only the ULA-slot colour changes (zxnext.vhd:6980, 7139+) | zxnext.vhd:6980,7139 | pass | test/compositor/compositor_test.cpp:6073 |
+| LR-127a | LoRes and the ULA share ONE clip window and are suppressed together: inside NR $1A the LoRes pixel draws, outside it the pixel falls to the NR $4A fallback and no ULA pixel shows through (zxula.vhd:562; lores.vhd:115; zxnext.vhd:4258-4261, 7100/7104) | zxula.vhd:562, lores.vhd:115, zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6134 |
+| LR-129 | LoRes on with a narrowed shared clip window (64,191,32,159): every border cell of every row keeps the port $FE colour (zxnext.vhd:6980, 7063, 7100; lores.vhd:115; zxula.vhd:415, 562) | zxnext.vhd:6980,7063,7100, lores.vhd:115, zxula.vhd:415,562 | pass | test/compositor/compositor_test.cpp:6185 |
+| LR-PSCAN | NR $15 bit 7 / $32 / $33 / $6A are replayed per scanline — a mid-frame enable+scroll affects only the rows from the write onward, never the rows the beam already passed (zxnext.vhd:6768-6802, 6817) | zxnext.vhd:6768-6802,6817 | pass | test/compositor/compositor_test.cpp:6231 |
+| LR-161 | NR $68 bit 2 (ULA half-pixel scroll) does not move the LoRes image (zxnext.vhd:4241-4271 — no such port on the LoRes module) | zxnext.vhd:4241-4271 | pass | test/compositor/compositor_test.cpp:6261 |
+| LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:6281 |
+| LR-166 | NR $19 (sprite clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4366-4369) | zxnext.vhd:4258-4261,4366-4369 | pass | test/compositor/compositor_test.cpp:6306 |
+| LR-167 | NR $1B (tilemap clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4424-4427) | zxnext.vhd:4258-4261,4424-4427 | pass | test/compositor/compositor_test.cpp:6315 |
 
 ## Audio — `test/audio/audio_test.cpp`
 
@@ -4401,18 +4408,18 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-10 | NR $6A bits 3:0 are the palette offset and read back (zxnext.vhd:5458, 6099) | zxnext.vhd:5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:7268 |
 | LR-11 | NR $6A bits 7:6 are not stored — the read mux hard-wires "00", so 0xFF reads back 0x3F (zxnext.vhd:5456-5458, 6099) | zxnext.vhd:5456-5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:7277 |
 | LR-12 | NR $6A resets to 0x00 — 8-bit mode, no XOR, offset 0 (zxnext.vhd:5032-5034) | zxnext.vhd:5032-5034 | pass | test/nextreg/nextreg_integration_test.cpp:7195 |
-| LR-20 | with NR $15 bit 7 = 0 every framebuffer cell is bit-identical to the pure-ULA pipeline — LoRes content in bank 5 is invisible (zxnext.vhd:6933, 6980) | zxnext.vhd:6933,6980 | pass | test/compositor/compositor_test.cpp:5252 |
-| LR-21 | with NR $15 bit 7 = 1 all 256x192 display pixels take LoRes values and none takes a ULA value (zxnext.vhd:6980) | zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5280 |
-| LR-22 | LoRes never paints the border — every border cell keeps the port $FE colour (lores.vhd:115; zxula.vhd:414-415) | lores.vhd:115, zxula.vhd:414-415, zxula_timing.vhd:513-517 | pass | test/compositor/compositor_test.cpp:5318 |
+| LR-20 | with NR $15 bit 7 = 0 every framebuffer cell is bit-identical to the pure-ULA pipeline — LoRes content in bank 5 is invisible (zxnext.vhd:6933, 6980) | zxnext.vhd:6933,6980 | pass | test/compositor/compositor_test.cpp:5354 |
+| LR-21 | with NR $15 bit 7 = 1 all 256x192 display pixels take LoRes values and none takes a ULA value (zxnext.vhd:6980) | zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5382 |
+| LR-22 | LoRes never paints the border — every border cell keeps the port $FE colour (lores.vhd:115; zxula.vhd:414-415) | lores.vhd:115, zxula.vhd:414-415, zxula_timing.vhd:513-517 | pass | test/compositor/compositor_test.cpp:5420 |
 | LR-23 | pixel_en = 0 for phc >= 256 (phc(8) set; clip_x2 is 8-bit) (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:153 |
 | LR-24 | pixel_en = 0 for vc >= 192 at the default clip (clip_y2 reset 0xBF) (lores.vhd:115; zxnext.vhd:4974) | lores.vhd:115, zxnext.vhd:4974 | pass | test/lores/lores_test.cpp:166 |
 | LR-25 | pixel_en = 1 at all four display corners (0,0)/(255,0)/(0,191)/(255,191) (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:180 |
-| LR-26 | LoRes occupies the ULA slot in NR $15 priority — in every mode 000..101 it wins or loses exactly where the ULA would, and the winning colour is the LoRes one (zxnext.vhd:6980-6981) | zxnext.vhd:6980-6981 | pass | test/compositor/compositor_test.cpp:5374 |
-| LR-27 | NR $68 bit 7 (ULA disable) blanks LoRes too — the display falls through to the NR $4A fallback, no LoRes pixel survives (zxnext.vhd:7103-7104) | zxnext.vhd:7103-7104 | pass | test/compositor/compositor_test.cpp:5400 |
-| LR-28 | in Timex hi-res mode both 512-grid half-pixels take the SAME LoRes colour and no hi-res detail survives (zxnext.vhd:6843 vs 6858, 6980, 6986) | zxnext.vhd:6843 | pass | test/compositor/compositor_test.cpp:5433 |
-| LR-29 | ULA attribute FLASH does not modulate a LoRes pixel — both flash phases render the display area identically (zxula.vhd:470; zxnext.vhd:6980) | zxula.vhd:470, zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5458 |
-| LR-30 | the LoRes byte indexes the ULA palette, not the Layer 2 / sprite / tilemap palette (zxnext.vhd:6960-6978, 6981) | zxnext.vhd:6960-6978,6981 | pass | test/compositor/compositor_test.cpp:5489 |
-| LR-31 | NR $43 bit 1 selects which of the two ULA palette banks LoRes indexes (zxnext.vhd:6825, 6981) | zxnext.vhd:6825,6981 | pass | test/compositor/compositor_test.cpp:5522 |
+| LR-26 | LoRes occupies the ULA slot in NR $15 priority — in every mode 000..101 it wins or loses exactly where the ULA would, and the winning colour is the LoRes one (zxnext.vhd:6980-6981) | zxnext.vhd:6980-6981 | pass | test/compositor/compositor_test.cpp:5476 |
+| LR-27 | NR $68 bit 7 (ULA disable) blanks LoRes too — the display falls through to the NR $4A fallback, no LoRes pixel survives (zxnext.vhd:7103-7104) | zxnext.vhd:7103-7104 | pass | test/compositor/compositor_test.cpp:5502 |
+| LR-28 | in Timex hi-res mode both 512-grid half-pixels take the SAME LoRes colour and no hi-res detail survives (zxnext.vhd:6843 vs 6858, 6980, 6986) | zxnext.vhd:6843 | pass | test/compositor/compositor_test.cpp:5535 |
+| LR-29 | ULA attribute FLASH does not modulate a LoRes pixel — both flash phases render the display area identically (zxula.vhd:470; zxnext.vhd:6980) | zxula.vhd:470, zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5560 |
+| LR-30 | the LoRes byte indexes the ULA palette, not the Layer 2 / sprite / tilemap palette (zxnext.vhd:6960-6978, 6981) | zxnext.vhd:6960-6978,6981 | pass | test/compositor/compositor_test.cpp:5591 |
+| LR-31 | NR $43 bit 1 selects which of the two ULA palette banks LoRes indexes (zxnext.vhd:6825, 6981) | zxnext.vhd:6825,6981 | pass | test/compositor/compositor_test.cpp:5624 |
 | LR-40 | top-left LoRes pixel reads bank-5 offset 0 (lores.vhd:91) | lores.vhd:91 | pass | test/lores/lores_test.cpp:198 |
 | LR-41 | row stride is 128 bytes: y(7:1) occupies addr bits 13:7 (lores.vhd:91) | lores.vhd:91 | pass | test/lores/lores_test.cpp:204 |
 | LR-42 | column stride is 1 byte per 2 display pixels: x(7:1) occupies addr bits 6:0 (lores.vhd:91) | lores.vhd:91 | pass | test/lores/lores_test.cpp:210 |
@@ -4422,8 +4429,8 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-46 | last byte of the bottom half (phc=254, vc=190) is 0x37FF (lores.vhd:91, 93) | lores.vhd:91,93 | pass | test/lores/lores_test.cpp:237 |
 | LR-47 | no address in 0x1800-0x1FFF is ever generated in 8-bit mode across the whole display (lores.vhd:93-94) | lores.vhd:93-94 | pass | test/lores/lores_test.cpp:255 |
 | LR-48 | the half-select uses the SCROLLED y, not vc: vc=0 scroll_y=96 gives y=96 and therefore 0x2000 (lores.vhd:86-87, 93) | lores.vhd:86-87,93 | pass | test/lores/lores_test.cpp:262 |
-| LR-49 | LoRes reads physical bank 5 regardless of the MMU slot mapping (zxnext.vhd:6631, 6558-6578; lores.vhd:56) | zxnext.vhd:6631,6558-6578, lores.vhd:56 | pass | test/compositor/compositor_test.cpp:5543 |
-| LR-50 | LoRes is unaffected by the port $7FFD bit 3 shadow-screen select — it always shows bank-5 content (zxnext.vhd:6631 vs 6651-6655) | zxnext.vhd:6631 | pass | test/compositor/compositor_test.cpp:5567 |
+| LR-49 | LoRes reads physical bank 5 regardless of the MMU slot mapping (zxnext.vhd:6631, 6558-6578; lores.vhd:56) | zxnext.vhd:6631,6558-6578, lores.vhd:56 | pass | test/compositor/compositor_test.cpp:5645 |
+| LR-50 | LoRes is unaffected by the port $7FFD bit 3 shadow-screen select — it always shows bank-5 content (zxnext.vhd:6631 vs 6651-6655) | zxnext.vhd:6631 | pass | test/compositor/compositor_test.cpp:5669 |
 | LR-51 | in 8-bit mode the Timex display-file bit and NR $6A bit 4 have no effect on the address (lores.vhd:96, 98) | lores.vhd:96,98 | pass | test/lores/lores_test.cpp:284 |
 | LR-60 | Radastan row stride is 64 bytes (lores.vhd:96) | lores.vhd:96 | pass | test/lores/lores_test.cpp:300 |
 | LR-61 | two LoRes pixels per byte: phc 0..3 all read offset 0 (x(7:2) drops both low bits) (lores.vhd:96) | lores.vhd:96 | pass | test/lores/lores_test.cpp:306 |
@@ -4431,10 +4438,10 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-63 | dfile=0 bases the image at offset 0: last row starts at 0x17C0 (lores.vhd:96) | lores.vhd:96 | pass | test/lores/lores_test.cpp:326 |
 | LR-64 | dfile=1 bases the image at offset 0x2000 (lores.vhd:96) | lores.vhd:96 | pass | test/lores/lores_test.cpp:332 |
 | LR-65 | Radastan applies NO +0x800 correction at row 48: vc=96 gives 0x0C00, not 0x1400 (lores.vhd:96 vs 93-94) | lores.vhd:96 | pass | test/lores/lores_test.cpp:338 |
-| LR-66 | dfile = port $FF bit 0 XOR NR $6A bit 4: (0,0)->half 0, (1,0)->half 1, (0,1)->half 1, (1,1)->half 0 (zxnext.vhd:6796) | zxnext.vhd:6796 | pass | test/compositor/compositor_test.cpp:5606 |
+| LR-66 | dfile = port $FF bit 0 XOR NR $6A bit 4: (0,0)->half 0, (1,0)->half 1, (0,1)->half 1, (1,1)->half 0 (zxnext.vhd:6796) | zxnext.vhd:6796 | pass | test/compositor/compositor_test.cpp:5708 |
 | LR-67 | the Radastan image is 6144 bytes, contiguous within its half, and every byte is reachable (lores.vhd:96) | lores.vhd:96 | pass | test/lores/lores_test.cpp:355 |
 | LR-68 | toggling NR $6A bit 5 switches the address generator and nothing else is latched (lores.vhd:98) | lores.vhd:98 | pass | test/lores/lores_test.cpp:373 |
-| LR-69 | Radastan and 8-bit mode reach different bytes for the same screen position: (phc=8, vc=4) reads 0x0104 vs 0x0082 (lores.vhd:91, 96) | lores.vhd:91,96 | pass | test/compositor/compositor_test.cpp:5632 |
+| LR-69 | Radastan and 8-bit mode reach different bytes for the same screen position: (phc=8, vc=4) reads 0x0104 vs 0x0082 (lores.vhd:91, 96) | lores.vhd:91,96 | pass | test/compositor/compositor_test.cpp:5734 |
 | LR-80 | 8-bit: the offset adds to the HIGH nibble only — 0x35 + offset 2 gives 0x55 (lores.vhd:102, 111) | lores.vhd:102,111 | pass | test/lores/lores_test.cpp:406 |
 | LR-81 | 8-bit: the high-nibble add wraps at 4 bits with no carry out — 0xF7 + offset 3 gives 0x27 (lores.vhd:102) | lores.vhd:102 | pass | test/lores/lores_test.cpp:412 |
 | LR-82 | 8-bit: the low nibble passes through untouched by any offset — 0x0F + offset 0xF gives 0xFF (lores.vhd:111) | lores.vhd:111 | pass | test/lores/lores_test.cpp:418 |
@@ -4442,7 +4449,7 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-84 | Radastan: the high nibble IS the offset, not an add — byte 0xAB offset 5 gives 0x5A (lores.vhd:107, 111) | lores.vhd:107,111 | pass | test/lores/lores_test.cpp:429 |
 | LR-85 | Radastan + ULA+: the high nibble becomes "11" & offset(1:0) — offset 1 gives 0xDA (lores.vhd:107) | lores.vhd:107 | pass | test/lores/lores_test.cpp:435 |
 | LR-86 | Radastan + ULA+: offset bits 3:2 are ignored — offsets 0x1 and 0xD give the same pixel (lores.vhd:107) | lores.vhd:107 | pass | test/lores/lores_test.cpp:442 |
-| LR-87 | ULANext cancels the ULA+ translation of the Radastan high nibble — pixel 0x1A, not 0xDA (zxnext.vhd:4246) | zxnext.vhd:4246 | pass | test/compositor/compositor_test.cpp:5668 |
+| LR-87 | ULANext cancels the ULA+ translation of the Radastan high nibble — pixel 0x1A, not 0xDA (zxnext.vhd:4246) | zxnext.vhd:4246 | pass | test/compositor/compositor_test.cpp:5770 |
 | LR-88 | the palette offset never affects pixel_en (lores.vhd:111, 115) | lores.vhd:111,115 | pass | test/lores/lores_test.cpp:460 |
 | LR-100 | X scroll advances the source column: scroll_x=4 moves the image left by 2 LoRes pixels (lores.vhd:82, 91) | lores.vhd:82,91 | pass | test/lores/lores_test.cpp:475 |
 | LR-101 | the X-scroll LSB is discarded in 8-bit mode (x(0) unused) but bit 1 is not (lores.vhd:82, 91) | lores.vhd:82,91 | pass | test/lores/lores_test.cpp:485 |
@@ -4463,23 +4470,24 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-124 | clip_y2 values with bits 7:6 = "11" clamp to 0xBF at the consumer latch LoRes shares with the ULA; 0xA0 is left alone and the raw NR $1A byte is preserved (zxnext.vhd:6779-6783) | zxnext.vhd:6779-6783 | pass | test/nextreg/nextreg_integration_test.cpp:7311 |
 | LR-125 | an inverted X window (x1 > x2) draws nothing (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:674 |
 | LR-126 | an inverted Y window (y1 > y2) draws nothing (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:682 |
-| LR-127a | LoRes and the ULA share ONE clip window and are suppressed together: inside NR $1A the LoRes pixel draws, outside it the pixel falls to the NR $4A fallback and no ULA pixel shows through (zxula.vhd:562; lores.vhd:115; zxnext.vhd:4258-4261, 7100/7104) | lores.vhd:115, zxula.vhd:562, zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6032 |
-| LR-140 | a LoRes pixel never shows the NR $4A fallback: with the ULA asserting ula_select_bgnd (ULAnext format 0x00 paper, zxula.vhd:525) the LoRes palette colour is emitted (zxnext.vhd:6986-6991); the identical state without LoRes takes the fallback, proving the stimulus | zxnext.vhd:6986-6991 | pass | test/compositor/compositor_test.cpp:5734 |
-| LR-141 | the LoRes colour is subject to NR $14 global transparency — matching the key makes the pixel transparent and the layer below shows (zxnext.vhd:7100-7101) | zxnext.vhd:7100-7101 | pass | test/compositor/compositor_test.cpp:5779 |
-| LR-142 | transparency compares the palette RGB[8:1], not the palette index — only the entry whose RGB is the key goes transparent (zxnext.vhd:7100) | zxnext.vhd:7100 | pass | test/compositor/compositor_test.cpp:5820 |
-| LR-143 | LoRes participates in ULA/tilemap stencil mode as the ULA colour — the AND uses the LoRes RGB (zxnext.vhd:7112-7113, 7130-7132) | zxnext.vhd:7112-7113,7130-7132 | pass | test/compositor/compositor_test.cpp:5875 |
-| LR-144 | LoRes participates in NR $15 blend mode 110 as the ULA operand of the mixer (zxnext.vhd:7100-7101, 7139-7148) | zxnext.vhd:7100-7101,7139-7148 | pass | test/compositor/compositor_test.cpp:5905 |
-| LR-145 | the tilemap 'below ULA' ordering applies unchanged to LoRes: tilemap over the LoRes colour when above, LoRes over the tilemap when below (zxnext.vhd:7116) | zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:5928 |
-| LR-146 | sprite and Layer 2 priority relative to the ULA slot is unchanged by LoRes — only the ULA-slot colour changes (zxnext.vhd:6980, 7139+) | zxnext.vhd:6980,7139 | pass | test/compositor/compositor_test.cpp:5971 |
-| LR-PSCAN | NR $15 bit 7 / $32 / $33 / $6A are replayed per scanline — a mid-frame enable+scroll affects only the rows from the write onward, never the rows the beam already passed (zxnext.vhd:6768-6802, 6817) | zxnext.vhd:6768-6802 | pass | test/compositor/compositor_test.cpp:6083 |
+| LR-127a | LoRes and the ULA share ONE clip window and are suppressed together: inside NR $1A the LoRes pixel draws, outside it the pixel falls to the NR $4A fallback and no ULA pixel shows through (zxula.vhd:562; lores.vhd:115; zxnext.vhd:4258-4261, 7100/7104) | lores.vhd:115, zxula.vhd:562, zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6134 |
+| LR-129 | LoRes on with a narrowed shared clip window (64,191,32,159): every border cell of every row keeps the port $FE colour (zxnext.vhd:6980, 7063, 7100; lores.vhd:115; zxula.vhd:415, 562) | zxnext.vhd:6980,7063,7100, lores.vhd:115, zxula.vhd:415,562 | pass | test/compositor/compositor_test.cpp:6185 |
+| LR-140 | a LoRes pixel never shows the NR $4A fallback: with the ULA asserting ula_select_bgnd (ULAnext format 0x00 paper, zxula.vhd:525) the LoRes palette colour is emitted (zxnext.vhd:6986-6991); the identical state without LoRes takes the fallback, proving the stimulus | zxnext.vhd:6986-6991 | pass | test/compositor/compositor_test.cpp:5836 |
+| LR-141 | the LoRes colour is subject to NR $14 global transparency — matching the key makes the pixel transparent and the layer below shows (zxnext.vhd:7100-7101) | zxnext.vhd:7100-7101 | pass | test/compositor/compositor_test.cpp:5881 |
+| LR-142 | transparency compares the palette RGB[8:1], not the palette index — only the entry whose RGB is the key goes transparent (zxnext.vhd:7100) | zxnext.vhd:7100 | pass | test/compositor/compositor_test.cpp:5922 |
+| LR-143 | LoRes participates in ULA/tilemap stencil mode as the ULA colour — the AND uses the LoRes RGB (zxnext.vhd:7112-7113, 7130-7132) | zxnext.vhd:7112-7113,7130-7132 | pass | test/compositor/compositor_test.cpp:5977 |
+| LR-144 | LoRes participates in NR $15 blend mode 110 as the ULA operand of the mixer (zxnext.vhd:7100-7101, 7139-7148) | zxnext.vhd:7100-7101,7139-7148 | pass | test/compositor/compositor_test.cpp:6007 |
+| LR-145 | the tilemap 'below ULA' ordering applies unchanged to LoRes: tilemap over the LoRes colour when above, LoRes over the tilemap when below (zxnext.vhd:7116) | zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:6030 |
+| LR-146 | sprite and Layer 2 priority relative to the ULA slot is unchanged by LoRes — only the ULA-slot colour changes (zxnext.vhd:6980, 7139+) | zxnext.vhd:6980,7139 | pass | test/compositor/compositor_test.cpp:6073 |
+| LR-PSCAN | NR $15 bit 7 / $32 / $33 / $6A are replayed per scanline — a mid-frame enable+scroll affects only the rows from the write onward, never the rows the beam already passed (zxnext.vhd:6768-6802, 6817) | zxnext.vhd:6768-6802 | pass | test/compositor/compositor_test.cpp:6231 |
 | LR-160 | NR $26 / $27 (ULA scroll) do not move the LoRes image (lores.vhd:82,84 - the address generator consumes LoRes's own scroll_x_i/scroll_y_i, which zxnext.vhd:4241-4271 drives from NR $32/$33, never from the ULA's NR $26/$27) | lores.vhd:82,84, zxnext.vhd:4241-4271 | pass | test/lores/lores_test.cpp:733 |
-| LR-161 | NR $68 bit 2 (ULA half-pixel scroll) does not move the LoRes image (zxnext.vhd:4241-4271 — no such port on the LoRes module) | zxnext.vhd:4241-4271 | pass | test/compositor/compositor_test.cpp:6113 |
+| LR-161 | NR $68 bit 2 (ULA half-pixel scroll) does not move the LoRes image (zxnext.vhd:4241-4271 — no such port on the LoRes module) | zxnext.vhd:4241-4271 | pass | test/compositor/compositor_test.cpp:6261 |
 | LR-162 | NR $1D is not a LoRes clip register — writing it changes neither the shared ULA/LoRes clip window nor any LoRes register (zxnext.vhd:1167-1171, 5278 undecoded, 6785-6793) | zxnext.vhd:1167-1171,5278 | pass | test/nextreg/nextreg_integration_test.cpp:7357 |
 | LR-163 | enabling LoRes does not change ULA memory contention — 20000 instructions of contended bank-5 access cost the same T-states with NR $15 bit 7 = 0 and = 1 (zxula.vhd:583; zxnext.vhd:6603-6631, separate BRAM port) | zxula.vhd:583, zxnext.vhd:6603-6631 | pass | test/lores/lores_integration_test.cpp:154 |
 | LR-164 | enabling LoRes does not change the floating-bus value — 500 port 0xFF reads spread across a frame are byte-identical with NR $15 bit 7 = 0 and = 1 (zxula.vhd:573, ULA port B only) | zxula.vhd:573 | pass | test/lores/lores_integration_test.cpp:209 |
-| LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:6133 |
-| LR-166 | NR $19 (sprite clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4366-4369) | zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6158 |
-| LR-167 | NR $1B (tilemap clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4424-4427) | zxnext.vhd:4258-4261,4424-4427 | pass | test/compositor/compositor_test.cpp:6167 |
+| LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:6281 |
+| LR-166 | NR $19 (sprite clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4366-4369) | zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6306 |
+| LR-167 | NR $1B (tilemap clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4424-4427) | zxnext.vhd:4258-4261,4424-4427 | pass | test/compositor/compositor_test.cpp:6315 |
 | LR-BR-01 | zxnext.vhd:6603-6631 - a bank-5 byte written after the beam passed its row (post-display line 260) is seen by the next frame only | zxnext.vhd:6603-6631 | pass | test/lores/lores_test.cpp:847 |
 | LR-BR-02 | zxnext.vhd:4250,6603-6631 - a write 2 ticks after pixel 100's own fetch tick (raw hc c_min_hactive + 1 + phc) is not seen on that row | zxnext.vhd:4250,6603-6631 | pass | test/lores/lores_test.cpp:857 |
 | LR-BR-03 | zxnext.vhd:4250,6603-6631 - a write 2 ticks before pixel 100's own fetch tick is seen on that row | zxnext.vhd:4250,6603-6631 | pass | test/lores/lores_test.cpp:866 |
@@ -4496,94 +4504,112 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:268 |
-| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:276 |
-| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:302 |
-| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:346 |
-| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:354 |
-| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:362 |
-| CMD18-06 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:402 |
-| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:441 |
-| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:463 |
-| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:481 |
-| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:504 |
-| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:523 |
-| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:539 |
-| CMD18-05 | open CMD18 stream survives CS deassert; next block streams on reselect without a command (esxDOS cross-call streaming) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:571 |
-| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:609 |
-| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=1024 (>512) is BLOCK_LEN_ERROR → R1 bit 6 PARAMETER_ERROR (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:645 |
-| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:668 |
-| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:760 |
-| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:767 |
-| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:788 |
-| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:834 |
-| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:876 |
-| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:937 |
-| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:945 |
-| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1001 |
-| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 and reads the byte address it was given | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1061 |
-| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1126 |
-| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1233 |
-| SD-16 | CMD16 SET_BLOCKLEN over-long arg R1: initialized card -> 0x40 (parameter error only, idle CLEAR); uninitialized card -> 0x41 (idle + parameter error). Idle bit must derive from initialized_, not be hard-coded (SD spec § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1283 |
-| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1353 |
-| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1405 |
-| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1443 |
-| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1483 |
-| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1578 |
-| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1666 |
-| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1708 |
-| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1760 |
-| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1827 |
-| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1899 |
-| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1957 |
-| SD-28 | CMD24 to RO-mounted image emits data-response 0x0D (write error) per SD Phys Layer Spec § 7.3.3.3; same image mounted RW emits 0x05 (data accepted) — discriminates the silent-write-loss (pre-fix) bug. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2076 |
-| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2145 |
-| SD-30 | receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP returns the next MISO byte and advances the response stream (full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned 0xFF and left resp_idx_/data_idx_ un-advanced. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2218 |
-| SD-31 | receive(non-CMD-byte) in RESPONDING state observes the next response byte on MISO and advances resp_idx_ per VHDL full-duplex semantics (spi_master.vhd:104-168). Pre-fix the receive() default branch returned 0xFF and the R1 byte would never be observable via the write-side channel. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2273 |
-| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2319 |
-| SD-33-MOUNT | image mount | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2354 |
-| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2400 |
-| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2443 |
-| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2467 |
-| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2484 |
-| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2507 |
-| SD-LOGHOT-01 | streaming into the next CMD18 block logs its trace line with sdcard at trace | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2548 |
-| SD-LOGHOT-02 | no CMD18 next-block trace line is emitted with the level off | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2556 |
-| SDSC-ADDR-01 | SDSC (ACMD41 HCS=0 → OCR CCS=0): CMD17 argument is a BYTE address (§ 4.7.4) — arg 2*512 delivers sector 2 with a 512-byte CRC | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2591 |
-| SDSC-ADDR-02 | SDHC (ACMD41 HCS=1 → OCR CCS=1): CMD17 argument stays a 512-byte BLOCK address (§ 4.7.4) — arg 2 delivers sector 2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2612 |
-| MMC-03 | byte-vs-block addressing duality: argument 1536 is byte 1536 (sector 3) with CCS=0 and block 1536 (past end of a 8 KB image) with CCS=1 (§ 4.7.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2642 |
-| SDSC-ADDR-03 | SDSC CMD17 with a misaligned byte address (a sector index used as one) → R1 bit 5 ADDRESS_ERROR and no data token (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2665 |
-| SDSC-ADDR-07 | SDSC CMD18 with a misaligned byte address → R1 bit 5 ADDRESS_ERROR, no data token and no stream started (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2684 |
-| SDSC-ADDR-04 | SDSC CMD18 starts at the byte address given and advances one 512-byte block per streamed block (§ 4.7.4, § 4.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2704 |
-| SDSC-ADDR-05 | SDSC CMD24 writes at the BYTE address given (§ 4.7.4): a block written at byte 6*512 reads back as sector 6 in an SDHC session | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2747 |
-| SDSC-ADDR-06 | SDSC CMD24 with a misaligned byte address → R1 bit 5 ADDRESS_ERROR and no data phase; the pushed bytes never reach the image (§ 4.3.2, § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2779 |
-| SDSC-CMD16-01 | SDSC CMD16 arg=256 is accepted and takes effect: the next CMD17 transfers exactly 256 bytes from the byte address given, with a CRC-16 over those 256 bytes (§ 4.3.2, § 5.3.2 READ_BL_PARTIAL=1, § 7.2.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2828 |
-| SDSC-CMD16-02 | CMD16 over 512 bytes is BLOCK_LEN_ERROR in both capacity classes (R1 bit 6) and leaves the block length unchanged — the next read still transfers 512 bytes (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2858 |
-| SDSC-CMD16-03 | SDHC CMD16 arg=256 is accepted (R1=0x00) but does NOT change the transfer length — the next CMD17 still delivers 512 bytes (§ 4.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2882 |
-| SDSC-CMD16-04 | SDSC CMD24 after CMD16 256 → R1 bit 6 PARAMETER_ERROR (WRITE_BL_PARTIAL=0, § 5.3.2) with no data phase (§ 4.3.4); the pushed bytes never reach the image | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2918 |
-| SDSC-CMD16-05 | SDSC CMD18 after CMD16 256 streams 256-byte blocks and advances one BLOCK LENGTH between them at BOTH stride sites — three blocks are image bytes 256..511, 512..767, 768..1023, not a hardcoded 512-byte stride (§ 4.3.2, § 4.3.3, § 7.2.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2974 |
-| SDSC-CMD16-06 | SDSC shortened block at the very end of the image is delivered, not refused: the end-of-image bound and the host read both use the current block length, not a fixed 512 (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3018 |
-| SDSC-OVL-01 | the sector-indexed read overlay answers a block-addressed card and never a byte-addressed one — not at an address that happens to be sector-aligned, nor at one that merely divides into an overlaid sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3087 |
-| SDSC-CMD16-07 | re-negotiating HCS=1 after a standard-capacity CMD16 restores the 512-byte block length (§ 4.3.2): the CMD18 stream transfers 512 bytes per block and strides 512, so a block-addressed card never forms an address that is not a block boundary | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3159 |
-| SDSC-CMD16-08 | CMD0 restores the power-up block length (§ 4.3.2): after CMD16 256, a CMD0 + legacy-MMC CMD1 init — the one flow that initialises without ACMD41 — leaves the next read a full 512-byte block | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3214 |
-| SDSC-ADDR-08 | CMD0 clears the negotiated capacity class: after ACMD41(HCS=1) → CMD0 → legacy-MMC CMD1 the card reports CCS=0 (§ 4.2.3, § 5.1) and is byte-addressed (§ 4.7.4), instead of carrying a declaration from a previous initialisation | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3276 |
-| SDSC-CSD-01 | SDSC CMD9 returns a CSD Version 1.0 register (CSD_STRUCTURE=00, READ_BL_LEN=9, READ_BL_PARTIAL=1) whose (C_SIZE+1)*2^(C_SIZE_MULT+2)*2^READ_BL_LEN decodes to the image size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3330 |
-| SDSC-CSD-02 | SDHC CMD9 returns a CSD Version 2.0 register (CSD_STRUCTURE=01, READ_BL_PARTIAL=0) whose 22-bit C_SIZE counts 512 KB units (§ 5.3.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3367 |
-| SDSC-CSD-03 | SDSC CSD v1.0 capacity encoding scales with the image: a 16 MiB card needs C_SIZE_MULT=1 (12-bit C_SIZE cannot reach it at MULT=4) and still decodes to the exact size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3404 |
-| SDSC-CSD-04 | an image below one MULT unit is declared at the v1.0 floor (C_SIZE=0, C_SIZE_MULT=0 → 2048 bytes, § 5.3.2) — the only size the encoding cannot round down — and a read inside that declaration but past the real file is still refused with OUT_OF_RANGE (§ 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3455 |
-| S6-SD-CMD18-MID | a save taken 200 bytes into the second sector of a CMD18 stream restores a card that is still streaming: the rest of the stream is byte-identical to an uninterrupted card | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3557 |
-| S6-SD-INFLIGHT-01 | a card part-way through a CMD18 block reports the transfer in flight | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3565 |
-| S6-SD-INFLIGHT-02 | a card that has finished a CMD17 block and been clocked once more owes the host nothing and reports no transfer in flight | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3585 |
-| S6-SD-ADDRESSING | the negotiated capacity class (host_supports_sdhc_ + block_len_) survives save/restore: a byte-addressed card still reads sector 2 from byte address 1024 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3618 |
-| S6-SD-ADDRESSING-HC | …and the SDHC direction, which is the one that discriminates: a block-addressed card still reads sector 3 from argument 3 after a restore, where a card that had fallen back to reset()'s byte addressing would serve sector 0 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3655 |
-| S6-SD-BLOCKLEN | the CMD16 block length survives save/restore OBSERVABLY: the restored card's data field is 256 bytes and its CRC is the one over those 256, where a card that had fallen back to reset()'s 512 would still be delivering data when the CRC was read | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3692 |
-| S6-SD-INFLIGHT-03 | a paused-but-open CMD18 stream still reports the transfer in flight after a CS deassert — the case `multi_block_` is tested for independently of `state_`, and the one NextZXOS's esxDOS driver is in between driver calls | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3720 |
-| S6-SD-RESP-FORGED | a stream claiming 255 response bytes restores at most the 32 the DECLARATION allows: the count is checked, never obeyed, so a file can neither size a write nor keep the card responding past the bytes the stream actually carried | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3760 |
-| S6-SD-BLOCKLEN-FORGED | a forged block length is checked against the class's own CMD16 invariant (1..512) and restored to the power-on 512: the one field that SIZES A WRITE cannot be set out of range by a stream, and the card still serves its sectors afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3860 |
-| S6-SD-CMDIDX-FORGED | a forged command cursor is clamped to the LAST WRITABLE SLOT (5), not to the array's size: `cmd_buf_[cmd_idx_++] = tx` has no bound of its own, so a restored 6 wrote one byte past a 6-byte array through a clamp that was there and was off by one | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3913 |
-| S6-SD-SAVE-PURE | saving twice emits byte-identical streams and leaves the queued CMD9 response advancing exactly as an unsaved card's does: the staging round-trip on the write path is a no-op | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3953 |
-| S6-SD-DEFAULTS-01 | every declared default equals the value reset() leaves, per field (§12.2's gate on the second copy of a power-on value) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3980 |
-| S6-SD-DEFAULTS-02 | …and the gate actually saw the fields, so a pass cannot mean it saw none: 19 scalars declare a default and exactly one (data_crc, which reset() does not establish) does not | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3984 |
+| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:270 |
+| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:278 |
+| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:304 |
+| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:348 |
+| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:356 |
+| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:364 |
+| CMD18-06 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:404 |
+| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:443 |
+| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:465 |
+| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:483 |
+| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:506 |
+| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:525 |
+| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:541 |
+| CMD18-05 | open CMD18 stream survives CS deassert; next block streams on reselect without a command (esxDOS cross-call streaming) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:573 |
+| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:611 |
+| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=1024 (>512) is BLOCK_LEN_ERROR → R1 bit 6 PARAMETER_ERROR (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:647 |
+| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:670 |
+| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:762 |
+| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:769 |
+| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:790 |
+| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:836 |
+| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:878 |
+| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:940 |
+| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:948 |
+| SD-RO-03 | read-only card: repeated CMD24 answers 0x0D with no busy byte (SD spec 4.3.4, 7.3.3.1) and every sector, written or not, still reads back its original bytes by CMD17 and CMD18 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1044 |
+| SD-RO-04 | read-only card never hands a block to the host stream (0 write attempts) and never bumps the write generation; a read-write control card does both (1 attempt, accepted 0x05, generation +1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1065 |
+| SD-RO-05 | read-only card: the host file's bytes and mtime are unchanged after rejected CMD24s; a read-write control changes both (so both measures can see a write) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1114 |
+| SD-RO-06 | image the host will not let us write (fallback read-only mount): CMD24 answers 0x0D, no block reaches the stream, and the card still reads its original bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1149 |
+| SD-RO-07 | a CMD24 data phase restored from a snapshot onto a read-only card is refused at the commit point: 0x0D, 0 stream writes, file and read-back unchanged | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1204 |
+| SD-RO-08 | mounting the same card object read-write after a read-only mount (directly, and via unmount) restores CMD24: 0x05, committed to the file and read back | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1246 |
+| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1304 |
+| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 and reads the byte address it was given | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1364 |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1429 |
+| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1536 |
+| SD-16 | CMD16 SET_BLOCKLEN over-long arg R1: initialized card -> 0x40 (parameter error only, idle CLEAR); uninitialized card -> 0x41 (idle + parameter error). Idle bit must derive from initialized_, not be hard-coded (SD spec § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1586 |
+| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1656 |
+| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1708 |
+| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1746 |
+| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1786 |
+| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1881 |
+| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1969 |
+| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2011 |
+| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2063 |
+| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2130 |
+| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2202 |
+| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2260 |
+| SD-28 | CMD24 to RO-mounted image emits data-response 0x0D (write error) per SD Phys Layer Spec § 7.3.3.3; same image mounted RW emits 0x05 (data accepted) — discriminates the silent-write-loss (pre-fix) bug. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2381 |
+| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2450 |
+| SD-30 | receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP returns the next MISO byte and advances the response stream (full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned 0xFF and left resp_idx_/data_idx_ un-advanced. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2523 |
+| SD-31 | receive(non-CMD-byte) in RESPONDING state observes the next response byte on MISO and advances resp_idx_ per VHDL full-duplex semantics (spi_master.vhd:104-168). Pre-fix the receive() default branch returned 0xFF and the R1 byte would never be observable via the write-side channel. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2578 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2624 |
+| SD-33-MOUNT | image mount | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2659 |
+| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2705 |
+| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2748 |
+| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2772 |
+| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2789 |
+| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2812 |
+| SD-LOGHOT-01 | streaming into the next CMD18 block logs its trace line with sdcard at trace | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2853 |
+| SD-LOGHOT-02 | no CMD18 next-block trace line is emitted with the level off | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2861 |
+| SDSC-ADDR-01 | SDSC (ACMD41 HCS=0 → OCR CCS=0): CMD17 argument is a BYTE address (§ 4.7.4) — arg 2*512 delivers sector 2 with a 512-byte CRC | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2896 |
+| SDSC-ADDR-02 | SDHC (ACMD41 HCS=1 → OCR CCS=1): CMD17 argument stays a 512-byte BLOCK address (§ 4.7.4) — arg 2 delivers sector 2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2917 |
+| MMC-03 | byte-vs-block addressing duality: argument 1536 is byte 1536 (sector 3) with CCS=0 and block 1536 (past end of a 8 KB image) with CCS=1 (§ 4.7.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2947 |
+| SDSC-ADDR-03 | SDSC CMD17 with a misaligned byte address (a sector index used as one) → R1 bit 5 ADDRESS_ERROR and no data token (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2970 |
+| SDSC-ADDR-07 | SDSC CMD18 with a misaligned byte address → R1 bit 5 ADDRESS_ERROR, no data token and no stream started (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2989 |
+| SDSC-ADDR-04 | SDSC CMD18 starts at the byte address given and advances one 512-byte block per streamed block (§ 4.7.4, § 4.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3009 |
+| SDSC-ADDR-05 | SDSC CMD24 writes at the BYTE address given (§ 4.7.4): a block written at byte 6*512 reads back as sector 6 in an SDHC session | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3052 |
+| SDSC-ADDR-06 | SDSC CMD24 with a misaligned byte address → R1 bit 5 ADDRESS_ERROR and no data phase; the pushed bytes never reach the image (§ 4.3.2, § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3084 |
+| SDSC-CMD16-01 | SDSC CMD16 arg=256 is accepted and takes effect: the next CMD17 transfers exactly 256 bytes from the byte address given, with a CRC-16 over those 256 bytes (§ 4.3.2, § 5.3.2 READ_BL_PARTIAL=1, § 7.2.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3133 |
+| SDSC-CMD16-02 | CMD16 over 512 bytes is BLOCK_LEN_ERROR in both capacity classes (R1 bit 6) and leaves the block length unchanged — the next read still transfers 512 bytes (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3163 |
+| SDSC-CMD16-03 | SDHC CMD16 arg=256 is accepted (R1=0x00) but does NOT change the transfer length — the next CMD17 still delivers 512 bytes (§ 4.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3187 |
+| SDSC-CMD16-04 | SDSC CMD24 after CMD16 256 → R1 bit 6 PARAMETER_ERROR (WRITE_BL_PARTIAL=0, § 5.3.2) with no data phase (§ 4.3.4); the pushed bytes never reach the image | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3223 |
+| SDSC-CMD16-05 | SDSC CMD18 after CMD16 256 streams 256-byte blocks and advances one BLOCK LENGTH between them at BOTH stride sites — three blocks are image bytes 256..511, 512..767, 768..1023, not a hardcoded 512-byte stride (§ 4.3.2, § 4.3.3, § 7.2.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3279 |
+| SDSC-CMD16-06 | SDSC shortened block at the very end of the image is delivered, not refused: the end-of-image bound and the host read both use the current block length, not a fixed 512 (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3323 |
+| SDSC-OVL-01 | the sector-indexed read overlay answers a block-addressed card and never a byte-addressed one — not at an address that happens to be sector-aligned, nor at one that merely divides into an overlaid sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3392 |
+| SDSC-CMD16-07 | re-negotiating HCS=1 after a standard-capacity CMD16 restores the 512-byte block length (§ 4.3.2): the CMD18 stream transfers 512 bytes per block and strides 512, so a block-addressed card never forms an address that is not a block boundary | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3464 |
+| SDSC-CMD16-08 | CMD0 restores the power-up block length (§ 4.3.2): after CMD16 256, a CMD0 + legacy-MMC CMD1 init — the one flow that initialises without ACMD41 — leaves the next read a full 512-byte block | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3519 |
+| SDSC-ADDR-08 | CMD0 clears the negotiated capacity class: after ACMD41(HCS=1) → CMD0 → legacy-MMC CMD1 the card reports CCS=0 (§ 4.2.3, § 5.1) and is byte-addressed (§ 4.7.4), instead of carrying a declaration from a previous initialisation | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3581 |
+| SDSC-CSD-01 | SDSC CMD9 returns a CSD Version 1.0 register (CSD_STRUCTURE=00, READ_BL_LEN=9, READ_BL_PARTIAL=1) whose (C_SIZE+1)*2^(C_SIZE_MULT+2)*2^READ_BL_LEN decodes to the image size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3635 |
+| SDSC-CSD-02 | SDHC CMD9 returns a CSD Version 2.0 register (CSD_STRUCTURE=01, READ_BL_PARTIAL=0) whose 22-bit C_SIZE counts 512 KB units (§ 5.3.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3672 |
+| SDSC-CSD-03 | SDSC CSD v1.0 capacity encoding scales with the image: a 16 MiB card needs C_SIZE_MULT=1 (12-bit C_SIZE cannot reach it at MULT=4) and still decodes to the exact size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3709 |
+| SDSC-CSD-04 | an image below one MULT unit is declared at the v1.0 floor (C_SIZE=0, C_SIZE_MULT=0 → 2048 bytes, § 5.3.2) — the only size the encoding cannot round down — and a read inside that declaration but past the real file is still refused with OUT_OF_RANGE (§ 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3760 |
+| S6-SD-CMD18-MID | a save taken 200 bytes into the second sector of a CMD18 stream restores a card that is still streaming: the rest of the stream is byte-identical to an uninterrupted card | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3862 |
+| S6-SD-INFLIGHT-01 | a card part-way through a CMD18 block reports the transfer in flight | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3870 |
+| S6-SD-INFLIGHT-02 | a card that has finished a CMD17 block and been clocked once more owes the host nothing and reports no transfer in flight | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3890 |
+| S6-SD-ADDRESSING | the negotiated capacity class (host_supports_sdhc_ + block_len_) survives save/restore: a byte-addressed card still reads sector 2 from byte address 1024 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3923 |
+| S6-SD-ADDRESSING-HC | …and the SDHC direction, which is the one that discriminates: a block-addressed card still reads sector 3 from argument 3 after a restore, where a card that had fallen back to reset()'s byte addressing would serve sector 0 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3960 |
+| S6-SD-BLOCKLEN | the CMD16 block length survives save/restore OBSERVABLY: the restored card's data field is 256 bytes and its CRC is the one over those 256, where a card that had fallen back to reset()'s 512 would still be delivering data when the CRC was read | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3997 |
+| S6-SD-INFLIGHT-03 | a paused-but-open CMD18 stream still reports the transfer in flight after a CS deassert — the case `multi_block_` is tested for independently of `state_`, and the one NextZXOS's esxDOS driver is in between driver calls | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:4025 |
+| S6-SD-RESP-FORGED | a stream claiming 255 response bytes restores at most the 32 the DECLARATION allows: the count is checked, never obeyed, so a file can neither size a write nor keep the card responding past the bytes the stream actually carried | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:4065 |
+| S6-SD-BLOCKLEN-FORGED | a forged block length is checked against the class's own CMD16 invariant (1..512) and restored to the power-on 512: the one field that SIZES A WRITE cannot be set out of range by a stream, and the card still serves its sectors afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:4165 |
+| S6-SD-CMDIDX-FORGED | a forged command cursor is clamped to the LAST WRITABLE SLOT (5), not to the array's size: `cmd_buf_[cmd_idx_++] = tx` has no bound of its own, so a restored 6 wrote one byte past a 6-byte array through a clamp that was there and was off by one | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:4218 |
+| S6-SD-SAVE-PURE | saving twice emits byte-identical streams and leaves the queued CMD9 response advancing exactly as an unsaved card's does: the staging round-trip on the write path is a no-op | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:4258 |
+| S6-SD-DEFAULTS-01 | every declared default equals the value reset() leaves, per field (§12.2's gate on the second copy of a power-on value) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:4285 |
+| S6-SD-DEFAULTS-02 | …and the gate actually saw the fields, so a pass cannot mean it saw none: 19 scalars declare a default and exactly one (data_crc, which reset() does not establish) does not | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:4289 |
+
+### Companion POSIX-only suite — `test/sdcard/sdcard_posix_test.cpp`
+
+> Citations in this section are the declared tombstone `(SD SPI spec)`: this suite has no VHDL counterpart to cite.
+
+| Test ID | Description | VHDL file:line | Status | Test file:line |
+|---------|-------------|----------------|--------|----------------|
+| SDP-IOERR-01 | transient host write error: CMD24 answers 0x0D with no busy byte, the card still reads sectors 1 and 4, and the rejected block never lands in the file afterwards (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:178 |
+| SDP-IOERR-03 | after a failed host write the card recovered read-write, not degraded to read-only: the next CMD24 is accepted (0x05) and its block is in the file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:217 |
+| SDP-IOERR-02 | persistent host write error: CMD24 answers 0x0D and the card still reads sectors 1 and 2 while the failure lasts | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:241 |
+| SDP-IOERR-04 | host write error on an image that can no longer be opened for writing: the card degrades to read-only, so the next CMD24 is refused (0x0D, no further stream write) and reads still return the original bytes | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:298 |
+| SDP-IOERR-05 | host write error with the image gone (neither reopen works): the card ends unmounted, and a later mount() works and reads | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:331 |
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp`
 

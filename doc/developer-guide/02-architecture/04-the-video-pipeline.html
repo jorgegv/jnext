@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.4</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.4</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3001,8 +3001,8 @@ buffers to transparent, and then asks each layer in turn to paint its row:</p>
 <code>apply_lores()</code> substitutes the LoRes pixel into the ULA slot — LoRes is <strong>not</strong>
 a layer of its own; it replaces the ULA pixel before palette lookup. NR 0x68
 bit 7 blanks the entire ULA output if the row's snapshot says the ULA was
-disabled. And <code>apply_ula_clip()</code> masks off everything outside the NR 0x1A clip
-window.</p>
+disabled. And <code>apply_ula_clip()</code> masks the display-area pixels outside the NR 0x1A clip
+window; the border is never clipped, as on the hardware.</p>
 <p>Finally <code>composite_scanline()</code> dispatches on the row's NR 0x15 layer priority
 into a <code>composite_scanline_mode&lt;PRIO&gt;</code> template. There are eight
 specialisations, which is what allows the per-pixel <code>switch</code> to fold away

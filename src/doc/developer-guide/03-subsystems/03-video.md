@@ -129,7 +129,8 @@ Two things a reader expects to find here are somewhere else. The **clip window**
 is one: `Ula::render_scanline` emits an unclipped line and
 `Renderer::apply_ula_clip` masks it afterwards, because in hardware NR 0x1A
 feeds a compositor-stage signal — Layer 2, tilemap and sprites each clip
-themselves instead. The **floating bus** is the other:
+themselves instead. It clips display-area pixels only: the border is never
+clipped, whatever NR 0x1A holds. The **floating bus** is the other:
 `Emulator::floating_bus_read` is the port-0xFF read mux, with its NR 0x08 b2
 Timex arm, its NR 0x82 b0 gate, and the per-machine gate that delivers ULA
 content only under 48K/128K timing. `ula_floating_bus_active_arm` evaluates

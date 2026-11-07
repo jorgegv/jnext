@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Lines of code (comments and blank lines excluded), per directory and in total.
-# Run through `make kloc-count` (three rows: src, test, tools, then TOTAL) or
+# Run through `make kloc-count` (three rows: src, test, tools, then TOTAL and the
+# number of commits) or
 # `make kloc-count-detailed` (--detailed: every row). One counting pass feeds both
 # tables, so the summary's rows are the detailed table's subtotals by construction.
 # The make targets pass the colour escapes in BOLD/CYAN/RESET.
@@ -135,6 +136,8 @@ if [ "$DETAILED" -eq 0 ]; then
             total) K2+=(total); L2+=("${L[$i]}"); N2+=("${N[$i]}") ;;
         esac
     done
+    # Last row: the number of commits.
+    K2+=(total); L2+=("Commits"); N2+=("$(git log --oneline | wc -l)")
     K=("${K2[@]}"); L=("${L2[@]}"); N=("${N2[@]}")
 fi
 W=0; for l in "${L[@]}"; do [ ${#l} -gt "$W" ] && W=${#l}; done

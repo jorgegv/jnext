@@ -57,11 +57,13 @@ public:
     ///
     /// @param read_only  when true the host file is opened read-only on
     ///   purpose, so the emulated machine sees a write-protected card:
-    ///   CMD24 writes fail the host fstream and the card emits the 0x0D
-    ///   "data rejected due to write error" token, exactly as it already
-    ///   did for the accidental read-only fallback below. This is what
+    ///   CMD24 is refused at the commit point with the 0x0D "data rejected
+    ///   due to write error" token and the block never reaches the host
+    ///   stream (the same holds when the image cannot be opened for
+    ///   writing and the mount falls back to read-only). This is what
     ///   `--sdcard-readonly` gives a user who needs a run not to mutate a
-    ///   shared image (GH #77).
+    ///   shared image (GH #77). Reads keep working after any number of
+    ///   refused writes.
     bool mount(const std::string& path, bool read_only = false);
 
     /// Unmount the current image (if any).
@@ -176,6 +178,14 @@ public:
         return static_cast<std::size_t>(cmd_idx_);
     }
     uint32_t block_len_for_test() const { return block_len_; }
+
+    /// How many times CMD24 handed a block to the host stream. A read-only
+    /// card must keep this at 0: on libstdc++ a stray write to an `ios::in`
+    /// stream is harmless, so no behavioural row can see the guard missing
+    /// on the build that runs the gate.
+    std::uint64_t stream_write_attempts_for_test() const {
+        return stream_write_attempts_;
+    }
 
 private:
     static inline std::atomic<std::uint64_t> write_generation_{0};
@@ -326,6 +336,13 @@ private:
     // Backing store
     std::fstream file_;
     uint64_t file_size_ = 0;
+    // Mount properties (not protocol state: not in describe_state()).
+    bool read_only_ = false;      // write-protected: CMD24 never touches file_
+    std::string path_;            // mounted image, for the stream reopen
+    std::uint64_t stream_write_attempts_ = 0;
+
+    // Reopen the image after a host write error (see receive()).
+    void recover_stream_after_failed_write();
     uint32_t overlay_first_sector_ = 0;
     uint32_t overlay_sector_count_ = 0;
     ReadOverlay read_overlay_;

@@ -4570,12 +4570,16 @@ static void test_PSCAN() {
 // and are discriminative against BOTH mutation halves:
 //   (a) consumption reverted to the live getters  → UCLIP-01 goes red
 //   (b) capture stubbed dead (snapshot never writes; the array keeps the
-//       reset-default full window 0/255/0/191) → UCLIP-02/03 go red.
+//       reset-default full window 0/255/0/191) → UCLIP-02/03/04 go red.
 //
 // Window A (x1=128, x2=255) is deliberately NOT the reset default, so a dead
 // capture is distinguishable from a stale-but-captured snapshot: under A the
-// LEFT BORDER is clipped (renderer.cpp: left_clipped = cx1 > 0), under the
-// reset default it is not.
+// DISPLAY column 100 is clipped (100 < x1), under the reset default it is
+// not. The witnesses are display cells: the border is never clipped
+// (zxula.vhd:414-415 border_active, ORed into "not clipped" at :562), so a
+// border cell cannot tell the two windows apart.
+//
+// UCLIP-05..09 below pin the border half of that rule.
 
 static void test_UCLIP() {
     set_group("UCLIP");
@@ -4587,7 +4591,9 @@ static void test_UCLIP() {
     const int ROW = Renderer::DISP_Y + 20;
     // Source display column 200 → fb cell DISP_X + 2*200 (G104 doubling).
     const int CELL_IN_A  = Renderer::DISP_X + 2 * 200;  // kept by A, clipped by B
-    const int CELL_BORDER = 4;                          // left border cell
+    // Source display column 100 → fb cell DISP_X + 2*100: clipped by A
+    // (100 < 128), kept by B.
+    const int CELL_IN_B  = Renderer::DISP_X + 2 * 100;
 
     auto set_clip = [&](uint8_t x1, uint8_t x2, uint8_t y1, uint8_t y2) {
         r.ula().set_clip_x1(x1); r.ula().set_clip_x2(x2);
@@ -4620,36 +4626,34 @@ static void test_UCLIP() {
               DETAIL("cell[%d]=0x%08X expected=0x%08X (live window B would "
                      "clip it)", CELL_IN_A, line[CELL_IN_A], PIX_ULA));
 
-        // UCLIP-02: same buffer — the LEFT BORDER is clipped because the
-        // SNAPSHOTTED window A has x1=128 > 0. Discriminative against a
-        // dead capture: the reset-default window (x1=0) keeps the border.
+        // UCLIP-02: same buffer - display col 100 is clipped because the
+        // SNAPSHOTTED window A has x1=128 > 100. Discriminative against a
+        // dead capture: the reset-default window (x1=0) keeps it.
         check("UCLIP-02",
-              "…and the left border is clipped per the SNAPSHOTTED window A "
-              "(x1=128>0) — proves the snapshot is captured, not the "
-              "reset default (renderer.cpp left_clipped; VHDL 6779-6783)",
-              line[CELL_BORDER] == TRANSP,
+              "…and display col 100 is clipped per the SNAPSHOTTED window A "
+              "(x1=128>100) - proves the snapshot is captured, not the "
+              "reset default (zxula.vhd:562; zxnext.vhd:6779-6783)",
+              line[CELL_IN_B] == TRANSP,
               DETAIL("cell[%d]=0x%08X expected TRANSPARENT",
-                     CELL_BORDER, line[CELL_BORDER]));
+                     CELL_IN_B, line[CELL_IN_B]));
     }
 
     // UCLIP-03: refresh the row's snapshot (mirrors the next on_scanline
-    // call). The SAME row must now use window B: col 200 clipped, left
-    // border kept (x1=0), right border clipped (x2=127<255).
+    // call). The SAME row must now use window B: col 200 clipped (x2=127),
+    // col 100 kept (x1=0).
     {
         r.snapshot_ula_clip_for_line(ROW);
         fill_line(line);
         r.apply_ula_clip(line, ROW);
-        const bool col_clipped   = (line[CELL_IN_A] == TRANSP);
-        const bool border_kept   = (line[CELL_BORDER] == PIX_ULA);
-        const bool right_clipped = (line[Renderer::FB_WIDTH - 4] == TRANSP);
+        const bool col200_clipped = (line[CELL_IN_A] == TRANSP);
+        const bool col100_kept    = (line[CELL_IN_B] == PIX_ULA);
         check("UCLIP-03",
               "after the deferred snapshot lands, the SAME row selects "
-              "window B: col 200 clipped, left border kept, right border "
-              "clipped (VHDL zxnext.vhd:988-991, 6779-6783)",
-              col_clipped && border_kept && right_clipped,
-              DETAIL("cell[%d]=0x%08X border=0x%08X right=0x%08X",
-                     CELL_IN_A, line[CELL_IN_A], line[CELL_BORDER],
-                     line[Renderer::FB_WIDTH - 4]));
+              "window B: col 200 clipped, col 100 kept "
+              "(zxula.vhd:562; zxnext.vhd:6779-6783)",
+              col200_clipped && col100_kept,
+              DETAIL("cell[%d]=0x%08X cell[%d]=0x%08X",
+                     CELL_IN_A, line[CELL_IN_A], CELL_IN_B, line[CELL_IN_B]));
     }
 
     // UCLIP-04: full split-frame shape — rows below the split keep window A,
@@ -4674,15 +4678,113 @@ static void test_UCLIP() {
             r.apply_ula_clip(line, row);
             const bool want_a = (row < S);
             const bool row_ok = want_a
-                ? (line[CELL_IN_A] == PIX_ULA && line[CELL_BORDER] == TRANSP)
-                : (line[CELL_IN_A] == TRANSP  && line[CELL_BORDER] == PIX_ULA);
+                ? (line[CELL_IN_A] == PIX_ULA && line[CELL_IN_B] == TRANSP)
+                : (line[CELL_IN_A] == TRANSP  && line[CELL_IN_B] == PIX_ULA);
             if (!row_ok && ok) { ok = false; bad_row = row; }
         }
         check("UCLIP-04",
               "split frame: rows < S masked with window A, rows >= S with "
               "window B — mid-frame NR 0x1A change lands exactly at the "
-              "scanline where it was written (VHDL zxnext.vhd:988-991)",
+              "scanline where it was written (zxula.vhd:562; "
+              "zxnext.vhd:988-991, 6779-6783)",
               ok, DETAIL("first bad row=%d (split S=%d)", bad_row, S));
+    }
+
+    // ── UCLIP-05..08: the border is never clipped ─────────────────────────
+    //
+    // zxula.vhd:414-415 raise border_active for phc >= 256 or vc >= 192, and
+    // zxula.vhd:562 ORs it into "not clipped", so no NR 0x1A window can clip
+    // a border cell. A cell is "border" when it lies left/right of the
+    // 512-cell display strip, or on a row outside the 192 display rows.
+    auto is_border_cell = [](int row, int x) {
+        const int vc = row - Renderer::DISP_Y;
+        return vc < 0 || vc >= Renderer::DISP_H
+            || x < Renderer::DISP_X || x >= Renderer::DISP_X + Renderer::DISP_W;
+    };
+    // Apply the window to every fb row filled with PIX_ULA; count border
+    // cells that are not PIX_ULA and display cells that are not TRANSP/kept
+    // as `keep(vc, src_x)` says.
+    struct Scan { long border_bad; long disp_bad; int first_bad_row; };
+    auto scan_all = [&](auto keep) {
+        Scan sc{0, 0, -1};
+        for (int row = 0; row < Renderer::FB_HEIGHT; ++row) {
+            fill_line(line);
+            r.apply_ula_clip(line, row);
+            for (int x = 0; x < W; ++x) {
+                const uint32_t want = is_border_cell(row, x) ? PIX_ULA
+                    : (keep(row - Renderer::DISP_Y, (x - Renderer::DISP_X) / 2)
+                           ? PIX_ULA : TRANSP);
+                if (line[x] != want) {
+                    if (is_border_cell(row, x)) ++sc.border_bad; else ++sc.disp_bad;
+                    if (sc.first_bad_row < 0) sc.first_bad_row = row;
+                }
+            }
+        }
+        return sc;
+    };
+
+    // UCLIP-05: x-narrowed window; inclusive edges at src col 64 and 191.
+    {
+        set_clip(64, 191, 0, 191);
+        r.init_ula_clip_per_line();
+        const Scan sc = scan_all([](int, int sx) { return sx >= 64 && sx <= 191; });
+        fill_line(line);
+        r.apply_ula_clip(line, ROW);
+        const int D = Renderer::DISP_X;
+        const bool edges = line[D + 2 * 64] == PIX_ULA && line[D + 2 * 64 + 1] == PIX_ULA
+                        && line[D + 2 * 191] == PIX_ULA && line[D + 2 * 191 + 1] == PIX_ULA
+                        && line[D + 2 * 63 + 1] == TRANSP && line[D + 2 * 192] == TRANSP;
+        check("UCLIP-05",
+              "x-narrowed window (64,191): every border cell keeps its "
+              "pixel, src cols 64 and 191 are kept (inclusive), cols 63 and "
+              "192 are clipped (zxula.vhd:415, 562)",
+              sc.border_bad == 0 && sc.disp_bad == 0 && edges,
+              DETAIL("border_bad=%ld disp_bad=%ld edges=%d first_bad_row=%d",
+                     sc.border_bad, sc.disp_bad, int(edges), sc.first_bad_row));
+    }
+
+    // UCLIP-06: y-narrowed window (0,255,64,127), every fb row.
+    {
+        set_clip(0, 255, 64, 127);
+        r.init_ula_clip_per_line();
+        const Scan sc = scan_all([](int vc, int) { return vc >= 64 && vc <= 127; });
+        check("UCLIP-06",
+              "y-narrowed window (y 64..127): border rows and the left/right "
+              "border of clipped display rows keep their pixels; clipped "
+              "display rows lose the display strip only (zxula.vhd:414-415, 562)",
+              sc.border_bad == 0 && sc.disp_bad == 0,
+              DETAIL("border_bad=%ld disp_bad=%ld first_bad_row=%d",
+                     sc.border_bad, sc.disp_bad, sc.first_bad_row));
+    }
+
+    // UCLIP-07: the nexlib clip_ula(255,255,255,255) window. Raw y2 = 255
+    // reads back as 0xBF (zxnext.vhd:6779-6782); y1 = 255 > 191 clips every
+    // display cell, and no border cell.
+    {
+        set_clip(255, 255, 255, 255);
+        r.init_ula_clip_per_line();
+        const Scan sc = scan_all([](int, int) { return false; });
+        check("UCLIP-07",
+              "clip_ula(255,255,255,255): every display cell of every row is "
+              "clipped, every border cell of every row is kept "
+              "(zxula.vhd:414-415, 562; zxnext.vhd:6779-6782)",
+              sc.border_bad == 0 && sc.disp_bad == 0 && r.ula().clip_y2() == 0xBF,
+              DETAIL("border_bad=%ld disp_bad=%ld y2=0x%02X first_bad_row=%d",
+                     sc.border_bad, sc.disp_bad, r.ula().clip_y2(),
+                     sc.first_bad_row));
+    }
+
+    // UCLIP-08: x-inverted window (x1 > x2): no phc satisfies the compare.
+    {
+        set_clip(200, 100, 0, 191);
+        r.init_ula_clip_per_line();
+        const Scan sc = scan_all([](int, int) { return false; });
+        check("UCLIP-08",
+              "x-inverted window (200,100): every display cell is clipped, "
+              "every border cell is kept (zxula.vhd:415, 562)",
+              sc.border_bad == 0 && sc.disp_bad == 0,
+              DETAIL("border_bad=%ld disp_bad=%ld first_bad_row=%d",
+                     sc.border_bad, sc.disp_bad, sc.first_bad_row));
     }
 
     // Restore reset-default window for any group appended after this one.
@@ -6042,6 +6144,52 @@ static void test_LORES()
                      in_x, f.expect(ROW_IN, 100), out_x, out_y, FB, any_ula));
     }
 
+    // ── LR-129 - LoRes never clips the border either ─────────────────────
+    //
+    // With LoRes on and a narrowed shared window, the border is still the
+    // port $FE colour on every row: lores_pixel_en is 0 there (lores.vhd:115,
+    // phc(8)=1 or vc >= 192 > clip_y2), so the ULA pixel is selected
+    // (zxnext.vhd:6980), and ula_clipped_2 = ula_clipped_1 and not
+    // lores_pixel_en_1 stays 0 because the ULA never clips a border cell
+    // (zxula.vhd:415, 562; zxnext.vhd:7063, 7100).
+    {
+        Fix f;
+        f.enable_lores(true);
+        f.r.ula().set_border(2);
+        f.r.ula().init_border_per_line();
+        f.r.ula().set_clip_x1(64);
+        f.r.ula().set_clip_x2(191);
+        f.r.ula().set_clip_y1(32);
+        f.r.ula().set_clip_y2(159);
+        f.refresh_snapshots();
+        const uint8_t battr = static_cast<uint8_t>((2 << 3) | 2);
+        const uint8_t bpix = static_cast<uint8_t>(0x10 | ((battr >> 3) & 0x07));
+        const uint32_t bexp = f.pal.ula_colour(false, bpix);
+
+        bool ok = true; int bad_row = -1, bad_x = -1; uint32_t bad = 0;
+        std::vector<uint32_t> got(Renderer::FB_WIDTH);
+        for (int row = 0; row < Renderer::FB_HEIGHT && ok; ++row) {
+            f.render(got.data(), row);
+            const bool disp_row = (row >= Renderer::DISP_Y &&
+                                   row <  Renderer::DISP_Y + Renderer::DISP_H);
+            for (int x = 0; x < Renderer::FB_WIDTH; ++x) {
+                const bool border_cell = !disp_row ||
+                    x < Renderer::DISP_X ||
+                    x >= Renderer::DISP_X + Renderer::DISP_W;
+                if (border_cell && got[x] != bexp) {
+                    ok = false; bad_row = row; bad_x = x; bad = got[x];
+                    break;
+                }
+            }
+        }
+        check("LR-129",
+              "LoRes on with a narrowed shared clip window (64,191,32,159): "
+              "every border cell of every row keeps the port $FE colour "
+              "(zxnext.vhd:6980, 7063, 7100; lores.vhd:115; zxula.vhd:415, 562)",
+              ok, DETAIL("row=%d x=%d got=0x%08X exp=0x%08X",
+                         bad_row, bad_x, bad, bexp));
+    }
+
     // ── LR-PSCAN — per-scanline replay of the LoRes registers ───────────
     //
     // NOT one of the 91 catalogued rows: it covers the requirement stated in
@@ -6170,6 +6318,76 @@ static void test_LORES()
               std::memcmp(ref.data(), got.data(),
                           Renderer::FB_WIDTH * sizeof(uint32_t)) == 0);
     }
+}
+
+// ── UCLIP-09 - Timex hi-res, end to end through render_row ───────────────
+//
+// Lives after the LoRes group because it needs lores_c::Fix (the full
+// render_row fixture). Reported under group UCLIP.
+static void test_UCLIP_hires() {
+    using namespace lores_c;
+    set_group("UCLIP");
+
+    auto render_frame = [](Fix& f, std::vector<uint32_t>& fbuf) {
+        fbuf.assign(static_cast<size_t>(Renderer::FB_WIDTH) * Renderer::FB_HEIGHT, 0);
+        for (int row = 0; row < Renderer::FB_HEIGHT; ++row)
+            f.render(fbuf.data() + static_cast<size_t>(row) * Renderer::FB_WIDTH, row);
+    };
+    auto setup = [](Fix& f) {
+        f.r.ula().set_screen_mode(0x16);     // hi-res (110), ink 2
+        f.r.ula().start_frame();
+        f.refresh_snapshots();
+    };
+
+    Fix fd;                                  // default window
+    setup(fd);
+    std::vector<uint32_t> def;
+    render_frame(fd, def);
+
+    Fix fc;                                  // clipped window
+    fc.r.ula().set_clip_x1(64);
+    fc.r.ula().set_clip_x2(191);
+    fc.r.ula().set_clip_y1(32);
+    fc.r.ula().set_clip_y2(159);
+    setup(fc);
+    std::vector<uint32_t> clp;
+    render_frame(fc, clp);
+
+    // border_clr_tmx = "01" & not(010) & 010 = attr 0x6A (zxula.vhd:419,
+    // 426-427): bright 1, paper 5 -> paper pixel 0x10 | 0x08 | 5.
+    const uint32_t bexp = fd.pal.ula_colour(false, 0x1D);
+    const uint32_t FB   = vhdl_fallback_argb(0x00);
+
+    long border_bad = 0, disp_in_bad = 0, disp_out_bad = 0;
+    int first_bad_row = -1;
+    for (int row = 0; row < Renderer::FB_HEIGHT; ++row) {
+        const int vc = row - Renderer::DISP_Y;
+        for (int x = 0; x < Renderer::FB_WIDTH; ++x) {
+            const size_t i = static_cast<size_t>(row) * Renderer::FB_WIDTH + x;
+            const bool border = vc < 0 || vc >= Renderer::DISP_H
+                || x < Renderer::DISP_X || x >= Renderer::DISP_X + Renderer::DISP_W;
+            if (border) {
+                if (clp[i] != def[i] || clp[i] != bexp) {
+                    ++border_bad;
+                    if (first_bad_row < 0) first_bad_row = row;
+                }
+                continue;
+            }
+            const int sx = (x - Renderer::DISP_X) / 2;
+            const bool inside = vc >= 32 && vc <= 159 && sx >= 64 && sx <= 191;
+            if (inside) { if (clp[i] != def[i]) ++disp_in_bad; }
+            else if (clp[i] != FB || clp[i] == def[i]) ++disp_out_bad;
+        }
+    }
+    check("UCLIP-09",
+          "Timex hi-res with window (64,191,32,159): every border cell equals "
+          "the default-window render and border_clr_tmx; display cells inside "
+          "the window are unchanged, outside it fall to the NR $4A fallback "
+          "(zxula.vhd:415, 419, 426-427, 562; zxnext.vhd:4446)",
+          border_bad == 0 && disp_in_bad == 0 && disp_out_bad == 0,
+          DETAIL("border_bad=%ld (first row %d) inside_bad=%ld outside_bad=%ld "
+                 "bexp=0x%08X", border_bad, first_bad_row, disp_in_bad,
+                 disp_out_bad, bexp));
 }
 
 // ── FB9 — the NR $4A fallback is a 9-bit colour (GH #304 Part B) ─────────
@@ -6375,6 +6593,7 @@ int main() {
     test_UCLIP();      printf("  Group: UCLIP — done\n");
     test_LMASK();      printf("  Group: LMASK — done\n");
     test_LORES();      printf("  Group: LR — done\n");
+    test_UCLIP_hires(); printf("  Group: UCLIP (hi-res) - done\n");
     test_FB9();        printf("  Group: FB9 — done\n");
     test_BLC();        printf("  Group: BLC — done\n");
 

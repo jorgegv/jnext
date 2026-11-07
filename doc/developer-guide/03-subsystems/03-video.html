@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.4</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.4</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3122,7 +3122,8 @@ bits for <em>all four</em> palettes.</p>
 is one: <code>Ula::render_scanline</code> emits an unclipped line and
 <code>Renderer::apply_ula_clip</code> masks it afterwards, because in hardware NR 0x1A
 feeds a compositor-stage signal — Layer 2, tilemap and sprites each clip
-themselves instead. The <strong>floating bus</strong> is the other:
+themselves instead. It clips display-area pixels only: the border is never
+clipped, whatever NR 0x1A holds. The <strong>floating bus</strong> is the other:
 <code>Emulator::floating_bus_read</code> is the port-0xFF read mux, with its NR 0x08 b2
 Timex arm, its NR 0x82 b0 gate, and the per-machine gate that delivers ULA
 content only under 48K/128K timing. <code>ula_floating_bus_active_arm</code> evaluates
