@@ -1,5 +1,13 @@
 # ChangeLog
 
+## Unreleased (2026-11-07)
+
+### Bug Fixes
+- SD card: a refused write no longer leaves a read-only card unreadable (macOS) or lands later after a host write error
+
+### Contributors in this release
+- @shrek128
+
 ## v1.2.0 (2026-11-06)
 
 ### User Features

@@ -77,6 +77,7 @@ bool SdCardDevice::mount(const std::string& path, bool read_only) {
             return false;
         }
         sd_log()->info("SD image opened read-only by request: {}", path);
+        read_only_ = true;
     } else {
         file_.open(path, std::ios::in | std::ios::out | std::ios::binary);
         if (!file_.is_open()) {
@@ -87,8 +88,10 @@ bool SdCardDevice::mount(const std::string& path, bool read_only) {
                 return false;
             }
             sd_log()->warn("SD image opened read-only: {}", path);
+            read_only_ = true;
         }
     }
+    path_ = path;
 
     file_.seekg(0, std::ios::end);
     file_size_ = static_cast<uint64_t>(file_.tellg());
@@ -132,6 +135,33 @@ void SdCardDevice::unmount() {
     reset();
     clear_read_overlay();
     file_size_ = 0;
+    read_only_ = false;
+    path_.clear();
+}
+
+// A failed host write leaves the failed block in the filebuf's put area on
+// libstdc++ (libc++ keeps it too when the stream is read-only), and every
+// later seekg retries the flush: the card stops reading, or the rejected
+// block lands later. clear() only resets the state bits. Close + reopen is
+// the one recovery that does not depend on which library's semantics apply;
+// the rejected block is discarded, as the 0x0D token tells the guest. close()
+// retries the flush once, so a condition that clears between flush() and
+// close() inside this call could still land the block: there is no portable
+// way to discard a filebuf's pending output.
+void SdCardDevice::recover_stream_after_failed_write() {
+    file_.close();
+    file_.clear();
+    file_.open(path_, std::ios::in | std::ios::out | std::ios::binary);
+    if (file_.is_open()) return;
+    file_.clear();
+    file_.open(path_, std::ios::in | std::ios::binary);
+    if (file_.is_open()) {
+        sd_log()->warn("SD image reopened read-only after a host write error: {}", path_);
+        read_only_ = true;
+        return;
+    }
+    sd_log()->error("SD image cannot be reopened after a host write error: {}", path_);
+    unmount();
 }
 
 void SdCardDevice::deselect() {
@@ -303,49 +333,38 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 // latent; class-(b) → corrected for spec faithfulness and
                 // to surface the firmware's write-error path on past-EOF
                 // attempts.
-                bool write_ok = (byte_addr + kBlockLen <= file_size_);
-                if (write_ok) {
+                // A read-only card refuses the block here, at the commit
+                // point (a restored data phase can begin on another card, so
+                // a CMD24-dispatch check is bypassable), and never hands it
+                // to the host stream: libc++ keeps a failed block in its put
+                // area and every later seekg would fail (GH #455). SD
+                // Physical Layer Simplified Spec 9.10 4.3.4: a write to a
+                // protected card is aborted; 7.3.3.1: data response 0x0D.
+                bool write_ok = false;
+                if (read_only_) {
+                    sd_log()->info("CMD24 refused: card is read-only "
+                                   "(sector={} byte={:#010x})", sector, byte_addr);
+                } else if (byte_addr + kBlockLen > file_size_) {
+                    sd_log()->warn("CMD24 write past end of image: sector={} byte={:#010x} size={} -> write-error response token",
+                                   sector, byte_addr, file_size_);
+                } else {
+                    ++stream_write_attempts_;
                     file_.seekp(static_cast<std::streamoff>(byte_addr), std::ios::beg);
                     file_.write(reinterpret_cast<const char*>(data_block_), kBlockLen);
                     file_.flush();
-                    // V15-DIVMMC-01 (Pass-15 verify-audit fix, 2026-05-10):
-                    // SD Physical Layer Simplified Spec § 7.3.3.3 (Data
-                    // Response Token format) — `sss=110` (= 0x0D) signals
-                    // "data rejected due to write error". The host-side
-                    // fstream `write()` silently sets `failbit` when the
-                    // image was opened in fall-back read-only mode (mount()
-                    // line 33) or when the underlying disk is full / I/O
-                    // errors. Pre-fix the card unconditionally emitted 0x05
-                    // (data accepted) even when the host fstream rejected
-                    // the write — diverging from every real SD card with
-                    // a mechanical write-protect tab (or backed by a host
-                    // file with no write permission) which would emit
-                    // 0x0D for any write attempt that didn't physically
-                    // commit. Symmetric with the V12-DIVMMC-02 past-EOF
-                    // fix and the V14-DIVMMC-01 mid-stream past-EOF fix.
-                    // Class-(c) latent — the canonical NextZXOS fixture
-                    // is opened RW and writes succeed; but a forensic /
-                    // user-supplied RO image silently corrupts the host's
-                    // expectations of a successful write, and a real
-                    // hardware-stress test rig can swap in a RO mount to
-                    // exercise the firmware's write-error path. After
-                    // the fix the path is exercised faithfully.
+                    // V15-DIVMMC-01: a host write error (disk full, I/O
+                    // error) is reported with the 0x0D write-error token
+                    // (7.3.3.1), and the stream is reopened (see
+                    // recover_stream_after_failed_write()).
                     if (!file_.good()) {
                         sd_log()->warn(
                             "CMD24 host-side write failed at sector={} "
                             "(byte={:#010x}) - emitting write-error token "
-                            "0x0D (file was opened RO or I/O error)",
+                            "0x0D (I/O error)",
                             sector, byte_addr);
-                        write_ok = false;
-                        // Clear the failbit so subsequent CMDs that also
-                        // attempt writes get a fresh attempt (and fail
-                        // again, symmetrically) — without this the stream
-                        // would stay sticky-failed forever and even reads
-                        // (file_.seekg/read) would short-circuit on the
-                        // bad bit. seekg/read paths use seekg+read which
-                        // also touch the same stream state.
-                        file_.clear();
+                        recover_stream_after_failed_write();
                     } else {
+                        write_ok = true;
                         // After the flush, and only on a committed write
                         // (GH #396): the warm-start cache keys on this.
                         write_generation_.fetch_add(1, std::memory_order_relaxed);
@@ -353,9 +372,6 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                             "CMD24 wrote 512 bytes at sector {} (byte={:#010x})",
                             sector, byte_addr);
                     }
-                } else {
-                    sd_log()->warn("CMD24 write past end of image: sector={} byte={:#010x} size={} -> write-error response token",
-                                   sector, byte_addr, file_size_);
                 }
                 state_ = State::WRITE_RESP;
                 // 0x05 = data accepted; 0x0D = write error.
