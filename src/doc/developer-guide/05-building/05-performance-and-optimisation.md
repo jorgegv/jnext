@@ -359,8 +359,11 @@ what ships. Then:
   retrained, so a difference is the code's;
 - to ask how fast the shipped binary is, use `build/gui-release/jnext`.
 
-**`make bench`.** `test/bench/bench.sh` runs the five canonical workloads
-(boot-48k, boot-nextzxos, copper-demo, beast, bifrost) through
+**`make bench`.** `test/bench/bench.sh` runs the eight canonical workloads
+(boot-48k, boot-nextzxos, copper-demo, beast, bifrost, and the HALT-idle
+halt-idle-35, halt-idle-28 and ctc-dac-28, built from `demo/halt_bench`; each
+of those NEX sets its own CPU speed, because `--cpu-speed` does not survive a
+warm start) through
 `jnext --benchmark N`, which runs *N* frames headless and uncapped and prints a
 machine-readable `BENCH` line. It takes the median of five runs, pins them with
 `taskset` to the fastest core class (read from `scaling_max_freq`, never

@@ -783,6 +783,29 @@ target_compile_definitions(program_archive_test PRIVATE
     JNEXT_ZIP_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zip")
 add_test(NAME program_archive_tests COMMAND program_archive_test)
 
+# GH #452 - the cycle-batching optimisations (HALT repeat batch, Copper unmet-WAIT
+# skip) are bit-identical to the per-slot, per-cycle paths. Two suites run the same
+# machine with the switches off and on and compare video, audio and the whole
+# save_state() stream after every frame: synthetic fixtures (halt_batch_equiv_test)
+# and every NEX program the project keeps (halt_batch_corpus_test).
+add_executable(halt_batch_equiv_test core/halt_batch_equiv_test.cpp)
+target_link_libraries(halt_batch_equiv_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(halt_batch_equiv_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME halt_batch_equiv_tests COMMAND halt_batch_equiv_test)
+
+add_executable(halt_batch_corpus_test core/halt_batch_corpus_test.cpp)
+target_link_libraries(halt_batch_corpus_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(halt_batch_corpus_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(halt_batch_corpus_test PRIVATE
+    JNEXT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+add_test(NAME halt_batch_corpus_tests COMMAND halt_batch_corpus_test)
+
 # TZX container validation. Runtime-generated fixtures drive the real
 # TzxLoader::load() and Emulator::load_tzx(); what counts as malformed is
 # libspectrum's TZX reader (the one FUSE uses).

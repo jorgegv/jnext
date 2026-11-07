@@ -1310,6 +1310,21 @@ public:
     bool prev_pulse_int_n_for_test() const { return prev_pulse_int_n_; }
     void set_prev_pulse_int_n_for_test(bool v) { prev_pulse_int_n_ = v; }
 
+    /// GH #452 — A/B switches for the cycle-batching optimisations (the HALT
+    /// repeat batch and the Copper unmet-WAIT skip). Both default ON; a test
+    /// turns one off to run the unbatched path, the oracle the equivalence
+    /// suites (`halt_batch_equiv_test`, `halt_batch_corpus_test`) compare
+    /// against, frame by frame. Not a user setting (no CLI flag, no config
+    /// key), not machine state (never saved). The counters say how much each
+    /// optimisation engaged: HALT repeats absorbed into a batched slot, and
+    /// Copper master cycles skipped, since the Emulator was built.
+    void set_cycle_batching_for_test(bool halt, bool copper) {
+        batch_halt_enabled_ = halt;
+        batch_copper_enabled_ = copper;
+    }
+    uint64_t halt_repeats_batched_for_test() const { return halt_repeats_batched_; }
+    uint64_t copper_cycles_skipped_for_test() const { return copper_cycles_skipped_; }
+
     // ══════════════════════════════════════════════════════════════════════
     // Host hotkey dispatchers — VHDL `hotkey_m1` / `hotkey_drive` /
     // `hotkey_soft_reset` / `hotkey_hard_reset` (zxnext.vhd:6340-6371,
@@ -2164,6 +2179,13 @@ private:
     /// non-superseded line-int callback. Public accessor
     /// `line_int_fire_count()` is used by VT-G163-* rows.
     uint64_t line_int_fire_count_ = 0;
+
+    // GH #452: the cycle-batching switches and their engagement counters (test
+    // hooks; see set_cycle_batching_for_test). Not saved, not machine state.
+    bool     batch_halt_enabled_   = true;
+    bool     batch_copper_enabled_ = true;
+    uint64_t halt_repeats_batched_ = 0;
+    uint64_t copper_cycles_skipped_ = 0;
 
     /// GH #290 — the compare positions (master cycles) of the live line-int
     /// events of the current generation, so a reschedule can keep the ones a

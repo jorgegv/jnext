@@ -2,7 +2,7 @@
 # JNEXT benchmark harness (Task 27 T1) — the measurement gate for every
 # optimization task in doc/design/TASK27-OPTIMIZATION-PLAN.md.
 #
-# Runs the five canonical workloads through `jnext --benchmark N` (headless,
+# Runs the eight canonical workloads through `jnext --benchmark N` (headless,
 # uncapped), median-of-5, pinned to the fastest host core, serialised by a
 # real flock. Results go to stdout AND test/bench/baseline-<git-sha>.txt so
 # any later task can diff against the exact commit it branched from.
@@ -88,7 +88,7 @@ bench_cleanup() {
 #
 # INT and TERM explicitly, for the same reason as the unit harness: an
 # EXIT-only trap does not fire when the shell dies from an untrapped signal,
-# and `make bench` is a multi-minute foreground recipe (5 workloads x 5
+# and `make bench` is a multi-minute foreground recipe (8 workloads x 5
 # repeats) — precisely the kind of run a developer Ctrl-Cs. This was shipped
 # EXIT-only and caught in review as a third instance of the same defect;
 # HS-40 in test/harness-selftest.sh now scans this file so there is no fourth.
@@ -175,7 +175,7 @@ emit "# load1:  $LOAD1 (1-min loadavg at run start; > 1.5 biases medians without
 emit "# runs:   median of $REPEATS per workload; spread = (max-min)/median of fps"
 emit ""
 
-# --- The five canonical workloads: name|machine|load-file|frames ---
+# --- The eight canonical workloads: name|machine|load-file|frames ---
 # 48K workloads get 600 frames, Next ones 400 (plan T1, as amended).
 # bifrost is the busy-48K control (NOT HALT-idle): the BIFROST* ENGINE
 # multicolour demo, same asset the screenshot regression uses
@@ -186,6 +186,12 @@ WORKLOADS=(
     "copper-demo|next|test/00regression/nex/copper_demo.nex|400"
     "beast|next|test/00regression/nex/beast.nex|400"
     "bifrost|48k|test/00regression/tap/bifrost.tap|600"
+    # GH #452: HALT-idle workloads (source demo/halt_bench). Each NEX writes its own
+    # NR 0x07 after load (the warm-started NEX path ignores --cpu-speed), so the BENCH
+    # line's cpu= field shows the speed the workload really ran at.
+    "halt-idle-35|next|test/bench/nex/halt_idle_35.nex|400"
+    "halt-idle-28|next|test/bench/nex/halt_idle_28.nex|400"
+    "ctc-dac-28|next|test/bench/nex/ctc_dac_28.nex|400"
 )
 
 any_void=0
