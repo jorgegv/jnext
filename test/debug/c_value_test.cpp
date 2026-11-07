@@ -33,6 +33,7 @@
 #include <tuple>
 #include <vector>
 #include "../row_id.h"
+#include "../hex_value.h"
 
 namespace fs = std::filesystem;
 using namespace jnext::dbg;
@@ -88,10 +89,13 @@ static std::vector<uint8_t> symbol_bytes(const char* fixture, const char* symbol
     bool have = false;
     const std::string want = std::string(symbol) + " ";
     while (std::getline(in, line)) {
-        if (line.compare(0, 14, "__CODE_head   ") == 0) head = std::stoul(line.substr(line.find('$') + 1), nullptr, 16);
+        uint64_t v = 0;
+        if (line.compare(0, 14, "__CODE_head   ") == 0 && parse_hex64(line, line.find('$') + 1, &v)) head = static_cast<unsigned long>(v);
         if (line.compare(0, want.size(), want) == 0 && line.find("; addr") != std::string::npos && !have) {
-            addr = std::stoul(line.substr(line.find('$') + 1), nullptr, 16);
-            have = true;
+            if (parse_hex64(line, line.find('$') + 1, &v)) {
+                addr = static_cast<unsigned long>(v);
+                have = true;
+            }
         }
     }
     const std::vector<uint8_t> bin = read_all(kFixtures / fixture / "prog_CODE.bin");
@@ -183,7 +187,9 @@ struct FpImage {
             if (eq == std::string::npos) continue;
             std::string name = line.substr(0, eq);
             while (!name.empty() && name.back() == ' ') name.pop_back();
-            if (!sym.count(name)) sym[name] = static_cast<uint32_t>(std::stoul(line.substr(eq + 4), nullptr, 16));
+            uint64_t v = 0;
+            // a 64-bit constant (`__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF`) is no address of ours: skipped, never a throw
+            if (!sym.count(name) && parse_hex64(line, eq + 4, &v) && v <= 0xFFFFFFFFull) sym[name] = static_cast<uint32_t>(v);
         }
         const bool classic = fs::exists(kFixtures / fixture / "prog");
         bytes = read_all(kFixtures / fixture / (classic ? "prog" : "prog_CODE.bin"));
