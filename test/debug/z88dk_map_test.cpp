@@ -807,6 +807,7 @@ int main() {
                                      block_line("game_const", 0x103546, "BANK_8_CODE"),
                                      block_line("PAGE_95_CONST", 0x5FC000, "PAGE_95_CONST"),
                                      block_line("players_const", 0x5FC000, "PAGE_95_CONST"),
+                                     block_line("late_const", 0x5FE100, "PAGE_95_CONST"),     // starts in page 96
                                      block_line("shared_data", 0xE000, "BANK_0_DATA_USER"),
                                      block_line("lo_code", 0xE000, "BANK_3_L_CODE"),
                                      block_line("hi_code", 0xC000, "BANK_3_H"),
@@ -814,6 +815,8 @@ int main() {
                                      block_line("both_code", 0xC000, "PAGE_5_BANK_3"),
                                      block_line("BANKX_PAGE_5_X", 0xC100, "BANKX_PAGE_5_X"),
                                      block_line("tricky_code", 0xC100, "BANKX_PAGE_5_X"),
+                                     block_line("BANK_X_PAGE_5", 0xC000, "BANK_X_PAGE_5"),
+                                     block_line("x_code", 0xC000, "BANK_X_PAGE_5"),
                                      block_line("far_code", 0xC000, "BANK_112_X"),
                                      block_line("code_compiler", 0x8000, "CODE"),
                                      block_line("BANK_10", 0xC000, "CODE")})
@@ -830,13 +833,17 @@ int main() {
         const auto far = at("far_code", 0x1C000);
         const auto none24 = at("code_compiler", 0x1C000);
         check("Z88MAP-32", "with the map's blocks a section is placed by its block's name, appmake's rule: game_const of BANK_8_CODE at $103814 is page 17 "
-                           "and game_code at $100000 page 16; players_const of PAGE_95_CONST (head $5FC000) is page 95 and runs on into 96; "
+                           "and game_code at $100000 page 16; players_const of PAGE_95_CONST (head $5FC000) is page 95 and runs on into 96, and "
+                           "late_const, which starts at $5FE100 in the same block, is page 96 (counted from the block's head, not its own); "
                            "BANK_0_DATA_USER at $E000 is page 1; BANK_3_L_CODE / BANK_3_H fix the half; DIV_2_CODE is unpaged; BANK before PAGE "
-                           "(PAGE_5_BANK_3 is bank 3), and a BANK not followed by _<n> tries the next space (BANKX_PAGE_5_X is page 5 from its own head $C100); "
+                           "(PAGE_5_BANK_3 is bank 3), and a BANK not followed by _<n> tries the next space (BANKX_PAGE_5_X is page 5 from its own head $C100, "
+                           "BANK_X_PAGE_5 page 5); "
                            "BANK_112_X is out of range naming the block; a block naming no bank (CODE) keeps the section's own rules (code_compiler binds "
                            "at load or is refused at 24 bits, BANK_10 is page 20); without the blocks game_const is still refused",
               is_page(game_const, 17, 0x3814) && is_page(at("game_code", 0x100000), 16, 0x0000) &&
                   is_page(at("players_const", 0x5FD6CE), 95, 0xD6CE) && is_page(at("players_const", 0x5FE010), 96, 0xE010) &&
+                  is_page(at("late_const", 0x5FE100), 96, 0xE100) && is_page(at("late_const", 0x5FFFFF), 96, 0xFFFF) &&
+                  is_page(at("x_code", 0xC000), 5, 0xC000) &&
                   is_page(at("shared_data", 0xE000), 1, 0xE000) &&
                   is_page(at("lo_code", 0xE000), 6, 0xE000) && is_page(at("hi_code", 0xC000), 7, 0xC000) &&
                   at("div_code", 0x2000).kind == Z88dkSpace::Kind::Unpaged &&
@@ -878,20 +885,24 @@ int main() {
         const std::string heads = block_line("BANK_8_CODE", 0x100000, "BANK_8_CODE") +
                                   block_line("game_const", 0x103546, "BANK_8_CODE") +
                                   block_line("PAGE_95_CONST", 0x5FC000, "PAGE_95_CONST") +
-                                  block_line("players_const", 0x5FC000, "PAGE_95_CONST");
+                                  block_line("players_const", 0x5FC000, "PAGE_95_CONST") +
+                                  block_line("late_const", 0x5FE100, "PAGE_95_CONST");
         const std::string lines = rec("__ASM_LINE_1021_game_2fanimations_2ec", 0x103814, "animations_c", "game_const",
                                       "game/animations.c:1021") +
                                   rec("__ASM_LINE_350_players_2fserves_2ec", 0x5FD6CE, "serves_c", "players_const",
-                                      "players/serves.c:350");
+                                      "players/serves.c:350") +
+                                  rec("__ASM_LINE_7_late_2ec", 0x5FE100, "late_c", "late_const", "late.c:7");
         SourceMap with;
         SourceMap without;
         const auto rw = load(with, synth("z32.map", heads + lines));
         const auto ro = load(without, synth("z32old.map", lines));
         check("Z88MAP-34", "the source half places line records by their block: game/animations.c:1021 (game_const of BANK_8_CODE, $103814) "
-                           "is page 17 at $3814, players/serves.c:350 (players_const of PAGE_95_CONST, $5FD6CE) page 95 at $D6CE; "
+                           "is page 17 at $3814, players/serves.c:350 (players_const of PAGE_95_CONST, $5FD6CE) page 95 at $D6CE, "
+                           "late.c:7 (late_const, starting at $5FE100 in PAGE_95_CONST) page 96 at $E100; "
                            "the same lines with no blocks in the map are refused as before",
               rw && starts_are(with.resolve("game/animations.c:1021"), {{MemSpace::page(17), 0x3814}}) &&
                   starts_are(with.resolve("players/serves.c:350"), {{MemSpace::page(95), 0xD6CE}}) &&
+                  starts_are(with.resolve("late.c:7"), {{MemSpace::page(96), 0xE100}}) &&
                   !ro && ro.error.find("names no bank or page") != std::string::npos);
     }
     {
@@ -3616,6 +3627,63 @@ main cross_c AC97
                           "__fp_exponent_bias, no __fp_mantissa_size, no __fp_mode); two different values of one name are unusable (two __fp_mode values (0 and 1)), the same value twice is fine; "
                           "two modules keep two formats; an addr line of that name and a line with no module are ignored",
               fp03);
+    }
+
+    // ── Z88MAP-36..38: the other consumers of a block-placed section (GH #478 review 1):
+    // the source half's symbols (extents and the C variable store), the listing adapter's
+    // place(), and the section binaries' cross-check. Same oracle as Z88MAP-32..35.
+    const std::string bank8_heads = block_line("BANK_8_CODE", 0x100000, "BANK_8_CODE") +
+                                    block_line("game_const", 0x103000, "BANK_8_CODE");
+    {
+        // a.c:3 runs to the next start; another module's symbol in game_const bounds it only
+        // when the symbol is placed in the line's page.
+        SourceMap m;
+        const auto r = load(m, synth("z36.map", bank8_heads +
+            rec("__C_LINE_3_a_2ec", 0x103000, "a_c", "game_const", "a.c::f::0::0:3") +
+            rec("_lib_fn", 0x103010, "lib_mod", "game_const", "lib.asm:1")));
+        check("Z88MAP-36", "a line's extent stops at another module's symbol of a block-placed section: a.c:3 (game_const of BANK_8_CODE, "
+                           "$103000) owns page 17 $3000-$300F, and $3010, where lib_mod's _lib_fn is, is no line",
+              r && is_at(m.lookup(MemSpace::page(17), 0x300F), "a.c", 3) && !m.lookup(MemSpace::page(17), 0x3010));
+    }
+    {
+        SourceMap m;
+        const auto r = load(m, synth("z37.map", join_lines(plus(map_lines(sc_cvars),
+            {block_line("BANK_8_CODE", 0x100000, "BANK_8_CODE"), block_line("game_const", 0x103000, "BANK_8_CODE"),
+             cdb_line("S:G$g_bank$0_0$0({2}SI:S),E,0,0", "vars_c"),
+             sym_line("_g_bank", "103800", "public", "vars_c", "game_const")}))));
+        const VariableStore* s = store_of(m);
+        const CVariable* g = s ? var_named(*s, "g_bank", "vars_c") : nullptr;
+        check("Z88MAP-37", "a C global of a block-placed section is stored in its bank's page: master sccz80-cvars plus S:G$g_bank and _g_bank "
+                           "in game_const of BANK_8_CODE at $103800 is P17:$3800",
+              r && g && g->storage.symbol == "_g_bank" && stored_at(g->storage, MemSpace::page(17), 0x3800));
+    }
+    {
+        // An Asm listing of a module whose only section is game_const, anchored by its label, and
+        // the BANK_8_CODE section binary (head $100000) holding its bytes at +$3814.
+        const fs::path map = synth("z38.map", bank8_heads +
+            rec("_anim", 0x103814, "anim_asm", "game_const", "anim.asm:3", "addr"));
+        write_text(dir / "anim.asm.lis",
+                   "anim.asm:\n"
+                   "     1                          MODULE anim_asm\n"
+                   "     2                              SECTION game_const\n"
+                   "     3                          _anim:\n"
+                   "     4  0000  3e01                  ld a,1\n"
+                   "     5  0002  c9                    ret\n");
+        std::string bin(0x3817, '\0');
+        bin[0x3814] = '\x3e';
+        bin[0x3815] = '\x01';
+        bin[0x3816] = '\xc9';
+        write_text(dir / "z38_BANK_8_CODE.bin", bin);
+        SourceMap m;
+        const auto r = load_z88dk_source_map(m, map.string(), nex_space, Z88dkListings::Beside);
+        check("Z88MAP-38", "a listing of a block-placed section with its section binary: anim.asm.lis (game_const of BANK_8_CODE) is used, "
+                           "anim.asm:4 is P17:$3814 and anim.asm:5 P17:$3816, and z38_BANK_8_CODE.bin covers every range: all are in the "
+                           "program identity (none unchecked)",
+              r && r.listings == 1 && starts_are(m.resolve("anim.asm:4"), {{MemSpace::page(17), 0x3814}}) &&
+                  starts_are(m.resolve("anim.asm:5"), {{MemSpace::page(17), 0x3816}}) &&
+                  r.unchecked == 0 && m.has_identity());
+        if (!(r && r.listings == 1))
+            for (const std::string& n : r.listing_notes) std::printf("  Z88MAP-38 note: %s\n", n.c_str());
     }
 
     fs::remove_all(dir);
