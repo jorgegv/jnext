@@ -44,11 +44,13 @@
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <unistd.h>   // write, close, mkstemp
 #include <sys/stat.h> // chmod (V15-DIVMMC-01: SD-28 RO image test)
@@ -948,6 +950,306 @@ static void test_readonly_mount() {
           before == after && !before.empty(),
           "identical=" + std::string(before == after ? "1" : "0") +
           " len=" + std::to_string(before.size()));
+}
+
+// ─── GH #455: a read-only card refuses the block before the host stream ──
+//
+// Oracle: SD Physical Layer Simplified Spec 9.10, 4.3.4 (a write to a
+// protected area is aborted, nothing is programmed) and 7.3.3.1 (data response
+// 0x0D "write error"; a rejected block has no busy phase). The Next has no
+// write-protect pin (SPI only), so a card it cannot write is a card with
+// internal write protection, which is what --sdcard-readonly models.
+
+// One CMD24 of `sector` filled with `fill`. Returns the data response token;
+// `after` receives the byte that follows it (0x00 would be a busy phase).
+static uint8_t ro_cmd24(SdCardDevice& sd, uint32_t sector, uint8_t fill,
+                        uint8_t* after = nullptr) {
+    (void)send_cmd_r1(sd, 24, sector);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, fill);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+    uint8_t resp = 0xFF;
+    for (int i = 0; i < 32; ++i) {
+        const uint8_t b = spi_read(sd);
+        if (b != 0xFF) { resp = b; break; }
+    }
+    if (after) *after = spi_read(sd);
+    sd.deselect();
+    return resp;
+}
+
+// CMD17 of `sector`; true when R1 = 0, token 0xFE and the 512 bytes equal the
+// make_image() fixture.
+static bool ro_reads_fixture(SdCardDevice& sd, uint32_t sector) {
+    if (send_cmd_r1(sd, 17, sector) != 0x00) return false;
+    if (!wait_token(sd)) return false;
+    uint8_t b[512];
+    read_block(sd, b);
+    sd.deselect();
+    for (int i = 0; i < 512; ++i)
+        if (b[i] != fixture_byte(sector * 512ull + i)) return false;
+    return true;
+}
+
+static std::string ro_slurp(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(f)),
+                       std::istreambuf_iterator<char>());
+}
+
+static bool ro_sector_is(const std::string& path, uint32_t sector, uint8_t fill) {
+    const std::string all = ro_slurp(path);
+    if (all.size() < (sector + 1) * 512ull) return false;
+    for (int i = 0; i < 512; ++i)
+        if (static_cast<uint8_t>(all[sector * 512ull + i]) != fill) return false;
+    return true;
+}
+
+static void test_readonly_guard() {
+    // SD-RO-03 / SD-RO-04
+    {
+        std::string img = make_image(8);
+        SdCardDevice ro;
+        const bool m = ro.mount(img, /*read_only=*/true);
+        init_card(ro);
+        const std::uint64_t gen0 = SdCardDevice::host_write_generation();
+
+        bool tokens_ok = true, no_busy = true;
+        std::string tok;
+        for (uint32_t sec : {4u, 5u, 6u}) {
+            uint8_t after = 0;
+            const uint8_t r = ro_cmd24(ro, sec, 0x5A, &after);
+            tokens_ok = tokens_ok && r == 0x0D;
+            no_busy = no_busy && after == 0xFF;
+            char t[16]; std::snprintf(t, sizeof t, "%02X/%02X ", r, after);
+            tok += t;
+        }
+        bool reads_ok = true;
+        for (uint32_t sec : {4u, 1u, 7u}) reads_ok = reads_ok && ro_reads_fixture(ro, sec);
+
+        // CMD18 from sector 3, three blocks.
+        bool stream_ok = send_cmd_r1(ro, 18, 3) == 0x00;
+        for (uint32_t k = 0; stream_ok && k < 3; ++k) {
+            if (!wait_token(ro)) { stream_ok = false; break; }
+            uint8_t b[512];
+            read_block(ro, b);
+            for (int i = 0; i < 512; ++i)
+                if (b[i] != fixture_byte((3 + k) * 512ull + i)) stream_ok = false;
+        }
+        (void)send_cmd_r1(ro, 12, 0);
+        ro.deselect();
+
+        check("SD-RO-03",
+              "read-only card: repeated CMD24 answers 0x0D with no busy byte "
+              "(SD spec 4.3.4, 7.3.3.1) and every sector, written or not, "
+              "still reads back its original bytes by CMD17 and CMD18",
+              m && tokens_ok && no_busy && reads_ok && stream_ok,
+              "tokens=" + tok + " reads=" + std::to_string(reads_ok) +
+              " stream=" + std::to_string(stream_ok));
+
+        const std::uint64_t attempts = ro.stream_write_attempts_for_test();
+        const std::uint64_t gen1 = SdCardDevice::host_write_generation();
+
+        // Control: a RW card must move both observables, or the RO zeros
+        // above prove nothing.
+        std::string img2 = make_image(8);
+        SdCardDevice rw;
+        rw.mount(img2, false);
+        init_card(rw);
+        const std::uint64_t g2 = SdCardDevice::host_write_generation();
+        const uint8_t r_rw = ro_cmd24(rw, 4, 0x5A);
+        const std::uint64_t g3 = SdCardDevice::host_write_generation();
+
+        check("SD-RO-04",
+              "read-only card never hands a block to the host stream (0 write "
+              "attempts) and never bumps the write generation; a read-write "
+              "control card does both (1 attempt, accepted 0x05, generation +1)",
+              attempts == 0 && gen1 == gen0 && r_rw == 0x05 &&
+              rw.stream_write_attempts_for_test() == 1 && g3 == g2 + 1,
+              "ro_attempts=" + std::to_string(attempts) +
+              " ro_gen_delta=" + std::to_string(gen1 - gen0) +
+              " rw_attempts=" + std::to_string(rw.stream_write_attempts_for_test()) +
+              " rw_resp=" + std::to_string(r_rw));
+        ro.unmount();
+        rw.unmount();
+        std::remove(img.c_str());
+        std::remove(img2.c_str());
+    }
+
+    // SD-RO-05: the host file's bytes AND mtime.
+    {
+        namespace fs = std::filesystem;
+        auto aged = [](const std::string& p) {
+            fs::last_write_time(p, fs::file_time_type::clock::now() - std::chrono::hours(1));
+            return fs::last_write_time(p);
+        };
+        std::string img = make_image(8);
+        const auto t0 = aged(img);
+        const std::string before = ro_slurp(img);
+        {
+            SdCardDevice ro;
+            ro.mount(img, true);
+            init_card(ro);
+            for (uint32_t sec : {4u, 5u, 6u}) (void)ro_cmd24(ro, sec, 0x5A);
+            ro.unmount();
+        }
+        const bool same_bytes = ro_slurp(img) == before;
+        const bool same_time = fs::last_write_time(img) == t0;
+
+        std::string img2 = make_image(8);
+        const auto c0 = aged(img2);
+        const std::string cbefore = ro_slurp(img2);
+        {
+            SdCardDevice rw;
+            rw.mount(img2, false);
+            init_card(rw);
+            (void)ro_cmd24(rw, 4, 0x5A);
+            rw.unmount();
+        }
+        const bool ctl_bytes = ro_slurp(img2) != cbefore;
+        const bool ctl_time = fs::last_write_time(img2) != c0;
+
+        check("SD-RO-05",
+              "read-only card: the host file's bytes and mtime are unchanged "
+              "after rejected CMD24s; a read-write control changes both "
+              "(so both measures can see a write)",
+              same_bytes && same_time && ctl_bytes && ctl_time && !before.empty(),
+              "ro_bytes_same=" + std::to_string(same_bytes) +
+              " ro_mtime_same=" + std::to_string(same_time) +
+              " ctl_bytes_differ=" + std::to_string(ctl_bytes) +
+              " ctl_mtime_differs=" + std::to_string(ctl_time));
+        std::remove(img.c_str());
+        std::remove(img2.c_str());
+    }
+
+    // SD-RO-06: read-only by FALLBACK (image not writable) is guarded too.
+    {
+        std::string img = make_image(8);
+        SdCardDevice sd;
+        bool mounted = false, env_ok = true;
+        {
+            DacCapsDropped caps;
+            if (jtp::running_as_root() && !caps.drop()) {
+                skip("SD-RO-06", "running as root and capset refused dropping CAP_DAC_OVERRIDE");
+                env_ok = false;
+            } else if (chmod(img.c_str(), 0444) != 0) {
+                skip("SD-RO-06", "host chmod(0444) failed; cannot construct RO image");
+                env_ok = false;
+            } else {
+                mounted = sd.mount(img);  // RW requested, falls back
+            }
+        }
+        if (env_ok) {
+            init_card(sd);
+            const uint8_t r1 = ro_cmd24(sd, 4, 0x5A);
+            const uint8_t r2 = ro_cmd24(sd, 5, 0x5A);
+            const bool rd = ro_reads_fixture(sd, 4);
+            check("SD-RO-06",
+                  "image the host will not let us write (fallback read-only "
+                  "mount): CMD24 answers 0x0D, no block reaches the stream, "
+                  "and the card still reads its original bytes",
+                  mounted && r1 == 0x0D && r2 == 0x0D &&
+                  sd.stream_write_attempts_for_test() == 0 && rd,
+                  "r1=" + std::to_string(r1) + " r2=" + std::to_string(r2) +
+                  " attempts=" + std::to_string(sd.stream_write_attempts_for_test()) +
+                  " read_ok=" + std::to_string(rd));
+        }
+        sd.unmount();
+        chmod(img.c_str(), 0644);
+        std::remove(img.c_str());
+    }
+
+    // SD-RO-07: the data phase began on ANOTHER card (snapshot restore).
+    {
+        std::string img = make_image(8);
+        SdCardDevice a;
+        a.mount(img, false);
+        init_card(a);
+        (void)send_cmd_r1(a, 24, 4);
+        spi_write(a, 0xFE);
+        for (int i = 0; i < 200; ++i) spi_write(a, 0x5A);
+
+        StateWriter w;
+        a.save_state(w);
+        std::vector<uint8_t> buf(w.position());
+        StateWriter w2(buf.data(), buf.size());
+        a.save_state(w2);
+        a.unmount();
+
+        SdCardDevice b;
+        b.mount(img, true);
+        StateReader r(buf.data(), buf.size());
+        b.load_state(r);
+        for (int i = 0; i < 312; ++i) spi_write(b, 0x5A);
+        spi_write(b, 0xFF);
+        spi_write(b, 0xFF);
+        uint8_t resp = 0xFF;
+        for (int i = 0; i < 32; ++i) {
+            const uint8_t x = spi_read(b);
+            if (x != 0xFF) { resp = x; break; }
+        }
+        b.deselect();
+        const bool rd = ro_reads_fixture(b, 4);
+        const std::uint64_t att = b.stream_write_attempts_for_test();
+        b.unmount();
+        bool file_ok = true;
+        {
+            const std::string all = ro_slurp(img);
+            for (int i = 0; i < 512; ++i)
+                file_ok = file_ok && static_cast<uint8_t>(all[4 * 512 + i]) ==
+                                     fixture_byte(4 * 512ull + i);
+        }
+        check("SD-RO-07",
+              "a CMD24 data phase restored from a snapshot onto a read-only "
+              "card is refused at the commit point: 0x0D, 0 stream writes, "
+              "file and read-back unchanged",
+              resp == 0x0D && att == 0 && file_ok && rd,
+              "resp=" + std::to_string(resp) + " attempts=" + std::to_string(att) +
+              " file_ok=" + std::to_string(file_ok) + " read_ok=" + std::to_string(rd));
+        std::remove(img.c_str());
+    }
+
+    // SD-RO-08: a later read-write mount of the same object is read-write.
+    {
+        std::string img = make_image(8);
+        SdCardDevice sd;
+        sd.mount(img, true);
+        init_card(sd);
+        const uint8_t r0 = ro_cmd24(sd, 4, 0x5A);
+
+        // direct remount, then unmount + remount
+        bool ok = r0 == 0x0D;
+        std::string detail = "r0=" + std::to_string(r0);
+        for (int pass = 0; pass < 2; ++pass) {
+            if (pass == 1) {
+                sd.mount(img, true);
+                init_card(sd);
+                ok = ok && ro_cmd24(sd, 3, 0x5A) == 0x0D;
+                sd.unmount();
+            }
+            sd.mount(img, false);
+            init_card(sd);
+            const uint8_t fill = pass == 0 ? 0xA5 : 0xB6;
+            const uint8_t r = ro_cmd24(sd, 2, fill);
+            const bool wrote = ro_sector_is(img, 2, fill);
+            // read back through the card
+            bool rb = send_cmd_r1(sd, 17, 2) == 0x00 && wait_token(sd);
+            uint8_t blk[512] = {};
+            if (rb) { read_block(sd, blk); sd.deselect(); }
+            for (int i = 0; rb && i < 512; ++i) rb = blk[i] == fill;
+            ok = ok && r == 0x05 && wrote && rb;
+            detail += " pass" + std::to_string(pass) + ":r=" + std::to_string(r) +
+                      " file=" + std::to_string(wrote) + " card=" + std::to_string(rb);
+        }
+        check("SD-RO-08",
+              "mounting the same card object read-write after a read-only "
+              "mount (directly, and via unmount) restores CMD24: 0x05, "
+              "committed to the file and read back",
+              ok, detail);
+        sd.unmount();
+        std::remove(img.c_str());
+    }
 }
 
 // ─── New: CMD24 WRITE_BLOCK round-trip ──────────────────────────────────
@@ -4022,6 +4324,7 @@ int main() {
     test_write_busy_not_after_reject();  // SD-BUSY-04 (GH #177)
     test_write_busy_cs_deassert(sd);      // SD-BUSY-05 (GH #177 review)
     test_readonly_mount();
+    test_readonly_guard();           // SD-RO-03..08 (GH #455)
     test_mmc_cmd1_init(sd);
 
     // TASK2-TESTCOV — retroactive regression coverage for DivMMC/SD/SPI
