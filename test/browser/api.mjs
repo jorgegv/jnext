@@ -1,4 +1,4 @@
-// Browser rows WEBAPI-01..28: the JavaScript API (jnext.mount) in headless Chromium
+// Browser rows WEBAPI-01..29: the JavaScript API (jnext.mount) in headless Chromium
 // (make wasm-browser-test, spec api.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Pages: test/browser/page/api.html (the fixture, mounts one or two players with the options
@@ -553,6 +553,26 @@ row('WEBAPI-28', 'an unknown function-valued option and a non-function callback 
   const a = await rec(page, 0), b = await rec(page, 1);
   must(a.mountError && a.mountError.includes('onready'), 'unknown fn: ' + a.mountError);
   must(b.mountError && b.mountError.includes('onReady') && /function/.test(b.mountError), 'non-function: ' + b.mountError);
+  await page.ctx.close();
+});
+
+
+row('WEBAPI-29', 'a load() cancelled by a hard reset rejects (onError once) and the next page load() resolves normally', async () => {
+  const page = await newPage(); attach(page);
+  await open(page, [{ machine: '48k', muted: true }]);
+  await click(page); await waitReady(page, 0, 1);
+  // A .tzx waits 100 frames before it is applied: a hard reset in that window drops it.
+  await page.evaluate(() => { window.__load = window.player0.load('/scratch/beeper_demo.tzx').then(() => 'resolved', (e) => e.message); });
+  await sleep(300);
+  await page.evaluate(() => window.player0.reset('hard'));
+  const out = await Promise.race([page.evaluate(() => window.__load), sleep(15000).then(() => 'pending')]);
+  must(/cancel/.test(out), 'load() settled with: ' + out);
+  const r1 = await rec(page);
+  must(r1.errors.length === 1 && /cancel/.test(r1.errors[0]), 'errors ' + JSON.stringify(r1.errors));
+  const ready0 = r1.ready;
+  const again = await page.evaluate(() => window.player0.load('/scratch/beeper_demo.tzx').then(() => 'resolved', (e) => e.message));
+  const r2 = await rec(page);
+  must(again === 'resolved' && r2.ready === ready0 + 1 && r2.errors.length === 1, `second load: ${again}, ready ${ready0} -> ${r2.ready}, errors ${JSON.stringify(r2.errors)}`);
   await page.ctx.close();
 });
 
