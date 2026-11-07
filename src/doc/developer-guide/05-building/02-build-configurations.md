@@ -116,6 +116,25 @@ the run. Its result reaches the page through `Module.onExit`. A `callMain` that
 returns with no loop installed (a refused flag) has no `onExit`: its return
 value is the status.
 
+*The JavaScript API.* `jnext.mount()` is `web/jnext_api.js.in`, configured with
+the version and linked into `jnext-<version>.js` as a second `--extern-post-js`,
+after `web/jnext-image.js` (which it calls). It makes one module instance per
+mount: the core keeps process-wide state, so one instance holds one emulator. It
+knows no flag spelling. The whole options object goes to `jnext_web_argv`, which
+runs `web_api::build_argv` over the `web_api::WEB_OPTIONS` table: each row names a
+`cli::OptId` or a `config_keys::KeyId`, so a renamed flag is a compile error, and
+the man page's browser section is diffed against the table and the refusal
+functions by `web_api_test` (run by `make cli-check`). The controller
+(`web_controller.cpp`, a source of `jnext_web` only) holds the exported calls
+(`jnext_web_pause`, `jnext_web_reset`, `jnext_web_load`, `jnext_web_set_volume`,
+`jnext_web_quit`) and, through `SdlApp::set_on_load_applied` and `after_tick`, tells
+the page when the program is in the machine and a frame has followed (the `ready`
+event, `Module.jnextEvent`). `jnext_web_load_applied` and `jnext_web_gain_db` are
+test seams, not API. Pause is the browser loop's pause (`emscripten_pause_main_loop`),
+because the backend's pause needs an armed machine, which costs a check per
+instruction. Several players on a page share one IndexedDB database for the
+warm-start recording.
+
 *Pacing.* `SdlApp::tick()` never sleeps; it reports the sleep it wants before the
 next tick. A `requestAnimationFrame` callback cannot sleep, so that sleep becomes
 the earliest moment the next tick may start, on an absolute grid
