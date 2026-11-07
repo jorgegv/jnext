@@ -3126,6 +3126,24 @@ the exit status) is a function, <code>finish</code>, that the loop calls once a 
 the run. Its result reaches the page through <code>Module.onExit</code>. A <code>callMain</code> that
 returns with no loop installed (a refused flag) has no <code>onExit</code>: its return
 value is the status.</p>
+<p><em>The JavaScript API.</em> <code>jnext.mount()</code> is <code>web/jnext_api.js.in</code>, configured with
+the version and linked into <code>jnext-&lt;version&gt;.js</code> as a second <code>--extern-post-js</code>,
+after <code>web/jnext-image.js</code> (which it calls). It makes one module instance per
+mount: the core keeps process-wide state, so one instance holds one emulator. It
+knows no flag spelling. The whole options object goes to <code>jnext_web_argv</code>, which
+runs <code>web_api::build_argv</code> over the <code>web_api::WEB_OPTIONS</code> table: each row names a
+<code>cli::OptId</code> or a <code>config_keys::KeyId</code>, so a renamed flag is a compile error, and
+the man page's browser section is diffed against the table and the refusal
+functions by <code>web_api_test</code> (run by <code>make cli-check</code>). The controller
+(<code>web_controller.cpp</code>, a source of <code>jnext_web</code> only) holds the exported calls
+(<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_set_volume</code>,
+<code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
+the page when the program is in the machine and a frame has followed (the <code>ready</code>
+event, <code>Module.jnextEvent</code>). <code>jnext_web_load_applied</code> and <code>jnext_web_gain_db</code> are
+test seams, not API. Pause is the browser loop's pause (<code>emscripten_pause_main_loop</code>),
+because the backend's pause needs an armed machine, which costs a check per
+instruction. Several players on a page share one IndexedDB database for the
+warm-start recording.</p>
 <p><em>Pacing.</em> <code>SdlApp::tick()</code> never sleeps; it reports the sleep it wants before the
 next tick. A <code>requestAnimationFrame</code> callback cannot sleep, so that sleep becomes
 the earliest moment the next tick may start, on an absolute grid
