@@ -286,6 +286,10 @@ my @SUBSYS = (
     ['## Contention — `test/contention/contention_test.cpp`', 'contention_test'],
     ['## LoRes — `test/lores/lores_test.cpp`',       'lores_test'],
     ['## SD Card — `test/sdcard/sdcard_test.cpp`',   'sdcard_test'],
+    # SDP-IOERR rows: a host write that really fails (RLIMIT_FSIZE, POSIX only,
+    # GH #455). Filed under their parent's scope.
+    ['### Companion POSIX-only suite — `test/sdcard/sdcard_posix_test.cpp`',
+     'sdcard_posix_test'],
     ['## NMI Source Pipeline — `test/nmi/nmi_test.cpp`', 'nmi_test'],
     # GH #22 — the debugger's raster/ULA-fetch indicator. Its own `##` section
     # rather than a companion of `## VideoTiming`: it derives from BOTH
@@ -425,6 +429,7 @@ my %PLAN_DOC = (
 my %TOMBSTONE = (
     'rewind_test'   => '(jnext-internal)',
     'sdcard_test'   => '(SD SPI spec)',
+    'sdcard_posix_test' => '(SD SPI spec)',
     # The ESP-01 is a THIRD-PARTY module hanging off the Next's UART 0 header.
     # The Next-side wire is VHDL (`zxnext.vhd:1611-1612` drives o_UART0_TX from
     # uart0_tx_esp; `:3381` labels the channel "uart 0 (esp)"), but nothing
@@ -968,7 +973,6 @@ my %NO_MATRIX_SECTION = (
     'snapshot_im_test'        => 'snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0)',
     'snapshot_machine_test'   => 'which machine a .sna/.szx/.z80 loads as (libspectrum header tables, GH #323; host loaders) and the +3 / AY / NTSC state they restore; its hardware rows (SNM-27, 30, 31, 33) cite zxnext.vhd, zxula_timing.vhd and ports.txt in their own source',
     'sd_rom_extractor_test'   => 'FAT32 + TBBlue SD path layout (host ROM extraction)',
-    'sdcard_posix_test' => 'SDP-IOERR-01..03 (GH #455): a host write that really fails (RLIMIT_FSIZE, POSIX-only); same oracle as `## SD Card` (SD Physical Layer Simplified Spec 7.3.3.1 data response), asserted in this suite because the seam does not exist on Windows',
     'sdcard_file_add_test'    => 'FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
     'sdcard_file_add_posix_test' => 'rows moved out of sdcard_file_add_test (symlink, FIFO, device, chmod-0 fixtures; POSIX-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
     'sdcard_file_add_linux_test' => 'SDFA-T26 moved out of sdcard_file_add_test (needs a case-sensitive host filesystem; Linux-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',

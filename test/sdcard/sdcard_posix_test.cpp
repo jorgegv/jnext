@@ -13,6 +13,8 @@
 
 #include "peripheral/sd_card.h"
 #include "../row_id.h"
+#include "../dac_caps_dropped.h"
+#include "../test_portable.h"
 
 #include <csignal>
 #include <cstdint>
@@ -22,11 +24,12 @@
 #include <iterator>
 #include <string>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
 
-int g_pass = 0, g_fail = 0, g_total = 0;
+int g_pass = 0, g_fail = 0, g_total = 0, g_skip = 0;
 
 void check(const char* id, const char* desc, bool cond,
            const std::string& detail = {}) {
@@ -40,6 +43,12 @@ void check(const char* id, const char* desc, bool cond,
         if (!detail.empty()) std::printf(" [%s]", detail.c_str());
         std::printf("\n");
     }
+}
+
+void skip(const char* id, const char* reason) {
+    report_row_id(id);
+    ++g_skip;
+    std::printf("  SKIP %s: %s\n", id, reason);
 }
 
 std::string make_image(uint32_t n_sectors) {
@@ -238,7 +247,97 @@ int main() {
         std::remove(img.c_str());
     }
 
+    // SDP-IOERR-04: the recovery's read-only fallback. The image turns
+    // unwritable after the mount (mode 0444), the host write then fails, the
+    // read-write reopen is refused and the card degrades to read-only: it
+    // must answer 0x0D again WITHOUT handing the next block to the stream.
+    {
+        const std::string img = make_image(8);
+        SdCardDevice sd;
+        sd.mount(img, false);
+        init_card(sd);
+        bool env_ok = true, ok = false;
+        std::string detail;
+        {
+            DacCapsDropped caps;
+            if (jtp::running_as_root() && !caps.drop()) {
+                skip("SDP-IOERR-04", "running as root and capset refused dropping CAP_DAC_OVERRIDE");
+                env_ok = false;
+            } else if (chmod(img.c_str(), 0444) != 0) {
+                skip("SDP-IOERR-04", "host chmod(0444) failed");
+                env_ok = false;
+            } else {
+                FsizeLimit lim;
+                uint8_t a1 = 0;
+                const uint8_t r1 = cmd24_failing(sd, lim, 4, 0x5A, false, &a1);
+                sd.deselect();
+                const std::uint64_t att1 = sd.stream_write_attempts_for_test();
+                uint8_t a2 = 0;
+                (void)send_cmd_r1(sd, 24, 5);
+                spi_write(sd, 0xFE);
+                for (int i = 0; i < 512; ++i) spi_write(sd, 0x3C);
+                spi_write(sd, 0xFF);
+                spi_write(sd, 0xFF);
+                uint8_t r2 = 0xFF;
+                for (int i = 0; i < 32; ++i) {
+                    const uint8_t b = spi_read(sd);
+                    if (b != 0xFF) { r2 = b; break; }
+                }
+                a2 = spi_read(sd);
+                sd.deselect();
+                const std::uint64_t att2 = sd.stream_write_attempts_for_test();
+                const bool rd = reads_original(sd, 4) && reads_original(sd, 5);
+                ok = r1 == 0x0D && a1 == 0xFF && r2 == 0x0D && a2 == 0xFF &&
+                     att1 == 1 && att2 == 1 && rd && sd.mounted();
+                detail = "r1=" + std::to_string(r1) + " r2=" + std::to_string(r2) +
+                         " att1=" + std::to_string(att1) + " att2=" + std::to_string(att2) +
+                         " read_ok=" + std::to_string(rd);
+            }
+        }
+        if (env_ok)
+            check("SDP-IOERR-04",
+                  "host write error on an image that can no longer be opened "
+                  "for writing: the card degrades to read-only, so the next "
+                  "CMD24 is refused (0x0D, no further stream write) and "
+                  "reads still return the original bytes",
+                  ok, detail);
+        sd.unmount();
+        chmod(img.c_str(), 0644);
+        std::remove(img.c_str());
+    }
+
+    // SDP-IOERR-05: neither reopen works (the image is gone): the card is
+    // unmounted, and a later mount() of an image brings it back.
+    {
+        const std::string img = make_image(8);
+        const std::string keep = img + ".keep";
+        {
+            std::ifstream in(img, std::ios::binary);
+            std::ofstream out(keep, std::ios::binary);
+            out << in.rdbuf();
+        }
+        SdCardDevice sd;
+        sd.mount(img, false);
+        init_card(sd);
+        std::remove(img.c_str());           // the open stream keeps the inode
+        FsizeLimit lim;
+        uint8_t a1 = 0;
+        (void)cmd24_failing(sd, lim, 4, 0x5A, false, &a1);
+        const bool gone = !sd.mounted();
+        const bool remounted = sd.mount(keep, false);
+        init_card(sd);
+        const bool rd = remounted && reads_original(sd, 4);
+        sd.unmount();
+        check("SDP-IOERR-05",
+              "host write error with the image gone (neither reopen works): "
+              "the card ends unmounted, and a later mount() works and reads",
+              gone && rd,
+              "unmounted=" + std::to_string(gone) + " remounted=" +
+              std::to_string(remounted) + " read_ok=" + std::to_string(rd));
+        std::remove(keep.c_str());
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
-                g_total, g_pass, g_fail, 0);
+                g_total + g_skip, g_pass, g_fail, g_skip);
     return g_fail ? 1 : 0;
 }

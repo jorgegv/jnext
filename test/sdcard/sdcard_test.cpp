@@ -889,10 +889,11 @@ static void test_readonly_mount() {
     // SD-RO-01/02: `mount(path, read_only=true)` opens the host file
     // read-only ON PURPOSE, so the emulated machine sees a write-protected
     // card. This is the deliberate form of the accidental fallback that
-    // mount() has always had when the file is not writable, and it uses the
-    // SAME already-implemented path: the host fstream write fails, and CMD24
-    // emits the 0x0D "data rejected due to write error" token per SD Physical
-    // Layer Simplified Spec § 7.3.3.3 instead of 0x05 "data accepted".
+    // mount() has always had when the file is not writable, and it shares
+    // that path's outcome: the card refuses the block at the commit point
+    // without handing it to the host stream (GH #455), and CMD24 emits the
+    // 0x0D "data rejected due to write error" token per SD Physical Layer
+    // Simplified Spec § 7.3.3.3 instead of 0x05 "data accepted".
     //
     // Two properties, and both matter — a card that merely discarded the
     // write while answering 0x05 would satisfy the second and lie about the
@@ -2274,9 +2275,11 @@ static void test_sd_27_cmd8_r7_r1_post_init() {
 // Simplified Spec § 7.3.3.3 (Data Response Token) — `sss=110` (= 0x0D)
 // signals "data rejected due to write error". When the SD-image file is
 // opened in fall-back read-only mode (mount() line 33, e.g. user file with
-// no write permission, or RO mount of a system image) OR when the
-// underlying disk fails the host-side write (disk full, I/O error, etc.),
-// `file_.write()` silently sets the fstream `failbit`. Pre-fix the card
+// no write permission, or RO mount of a system image) the card is read-only
+// and refuses the block before it reaches the host stream (GH #455); when the
+// underlying disk fails the host-side write (disk full, I/O error, etc.) the
+// stream's `failbit` is set and the card reopens the image (the
+// sdcard_posix_test rows). Before V15-DIVMMC-01 the card
 // unconditionally emitted 0x05 (data accepted) regardless of the stream
 // state — diverging from every real SD card with a mechanical write-
 // protect tab (which would emit 0x0D for any in-bounds write attempt).
@@ -2286,7 +2289,7 @@ static void test_sd_27_cmd8_r7_r1_post_init() {
 //   2. Mount — falls through to RO path, mount() returns true (mounted).
 //   3. CMD24 sector=0 (in-bounds, R1 path is OK so data phase starts).
 //   4. Send 0xFE + 512 data + 2 CRC. Pre-fix: 0x05 (data accepted, lying).
-//      Post-fix: 0x0D (write error — fstream rejected the write).
+//      Post-fix: 0x0D (write error — the read-only card refused the block).
 //   5. Symmetric guard: re-mount the same image with 0644 perms (RW),
 //      same CMD24 succeeds with 0x05.
 //
