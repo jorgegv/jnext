@@ -483,9 +483,7 @@ int main() {
                 {"--magic-port",   "", "", "00FF", "FFFF", {"8000g", "10000", "-1"}},
                 {"--inject-delay", "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
                 {"--delayed-screenshot-time",   "", "", "0", SECS_HI, {"5x", "35791395", "-1"}},
-                // "1" ".5" is the string "1.5", split so that test/traceability-dup-ids.pl does not
-                // read the value as a row ID that cli_options_test spells too.
-                {"--delayed-screenshot-frames", "", "", "0", INT_HI, {"1" ".5", "2147483648", "-1"}},
+                {"--delayed-screenshot-frames", "", "", "0", INT_HI, {"1.5", "2147483648", "-1"}},
                 {"--delayed-automatic-exit",        "", "", "0", SECS_HI, {"5x", "35791395", "-1"}},
                 {"--delayed-automatic-exit-frames", "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
                 {"--delayed-snapshot-frames",       "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
