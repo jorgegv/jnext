@@ -790,6 +790,127 @@ int main() {
                   !ro && ro.error.find("has no __PAGE_20_head") != std::string::npos);
     }
 
+    // ── Z88MAP-32..35 (GH #478): a section is placed by the bank of its block ──
+    // Oracle: appmake (appmake.c mb_enumerate_banks(): the first of zxn's bank spaces
+    // BANK, DIV, PAGE found in the block name and followed by `_<n>`; zxn.c: `BANK_<n>_L`
+    // / `_H`), and the map lines z80asm writes since z88dk#3197, in the shape of a real
+    // user memory map (next-point's mmap.inc: BANK_8_CODE at $100000, PAGE_95_CONST at
+    // $5FC000, BANK_0_DATA_USER at $E000).
+    const auto block_line = [](const char* section, uint64_t head, const char* block) {
+        return rec(("__" + std::string(section) + "_head").c_str(), head, "", block, "", "const");
+    };
+    {
+        Z88dkBlocks blocks;
+        for (const std::string& l : {block_line("BANK_8_CODE", 0x100000, "BANK_8_CODE"),
+                                     block_line("game_code", 0x100000, "BANK_8_CODE"),
+                                     block_line("game_const", 0x103546, "BANK_8_CODE"),
+                                     block_line("PAGE_95_CONST", 0x5FC000, "PAGE_95_CONST"),
+                                     block_line("players_const", 0x5FC000, "PAGE_95_CONST"),
+                                     block_line("shared_data", 0xE000, "BANK_0_DATA_USER"),
+                                     block_line("lo_code", 0xE000, "BANK_3_L_CODE"),
+                                     block_line("hi_code", 0xC000, "BANK_3_H"),
+                                     block_line("div_code", 0x2000, "DIV_2_CODE"),
+                                     block_line("both_code", 0xC000, "PAGE_5_BANK_3"),
+                                     block_line("BANKX_PAGE_5_X", 0xC100, "BANKX_PAGE_5_X"),
+                                     block_line("tricky_code", 0xC100, "BANKX_PAGE_5_X"),
+                                     block_line("far_code", 0xC000, "BANK_112_X"),
+                                     block_line("code_compiler", 0x8000, "CODE"),
+                                     block_line("BANK_10", 0xC000, "CODE")})
+            blocks.add(*parse_z88dk_map_line(l));
+        const auto at = [&](const char* section, uint32_t v) {
+            return z88dk_section_space(section, v, no_head, nullptr, &blocks);
+        };
+        const auto is_page = [](const Z88dkSpace& s, int page, uint16_t a) {
+            return s.kind == Z88dkSpace::Kind::Paged && s.space == MemSpace::page(static_cast<uint16_t>(page)) &&
+                   s.addr16 == a;
+        };
+        const auto game_const = at("game_const", 0x103814);
+        const auto old = z88dk_section_space("game_const", 0x103814, no_head);
+        const auto far = at("far_code", 0x1C000);
+        const auto none24 = at("code_compiler", 0x1C000);
+        check("Z88MAP-32", "with the map's blocks a section is placed by its block's name, appmake's rule: game_const of BANK_8_CODE at $103814 is page 17 "
+                           "and game_code at $100000 page 16; players_const of PAGE_95_CONST (head $5FC000) is page 95 and runs on into 96; "
+                           "BANK_0_DATA_USER at $E000 is page 1; BANK_3_L_CODE / BANK_3_H fix the half; DIV_2_CODE is unpaged; BANK before PAGE "
+                           "(PAGE_5_BANK_3 is bank 3), and a BANK not followed by _<n> tries the next space (BANKX_PAGE_5_X is page 5 from its own head $C100); "
+                           "BANK_112_X is out of range naming the block; a block naming no bank (CODE) keeps the section's own rules (code_compiler binds "
+                           "at load or is refused at 24 bits, BANK_10 is page 20); without the blocks game_const is still refused",
+              is_page(game_const, 17, 0x3814) && is_page(at("game_code", 0x100000), 16, 0x0000) &&
+                  is_page(at("players_const", 0x5FD6CE), 95, 0xD6CE) && is_page(at("players_const", 0x5FE010), 96, 0xE010) &&
+                  is_page(at("shared_data", 0xE000), 1, 0xE000) &&
+                  is_page(at("lo_code", 0xE000), 6, 0xE000) && is_page(at("hi_code", 0xC000), 7, 0xC000) &&
+                  at("div_code", 0x2000).kind == Z88dkSpace::Kind::Unpaged &&
+                  at("div_code", 0x2000).why.find("block 'DIV_2_CODE'") != std::string::npos &&
+                  is_page(at("both_code", 0xC000), 6, 0xC000) &&
+                  is_page(at("tricky_code", 0xC100), 5, 0xC100) && is_page(at("tricky_code", 0xE000), 6, 0xE000) &&
+                  at("tricky_code", 0xC000).kind == Z88dkSpace::Kind::Unpaged &&
+                  at("tricky_code", 0xC000).why == "address is below __BANKX_PAGE_5_X_head of section 'tricky_code' (block 'BANKX_PAGE_5_X')" &&
+                  far.kind == Z88dkSpace::Kind::Refused &&
+                  far.why == "section 'far_code' (block 'BANK_112_X') is out of range" &&
+                  at("code_compiler", 0x8000).kind == Z88dkSpace::Kind::BindAtLoad &&
+                  none24.kind == Z88dkSpace::Kind::Refused &&
+                  none24.why == "section 'code_compiler' names no bank or page, so the 24-bit address $1C000 cannot be placed" &&
+                  is_page(at("BANK_10", 0xC000), 20, 0xC000) &&
+                  old.kind == Z88dkSpace::Kind::Refused &&
+                  old.why == "section 'game_const' names no bank or page, so the 24-bit address $103814 cannot be placed");
+    }
+    {
+        Z88dkBlocks blocks;
+        const bool empty0 = blocks.empty();
+        for (const std::string& l : {block_line("s", 0x14C123, "PAGE_20"),
+                                     block_line("s", 0xC000, "BANK_3"),               // second: first wins
+                                     rec("__t_tail", 0xC000, "", "BANK_4", "", "const"),
+                                     rec("__u_head", 0xC000, "m_c", "BANK_5", "x.c:1"),   // addr, not const
+                                     block_line("v", 0xC000, ""),                     // no block
+                                     block_line("w", 0x100C000, "PAGE_9"),            // head over 24 bits
+                                     rec("__head", 0xC000, "", "BANK_6", "", "const")})
+            blocks.add(*parse_z88dk_map_line(l));
+        const std::string* s = blocks.block_of("s");
+        const std::string* w = blocks.block_of("w");
+        check("Z88MAP-33", "Z88dkBlocks keeps a const `__<section>_head` line's block, first wins; a _tail, an addr line, a line with no block "
+                           "and a bare `__head` add nothing; head() is the low 16 bits of `__<block>_head`, nothing over 24 bits or unknown",
+              empty0 && s && *s == "PAGE_20" && !blocks.block_of("t") && !blocks.block_of("u") &&
+                  !blocks.block_of("v") && !blocks.block_of("") && w && *w == "PAGE_9" &&
+                  blocks.head("s") == std::optional<uint16_t>(0xC123) && !blocks.head("w") &&
+                  !blocks.head("PAGE_20") && !blocks.empty());
+    }
+    {
+        const std::string heads = block_line("BANK_8_CODE", 0x100000, "BANK_8_CODE") +
+                                  block_line("game_const", 0x103546, "BANK_8_CODE") +
+                                  block_line("PAGE_95_CONST", 0x5FC000, "PAGE_95_CONST") +
+                                  block_line("players_const", 0x5FC000, "PAGE_95_CONST");
+        const std::string lines = rec("__ASM_LINE_1021_game_2fanimations_2ec", 0x103814, "animations_c", "game_const",
+                                      "game/animations.c:1021") +
+                                  rec("__ASM_LINE_350_players_2fserves_2ec", 0x5FD6CE, "serves_c", "players_const",
+                                      "players/serves.c:350");
+        SourceMap with;
+        SourceMap without;
+        const auto rw = load(with, synth("z32.map", heads + lines));
+        const auto ro = load(without, synth("z32old.map", lines));
+        check("Z88MAP-34", "the source half places line records by their block: game/animations.c:1021 (game_const of BANK_8_CODE, $103814) "
+                           "is page 17 at $3814, players/serves.c:350 (players_const of PAGE_95_CONST, $5FD6CE) page 95 at $D6CE; "
+                           "the same lines with no blocks in the map are refused as before",
+              rw && starts_are(with.resolve("game/animations.c:1021"), {{MemSpace::page(17), 0x3814}}) &&
+                  starts_are(with.resolve("players/serves.c:350"), {{MemSpace::page(95), 0xD6CE}}) &&
+                  !ro && ro.error.find("names no bank or page") != std::string::npos);
+    }
+    {
+        const std::string map = block_line("BANK_8_CODE", 0x100000, "BANK_8_CODE") +
+                                block_line("game_const", 0x103546, "BANK_8_CODE") +
+                                rec("_regular_backhand_animation", 0x103782, "player_update_c", "game_const",
+                                    "player_update.c:736");
+        SymbolTable with;
+        SymbolTable without;
+        const int nw = with.load_z88dk_map(synth("z35.map", map).string());
+        const int no = without.load_z88dk_map(
+            synth("z35old.map", rec("_regular_backhand_animation", 0x103782, "player_update_c", "game_const",
+                                    "player_update.c:736")).string());
+        const auto k = with.find_name("_regular_backhand_animation");
+        check("Z88MAP-35", "the symbol half places a symbol by its block: _regular_backhand_animation (game_const of BANK_8_CODE, $103782) "
+                           "is a label of page 17 at $3782; with no blocks in the map it is refused (no label)",
+              nw == 1 && k && k->addr == 0x3782 && k->space == std::optional<FetchSource>(MemSpace::page(17)) &&
+                  !k->bind_at_load && no == 0 && !without.find_name("_regular_backhand_animation"));
+    }
+
     // ── Z88SYM-*: the symbol half of the same map, GH #375 stage 3 ──────────────
     // Oracle: the fixtures' NEX placement (prog_PAGE_20.bin / prog_BANK_10.bin at NEX bank
     // 10 +0 = page 20; prog_CODE.bin at bank 2 +0 = page 4), design 9.4 and #344 D8.

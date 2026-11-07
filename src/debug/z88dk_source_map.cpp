@@ -705,6 +705,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     std::vector<Z88dkMapLine> symbols;
     std::vector<CdbLine> cdb_lines;           // the __CDBINFO__ records, for the variable store
     std::map<std::string, uint64_t> bounds;   // const __<group>_head / _tail, first wins
+    Z88dkBlocks blocks;                       // each section's block (GH #478)
     std::string float_library;                // the first non-zero const __code_fp_<lib>_size
     std::string text;
     int map_line = 0;
@@ -729,6 +730,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             continue;
         }
         if (parsed->is_const) {
+            blocks.add(*parsed);
             // the float library the program links: `__code_fp_<lib>_size` is non-zero for it alone (GH #438, z88dk#3236)
             if (float_library.empty() && starts_with(parsed->name, "__code_fp_") && parsed->value != 0
                 && parsed->name.size() > 15 && parsed->name.compare(parsed->name.size() - 5, 5, "_size") == 0)
@@ -766,7 +768,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         const auto loc = parse_location(m.location);
         if (!loc) return failed(where + "invalid location '" + m.location + "'");
         const Z88dkSpace placed = z88dk_section_space(m.section, static_cast<uint32_t>(m.value),
-                                                      page_head, dot);
+                                                      page_head, dot, &blocks);
         Record r;
         r.value = m.value;
         r.module = m.module;
@@ -847,7 +849,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             if (value < bin.head || value + length > bin.head + bin.bytes.size()) continue;
             const auto group_space = [&](uint64_t v) {
                 const Z88dkSpace g = z88dk_section_space(bin.group, static_cast<uint32_t>(v),
-                                                         page_head, dot);
+                                                         page_head, dot, &blocks);
                 if (g.kind == Z88dkSpace::Kind::Paged) return g.space;
                 if (g.kind == Z88dkSpace::Kind::BindAtLoad) return space_of(g.addr16);
                 return MemSpace::floating();
@@ -891,7 +893,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         view.place = [&](const std::string& section, uint64_t value) {
             Z88dkPlacement out;
             const Z88dkSpace placed = z88dk_section_space(section, static_cast<uint32_t>(value),
-                                                          page_head, dot);
+                                                          page_head, dot, &blocks);
             out.lo = placed.addr16;
             switch (placed.kind) {
             case Z88dkSpace::Kind::Paged:
@@ -1044,7 +1046,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             return out;
         }
         const Z88dkSpace placed = z88dk_section_space(s.section, static_cast<uint32_t>(s.value),
-                                                      page_head, dot);
+                                                      page_head, dot, &blocks);
         out.addr16 = placed.addr16;
         if (placed.kind == Z88dkSpace::Kind::Paged) {
             out.space = placed.space;

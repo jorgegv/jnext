@@ -141,6 +141,22 @@ refusal is the first bad line.
 `z88dk_section_space(section, value, page_head, dot)` (`debug/z88dk_space.cpp`) maps a
 section name and a (possibly 24-bit) value to a `Z88dkSpace`. Page numbers are
 0..223, banks 0..111; the numbers in a section name are 1 to 3 decimal digits.
+
+**The block first** (GH #478). Since z88dk#3197 (nightly 2026-10-21) z80asm writes
+the block, the top-level section, of each section in its `__<section>_head` line
+(`__game_const_head = $103546 ; const, public, def, , BANK_8_CODE,`). appmake puts
+the section's code in the bank its block names, so a user section such as
+`game_const` is in bank 8 although its own name says nothing. Both halves fill a
+`Z88dkBlocks` table from those lines (first wins) and pass it as a fifth
+argument; when the section has a block and the block names a bank by appmake's
+rule (`mb_enumerate_banks()`: the first of `BANK`, `DIV`, `PAGE`, in zxn's order,
+found anywhere in the block name and followed by `_<n>`; what follows the number
+is free), the section is placed by its block: `BANK_<n>` as rule 2, with `_L` /
+`_H` right after the number fixing the half; `PAGE_<n>` as rule 1 with the head
+`__<block>_head`; `DIV_<n>`, the ranges and the dot rules as below. Messages then
+name the section and its block. A section with no block (an older map) or whose
+block names no bank (`CODE`) takes the rules below on its own name, unchanged.
+
 The rules, in order of the section name:
 
 1. **`PAGE_<n>`** and `<KIND>_PAGE_<n>` (KIND is `CODE`, `RODATA`, `DATA` or
