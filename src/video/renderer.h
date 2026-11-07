@@ -187,9 +187,11 @@ public:
     ///
     /// Unlike Layer 2 / Tilemap / Sprites — which each apply their own clip
     /// window inside their render_scanline — the ULA's clip lives in the
-    /// compositor stage (VHDL zxnext.vhd:7104, `ula_clipped` feeds
-    /// `ula_transparent`), so `Ula::render_scanline` emits an UNCLIPPED line
-    /// and this pass masks it.  Every clipped-away cell becomes TRANSPARENT.
+    /// compositor stage (VHDL zxula.vhd:562 `o_ula_clipped`, zxnext.vhd:7063,
+    /// 7100, 7103 feed `ula_transparent`), so `Ula::render_scanline` emits an
+    /// UNCLIPPED line and this pass masks it.  Every clipped-away DISPLAY cell
+    /// becomes TRANSPARENT; the border is never clipped (zxula.vhd:414-415,
+    /// 562: `border_active` forces "not clipped").
     ///
     /// Factored out of render_frame so the debugger's ULA views can apply the
     /// identical mask — otherwise the ULA panel would be the only layer view
