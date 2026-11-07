@@ -144,7 +144,7 @@ refusal is the first bad line.
 section name and a (possibly 24-bit) value to a `Z88dkSpace`. Page numbers are
 0..223, banks 0..111; the numbers in a section name are 1 to 3 decimal digits.
 
-**The block first** (GH #478). Since z88dk#3197 (nightly 2026-10-21) z80asm writes
+**The block first.** Since z88dk nightly 2026-10-21 z80asm writes
 the block, the top-level section, of each section in its `__<section>_head` line
 (`__game_const_head = $103546 ; const, public, def, , BANK_8_CODE,`). appmake puts
 the section's code in the bank its block names, so a user section such as
@@ -184,17 +184,17 @@ The rules, in order of the section name:
 
 5. **A dot command.** NextZXOS copies a dot command's file into a DivMMC RAM bank and
    runs it from `$2000` there; the map names no bank. `z88dk_dot_command(consts, &why)`
-   (`z88dk_space.cpp:136`) says whether a map is one: the constant `startupoffset` is `$0100` (dot),
+   (`z88dk_space.cpp:275`) says whether a map is one: the constant `startupoffset` is `$0100` (dot),
    `$0200` (dotx) or `$0300` (dotn) and `__CODE_head` is `$2000`. No `startupoffset`, or another
    value, is not a dot and has no reason; a dot whose `__CODE_head` is not `$2000` is not a dot
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
-   (`dot_why`, `z88dk_source_map.cpp:774-776`), while the symbol half places the map as any other
-   (`z88dk_dot_command()`, `symbol_table.cpp:82`, no reason asked). Both halves read the
-   `__<s>_head`/`_tail` constants and `startupoffset` (`z88dk_source_map.cpp:755`; the symbol half keeps every constant). For a dot,
+   (`dot_why`, `z88dk_source_map.cpp:777-779`), while the symbol half places the map as any other
+   (`z88dk_dot_command()`, `symbol_table.cpp:84`, no reason asked). Both halves read the
+   `__<s>_head`/`_tail` constants and `startupoffset` (`z88dk_source_map.cpp:757`; the symbol half keeps every constant). For a dot,
    `z88dk_section_space()` takes it as a last argument, after rules 1 to 3 (a value above `0xFFFF` in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:
     - an unnumbered section at `$2000`-`$3FFF` is `DivMmcRam{kNextZxosDotBank}`, bank 2
-      (`kNextZxosDotBank`, `z88dk_space.cpp:176-181`), whatever the MMU maps there when the map is loaded;
+      (`kNextZxosDotBank`, `z88dk_space.cpp:192-197`), whatever the MMU maps there when the map is loaded;
     - a dotx's other unnumbered sections are rule 4: its main part (`PROG.X`, `prog_MAIN.bin`
       at `CRT_ORG_MAIN` `$8000`) is main RAM;
     - in a dotn those sections, and every `PAGE_<n>` / `DIV_<n>` section, are *refused*
