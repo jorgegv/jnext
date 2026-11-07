@@ -53,6 +53,7 @@ int SymbolTable::read_z88dk_map(std::istream& file)
     // or a remote client may still ask for one by name (#279).
     std::vector<Z88dkMapLine> symbols;
     std::map<std::string, uint64_t> consts;   // first wins; 64-bit, for the page heads
+    Z88dkBlocks blocks;                       // each section's block (GH #478)
     std::string line;
     while (std::getline(file, line)) {
         const auto parsed = parse_z88dk_map_line(line);
@@ -67,6 +68,7 @@ int SymbolTable::read_z88dk_map(std::istream& file)
             continue;
         if (parsed->is_const) {
             consts.emplace(parsed->name, parsed->value);
+            blocks.add(*parsed);
             // Names are 16-bit (D4): a wider constant is not a name.
             if (parsed->value <= 0xFFFF)
                 add_value(parsed->name, static_cast<uint16_t>(parsed->value));
@@ -85,7 +87,7 @@ int SymbolTable::read_z88dk_map(std::istream& file)
     for (const Z88dkMapLine& s : symbols) {
         if (s.value > 0xFFFFFF) continue;   // no rule places it; never truncated
         const Z88dkSpace placed = z88dk_section_space(s.section, static_cast<uint32_t>(s.value),
-                                                      page_head, dot);
+                                                      page_head, dot, &blocks);
         const bool c = is_z88dk_c_symbol(s);
         switch (placed.kind) {
         case Z88dkSpace::Kind::Paged:

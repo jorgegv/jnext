@@ -51,6 +51,33 @@ inline constexpr int kNextZxosDotBank = 2;
 std::optional<Z88dkDot> z88dk_dot_command(const std::map<std::string, uint64_t>& consts,
                                           std::string* why);
 
+/// The blocks of a map (GH #478): z80asm writes the block (the top-level section)
+/// of each section in the section's `__<section>_head` line, since z88dk#3197
+/// (nightly 2026-10-21 on):
+///
+///     __game_const_head = $103546 ; const, public, def, , BANK_8_CODE,
+///
+/// appmake puts a section's code in the bank its block names, so the block, not
+/// the section, says which bank a user section (`game_const`) is in. Older maps
+/// have no blocks: the table stays empty.
+struct Z88dkMapLine;
+class Z88dkBlocks {
+public:
+    /// Records `line` when it is a `__<section>_head` constant with a block
+    /// (first wins, as for the other constants). Any other line is ignored.
+    void add(const Z88dkMapLine& line);
+    /// The block of `section`, or nullptr when the map does not say.
+    const std::string* block_of(std::string_view section) const;
+    /// The low 16 bits of `__<block>_head`, or nullopt when the map has no such
+    /// head or it does not fit 24 bits.
+    std::optional<uint16_t> head(std::string_view block) const;
+    bool empty() const { return block_.empty(); }
+
+private:
+    std::map<std::string, std::string, std::less<>> block_;
+    std::map<std::string, uint64_t, std::less<>> head_;
+};
+
 /// Rules 1 (`PAGE_<n>`, `<KIND>_PAGE_<n>`: page n plus the 8K pages the section
 /// runs on into, from the map's `__PAGE_<n>_head`, `page_head(n)`), 2 (`BANK_<n>`
 /// and `<KIND>_<n>` with `_L` / `_H`, and the aligned `RODATA_<n>_align_<m>` /
@@ -70,6 +97,25 @@ Z88dkSpace z88dk_section_space(
     std::string_view section, uint32_t value,
     const std::function<std::optional<uint16_t>(int)>& page_head,
     const Z88dkDot* dot = nullptr);
+
+/// The same, with the map's blocks (GH #478), checked first: when `section` has
+/// a block in `blocks` and the block names a bank, page or DIV bank by appmake's
+/// rule, the section is placed by its block:
+///
+/// - the first of `BANK`, `DIV`, `PAGE` found anywhere in the block name, followed
+///   by `_<n>`; anything after the number is part of the name (`BANK_8_CODE` is
+///   bank 8, `PAGE_95_CONST` is page 95);
+/// - `BANK_<n>_L...` / `BANK_<n>_H...` is page 2n / 2n + 1, any other `BANK_<n>`
+///   block is page 2n + bit 13 of the low 16 bits (rule 2);
+/// - a `PAGE_<n>` block runs on into the next pages from `__<block>_head` (rule 1);
+/// - `DIV_<n>` and the ranges and the dot command rules are as above.
+///
+/// A section with no block, or whose block names no bank (`CODE`), takes the
+/// rules above on its own name. `blocks` null is the 4-argument form.
+Z88dkSpace z88dk_section_space(
+    std::string_view section, uint32_t value,
+    const std::function<std::optional<uint16_t>(int)>& page_head,
+    const Z88dkDot* dot, const Z88dkBlocks* blocks);
 
 /// Design 9.4 rule 1: page n's head, as `z88dk_section_space()`'s `page_head`
 /// wants it. `consts` holds the map's const values by name (first wins). The
