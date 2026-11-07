@@ -427,7 +427,9 @@ let pass = 0, fail = 0;
 const only = E.JNEXT_BROWSER_ROWS ? E.JNEXT_BROWSER_ROWS.split(',') : null;   // debugging only: a partial run fails the count
 for (const r of rows) {
   if (only && !only.includes(r.id)) continue;
-  try { await r.fn(); pass++; console.log(`PASS ${r.id} ${r.text}`); }
+  try {
+    await Promise.race([r.fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('row timed out')), 400000))]);
+    pass++; console.log(`PASS ${r.id} ${r.text}`); }
   catch (e) { fail++; console.log(`FAIL ${r.id} ${r.text} [${String(e.message || e).slice(0, 600)}]`); }
 }
 A.close(); B.close(); C.close();
