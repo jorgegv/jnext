@@ -311,6 +311,12 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
     return true;
 }
 
+namespace {
+PersistHook g_persist_hook = nullptr;
+}  // namespace
+
+void set_persist_hook(PersistHook hook) { g_persist_hook = hook; }
+
 bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& why)
 {
     if (state.size() != id.plain_bytes) {
@@ -384,6 +390,7 @@ bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& w
         return false;
     }
 
+    if (g_persist_hook) g_persist_hook();
     why.clear();
     return true;
 }

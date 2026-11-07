@@ -1,4 +1,7 @@
 #include "sdl_app.h"
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 #include "platform/host_key_wiring.h"   // GH #268
 #include "platform/emulator_boot.h"
 #include "platform/cli_capture.h"
@@ -485,6 +488,20 @@ void SdlApp::run() {
     }
 }
 
+#ifdef __EMSCRIPTEN__
+namespace {
+// Frames per prepare_warm_start() call and the time one tick may spend on them.
+// A tick must stay under Chrome's 50 ms long-task mark; the budget is checked
+// after each step, so a step (one frame) must be well under it.
+constexpr uint32_t kWarmStartStepFrames = 1;
+constexpr uint64_t kWarmStartTickBudgetMs = 25;
+
+EM_JS(void, jnext_web_progress, (const char* phase, double fraction), {
+    if (Module.jnextProgress) Module.jnextProgress(UTF8ToString(phase), fraction);
+});
+}  // namespace
+#endif
+
 bool SdlApp::tick(uint32_t& sleep_ms) {
     sleep_ms = 0;
     // GH #364 — SIGINT/SIGTERM: leave through the normal teardown; main()
@@ -507,6 +524,29 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
     } else if (inject_countdown_ > 0) {
         --inject_countdown_;
     }
+
+#ifdef __EMSCRIPTEN__
+    // A first NEX load records the NextZXOS machine (500 frames of firmware boot): one
+    // task of many seconds, during which the page cannot repaint, so no progress could
+    // be shown and the browser may offer to stop the script. Spread it over ticks, a
+    // time budget of them each, and report through Module.jnextProgress(phase, fraction).
+    // Ready / Unavailable fall through: load_nex() then hits the in-memory state, or
+    // falls back to the synthetic machine and says so.
+    if (load_countdown_ == 0 && emulator_load_routes_to_nex(load_file_)) {
+        const uint64_t t0 = SDL_GetTicks();
+        Emulator::WarmStartProgress p;
+        do {
+            p = emulator_.prepare_warm_start(kWarmStartStepFrames);
+        } while (p.status == Emulator::WarmStartProgress::Status::Recording &&
+                 SDL_GetTicks() - t0 < kWarmStartTickBudgetMs);
+        if (p.status == Emulator::WarmStartProgress::Status::Recording) {
+            jnext_web_progress("warm-start", static_cast<double>(p.frames_done) / p.frames_total);
+            return true;   // paint, then carry on with the next step
+        }
+        if (p.status == Emulator::WarmStartProgress::Status::Ready)
+            jnext_web_progress(p.from_cache ? "restore" : "warm-start", 1.0);
+    }
+#endif
 
     // Apply pending load when countdown reaches zero.
     if (load_countdown_ == 0) {

@@ -17,7 +17,13 @@ export const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 't
 
 // roots: { prefix: directory }, e.g. { build: '/x/build/wasm-core', page: ... }
 export class Harness {
-  constructor(roots) { this.roots = roots; this.requests = []; this.refused = []; }
+  constructor(roots) {
+    this.roots = roots; this.requests = []; this.refused = [];
+    // Further ORIGINS the page may fetch from (a stand-in image host): { 'http://img.example':
+    // { root: dir, headers: {...} } }. Served from `root` by file name, with `headers` added (CORS
+    // or not, as the row needs); every request is logged in `originRequests` with its Origin header.
+    this.origins = {}; this.originRequests = [];
+  }
 
   async launch(extraArgs = []) {
     this.browser = await chromium.launch({
@@ -33,7 +39,24 @@ export class Harness {
     await ctx.route('**/*', (route) => {
       const url = new URL(route.request().url());
       this.requests.push(url.pathname);
-      if (url.origin !== 'http://localhost') { this.refused.push(url.href); return route.abort(); }
+      if (url.origin !== 'http://localhost') {
+        const o = this.origins[url.origin];
+        // `passthrough`: a real server (a row's own, on 127.0.0.1): the request goes to the network,
+        // so the browser's CORS check is the real one. A response the harness fulfils itself is
+        // NOT checked for CORS by Chromium, so a row about a missing header needs this.
+        if (o && o.passthrough) {
+          this.originRequests.push({ url: url.href, origin: route.request().headers()['origin'] || null });
+          return route.continue();
+        }
+        const f = o && path.resolve(o.root, decodeURIComponent(url.pathname.slice(1)));
+        if (!f || !f.startsWith(path.resolve(o.root) + path.sep) || !fs.existsSync(f) || !fs.statSync(f).isFile()) {
+          this.refused.push(url.href); return route.abort();
+        }
+        this.originRequests.push({ url: url.href, origin: route.request().headers()['origin'] || null });
+        const body = fs.readFileSync(f);
+        return route.fulfill({ status: 200, body, headers: { 'Content-Type': 'application/octet-stream',
+                                                            'Content-Length': String(body.length), ...o.headers } });
+      }
       const m = /^\/([^/]+)\/(.+)$/.exec(url.pathname);
       const root = m && this.roots[m[1]];
       const file = root && path.resolve(root, decodeURIComponent(m[2]));
@@ -50,7 +73,7 @@ export class Harness {
   async close() { if (this.browser) await this.browser.close(); }
 }
 
-export function pageUrl({ module, args = [], files = [], canvas, autostart, env }) {
+export function pageUrl({ module, args = [], files = [], canvas, autostart, env, image, idbfs }) {
   const q = new URLSearchParams();
   q.set('module', '/build/' + module);
   q.set('args', JSON.stringify(args));
@@ -58,6 +81,8 @@ export function pageUrl({ module, args = [], files = [], canvas, autostart, env 
   if (canvas) q.set('canvas', canvas);
   if (autostart) q.set('autostart', '1');
   if (env) q.set('env', JSON.stringify(env));
+  if (image) q.set('image', JSON.stringify(image));
+  if (idbfs) q.set('idbfs', '1');
   return 'http://localhost/page/index.html?' + q.toString();
 }
 

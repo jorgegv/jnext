@@ -83,6 +83,12 @@
 #endif
 #endif
 
+#ifdef __EMSCRIPTEN__
+// The card extracted from a zipped --sdcard (about 40 MiB): removed when the run
+// ends, since the process scratch directory's destructor never runs under Emscripten.
+static std::string g_extracted_sd_card;
+#endif
+
 static void crash_handler(int sig) {
     Log::emulator()->critical("signal {} received", sig);
     spdlog::shutdown();
@@ -1935,6 +1941,7 @@ int main(int argc, char* argv[]) {
         std::error_code rm_ec;
         std::filesystem::remove(sd_card_image, rm_ec);   // the page keeps the original
         sd_card_image = extracted;
+        g_extracted_sd_card = extracted;
 #else
         fprintf(stderr, "--sdcard %s: is a ZIP archive, not an SD card image; unzip it first\n",
                 sd_card_image.c_str());
@@ -2894,6 +2901,13 @@ int main(int argc, char* argv[]) {
             // Capture requests are part of the CLI contract: if one cannot start
             // or finalize, an otherwise-clean run must not report success.
             bool capture_ok = true;
+#ifdef __EMSCRIPTEN__
+            if (!g_extracted_sd_card.empty()) {
+                std::error_code rm_ec;
+                std::filesystem::remove(g_extracted_sd_card, rm_ec);
+                g_extracted_sd_card.clear();
+            }
+#endif
 
             // Stop recording before shutdown (encodes the MP4).
             if (app.emulator().video_recorder().is_recording()) {

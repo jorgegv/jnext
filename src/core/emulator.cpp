@@ -137,7 +137,10 @@ bool digest_for_image(const EmulatorConfig& cfg, std::array<uint8_t, 32>& d)
     if (cfg.sd_card_sha256.empty() || cfg.sd_card_image.empty() ||
         cfg.sd_card_sha256_for != cfg.sd_card_image)
         return false;
-    return warm_start::parse_sha256_hex(cfg.sd_card_sha256, d);
+    if (!warm_start::parse_sha256_hex(cfg.sd_card_sha256, d)) return false;
+    // All zeros is the cache header's "no digest": a caller that fills the
+    // config directly must not get a silent size-only key from it.
+    return d != std::array<uint8_t, 32>{};
 }
 
 }  // namespace
@@ -145,6 +148,10 @@ bool digest_for_image(const EmulatorConfig& cfg, std::array<uint8_t, 32>& d)
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
+    // A recording in progress belongs to the configuration it began under: an
+    // in-place init() (a reset, a machine change) must not let it finish under
+    // the new one's key.
+    warm_start_recorder_.reset();
     // GH #395 - automatic tape play/stop is a host deck setting; a polling run
     // never outlives the machine it was counted on.
     tape_auto_play_ = cfg.tape_auto_play;

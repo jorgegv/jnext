@@ -171,6 +171,13 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why);
 /// another boot.
 bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& why);
 
+/// Called once after every SUCCESSFUL store(), when set. The browser build
+/// installs one that flushes its IndexedDB-backed warm-start directory, so the
+/// one place a recording is written is the one place it is made durable. A
+/// store() that is refused or fails never calls it.
+using PersistHook = void (*)();
+void set_persist_hook(PersistHook hook);
+
 /// Byte length of the on-disk header that precedes the compressed payload.
 /// PLAIN — never compressed. See the file-layout comment in the .cpp for why
 /// the header is the one part that cannot be.

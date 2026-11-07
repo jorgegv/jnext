@@ -202,6 +202,7 @@ std::string det(const char* f, ...) {
 }
 
 std::string g_dir;
+int g_persist_calls = 0;
 
 /// Every refusal `warm_start::load()` produces anywhere in this suite, in the
 /// order it was produced. WSC-INV-10 asserts they are all distinct: the
@@ -796,6 +797,28 @@ int main()
                   "parse_sha256_hex accepts 64 hex digits in either case and refuses 63, 65, a non-hex digit, and empty",
                   ok_lo && ok_up && p == q && p == digest(0x10) && keep == p && bad);
             warm_start::store(id, state, w2);   // leave the file as INV-11 left it
+        }
+
+        // The browser flushes its IndexedDB-backed warm-start directory from a hook
+        // called once after every SUCCESSFUL store(); a refused store never calls it.
+        {
+            g_persist_calls = 0;
+            warm_start::set_persist_hook([] { ++g_persist_calls; });
+            std::string w3;
+            const bool ok = warm_start::store(id, state, w3);
+            const int after_ok = g_persist_calls;
+            auto bad = id;
+            bad.plain_bytes = state.size() + 1;
+            const bool refused_store = !warm_start::store(bad, state, w3);
+            const int after_bad = g_persist_calls;
+            warm_start::set_persist_hook(nullptr);
+            warm_start::store(id, state, w3);
+            check("WSC-PERSIST-01",
+                  "store() calls the persist hook once after a successful write, never after a "
+                  "refused one, and not at all once the hook is cleared",
+                  ok && after_ok == 1 && refused_store && after_bad == 1 && g_persist_calls == 1,
+                  det("ok=%d after_ok=%d refused=%d after_bad=%d end=%d", ok, after_ok,
+                      refused_store, after_bad, g_persist_calls));
         }
     }
 
@@ -1525,6 +1548,27 @@ int main()
                       before == after));
         }
 
+        // WSR-SHA-04: an all-zero digest is the header's "no digest", so a caller that
+        // fills the config directly gets the size + mtime key, not a size-only one.
+        {
+            const std::string card = g_dir + "/sha4.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            Emulator::reset_warm_start_memo_for_test();
+            const bool planted = plant(card);                      // keyed size + mtime
+            LogTap tap(Log::emulator());
+            auto e_heap = std::make_unique<Emulator>();
+            Emulator& e = *e_heap;
+            make_dig_emu(e, card, std::string(64, '0'), card);
+            const bool hit = e.ensure_warm_start_state();
+            check("WSR-SHA-04",
+                  "an all-zero digest bound to the card is not a digest: the size + mtime "
+                  "recording is restored",
+                  planted && hit && tap.count(kRestored) == 1 && tap.count(kDiffImage) == 0,
+                  det("planted=%d hit=%d restored=%d different=%d", planted, hit,
+                      tap.count(kRestored), tap.count(kDiffImage)));
+        }
+
         // ── Stepped recording. Oracle: the plan, 2.2 (at most max_frames per
         // call; Recording until all kWarmStartBootFrames; ensure() finishes).
         using Status = Emulator::WarmStartProgress::Status;
@@ -1601,6 +1645,32 @@ int main()
                       tap.count(kColdBoot) == 2,
                   det("p1=%u p2=%u swap='%s' coldboot=%d", p1.frames_done, p2.frames_done,
                       swap_why.c_str(), tap.count(kColdBoot)));
+        }
+        // WSR-STEP-06
+        {
+            const std::string card = g_dir + "/step6.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            Emulator::reset_warm_start_memo_for_test();
+            auto e_heap = std::make_unique<Emulator>();
+            Emulator& e = *e_heap;
+            make_emu(e, card);
+            LogTap tap(Log::emulator());
+            const auto p1 = e.prepare_warm_start(100);
+            EmulatorConfig again;
+            again.type = MachineType::ZXN_ISSUE2;
+            again.rewind_buffer_frames = 0;
+            again.sd_card_image = card;
+            e.init(again);                      // an in-place init() (a reset) mid-recording
+            const auto p2 = e.prepare_warm_start(100);
+            check("WSR-STEP-06",
+                  "an in-place init() drops the recording in progress: the next call starts over "
+                  "(frames_done 100) with a second boot",
+                  p1.status == Status::Recording && p1.frames_done == 100 &&
+                      p2.status == Status::Recording && p2.frames_done == 100 &&
+                      tap.count(kColdBoot) == 2,
+                  det("p1=%u p2=%u coldboot=%d", p1.frames_done, p2.frames_done,
+                      tap.count(kColdBoot)));
         }
         // WSR-STEP-04
         {
