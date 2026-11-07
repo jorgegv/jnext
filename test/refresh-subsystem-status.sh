@@ -154,6 +154,7 @@ BEGIN {
     M["sdl_window_title_test"]         = "SDL window title (version)"
     M["sdl_app_tick_test"]             = "SdlApp tick (frame loop)"
     M["browser_policy_test"]           = "Browser frame gate and refusals"
+    M["web_api_test"]                  = "Browser JavaScript API"
     M["quit_signal_test"]              = "SIGINT/SIGTERM quit request"
     M["frame_sequencer_test"]          = "Frame-tick sequencer (wiring)"
     M["present_count_test"]            = "Present count (widget)"

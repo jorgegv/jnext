@@ -1,6 +1,7 @@
 #include "platform/browser_frontend.h"
 #include "platform/browser_pacing.h"
 #include "platform/sdl_app.h"
+#include "platform/web/web_controller.h"
 #include "core/emulator.h"
 #include "core/log.h"
 #include "core/warm_start_cache.h"
@@ -38,7 +39,11 @@ void frame_cb(void*)
     const auto r = browser_pacing::run_callback(
         g_ctx.gate,
         [] { return static_cast<int64_t>(now_us()); },
-        [&app](uint32_t& s) { return app.tick(s); },
+        [&app](uint32_t& s) {
+            const bool more = app.tick(s);
+            web_controller::after_tick(app, more);
+            return more;
+        },
         [&app] { return app.emulator().fastload_active(); });
     if (r == browser_pacing::Result::End) end_run();
 }
@@ -123,6 +128,7 @@ void run(SdlApp& app, std::function<int()> finish)
     jnext_web_listen_pointer_lock(sel ? sel : "#canvas");
     emscripten_set_blur_callback(sel ? sel : "#canvas", nullptr, EM_FALSE, canvas_blur);
     // fps 0 = requestAnimationFrame; simulate_infinite_loop 0 = main() returns.
+    web_controller::attach(app);
     emscripten_set_main_loop_arg(frame_cb, nullptr, 0, 0);
 }
 

@@ -1,0 +1,354 @@
+// jnext.mount(container, options): JNEXT in a web page. Plain script, no
+// dependencies, ASCII. It is bundled (with jnext-image.js, which it calls)
+// after the emulator's own code in jnext-@PROJECT_VERSION@.js and defines one
+// global, `jnext`.
+//
+// This file knows no command-line flag and no --set key: the whole options
+// object goes to the emulator (jnext_web_argv, src/platform/web_api.cpp), which
+// owns the table that turns it into a command line. The only option names used
+// here are the ones this layer acts on itself: image, file, width, height,
+// wasmUrl and the three callbacks.
+(function (root) {
+  'use strict';
+
+  var VERSION = '@PROJECT_VERSION@';
+  var SCRIPT = document.currentScript;
+  var DEFAULT_WASM = new URL('jnext-' + VERSION + '.wasm', SCRIPT ? SCRIPT.src : document.baseURI).href;
+  var counter = 0;
+  var loadSeq = 0;
+  var LOG_LINES = 60;
+  var CALLBACKS = ['onProgress', 'onReady', 'onError'];
+
+  function px(v) { return typeof v === 'number' ? v + 'px' : String(v); }
+
+  function safeName(name) { return String(name).replace(/[^A-Za-z0-9._-]/g, '_'); }
+
+  function fileName(url) {
+    var p = String(url).split('#')[0].split('?')[0];
+    return p.substring(p.lastIndexOf('/') + 1) || 'program';
+  }
+
+  // file / load() argument -> { url } | { bytes, name } | null (not a form we know).
+  function fileSpec(f) {
+    if (typeof f === 'string') return { url: f };
+    if (f && typeof f === 'object' && typeof f.url === 'string') return { url: f.url };
+    if (f && typeof f === 'object' && f.data !== undefined && typeof f.name === 'string') {
+      return { data: f.data, name: f.name };
+    }
+    return null;
+  }
+
+  function bytesOf(data) {
+    if (data instanceof Uint8Array) return Promise.resolve(data);
+    if (data instanceof ArrayBuffer) return Promise.resolve(new Uint8Array(data));
+    if (typeof Blob !== 'undefined' && data instanceof Blob) {
+      return data.arrayBuffer().then(function (ab) { return new Uint8Array(ab); });
+    }
+    return Promise.reject(new TypeError('jnext: file data must be an ArrayBuffer, a Uint8Array or a Blob'));
+  }
+
+  // Fetch/convert a program and write it to /media/<k>-<name>. Resolves to the path.
+  function installFile(mod, spec) {
+    var p;
+    if (spec.url !== undefined) {
+      p = fetch(spec.url).then(function (r) {
+        if (!r.ok) throw new Error('cannot fetch ' + spec.url + ': HTTP ' + r.status);
+        return r.arrayBuffer();
+      }).then(function (ab) { return { bytes: new Uint8Array(ab), name: fileName(spec.url) }; });
+    } else {
+      p = bytesOf(spec.data).then(function (b) { return { bytes: b, name: spec.name }; });
+    }
+    return p.then(function (f) {
+      var path = '/media/' + (loadSeq++) + '-' + safeName(f.name);
+      mod.FS.mkdirTree('/media');
+      mod.FS.writeFile(path, f.bytes);
+      return path;
+    });
+  }
+
+  function argvOf(mod, obj) {
+    var p = mod.stringToNewUTF8(JSON.stringify(obj));
+    var r = mod._jnext_web_argv(p);
+    mod._free(p);
+    var s = mod.UTF8ToString(r);
+    mod._free(r);
+    var o = JSON.parse(s);
+    if (o.error) throw new Error(o.error);
+    return o.argv;
+  }
+
+  // The options object as the emulator reads it: functions become true, file and
+  // image become what was installed (or placeholders for the early validation).
+  function substitute(options, file, image) {
+    var o = {};
+    Object.keys(options).forEach(function (k) {
+      var v = options[k];
+      o[k] = typeof v === 'function' ? true : v;
+    });
+    if (o.file !== undefined && fileSpec(o.file)) o.file = file;
+    if (o.image !== undefined && o.image && typeof o.image === 'object') o.image = image;
+    return o;
+  }
+
+  function mount(container, options) {
+    if (!(container instanceof Element)) {
+      return Promise.reject(new TypeError('jnext.mount: the first argument must be a DOM element'));
+    }
+    if (options === undefined) options = {};
+    if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+      return Promise.reject(new TypeError('jnext.mount: options must be an object'));
+    }
+    var n = ++counter;
+    var cb = {};
+    CALLBACKS.forEach(function (k) { if (typeof options[k] === 'function') cb[k] = options[k]; });
+    function call(name, a, b) {
+      if (!cb[name]) return;
+      try { cb[name](a, b); } catch (e) { console.error('jnext: ' + name + ' threw', e); }
+    }
+
+    // ---- DOM ----
+    var box = document.createElement('div');
+    box.className = 'jnext-player';
+    box.style.cssText = 'position:relative;background:#000;overflow:hidden;width:' +
+      px(options.width === undefined ? '100%' : options.width) + ';height:' +
+      px(options.height === undefined ? '100%' : options.height);
+    var canvas = document.createElement('canvas');
+    canvas.id = 'jnext-canvas-' + n;
+    canvas.tabIndex = 0;
+    canvas.style.cssText = 'display:block;width:100%;height:100%;outline:none';
+    canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    var overlay = document.createElement('div');
+    overlay.className = 'jnext-overlay';
+    overlay.style.cssText = 'position:absolute;left:0;top:0;right:0;bottom:0;display:flex;' +
+      'align-items:center;justify-content:center;background:rgba(0,0,0,0.6);color:#fff;' +
+      'font:16px sans-serif;cursor:pointer';
+    overlay.textContent = 'Loading...';
+    box.appendChild(canvas);
+    box.appendChild(overlay);
+    container.appendChild(box);
+
+    // ---- state ----
+    var state = 'waiting';
+    var mod = null;
+    var log = [];
+    var logMark = 0;
+    var exitWaiters = [];
+    var waiters = [];            // { resolve, reject }: the next ready / error
+    var volume = null;
+    var startedSeen = false;
+    var readyDone = false;
+    var readyResolve, readyReject;
+    var ready = new Promise(function (res, rej) { readyResolve = res; readyReject = rej; });
+    ready.catch(function () {});   // reported through onError; never an unhandled rejection
+
+    function say(text) { overlay.textContent = text; }
+    function fail(message) {
+      call('onError', message);
+      return new Error(message);
+    }
+    function rejectWaiters(err) {
+      var w = waiters; waiters = [];
+      w.forEach(function (x) { x.reject(err); });
+    }
+    function progress(phase, fraction) {
+      if (state === 'waiting' || state === 'starting') say(phase + ' ' + Math.round(fraction * 100) + '%');
+      call('onProgress', phase, fraction);
+    }
+
+    function onEvent(type, text) {
+      if (type === 'started') {
+        startedSeen = true;
+        state = 'running';
+        if (volume !== null) mod._jnext_web_set_volume(volume);
+      } else if (type === 'ready') {
+        readyDone = true;
+        readyResolve();
+        call('onReady');
+        var w = waiters; waiters = [];
+        w.forEach(function (x) { x.resolve(); });
+      } else if (type === 'error') {
+        var e = fail(text);
+        rejectWaiters(e);
+      }
+    }
+
+    function onExit(code) {
+      var wasDestroying = exitWaiters.length > 0;
+      if (state !== 'destroyed') state = 'exited';
+      var w = exitWaiters; exitWaiters = [];
+      w.forEach(function (f) { f(code); });
+      if (wasDestroying) return;
+      overlay.style.display = 'flex';
+      say('Stopped');
+      if (code !== 0) {
+        var e = fail('jnext exited with code ' + code);
+        if (!readyDone) readyReject(e);
+        rejectWaiters(e);
+      } else {
+        rejectWaiters(new Error('jnext: the machine has exited'));
+      }
+    }
+
+    var player = {
+      get state() { return state; },
+      get ready() { return ready; }
+    };
+
+    function live() {
+      if (state === 'destroyed') throw new Error('jnext: this player was destroyed');
+    }
+    function machineUp() { return state === 'running' || state === 'paused'; }
+    function waitReady() {
+      return new Promise(function (resolve, reject) { waiters.push({ resolve: resolve, reject: reject }); });
+    }
+
+    // After a few ms of emulation: a reset that has no ready event of its own.
+    function afterFrames() {
+      var before = mod._jnext_web_frame();
+      return new Promise(function (resolve) {
+        var t0 = Date.now();
+        (function poll() {
+          if (state === 'destroyed' || mod._jnext_web_frame() !== before || Date.now() - t0 > 2000) resolve();
+          else setTimeout(poll, 20);
+        })();
+      });
+    }
+
+    Object.defineProperty(player, '_module', { get: function () { return mod; }, enumerable: false });
+
+    player.pause = function () {
+      live();
+      if (state !== 'running') return;
+      mod._jnext_web_pause();
+      state = 'paused';
+    };
+    player.resume = function () {
+      live();
+      if (state !== 'paused') return;
+      mod._jnext_web_resume();
+      state = 'running';
+    };
+    player.reset = function (kind) {
+      live();
+      if (kind === undefined) kind = 'program';
+      var k = { program: 0, hard: 1, soft: 2 }[kind];
+      if (k === undefined) throw new RangeError("jnext: reset kind must be 'program', 'hard' or 'soft'");
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      if (k === 0) {
+        var w = waitReady();
+        mod._jnext_web_reset(0);
+        return w;
+      }
+      mod._jnext_web_reset(k);
+      return afterFrames();
+    };
+    player.load = function (file) {
+      live();
+      var spec = fileSpec(file);
+      if (!spec) return Promise.reject(new TypeError('jnext: load() takes a URL, {url} or {data, name}'));
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      return installFile(mod, spec).then(function (path) {
+        live();
+        var w = waitReady();
+        var p = mod.stringToNewUTF8(path);
+        var why = mod._jnext_web_load(p);
+        mod._free(p);
+        if (why) {
+          var e = fail(mod.UTF8ToString(why));
+          rejectWaiters(e);
+          return w;   // rejected just above
+        }
+        return w;
+      }, function (e) { throw fail(e.message); });
+    };
+    player.setVolume = function (v) {
+      live();
+      if (typeof v !== 'number' || !isFinite(v) || v < 0 || v > 1) {
+        throw new RangeError('jnext: the volume must be a number between 0 and 1');
+      }
+      volume = v;
+      if (startedSeen && state !== 'exited') mod._jnext_web_set_volume(v);
+    };
+    player.destroy = function () {
+      live();
+      var wasUp = machineUp();
+      var finish = function () {
+        state = 'destroyed';
+        if (box.parentNode) box.parentNode.removeChild(box);
+        mod = null;
+      };
+      if (!wasUp) { finish(); return Promise.resolve(); }
+      return new Promise(function (resolve) {
+        var done = false;
+        function end() { if (!done) { done = true; finish(); resolve(); } }
+        exitWaiters.push(end);
+        setTimeout(end, 2000);
+        mod._jnext_web_quit();
+      });
+    };
+
+    // ---- the module, the image, the program ----
+    function failMount(e) {
+      if (box.parentNode) box.parentNode.removeChild(box);
+      state = 'destroyed';
+      throw fail(e && e.message ? e.message : String(e));
+    }
+
+    var wasmUrl = typeof options.wasmUrl === 'string' ? options.wasmUrl : DEFAULT_WASM;
+    return createJnextModule({
+      canvas: canvas,
+      print: function (s) { console.log(s); },
+      printErr: function (s) { log.push(s); if (log.length > LOG_LINES) log.shift(); console.warn(s); },
+      onExit: onExit,
+      locateFile: function (p) { return p.endsWith('.wasm') ? wasmUrl : p; },
+      jnextEvent: onEvent,
+      jnextProgress: progress,
+      preRun: [function (m) {
+        m.ENV.SDL_EMSCRIPTEN_CANVAS_SELECTOR = '#' + canvas.id;
+        m.ENV.JNEXT_CONFIG_DIR = '/jnext';
+      }]
+    }).then(function (m) {
+      mod = m;
+      // Early validation: names, shapes, types, `image` required. No request has
+      // been made yet, so a refused page costs nothing.
+      var img = options.image;
+      argvOf(mod, substitute(options, 'x', { path: '/sdcard/image.img', sha256: img && img.sha256 }));
+      return JnextImage.mountWarmStartStore(mod);
+    }).then(function () {
+      return JnextImage.fetchImage(options.image, progress);
+    }).then(function (image) {
+      var inst = JnextImage.installImage(mod, image);
+      var fs = options.file !== undefined ? fileSpec(options.file) : null;
+      var fp = fs ? installFile(mod, fs) : Promise.resolve('');
+      return fp.then(function (path) {
+        var argv = argvOf(mod, substitute(options, path, { path: inst[1], sha256: inst[3] }));
+        Object.defineProperty(player, 'argv', { value: Object.freeze(argv), enumerable: true });
+        say('Click to start');
+        function start() {
+          if (state !== 'waiting') return;
+          overlay.removeEventListener('click', start);
+          overlay.style.display = 'none';
+          state = 'starting';
+          canvas.focus();
+          logMark = log.length;
+          try {
+            mod.callMain(argv.slice());
+          } catch (e) {
+            log.push(String(e));
+          }
+          if (!startedSeen && state === 'starting') {
+            state = 'exited';
+            var e2 = fail(log.slice(logMark).join('\n') || 'jnext: the machine did not start');
+            readyReject(e2);
+            overlay.style.display = 'flex';
+            say('Stopped');
+          }
+        }
+        overlay.addEventListener('click', start);
+        return player;
+      });
+    }).catch(failMount);
+  }
+
+  root.jnext = { version: VERSION, mount: mount };
+})(window);

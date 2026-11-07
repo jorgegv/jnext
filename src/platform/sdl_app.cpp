@@ -556,6 +556,7 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
         const bool loaded = emulator_apply_load_keeping_keys(
             emulator_, load_file_, tape_realtime_,
             [this](MachineType t) { config_.type = t; }, key_router_);
+        if (on_load_applied_) on_load_applied_(load_file_, loaded);
         if (!loaded) {
             Log::platform()->error("load: failed to load '{}'", load_file_);
             exit_code_ = 1;   // a failed load exits non-zero (as headless)

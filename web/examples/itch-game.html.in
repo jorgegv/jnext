@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>JNEXT game</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  #player { width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<div id="player"></div>
+<script src="jnext-@PROJECT_VERSION@.js"></script>
+<script>
+  // The page an itch.io upload would contain: a player that fills the frame.
+  // ?image=URL&sha256=HEX&file=URL
+  var q = new URLSearchParams(location.search);
+  var options = {
+    image: { url: q.get('image') || '', sha256: q.get('sha256') || '' },
+    onReady: function () { parent.postMessage('jnext-ready', '*'); },
+    onError: function (m) { parent.postMessage('jnext-error: ' + m, '*'); }
+  };
+  if (q.get('file')) options.file = q.get('file');
+  jnext.mount(document.getElementById('player'), options).then(function (p) { window.player = p; }, function () {});
+</script>
+</body>
+</html>
