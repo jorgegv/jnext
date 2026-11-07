@@ -7,6 +7,13 @@ if(WIN32)
     add_link_options(-Wl,--stack,8388608)
 endif()
 
+# WebAssembly (`make wasm-core`): the test executables run under node and read
+# host files and the host environment (HOME, TMPDIR) through NODERAWFS; jnext.js
+# itself keeps the default environment and its in-memory filesystem.
+if(EMSCRIPTEN)
+    add_link_options(-sNODERAWFS=1 -sENVIRONMENT=node)
+endif()
+
 # GH #416: a compiler warning in a test is a test defect (it hid which side of
 # a row failed, truncated a failure message, narrowed a constant by accident),
 # so the test executables are built with -Werror (GNU and Clang, incl. MinGW
@@ -447,6 +454,13 @@ add_executable(sdcard_provisioner_test sdcard_provisioner/sdcard_provisioner_tes
 target_link_libraries(sdcard_provisioner_test PRIVATE jnext_core ZLIB::ZLIB)
 target_include_directories(sdcard_provisioner_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_provisioner_tests COMMAND sdcard_provisioner_test)
+
+# SHA-256 known-answer test over whichever backend the build links (OpenSSL,
+# BCrypt, or the portable one `make wasm-core` runs under node).
+add_executable(sha256_test core/sha256_test.cpp)
+target_link_libraries(sha256_test PRIVATE jnext_core)
+target_include_directories(sha256_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME sha256_tests COMMAND sha256_test)
 # The rows that need libcurl's own behaviour (a proxy put in front of it through the
 # environment, which the WinHTTP twin has no counterpart of): POSIX only (GH #385).
 if(NOT WIN32)
@@ -2188,6 +2202,13 @@ target_link_libraries(sdl_app_tick_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(sdl_app_tick_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdl_app_tick_tests COMMAND sdl_app_tick_test)
+
+# GH #463 - the browser frontend's policy: the rAF callback gate that maps
+# SdlApp::tick()'s sleep onto the animation-frame grid, and the page's refusals.
+# Header-only code with no Emscripten include, compiled natively here.
+add_executable(browser_policy_test platform/browser_policy_test.cpp)
+target_include_directories(browser_policy_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME browser_policy_tests COMMAND browser_policy_test)
 
 # Pin the C locale for every registered test, so `ctest` matches what
 # test/run-unit-tests.sh and regression.sh do. A test's verdict must depend on the

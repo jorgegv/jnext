@@ -6,7 +6,9 @@
 #include "platform/auto_exit.h"
 #include "platform/coverage_startup.h"   // GH #388
 #include "platform/re_export_at_exit.h"   // GH #389
+#ifndef __EMSCRIPTEN__
 #include "platform/recording_info.h"   // GH #26 WP6
+#endif
 #include "platform/rzx_startup.h"
 #include "platform/quit_signal.h"   // GH #364
 #include "platform/frame_sequencer.h"   // RENDER_INTERVAL_MS, shared with QtApp
@@ -263,6 +265,7 @@ bool SdlApp::init(int argc, char* argv[]) {
     }
     // GH #26 WP4 — the scripts, after the servers and before the machine runs:
     // a script that does not load is a startup failure (exit 1, §6.5).
+#ifndef __EMSCRIPTEN__
     {
         jnext::script::ScriptHostOptions so;
         so.map_file = config_.map_file;
@@ -277,6 +280,7 @@ bool SdlApp::init(int argc, char* argv[]) {
         script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
         if (!script_host_.start(*debugger_, so)) return false;
     }
+#endif
 
     running_ = true;
     return true;
@@ -537,7 +541,9 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
         }
         config_.source_map_file.clear();
         // GH #346 - the scripts held back for the program's maps.
+#ifndef __EMSCRIPTEN__
         if (!script_host_.program_loaded()) exit_code_ = 1;
+#endif
         load_countdown_ = -1;  // done
     } else if (load_countdown_ > 0) {
         --load_countdown_;
@@ -689,6 +695,7 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
 
     // GH #26 WP4 — a script's verdict (§6.3), as HeadlessApp: the SDL
     // frontend has no pause, so a script stop is an exit (3).
+#ifndef __EMSCRIPTEN__
     if (script_host_.exit_requested()) {
         const int code = script_host_.exit_code();
         Log::platform()->info("script requested exit {}", code);
@@ -696,6 +703,7 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
         running_ = false;
         return running_;
     }
+#endif
 
     // Task 19 fastload follow-up — when the phantom typist is
     // armed or a fast-load tape is in flight, skip pushing audio
@@ -786,10 +794,12 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
                  pok_job_ && pok_job_->pending()},
             }))
             exit_code_ = 1;
+#ifndef __EMSCRIPTEN__
         if (const std::size_t n = script_host_.unreached_verdicts()) {   // GH #26 WP4 (§7.3)
             Log::platform()->error("SCRIPT: {} deferred actions never ran - exiting 3", n);
             if (exit_code_ == 0) exit_code_ = 3;
         }
+#endif
         running_ = false;
     } else if (exit_countdown_.pending()) {
         exit_countdown_.tick(emulator_.video_timing().refresh_60hz());

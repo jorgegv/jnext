@@ -3068,6 +3068,38 @@ reported row ID against the suite's <em>source files</em>; the SD image is reach
 absolute path through <code>JNEXT_TEST_SD_IMAGE</code>. A bundle (executables, the MinGW
 DLLs <code>packaging/windows/bundle-dlls.sh</code> copies, the manifest, the harness and
 the sources it reads) is feasible, but it is its own piece of work.</p>
+<p><code>make emsdk</code> provides the pinned Emscripten SDK (6.0.13) in the user cache,
+<code>~/.cache/jnext/tools/emsdk-6.0.13</code>, through <code>test/provision-emsdk.sh</code>: it
+downloads three archives (the emsdk installer, the SDK release and the node it
+bundles), verifies the sha256 of all three before it unpacks any of them,
+installs them and builds the SDL3, zlib and libpng ports. It is a no-op once the
+provisioner's stamp is there, and a directory without the stamp is replaced, not
+trusted. <code>make wasm-core</code> depends on it, configures <code>build/wasm-core</code> with the
+SDK's CMake toolchain file, builds <code>jnext.js</code>/<code>jnext.wasm</code> and the <code>sha256_test</code>
+suite, and runs <code>test/wasm-core-check.sh</code> under the SDK's node: the module
+reports its version, imports no (shared) memory, catches an exception,
+refuses the flags and <code>--set</code> keys the browser build cannot honour, and runs the
+SHA-256 suite on its portable backend. <code>make clean</code> removes the tree.</p>
+<p><code>make wasm-web</code> builds the browser frontend, <code>jnext_web</code>, in the same
+<code>build/wasm-core</code> tree (one compile of every library, a second link). Its output
+carries the version in its name, <code>jnext-&lt;version&gt;.js</code> and <code>.wasm</code>, read from
+<code>version.yaml</code> through CMake's project version, so a page never loads a stale
+build. <code>make playwright</code> provides the pinned Playwright and its Chromium
+headless shell in <code>~/.cache/jnext/tools/playwright-1.65.0</code>, through
+<code>test/provision-playwright.sh</code>: it downloads <code>playwright-core</code> (the npm package,
+which has no dependencies and no test runner) and the headless shell its
+<code>browsers.json</code> names, verifies the sha256 of both before it unpacks either,
+and is a no-op once stamped. The scripts run on the SDK's own node, so there is
+no second node. <code>make wasm-browser-test</code> builds the browser frontend, provides
+Playwright and the SD image, builds the native SDL release build (the oracle), then runs
+<code>test/browser/browser-smoke.sh</code>: it builds the 40 MiB minimal NextZXOS card from
+the cached distribution image into a scratch directory under <code>~/tmp</code>, makes the
+native oracle screenshots, and runs every spec through the harness. The card is
+copyrighted content: it is handed to the page only by the harness's request
+handler, is never committed, uploaded or traced (Playwright tracing, HAR and
+video stay off), and is deleted when the run ends. The script takes more specs
+as <code>file:count</code> arguments, each printing PASS/FAIL rows and a <code>Total:</code> line whose
+count the script pins, so the JavaScript API rows run in the same target.</p>
 <p>Chapter <a href="../04-testing/index.html">4. Testing</a> covers what each of these actually
 proves.</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>

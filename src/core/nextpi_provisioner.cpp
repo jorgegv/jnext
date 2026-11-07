@@ -1,3 +1,4 @@
+#ifndef __EMSCRIPTEN__
 #include "core/nextpi_provisioner.h"
 
 #include "core/fat32_image.h"
@@ -901,3 +902,4 @@ ProvisionResult provision(const ProvisionOptions& opts) {
 }
 
 } // namespace nextpi
+#endif // !__EMSCRIPTEN__

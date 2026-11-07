@@ -203,7 +203,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra
+       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web wasm-browser-test wasm-core-clean
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -512,7 +512,7 @@ gui-release-clean:
 gui-clean: gui-debug-clean gui-release-clean
 
 # Remove all build directories (sdl/gui + unit-test; build/ takes the rest with it)
-clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
+clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean wasm-core-clean
 
 # Run the regression suite's Windows rows and screenshots: MinGW exes under wine (GH #319)
 regression-win: unit-test-sdl-build unit-test-win-build win-sdl-release z88dk-gdb sdcard-image
@@ -565,6 +565,65 @@ ghidra:
 	@# once per machine into ~/.cache/jnext/tools (test/provision-ghidra.sh), and a
 	@# JDK 25 (java-25-openjdk-devel) to run it, which the row checks.
 	bash test/provision-ghidra.sh
+
+# Provide the pinned Emscripten SDK 6.0.13 in the user cache
+emsdk:
+	@# The WebAssembly build needs emcc at ONE exact version, which Fedora does not
+	@# package. test/provision-emsdk.sh downloads the three archives (emsdk, the
+	@# release, node), verifies all three sha256 before unpacking, installs into
+	@# ~/.cache/jnext/tools/emsdk-6.0.13 and builds the SDL3/zlib/libpng ports. A
+	@# no-op once stamped; needs the network once (about 345 MB).
+	bash test/provision-emsdk.sh
+
+# Provide the pinned Playwright and its Chromium headless shell in the user cache
+playwright:
+	@# The browser smoke test drives a headless Chromium through playwright-core on
+	@# emsdk's node. test/provision-playwright.sh downloads both archives, verifies
+	@# both sha256 before unpacking and installs into ~/.cache/jnext/tools/playwright-<V>.
+	@# A no-op once stamped; needs the network once (about 135 MB).
+	bash test/provision-playwright.sh
+
+# Build the SDL-only core for WebAssembly into build/wasm-core and check it under node
+wasm-core: emsdk
+	@# The same commands locally and in CI (the `wasm` leg). Only `jnext` and
+	@# `sha256_test` are built: the rest of the test tree is not yet ported. The
+	@# toolchain file is used directly (no emcmake, no emsdk_env.sh); node is the
+	@# SDK's own, as the cross-compiling emulator. A cache configured with Qt, the
+	@# debugger or another SDK is reconfigured by the guard.
+	@# A configure that failed leaves a cache the guard accepts but no Makefile.
+	@E=$$(bash test/provision-emsdk.sh --print-path) && \
+	{ [ -f build/wasm-core/Makefile ] || rm -rf build/wasm-core; } && \
+	bash test/cmake-configure-guard.sh build/wasm-core \
+		"CMAKE_TOOLCHAIN_FILE=$$E/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" \
+		"CMAKE_BUILD_TYPE=Release" \
+		"ENABLE_QT_UI=OFF" \
+		"ENABLE_DEBUGGER=OFF" \
+		"ENABLE_TESTS=ON" \
+		-- \
+		"-S" "." \
+		"-DCMAKE_TOOLCHAIN_FILE=$$E/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" \
+		"-DCMAKE_CROSSCOMPILING_EMULATOR=$$(ls -d $$E/node/*/bin/node)" \
+		"-DCMAKE_BUILD_TYPE=Release" \
+		"-DENABLE_QT_UI=OFF" \
+		"-DENABLE_DEBUGGER=OFF" \
+		"-DENABLE_TESTS=ON" && \
+	$(CMAKE) --build build/wasm-core -j$(JOBS) --target jnext sha256_test && \
+	bash test/wasm-core-check.sh build/wasm-core
+
+# Build the browser frontend jnext-<version>.js/.wasm into build/wasm-core
+wasm-web: wasm-core
+	$(CMAKE) --build build/wasm-core -j$(JOBS) --target jnext_web
+
+# Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
+wasm-browser-test: wasm-web playwright sdl-release sdcard-image
+	@# BRW-01..29 on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# native oracle; sdcard-image provides the distribution image the run turns into the
+	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
+	bash test/browser/browser-smoke.sh build/wasm-core
+
+# Remove the WebAssembly build directory
+wasm-core-clean:
+	rm -rf build/wasm-core
 
 # Run the full regression test suite (screenshot + functional tests)
 regression: lint-makefile-help lint-thread-detach lint-ascii-text regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check z88dk-gdb skoolkit ghidra

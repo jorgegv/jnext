@@ -75,6 +75,97 @@ has configured by hand with either flag off, rather than handing back a binary
 that is not what it claims to be. If you hit that refusal, `make clean` and
 retry.
 
+`build/wasm-core` is the WebAssembly build (`make wasm-core`): Release, the
+Emscripten toolchain file of the SDK that `make emsdk` provides, and only the
+SDL-only configuration, so CMake refuses it with `ENABLE_QT_UI` or
+`ENABLE_DEBUGGER` on. It builds the `jnext` and `sha256_test` targets only. The
+configuration differs from the native SDL-only one in a few places: no
+curl/OpenSSL (the SD-card provisioner's web twin,
+`sdcard_provisioner_net_web.cpp`, has a portable SHA-256 and never downloads),
+no `jnext_remote` or `jnext_script`, NextPi compiled out, no process spawning,
+`-fwasm-exceptions` in every translation unit and the link, a 2 MB stack and
+growable memory, and the flags and `--set` keys that need a process, a socket
+or the script host refused with a message (`cli::browser_refusal`). zlib and
+libpng come from the SDK's ports (`-sUSE_ZLIB=1`, `-sUSE_LIBPNG=1`), which pick
+the libpng variant that matches the exception model.
+
+The browser frontend is a second target of the same tree, `jnext_web`: the same
+`main.cpp`, compiled with `JNEXT_BROWSER`, plus `browser_frontend.cpp`, linked
+for the web only (`-sENVIRONMENT=web`, a modularised factory named
+`createJnextModule`, no automatic `main`, the runtime kept alive by the loop).
+The page creates the module, copies its files into the in-memory file system
+(`FS`), sets the SDL hints in `ENV` and calls `callMain` with the same argument
+vector the command line takes.
+
+*The loop.* `main()` parses, provisions and configures, then hands the run to
+`browser_frontend::run`, which installs a `requestAnimationFrame` loop
+(`emscripten_set_main_loop_arg` with fps 0 and `simulate_infinite_loop` 0) and
+returns, so `main()` returns normally and the loop keeps the runtime alive. The
+`simulate_infinite_loop` form was measured and rejected: it unwinds `main()`
+with a JavaScript exception, C++ cleanup pads run `main()`'s destructors on it
+under wasm exceptions, and the page then crashes in the next frame. Everything
+that outlives `main()` is therefore not a local of it: the application is
+released to the loop, the two recorders are `static` (the emulator's callbacks
+hold references to them; they are never destroyed), logging is not shut down
+while the loop lives (`spdlog::shutdown()` drops every registered logger, and one
+first used inside the loop would be built afresh, without its `--log-level`
+and, for the peripheral loggers that fall back to `spdlog::stderr_color_mt`,
+without `--log-file`), and the post-run tail of a run (recorders, `shutdown()`,
+the exit status) is a function, `finish`, that the loop calls once a tick ends
+the run. Its result reaches the page through `Module.onExit`. A `callMain` that
+returns with no loop installed (a refused flag) has no `onExit`: its return
+value is the status.
+
+*Pacing.* `SdlApp::tick()` never sleeps; it reports the sleep it wants before the
+next tick. A `requestAnimationFrame` callback cannot sleep, so that sleep becomes
+the earliest moment the next tick may start, on an absolute grid
+(`browser_pacing.h`): the next due time is the previous one plus the tick's own
+cost plus its sleep, and a callback that arrives before it runs no tick. A grid
+rather than "now plus the sleep" keeps 50 ticks a second on 60, 120 and 144 Hz
+displays alike (the latter lands every tick on the second animation frame, 30 a
+second). A stall (a hidden tab) resyncs as `frame_deadline.h` describes: one
+tick at once, then the grid, never a burst. During a fast load a tick that asks
+for no sleep may repeat inside one callback, bounded by an 8 ms budget. A first
+NEX load on an empty file system records the warm-start state in one callback
+(about 14 s under load): the page is unresponsive until it ends.
+
+*Video, input, sound.* The renderer is SDL's OpenGL ES 2 one, on WebGL, with the
+same letterbox (640x512 logical) and the renderer's default linear filter. The
+page sizes the canvas by CSS; the window is resizable and high-pixel-density, so
+the drawing buffer follows the CSS size times the device pixel ratio, and F2
+(window scale) does nothing. The window is created as an OpenGL window from the
+start: otherwise `SDL_CreateRenderer` destroys and recreates it, and on a HiDPI
+display the SDL port sets the canvas CSS size to 1x1 in between, so the new
+window ignores the page's CSS. It has no title, so the host page keeps its own
+`document.title`. Keys go to the canvas element (the keyboard element hint
+defaults to the canvas selector; the page's `ENV` wins), so a page that embeds
+the emulator keeps the rest of its keys, and the canvas needs a `tabindex`.
+SDL watches the window's blur, not the canvas's: a canvas that loses focus to
+another element of the page releases every held key through its own blur
+listener. Sound is SDL's Web Audio backend, which runs the audio callback on the
+main thread (so it cannot overlap a tick); before a user gesture the audio
+context is suspended and SDL drains the stream on a timer, so the pacing keeps
+working silently. Browsers will not resume it without a gesture on the page:
+start the module from a click. Mouse capture is the pointer lock; when the
+browser ends the lock itself (Escape) jnext's capture is released too. A pad
+appears after its first button press (browser policy).
+
+*Refused and absent.* The build's own flag and `--set` key refusals apply, and
+the page also refuses `--headless` (it would block the tab for ever), the RZX
+flags, and any program that is not a `.nex`, `.tap` or `.tzx` (`browser_page.h`),
+each with a message that says "browser page". The browser reserves Ctrl+W, T and
+N (and Ctrl+Q in some browsers), so Symbol Shift plus those letters cannot be
+typed with Ctrl; the operating system keeps Alt+Tab and Alt+F4. Files the
+emulator writes (screenshots, WAV, quick snapshots) live in the in-memory file
+system for the session. `--rzx-play` is started by a pre-step at the top of
+`SdlApp::run()`, which the page does not call (`--rzx-record` starts from `tick()`);
+a later RZX implementation must move that pre-step into something the loop can call
+before it enables RZX. Two things
+the browser link carries but never runs: the ESP-01's worker thread and the
+NextPi audio thread sleep in their own thread bodies, and neither is reachable
+from `tick()`: the flags that start them are refused, and a thread cannot start
+without shared memory.
+
 ## Dev build versus release build
 
 With no `-DCMAKE_BUILD_TYPE` given, CMake here defaults to **RelWithDebInfo**

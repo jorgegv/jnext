@@ -455,6 +455,26 @@ int main() {
               bad.empty(), bad);
     }
 
+    // SETK-21 (GH #459): the browser build refuses --set of exactly the keys whose
+    // dedicated flag it refuses (cli::browser_refusal): the eight esp.* / nextpi.* ones.
+    {
+        const std::set<std::string> want = {
+            "esp.enabled", "esp.allowed_hosts", "nextpi.enabled", "nextpi.dir",
+            "nextpi.release", "nextpi.qemu_binary", "nextpi.audio", "nextpi.qemu_args",
+        };
+        std::set<std::string> got;
+        std::string bad;
+        for (const config_keys::Key& k : config_keys::KEYS) {
+            const bool refused = config_keys::browser_refusal(k) != nullptr;
+            if (refused) got.insert(full_name(k));
+            const std::string sec = k.section;
+            if ((sec == "esp" || sec == "nextpi") && !refused) bad += full_name(k) + " not refused ";
+        }
+        if (got != want) bad += "refused set differs";
+        check("SETK-21", "the keys refused by the browser build are exactly the 8 esp.* and nextpi.* ones, "
+                         "and every key of those two sections is among them", bad.empty(), bad);
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n", g_total, g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

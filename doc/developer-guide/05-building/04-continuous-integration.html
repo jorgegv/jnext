@@ -3054,7 +3054,7 @@ packages), and run the same make targets in it against a separate detached workt
 mounted, so the host's build trees and wine prefixes are never shared with the container's
 wine. This is a documented local check, not a CI step.</p>
 <h2 id="the-jobs-in-ciyml">The jobs in <code>ci.yml</code><a class="headerlink" href="#the-jobs-in-ciyml" title="Permanent link">&para;</a></h2>
-<p><strong><code>test</code></strong> is the main job: one definition, a matrix of five legs that run in
+<p><strong><code>test</code></strong> is the main job: one definition, a matrix of six legs that run in
 parallel on runners of their own. Every leg installs the same
 dependency set and checks out the repository with submodules; then</p>
 <ul>
@@ -3068,7 +3068,20 @@ dependency set and checks out the repository with submodules; then</p>
   <code>make unit-test-win</code>: the SDL-only suites as Windows executables under wine. It
   builds no PGO binary, so on an SD-image cache miss <code>make unit-test-win</code>
   provisions the image itself (<code>make sdcard-image</code>);</li>
-<li><strong><code>regression</code></strong> runs <code>make clean &amp;&amp; make gui-release</code> and <code>make regression</code>.</li>
+<li><strong><code>regression</code></strong> runs <code>make clean &amp;&amp; make gui-release</code> and <code>make regression</code>;</li>
+<li><strong><code>wasm</code></strong> runs <code>make wasm-core</code>: the SDL-only core built for WebAssembly and
+  run under node. It needs no SD image. The Emscripten SDK is provisioned by the
+  target itself (<code>test/provision-emsdk.sh</code>, pinned by three sha256) into
+  <code>~/.cache/jnext/tools/emsdk-6.0.13</code>, which the leg caches under a key carrying
+  the version and the pins, so a hit only skips the downloads;</li>
+<li><strong><code>browser</code></strong> runs <code>make wasm-browser-test</code>: the browser frontend in the pinned
+  Chromium headless shell (rows BRW-01 to BRW-29 and, as they join, the
+  JavaScript API rows). Besides the emsdk cache it caches Playwright
+  (<code>~/.cache/jnext/tools/playwright-1.65.0</code>, keyed by the version and the two pin
+  prefixes) and uses the SD-image cache: the run turns the cached distribution
+  image into a minimal card in a scratch directory that is deleted at the end,
+  and the leg has no artifact step that could carry it. The dnf list carries the
+  shared libraries the headless shell links.</li>
 </ul>
 <p>They used to be steps of one job, so the 28-minute build matrix and the
 regression ran back to back although neither uses the other's output. Each leg
