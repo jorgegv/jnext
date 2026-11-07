@@ -406,8 +406,9 @@ jobs:
         run: LANG=C make wasm-core
 
       # The browser frontend (GH #463): builds jnext-<version>.js/.wasm, the native SDL
-      # oracle, the run-time minimal card from the cached distribution image (never
-      # uploaded: no artifact step exists in this job), and runs the BRW rows in the pinned
+      # oracle, the run-time minimal card from the cached distribution image (kept in
+      # ~/tmp/jnext-browser-smoke.* and deleted by the script; the failure-artifact step below
+      # uploads only fixed paths that cannot reach it), and runs the BRW rows in the pinned
       # headless Chromium. The JavaScript API rows join the same target. BLOCKING.
       - name: make wasm-browser-test (the browser frontend in headless Chromium)
         if: matrix.leg == 'browser'

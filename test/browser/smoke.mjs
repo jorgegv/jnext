@@ -413,6 +413,43 @@ row('BRW-25', 'F2 (window scale) leaves the canvas as the page sized it', async 
   must(r[0] === 640 && r[1] === 512, JSON.stringify(r));
 });
 
+row('BRW-27', 'a per-subsystem --log-level survives main() returning: a logger first used inside the loop prints (copper=debug), as natively', async () => {
+  const want = '[copper] [debug] reg 0x62: mode=11';
+  must(fs.readFileSync(orc('copper.log'), 'utf8').includes(want), 'the native oracle lacks the line');
+  const page = await open({ args: ['--machine', 'next', '--sdcard', '/media/card.img', '--silent', '--rtc', '2026-07-10T08:55:00',
+                                   '--load', '/media/copper_demo.nex', '--log-level', 'copper=debug'],
+                           files: [CARD, ['/nex/copper_demo.nex', '/media/copper_demo.nex']], canvas: '640x512' });
+  await start(page);
+  await waitFor(page, (w) => window.jnextTest.stderr.some((l) => l.includes(w)) ||
+                             (window.jnextModule._jnext_web_frame() >= 1500), want, 400000);
+  const err = (await stderr(page)).join('\n');
+  must(err.includes(want), 'no "' + want + '" on stderr');
+});
+
+row('BRW-28', 'a modifier held when the canvas loses focus is released in SDL too: a bare Alt does not release the pointer lock', async () => {
+  const page = await open({ args: BASE, files: [CARD], canvas: '640x512' });
+  await start(page); await waitFrame(page, 60);
+  await page.keyboard.down('Control');
+  await page.focus('#textbox');
+  await page.keyboard.up('Control');                 // goes to the input: SDL never sees it
+  await page.click('#jnext-canvas');
+  await waitLog(page, /Mouse captured/, 20000);
+  await page.keyboard.press('Alt');
+  await sleep(1500);
+  const log = (await stderr(page)).join('\n');
+  const locked = await page.evaluate(() => document.pointerLockElement === document.getElementById('jnext-canvas'));
+  must(locked && !/Mouse released/.test(log), `locked=${locked} released=${/Mouse released/.test(log)}`);
+});
+
+row('BRW-29', 'the page\'s ENV wins for the keyboard element: with #document, keys typed into a page input never reach it', async () => {
+  const page = await open({ args: BASE, files: [CARD], canvas: '640x512', env: { SDL_EMSCRIPTEN_KEYBOARD_ELEMENT: '#document' } });
+  await start(page); await waitFrame(page, 60);
+  await page.focus('#textbox');
+  await page.keyboard.type('hi', { delay: 40 });
+  const v = await page.inputValue('#textbox');
+  must(v === '', `input holds ${JSON.stringify(v)} (SDL took the keys: ENV ignored)`);
+});
+
 row('BRW-26', 'every request the page made is in the allow-list; no image or ROM except the run\'s own card was fetched', async () => {
   const allowed = /^\/(build|page|nex|tap|scratch)\//;
   const bad = h.requests.filter((u) => !allowed.test(u));

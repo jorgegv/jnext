@@ -106,7 +106,10 @@ with a JavaScript exception, C++ cleanup pads run `main()`'s destructors on it
 under wasm exceptions, and the page then crashes in the next frame. Everything
 that outlives `main()` is therefore not a local of it: the application is
 released to the loop, the two recorders are `static` (the emulator's callbacks
-hold references to them; they are never destroyed), and the post-run tail of a run (recorders, `shutdown()`,
+hold references to them; they are never destroyed), logging is not shut down
+while the loop lives (`spdlog::shutdown()` drops every registered logger, and one
+first used inside the loop would be built afresh, without `--log-level` or
+`--log-file`), and the post-run tail of a run (recorders, `shutdown()`,
 the exit status) is a function, `finish`, that the loop calls once a tick ends
 the run. Its result reaches the page through `Module.onExit`. A `callMain` that
 returns with no loop installed (a refused flag) has no `onExit`: its return
@@ -153,9 +156,10 @@ each with a message that says "browser page". The browser reserves Ctrl+W, T and
 N (and Ctrl+Q in some browsers), so Symbol Shift plus those letters cannot be
 typed with Ctrl; the operating system keeps Alt+Tab and Alt+F4. Files the
 emulator writes (screenshots, WAV, quick snapshots) live in the in-memory file
-system for the session. `--rzx-play` and `--rzx-record` are started at the top of
-`SdlApp::run()`, which the page does not call; a later RZX implementation must move
-that step into something the loop can call before it enables RZX. Two things
+system for the session. `--rzx-play` is started by a pre-step at the top of
+`SdlApp::run()`, which the page does not call (`--rzx-record` starts from `tick()`);
+a later RZX implementation must move that pre-step into something the loop can call
+before it enables RZX. Two things
 the browser link carries but never runs: the ESP-01's worker thread and the
 NextPi audio thread sleep in their own thread bodies, and neither is reachable
 from `tick()`: the flags that start them are refused, and a thread cannot start

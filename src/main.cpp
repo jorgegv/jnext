@@ -2947,6 +2947,11 @@ int main(int argc, char* argv[]) {
 #ifndef __EMSCRIPTEN__
     pi_qemu.reset();   // stop QEMU while logging still works
 #endif
+#ifdef JNEXT_BROWSER
+    // The loop still logs, and spdlog::shutdown() drops every registered logger: one first
+    // touched inside the loop would then be built fresh, without --log-level / --log-file.
+    if (browser_frontend::active()) return result;
+#endif
     spdlog::shutdown();
     // GH #364: the signal decides the status (128+N, WIFSIGNALED) even when
     // result is non-zero; the error behind it has been logged already.

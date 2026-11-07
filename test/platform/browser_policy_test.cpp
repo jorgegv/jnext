@@ -254,8 +254,8 @@ int main()
     }
     // BRR-03: program_refusal.
     {
-        const char* good[] = {"a.nex", "A.NEX", "b.tap", "B.TAP", "c.tzx", "/x/y z/c.TzX"};
-        const char* bad[] = {"x.sna", "x.szx", "x.z80", "x.jns", "x.rzx", "x.wav", "x.zip", "noext", "game.nex.bak", ""};
+        const char* good[] = {"a.nex", "A.NEX", "b.tap", "B.TAP", "c.tzx", "/x/y z/c.TzX", "./g.tap", "/media/v1.2/a.nex"};
+        const char* bad[] = {"x.sna", "x.szx", "x.z80", "x.jns", "x.rzx", "x.wav", "x.zip", "noext", "game.nex.bak", "", "/media/v1.nex/noext"};
         bool ok = true;
         for (const char* g : good) if (browser_page::program_refusal(g) != nullptr) ok = false;
         for (const char* b : bad) {
