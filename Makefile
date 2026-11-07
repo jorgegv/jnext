@@ -1321,6 +1321,10 @@ cli-check: unit-test-build
 	@# needs no compiler. `make unit-test` runs the same suite via
 	@# test/unit-tests.conf, so it is covered by both entry points.
 	@./build/test/cli_options_test
+	@# The browser build's JavaScript options are the same kind of seam: web_api_test
+	@# diffs the WEB_OPTIONS table and the refusal functions against the man page's
+	@# THE BROWSER BUILD section in both directions.
+	@./build/test/web_api_test
 
 # The `.jns` JSON Schema: generated from the field declarations (GH #27 S2)
 SCHEMA_GEN     := ./build/tools/gen-snapshot-schema/gen-snapshot-schema
