@@ -3319,7 +3319,7 @@ pe_run() {
 }
 out=$(pe_run); rc=$?; out+=$'\n'"$(pl_marks)"
 check "HS-166f" "the control: a complete emscripten tree (non-executable .js and .wasm) runs: provision + screenshots, every functional row absent by name" 0 $rc "$out" \
-    "platform run: emscripten" "3/3 declared tests reported" "absent: adm-a-func" "absent: abs-c-func" "abs_ran=0 lint_ran=0"
+    "(Qt: $PL/pe1/jnext.js, SDL-only: $PL/pe2/jnext.js)" "3/3 declared tests reported" "absent: adm-a-func" "absent: abs-c-func" "abs_ran=0 lint_ran=0"
 mv "$PL/pe2/jnext.wasm" "$PL/pe2/jnext.wasm.away"
 out=$(pe_run); rc=$?
 check "HS-166g" "an emscripten tree whose jnext.wasm is missing is a harness fault naming the .wasm" 2 $rc "$out" "HARNESS FAULT" "not built" "pe2/jnext.wasm"
@@ -3333,7 +3333,7 @@ printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$#" "$@" > "%s/jargv.txt"\necho "s
 chmod +x "$NR/jnode"
 echo "CMAKE_CROSSCOMPILING_EMULATOR:FILEPATH=$NR/jnode" > "$NR/jbuild/CMakeCache.txt"
 : > "$NR/jbuild/jnext.js"; : > "$NR/jbuild/jnext.wasm"
-out=$(echo "hello row" | PATH=/nonexistent timeout --kill-after=5s 60s /bin/bash "$NODE_RUN" --jnext "$NR/jbuild/jnext.js" --headless "a b" 2>&1); rc=$?
+out=$(echo "hello row" | PATH=/nonexistent /usr/bin/timeout --kill-after=5s 60s /bin/bash "$NODE_RUN" --jnext "$NR/jbuild/jnext.js" --headless "a b" 2>&1); rc=$?
 check "HS-166i" "node-run.sh --jnext with an empty PATH: the arguments and stdin reach node, its status 5 comes back" 5 $rc \
     "$out argv=$(tr '\n' '|' < "$NR/jargv.txt" 2>/dev/null) $(cat "$NR/jstdin.txt" 2>/dev/null)" \
     "argv=3|$NR/jbuild/jnext.js|--headless|a b|" "stdin=hello row"
