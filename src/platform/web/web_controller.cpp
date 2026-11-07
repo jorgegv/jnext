@@ -79,6 +79,14 @@ void attach(SdlApp& app)
 
 void after_tick(SdlApp& app, bool /*more*/)
 {
+    // A page load still waiting (the .tzx/.wav delay, the warm-start recording) keeps
+    // pending_load_file() non-empty. If it is empty while the hook never ran, a hard reset
+    // dropped the load: say so, and stop treating the next load as the page's.
+    if (g_page_load && app.pending_load_file().empty()) {
+        g_page_load = false;
+        g_want_frame = false;
+        event("error", "load cancelled by a reset");
+    }
     if (g_load_failed) {
         g_load_failed = false;
         event("error", "failed to load '" + g_load_failed_file + "'");
