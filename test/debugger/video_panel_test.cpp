@@ -1260,7 +1260,7 @@ static void test_fb_row_conversion(Emulator& emu) {
 // Layer 2 / Tilemap / Sprites each apply their clip window inside their own
 // render_scanline, so the debug views inherit it for free.  The ULA does not:
 // in VHDL the clip is a compositor-stage signal (zxula.vhd:562, zxnext.vhd:7063,
-// 7100, 7103 — ula_clipped is OR'd into ula_transparent), so Ula::render_scanline emits an UNCLIPPED
+// 7100, 7103 - ula_clipped is OR'd into ula_transparent), so Ula::render_scanline emits an UNCLIPPED
 // line and Renderer::apply_ula_clip masks it.  The panel skipped that pass, so
 // the ULA view was the only layer view showing content the compositor
 // suppresses.  The border is never clipped (zxula.vhd:414-415 border_active is

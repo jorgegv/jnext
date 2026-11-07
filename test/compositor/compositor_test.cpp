@@ -4626,12 +4626,12 @@ static void test_UCLIP() {
               DETAIL("cell[%d]=0x%08X expected=0x%08X (live window B would "
                      "clip it)", CELL_IN_A, line[CELL_IN_A], PIX_ULA));
 
-        // UCLIP-02: same buffer — display col 100 is clipped because the
+        // UCLIP-02: same buffer - display col 100 is clipped because the
         // SNAPSHOTTED window A has x1=128 > 100. Discriminative against a
         // dead capture: the reset-default window (x1=0) keeps it.
         check("UCLIP-02",
               "…and display col 100 is clipped per the SNAPSHOTTED window A "
-              "(x1=128>100) — proves the snapshot is captured, not the "
+              "(x1=128>100) - proves the snapshot is captured, not the "
               "reset default (zxula.vhd:562; zxnext.vhd:6779-6783)",
               line[CELL_IN_B] == TRANSP,
               DETAIL("cell[%d]=0x%08X expected TRANSPARENT",
@@ -6144,7 +6144,7 @@ static void test_LORES()
                      in_x, f.expect(ROW_IN, 100), out_x, out_y, FB, any_ula));
     }
 
-    // ── LR-129 — LoRes never clips the border either ─────────────────────
+    // ── LR-129 - LoRes never clips the border either ─────────────────────
     //
     // With LoRes on and a narrowed shared window, the border is still the
     // port $FE colour on every row: lores_pixel_en is 0 there (lores.vhd:115,
@@ -6320,7 +6320,7 @@ static void test_LORES()
     }
 }
 
-// ── UCLIP-09 — Timex hi-res, end to end through render_row ───────────────
+// ── UCLIP-09 - Timex hi-res, end to end through render_row ───────────────
 //
 // Lives after the LoRes group because it needs lores_c::Fix (the full
 // render_row fixture). Reported under group UCLIP.
@@ -6593,7 +6593,7 @@ int main() {
     test_UCLIP();      printf("  Group: UCLIP — done\n");
     test_LMASK();      printf("  Group: LMASK — done\n");
     test_LORES();      printf("  Group: LR — done\n");
-    test_UCLIP_hires(); printf("  Group: UCLIP (hi-res) — done\n");
+    test_UCLIP_hires(); printf("  Group: UCLIP (hi-res) - done\n");
     test_FB9();        printf("  Group: FB9 — done\n");
     test_BLC();        printf("  Group: BLC — done\n");
 
