@@ -56,6 +56,7 @@ static void check(const char* id, const char* desc, bool cond, const std::string
 static const fs::path kFixtures = JNEXT_Z88DK_FIXTURE_DIR;
 // 1.5 spelled in two pieces: a bare "1.5" literal is shaped like a row ID, and the global ID check (dup-ids) reads it as one
 static const std::string k15 = std::string("1") + ".5";
+static const std::string k25 = std::string("2") + ".5";
 
 // What the NEX loader leaves mapped (slots 2-5 = pages 10, 11, 4, 5).
 static MemSpace nex_space(uint16_t address) {
@@ -165,6 +166,139 @@ static std::string names(const std::vector<CLocalRef>& v) {
 struct CommaPunct : std::numpunct<char> {
     char do_decimal_point() const override { return ','; }
 };
+
+// GH #477: the float programs of the nightly builds (test/fixtures/z88dk/src/fpfmt.c, fpmix*.c). The image is what the build wrote:
+// `prog` (classic: the raw binary at CRT_ORG_CODE) or `prog_CODE.bin` (newlib: at __CODE_head); a symbol's bytes are its map address
+// minus that base. Nothing is read from jnext's own decoder to say what the bytes are.
+struct FpImage {
+    std::vector<uint8_t> bytes;
+    std::map<std::string, uint32_t> sym;
+    uint32_t base = 0;
+    bool ok = false;
+    explicit FpImage(const std::string& fixture) {
+        std::ifstream in(kFixtures / fixture / "prog.map");
+        std::string line;
+        while (std::getline(in, line)) {
+            const size_t eq = line.find(" = $");
+            if (eq == std::string::npos) continue;
+            std::string name = line.substr(0, eq);
+            while (!name.empty() && name.back() == ' ') name.pop_back();
+            if (!sym.count(name)) sym[name] = static_cast<uint32_t>(std::stoul(line.substr(eq + 4), nullptr, 16));
+        }
+        const bool classic = fs::exists(kFixtures / fixture / "prog");
+        bytes = read_all(kFixtures / fixture / (classic ? "prog" : "prog_CODE.bin"));
+        const char* b = classic ? "CRT_ORG_CODE" : "__CODE_head";
+        ok = sym.count(b) && !bytes.empty();
+        if (ok) base = sym[b];
+    }
+    bool slice(const std::string& name, size_t n, std::vector<uint8_t>* out) const {
+        const auto it = sym.find(name);
+        if (it == sym.end() || it->second < base || it->second - base + n > bytes.size()) return false;
+        out->assign(bytes.begin() + (it->second - base), bytes.begin() + (it->second - base + n));
+        return true;
+    }
+    CReader reader() const {
+        return [this](uint32_t a, size_t n, uint8_t* out) {
+            if (a < base || a - base + n > bytes.size()) return false;
+            std::copy(bytes.begin() + (a - base), bytes.begin() + (a - base + n), out);
+            return true;
+        };
+    }
+};
+
+// Everything fpfmt.c's objects must read as in a build of float format (mode, bias, ms), through the map's records and the build's own bytes.
+// Returns "" or what differed.
+static std::string fp_build_problems(const char* fixture, int mode, int bias, int ms, int width) {
+    Loaded L(fixture);
+    const FpImage img(fixture);
+    if (!L.store || !img.ok) return "no map or image";
+    std::string bad;
+    const CFloatFormat* ff = L.store->float_format("fpfmt_c");
+    if (!ff || ff->mode != mode || ff->exponent_bias != bias || ff->mantissa_size != ms || !ff->why.empty()) bad += " format";
+    CFormatCtx ctx;
+    ctx.store = L.store.get();
+    ctx.scope_name = "fpfmt.c";
+    ctx.module = "fpfmt_c";
+    ctx.read = img.reader();
+    const char* names[] = {"f0", "f1", "f2", "f3", "f4"};
+    const char* want[] = {"0", "-3.25", "0.1", "12345.678", "1e-05"};
+    for (int k = 0; k < 5; ++k) {
+        const CVariable* v = global_var(*L.store, names[k]);
+        std::vector<uint8_t> b;
+        if (!v || v->record.var.type.size != width || !img.slice(std::string("_") + names[k], static_cast<size_t>(width), &b)) {
+            bad += std::string(" ") + names[k] + ":missing";
+            continue;
+        }
+        const CFormatted f = c_format_value(ctx, v->record.var.type, b.data(), b.size());
+        if (!f.ok || f.text != want[k]) bad += std::string(" ") + names[k] + "=" + (f.ok ? f.text : "!" + f.why);
+        if (k == 1) {
+            const auto r = c_float_value(ctx, v->record.var.type, b.data(), b.size());
+            if (!r || *r != -3.25) bad += " real";
+        }
+    }
+    const std::string pairs = std::string("{") + k15 + ", -2, 100}";
+    if (const CVariable* v = global_var(*L.store, "farr")) {
+        std::vector<uint8_t> b;
+        const bool got = img.slice("_farr", static_cast<size_t>(3 * width), &b);
+        const CFormatted f = got ? c_format_value(ctx, v->record.var.type, b.data(), b.size()) : CFormatted{};
+        if (!got || v->record.var.type.size != 3 * width || !f.ok || f.text != pairs) bad += " farr=" + (f.ok ? f.text : "!" + f.why);
+    } else {
+        bad += " farr:missing";
+    }
+    if (const CVariable* v = global_var(*L.store, "gs")) {
+        std::vector<uint8_t> b;
+        const bool got = img.slice("_gs", static_cast<size_t>(width + 2), &b);
+        const CFormatted f = got ? c_format_value(ctx, v->record.var.type, b.data(), b.size()) : CFormatted{};
+        if (!got || !f.ok || f.text != "{v = " + k25 + ", n = 7}") bad += " gs=" + (f.ok ? f.text : "!" + f.why);
+    } else {
+        bad += " gs:missing";
+    }
+    if (const CVariable* v = global_var(*L.store, "pf")) {
+        CLoc root;
+        root.type = v->record.var.type;
+        root.addr = img.sym.count("_pf") ? img.sym.at("_pf") : 0;
+        const CEval d = c_eval_path(ctx, root, true, {});
+        const CEval i1 = c_eval_path(ctx, root, false, c_parse_path("pf[1]").steps);
+        const CEval i2 = c_eval_path(ctx, root, false, c_parse_path("pf[2]").steps);
+        const std::string t0 = d.ok ? c_read_loc(ctx, d.loc).text : "!" + d.why;
+        const std::string t1 = i1.ok ? c_read_loc(ctx, i1.loc).text : "!" + i1.why;
+        const std::string t2 = i2.ok ? c_read_loc(ctx, i2.loc).text : "!" + i2.why;
+        if (t0 != k15 || t1 != "-2" || t2 != "100") bad += " *pf=" + t0 + " pf[1]=" + t1 + " pf[2]=" + t2;
+        const CChildren kids = c_children(ctx, root, 0, 10);
+        const std::string kt = kids.ok && kids.items.size() == 1 ? c_read_loc(ctx, kids.items[0].loc).text : "!children";
+        if (!kids.ok || kids.total != 1 || kids.items.size() != 1 || kids.items[0].label != "*" || kt != k15) bad += " children=" + kt;
+    } else {
+        bad += " pf:missing";
+    }
+    return bad;
+}
+
+// GH #477: a synthetic store whose module t_c records a float format (or an unusable one: `why`).
+struct FpCtx {
+    VariableStore st;
+    CFormatCtx ctx;
+    FpCtx(int mode, int bias, int ms, const std::string& why = "")
+        : st({}, {}, {}, {}, {}, {}, {}, "", {{"t_c", CFloatFormat{mode, bias, ms, why}}}) {
+        ctx.store = &st;
+        ctx.module = "t_c";
+        ctx.scope_name = "t.c";
+    }
+};
+
+static std::string hex_of(const std::vector<uint8_t>& b) {
+    static const char* d = "0123456789ABCDEF";
+    std::string s;
+    for (uint8_t x : b) s += std::string(s.empty() ? "" : " ") + d[x >> 4] + d[x & 15];
+    return s;
+}
+
+// The bytes the encoder gives for `text` (hex), or `!<reason>`; `current` is the object's present bytes.
+static std::string enc_hex(const CFormatCtx& ctx, const char* chain, const char* text, std::vector<uint8_t> current = {}) {
+    CNewValue v;
+    v.text = text;
+    const CEncoded e = c_encode_value(ctx, ty(chain), v, current.data(), current.size());
+    return e.ok ? hex_of(e.bytes) : "!" + e.why;
+}
 
 int main() {
     Loaded sc("master/sccz80-cvars");
@@ -2105,6 +2239,521 @@ int main() {
         check("CVZB-17", "the proofs are strict: an outer entry on y's own line closes nothing (y stays `?` at lines 9 and 10 beside w); a line shared by two blocks makes no parent (y never plain, w `?`); with no level-1 data beta is "
                          "the lowest block, so at the first block's line x is `?` and y absent, and at the second's x is absent and y `?` (S4b: never plain)",
               c1 == "9=t w? y?|10=t w? y?" && c2 == "10=t w? y?" && c3 == "3=x?|5=y?", c1 + " || " + c2 + " || " + c3);
+    }
+
+    // ── GH #477: floats in the format the map records (z88dk#3240) ──────────────────────────────────────────────────────
+    // Oracles: sccz80's const.c `dofloat_*` and the bytes it wrote for -3.25, 1.5, -2, 100, 2.5 and 0.1 in 20 builds (the plan's probe
+    // builds of fpfmt.c, read by an independent Python decoder), z88math's bbcmath.asm (the z88 integer form), the C source's values.
+    // ── CVFMT-01..21 (GH #477): the nightly builds of fpfmt.c and the mixed link; the bytes are the compilers' own ──────────────────
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-math48", 0, 128, 5, 6);
+        check("CVFMT-01", "fpfmt.c built by sccz80 +zx --math48 (z88dk nightly 20261107): the map records mode 0, bias 128, mantissa 5; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (6-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-genmath", 0, 128, 5, 6);
+        check("CVFMT-02", "fpfmt.c built by sccz80 +zx --genmath (z88dk nightly 20261107): the map records mode 0, bias 128, mantissa 5; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (6-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-lmz", 0, 128, 5, 6);
+        check("CVFMT-03", "fpfmt.c built by sccz80 +zx -lmz (z88dk nightly 20261107): the map records mode 0, bias 128, mantissa 5; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (6-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-math32", 1, 126, 3, 4);
+        check("CVFMT-04", "fpfmt.c built by sccz80 +zx --math32 (z88dk nightly 20261107): the map records mode 1, bias 126, mantissa 3; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (4-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-lm", 1, 126, 3, 4);
+        check("CVFMT-05", "fpfmt.c built by sccz80 +zx -lm (z88dk nightly 20261107): the map records mode 1, bias 126, mantissa 3; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (4-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-am9511", 1, 126, 3, 4);
+        check("CVFMT-06", "fpfmt.c built by sccz80 +zx --am9511 (z88dk nightly 20261107): the map records mode 1, bias 126, mantissa 3; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (4-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-mbf32", 2, 128, 3, 4);
+        check("CVFMT-07", "fpfmt.c built by sccz80 +zx --math-mbf32 (z88dk nightly 20261107): the map records mode 2, bias 128, mantissa 3; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (4-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-mbf40", 3, 128, 4, 6);
+        check("CVFMT-08", "fpfmt.c built by sccz80 +zx -Cc-fp-mode=mbf40 (z88dk nightly 20261107): the map records mode 3, bias 128, mantissa 4; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (6-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-mbf64", 4, 128, 7, 8);
+        check("CVFMT-09", "fpfmt.c built by sccz80 +zx --math-mbf64 (z88dk nightly 20261107): the map records mode 4, bias 128, mantissa 7; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (8-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-bbc", 5, 127, 4, 6);
+        check("CVFMT-10", "fpfmt.c built by sccz80 +zx --math-bbc (z88dk nightly 20261107): the map records mode 5, bias 127, mantissa 4; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (6-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-z88", 5, 127, 4, 6);
+        check("CVFMT-11", "fpfmt.c built by sccz80 +zx -Cc-math-z88 -lz88_math (z88dk nightly 20261107): the map records mode 5, bias 127, mantissa 4; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (6-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-dai32", 6, 0, 3, 4);
+        check("CVFMT-12", "fpfmt.c built by sccz80 +zx --math-dai32 (z88dk nightly 20261107): the map records mode 6, bias 0, mantissa 3; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (4-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zx-bias129", 0, 129, 4, 6);
+        check("CVFMT-13", "fpfmt.c built by sccz80 +zx --math48 with exponent bias 129 and mantissa size 4 (z88dk nightly 20261107): the map records mode 0, bias 129, mantissa 4; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (6-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/80cc-zx-math48", 0, 128, 5, 6);
+        check("CVFMT-14", "fpfmt.c built by 80cc +zx --math48 (z88dk nightly 20261107): the map records mode 0, bias 128, mantissa 5; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (6-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/80cc-zx-math32", 1, 126, 3, 4);
+        check("CVFMT-15", "fpfmt.c built by 80cc +zx --math32 (z88dk nightly 20261107): the map records mode 1, bias 126, mantissa 3; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (4-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/80cc-zx-mbf32", 2, 128, 3, 4);
+        check("CVFMT-16", "fpfmt.c built by 80cc +zx --math-mbf32 (z88dk nightly 20261107): the map records mode 2, bias 128, mantissa 3; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (4-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zxn", 0, 128, 5, 6);
+        check("CVFMT-17", "fpfmt.c built by sccz80 +zxn -clib=new (z88dk nightly 20261107): the map records mode 0, bias 128, mantissa 5; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (6-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/sccz80-zxn-math32", 1, 126, 3, 4);
+        check("CVFMT-18", "fpfmt.c built by sccz80 +zxn -clib=new --math32 (z88dk nightly 20261107): the map records mode 1, bias 126, mantissa 3; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (4-byte floats)",
+              bad.empty(), bad);
+    }
+    {
+        const std::string bad = fp_build_problems("nightly/80cc-zxn", 0, 128, 5, 6);
+        check("CVFMT-19", "fpfmt.c built by 80cc +zxn -clib=new (z88dk nightly 20261107): the map records mode 0, bias 128, mantissa 5; f0..f4 read 0, -3.25, 0.1, 12345.678, 1e-05, farr {1.5, -2, 100}, "
+                        "gs {v = 2.5, n = 7}, *pf 1.5, pf[1] -2, pf[2] 100, pf's one child `*` 1.5, f1's typed value -3.25, all from the build's own bytes (6-byte floats)",
+              bad.empty(), bad);
+    }
+    {   // CVFMT-20
+        Loaded L("nightly/sccz80-zx-mix");
+        const FpImage img("nightly/sccz80-zx-mix");
+        const CFloatFormat* f48 = L.store ? L.store->float_format("fpmix48_c") : nullptr;
+        const CFloatFormat* f32 = L.store ? L.store->float_format("fpmix32_c") : nullptr;
+        std::string bad;
+        if (!L.store || !img.ok || !f48 || !f32) {
+            bad = "no store";
+        } else {
+            if (f48->mode != 0 || f48->exponent_bias != 128 || f48->mantissa_size != 5 || f32->mode != 1 || f32->exponent_bias != 126 || f32->mantissa_size != 3) bad += " formats";
+            int sf_records = 0;
+            std::set<std::string> sf_modules;
+            for (const CRecord& r : L.store->types())
+                if (r.record.var.name == "sf") {
+                    ++sf_records;
+                    sf_modules.insert(r.module);
+                }
+            if (sf_records != 2 || sf_modules.size() != 2) bad += " two T: records of sf expected";
+            const auto read = [&](const char* name, const char* module, const char* scope, size_t n) {
+                const CVariable* v = global_var(*L.store, name);
+                std::vector<uint8_t> b;
+                if (!v || !img.slice(std::string("_") + name, n, &b)) return std::string("!missing ") + name;
+                CFormatCtx ctx;
+                ctx.store = L.store.get();
+                ctx.scope_name = scope;
+                ctx.module = module;
+                ctx.read = img.reader();
+                const CFormatted f = c_format_value(ctx, v->record.var.type, b.data(), b.size());
+                return f.ok ? f.text : "!" + f.why;
+            };
+            const std::string a48 = read("a48", "fpmix48_c", "fpmix48.c", 6), a32 = read("a32", "fpmix32_c", "fpmix32.c", 4);
+            const std::string s48 = read("s48", "fpmix48_c", "fpmix48.c", 8), s32 = read("s32", "fpmix32_c", "fpmix32.c", 6);
+            const std::string arr = read("arr32", "fpmix32_c", "fpmix32.c", 8);
+            if (a48 != "-3.25" || a32 != "1024" || s48 != "{v = " + k25 + ", n = 7}" || s32 != "{v = -0.5, n = 9}" || arr != "{" + k15 + ", -2}")
+                bad += " " + a48 + " " + a32 + " " + s48 + " " + s32 + " " + arr;
+            CFormatCtx ctx;
+            ctx.store = L.store.get();
+            ctx.scope_name = "fpmix32.c";
+            ctx.module = "fpmix32_c";
+            ctx.read = img.reader();
+            CLoc root;
+            root.type = global_var(*L.store, "p32")->record.var.type;
+            root.addr = img.sym.count("_p32") ? img.sym.at("_p32") : 0;
+            const CEval d = c_eval_path(ctx, root, true, {});
+            const CEval i1 = c_eval_path(ctx, root, false, c_parse_path("p32[1]").steps);
+            const std::string t0 = d.ok ? c_read_loc(ctx, d.loc).text : "!" + d.why, t1 = i1.ok ? c_read_loc(ctx, i1.loc).text : "!" + i1.why;
+            if (t0 != k15 || t1 != "-2") bad += " *p32=" + t0 + " p32[1]=" + t1;
+        }
+        check("CVFMT-20", "a mixed link of fpmix48.c (--math48) and fpmix32.c (--math32) sharing struct sf: the map keeps fpmix48_c 0/128/5 and fpmix32_c 1/126/3 apart with one T: record of sf each; "
+                          "a48 -3.25 (6 bytes), a32 1024, s48 {v = 2.5, n = 7}, s32 {v = -0.5, n = 9}, arr32 {1.5, -2}, *p32 1.5, p32[1] -2, each in its own module's format",
+              bad.empty(), bad);
+    }
+    {   // CVFMT-21
+        // fl.c does float arithmetic, so these two builds link their float library and the map names it (__code_fp_<lib>_size)
+        const auto g_f = [](const char* fixture, std::string* library) {
+            Loaded L(fixture);
+            const FpImage img(fixture);
+            const CVariable* v = L.store ? global_var(*L.store, "g_f") : nullptr;
+            std::vector<uint8_t> b;
+            if (!v || !img.ok || !img.slice("_g_f", static_cast<size_t>(v->record.var.type.size), &b)) return std::string("!missing");
+            *library = L.store->float_library();
+            CFormatCtx ctx;
+            ctx.store = L.store.get();
+            ctx.scope_name = "fl.c";
+            ctx.module = "fl_c";
+            ctx.read = img.reader();
+            const CFormatted f = c_format_value(ctx, v->record.var.type, b.data(), b.size());
+            return f.ok ? f.text : "!" + f.why;
+        };
+        std::string lib_mbf, lib_dai;
+        const std::string a = g_f("nightly/sccz80-zx-fl-mbf32", &lib_mbf), b = g_f("nightly/sccz80-zx-fl-dai32", &lib_dai);
+        check("CVFMT-21", "the format beats the library guess: fl.c linked with the mbf32 library names it (mbf32) and with the dai32 library names dai32 (both alone refuse their floats without a format), and g_f still reads -3.25 in both",
+              lib_mbf == "mbf32" && lib_dai == "dai32" && a == "-3.25" && b == "-3.25", lib_mbf + " " + lib_dai + " " + a + " " + b);
+    }
+    {   // CVFMT-22 (the fallback part): no committed map (z88dk 2.4, master before 2026-11-06, zsdcc) records a float format
+        int maps = 0, clean = 0;
+        std::string bad;
+        for (const char* root : {"v2.4", "v2.4-dotn", "master", "master-fixed", "master-fixed-80cc", "master-fixed-sccz80", "master-fixed-zsdcc"}) {
+            if (!fs::is_directory(kFixtures / root)) continue;
+            for (const auto& d : fs::recursive_directory_iterator(kFixtures / root)) {
+                if (d.path().filename() != "prog.map") continue;
+                ++maps;
+                std::ifstream in(d.path());
+                const std::string text((std::istreambuf_iterator<char>(in)), {});
+                SourceMap map;
+                load_z88dk_source_map(map, d.path().string(), nex_space);
+                bool none = text.find("__fp_mode") == std::string::npos;
+                if (const auto st = map.variables()) {
+                    for (const CVariable& v : st->variables()) none = none && !st->float_format(v.module);
+                    for (const CFunction& f : st->functions()) none = none && !st->float_format(f.module);
+                    for (const CRecord& r : st->types()) none = none && !st->float_format(r.module);
+                }
+                if (none) ++clean;
+                else bad += " " + d.path().string();
+            }
+        }
+        // the same program built by z88dk 2.4 (no __fp_* symbols): f1 and farr read by size, *pf is refused as before
+        bool fp24 = false;
+        std::string fp24why;
+        {
+            Loaded L("v2.4-fp/sccz80-zxn");
+            const FpImage img("v2.4-fp/sccz80-zxn");
+            if (L.store && img.ok) {
+                CFormatCtx ctx;
+                ctx.store = L.store.get();
+                ctx.scope_name = "fpfmt.c";
+                ctx.module = "fpfmt_c";
+                ctx.read = img.reader();
+                const CVariable* v1 = global_var(*L.store, "f1");
+                const CVariable* va = global_var(*L.store, "farr");
+                const CVariable* vp = global_var(*L.store, "pf");
+                std::vector<uint8_t> b1, ba;
+                const bool got = v1 && va && vp && img.slice("_f1", 6, &b1) && img.slice("_farr", 18, &ba);
+                const CFormatted f1 = got ? c_format_value(ctx, v1->record.var.type, b1.data(), 6) : CFormatted{};
+                const CFormatted fa = got ? c_format_value(ctx, va->record.var.type, ba.data(), 18) : CFormatted{};
+                CLoc root;
+                if (vp) root.type = vp->record.var.type;
+                root.addr = img.sym.count("_pf") ? img.sym.at("_pf") : 0;
+                const CEval d = c_eval_path(ctx, root, true, {});
+                fp24why = f1.text + " | " + fa.text + " | " + d.why;
+                fp24 = got && !L.store->float_format("fpfmt_c") && f1.ok && f1.text == "-3.25" && fa.ok && fa.text == "{" + k15 + ", -2, 100}" && !d.ok &&
+                       d.why == "the size of the pointed-to type is not known";
+            }
+        }
+        check("CVFMT-22", "no map of z88dk 2.4, 2.4 dotn, master before 2026-11-06 or zsdcc (every committed root) has an __fp_mode constant or a float format on any module: "
+                          "they keep the size / library rule; the same fpfmt.c built by 2.4 reads f1 and farr by size and refuses *pf (the size of the pointed-to type is not known)",
+              maps >= 100 && clean == maps && fp24, std::to_string(maps) + " maps, " + std::to_string(clean) + " clean:" + bad + " | 2.4: " + fp24why);
+    }
+    {   // CVFMT-23: the z88 integer form
+        const FpCtx z4(5, 127, 4), z3(5, 127, 3);
+        const std::string two = text_of(z4.ctx, "{6}SF:S", {0x00, 0x02, 0x00, 0x00, 0x00, 0x00});
+        const std::string m2 = text_of(z4.ctx, "{6}SF:S", {0x00, 0xFE, 0xFF, 0xFF, 0xFF, 0x00});
+        const std::string zero = text_of(z4.ctx, "{6}SF:S", {0, 0, 0, 0, 0, 0});
+        const std::string big = text_of(z4.ctx, "{6}SF:S", {0x00, 0x00, 0x00, 0x00, 0x80, 0x00});   // -2147483648
+        const std::string refused = text_of(z3.ctx, "{6}SF:S", {0, 0, 0, 0, 0, 0});
+        check("CVFMT-23", "z88 (BBC) format, exponent byte 0: the mantissa bytes are a 32-bit two's complement integer (2, -2, 0, -2147483648), byte 0 unused; with a 3-byte "
+                          "mantissa the integer form is refused",
+              two == "2" && m2 == "-2" && zero == "0" && big == "-2147483648" && refused == "!a z88 integer with a 3-byte mantissa is not supported",
+              two + " | " + m2 + " | " + zero + " | " + big + " | " + refused);
+    }
+    {   // CVFMT-24: every unusable format is refused with its reason, never a number
+        struct Case {
+            int mode, bias, ms;
+            const char* chain;
+            const char* why;
+            const char* text;
+        };
+        const Case cases[] = {
+            {7, 0, 3, "{4}SF:S", "", "float format __fp_mode 7 is not supported"},
+            {0, 128, 6, "{6}SF:S", "", "float format z80 (mantissa 6 bytes) does not fit a 6-byte float"},
+            {0, 128, 5, "{10}SF:S", "", "float format z80 (mantissa 5 bytes) does not fit a 10-byte float"},
+            {5, 127, 5, "{6}SF:S", "", "float format z88 (mantissa 5 bytes) does not fit a 6-byte float after its first byte"},
+            {6, 0, 4, "{4}SF:S", "", "float format am9511 needs a 3-byte mantissa (the map says 4)"},
+            {1, 127, 3, "{4}SF:S", "", "float format ieee with exponent bias 127 and mantissa size 3 is not IEEE binary32"},
+            {1, 126, 3, "{6}SF:S", "", "a 6-byte float is not ieee (4 bytes)"},
+            {0, 128, 5, "{6}SF:S", "no __fp_exponent_bias", "float format of module t_c is not usable: no __fp_exponent_bias"},
+            {0, 128, 5, "{6}SF:S", "two __fp_mode values (0 and 1)", "float format of module t_c is not usable: two __fp_mode values (0 and 1)"},
+        };
+        std::string bad;
+        for (const Case& c : cases) {
+            const FpCtx f(c.mode, c.bias, c.ms, c.why);
+            const std::vector<uint8_t> b(8, 0x55);
+            const CFormatted r = c_format_value(f.ctx, ty(c.chain), b.data(), 6);
+            const std::optional<double> real = c_float_value(f.ctx, ty(c.chain), b.data(), 6);
+            const std::string w = enc_hex(f.ctx, c.chain, k15.c_str(), std::vector<uint8_t>(6, 0));
+            if (r.ok || r.why != c.text || real || w != std::string("!") + c.text) bad += std::string(" [") + c.text + " -> " + r.why + " | " + w + "]";
+        }
+        check("CVFMT-24", "an unknown mode, a mantissa that does not fit the record, a z88 one that leaves no room after byte 0, an am9511 without a 3-byte mantissa, an IEEE float "
+                          "with another bias or size, and a module whose symbols are incomplete or conflicting: the value, c_float_value and a write are all refused with the "
+                          "same stated reason",
+              bad.empty(), bad);
+    }
+    {   // CVFMT-25: the map's parameters are used, none is assumed
+        const FpCtx a0(6, 0, 3), a1(6, 1, 3), zz(5, 127, 4), m128(2, 128, 3), m129(2, 129, 3), b4(0, 129, 4);
+        const std::string am0 = text_of(a0.ctx, "{4}SF:S", {0x00, 0x00, 0xC0, 0x01});
+        const std::string am1 = text_of(a1.ctx, "{4}SF:S", {0x00, 0x00, 0xC0, 0x01});
+        const std::string z = text_of(zz.ctx, "{6}SF:S", {0xFF, 0x00, 0x00, 0x00, 0xD0, 0x81});
+        const std::string q128 = text_of(m128.ctx, "{4}SF:S", {0x00, 0x00, 0xD0, 0x82});
+        const std::string q129 = text_of(m129.ctx, "{4}SF:S", {0x00, 0x00, 0xD0, 0x82});
+        const std::string wide = text_of(b4.ctx, "{6}SF:S", {0x00, 0x00, 0x00, 0xD0, 0x83, 0x00});
+        const std::string amneg = text_of(a0.ctx, "{4}SF:S", {0x00, 0x00, 0x80, 0x40});   // exponent byte 0x40 is -64 (two's complement): 2^-65
+        check("CVFMT-25", "the map's bias, mantissa size and z88 offset decide: AM9511 00 00 C0 01 is 1.5 at bias 0 and 0.75 at bias 1; z88 with byte 0 = FF reads -3.25 (byte 0 ignored); "
+                          "mbf32 00 00 D0 82 is -3.25 at bias 128 and -1.625 at 129; a 4-byte mantissa at bias 129 reads -3.25; AM9511 exponent byte 40 is -64 (2^-65 = 2.7105054e-20), not +64",
+              am0 == k15 && am1 == "0.75" && z == "-3.25" && q128 == "-3.25" && q129 == "-1.625" && wide == "-3.25" && amneg == "2.7105054e-20",
+              am0 + " " + amneg + " " + am1 + " " + z + " " + q128 + " " + q129 + " " + wide);
+    }
+    {   // CVFMT-26: precision follows the mantissa
+        const FpCtx m32(2, 128, 3), m40(3, 128, 4), m64(4, 128, 7), d48(0, 128, 5);
+        const std::string a = text_of(m32.ctx, "{4}SF:S", {0xCD, 0xCC, 0x4C, 0x7D});
+        const std::string b = text_of(m40.ctx, "{6}SF:S", {0xCD, 0xCC, 0xCC, 0x4C, 0x7D, 0x00});
+        const std::string c = text_of(m64.ctx, "{8}SF:S", {0xD0, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x4C, 0x7D});
+        // the compiler's 12345.678 in mbf32 (probe zx-mbf32): 7 digits is wrong ("12345.68"), the shortest binary32 text is right
+        const std::string d = text_of(m32.ctx, "{4}SF:S", {0xB6, 0xE6, 0x40, 0x8E});
+        // a 3-byte mantissa with a user bias leaves binary32's exponent range: the text is never inf or 0 (2^254 and 2^-255, 7 digits)
+        const FpCtx hi(0, 0, 3), lo(0, 255, 3);
+        const std::string e = text_of(hi.ctx, "{6}SF:S", {0x00, 0x00, 0x00, 0xFF, 0x00, 0x00});
+        const std::string f = text_of(lo.ctx, "{6}SF:S", {0x00, 0x00, 0x00, 0x01, 0x00, 0x00});
+        // the 48-bit text is the old c_format_float48's, byte for byte, for any bytes
+        const uint8_t pats[][6] = {{0xCD, 0xCC, 0xCC, 0xCC, 0x4C, 0x7D}, {0xA2, 0x45, 0xB6, 0xE6, 0x40, 0x8E}, {0x00, 0x00, 0x00, 0x00, 0xD0, 0x82},
+                                   {0x01, 0x02, 0x03, 0x04, 0x85, 0xFF}, {0x11, 0x22, 0x33, 0x44, 0x55, 0x01}, {0x11, 0x22, 0x33, 0x44, 0x55, 0x00}};
+        bool same = true;
+        for (const auto& p : pats) {
+            const CFormatted r = c_format_value(d48.ctx, ty("{6}SF:S"), p, 6);
+            same = same && r.ok && r.text == c_format_float48(p);
+        }
+        check("CVFMT-26", "precision follows the mantissa: mbf32's 0.1 prints 0.1 (not 12 digits), mbf40's and mbf64's too, and the (0,128,5) text equals c_format_float48() on six byte patterns; mbf32 12345.678 prints 12345.678; a 3-byte mantissa outside binary32's exponent range prints 2.894802e+76 and 1.727234e-77, never inf or 0",
+              a == "0.1" && b == "0.1" && c == "0.1" && same && d == "12345.678" && e == "2.894802e+76" && f == "1.727234e-77", a + " " + b + " " + c + " " + d + " " + e + " " + f);
+    }
+    {   // CVFMT-27: the size of a float, for a pointer's target
+        const int want[] = {6, 4, 4, 6, 8, 6, 4};
+        const int bias[] = {128, 126, 128, 128, 128, 127, 0};
+        const int ms[] = {5, 3, 3, 4, 7, 4, 3};
+        std::string bad;
+        for (int mode = 0; mode <= 6; ++mode) {
+            const FpCtx f(mode, bias[mode], ms[mode]);
+            if (c_leaf_size(f.ctx, ty("{4}SF:S").chain) != want[mode]) bad += " mode " + std::to_string(mode);
+        }
+        const VariableStore none({}, {}, {}, {}, {});
+        CFormatCtx nctx;
+        nctx.store = &none;
+        nctx.module = "t_c";
+        const FpCtx unusable(0, 128, 5, "no __fp_mode"), mode7(7, 0, 3);
+        // `float *pf` at $A000 -> {1.5, -2} (mbf32); with a format `*pf` and `pf[1]` read, without one they are refused as before
+        const FpCtx m32(2, 128, 3);
+        Mem mem;
+        mem.put(0xA000, {0x00, 0xB0});
+        mem.put(0xB000, {0x00, 0x00, 0x40, 0x81, 0x00, 0x00, 0x80, 0x82});
+        CFormatCtx rctx = m32.ctx;
+        rctx.read = mem.reader();
+        CLoc root;
+        root.type = ty("{2}DG,SF:S");
+        root.addr = 0xA000;
+        const CEval e0 = c_eval_path(rctx, root, true, {});
+        const CEval e1 = c_eval_path(rctx, root, false, c_parse_path("pf[1]").steps);
+        const CFormatted v0 = e0.ok ? c_read_loc(rctx, e0.loc) : CFormatted{};
+        const CFormatted v1 = e1.ok ? c_read_loc(rctx, e1.loc) : CFormatted{};
+        CFormatCtx octx = nctx;
+        octx.read = mem.reader();
+        const CEval n0 = c_eval_path(octx, root, true, {});
+        check("CVFMT-27", "the width of a float is 6, 4, 4, 6, 8, 6, 4 for modes 0..6, -1 with no format, an unusable one or an unknown mode; a pointer to a float then reads: *pf is 1.5 and "
+                          "pf[1] -2 (stride 4, mbf32), and without a format *pf is refused as before",
+              bad.empty() && c_leaf_size(nctx, ty("{4}SF:S").chain) == -1 && c_leaf_size(unusable.ctx, ty("{4}SF:S").chain) == -1 && c_leaf_size(mode7.ctx, ty("{4}SF:S").chain) == -1 &&
+                  e0.ok && v0.ok && v0.text == k15 && e1.ok && e1.loc.addr == 0xB004 && v1.ok && v1.text == "-2" && !n0.ok,
+              bad + " " + v0.text + " " + v1.text);
+    }
+    {   // CVFMT-28: a struct laid out by another module's float format
+        const auto rec = [](const char* text, const char* module) {
+            CRecord r;
+            r.text = text;
+            r.module = module;
+            r.record = cdb_decode(text).record;
+            return r;
+        };
+        const std::vector<CRecord> types = {
+            rec("T:Fa.h$s[({0}S:S$v$0_0$0({6}SF:S),Z,0,0)({6}S:S$n$0_0$0({2}SI:S),Z,0,0)]", "a_c"),
+            rec("T:Fa.h$in[({0}S:S$f$0_0$0({6}SF:S),Z,0,0)]", "a_c"),
+            rec("T:Fa.h$o[({0}S:S$i$0_0$0({6}STin:S),Z,0,0)({6}S:S$n$0_0$0({2}SI:S),Z,0,0)]", "a_c"),
+        };
+        const VariableStore two({}, {}, types, {}, {}, {}, {}, "", {{"a_c", CFloatFormat{0, 128, 5, ""}}, {"b_c", CFloatFormat{1, 126, 3, ""}}});
+        const VariableStore bare({}, {}, types, {}, {}, {}, {}, "", {{"a_c", CFloatFormat{0, 128, 5, ""}}});
+        const auto ctx_in = [](const VariableStore& st, const char* module) {
+            CFormatCtx c;
+            c.store = &st;
+            c.scope_name = "x.c";
+            c.module = module;
+            return c;
+        };
+        const std::vector<uint8_t> obj = {0x00, 0x00, 0x00, 0x00, 0x40, 0x81, 0x07, 0x00};
+        const std::string why = "struct s is laid out with 6-byte floats (module a_c); this object's module b_c uses 4-byte floats";
+        const CFormatCtx ob = ctx_in(two, "b_c"), oa = ctx_in(two, "a_c"), nb = ctx_in(bare, "b_c");
+        const CdbType st = ty("{8}STs:S");
+        const CFormatted pb = c_format_value(ob, st, obj.data(), obj.size());
+        const CFormatted pa = c_format_value(oa, st, obj.data(), obj.size());
+        const CFormatted pn = c_format_value(nb, st, obj.data(), obj.size());
+        CLoc root;
+        root.type = st;
+        root.addr = 0xA000;
+        const CEval mv = c_eval_path(ob, root, false, c_parse_path("x.v").steps);
+        const CEval mn = c_eval_path(ob, root, false, c_parse_path("x.n").steps);
+        const CChildren ch = c_children(ob, root, 0, 10);
+        CFormatCtx obs = ob;
+        const bool size_unknown = c_leaf_size(obs, st.chain) == -1;
+        const bool size_known = c_leaf_size(oa, st.chain) == 8;
+        // a float only inside a nested struct member
+        const CdbType nested = ty("{8}STo:S");
+        const CFormatted nn = c_format_value(ob, nested, obj.data(), obj.size());
+        const CFormatted na = c_format_value(oa, nested, obj.data(), obj.size());
+        CLoc oroot;
+        oroot.type = nested;
+        oroot.addr = 0xA000;
+        const CEval on = c_eval_path(ob, oroot, false, c_parse_path("x.n").steps);
+        const bool nsize_unknown = c_leaf_size(ob, nested.chain) == -1;
+        check("CVFMT-28", "a struct found in another module whose floats are 6 bytes, read by an object of a 4-byte-float module: the value, its members, its children and its size "
+                          "are refused with the layout text (also when the float sits in a nested struct); in its own module it reads {v = 1.5, n = 7}; with no format on the "
+                          "holder's module nothing changes",
+              !pb.ok && pb.why == why && !mv.ok && mv.why == why && !mn.ok && mn.why == why && !ch.ok && ch.why == why && size_unknown && size_known &&
+                  pa.ok && pa.text == "{v = " + k15 + ", n = 7}" && pn.ok && pn.text == pa.text && !nn.ok && nn.why.find("is laid out with 6-byte floats") != std::string::npos &&
+                  na.ok && !on.ok && on.why.find("is laid out with 6-byte floats") != std::string::npos && nsize_unknown,
+              pb.why + " | " + pa.why + " | " + pn.why + " | " + nn.why + " | " + na.why);
+    }
+    {   // CVFMT-29: writes, in each format, to the bytes the compilers wrote
+        struct Build {
+            int mode, bias, ms;
+            const char* chain;
+            const char* b[5];   // -3.25, 1.5, -2, 100, 2.5
+        };
+        const Build builds[] = {
+            {0, 128, 5, "{6}SF:S", {"00 00 00 00 D0 82", "00 00 00 00 40 81", "00 00 00 00 80 82", "00 00 00 00 48 87", "00 00 00 00 20 82"}},
+            {1, 126, 3, "{4}SF:S", {"00 00 50 C0", "00 00 C0 3F", "00 00 00 C0", "00 00 C8 42", "00 00 20 40"}},
+            {2, 128, 3, "{4}SF:S", {"00 00 D0 82", "00 00 40 81", "00 00 80 82", "00 00 48 87", "00 00 20 82"}},
+            {3, 128, 4, "{6}SF:S", {"00 00 00 D0 82 00", "00 00 00 40 81 00", "00 00 00 80 82 00", "00 00 00 48 87 00", "00 00 00 20 82 00"}},
+            {4, 128, 7, "{8}SF:S", {"00 00 00 00 00 00 D0 82", "00 00 00 00 00 00 40 81", "00 00 00 00 00 00 80 82", "00 00 00 00 00 00 48 87", "00 00 00 00 00 00 20 82"}},
+            {5, 127, 4, "{6}SF:S", {"00 00 00 00 D0 81", "00 00 00 00 40 80", "00 00 00 00 80 81", "00 00 00 00 48 86", "00 00 00 00 20 81"}},
+            {6, 0, 3, "{4}SF:S", {"00 00 D0 82", "00 00 C0 01", "00 00 80 82", "00 00 C8 07", "00 00 A0 02"}},
+            {0, 129, 4, "{6}SF:S", {"00 00 00 D0 83 00", "00 00 00 40 82 00", "00 00 00 80 83 00", "00 00 00 48 88 00", "00 00 00 20 83 00"}},
+        };
+        const char* texts[] = {"-3.25", k15.c_str(), "-2", "100", k25.c_str()};
+        std::string bad;
+        for (const Build& bd : builds) {
+            const FpCtx f(bd.mode, bd.bias, bd.ms);
+            const int n = c_leaf_size(f.ctx, ty("{4}SF:S").chain);
+            if (n < 0) {
+                bad += " mode " + std::to_string(bd.mode) + ": no size";
+                continue;
+            }
+            for (int k = 0; k < 5; ++k) {
+                const std::string got = enc_hex(f.ctx, bd.chain, texts[k], std::vector<uint8_t>(static_cast<size_t>(n), 0));
+                if (got != bd.b[k]) bad += " mode " + std::to_string(bd.mode) + "/" + std::to_string(bd.bias) + " " + texts[k] + " -> " + got;
+            }
+        }
+        // 0.1 reads back as 0.1 through every mode; outside bytes are kept; zero is all-zero layout bytes; out of range is refused per format
+        std::string rt;
+        for (const Build& bd : builds) {
+            const FpCtx f(bd.mode, bd.bias, bd.ms);
+            CNewValue v;
+            v.text = "0.1";
+            const CEncoded e = c_encode_value(f.ctx, ty(bd.chain), v, nullptr, 0);
+            const CFormatted r = e.ok ? c_format_value(f.ctx, ty(bd.chain), e.bytes.data(), e.bytes.size()) : CFormatted{};
+            if (!e.ok || !r.ok || r.text != "0.1") rt += " mode " + std::to_string(bd.mode) + "/" + std::to_string(bd.bias) + ":" + r.text + e.why;
+        }
+        const FpCtx m40(3, 128, 4), z88(5, 127, 4), b4(0, 129, 4), m32(2, 128, 3), am(6, 0, 3), d48(0, 128, 5);
+        const std::string keep40 = enc_hex(m40.ctx, "{6}SF:S", k15.c_str(), {1, 2, 3, 4, 5, 0xAA});
+        const std::string keepz = enc_hex(z88.ctx, "{6}SF:S", k15.c_str(), {0xEE, 1, 2, 3, 4, 5});
+        const std::string keep4 = enc_hex(b4.ctx, "{6}SF:S", k15.c_str(), {1, 2, 3, 4, 5, 0xBB});
+        const std::string zero = enc_hex(m40.ctx, "{6}SF:S", "0", {1, 2, 3, 4, 5, 0xAA});
+        const std::string zeroz = enc_hex(z88.ctx, "{6}SF:S", "0", {0xEE, 1, 2, 3, 4, 5});
+        const std::string big32 = enc_hex(m32.ctx, "{4}SF:S", "1e39", {0, 0, 0, 0});
+        const std::string tiny32 = enc_hex(m32.ctx, "{4}SF:S", "1e-39", {0, 0, 0, 0});
+        const std::string bigam = enc_hex(am.ctx, "{4}SF:S", "1e20", {0, 0, 0, 0});
+        const std::string tinyam = enc_hex(am.ctx, "{4}SF:S", "1e-20", {0, 0, 0, 0});
+        const std::string big48 = enc_hex(d48.ctx, "{6}SF:S", "1e39", std::vector<uint8_t>(6, 0));
+        // the mantissa rounds up to 2^bits: carried into the exponent (0.99999999 is 1.0 x 2^0 = 0.5 x 2^1); the extreme exponents are accepted
+        const std::string c32 = enc_hex(m32.ctx, "{4}SF:S", "0.99999999", {0, 0, 0, 0});
+        const std::string c48 = enc_hex(d48.ctx, "{6}SF:S", "0.9999999999999", std::vector<uint8_t>(6, 0));
+        const std::string cam = enc_hex(am.ctx, "{4}SF:S", "0.99999999", {0, 0, 0, 0});
+        const std::string top32 = enc_hex(m32.ctx, "{4}SF:S", "1.7e38", {0, 0, 0, 0});
+        const std::string bot32 = enc_hex(m32.ctx, "{4}SF:S", "3e-39", {0, 0, 0, 0});
+        const std::string topam = enc_hex(am.ctx, "{4}SF:S", "4.611686018427388e18", {0, 0, 0, 0});   // 2^62: exponent 63
+        const std::string botam = enc_hex(am.ctx, "{4}SF:S", "2.7105054e-20", {0, 0, 0, 0});   // 2^-65: exponent -64
+        const std::string nan = enc_hex(m32.ctx, "{4}SF:S", "nan", {0, 0, 0, 0});
+        const std::string junk = enc_hex(m32.ctx, "{4}SF:S", "abc", {0, 0, 0, 0});
+        check("CVFMT-29", "writes: -3.25, 1.5, -2, 100 and 2.5 encode to exactly the bytes the compilers wrote, in every mode (and bias 129 / 4-byte mantissa); 0.1 reads back as 0.1 in "
+                          "every mode; the bytes outside the layout (mbf40's 6th, z88's 1st, a 4-byte mantissa's 6th) are kept; zero is all-zero layout bytes; a value beyond the "
+                          "format's exponent is refused with the format's name, never wrapped; nan and text are refused; a mantissa that rounds up carries into the exponent; the largest and smallest exponents of mbf32 and AM9511 are accepted",
+              bad.empty() && rt.empty() && keep40 == "00 00 00 40 81 AA" && keepz == "EE 00 00 00 40 80" && keep4 == "00 00 00 40 82 BB" && zero == "00 00 00 00 00 AA" &&
+                  zeroz == "EE 00 00 00 00 00" && big32 == "!'1e39' is out of range for float (mbf32)" && tiny32 == "!'1e-39' is too small for float (mbf32): it would underflow" &&
+                  bigam == "!'1e20' is out of range for float (am9511)" && tinyam == "!'1e-20' is too small for float (am9511): it would underflow" &&
+                  big48 == "!'1e39' is out of range for float (z88dk 48-bit)" && nan == "!'nan' is not a finite number" && junk == "!'abc' is not a number" &&
+                  c32 == "00 00 00 81" && c48 == "00 00 00 00 00 81" && cam == "00 00 80 01" && top32 == "9E C9 7F FF" && bot32 == "1E AB 02 01" && topam == "00 00 80 3F" && botam == "00 00 80 40",
+              bad + rt + " | " + keep40 + " " + keepz + " " + keep4 + " " + zero + " " + zeroz + " | " + big32 + " " + tiny32 + " " + bigam + " " + tinyam + " " + big48 + " " + nan + " " + junk + " | " + c32 + " " + c48 + " " + cam + " " + top32 + " " + bot32 + " " + topam + " " + botam);
+    }
+    {   // CVFMT-30: the typed value follows the format; the format-free overload is untouched
+        const FpCtx a(0, 128, 5), b(1, 126, 3), c(2, 128, 3), d(3, 128, 4), e(4, 128, 7), f(5, 127, 4), g(6, 0, 3);
+        const auto val = [](const FpCtx& x, const char* chain, std::initializer_list<uint8_t> bytes) {
+            const std::vector<uint8_t> v(bytes);
+            const auto r = c_float_value(x.ctx, ty(chain), v.data(), v.size());
+            return r ? *r : -9999.0;
+        };
+        const bool per_mode = val(a, "{6}SF:S", {0, 0, 0, 0, 0xD0, 0x82}) == -3.25 && val(b, "{4}SF:S", {0x00, 0x00, 0x50, 0xC0}) == -3.25 &&
+                              val(c, "{4}SF:S", {0, 0, 0xD0, 0x82}) == -3.25 && val(d, "{6}SF:S", {0, 0, 0, 0xD0, 0x82, 0}) == -3.25 &&
+                              val(e, "{8}SF:S", {0, 0, 0, 0, 0, 0, 0xD0, 0x82}) == -3.25 && val(f, "{6}SF:S", {0, 0, 0, 0, 0xD0, 0x81}) == -3.25 &&
+                              val(g, "{4}SF:S", {0, 0, 0xD0, 0x82}) == -3.25 && val(g, "{4}SF:S", {0, 0, 0xC8, 0x07}) == 100.0 &&
+                              val(a, "{6}SF:S", {0, 0, 0, 0, 0, 0}) == 0.0 && val(f, "{6}SF:S", {0, 2, 0, 0, 0, 0}) == 2.0 &&
+                              val(f, "{6}SF:S", {0, 0xFE, 0xFF, 0xFF, 0xFF, 0}) == -2.0;
+        // a short buffer and the unusable format give nothing; an int is not a float
+        const std::vector<uint8_t> five(5, 1);
+        const bool none = !c_float_value(a.ctx, ty("{6}SF:S"), five.data(), 5) && !c_float_value(FpCtx(7, 0, 3).ctx, ty("{4}SF:S"), five.data(), 5) &&
+                          !c_float_value(a.ctx, ty("{2}SI:S"), five.data(), 5);
+        // the 3-argument overload is the size rule, whatever the module records
+        const std::vector<uint8_t> f48 = {0, 0, 0, 0, 0xD0, 0x82}, f32 = {0x00, 0x00, 0xC0, 0x3F};
+        const auto o48 = c_float_value(ty("{6}SF:S"), f48.data(), 6);
+        const auto o32 = c_float_value(ty("{4}SF:S"), f32.data(), 4);
+        check("CVFMT-30", "c_float_value(ctx, ...) is the decoded value in every mode (-3.25 in all seven, 100 in am9511, the z88 integers 2 and -2, zero), nothing for a short buffer, an unusable "
+                          "format and an int; the three-argument overload still reads by size (48-bit -3.25, binary32 1.5)",
+              per_mode && none && o48 && *o48 == -3.25 && o32 && *o32 == 1.5);
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

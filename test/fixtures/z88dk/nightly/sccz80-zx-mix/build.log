@@ -1,0 +1,5 @@
+# z88dk 965fd0e628 (nightly)
++ zcc +zx -debug --math48 --list -c fpmix48.c -o fpmix48.o
++ zcc +zx -debug --math32 --list -c fpmix32.c -o fpmix32.o
++ zcc +zx -debug --math32 -m --list -o prog -create-app fpmix48.o fpmix32.o
+rc=0

@@ -3050,18 +3050,18 @@ all three compilers, and the <code>B</code> records of a variable are offsets fr
 </tbody>
 </table>
 <p>The helpers (<code>__debug_framepointer</code>, <code>l_debug_push_frame</code>, <code>l_debug_pop_frame</code>) are joined by
-public name in <code>CFrameHelpers</code> (<code>struct CFrameHelpers</code>, <code>variable_store.h:110</code>), by the adapter
-(<code>helpers.framepointer</code>, <code>z88dk_source_map.cpp:675</code>), never from the symbol table: a
+public name in <code>CFrameHelpers</code> (<code>struct CFrameHelpers</code>, <code>variable_store.h:111</code>), by the adapter
+(<code>helpers.framepointer</code>, <code>z88dk_source_map.cpp:676</code>), never from the symbol table: a
 hand-loaded map attaches no symbols. They are unresolved, with a reason, in a zsdcc map.</p>
 <h2 id="which-function-a-pc-is-in">Which function a PC is in<a class="headerlink" href="#which-function-a-pc-is-in" title="Permanent link">&para;</a></h2>
-<p>A function's <strong>extent</strong> is a list of pieces (<code>CPiece</code>, <code>variable_store.h:56</code>). <code>fill_extents()</code>
+<p>A function's <strong>extent</strong> is a list of pieces (<code>CPiece</code>, <code>variable_store.h:57</code>). <code>fill_extents()</code>
 (<code>z88dk_source_map.cpp:328</code>) bounds the extent above by the lowest map value, in the same section,
 of another function's entry, a symbol or line record of another module, or the section's
 <code>__&lt;section&gt;_tail</code>; then it splits <code>[entry, bound)</code> at the 8 KB logical boundaries and places each
 piece with the rule the symbols use. A function that crosses a slot lives in two spaces (a NEX code
 group is placed slot by slot: page 4 for <code>$8000</code>-<code>$9FFF</code>, page 5 for <code>$A000</code>-<code>$BFFF</code>). With no bound,
 <code>pieces</code> is empty and <code>extent_why</code> says so: the function then contains no PC.</p>
-<p><code>VariableStore::locate()</code> (<code>variable_store.cpp:50</code>) answers "which function, and how far into it" from a
+<p><code>VariableStore::locate()</code> (<code>variable_store.cpp:52</code>) answers "which function, and how far into it" from a
 <code>SourceAddress</code>: the piece with the same space whose range holds the address. Nothing else is
 used, neither the nearest symbol nor a jump target. The scope tables follow the same rule
 (<code>fill_scopes()</code>, <code>z88dk_source_map.cpp:377</code>): a record is filed under the function of its module and
@@ -3134,11 +3134,15 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 <td>little-endian, <code>{size}</code> bytes (1, 2, 4, 8), decimal</td>
 </tr>
 <tr>
-<td><code>SF</code> <code>{6}</code></td>
-<td>z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by <code>$80</code>; 12 significant digits (<code>c_format_float48()</code>, <code>c_value.cpp:429</code>). Oracle: the bytes z88dk compiled in <code>*-floats</code></td>
+<td><code>SF</code> with a format</td>
+<td>the module's float format decides (<code>c_float_format()</code>: <code>CFormatCtx::module</code>, the module of the variable's record, which a path walk never changes, so a pointer's target and a struct's member read in the variable's module's format). Modes: <code>0</code> z80 and <code>2</code> mbf32, <code>3</code> mbf40, <code>4</code> mbf64 are <code>ms</code> mantissa bytes (sign in bit 7 of the last, implied leading 1) then the exponent byte, value = 0.1mmm(binary) x 2^(e - bias), exponent 0 is zero; <code>5</code> z88 (BBC) is the same one byte later (byte 0 unused), exponent byte 0 being a 32-bit two's complement integer in the mantissa bytes (<code>ms</code> 4 only); <code>6</code> am9511 is 24 mantissa bits with the leading 1 stored, then a sign bit and a 7-bit two's complement exponent; <code>1</code> ieee is binary32 (bias 126, <code>ms</code> 3). One decoder (<code>fp_read()</code>) serves the printout, <code>c_float_value(ctx, ...)</code>, and, with the widths 6, 4, 4, 6, 8, 6, 4 (<code>fp_width()</code>), <code>c_leaf_size()</code> of a float, so <code>*pf</code> and <code>pf[i]</code> read. A format that cannot read the record is refused with the reason (<code>float format z80 (mantissa 6 bytes) does not fit a 6-byte float</code>, <code>float format __fp_mode 7 is not supported</code>, <code>float format of module t_c is not usable: no __fp_exponent_bias</code>), never shown as a number. Text: a value that binary32 holds exactly prints as the shortest binary32 text (every value of a 3-byte mantissa inside binary32's exponent range), any other with <code>floor(8 ms log10 2)</code> significant digits (<code>ms</code> 5: 12; a 3-byte mantissa with a user bias outside binary32's range, 7), so a finite value never prints as <code>inf</code> or <code>0</code>. Oracle: sccz80's <code>const.c</code> and the bytes it wrote in 20 builds</td>
 </tr>
 <tr>
-<td><code>SF</code> <code>{4}</code></td>
+<td><code>SF</code> <code>{6}</code> (no format)</td>
+<td>z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by <code>$80</code>; 12 significant digits (<code>c_format_float48()</code>, <code>c_value.cpp:614</code>). Oracle: the bytes z88dk compiled in <code>*-floats</code></td>
+</tr>
+<tr>
+<td><code>SF</code> <code>{4}</code> (no format)</td>
 <td>IEEE 754 binary32, shortest text that reads back. The SIZE decides, not the noun</td>
 </tr>
 <tr>
@@ -3171,10 +3175,10 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 </tr>
 </tbody>
 </table>
-<p><code>c_find_type()</code> (<code>c_value.cpp:516</code>) finds a struct's <code>T:</code> record: the records of the variable's own scope first (zsdcc's
+<p><code>c_find_type()</code> (<code>c_value.cpp:701</code>) finds a struct's <code>T:</code> record: the records of the variable's own scope first (zsdcc's
 copy per module), then those of its module, then a tag that is unique across all records (sccz80 and 80cc: one per
 header). Different definitions at the deciding step are ambiguous, never first-wins. <code>c_type_text()</code>
-(<code>c_value.cpp:509</code>) prints <code>char</code>, <code>unsigned int</code>, <code>struct node *</code>, <code>int [2][3]</code>, <code>int (*)()</code>; the CDB has no
+(<code>c_value.cpp:694</code>) prints <code>char</code>, <code>unsigned int</code>, <code>struct node *</code>, <code>int [2][3]</code>, <code>int (*)()</code>; the CDB has no
 union marker, so a union is <code>struct word</code>, and no typedef name survives. A zsdcc padding member (<code>__00000000</code>) is
 not shown.</p>
 <p><strong>A struct's size</strong> is a declared object's when there is one: an <code>S:</code> record, or a struct member, whose chain is
@@ -3185,10 +3189,10 @@ overstates the size and is not used: with no declared object it is refused as <c
 such a member (the whole struct, a member path, a pointer, an element <code>p[1]</code>, a member of a nested struct) clamps its
 read to the struct that holds it and zero-fills the overhang, so <code>hi</code> is 200 for the bytes <code>8D C8</code> whichever way it is
 reached, and no read goes past that struct.</p>
-<p><code>c_parse_path()</code> (<code>c_value.cpp:599</code>) parses the C paths: <code>['*'] primary {'.' name | '-&gt;' name | '[' index ']'}</code>,
+<p><code>c_parse_path()</code> (<code>c_value.cpp:788</code>) parses the C paths: <code>['*'] primary {'.' name | '-&gt;' name | '[' index ']'}</code>,
 the primary a name, <code>fn::name</code>, <code>file.c::name</code> or <code>file.c::fn::name</code> (the file names which <code>fn</code> when two modules have a function of that name), the index decimal, <code>0x&lt;hex&gt;</code> or <code>$&lt;hex&gt;</code> with no sign. A leading <code>#</code> is refused: <code>c_parse_path(text, allow_handle)</code> accepts <code>#&lt;n&gt;</code> (an index into <code>VariableStore::variables()</code>, followed by the usual steps) only for the Variables panel's own rows, which reach the facade through <code>write_c_value_row()</code> and <code>c_children_row()</code> (a read of a row is the row's own value, already in the <code>CValueRow</code>); every typed surface (watches, scripts, ZRCP, GDB) uses the plain functions and so cannot name a handle, which is an index that means another variable after a rebuild. As in C the
 postfix operators bind tighter than the <code>*</code>: <code>*x[1]</code> is <code>*(x[1])</code> and <code>*head-&gt;next</code> is <code>*(head-&gt;next)</code>.
-<code>c_eval_path()</code> (<code>c_value.cpp:709</code>) walks the steps over a typed location (an array index is checked against its
+<code>c_eval_path()</code> (<code>c_value.cpp:898</code>) walks the steps over a typed location (an array index is checked against its
 count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
 refused), then applies the <code>*</code>, and <code>c_read_loc()</code> reads and formats it. Every refusal says why.</p>
 <p><code>c_visible_locals()</code> lists which locals show at a PC: the parameters (ordered by stack position),
@@ -3213,7 +3217,7 @@ and level-1 locals are always visible. Which block is open depends on the compil
 <li><strong>The guard</strong> (<code>CLocalRef::shares</code>, <code>c_shares_note()</code>): every pair of visible B-space variables whose byte ranges overlap is marked, each naming the other, and neither is hidden.
   <code>c_locals</code> rows and <code>read_c_value</code> carry the note; a write is refused. <code>c_children</code> rows do not carry it (a member of a shared aggregate shows no note, but its write is refused).</li>
 </ul>
-<p><code>c_read_register_local()</code> (<code>c_value.cpp:1200</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
+<p><code>c_read_register_local()</code> (<code>c_value.cpp:1393</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
 that it may be stale), refuses <code>[]</code> as optimised out and an outer frame as not available.
 <code>c_fastcall_records_nominal()</code> is the U1 rule, per function: true iff the function is fastcall and none of its parameters (level 0, space B) is recorded at a negative offset,
 that is, the records are the pre-2026-11-04 ones, every parameter at its nominal slot, where none of them is. Fastcall is <code>CConv::ListedFastcall</code> (a listing flags it), or the caller's
@@ -3251,7 +3255,7 @@ that is, the records are the pre-2026-11-04 ones, every parameter at its nominal
 </tr>
 </tbody>
 </table>
-<p>The children come from the pure <code>c_children()</code> (<code>c_value.cpp:818</code>; <code>CChild</code>, <code>CChildren</code>): a struct's visible named members in record order
+<p>The children come from the pure <code>c_children()</code> (<code>c_value.cpp:1011</code>; <code>CChild</code>, <code>CChildren</code>): a struct's visible named members in record order
 (an unnamed C11 member has no path and is left out), an array's elements scaled by the element size, one pointee for a pointer.</p>
 <p>A <code>CValueRow</code> carries <code>name</code>, <code>path</code> (which round-trips through <code>read_c_value</code>, or through <code>c_children_row()</code> and <code>write_c_value_row()</code> when it is an internal handle), <code>name_path</code> (the typed path that reaches this variable, empty when none does, as for a shadowed local), <code>ambiguous_path</code> (the typed path names more than one static), <code>file</code>, <code>type</code>, <code>kind</code> (Param, Local,
 StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code>value</code> or <code>why</code>, <code>aggregate</code> and <code>notes</code>. A failed read has an empty
@@ -3275,14 +3279,14 @@ StaticLocal, FileStatic, Global), <code>where</code>, <code>ok</code> with <code
   one is read from the nominal slot, a wrong value; with a listing it is refused.</li>
 <li><strong>A stack variable of an 80cc function</strong> carries the note <code>80cc may not keep it in the frame slot its record names: the value shown can be stale or another variable's</code>, in every
   frame and on members and elements (<code>CCompiler::Cc80</code>). It is always on: nothing in the map says whether the build has z88dk master's 2026-11-04 fix, and a parameter the function reassigns is still wrong after it.</li>
-<li><strong>A float</strong> of a map whose float library is <code>mbf32</code>, <code>mbf64</code>, <code>bbc</code> or <code>dai32</code> is refused (<code>float format &lt;lib&gt; is not read: ...</code>): the record says only <code>{4}SF</code>. <code>math32</code>, <code>am9511</code>, <code>math48</code> and a map that names none decide by size.</li>
+<li><strong>A float of a module with no recorded format</strong> (zsdcc, assembly, z88dk 2.4, master before 2026-11-06) decides by size, as before, and a map whose float library is <code>mbf32</code>, <code>mbf64</code>, <code>bbc</code> or <code>dai32</code> is refused (<code>float format &lt;lib&gt; is not read: ...</code>): the record says only <code>{4}SF</code>. <code>math32</code>, <code>am9511</code>, <code>math48</code> and a map that names none decide by size. A pointer to such a float has no size and is refused. A module that records a format (the <code>SF</code> row above) never reaches this rule, whatever library the map names. <strong>A struct</strong> looked up in another module (the unique-tag step of <code>c_find_type()</code>) whose float members, directly or nested, are not the width of the object's module's format is refused with <code>struct &lt;tag&gt; is laid out with &lt;n&gt;-byte floats (module &lt;m&gt;); this object's module &lt;h&gt; uses &lt;w&gt;-byte floats</code> (<code>struct_layout_refusal()</code>): the value, its members, its children and its size.</li>
 <li><strong>A bitfield's type text</strong> is <code>int :N</code> for an <code>SB..:S</code> record and <code>unsigned int :N</code> for <code>:U</code> (a plain <code>int</code> bitfield is <code>:U</code> in sccz80 and 80cc, <code>:S</code> in zsdcc). An <code>{-1}</code> array is refused <code>an array of unknown length: its debug record has no size</code>.</li>
 </ul>
 <p><code>find_var()</code> (<code>debugger_cvalues.cpp:352</code>) resolves a name in frame <code>k</code>: the frame's visible locals, then its function's static
 locals, the file's statics, the globals. A local that exists but is hidden is <code>out of scope at &lt;file&gt;:&lt;line&gt;</code>. <code>fn::name</code> names a static
 local from any frame, and a local of <code>fn</code> only from a frame of <code>fn</code>; <code>file.c::name</code> names that file's statics and globals.</p>
 <h2 id="the-int32-atom-c_int32_scalar">The int32 atom: <code>c_int32_scalar()</code><a class="headerlink" href="#the-int32-atom-c_int32_scalar" title="Permanent link">&para;</a></h2>
-<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1290</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
+<p><code>c_int32_scalar(loc, integer)</code> (<code>c_value.cpp:1483</code>) is the one rule for what a C value is as a 32-bit integer; the script atom <code>cvar()</code>
 and, through its translation, ZRCP's <code>CVAR()</code> both reach it through the evaluator, so there is nothing to keep in step. It reads
 <code>loc.type</code> (the head of the chain and the size) and <code>loc.note</code>, so a register-held value (no address) passes a <code>CLoc</code> with just its
 type, which <code>read_c_value()</code> fills for it. <code>integer</code> is the facade's <code>CValueResult::integer</code>.</p>
@@ -3376,7 +3380,7 @@ refusal decided before it is <code>RefusedUnavailable</code> with the reason in 
 <code>DivMmcRam</code>, which <code>poke()</code> refuses (<code>identity_only()</code>, INS-02-30), so it is <code>Unsupported</code> with <code>DivMMC RAM bank 2 cannot be written by the
 debugger (unsupported)</code>. After an <code>Ok</code> the object is read back into <code>CWriteResult::value</code>. <code>CWriteResult::notes</code> holds the notes of the read that preceded the write (the 80cc frame-slot note, a <code>not mapped</code> note): the Qt edit message and GDB <code>monitor set var</code> print them. A <code>Page</code> object cannot half-land: the read already
 refused a page crossing.</p>
-<p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1581</code>) is pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
+<p><code>c_encode_value(type, CNewValue, current, avail)</code> (<code>c_value.cpp:1790</code>) and its overload with a <code>CFormatCtx</code>, which the facade calls, are pure, with no printf or ostream (the <code>c_value.h</code> rule: locale
 independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRCP, GDB) or a script's 32-bit value:</p>
 <table>
 <thead>
@@ -3408,8 +3412,13 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 <td>0..65535</td>
 </tr>
 <tr>
-<td><code>{6}SF</code> (z88dk 48-bit)</td>
-<td>rounded to nearest; refused when the exponent leaves 1..255 (<code>encode_float48()</code>, <code>c_value.cpp:1516</code>)</td>
+<td><code>SF</code> with a recorded format</td>
+<td>the inverse of the decoder, in the overload with a <code>CFormatCtx</code> (<code>fp_encode()</code>): rounded to nearest on the format's mantissa bits, the exponent byte biased by the map's value and refused outside 1..255 (am9511: -64..63) with the format's name (<code>out of range for float (mbf32)</code>; <code>z88dk 48-bit</code> for mode 0 with bias 128 and 5 mantissa bytes); the bytes outside the layout (mbf40's last, z88's first) are kept from <code>current</code>; zero is all-zero layout bytes; ieee is the binary32 row; a format refused for reading is refused for writing with the same text</td>
+<td>refused: <code>float is not an integer</code></td>
+</tr>
+<tr>
+<td><code>{6}SF</code> (z88dk 48-bit, no format)</td>
+<td>rounded to nearest; refused when the exponent leaves 1..255 (<code>encode_float48()</code>, <code>c_value.cpp:1725</code>)</td>
 <td>refused: <code>float is not an integer</code></td>
 </tr>
 <tr>
@@ -3419,7 +3428,7 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 <tr>
 <td><code>S6</code> (binary16)</td>
-<td>through float, nearest even, refused when it rounds to infinity or to zero (<code>encode_float16()</code>, <code>c_value.cpp:1547</code>)</td>
+<td>through float, nearest even, refused when it rounds to infinity or to zero (<code>encode_float16()</code>, <code>c_value.cpp:1756</code>)</td>
 <td>refused</td>
 </tr>
 <tr>
@@ -3429,15 +3438,15 @@ independent). <code>CNewValue</code> is a text a person typed (the Qt panel, ZRC
 </tr>
 </tbody>
 </table>
-<p>A text is trimmed, then an optional sign and decimal, <code>0x</code> or <code>$</code> digits (<code>parse_int_text()</code>, <code>c_value.cpp:1388</code>), or a <code>'c'</code> character, or for a
-float type a decimal number (<code>float_from_text()</code>, <code>c_value.cpp:1471</code>: its syntax is checked first, then the text is read by an <code>istringstream</code> imbued with the classic
+<p>A text is trimmed, then an optional sign and decimal, <code>0x</code> or <code>$</code> digits (<code>parse_int_text()</code>, <code>c_value.cpp:1597</code>), or a <code>'c'</code> character, or for a
+float type a decimal number (<code>float_from_text()</code>, <code>c_value.cpp:1680</code>: its syntax is checked first, then the text is read by an <code>istringstream</code> imbued with the classic
 locale, because <code>QApplication</code> calls <code>setlocale(LC_ALL, "")</code> and a comma host would read <code>1.5</code> as <code>1</code>; <code>std::from_chars</code> for floating point is
 missing from libc++ before LLVM 20, so the macOS build could not use it). <code>nan</code> and <code>inf</code> are refused.
 A value out of range is refused, never truncated: a person typing <code>-1</code> into an unsigned long made a mistake, not
 a bit pattern, which is why only a script's int32 is a pattern. <strong>The 48-bit encoder rounds to nearest because the compiler does:</strong> the constants z88dk
 compiled into <code>master/sccz80-floats</code> are <code>0.1</code> = <code>CD CC CC CC 4C 7D</code> and <code>1e-10</code> = <code>BE CE FE E6 5B 5F</code>, which truncation gets wrong (<code>CC ...</code>
 and <code>BD ...</code>), and <code>CVW-05</code> reads those bytes from the fixture at run time, never from a copy. A bitfield reads its unit's bytes, replaces its
-bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:1489</code>, is its range check, on the field's width).</p>
+bits and writes the whole unit back (<code>int_fits()</code>, <code>c_value.cpp:1698</code>, is its range check, on the field's width).</p>
 <p><strong>F1, found while planning:</strong> the reader ignored a bitfield's sign. <code>c_format_value()</code> and <code>c_integer_value()</code> returned the unsigned field for
 <code>SB&lt;s&gt;$&lt;w&gt;:S</code>, so a signed field written with -1 would have read back as 7. They now sign-extend; no committed map has a signed bitfield, so <code>CVW-10</code>
 uses a synthetic record.</p>

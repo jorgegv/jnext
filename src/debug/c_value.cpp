@@ -104,6 +104,178 @@ std::string float_refusal(const CFormatCtx& ctx)
     return "";
 }
 
+// -- GH #477: the float format the map records (z88dk#3240) -----------------------------------------------------------
+// Modes: 0 z80 (the 48-bit family, any mantissa size), 1 ieee binary32, 2 mbf32, 3 mbf40, 4 mbf64, 5 z88 (BBC), 6 am9511 (dai32).
+// Convention of the z80-style layouts: `ms` mantissa bytes little endian, the sign in bit 7 of the last one, an implied leading 1,
+// then the biased exponent byte; value = 0.1mmm(binary) x 2^(e - bias). Oracle: sccz80's const.c `dofloat_*` and z88math's bbcmath.asm.
+
+const char* fp_mode_name(int mode)
+{
+    switch (mode) {
+    case 0: return "z80";
+    case 1: return "ieee";
+    case 2: return "mbf32";
+    case 3: return "mbf40";
+    case 4: return "mbf64";
+    case 5: return "z88";
+    case 6: return "am9511";
+    default: return "?";
+    }
+}
+
+// The byte width of a float of `mode` (what a pointer to one points at); -1: unknown mode.
+int fp_width(int mode)
+{
+    static const int w[] = {6, 4, 4, 6, 8, 6, 4};
+    return mode >= 0 && mode <= 6 ? w[mode] : -1;
+}
+
+struct FloatRead {
+    bool ok = false;
+    double value = 0;
+    std::string text;
+    std::string why;
+};
+
+// Why a float of `n` bytes cannot be read or written in format `f`; empty: it can.
+std::string fp_check(const std::string& module, const CFloatFormat& f, int n)
+{
+    if (!f.why.empty()) return "float format of module " + module + " is not usable: " + f.why;
+    const std::string ms = std::to_string(f.mantissa_size);
+    switch (f.mode) {
+    case 0: case 2: case 3: case 4:
+        if (f.mantissa_size <= 0 || f.mantissa_size >= n || n > 8)
+            return std::string("float format ") + fp_mode_name(f.mode) + " (mantissa " + ms + " bytes) does not fit a " + std::to_string(n) + "-byte float";
+        return "";
+    case 1:
+        if (n != 4) return "a " + std::to_string(n) + "-byte float is not ieee (4 bytes)";
+        if (f.exponent_bias != 126 || f.mantissa_size != 3)
+            return "float format ieee with exponent bias " + std::to_string(f.exponent_bias) + " and mantissa size " + ms + " is not IEEE binary32";
+        return "";
+    case 5:
+        if (f.mantissa_size <= 0 || 1 + f.mantissa_size >= n || n > 8)
+            return "float format z88 (mantissa " + ms + " bytes) does not fit a " + std::to_string(n) + "-byte float after its first byte";
+        return "";
+    case 6:
+        if (n != 4) return "a " + std::to_string(n) + "-byte float is not am9511 (4 bytes)";
+        if (f.mantissa_size != 3) return "float format am9511 needs a 3-byte mantissa (the map says " + ms + ")";
+        return "";
+    default:
+        return "float format __fp_mode " + std::to_string(f.mode) + " is not supported";
+    }
+}
+
+// Significant digits of a mantissa of `ms` bytes written out in full: floor(8 ms log10 2); a value that binary32 holds exactly prints
+// as one (the shortest text that reads back), which is every value of a 3-byte mantissa inside binary32's exponent range.
+std::string fp_text(double v, int ms)
+{
+    if (ms <= 3 && static_cast<double>(static_cast<float>(v)) == v) return float_text(static_cast<float>(v));   // exact in binary32 (not inf, 0 or a rounded subnormal)
+    char buf[64];
+    const auto r = std::to_chars(buf, buf + sizeof buf, v, std::chars_format::general, (8 * ms * 30103) / 100000);
+    return std::string(buf, r.ptr);
+}
+
+FloatRead fp_read(const std::string& module, const CFloatFormat& f, int n, const uint8_t* b, size_t avail)
+{
+    FloatRead r;
+    if (const std::string why = fp_check(module, f, n); !why.empty()) {
+        r.why = why;
+        return r;
+    }
+    if (avail < static_cast<size_t>(n)) {
+        r.why = "the object is shorter than its type";
+        return r;
+    }
+    const int ms = f.mantissa_size;
+    if (f.mode == 1) {
+        const uint32_t u = static_cast<uint32_t>(b[0]) | static_cast<uint32_t>(b[1]) << 8 | static_cast<uint32_t>(b[2]) << 16 |
+                           static_cast<uint32_t>(b[3]) << 24;
+        float fl;
+        std::memcpy(&fl, &u, sizeof fl);
+        r.ok = true;
+        r.value = static_cast<double>(fl);
+        r.text = c_format_float32(u);
+        return r;
+    }
+    if (f.mode == 6) {
+        const unsigned long long m = static_cast<unsigned long long>(b[0]) | static_cast<unsigned long long>(b[1]) << 8 |
+                                     static_cast<unsigned long long>(b[2]) << 16;
+        int ex = b[3] & 0x7F;
+        if (ex >= 0x40) ex -= 0x80;
+        double v = (m & 0x800000) ? std::ldexp(static_cast<double>(m), ex - f.exponent_bias - 24) : 0.0;
+        if (v != 0 && (b[3] & 0x80)) v = -v;
+        r.ok = true;
+        r.value = v;
+        r.text = fp_text(v, ms);
+        return r;
+    }
+    const uint8_t* p = f.mode == 5 ? b + 1 : b;   // z88: byte 0 is unused
+    const int e = p[ms];
+    double v;
+    if (e == 0) {
+        if (f.mode == 5) {   // the integer form: a 32-bit two's complement in the mantissa bytes (bbcmath.asm, "BINARY INTEGER REPRESENTATION")
+            if (ms != 4) {
+                r.why = "a z88 integer with a " + std::to_string(ms) + "-byte mantissa is not supported";
+                return r;
+            }
+            const uint32_t u = static_cast<uint32_t>(p[0]) | static_cast<uint32_t>(p[1]) << 8 | static_cast<uint32_t>(p[2]) << 16 |
+                               static_cast<uint32_t>(p[3]) << 24;
+            v = static_cast<double>(static_cast<int32_t>(u));
+            r.ok = true;
+            r.value = v;
+            r.text = num(static_cast<int32_t>(u));   // an integer prints in full (9 digits would round a large one)
+            return r;
+        } else {
+            v = 0;
+        }
+    } else {
+        unsigned long long low = 0;
+        for (int k = ms - 1; k >= 0; --k) low = (low << 8) | (k == ms - 1 ? (p[k] & 0x7Fu) : p[k]);
+        v = std::ldexp(static_cast<double>((1ull << (8 * ms - 1)) | low), e - f.exponent_bias - 8 * ms);
+        if (p[ms - 1] & 0x80) v = -v;
+    }
+    r.ok = true;
+    r.value = v;
+    r.text = v == 0 ? "0" : fp_text(v, ms);
+    return r;
+}
+
+// One `T:` record's float members (and those of the structs it nests, a few levels deep) must have the float width of the holder's
+// module: a record from ANOTHER module may have been compiled with another float format (z88dk#3240: a struct shared by two formats).
+// "": fine; else the refusal.
+std::string struct_float_clash(const CFormatCtx& ctx, const CRecord& rec, int width, int depth)
+{
+    for (const CdbMember& m : rec.record.members) {
+        const std::vector<CdbTypeElem>& ch = m.var.type.chain;
+        int count = 1;
+        size_t i = 0;
+        for (; i < ch.size() && ch[i].kind == CdbTypeKind::Array; ++i) count *= std::max(1, ch[i].count);
+        if (i >= ch.size()) continue;
+        if (ch[i].kind == CdbTypeKind::Float && m.var.type.size > 0) {
+            const int each = m.var.type.size / count;
+            if (each != width)
+                return "struct " + rec.record.var.name + " is laid out with " + std::to_string(each) + "-byte floats (module " + rec.module +
+                       "); this object's module " + ctx.module + " uses " + std::to_string(width) + "-byte floats";
+        } else if (ch[i].kind == CdbTypeKind::Struct && depth < 4) {
+            const CTypeLookup lk = c_find_type(*ctx.store, ch[i].tag, ctx.scope_name, ctx.module);
+            if (lk.record) {
+                const std::string w = struct_float_clash(ctx, *lk.record, width, depth + 1);
+                if (!w.empty()) return w;
+            }
+        }
+    }
+    return "";
+}
+
+// The refusal of a struct looked up for the object of `ctx`, when it was found in another module and lays its floats out differently.
+std::string struct_layout_refusal(const CFormatCtx& ctx, const CTypeLookup& lk)
+{
+    if (!lk.record || lk.record->module == ctx.module) return "";
+    const CFloatFormat* f = c_float_format(ctx);
+    if (!f || !f->why.empty() || fp_width(f->mode) < 0) return "";
+    return struct_float_clash(ctx, *lk.record, fp_width(f->mode), 0);
+}
+
 struct Formatter {
     const CFormatCtx& ctx;
     std::vector<std::string>& notes;
@@ -180,6 +352,13 @@ struct Formatter {
             return true;
         }
         case CdbTypeKind::Float:
+            if (const CFloatFormat* ff = c_float_format(ctx)) {   // the module records its format: it decides, not the size or the library
+                const int n = size > 0 ? size : fp_width(ff->mode);
+                const FloatRead r = fp_read(ctx.module, *ff, n, b, avail);
+                if (!r.ok) return fail(r.why);
+                out = r.text;
+                return true;
+            }
             if (!float_refusal(ctx).empty()) return fail(float_refusal(ctx));
             if (size == 6 && avail >= 6) {
                 out = c_format_float48(b);
@@ -258,6 +437,7 @@ struct Formatter {
             if (!ctx.store) return fail("no type information");
             const CTypeLookup lk = c_find_type(*ctx.store, e.tag, ctx.scope_name, ctx.module);
             if (!lk.record) return fail(lk.why);
+            if (const std::string g = struct_layout_refusal(ctx, lk); !g.empty()) return fail(g);
             const CdbRecord& rec = lk.record->record;
             out = "{";
             bool first = true;
@@ -310,6 +490,7 @@ struct Formatter {
 int struct_size(const CFormatCtx& ctx, const std::string& tag)
 {
     if (!ctx.store) return -1;
+    if (!struct_layout_refusal(ctx, c_find_type(*ctx.store, tag, ctx.scope_name, ctx.module)).empty()) return -1;
     const auto exact = [&](const CdbType& t) {
         return t.chain.size() == 1 && t.chain[0].kind == CdbTypeKind::Struct && t.chain[0].tag == tag && t.size > 0;
     };
@@ -403,6 +584,10 @@ bool member_loc(const CFormatCtx& ctx, const CLoc& in, const std::string& name, 
     const CTypeLookup lk = c_find_type(*ctx.store, in.type.chain[0].tag, ctx.scope_name, ctx.module);
     if (!lk.record) {
         *why = lk.why;
+        return false;
+    }
+    if (const std::string g = struct_layout_refusal(ctx, lk); !g.empty()) {
+        *why = g;
         return false;
     }
     const CdbRecord& rec = lk.record->record;
@@ -567,6 +752,10 @@ int c_leaf_size(const CFormatCtx& ctx, const std::vector<CdbTypeElem>& chain, si
     case CdbTypeKind::Int: return 2;
     case CdbTypeKind::Long: return 4;
     case CdbTypeKind::Float16: return 2;
+    case CdbTypeKind::Float: {   // known only when the module records a usable format (GH #477); else -1 as before
+        const CFloatFormat* f = c_float_format(ctx);
+        return f && f->why.empty() ? fp_width(f->mode) : -1;
+    }
     case CdbTypeKind::Pointer: return 2;
     case CdbTypeKind::Struct: return struct_size(ctx, e.tag);
     case CdbTypeKind::Array: {
@@ -793,6 +982,10 @@ bool struct_children(const CFormatCtx& ctx, const CLoc& s, size_t first, size_t 
     const CTypeLookup lk = c_find_type(*ctx.store, s.type.chain[0].tag, ctx.scope_name, ctx.module);
     if (!lk.record) {
         out->why = lk.why;
+        return false;
+    }
+    if (const std::string g = struct_layout_refusal(ctx, lk); !g.empty()) {
+        out->why = g;
         return false;
     }
     std::vector<std::string> names;
@@ -1335,6 +1528,22 @@ CInt32 c_int32_scalar(const CLoc& loc, std::optional<int64_t> integer)
     return r;
 }
 
+const CFloatFormat* c_float_format(const CFormatCtx& ctx)
+{
+    return ctx.store ? ctx.store->float_format(ctx.module) : nullptr;
+}
+
+std::optional<double> c_float_value(const CFormatCtx& ctx, const CdbType& type, const uint8_t* b, size_t avail)
+{
+    if (!type.chain.empty() && type.chain[0].kind == CdbTypeKind::Float) {
+        if (const CFloatFormat* ff = c_float_format(ctx)) {
+            const FloatRead r = fp_read(ctx.module, *ff, type.size > 0 ? type.size : fp_width(ff->mode), b, avail);
+            return r.ok ? std::optional<double>(r.value) : std::nullopt;
+        }
+    }
+    return c_float_value(type, b, avail);
+}
+
 std::optional<double> c_float_value(const CdbType& type, const uint8_t* b, size_t avail)
 {
     if (type.chain.empty()) return std::nullopt;
@@ -1700,6 +1909,94 @@ CEncoded c_encode_value(const CdbType& type, const CNewValue& v, const uint8_t* 
         u = unit;
     }
     put_le(out.bytes, u, n);
+    out.ok = true;
+    return out;
+}
+
+}  // namespace dbg
+}  // namespace jnext
+
+// -- GH #477: the encoder of a float in the format its module records ---------------------------------------------------
+
+namespace jnext {
+namespace dbg {
+
+namespace {
+
+// `d` in the layout of `f`, rounded to nearest, into `out` (n bytes, the bytes outside the layout already in place). False: `why`.
+bool fp_encode(const CFloatFormat& f, int n, double d, std::vector<uint8_t>& out, std::string* why)
+{
+    const int ms = f.mantissa_size;
+    const std::string name = f.mode == 0 && f.exponent_bias == 128 && ms == 5 ? "z88dk 48-bit" : fp_mode_name(f.mode);
+    const size_t off = f.mode == 5 ? 1 : 0;
+    const size_t layout = f.mode == 6 ? 4 : static_cast<size_t>(ms) + 1;
+    std::fill(out.begin() + static_cast<std::ptrdiff_t>(off), out.begin() + static_cast<std::ptrdiff_t>(off + layout), uint8_t{0});
+    if (d == 0) return true;
+    int ex = 0;
+    const double m = std::frexp(std::fabs(d), &ex);   // [0.5, 1)
+    const int bits = f.mode == 6 ? 24 : 8 * ms;
+    long long mant = std::llround(std::ldexp(m, bits));
+    if (mant >= (1ll << bits)) {
+        mant >>= 1;
+        ++ex;
+    }
+    const int biased = ex + f.exponent_bias;
+    const int lo = f.mode == 6 ? -64 : 1, hi = f.mode == 6 ? 63 : 255;
+    if (biased > hi) {
+        *why = "out of range for float (" + name + ")";
+        return false;
+    }
+    if (biased < lo) {
+        *why = "too small for float (" + name + "): it would underflow";
+        return false;
+    }
+    if (f.mode == 6) {
+        out[0] = static_cast<uint8_t>(mant);
+        out[1] = static_cast<uint8_t>(mant >> 8);
+        out[2] = static_cast<uint8_t>(mant >> 16);
+        out[3] = static_cast<uint8_t>((d < 0 ? 0x80 : 0) | (biased & 0x7F));
+        return true;
+    }
+    unsigned long long low = static_cast<unsigned long long>(mant) & ((1ull << (bits - 1)) - 1);
+    if (d < 0) low |= 1ull << (bits - 1);
+    for (int k = 0; k < ms; ++k) out[off + static_cast<size_t>(k)] = static_cast<uint8_t>(low >> (8 * k));
+    out[off + static_cast<size_t>(ms)] = static_cast<uint8_t>(biased);
+    return true;
+}
+
+}  // namespace
+
+CEncoded c_encode_value(const CFormatCtx& ctx, const CdbType& type, const CNewValue& v, const uint8_t* current, size_t avail)
+{
+    const CFloatFormat* ff = type.chain.empty() || type.chain[0].kind != CdbTypeKind::Float ? nullptr : c_float_format(ctx);
+    if (!ff) return c_encode_value(type, v, current, avail);
+    CEncoded out;
+    const auto refuse = [&out](std::string why) {
+        out.ok = false;
+        out.why = std::move(why);
+        out.bytes.clear();
+        return out;
+    };
+    const int n = type.size > 0 ? type.size : fp_width(ff->mode);
+    if (const std::string why = fp_check(ctx.module, *ff, n); !why.empty()) return refuse(why);
+    if (ff->mode == 1) return c_encode_value(type, v, current, avail);   // binary32, as ever
+    if (v.from != CNewValue::From::Text) return refuse(c_type_text(type) + " is not an integer");
+    const std::string text(trim_blanks(v.text));
+    if (nonfinite_word(text)) return refuse("'" + text + "' is not a finite number");
+    double d = 0;
+    bool range = false;
+    if (!float_from_text<double>(text, &d, &range)) {
+        const IntText it = parse_int_text(text);   // 0x10, $10, 'c'
+        if (!it.ok) return refuse("'" + text + "' is not a number");
+        d = it.overflow ? HUGE_VAL : static_cast<double>(it.mag);
+        if (it.neg) d = -d;
+        range = std::isinf(d);
+    }
+    if (range) return refuse("'" + text + "' is out of range for " + c_type_text(type));
+    out.bytes.assign(static_cast<size_t>(n), 0);
+    if (current && avail >= static_cast<size_t>(n)) out.bytes.assign(current, current + n);
+    std::string why;
+    if (!fp_encode(*ff, n, d, out.bytes, &why)) return refuse("'" + text + "' is " + why);
     out.ok = true;
     return out;
 }
