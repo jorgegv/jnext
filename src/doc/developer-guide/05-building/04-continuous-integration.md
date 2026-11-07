@@ -100,7 +100,15 @@ dependency set and checks out the repository with submodules; then
   run under node. It needs no SD image. The Emscripten SDK is provisioned by the
   target itself (`test/provision-emsdk.sh`, pinned by three sha256) into
   `~/.cache/jnext/tools/emsdk-6.0.13`, which the leg caches under a key carrying
-  the version and the pins, so a hit only skips the downloads.
+  the version and the pins, so a hit only skips the downloads;
+- **`browser`** runs `make wasm-browser-test`: the browser frontend in the pinned
+  Chromium headless shell (rows BRW-01 to BRW-29 and, as they join, the
+  JavaScript API rows). Besides the emsdk cache it caches Playwright
+  (`~/.cache/jnext/tools/playwright-1.65.0`, keyed by the version and the two pin
+  prefixes) and uses the SD-image cache: the run turns the cached distribution
+  image into a minimal card in a scratch directory that is deleted at the end,
+  and the leg has no artifact step that could carry it. The dnf list carries the
+  shared libraries the headless shell links.
 
 They used to be steps of one job, so the 28-minute build matrix and the
 regression ran back to back although neither uses the other's output. Each leg

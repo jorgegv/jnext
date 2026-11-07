@@ -1091,6 +1091,7 @@ my %NO_MATRIX_SECTION = (
     'sdcard_dialog_test'  => 'SD-card/NextPi download dialog through a dropped network (host GUI, GH #358)',
     'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
     'sdl_app_tick_test' => 'SdlApp::tick() host frame-loop iteration (host UI, GH #462)',
+    'browser_policy_test' => 'browser page rAF callback gate and refusals (host UI, GH #463)',
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',
 
     # ── CLI, configuration, logging, profiling ───────────────────────

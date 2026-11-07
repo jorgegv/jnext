@@ -203,7 +203,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk wasm-core wasm-core-clean
+       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web wasm-browser-test wasm-core-clean
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -575,6 +575,14 @@ emsdk:
 	@# no-op once stamped; needs the network once (about 345 MB).
 	bash test/provision-emsdk.sh
 
+# Provide the pinned Playwright and its Chromium headless shell in the user cache
+playwright:
+	@# The browser smoke test drives a headless Chromium through playwright-core on
+	@# emsdk's node. test/provision-playwright.sh downloads both archives, verifies
+	@# both sha256 before unpacking and installs into ~/.cache/jnext/tools/playwright-<V>.
+	@# A no-op once stamped; needs the network once (about 135 MB).
+	bash test/provision-playwright.sh
+
 # Build the SDL-only core for WebAssembly into build/wasm-core and check it under node
 wasm-core: emsdk
 	@# The same commands locally and in CI (the `wasm` leg). Only `jnext` and
@@ -601,6 +609,17 @@ wasm-core: emsdk
 		"-DENABLE_TESTS=ON" && \
 	$(CMAKE) --build build/wasm-core -j$(JOBS) --target jnext sha256_test && \
 	bash test/wasm-core-check.sh build/wasm-core
+
+# Build the browser frontend jnext-<version>.js/.wasm into build/wasm-core
+wasm-web: wasm-core
+	$(CMAKE) --build build/wasm-core -j$(JOBS) --target jnext_web
+
+# Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
+wasm-browser-test: wasm-web playwright sdl-release sdcard-image
+	@# BRW-01..29 on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# native oracle; sdcard-image provides the distribution image the run turns into the
+	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
+	bash test/browser/browser-smoke.sh build/wasm-core
 
 # Remove the WebAssembly build directory
 wasm-core-clean:

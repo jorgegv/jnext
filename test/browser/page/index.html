@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>jnext browser smoke fixture</title>
+<style>
+  html, body { margin: 0; background: #202020; color: #ddd; font: 12px monospace; }
+  #jnext-canvas { display: block; background: #000; outline: none; }
+  #overlay { position: absolute; left: 0; top: 0; padding: 4px; background: #345; cursor: pointer; }
+  #log { display: none; }
+</style>
+</head>
+<body>
+<canvas id="jnext-canvas" tabindex="0"></canvas>
+<div id="overlay">Click to start</div>
+<input id="textbox" type="text" style="position:absolute;left:0;top:600px">
+<script src="shell.js"></script>
+</body>
+</html>

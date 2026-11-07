@@ -580,6 +580,35 @@ target_link_libraries(jnext PRIVATE
     ${JNEXT_SDL3_TARGET})
 target_include_directories(jnext PRIVATE src "${CMAKE_BINARY_DIR}/generated")
 
+# Browser frontend (E14): the same program with the requestAnimationFrame loop
+# of src/platform/browser_frontend.cpp, linked beside the node `jnext` in the
+# same tree (one compile of every library). The output names carry the version
+# (jnext-<version>.js/.wasm) so a page never loads a stale build.
+if(EMSCRIPTEN)
+    add_executable(jnext_web src/main.cpp src/platform/browser_frontend.cpp)
+    set_target_properties(jnext_web PROPERTIES OUTPUT_NAME "jnext-${PROJECT_VERSION}")
+    target_compile_definitions(jnext_web PRIVATE JNEXT_BROWSER=1)
+    target_link_libraries(jnext_web PRIVATE
+        jnext_core jnext_cpu jnext_memory
+        jnext_video jnext_audio jnext_port
+        jnext_peripheral jnext_input
+        jnext_platform jnext_save jnext_debug
+        jnext_profiler
+        ${JNEXT_SDL3_TARGET})
+    target_include_directories(jnext_web PRIVATE src "${CMAKE_BINARY_DIR}/generated")
+    target_link_options(jnext_web PRIVATE
+        -sENVIRONMENT=web -sMODULARIZE=1 -sEXPORT_NAME=createJnextModule
+        -sINVOKE_RUN=0 -sEXIT_RUNTIME=0
+        -sEXPORTED_RUNTIME_METHODS=FS,ENV,callMain)
+    if(JNEXT_FRAME_GATE)
+        target_compile_options(jnext_web PRIVATE ${JNEXT_FRAME_GATE})
+        target_link_options(jnext_web PRIVATE ${JNEXT_FRAME_GATE})
+    endif()
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(jnext_web PRIVATE -Werror=switch)
+    endif()
+endif()
+
 # Force a non-executable stack — general hardening; jnext never needs an
 # executable stack. (Historically this also silenced a GNU ld warning about
 # the objcopy'd nextboot.rom blob lacking a .note.GNU-stack marker; the ROM is
