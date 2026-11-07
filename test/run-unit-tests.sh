@@ -78,7 +78,10 @@ cd "$PROJECT_DIR"
 UNIT_RUN_DIR=""
 unit_cleanup() {
     [[ -n "$UNIT_RUN_DIR" ]] && rm -rf "$UNIT_RUN_DIR"
-    rmdir "$HOME/.jnext/runs" 2>/dev/null || true
+    # The shared parent $HOME/.jnext/runs is NEVER removed, by this or any other script: only a run's
+    # own directory is. A run that pruned the parent when it ended raced every concurrent run's
+    # `mkdir -p`/`mktemp -d`/QTemporaryDir under it (ENOENT, a lost clone), and a parent that is
+    # never deleted cannot be lost at any site, present or future.
     return 0
 }
 # Armed HERE, before the clone exists, because every preflight `die()` exits
