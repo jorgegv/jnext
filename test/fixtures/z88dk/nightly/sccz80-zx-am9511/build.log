@@ -1,0 +1,3 @@
+# z88dk 965fd0e628 (nightly)
++ zcc +zx -debug --am9511 -m --list -o prog -create-app fpfmt.c
+rc=0
