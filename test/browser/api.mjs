@@ -139,9 +139,8 @@ function diff(a, b) {
   for (let i = 0; i < a.d.length; i += 4) if (a.d[i] !== b.d[i] || a.d[i + 1] !== b.d[i + 1] || a.d[i + 2] !== b.d[i + 2]) n++;
   return n;
 }
-const memInfo = (page, ids) => page.evaluate((ids) => ({
-  wasm_mib: ids.map((i) => window['player' + i]._module.HEAP8.length / 1048576),
-  js_heap_mib: performance.memory ? performance.memory.usedJSHeapSize / 1048576 : -1 }), ids);
+const memInfo = (page) => page.evaluate(() => ({
+  js_heap_mib: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : -1 }));
 const RED = { file: '/nex/red.nex', machine: 'next', muted: true };
 const BLUE = { file: '/nex/blue.nex', machine: 'next', muted: true };
 let main = null;   // the page rows 01-11 share: one context, so the warm start is recorded once
@@ -318,7 +317,7 @@ row('WEBAPI-15', 'two players on one page: own canvases (red, blue); pausing one
   await click(page, 0); await click(page, 1);
   await waitReady(page, 0, 1); await waitReady(page, 1, 1);
   await waitColour(page, 0, isRed); await waitColour(page, 1, isBlue);
-  console.log('# WEBAPI-15 memory, two Next players: ' + JSON.stringify(await memInfo(page, [0, 1])));
+  console.log('# WEBAPI-15 memory, two Next players: ' + JSON.stringify(await memInfo(page)));
   await page.evaluate(() => window.player0.pause());
   const a = await frame(page, 0), b = await frame(page, 1);
   await sleep(500);
@@ -434,7 +433,7 @@ row('WEBAPI-21', 'a real image host that sends Access-Control-Allow-Origin: the 
   const mine = bLog.slice(n).filter((x) => x.url === '/card.img');
   must(!r.mountError && r.state === 'waiting', 'mount: ' + r.mountError);
   await click(page); await waitReady(page, 0, 1);
-  console.log('# WEBAPI-21 memory, one 48K player: ' + JSON.stringify(await memInfo(page, [0])));
+  console.log('# WEBAPI-21 memory, one 48K player: ' + JSON.stringify(await memInfo(page)));
   must(mine.length === 1 && mine[0].origin === AURL, 'server log ' + JSON.stringify(bLog.slice(n)));
   await page.ctx.close();
 });
