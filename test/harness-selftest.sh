@@ -129,7 +129,6 @@ trap 'rm -rf "$T"' EXIT
 # So no row reaches the real ~/.jnext. The master here is 4 bytes of non-image data: the
 # clone modes only need a regular file to copy, and a row that sets its own HOME (HS-164,
 # HS-165, the fixtures) keeps it. HS-167 pins the property.
-REAL_HOME_AT_START=${HOME:-}
 export HOME="$T/home"
 mkdir -p "$HOME/.jnext/sdcard"
 printf card > "$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"
@@ -3438,8 +3437,9 @@ check "HS-165b" "...and so does a copy that fails (cause: the cp error is shown)
 # The scratch $HOME exported at the top of this file is what keeps run-unit-tests.sh and
 # regression_lib_init away from the real SD master and the real runs/ parent. Pinned from the
 # real scripts, end to end: a unit run's suite sees its private clone under the scratch HOME,
-# a regression library init puts RUN_DIR there, and neither run's pid names an entry in the
-# REAL runs/ (keyed on pids, so another agent's concurrent runs cannot disturb the row).
+# a regression library init puts RUN_DIR there. The real ~/.jnext is deliberately not read,
+# not even listed: a clone made under the scratch HOME cannot be one made under the real one,
+# and another agent's concurrent runs cannot disturb the row.
 # Oracle: the harness contract (an isolated clone per run, GH #75) and the owner's rule of
 # 2026-11-07 (a self-test never reads or clones the real master).
 cache ON ON linux
@@ -3451,18 +3451,14 @@ unit_img=$(sed -n 's/^SDIMG=//p' "$T/sdhome.out" 2>/dev/null | head -1)
 regr_out=$(timeout --kill-after=3s 40s bash -c \
     "set -euo pipefail
      source '$PROJECT_DIR/test/00regression/test-functions.inc'
-     echo \"REGPID=\$\$ RUN_DIR=\$RUN_DIR\"
+     echo \"RUN_DIR=\$RUN_DIR\"
      regression_cleanup" 2>&1 || true)
 regr_dir=$(sed -n 's/.*RUN_DIR=//p' <<<"$regr_out" | head -1)
-regr_pid=$(sed -n 's/.*REGPID=\([0-9]*\) .*/\1/p' <<<"$regr_out" | head -1)
-real_runs="${REAL_HOME_AT_START:-/nonexistent}/.jnext/runs"
-real_hits=$(ls -A "$real_runs" 2>/dev/null | grep -c -E "^(unit-)?${regr_pid:-NOPID}-" || true)
 res="home=$([[ "$HOME" == "$T/home" ]] && echo scratch || echo REAL)"
 res+=" unit=$([[ "$unit_img" == "$T/home/.jnext/runs/unit-"* ]] && echo scratch || echo "OTHER:$unit_img")"
 res+=" regr=$([[ "$regr_dir" == "$T/home/.jnext/runs/"* ]] && echo scratch || echo "OTHER:$regr_dir")"
-res+=" real-runs-hits=$real_hits"
-check "HS-167" "a self-test run clones the SD master only inside its scratch HOME: unit suite image, regression RUN_DIR, no entry in the real runs/ (owner decision 2026-11-07)" 0 $rc "$res" \
-    "home=scratch unit=scratch regr=scratch real-runs-hits=0"
+check "HS-167" "a self-test run clones the SD master only inside its scratch HOME: unit suite image and regression RUN_DIR (owner decision 2026-11-07)" 0 $rc "$res" \
+    "home=scratch unit=scratch regr=scratch"
 
 echo ""
 echo "====================================="
