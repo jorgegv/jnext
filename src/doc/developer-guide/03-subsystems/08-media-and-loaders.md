@@ -355,6 +355,19 @@ expansion-bus byte at header offset 142 whatever the file's version. What
 NextZXOS itself leaves in registers no loader writes (its config, its NMI
 setup) jnext does not reproduce; the list is in `apply()`.
 
+Neither loader clears all of bank 5, and `apply()` writes no more than they do.
+The V1.0–V1.2 loader sets the border to 0 and the attributes (`$5800`–`$5AFF`)
+to 0 on every load, DONTRESETNEXTREGS or not (`nexload.asm:319-320`, above that
+gate); pixels and `$5B00`–`$7FFF` are left alone. The V1.3 loader, unless the
+file says PRESERVENEXTREG, sets the border to the header colour, clears the
+pixels and fills the attributes with the colour times 8
+(`nexload2.asm:1114-1126`); a preserving file gets no clear at all. After that
+the header border is written only when a loading-screen block is loaded
+(`nexload.asm:424-425`, `nexload2.asm:634-635`), so a file with no screen runs
+with a black border (V1.0–V1.2) or the border it found (V1.3, preserving).
+`NEXB5-*` pin each case against a bank 5 seeded with a sentinel, which is the
+warm-start situation.
+
 ## The warm start: applying a NEX to a machine the firmware made
 
 The warm start replaces the synthetic
@@ -482,6 +495,11 @@ bank 2 at `$8000`. Both reference loaders set them explicitly
 machine the defaults do not hold — a measured MMU3 = page 17 sent every write
 to `$6000-$7FFF` into Layer 2's bank 8. `apply()` now writes them, which is a
 no-op on the synthetic path and pinned by `NEXMMU-01..07`.
+
+The same holds for the rest of bank 5. `apply()` used to zero all 16 KB first,
+which on a warm start erased the NextZXOS system variables (`$5B00`–`$5CBF`:
+the paging stubs, `CHANS`, `STRMS`, `CHARS`); they now survive the load, as
+they do under the real `nexload`.
 
 **The cost.** A miss costs a 500-frame boot, ~3.5 s headless. A hit costs one
 `stat` of the SD image plus inflating the ~100 KB cache. The key is the image's

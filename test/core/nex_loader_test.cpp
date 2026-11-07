@@ -133,7 +133,7 @@ std::string fmt(const char* f, ...) {
 // ── NEX fixture construction ─────────────────────────────────────────
 
 // Screen payload byte at index i. Never 0x00 (so a byte that lands in the
-// untouched hole is unambiguously distinguishable from the G16 pre-zero),
+// untouched hole is unambiguously distinguishable from the zero fill),
 // and its 251-byte period does not divide 2048, so a block displaced by
 // the buggy 0x800 offset produces different bytes at every position.
 uint8_t payload_byte(size_t i) {
@@ -246,8 +246,9 @@ bool bank5_matches_payload(Mmu& mmu, size_t dst_off, size_t src_off, size_t len,
 }
 
 // The 2048-byte hole at bank-5 0x1800-0x1FFF must contain no payload byte.
-// After a load it reads 0x00 because NexLoader::apply() pre-zeroes bank 5
-// (G16); the point of the row is that no screen byte was written there.
+// After a load into a freshly init()ed machine it reads 0x00 because init()
+// zero-fills RAM (apply() clears only the attributes, GH #454); the point of
+// the row is that no screen byte was written there.
 bool bank5_hole_untouched(Mmu& mmu, size_t& bad_at, uint8_t& got) {
     for (size_t off = 0x1800; off < 0x2000; ++off) {
         const uint8_t g = read_bank5(mmu, off);
@@ -1704,6 +1705,170 @@ void test_v13_gate() {
               emulator_load_routes_to_nex("a.TAP") ? 1 : 0));
 }
 
+namespace {
+
+// ── GH #454: what apply() writes to bank 5 and the border ────────────
+//
+// Oracle: nexload.asm (V1.0-V1.2). Its only clear is, above the
+// DONTRESETNEXTREGS gate (:323), on every load:
+//     :319  xor a:out (254),a                      border 0
+//     :320  ld hl,$5800:ld de,$5801:ld bc,$2ff:ld (hl),0:ldir
+// i.e. attributes $5800-$5AFF = 0. The lines at :271-:272 / :276-:278 are
+// commented out; no full bank-5 clear exists. The header border is written
+// only past `or a:jp z,.skpbmp` on LOADSCR (:424-:425, :512). Every
+// expectation below was also measured by running the real nexload on the
+// emulated card (probe NEX files that dump bank 5 to a magic port).
+//
+// Bank 5 is seeded with 0xC3 before apply(), which is the warm-start
+// situation: apply() finds a resident machine, not zeroed RAM. The border
+// is preset to 6 so "kept" and "set to 0" can be told apart.
+
+constexpr uint8_t kSentinel = 0xC3;
+
+void write_bank5_byte(Mmu& mmu, size_t off, uint8_t v) {
+    constexpr int      TEMP_SLOT = 7;
+    constexpr uint16_t SLOT_BASE = 0xE000;
+    const uint8_t saved = mmu.get_page(TEMP_SLOT);
+    mmu.set_page(TEMP_SLOT, static_cast<uint8_t>(10 + off / 0x2000));
+    mmu.write(static_cast<uint16_t>(SLOT_BASE + (off % 0x2000)), v);
+    mmu.set_page(TEMP_SLOT, saved);
+}
+
+struct B5Opts {
+    uint8_t screen_flag = 0;
+    size_t  screen_bytes = 0;
+    bool    with_palette = false;
+    uint8_t border = 5;
+    uint8_t dont_reset_regs = 0;
+    bool    with_bank5 = false;
+};
+
+struct B5Fixture {
+    Emulator emu;
+    bool     ok = false;
+
+    B5Fixture(const B5Opts& o, const char* tag) {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        for (size_t i = 0; i < 0x4000; ++i) write_bank5_byte(emu.mmu(), i, kSentinel);
+        emu.ula().set_border(6);
+
+        const size_t pal = o.with_palette ? 512u : 0u;
+        std::vector<uint8_t> file(512, 0x00);
+        std::memcpy(file.data() + 0, "Next", 4);
+        std::memcpy(file.data() + 4, "V1.1", 4);
+        file[9]  = o.with_bank5 ? 1 : 0;
+        file[10] = o.screen_flag;
+        file[11] = o.border;
+        file[12] = 0x00; file[13] = 0xFF;   // SP
+        file[14] = 0x00; file[15] = 0x80;   // PC
+        if (o.with_bank5) file[18 + 5] = 1;
+        file[134] = o.dont_reset_regs;
+        file.resize(512 + pal + o.screen_bytes + (o.with_bank5 ? 16384u : 0u), 0x00);
+        for (int i = 0; i < static_cast<int>(pal / 2); ++i) {
+            file[512 + i * 2]     = pal_lo(i);
+            file[512 + i * 2 + 1] = pal_hi(i);
+        }
+        for (size_t i = 0; i < o.screen_bytes; ++i) file[512 + pal + i] = payload_byte(i);
+        if (o.with_bank5)
+            for (size_t i = 0; i < 16384; ++i)
+                file[512 + pal + o.screen_bytes + i] = payload_byte(i + 7);
+
+        const std::string path = fixture_path(tag);
+        {
+            std::ofstream f(path, std::ios::binary | std::ios::trunc);
+            if (!f) return;
+            f.write(reinterpret_cast<const char*>(file.data()),
+                    static_cast<std::streamsize>(file.size()));
+        }
+        NexLoader loader;
+        if (loader.load(path)) ok = loader.apply(emu);
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    uint8_t at(uint16_t addr) { return read_bank5(emu.mmu(), addr - 0x4000u); }
+
+    // First address in [lo, hi] whose byte is not `want`, or -1.
+    int first_not(uint16_t lo, uint16_t hi, uint8_t want) {
+        for (uint32_t a = lo; a <= hi; ++a)
+            if (at(static_cast<uint16_t>(a)) != want) return static_cast<int>(a);
+        return -1;
+    }
+    int first_not_payload(uint16_t lo, uint16_t hi, size_t src_off) {
+        for (uint32_t a = lo; a <= hi; ++a)
+            if (at(static_cast<uint16_t>(a)) != payload_byte(src_off + (a - lo))) return static_cast<int>(a);
+        return -1;
+    }
+};
+
+std::string bad_str(const char* what, int a, uint8_t got) {
+    return a < 0 ? std::string(what) + " ok"
+                 : fmt("%s: first bad $%04X = %02X", what, a, got);
+}
+
+void test_bank5_clear() {
+    set_group("NEXB5");
+
+    {
+        B5Fixture f(B5Opts{}, "b5a");
+        const int bad = f.ok ? f.first_not(0x4000, 0x57FF, kSentinel) : 0x4000;
+        check("NEXB5-01", "V1.1 no screen: pixels $4000-$57FF are kept (nexload.asm clears only the attributes, :320; :271-:272 are commented out)",
+              f.ok && bad < 0, bad_str("pixels", bad, f.ok ? f.at(static_cast<uint16_t>(bad)) : 0));
+        const int bad2 = f.ok ? f.first_not(0x5800, 0x5AFF, 0x00) : 0x5800;
+        check("NEXB5-02", "V1.1 no screen: attributes $5800-$5AFF are set to 0 (nexload.asm:320 ld (hl),0:ldir, bc=$2ff)",
+              f.ok && bad2 < 0, bad_str("attrs", bad2, f.ok ? f.at(static_cast<uint16_t>(bad2)) : 0));
+        const int bad3 = f.ok ? f.first_not(0x5B00, 0x7FFF, kSentinel) : 0x5B00;
+        check("NEXB5-03", "V1.1 no screen: $5B00-$7FFF (system variables and the rest of bank 5) are kept (nexload.asm writes nothing there)",
+              f.ok && bad3 < 0, bad_str("sysvars", bad3, f.ok ? f.at(static_cast<uint16_t>(bad3)) : 0));
+        check("NEXB5-05", "V1.1 no screen, header border 5, border preset 6: border is 0 (nexload.asm:319 sets it; :424 skips :425/:512 without a screen)",
+              f.ok && f.emu.ula().get_border() == 0,
+              fmt("border=%d (want 0)", f.emu.ula().get_border()));
+    }
+    {
+        B5Opts o; o.dont_reset_regs = 1;
+        B5Fixture f(o, "b5k");
+        const int pix = f.ok ? f.first_not(0x4000, 0x57FF, kSentinel) : 0x4000;
+        const int att = f.ok ? f.first_not(0x5800, 0x5AFF, 0x00) : 0x5800;
+        const int sys = f.ok ? f.first_not(0x5B00, 0x7FFF, kSentinel) : 0x5B00;
+        check("NEXB5-04", "V1.1 DONTRESETNEXTREGS=1: the attribute clear and border 0 still happen, pixels and $5B00-$7FFF kept (nexload.asm:319-320 sit above the :323 gate)",
+              f.ok && pix < 0 && att < 0 && sys < 0 && f.emu.ula().get_border() == 0,
+              fmt("pix=%d attrs=%d sys=%d border=%d", pix, att, sys, f.emu.ula().get_border()));
+    }
+    {
+        B5Opts o; o.screen_flag = 0x02; o.screen_bytes = 6912;
+        B5Fixture f(o, "b5u");
+        const int scr = f.ok ? f.first_not_payload(0x4000, 0x5AFF, 0) : 0x4000;
+        const int sys = f.ok ? f.first_not(0x5B00, 0x7FFF, kSentinel) : 0x5B00;
+        check("NEXB5-06", "V1.1 ULA screen, header border 5: border is 5, $4000-$5AFF is the file payload, $5B00-$7FFF kept (nexload.asm:425, :457, :512)",
+              f.ok && scr < 0 && sys < 0 && f.emu.ula().get_border() == 5,
+              fmt("scr=%d sys=%d border=%d (want 5)", scr, sys, f.emu.ula().get_border()));
+    }
+    {
+        B5Opts o; o.screen_flag = 0x04; o.screen_bytes = 12288; o.with_palette = true;
+        B5Fixture f(o, "b5l");
+        const int lo = f.ok ? f.first_not_payload(0x4000, 0x57FF, 0) : 0x4000;
+        const int hi = f.ok ? f.first_not_payload(0x6000, 0x77FF, 6144) : 0x6000;
+        const int at = f.ok ? f.first_not(0x5800, 0x5AFF, 0x00) : 0x5800;
+        const int k1 = f.ok ? f.first_not(0x5B00, 0x5FFF, kSentinel) : 0x5B00;
+        const int k2 = f.ok ? f.first_not(0x7800, 0x7FFF, kSentinel) : 0x7800;
+        check("NEXB5-07", "V1.1 LoRes screen: halves land at $4000 and $6000, $5800-$5AFF is 0, $5B00-$5FFF and $7800-$7FFF kept (nexload.asm:320, :472, :474)",
+              f.ok && lo < 0 && hi < 0 && at < 0 && k1 < 0 && k2 < 0,
+              fmt("lo=%d hi=%d attrs=%d k1=%d k2=%d", lo, hi, at, k1, k2));
+    }
+    {
+        B5Opts o; o.with_bank5 = true;
+        B5Fixture f(o, "b5b");
+        const int bad = f.ok ? f.first_not_payload(0x4000, 0x7FFF, 7) : 0x4000;
+        check("NEXB5-08", "V1.1 file carrying bank 5: all 16 KB is the bank payload, loaded after the clear (nexload.asm:525 ld ix,$4000:ld bc,$4000)",
+              f.ok && bad < 0, fmt("first bad $%04X", bad));
+    }
+}
+
+} // namespace
+
 int main() {
     std::printf("NEX loader screen-ingest tests (issue #68)\n\n");
 
@@ -2484,7 +2649,7 @@ int main() {
     // freshly initialised machine, where that is a no-op, so deleting it left
     // the suite green. The fixture carries bank 2 only; bank 30 (physical
     // pages 60/61) is dirtied first and can read back zero only if the load
-    // re-initialised (init() zero-fills RAM; apply() pre-zeroes only bank 5).
+    // re-initialised (init() zero-fills RAM).
     // Mutation-tested: deleting load_nex()'s init(config_) turns it red.
     // Siblings for load_sna/load_szx/load_z80 live in mmu_integration_test.
     {
@@ -2729,6 +2894,9 @@ int main() {
 
     // GH #228 — the experimental-V1.3 entry-point gate.
     test_v13_gate();
+
+    // GH #454 — what apply() clears in bank 5, and the border.
+    test_bank5_clear();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);
