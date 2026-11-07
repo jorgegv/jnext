@@ -60,7 +60,7 @@ struct Z80Header {
 /// `decompress_page()` are defined inline here (not in z80_loader.cpp) so
 /// that unit tests can exercise the parsing/decompression/RAM-routing logic
 /// by linking only `jnext_memory` — the same technique
-/// `NexLoader::ram_required_fits()` / `zero_bank5_screen_pages()` use in
+/// `NexLoader::ram_required_fits()` uses in
 /// `nex_loader.h`, and for the same reason: `test/mmu/mmu_test.cpp` does not
 /// link `jnext_core` (which pulls in `Emulator`/SDL/Qt). Only `load()` (file
 /// I/O + logging) and `apply(Emulator&)` (CPU/port access) live in the .cpp.

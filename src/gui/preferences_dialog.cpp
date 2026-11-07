@@ -623,7 +623,7 @@ void PreferencesDialog::browse_directory(QLineEdit* target) {
 void PreferencesDialog::browse_sd_image(QLineEdit* target) {
     QString path = QFileDialog::getOpenFileName(
         this, tr("Select SD Card Image"), target->text(),
-        tr("Disk Images (*.img *.bin);;All Files (*)"));
+        tr("Disk Images (*.img *.bin *.raw);;All Files (*)"));
     if (!path.isEmpty()) target->setText(path);
 }
 
