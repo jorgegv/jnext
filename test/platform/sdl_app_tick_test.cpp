@@ -105,8 +105,10 @@ int main()
     // tick that sleeps inside is told apart by its wall time w: with e the
     // tick's own work, a tick that only reports has w = e and s = 200 - e; one
     // that also sleeps has w >= 200 (s = 200 - e, or 0 for a sleep taken first).
-    // A GOOD tick has s >= 50 and w < 200 - 25, i.e. it came back long before
-    // the period was up. Whether a given tick is good depends on the host (a
+    // A GOOD tick has s >= 50, w < 200 - 25 (it came back long before the period
+    // was up) and w + s <= 200 + 5 (the sleep it reports is the rest of the period
+    // after the time it really took: a tick that performed part of the sleep, or
+    // reported the whole period whatever its work, breaks that). Whether a given tick is good depends on the host (a
     // slow or loaded one spends > 150 ms on a frame and reports s = 0, GH #462),
     // so the row does not count ticks of a fixed batch: it runs ticks until 3 are
     // good (at most 30). A tick that sleeps inside is never good, so that
@@ -127,14 +129,16 @@ int main()
             const double w = ms_since(t0);
             ++ticks;
             if (!more || s > static_cast<uint32_t>(frame_ms)) bounded = false;
-            if (s >= 50 && w < static_cast<double>(frame_ms) - 25.0) ++good;
+            if (s >= 50 && w < static_cast<double>(frame_ms) - 25.0 &&
+                w + s <= static_cast<double>(frame_ms) + 5.0) ++good;
             if (ticks <= 8)
                 detail += " w/s=" + std::to_string(static_cast<int>(w)) + "/" + std::to_string(s);
         }
         app->shutdown();
         detail += " ticks=" + std::to_string(ticks) + " good=" + std::to_string(good);
         check("SDLT-02", "speed 10%: each sleep <= the frame period; 3 ticks report a sleep "
-                         ">= 50 ms and return well before it, without having performed it",
+                         ">= 50 ms, return well before it and have w + s ~ the period, "
+                         "without having performed it",
               ok && frame_ms == 200 && bounded && good >= 3, detail);
     }
 
