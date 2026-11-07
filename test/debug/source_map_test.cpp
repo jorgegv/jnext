@@ -44,6 +44,7 @@
 #include <type_traits>
 #include <unistd.h>
 #include "../row_id.h"
+#include "../hex_value.h"
 
 namespace fs = std::filesystem;
 using jnext::dbg::MemSpace;
@@ -829,7 +830,7 @@ int main() {
             while (std::getline(in, line)) {
                 const auto at = line.find(": EQU 0x");
                 if (at != std::string::npos)
-                    sym[line.substr(0, at)] = static_cast<uint16_t>(std::stoul(line.substr(at + 8), nullptr, 16));
+                    if (uint64_t v = 0; parse_hex64(line, at + 8, &v)) sym[line.substr(0, at)] = static_cast<uint16_t>(v);
             }
         }
         static const char* const kFromSld[] = {
@@ -906,7 +907,7 @@ int main() {
             while (std::getline(in, line)) {
                 const auto at = line.find(": EQU 0x");
                 if (at != std::string::npos)
-                    sym[line.substr(0, at)] = static_cast<uint16_t>(std::stoul(line.substr(at + 8), nullptr, 16));
+                    if (uint64_t v = 0; parse_hex64(line, at + 8, &v)) sym[line.substr(0, at)] = static_cast<uint16_t>(v);
             }
             check("SLDL-10", "a +sizeof record is an ordinary label: msg names its Page 4 address, with the value "
                              "sjasmplus's own --sym gives",

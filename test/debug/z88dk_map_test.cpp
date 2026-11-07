@@ -37,6 +37,7 @@
 #include <unistd.h>
 #include <vector>
 #include "../row_id.h"
+#include "../hex_value.h"
 
 namespace fs = std::filesystem;
 using jnext::dbg::FetchSource;
@@ -1593,6 +1594,12 @@ int main() {
         const int ns = simple.load_simple_map(synth("bom.simple", bom + "alpha = $9000\nbeta = $9100\n").string());
         check("MAPBOM-05", "load_simple_map() skips a UTF-8 BOM: the first line's symbol keeps its name",
               ns == 2 && simple.lookup_name("alpha") == 0x9000 && simple.lookup_name("beta") == 0x9100);
+        // GH #477: a constant wider than 32 bits (z88dk writes `__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF`) must be skipped, never throw: `unsigned long` is 32 bits on Windows
+        // and std::stoul threw std::out_of_range there. Oracle: z88dk's own map line (nightly maps), and an address is 16 bits.
+        SymbolTable wide;
+        const int nw = wide.load_simple_map(synth("wide.simple", "first = $9000\nmid = $12345\n__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF\nover32 = $100000000\nover64 = $1FFFFFFFFFFFFFFFF\nlast = $9100\n").string());
+        check("Z88HEX-01", "load_simple_map() skips constants that do not fit 16 bits without throwing, whatever their width ($12345, $FFFFFFFFFFFFFFFF, $100000000, 17 digits) and keeps the symbols around them",
+              nw == 2 && wide.lookup_name("first") == 0x9000 && wide.lookup_name("last") == 0x9100 && !wide.lookup_name("__clib_malloc_heap_size") && !wide.lookup_name("mid") && !wide.lookup_name("over32") && !wide.lookup_name("over64"));
         SymbolTable nb;
         const int nn = nb.load_nextbuild_memory(synth("bom.mem", bom + "ACB5: ._FillScreen\n7335: ._Other\n").string());
         check("MAPBOM-06", "load_nextbuild_memory() skips a UTF-8 BOM: the first line's label is not dropped",
@@ -3061,10 +3068,11 @@ main cross_c AC97
             // raw: `__C_LINE_<n>_... = $<addr> ; addr, local, , blocks_c, code_compiler, blocks.c::g2::<level>::<block>:<line>`
             // (the extent is [g2's entry, h's entry): a record of another function's line at the entry address, such as f's closing line, belongs to the trail too)
             const CFunction* h = fn_named(*st, "h", "blocks_c");
-            std::vector<std::pair<unsigned long, int>> raw;
+            std::vector<std::pair<uint64_t, int>> raw;
             for (const std::string& l : map_lines(kFixtures / fixture / "prog.map")) {
                 if (l.compare(0, 9, "__C_LINE_") != 0 || l.find(", blocks_c, code_compiler,") == std::string::npos) continue;
-                const unsigned long addr = std::stoul(l.substr(l.find('$') + 1), nullptr, 16);
+                uint64_t addr = 0;
+                if (!parse_hex64(l, l.find('$') + 1, &addr)) continue;
                 if (addr >= g2->entry.at.address && h && addr < h->entry.at.address) raw.push_back({addr, std::stoi(l.substr(l.rfind(':') + 1))});
             }
             std::sort(raw.begin(), raw.end());

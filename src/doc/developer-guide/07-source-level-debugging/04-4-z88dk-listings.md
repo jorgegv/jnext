@@ -106,7 +106,7 @@ binaries' bytes). In order:
    placed".
    **5b. A label-less piece smaller than its section is placed by its bytes** (design 9.5). Another module can put code in the same section: the banking driver shares
    `code_crt_init` with the CRT in the banked-CRT fixtures, so the CRT's own piece has no label in
-   the map and is smaller than the section. `place_z88dk_listing()` (`z88dk_lis.cpp:396`) tries
+   the map and is smaller than the section. `place_z88dk_listing()` (`z88dk_lis.cpp:398`) tries
    every start `c` from `__<s>_head` to `__<s>_tail` minus the piece's size and excludes it when,
    at any *checked row*, the section binary holds a byte other than the listing's first byte. A
    checked row is the first byte of a mnemonic row, outside `PHASE`, in a non-data section; the
@@ -116,7 +116,7 @@ binaries' bytes). In order:
    *unknown* (`nullopt`) when no section binary covers the byte, **when two or more do** (overlay
    sections at one ORG: `bin_for(..., &more)`, `z88dk_source_map.cpp:868`, and the `byte_at` lambda, `:940-945`), and when `place()` fails (a ROM area: the memory is not a RAM
    page, so no byte can be read). The outcome is one of three:
-    - **no start survives** (`survivors`, `z88dk_lis.cpp:662`; the search loop over `survivors`, `z88dk_lis.cpp:621-671`): the listing is dropped, with "section '<s>': its label-less lines match no
+    - **no start survives** (`survivors`, `z88dk_lis.cpp:664`; the search loop over `survivors`, `z88dk_lis.cpp:621-671`): the listing is dropped, with "section '<s>': its label-less lines match no
       place in the section binary; this is not the listing of this build" (row `Z88LIS-42`);
     - **exactly one survives and every checked byte was known:** the piece starts there (`Z88LIS-36`
       and `-37` on the banked-CRT fixtures: the CRT piece is placed and the driver's bytes after it

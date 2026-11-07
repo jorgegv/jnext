@@ -157,13 +157,10 @@ int SymbolTable::load_simple_map(const std::string& path, std::string* why)
         }
         if (hex_str.empty()) continue;
 
-        unsigned long addr_val = 0;
-        try {
-            addr_val = std::stoul(hex_str, nullptr, 16);
-        } catch (...) {
-            continue;
-        }
-        if (addr_val > 0xFFFF) continue;
+        // fixed 64-bit width: `unsigned long` is 32 bits on Windows. A constant that does not fit 64 bits, or 16, is no address (skipped)
+        uint64_t addr_val = 0;
+        const auto parsed = std::from_chars(hex_str.data(), hex_str.data() + hex_str.size(), addr_val, 16);
+        if (parsed.ec != std::errc() || addr_val > 0xFFFF) continue;
 
         auto addr = static_cast<uint16_t>(addr_val);
 

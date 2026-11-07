@@ -841,7 +841,9 @@ CPath c_parse_path(std::string_view s, bool allow_handle)
         while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) ++i;
         if (i == b || i - b > 9) return bad("expected a variable handle number after '#'");
         p.primary = CPath::Primary::Handle;
-        p.handle = static_cast<size_t>(std::stoul(std::string(s.substr(b, i - b))));
+        uint32_t handle = 0;   // at most 9 digits (checked above): from_chars, never a throw, whatever `unsigned long` is
+        std::from_chars(s.data() + b, s.data() + i, handle);
+        p.handle = handle;
     } else if (!ident(&p.name)) {
         return bad("expected a variable name");
     }
