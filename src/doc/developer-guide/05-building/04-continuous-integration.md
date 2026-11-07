@@ -95,6 +95,10 @@ dependency set and checks out the repository with submodules; then
   `make unit-test-win`: the SDL-only suites as Windows executables under wine. It
   builds no PGO binary, so on an SD-image cache miss `make unit-test-win`
   provisions the image itself (`make sdcard-image`);
+- **`unit-wasm`** runs `make unit-test-wasm`: the SDL-only suites as WebAssembly
+  under node, in the same SDK cache as `wasm`. It builds no PGO binary, so on an
+  SD-image cache miss the target provisions the image itself. Run as root in the
+  container, the runner drops CAP_DAC_OVERRIDE with `setpriv` (util-linux);
 - **`regression`** runs `make clean && make gui-release` and `make regression`;
 - **`wasm`** runs `make wasm-core`: the SDL-only core built for WebAssembly and
   run under node. It needs no SD image. The Emscripten SDK is provisioned by the

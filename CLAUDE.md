@@ -112,6 +112,8 @@ The single authoritative protocol for landing any implemented change on `main`:
      - It runs the same SDL-only suites, cross-built for Windows with the Fedora MinGW toolchain and run under wine (`dnf install mingw64-gcc mingw64-gcc-c++ mingw64-SDL3 mingw64-zlib mingw64-libpng mingw64-winpthreads wine-core wine-common`).
      - It is the only local way to see a Windows compile break, a Win32 code path or a path-separator bug. It runs on the development host: ~30 s warm, ~3 min with a cold ccache.
      - What wine cannot stand in for (symlink creation, a real console attach, NTFS short names and streams) stays untested; the suites that need it are `# os: posix`.
+   - `make unit-test-wasm` runs in **every** batch gate too (owner, 2026-11-06, GH #460), and on a branch that touches `__EMSCRIPTEN__` code, the EMSCRIPTEN CMake arms, `test/node-run.sh` or the unit-test harness.
+     - It runs the same SDL-only suites as WebAssembly modules under the SDK's node (`build/wasm-unit-test`, LTO off), through `test/node-run.sh`. Suites whose subject the browser build compiles out or refuses are `# os: native` and named in the run's NOTICE.
    - `make regression-win` runs in **every** batch gate too (owner, 2026-10-10, GH #319).
      - It runs the regression suite's screenshots and the functional rows Windows can run, against the Release + LTO (non-PGO) Qt `jnext.exe` and the SDL-only `jnext.exe` under wine (extra: `dnf install mingw64-qt6-qtbase mingw64-qt6-qtsvg`).
      - It takes ~6 min under the host lock on top of warm builds. It needs 0 FAIL and 0 SKIP, prints absent rows by name (declared by `os=` in `functional_tests.conf`, never skipped), and is not stamped.
@@ -452,15 +454,18 @@ into this file would go stale on the next branch that adds a suite.
 | `make unit-test-sdl` | Linux (native)                  | `build/sdl-unit-test`     | local gate, CI `test (unit)` |
 | `make unit-test-sdl` | macOS (native)                  | `build/sdl-unit-test`     | CI `macos-unit` (Homebrew `bash coreutils grep` required); suites marked `# os: linux` do not run (e.g. `sdcard_file_add_linux_test`: SDFA-T26 needs a case-sensitive filesystem; APFS is not) |
 | `make unit-test-win` | Windows, MinGW cross under wine | `build/win-sdl-unit-test` | local gate, CI `test (unit-win)`; suites marked `# os: posix` or `# os: linux` do not run |
+| `make unit-test-wasm` | WebAssembly (Emscripten) under node | `build/wasm-unit-test` | local gate, CI `test (unit-wasm)`; suites marked `# os: native`, `posix` or `linux` do not run |
 | `make regression-win` | Windows, MinGW exes under wine | `build/win-release-non-pgo`, `build/win-sdl-release` | local gate, CI `test (regression-win)`; rows pinned by `# expect-windows:` |
 | `make regression-macos` | macOS (native) | `build/gui-release-non-pgo`, `build/sdl-release` | CI `macos-regression`; rows pinned by `# expect-macos:` |
 
 **The regression suite also runs off Linux** (GH #319, owner decisions 2026-10-10): `regression.sh --platform` runs the screenshots and the functional rows an OS can run. A row's line in `functional_tests.conf` opts out with `os=<list>` (a subset of `linux,macos,windows`, `linux` mandatory, no tag = all three) and a `# os:` reason above it; `# expect-macos:` / `# expect-windows:` pin the counts; the absent rows are printed by name, never SKIPs. The preflight lints and the stamp stay Linux-only. The wine runner (`test/wine-run.sh --jnext`) folds CRLF, translates `QT_*`/`SDL_*`, and needs a persistent wineserver; the Qt test exe bundles `qoffscreen.dll`, in the test tree only, never in a package. See the developer guide, section 4.3.
 
-Both new CI jobs are BLOCKING. The `# os: all | posix | linux` directive in
+Both new CI jobs are BLOCKING. The `# os: all | native | posix | linux` directive in
 `test/unit-tests.conf` declares which target OSes own a suite — read from the build
 tree's own `CMakeCache.txt` (`JNEXT_TARGET_OS`) and cross-checked both ways exactly
-like `# gate:`; a row that cannot exist on a platform moves, ID and assertion
+like `# gate:`; the classes form one chain, linux < posix < native < all, where
+`native` is Linux, macOS and Windows (every target but `emscripten`, the WebAssembly
+build under node, which satisfies only `all`); a row that cannot exist on a platform moves, ID and assertion
 unchanged, into an os-gated sibling suite, never into a SKIP. The Qt, debugger,
 docs and traceability gates stay Linux-only (the regression suite's portable subset is the two rows above). On macOS the harness needs
 Homebrew's `bash`, `coreutils` and `grep` (`make unit-test-sdl` puts them first on

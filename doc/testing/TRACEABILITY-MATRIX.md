@@ -62,13 +62,15 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: ctc_interrupts_test             |    88 |   88 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   379 |  379 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
-| Companion: input_integration_test          |    65 |   65 |    0 |    0 |       0 |          0 |
-| Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
+| Companion: input_integration_test          |    64 |   64 |    0 |    0 |       0 |          0 |
+| Companion: input_integration_native_test   |     1 |    1 |    0 |    0 |       0 |          0 |
+| Companion: uart_integration_test           |    38 |   38 |    0 |    0 |       0 |          0 |
+| Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6163 | 6163 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6163**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5663**. Rows the 184 suites declared in `test/unit-tests.conf` run live: **15812**.
+Rows the sections above carry: **6163**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5663**. Rows the 189 suites declared in `test/unit-tests.conf` run live: **15812**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +82,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 137 suites (10233 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 140 suites (10233 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -117,7 +119,8 @@ These 137 suites (10233 live rows) have no VHDL-derived plan row to map, so they
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 14 | host render/skip policy (wall-clock, not core timing) |
 | `screenshot_test` | 24 | host screenshot file formats and auto-naming, no core counterpart |
-| `emulator_boot_test` | 130 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 126 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_native_test` | 4 | host cold-boot of a live emulated ESP-01 (threaded; split out of emulator_boot_test, GH #460; no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `fullscreen_sync_test` | 11 | macOS full-screen state sync and window size lock (GH #404, host GUI, no VHDL oracle) |
 | `recent_files_test` | 17 | File > Recent Files list logic and load-dialog seed (GH #406, host GUI, no VHDL oracle) |
@@ -136,9 +139,11 @@ These 137 suites (10233 live rows) have no VHDL-derived plan row to map, so they
 | `quit_signal_test` | 14 | SIGINT/SIGTERM as a quit request (host process behaviour; GH #364) |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 27 | jnext log-level gating |
-| `cli_options_test` | 66 | CLI flag table vs the man page (see `make cli-check`) |
+| `cli_options_test` | 41 | CLI flag table vs the man page (see `make cli-check`) |
+| `cli_options_native_test` | 25 | CLI rows that run the built jnext binary (split out of cli_options_test, GH #460; see `make cli-check`) |
 | `config_keys_test` | 26 | the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle) |
-| `video_recorder_cmd_test` | 54 | FFmpeg command-line construction (host encoder) |
+| `video_recorder_cmd_test` | 46 | FFmpeg command-line construction (host encoder) |
+| `video_recorder_cmd_native_test` | 8 | FFmpeg recording through a stand-in child process (host encoder, split out of video_recorder_cmd_test, GH #460) |
 | `nex_loader_test` | 147 | NEX file-format spec (host loader), no core counterpart |
 | `nex_v13_test` | 79 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
 | `extended_nex_test` | 44 | narrative section, ID ranges not per-row IDs |
@@ -2815,13 +2820,13 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | GATE-01 | UART port enable gate: NR 0x83 bit 4 → ports 0x133B-0x163B; when closed reads=0xFF + writes ignored [zxnext.vhd:2420, :2392; emulator.cpp register_io_ports] | zxnext.vhd:2420,2392 | pass | test/uart/uart_integration_test.cpp:317 |
 | GATE-02 | I2C port enable gate: NR 0x83 bit 2 → ports 0x103B/0x113B; when closed reads=0xFF + writes ignored [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:366 |
 | GATE-03 | NR 0x83 bits 0/2/4 independently gate DivMMC/I2C/UART [zxnext.vhd:2412, :2418, :2420, :2392; :5499-5509] | zxnext.vhd:2412,2418,2420,2392 | pass | test/uart/uart_integration_test.cpp:459 |
-| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:1241 | pass | test/uart/uart_integration_test.cpp:1678 |
-| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1707 |
-| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1738 |
+| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:1241 | pass | test/uart/uart_integration_test.cpp:1546 |
+| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1575 |
+| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1606 |
 | TX-C1-ACC-01 | single tick span across a byte boundary: bytes exactly prescaler*frame_bits=2430 cycles apart [uart.vhd:297-299,318-320]; boundaries exact to one cycle; tx_empty at end | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:2522 |
 | TX-C1-ACC-02 | one tick(4*2430) span drains 4 FIFO bytes back-to-back (starts at 0/T/2T/3T); last completion exactly at 4T [uart.vhd:297-299,318-320] | uart.vhd:297-299,318-320 | pass | test/uart/uart_test.cpp:2550 |
-| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:1784 |
-| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:1823 |
+| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:1652 |
+| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:1691 |
 | PI-01 | the Raspberry Pi link carries both directions over UART 1 while NR 0xA0 = 0x30 connects it to the Pi GPIO pins (zxnext.vhd:2278-2281): host bytes reach port 0x143B on UART 1, the guest's UART 1 bytes reach the host, and UART 0 hears nothing | zxnext.vhd:2278-2281 | pass | test/uart/uart_posix_test.cpp:603 |
 | PI-02 | NR 0xA0 bits 5:4 gate the Pi link both ways (zxnext.vhd:2278-2281): with 0x00, 0x10 or 0x20 the Pi is not heard and does not hear, and the loss is counted; 0x30 then carries traffic again | zxnext.vhd:2278-2281 | pass | test/uart/uart_posix_test.cpp:661 |
 | PI-03 | with the Pi link attached, a UART 1 transmission goes to the Pi only — UART 1's unattached loopback is off, so the guest does not read its own byte back | — | pass | test/uart/uart_posix_test.cpp:689 |
@@ -3228,8 +3233,8 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | KBD-19 | CS+SYM, rows 0,7 AND = 0x1C | membrane.vhd:251 | pass | test/input/input_test.cpp:322 |
 | KBD-20 | no rows selected = 0x1F | membrane.vhd:242-251 | pass | test/input/input_test.cpp:331 |
 | KBD-21 | all rows, single Z = 0x1D | membrane.vhd:251 | pass | test/input/input_test.cpp:341 |
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:189 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:213 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:190 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:214 |
 | KBDHYS-01 | CS held one extra scan after release (membrane.vhd:178, 188-191, 232) | membrane.vhd:178,188-191,232 | pass | test/input/input_test.cpp:385 |
 | KBDHYS-02 | CS pressed across 3 scans reads pressed each scan (membrane.vhd:190) | membrane.vhd:190 | pass | test/input/input_test.cpp:406 |
 | KBDHYS-03 | the cancel bit does NOT clear the NR 0xB0/0xB1 raw readback (membrane.vhd:253 vs :183-186) | membrane.vhd:253 | pass | test/input/input_test.cpp:439 |
@@ -3386,40 +3391,40 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | NMI-05 | NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1 | zxnext.vhd:2090 | pass | test/input/input_test.cpp:3196 |
 | NMI-06 | NR 0x06 bit4=1 + nmi_sw_gen_divmmc → nmi_assert_divmmc=1 | — | pass | test/input/input_test.cpp:3214 |
 | NMI-07 | NR 0x06 bits 3+4=1 + both hotkeys → both gates assert | — | pass | test/input/input_test.cpp:3232 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:238 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:259 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:278 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:342 |
-| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1233 |
-| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1251 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:239 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:260 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:279 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:343 |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1234 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1252 |
 | JCAL-01 | NR 0x28 keymap_sel write handler routes bit 7 + bit 0 | membrane_stick.vhd | pass | test/input/input_test.cpp:3306 |
 | JCAL-02 | NR 0x29 addr-low + NR 0x2B data write + auto-inc | zxnext.vhd:6304-6308, membrane_stick.vhd:182 | pass | test/input/input_test.cpp:3345 |
 | JCAL-03 | NR 0x05=111 + UDK[16]=(4,3) + bit0 press → row4 col3 low | membrane_stick.vhd:172-183 | pass | test/input/input_test.cpp:3389 |
 | FNK-01 | F8 press increments NR 0x07 cpu_speed (VHDL :5789-5791) | input/membrane/emu_fnkeys.vhd:53-202 | pass | test/input/input_test.cpp:3429 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:995 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:650 |
-| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1821 |
-| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1840 |
-| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1872 |
-| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2101 |
-| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2124 |
-| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2138 |
-| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2160 |
-| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2216 |
-| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2236 |
-| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2252 |
-| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2287 |
-| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2326 |
-| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2352 |
-| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2410 |
-| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2427 |
-| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2443 |
-| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2467 |
-| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2489 |
-| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2504 |
-| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2531 |
-| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2551 |
-| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2618 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:996 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:651 |
+| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1779 |
+| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1798 |
+| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1830 |
+| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2059 |
+| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2082 |
+| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2096 |
+| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2118 |
+| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2174 |
+| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2194 |
+| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2210 |
+| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2245 |
+| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2284 |
+| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2310 |
+| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2368 |
+| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2385 |
+| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2401 |
+| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2425 |
+| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2447 |
+| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2462 |
+| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2489 |
+| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2509 |
+| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2576 |
 | FNK-02 | F3 press toggles NR 0x05 bit 2 (5060), readable after the frame edge only (VHDL :5839-5841; eff latch :6697-6700) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3462 |
 | FNK-03 | F2 press toggles NR 0x05 bit 0 (scandouble), readable after the frame edge only (VHDL :5849-5852; eff latch :6702) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3490 |
 | EXTC-08a | LEFT folds to CAPS SHIFT + 5 (row 3 col 4) | — | pass | test/input/input_test.cpp:563 |
@@ -6442,71 +6447,78 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:189 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:213 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:238 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:259 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:278 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:342 |
-| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:466 |
-| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:485 |
-| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:518 |
-| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:558 |
-| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:590 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:650 |
-| JOY-WIRE-02 | SDL_EVENT_GAMEPAD_BUTTON_* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:705 |
-| JOY-WIRE-03 | SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:763 |
-| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:819 |
-| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:876 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:995 |
-| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1035 |
-| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1055 |
-| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1076 |
-| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1104 |
-| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1127 |
-| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1233 |
-| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1251 |
-| GPH-01 | a real SDL3 device's instance id is nonzero (0 is the invalid id) | — | pass | test/input/input_integration_test.cpp:1329 |
-| GPH-02 | enumerate_existing_devices() finds an already-attached pad and maps it to connector 1 (GH #57) | — | pass | test/input/input_integration_test.cpp:1344 |
-| GPH-03 | a button press on the opened device reaches connector 1's bits | — | pass | test/input/input_integration_test.cpp:1358 |
-| GPH-04 | a duplicate ADDED for an open device is deduped: same slot, connector 2 still free (GH #57) | — | pass | test/input/input_integration_test.cpp:1373 |
-| GPH-05 | REMOVED closes the slot and unmaps the instance id | — | pass | test/input/input_integration_test.cpp:1388 |
-| GPH-06 | an event from a removed device is refused, not applied to a connector | — | pass | test/input/input_integration_test.cpp:1399 |
-| GPA-01 | identical pads share a GUID: ids <guid> and <guid>#2; another model differs | — | pass | test/input/input_integration_test.cpp:1466 |
-| GPA-02 | enumerate with nothing assigned: first two on Joy 1/2, the third unbound | — | pass | test/input/input_integration_test.cpp:1466 |
-| GPA-03 | assigning C to Joy 1 binds it live; A2 keeps Joy 2 (sticky); C's button reaches Joy 1 | — | pass | test/input/input_integration_test.cpp:1466 |
-| GPA-04 | assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2 | — | pass | test/input/input_integration_test.cpp:1466 |
-| GPA-05 | unplug+replug: the vacated connector adopts the idle pad, then the replugged pad (same id) takes it back | — | pass | test/input/input_integration_test.cpp:1466 |
-| GPA-06 | an assigned id that is not present falls back to the first free controller | — | pass | test/input/input_integration_test.cpp:1467 |
-| GPA-07 | unplugging a pad with a button held releases the connector | — | pass | test/input/input_integration_test.cpp:1467 |
-| GPA-08 | switching a connector back to Sdl adopts a pad that is already plugged in | — | pass | test/input/input_integration_test.cpp:1467 |
-| GPA-09 | on_devices_changed fires once per enumerate/arrival/removal and not on a button | — | pass | test/input/input_integration_test.cpp:1467 |
-| GPA-10 | switching a connector to None unbinds its pad and leaves the other connector alone | — | pass | test/input/input_integration_test.cpp:1467 |
-| GPA-11 | after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged | — | pass | test/input/input_integration_test.cpp:1468 |
-| GPA-12 | fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match | — | pass | test/input/input_integration_test.cpp:1468 |
-| GPA-13 | a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild | — | pass | test/input/input_integration_test.cpp:1468 |
-| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1821 |
-| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1840 |
-| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1872 |
-| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2101 |
-| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2124 |
-| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2138 |
-| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2160 |
-| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2216 |
-| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2236 |
-| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2252 |
-| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2287 |
-| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2326 |
-| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2352 |
-| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2410 |
-| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2427 |
-| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2443 |
-| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2467 |
-| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2489 |
-| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2504 |
-| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2531 |
-| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2551 |
-| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2618 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:190 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:214 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:239 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:260 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:279 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:343 |
+| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:467 |
+| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:486 |
+| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:519 |
+| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:559 |
+| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:591 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:651 |
+| JOY-WIRE-02 | SDL_EVENT_GAMEPAD_BUTTON_* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:706 |
+| JOY-WIRE-03 | SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:764 |
+| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:820 |
+| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:877 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:996 |
+| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1036 |
+| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1056 |
+| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1077 |
+| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1105 |
+| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1128 |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1234 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1252 |
+| GPH-01 | a real SDL3 device's instance id is nonzero (0 is the invalid id) | — | pass | test/input/input_integration_test.cpp:1330 |
+| GPH-02 | enumerate_existing_devices() finds an already-attached pad and maps it to connector 1 (GH #57) | — | pass | test/input/input_integration_test.cpp:1345 |
+| GPH-03 | a button press on the opened device reaches connector 1's bits | — | pass | test/input/input_integration_test.cpp:1359 |
+| GPH-04 | a duplicate ADDED for an open device is deduped: same slot, connector 2 still free (GH #57) | — | pass | test/input/input_integration_test.cpp:1374 |
+| GPH-05 | REMOVED closes the slot and unmaps the instance id | — | pass | test/input/input_integration_test.cpp:1389 |
+| GPH-06 | an event from a removed device is refused, not applied to a connector | — | pass | test/input/input_integration_test.cpp:1400 |
+| GPA-01 | identical pads share a GUID: ids <guid> and <guid>#2; another model differs | — | pass | test/input/input_integration_test.cpp:1437 |
+| GPA-02 | enumerate with nothing assigned: first two on Joy 1/2, the third unbound | — | pass | test/input/input_integration_test.cpp:1437 |
+| GPA-04 | assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2 | — | pass | test/input/input_integration_test.cpp:1437 |
+| GPA-05 | unplug+replug: the vacated connector adopts the idle pad, then the replugged pad (same id) takes it back | — | pass | test/input/input_integration_test.cpp:1437 |
+| GPA-06 | an assigned id that is not present falls back to the first free controller | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-07 | unplugging a pad with a button held releases the connector | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-08 | switching a connector back to Sdl adopts a pad that is already plugged in | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-09 | on_devices_changed fires once per enumerate/arrival/removal and not on a button | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-10 | switching a connector to None unbinds its pad and leaves the other connector alone | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-11 | after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged | — | pass | test/input/input_integration_test.cpp:1439 |
+| GPA-12 | fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match | — | pass | test/input/input_integration_test.cpp:1439 |
+| GPA-13 | a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild | — | pass | test/input/input_integration_test.cpp:1439 |
+| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1779 |
+| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1798 |
+| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1830 |
+| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2059 |
+| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2082 |
+| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2096 |
+| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2118 |
+| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2174 |
+| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2194 |
+| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2210 |
+| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2245 |
+| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2284 |
+| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2310 |
+| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2368 |
+| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2385 |
+| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2401 |
+| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2425 |
+| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2447 |
+| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2462 |
+| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2489 |
+| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2509 |
+| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2576 |
+
+### Companion native-only suite — `test/input/input_integration_native_test.cpp`
+
+Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
+
+| Test ID | Description | VHDL file:line | Status | Test file:line |
+|---------|-------------|----------------|--------|----------------|
+| GPA-03 | assigning C to Joy 1 binds it live; A2 keeps Joy 2 (sticky); C's button reaches Joy 1 | — | pass | test/input/input_integration_native_test.cpp:86 |
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 
@@ -6533,29 +6545,36 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | DEV-03 | Uart::detach_device restores loopback and clears the device's RxSink — a detached channel behaves exactly like one that never had a device [uart_device.h lifetime contract] | — | pass | test/uart/uart_integration_test.cpp:763 |
 | DEV-05 | An attached UartDevice takes precedence over on_tx_byte: the device receives the byte and the observer hook is suppressed, so exactly one consumer sees it [uart.cpp deliver_tx_byte] | — | pass | test/uart/uart_integration_test.cpp:799 |
 | DEV-04 | UartDevice attachment is per-channel: UART 0 (ESP) and UART 1 (Pi) backends each see only their own channel's TX [zxnext.vhd:3343-3344; uart.vhd tx_wr gated on uart_select_r bit 6] | zxnext.vhd:3343-3344, uart.vhd | pass | test/uart/uart_integration_test.cpp:834 |
-| ESP-01 | guest TX on UART 0 egresses to the REAL emulated ESP-01, which parses the AT line and answers — not to the channel's loopback [zxnext.vhd:1611-1612, :3381 UART 0 = ESP] | zxnext.vhd:1611-1612,3381 | pass | test/uart/uart_integration_test.cpp:861 |
-| ESP-02 | the ESP's reply lands in the UART 0 RX FIFO and raises the UART0_RX IM2 vector under the NR 0xC6 request mask near_full OR (avail AND NOT bit1) [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:893 |
-| ESP-03 | NR 0x02 bit 7 (o_RESET_PERIPHERAL) latches and reads back, and in v1.0 drives NO device reset — the attached ESP keeps its state across it; nextsync's recovery path is a v1.1 extension point (design doc §4.2) [zxnext.vhd:5119, :1579; nextreg.txt:48] | zxnext.vhd:5119,1579 | pass | test/uart/uart_integration_test.cpp:943 |
-| ESP-04 | with no ESP backend attached, UART 0 keeps its loopback: the guest's own bytes come back and nothing answers them | — | pass | test/uart/uart_integration_test.cpp:968 |
-| JOY-01 | zxnext.vhd:3340 — while the joystick UART mux owns UART 0, `uart0_rx` selects `joy_uart_rx` and the ESP's own RX pin is not selected, so its bytes are lost; with the mux off they arrive | zxnext.vhd:3340 | pass | test/uart/uart_integration_test.cpp:1002 |
-| JOY-02 | zxnext.vhd:3343 — while the joystick UART mux owns UART 0 the module-facing TX pin is held idle, so a transmitted byte reaches neither the ESP nor a loopback into the channel's own RX FIFO; with the mux off the ESP receives normally | zxnext.vhd:3343 | pass | test/uart/uart_integration_test.cpp:1036 |
-| JOY-03 | zxnext.vhd:3340-3341 — NR 0x0B bit 0 selects WHICH channel the joystick connector takes, so with bit 0 = 1 the UART 1 pins are shadowed and the ESP on UART 0 keeps both directions | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:1068 |
-| JOY-04 | GH #251 — a serial source attached with --joy-uart-rx arrives on the channel NR 0x0B bit 0 selects, through the same zxnext.vhd:3340-3341 mux the guest reads at port 0x143B | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:1091 |
-| JOY-05 | zxnext.vhd:3538 — `joy_uart_rx` is read from i_JOY_LEFT(5) or i_JOY_RIGHT(5) according to NR 0x0B bit 4, so a cable in the other socket is a pin the machine is not looking at and its bytes are lost rather than delivered | zxnext.vhd:3538 | pass | test/uart/uart_integration_test.cpp:1122 |
-| JOY-06 | GH #251 — --joy-uart-rx-delay-frames N holds the stream for N COMPLETE frames (counted at the once-per-frame end seam) and releases it in the (N+1)th | — | pass | test/uart/uart_integration_test.cpp:1149 |
-| JOY-07 | GH #251 — JoyUartSource paces delivery at one byte per UartChannel::byte_transfer_ticks() (the same clock the ESP RX path uses), and stops when the stream is exhausted | — | pass | test/uart/uart_integration_test.cpp:1190 |
-| JOY-08 | GH #251 — read_joy_uart_source_file refuses a missing file AND an empty one (a source that sends nothing tests nothing), and reads a real one whole | — | pass | test/uart/uart_integration_test.cpp:1231 |
-| JOY-09 | zxnext.vhd:3341,3344 — the joystick UART mux isolates UART 1 exactly as it isolates UART 0: with NR 0x0B bit 0 = 1 the Pi backend is neither heard nor spoken to and nothing loops back, and with the mux off both directions return | zxnext.vhd:3341,3344 | pass | test/uart/uart_integration_test.cpp:1284 |
-| JOY-10 | GH #251 — JoyUartSource's cursor rides in the emulator state stream, so a rewind puts the cable back where it was and the replayed frames deliver byte-for-byte what they delivered the first time, across a schedule that both delivers and drops | — | pass | test/uart/uart_integration_test.cpp:1381 |
-| JOY-11 | GH #251 — a rewind INTO --joy-uart-rx-delay-frames' hold restores how much of the hold had been served, so the replay stays silent for the rest of it and releases the stream in the same frame as the run it reproduces | — | pass | test/uart/uart_integration_test.cpp:1448 |
-| JOY-12 | zxnext.vhd:3340-3341 — the joystick cable is paced at the byte time of the channel NR 0x0B bit 0 routes it to (each channel's receiver samples at its own prescaler, uart.vhd:404,589): with channel 1 programmed 8x slower than channel 0, routing to channel 1 delivers at channel 1's rate and routing to channel 0 at channel 0's | zxnext.vhd:3340-3341, uart.vhd:404,589 | pass | test/uart/uart_integration_test.cpp:1518 |
-| JOY-13 | zxnext.vhd:3526-3531,1593 — while the joystick UART mux owns UART 0 a transmitted byte leaves on joy pin 7, not through the module-facing pin (:3343) and not looped back into the channel's own RX FIFO; with the mux off it goes to the module instead | zxnext.vhd:3526-3531,1593 | pass | test/uart/uart_integration_test.cpp:1591 |
-| JOY-14 | zxnext.vhd:3526-3530 — with NR 0x0B bit 0 = 1 it is UART 1's TX that pin 7 carries, while UART 0 keeps its own module-facing pin and reaches the ESP normally | zxnext.vhd:3526-3530 | pass | test/uart/uart_integration_test.cpp:1638 |
-| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:1678 |
-| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1707 |
-| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:1738 |
-| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:1784 |
-| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:1823 |
+| JOY-01 | zxnext.vhd:3340 — while the joystick UART mux owns UART 0, `uart0_rx` selects `joy_uart_rx` and the ESP's own RX pin is not selected, so its bytes are lost; with the mux off they arrive | zxnext.vhd:3340 | pass | test/uart/uart_integration_test.cpp:870 |
+| JOY-02 | zxnext.vhd:3343 — while the joystick UART mux owns UART 0 the module-facing TX pin is held idle, so a transmitted byte reaches neither the ESP nor a loopback into the channel's own RX FIFO; with the mux off the ESP receives normally | zxnext.vhd:3343 | pass | test/uart/uart_integration_test.cpp:904 |
+| JOY-03 | zxnext.vhd:3340-3341 — NR 0x0B bit 0 selects WHICH channel the joystick connector takes, so with bit 0 = 1 the UART 1 pins are shadowed and the ESP on UART 0 keeps both directions | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:936 |
+| JOY-04 | GH #251 — a serial source attached with --joy-uart-rx arrives on the channel NR 0x0B bit 0 selects, through the same zxnext.vhd:3340-3341 mux the guest reads at port 0x143B | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:959 |
+| JOY-05 | zxnext.vhd:3538 — `joy_uart_rx` is read from i_JOY_LEFT(5) or i_JOY_RIGHT(5) according to NR 0x0B bit 4, so a cable in the other socket is a pin the machine is not looking at and its bytes are lost rather than delivered | zxnext.vhd:3538 | pass | test/uart/uart_integration_test.cpp:990 |
+| JOY-06 | GH #251 — --joy-uart-rx-delay-frames N holds the stream for N COMPLETE frames (counted at the once-per-frame end seam) and releases it in the (N+1)th | — | pass | test/uart/uart_integration_test.cpp:1017 |
+| JOY-07 | GH #251 — JoyUartSource paces delivery at one byte per UartChannel::byte_transfer_ticks() (the same clock the ESP RX path uses), and stops when the stream is exhausted | — | pass | test/uart/uart_integration_test.cpp:1058 |
+| JOY-08 | GH #251 — read_joy_uart_source_file refuses a missing file AND an empty one (a source that sends nothing tests nothing), and reads a real one whole | — | pass | test/uart/uart_integration_test.cpp:1099 |
+| JOY-09 | zxnext.vhd:3341,3344 — the joystick UART mux isolates UART 1 exactly as it isolates UART 0: with NR 0x0B bit 0 = 1 the Pi backend is neither heard nor spoken to and nothing loops back, and with the mux off both directions return | zxnext.vhd:3341,3344 | pass | test/uart/uart_integration_test.cpp:1152 |
+| JOY-10 | GH #251 — JoyUartSource's cursor rides in the emulator state stream, so a rewind puts the cable back where it was and the replayed frames deliver byte-for-byte what they delivered the first time, across a schedule that both delivers and drops | — | pass | test/uart/uart_integration_test.cpp:1249 |
+| JOY-11 | GH #251 — a rewind INTO --joy-uart-rx-delay-frames' hold restores how much of the hold had been served, so the replay stays silent for the rest of it and releases the stream in the same frame as the run it reproduces | — | pass | test/uart/uart_integration_test.cpp:1316 |
+| JOY-12 | zxnext.vhd:3340-3341 — the joystick cable is paced at the byte time of the channel NR 0x0B bit 0 routes it to (each channel's receiver samples at its own prescaler, uart.vhd:404,589): with channel 1 programmed 8x slower than channel 0, routing to channel 1 delivers at channel 1's rate and routing to channel 0 at channel 0's | zxnext.vhd:3340-3341, uart.vhd:404,589 | pass | test/uart/uart_integration_test.cpp:1386 |
+| JOY-13 | zxnext.vhd:3526-3531,1593 — while the joystick UART mux owns UART 0 a transmitted byte leaves on joy pin 7, not through the module-facing pin (:3343) and not looped back into the channel's own RX FIFO; with the mux off it goes to the module instead | zxnext.vhd:3526-3531,1593 | pass | test/uart/uart_integration_test.cpp:1459 |
+| JOY-14 | zxnext.vhd:3526-3530 — with NR 0x0B bit 0 = 1 it is UART 1's TX that pin 7 carries, while UART 0 keeps its own module-facing pin and reaches the ESP normally | zxnext.vhd:3526-3530 | pass | test/uart/uart_integration_test.cpp:1506 |
+| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:1546 |
+| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1575 |
+| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:1606 |
+| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:1652 |
+| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:1691 |
+
+### Companion native-only suite — `test/uart/uart_integration_native_test.cpp`
+
+Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md).
+
+| Test ID | Description | VHDL file:line | Status | Test file:line |
+|---------|-------------|----------------|--------|----------------|
+| ESP-01 | guest TX on UART 0 egresses to the REAL emulated ESP-01, which parses the AT line and answers — not to the channel's loopback [zxnext.vhd:1611-1612, :3381 UART 0 = ESP] | zxnext.vhd:1611-1612,3381 | pass | test/uart/uart_integration_native_test.cpp:111 |
+| ESP-02 | the ESP's reply lands in the UART 0 RX FIFO and raises the UART0_RX IM2 vector under the NR 0xC6 request mask near_full OR (avail AND NOT bit1) [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_native_test.cpp:143 |
+| ESP-03 | NR 0x02 bit 7 (o_RESET_PERIPHERAL) latches and reads back, and in v1.0 drives NO device reset — the attached ESP keeps its state across it; nextsync's recovery path is a v1.1 extension point (design doc §4.2) [zxnext.vhd:5119, :1579; nextreg.txt:48] | zxnext.vhd:5119,1579 | pass | test/uart/uart_integration_native_test.cpp:193 |
+| ESP-04 | with no ESP backend attached, UART 0 keeps its loopback: the guest's own bytes come back and nothing answers them | — | pass | test/uart/uart_integration_native_test.cpp:218 |
 
 ### Companion POSIX-only suite — `test/uart/uart_posix_test.cpp`
 
