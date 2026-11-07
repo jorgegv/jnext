@@ -115,6 +115,7 @@ BEGIN {
     M["sha256_test"]                   = "SHA-256 backends (GH #459)"
     M["sdcard_provisioner_posix_test"] = "SD Card Provisioner (POSIX-only rows)"
     M["warm_start_test"]               = "Warm start (GH #234)"
+    M["warm_start_card_test"]          = "Warm start on a real card (GH #464)"
     M["snapshot_test"]                 = "Snapshot container + descriptor (.jns, GH #27)"
     M["sd_identity_test"]              = "Snapshot SD identity (.jns, GH #27 S7)"
     M["sd_no_digest_linux_test"]       = "Snapshot/warm start: no whole-card read (GH #396)"

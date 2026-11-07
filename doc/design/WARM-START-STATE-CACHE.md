@@ -331,7 +331,8 @@ hardware does". Closing it means modelling the sweep, which moves the
 > generation (`SdCardDevice::host_write_generation()`, bumped by every CMD24
 > jnext commits, process-wide because the `Emulator` dies at every cold boot).
 > The header's 64-byte digest field became `u64 size` at 24, `i64 mtime` (raw
-> `file_clock` ticks) at 32, 48 reserved bytes; the magic went `JNEXTWS2` ->
+> `file_clock` ticks) at 32, 48 reserved bytes (GH #464 later put an optional
+> SHA-256 at 40, 32 bytes, zero = none, with 16 still reserved); the magic went `JNEXTWS2` ->
 > `JNEXTWS3`; `kFormatVersion` stays 4. The key is read after a recording. An
 > own write drops the in-memory state; a process-wide memo of the last
 > validation catches an own write that did not move the mtime. **Accepted

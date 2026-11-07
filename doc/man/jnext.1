@@ -146,6 +146,24 @@ Cancel as the default.
 \f[B]\-\-sdcard\f[R] \f[I]FILE\f[R]
 Mount SD\-card image \f[I]FILE\f[R] (\f[CR].img\f[R]).
 Optional; see \f[B]SD CARD AND ROMS\f[R].
+A ZIP archive is not an image and is refused (exit status 1): unzip it
+first.
+The WebAssembly build extracts the single \f[CR].img\f[R] inside one.
+.TP
+\f[B]\-\-sdcard\-sha256\f[R] \f[I]HEX\f[R]
+The SHA\-256 of the \f[B]\-\-sdcard\f[R] image, as the caller has
+already checked it.
+The warm\-start recording is keyed on it instead of on the image\(cqs
+size and modification time.
+\f[B]jnext\f[R] does not hash the image: \f[I]HEX\f[R] must describe the
+file as it is.
+The browser build uses this option, because its page rewrites the card
+into memory on every visit (so the time changes) and has already checked
+the hash.
+\f[I]HEX\f[R] is 64 hexadecimal digits, in either case.
+Requires \f[B]\-\-sdcard\f[R].
+A recording taken after \f[B]jnext\f[R] has written to the card in this
+run is used, but not cached.
 .TP
 \f[B]\-\-sdcard\-download\-confirm\f[R]
 Skip the download prompt for the default\-location image and proceed.
@@ -212,10 +230,11 @@ firmware on it, a recording that will not load back \(em \f[B]jnext\f[R]
 says so on standard error and falls back to the machine it has always
 assembled.
 .PP
-The recording is keyed by the SD image\(cqs size and modification time,
-the machine type and the state format, and it is also dropped when
-\f[B]jnext\f[R] itself writes to the image, so it invalidates itself
-whenever any of those change.
+The recording is keyed by the SD image\(cqs size and modification time
+(or by the \f[B]\-\-sdcard\-sha256\f[R] digest), the machine type and
+the state format, and it is also dropped when \f[B]jnext\f[R] itself
+writes to the image, so it invalidates itself whenever any of those
+change.
 The image\(cqs contents are not read: an image replaced or edited from
 outside with the same size and the same modification time
 (\f[CR]cp \-p\f[R], \f[CR]touch \-r\f[R]) is served the old recording.
@@ -3858,8 +3877,9 @@ The recorded NextZXOS\-resident machine a \f[B]\-\-load\f[R] of a
 \f[CR].nex\f[R] starts from, one file per machine type, around 100 KB
 each.
 Written on the first such load with a given SD image and re\-recorded
-whenever the image\(cqs size or modification time changes, or JNEXT
-writes to it, or the machine type or the state format changes \- see
+whenever the image\(cqs size or modification time (or
+\f[B]\-\-sdcard\-sha256\f[R] digest) changes, or JNEXT writes to it, or
+the machine type or the state format changes \- see
 \f[B]\-\-warm\-start\-regenerate\f[R].
 Deleting it costs one cold boot, nothing else.
 .TP

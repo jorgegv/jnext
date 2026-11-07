@@ -91,6 +91,8 @@
 #include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdarg>
 #include <cstdint>
@@ -98,6 +100,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -199,6 +202,7 @@ std::string det(const char* f, ...) {
 }
 
 std::string g_dir;
+int g_persist_calls = 0;
 
 /// Every refusal `warm_start::load()` produces anywhere in this suite, in the
 /// order it was produced. WSC-INV-10 asserts they are all distinct: the
@@ -710,6 +714,111 @@ int main()
             bigger.sd_image_bytes += 1;
             check("WSC-INV-11", "a different SD image size is refused, as such",
                   refused(bigger, "recorded from a different SD image"), why);
+        }
+
+        // `--sdcard-sha256`: the key may be the caller's digest (header offset
+        // 40, 32 bytes) instead of the mtime. Run after WSC-INV-10, like
+        // WSC-INV-11: the digest refuses in the SAME branch as size and mtime,
+        // so the twelve stay twelve. Oracle: the layout table in the plan
+        // (offset 40, 32 bytes, zero = no digest) and FIPS 180-4 (32-byte digest).
+        {
+            auto digest = [](uint8_t seed) {
+                std::array<uint8_t, 32> d{};
+                for (size_t i = 0; i < d.size(); ++i) d[i] = static_cast<uint8_t>(seed + i);
+                return d;
+            };
+            auto hex = [](const std::array<uint8_t, 32>& d) {
+                static const char* h = "0123456789abcdef";
+                std::string r;
+                for (uint8_t b : d) { r += h[b >> 4]; r += h[b & 15]; }
+                return r;
+            };
+            warm_start::Identity dig = id;
+            dig.sd_image_sha256 = digest(0xA0);
+            std::string w2;
+            const bool st1 = warm_start::store(dig, state, w2);
+            auto raw = read_file(warm_start::cache_path(0));
+            bool at40 = raw.size() >= warm_start::kHeaderBytes;
+            for (size_t i = 0; at40 && i < 32; ++i)
+                at40 = raw[40 + i] == dig.sd_image_sha256[i];
+            const bool st2 = warm_start::store(id, state, w2);
+            raw = read_file(warm_start::cache_path(0));
+            bool zero = raw.size() >= warm_start::kHeaderBytes;
+            for (size_t i = 40; zero && i < 88; ++i) zero = raw[i] == 0;
+            check("WSC-SHA-01",
+                  "store() writes the digest at header offset 40; without one bytes 40-87 stay zero",
+                  st1 && st2 && at40 && zero, w2);
+
+            warm_start::store(dig, state, w2);
+            warm_start::Identity other = dig;
+            other.sd_image_sha256 = digest(0xB0);
+            out.clear();
+            why.clear();
+            const bool rej = !warm_start::load(other, out, why);
+            check("WSC-SHA-02",
+                  "a different digest is refused as a different SD image, showing both digests",
+                  rej && why.find("recorded from a different SD image") != std::string::npos &&
+                      why.find(hex(dig.sd_image_sha256)) != std::string::npos &&
+                      why.find(hex(other.sd_image_sha256)) != std::string::npos,
+                  why);
+
+            // Same size and mtime, digest on one side only: both directions.
+            out.clear();
+            why.clear();
+            const bool a = !warm_start::load(id, out, why) &&
+                           why.find("recorded from a different SD image") != std::string::npos;
+            warm_start::store(id, state, w2);
+            out.clear();
+            why.clear();
+            const bool b = !warm_start::load(dig, out, why) &&
+                           why.find("recorded from a different SD image") != std::string::npos;
+            warm_start::store(dig, state, w2);
+            out.clear();
+            why.clear();
+            const bool c = warm_start::load(dig, out, why) && out == state;
+            check("WSC-SHA-03",
+                  "a digest-keyed file is refused for a no-digest key and vice versa; the same digest loads",
+                  a && b && c, why);
+
+            std::array<uint8_t, 32> p{}, q{};
+            const std::string lo = hex(digest(0x10));
+            std::string up = lo;
+            for (auto& ch : up) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+            const bool ok_lo = warm_start::parse_sha256_hex(lo, p);
+            const bool ok_up = warm_start::parse_sha256_hex(up, q);
+            std::array<uint8_t, 32> keep = p, t{};
+            bool bad = !warm_start::parse_sha256_hex(lo.substr(1), t) &&        // 63 digits
+                       !warm_start::parse_sha256_hex(lo + "0", t) &&            // 65 digits
+                       !warm_start::parse_sha256_hex(std::string(), t);         // empty
+            std::string nonhex = lo;
+            nonhex[10] = 'g';
+            bad = bad && !warm_start::parse_sha256_hex(nonhex, t);
+            check("WSC-SHA-04",
+                  "parse_sha256_hex accepts 64 hex digits in either case and refuses 63, 65, a non-hex digit, and empty",
+                  ok_lo && ok_up && p == q && p == digest(0x10) && keep == p && bad);
+            warm_start::store(id, state, w2);   // leave the file as INV-11 left it
+        }
+
+        // The browser flushes its IndexedDB-backed warm-start directory from a hook
+        // called once after every SUCCESSFUL store(); a refused store never calls it.
+        {
+            g_persist_calls = 0;
+            warm_start::set_persist_hook([] { ++g_persist_calls; });
+            std::string w3;
+            const bool ok = warm_start::store(id, state, w3);
+            const int after_ok = g_persist_calls;
+            auto bad = id;
+            bad.plain_bytes = state.size() + 1;
+            const bool refused_store = !warm_start::store(bad, state, w3);
+            const int after_bad = g_persist_calls;
+            warm_start::set_persist_hook(nullptr);
+            warm_start::store(id, state, w3);
+            check("WSC-PERSIST-01",
+                  "store() calls the persist hook once after a successful write, never after a "
+                  "refused one, and not at all once the hook is cleared",
+                  ok && after_ok == 1 && refused_store && after_bad == 1 && g_persist_calls == 1,
+                  det("ok=%d after_ok=%d refused=%d after_bad=%d end=%d", ok, after_ok,
+                      refused_store, after_bad, g_persist_calls));
         }
     }
 
@@ -1320,6 +1429,286 @@ int main()
                       tap.count(kRestored) == 3 && tap.count(kWhyNotRecorded) == 0,
                   det("planted=%d hits=%d%d%d restored=%d not-recorded=%d", planted,
                       hit1, hit2, hit3, tap.count(kRestored),
+                      tap.count(kWhyNotRecorded)));
+        }
+
+        // ── `--sdcard-sha256` rows. Oracle: the plan (digest-mode key = digest +
+        // size, mtime never read; bound to its path; stale after an own write).
+        const std::string kHexA(64, 'a');
+        auto make_dig_emu = [&](Emulator& e, const std::string& card,
+                                const std::string& hex, const std::string& bound_to) {
+            EmulatorConfig c;
+            c.type = MachineType::ZXN_ISSUE2;
+            c.rewind_buffer_frames = 0;
+            c.sd_card_image = card;
+            c.sd_card_sha256 = hex;
+            c.sd_card_sha256_for = bound_to;
+            e.init(c);
+        };
+        // A cache entry keyed {digest, size, mtime 0}, taken from this
+        // machine's own stream (plant()'s way).
+        auto plant_dig = [&](const std::string& card, const std::string& hex) {
+            auto probe_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& probe = *probe_heap;
+            make_dig_emu(probe, card, hex, card);
+            StateWriter measure;
+            probe.save_state(measure);
+            std::vector<uint8_t> st(measure.position());
+            StateWriter w(st.data(), st.size());
+            probe.save_state(w);
+            warm_start::Identity pid;
+            pid.machine_type = static_cast<uint8_t>(MachineType::ZXN_ISSUE2);
+            pid.format_version = warm_start::kFormatVersion;
+            pid.plain_bytes = st.size();
+            std::error_code e2;
+            pid.sd_image_bytes = fs::file_size(card, e2);
+            pid.sd_image_mtime = 0;
+            warm_start::parse_sha256_hex(hex, pid.sd_image_sha256);
+            std::string pwhy;
+            return warm_start::store(pid, st, pwhy);
+        };
+        constexpr const char* kDiffImage = "recorded from a different SD image";
+        constexpr const char* kStaleDigest = "since its SHA-256 was checked";
+
+        // WSR-SHA-01: the digest, not the mtime, is the key.
+        {
+            const std::string card = g_dir + "/sha1.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            Emulator::reset_warm_start_memo_for_test();
+            const bool planted = plant_dig(card, kHexA);
+            LogTap tap(Log::emulator());
+            auto e1_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e1 = *e1_heap;
+            make_dig_emu(e1, card, kHexA, card);
+            const bool hit1 = e1.ensure_warm_start_state();
+            const int64_t recorded = mtime_of(card);
+            const int64_t hour = static_cast<int64_t>(
+                std::chrono::duration_cast<fs::file_time_type::duration>(
+                    std::chrono::hours(1)).count());
+            const bool moved = set_mtime(card, recorded + hour) && mtime_of(card) != recorded;
+            auto e2_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e2 = *e2_heap;
+            make_dig_emu(e2, card, kHexA, card);
+            const bool hit2 = e2.ensure_warm_start_state();
+            check("WSR-SHA-01",
+                  "a digest-bound card restores its recording, and still does after the "
+                  "card's mtime moves an hour: the mtime is not part of the key",
+                  planted && hit1 && moved && hit2 && tap.count(kRestored) == 2 &&
+                      tap.count(kDiffImage) == 0,
+                  det("planted=%d hits=%d%d moved=%d restored=%d different=%d", planted,
+                      hit1, hit2, moved, tap.count(kRestored), tap.count(kDiffImage)));
+        }
+        // WSR-SHA-02: the digest binds to ITS path only.
+        {
+            const std::string card = g_dir + "/sha2.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            Emulator::reset_warm_start_memo_for_test();
+            const bool planted = plant_dig(card, kHexA);
+            LogTap tap(Log::emulator());
+            auto e_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e = *e_heap;
+            make_dig_emu(e, card, kHexA, g_dir + "/some-other-card.img");
+            const bool hit = e.ensure_warm_start_state();
+            check("WSR-SHA-02",
+                  "a digest bound to ANOTHER path is not applied: the key falls back to "
+                  "size + mtime and the digest-keyed recording is refused",
+                  planted && !hit && tap.count(kDiffImage) == 1 && tap.count(kRestored) == 0,
+                  det("planted=%d hit=%d different=%d restored=%d", planted, hit,
+                      tap.count(kDiffImage), tap.count(kRestored)));
+        }
+        // WSR-SHA-03: after jnext writes to the card the digest no longer describes it.
+        {
+            const std::string card = g_dir + "/sha3.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            Emulator::reset_warm_start_memo_for_test();
+            const bool planted = plant_dig(card, kHexA);   // its probe is the first mount
+            const auto before = read_file(warm_start::cache_path(
+                static_cast<uint8_t>(MachineType::ZXN_ISSUE2)));
+            auto e1_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e1 = *e1_heap;
+            make_dig_emu(e1, card, kHexA, card);
+            const bool wrote = write_sector(e1);
+            LogTap tap(Log::emulator());
+            auto e2_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e2 = *e2_heap;
+            make_dig_emu(e2, card, kHexA, card);
+            const bool hit = e2.ensure_warm_start_state();
+            const auto after = read_file(warm_start::cache_path(
+                static_cast<uint8_t>(MachineType::ZXN_ISSUE2)));
+            check("WSR-SHA-03",
+                  "after an own write the planted digest-keyed recording is not restored, "
+                  "the stale-digest line is logged once, and the file is left as it was",
+                  planted && wrote && !hit && tap.count(kRestored) == 0 &&
+                      tap.count(kStaleDigest) == 1 && !before.empty() && before == after,
+                  det("planted=%d wrote=%d hit=%d restored=%d stale=%d same=%d", planted,
+                      wrote, hit, tap.count(kRestored), tap.count(kStaleDigest),
+                      before == after));
+        }
+
+        // WSR-SHA-04: an all-zero digest is the header's "no digest", so a caller that
+        // fills the config directly gets the size + mtime key, not a size-only one.
+        {
+            const std::string card = g_dir + "/sha4.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            Emulator::reset_warm_start_memo_for_test();
+            const bool planted = plant(card);                      // keyed size + mtime
+            LogTap tap(Log::emulator());
+            auto e_heap = std::make_unique<Emulator>();
+            Emulator& e = *e_heap;
+            make_dig_emu(e, card, std::string(64, '0'), card);
+            const bool hit = e.ensure_warm_start_state();
+            check("WSR-SHA-04",
+                  "an all-zero digest bound to the card is not a digest: the size + mtime "
+                  "recording is restored",
+                  planted && hit && tap.count(kRestored) == 1 && tap.count(kDiffImage) == 0,
+                  det("planted=%d hit=%d restored=%d different=%d", planted, hit,
+                      tap.count(kRestored), tap.count(kDiffImage)));
+        }
+
+        // ── Stepped recording. Oracle: the plan, 2.2 (at most max_frames per
+        // call; Recording until all kWarmStartBootFrames; ensure() finishes).
+        using Status = Emulator::WarmStartProgress::Status;
+        constexpr const char* kColdBoot = "cold-booting the firmware";
+        // WSR-STEP-01
+        {
+            const std::string card = g_dir + "/step1.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            Emulator::reset_warm_start_memo_for_test();
+            auto e_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e = *e_heap;
+            make_emu(e, card);
+            LogTap tap(Log::emulator());
+            bool ok = true;
+            std::string seen;
+            for (uint32_t want = 100; want <= 400; want += 100) {
+                const auto p = e.prepare_warm_start(100);
+                seen += det("%d/%u ", static_cast<int>(p.status), p.frames_done);
+                ok = ok && p.status == Status::Recording && p.frames_done == want &&
+                     p.frames_total == 500;
+            }
+            const auto p5 = e.prepare_warm_start(100);
+            const auto p6 = e.prepare_warm_start(100);
+            seen += det("%d/%u %d/%u", static_cast<int>(p5.status), p5.frames_done,
+                        static_cast<int>(p6.status), p6.frames_done);
+            check("WSR-STEP-01",
+                  "prepare_warm_start(100) reports Recording at 100..400 of 500; the fifth "
+                  "call ends it (firmware-less: Unavailable at 500) and a sixth is the "
+                  "latch, with no second boot",
+                  ok && p5.status == Status::Unavailable && p5.frames_done == 500 &&
+                      p6.status == Status::Unavailable && tap.count(kColdBoot) == 1,
+                  seen + det(" coldboot=%d", tap.count(kColdBoot)));
+        }
+        // WSR-STEP-02
+        {
+            const std::string card = g_dir + "/step2.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            Emulator::reset_warm_start_memo_for_test();
+            const bool planted = plant(card);
+            auto e_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e = *e_heap;
+            make_emu(e, card);
+            LogTap tap(Log::emulator());
+            const auto p = e.prepare_warm_start(100);
+            check("WSR-STEP-02",
+                  "with a cached recording the first call is Ready, from_cache, with no frames run",
+                  planted && p.status == Status::Ready && p.from_cache && p.frames_done == 0 &&
+                      tap.count(kColdBoot) == 0 && tap.count(kRestored) == 1,
+                  det("planted=%d status=%d cache=%d done=%u", planted,
+                      static_cast<int>(p.status), p.from_cache, p.frames_done));
+        }
+        // WSR-STEP-03
+        {
+            const std::string card_a = g_dir + "/step3a.img";
+            const std::string card_b = g_dir + "/step3b.img";
+            blob(card_a);
+            blob(card_b);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            Emulator::reset_warm_start_memo_for_test();
+            auto e_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e = *e_heap;
+            make_emu(e, card_a);
+            LogTap tap(Log::emulator());
+            const auto p1 = e.prepare_warm_start(100);
+            const std::string swap_why = e.change_sd_card({card_b, false});
+            const auto p2 = e.prepare_warm_start(100);
+            check("WSR-STEP-03",
+                  "a live card change drops the recording in progress: the next call starts "
+                  "over (frames_done 100) with a second boot, of the new card",
+                  p1.status == Status::Recording && p1.frames_done == 100 && swap_why.empty() &&
+                      p2.status == Status::Recording && p2.frames_done == 100 &&
+                      tap.count(kColdBoot) == 2,
+                  det("p1=%u p2=%u swap='%s' coldboot=%d", p1.frames_done, p2.frames_done,
+                      swap_why.c_str(), tap.count(kColdBoot)));
+        }
+        // WSR-STEP-06
+        {
+            const std::string card = g_dir + "/step6.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            Emulator::reset_warm_start_memo_for_test();
+            auto e_heap = std::make_unique<Emulator>();
+            Emulator& e = *e_heap;
+            make_emu(e, card);
+            LogTap tap(Log::emulator());
+            const auto p1 = e.prepare_warm_start(100);
+            EmulatorConfig again;
+            again.type = MachineType::ZXN_ISSUE2;
+            again.rewind_buffer_frames = 0;
+            again.sd_card_image = card;
+            e.init(again);                      // an in-place init() (a reset) mid-recording
+            const auto p2 = e.prepare_warm_start(100);
+            check("WSR-STEP-06",
+                  "an in-place init() drops the recording in progress: the next call starts over "
+                  "(frames_done 100) with a second boot",
+                  p1.status == Status::Recording && p1.frames_done == 100 &&
+                      p2.status == Status::Recording && p2.frames_done == 100 &&
+                      tap.count(kColdBoot) == 2,
+                  det("p1=%u p2=%u coldboot=%d", p1.frames_done, p2.frames_done,
+                      tap.count(kColdBoot)));
+        }
+        // WSR-STEP-04
+        {
+            auto e48_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e48 = *e48_heap;
+            EmulatorConfig c48;
+            c48.type = MachineType::ZX48K;
+            c48.rewind_buffer_frames = 0;
+            e48.init(c48);
+            LogTap tap(Log::emulator());
+            const auto p = e48.prepare_warm_start(100);
+            check("WSR-STEP-04",
+                  "a 48K machine is Unavailable at once, no frames, no boot, declined at debug severity",
+                  p.status == Status::Unavailable && p.frames_done == 0 &&
+                      tap.count(kColdBoot) == 0 &&
+                      tap.count_at(spdlog::level::debug, kWhyMachineType) == 1,
+                  det("status=%d done=%u debug=%d", static_cast<int>(p.status), p.frames_done,
+                      tap.count_at(spdlog::level::debug, kWhyMachineType)));
+        }
+        // WSR-STEP-05
+        {
+            const std::string card = g_dir + "/step5.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            Emulator::reset_warm_start_memo_for_test();
+            auto e_heap = std::make_unique<Emulator>();   // heap: a Windows main thread has a 1 MB stack
+            Emulator& e = *e_heap;
+            make_emu(e, card);
+            LogTap tap(Log::emulator());
+            const auto p = e.prepare_warm_start(100);
+            const bool ensured = e.ensure_warm_start_state();
+            check("WSR-STEP-05",
+                  "ensure_warm_start_state() after a partial prepare finishes THAT recording: "
+                  "one boot and one refusal in total",
+                  p.status == Status::Recording && !ensured && tap.count(kColdBoot) == 1 &&
+                      tap.count(kWhyNotRecorded) == 1,
+                  det("status=%d ensured=%d coldboot=%d not-recorded=%d",
+                      static_cast<int>(p.status), ensured, tap.count(kColdBoot),
                       tap.count(kWhyNotRecorded)));
         }
     }

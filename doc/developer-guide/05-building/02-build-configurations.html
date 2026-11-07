@@ -3185,6 +3185,29 @@ the browser link carries but never runs: the ESP-01's worker thread and the
 NextPi audio thread sleep in their own thread bodies, and neither is reachable
 from <code>tick()</code>: the flags that start them are refused, and a thread cannot start
 without shared memory.</p>
+<p><em>The card and the warm start in the browser.</em> <code>web/jnext-image.js</code> gets the SD
+card into the page: it fetches the image cross-origin (<code>mode: 'cors'</code>, no
+credentials), checks its SHA-256 against the digest the page was given on every
+visit, and keeps the verified bytes in the Cache API (keyed by URL; an entry that
+no longer hashes right is dropped and fetched again). The card is a plain file in
+the in-memory filesystem, read one 512-byte block at a time through a stream, so
+the SD code needed no block-device seam. The page then passes
+<code>--sdcard FILE --sdcard-sha256 HEX</code>: the warm-start recording is keyed on that
+digest, because the page rewrites the card on every visit and its modification
+time would never match. A zipped image is extracted in <code>main()</code> with the
+program-archive reader (exactly one <code>.img</code> member; the zip's digest stands for
+it) and the extracted card is removed when the run ends. The recording is the
+one thing kept between visits: IndexedDB (IDBFS) is mounted on the warm-start
+directory only (<code>JNEXT_CONFIG_DIR=/jnext</code>, so <code>/jnext/warm-start</code>), and
+<code>warm_start::store()</code> calls a persist hook, installed by the browser frontend,
+that flushes it. Guest writes to the card live in memory and are gone at
+reload. A first NEX load records the NextZXOS machine in steps: <code>SdlApp::tick()</code>
+calls <code>Emulator::prepare_warm_start()</code> for a time budget per tick and reports
+<code>Module.jnextProgress(phase, fraction)</code> (<code>'warm-start'</code> while recording,
+<code>'restore'</code> for a cached recording; the page adds <code>'download'</code>), so the page can
+repaint and show progress instead of freezing for the length of the boot. With no
+image the provisioner declines the download without reading stdin (a stdin read
+is <code>window.prompt()</code> in a browser).</p>
 <h2 id="dev-build-versus-release-build">Dev build versus release build<a class="headerlink" href="#dev-build-versus-release-build" title="Permanent link">&para;</a></h2>
 <p>With no <code>-DCMAKE_BUILD_TYPE</code> given, CMake here defaults to <strong>RelWithDebInfo</strong>
 instead of to the empty build type. An unoptimised <code>build/jnext</code> measured 5.8×

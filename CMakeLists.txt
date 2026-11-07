@@ -601,7 +601,8 @@ if(EMSCRIPTEN)
     target_link_options(jnext_web PRIVATE
         -sENVIRONMENT=web -sMODULARIZE=1 -sEXPORT_NAME=createJnextModule
         -sINVOKE_RUN=0 -sEXIT_RUNTIME=0
-        -sEXPORTED_RUNTIME_METHODS=FS,ENV,callMain)
+        -sEXPORTED_RUNTIME_METHODS=FS,ENV,callMain,IDBFS
+        -lidbfs.js)
     if(JNEXT_FRAME_GATE)
         target_compile_options(jnext_web PRIVATE ${JNEXT_FRAME_GATE})
         target_link_options(jnext_web PRIVATE ${JNEXT_FRAME_GATE})

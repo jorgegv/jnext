@@ -196,14 +196,13 @@ The faithful path `main` already uses, moved into the browser:
    Later visits restore it (Shrek reports under a second).
 5. Guest writes to the card stay in memory for the session (D5).
 
-**The image in memory.** If the hosted image is small (D2), it is a plain file
-in the in-memory filesystem and no new code is needed in the SD path. If it is
-large (the 1 GB layout), every SD reader (`sd_card`, `fat32_image`,
-`fatfs_diskio`, `sd_rom_extractor`) needs a block-device seam with a sparse
-in-memory implementation. Shrek's `SdBackingFile` shows the seam is needed,
-but its form (a fake `std::fstream` keyed by path in a global registry) is
-not ours: it would be an injected `SdBlockDevice` with its own unit rows. The
-decision waits on D2.
+**The image in memory.** The image is a plain file in the in-memory
+filesystem and no block-device seam (`SdBlockDevice`) is needed (#464 stage A):
+the card is 40 MiB, `sd_card` and `sd_rom_extractor` read it one 512-byte block
+at a time through a stream, and `fat32_image` / `fatfs_diskio` are never
+reached in the browser. A small image still needs new code for its identity (a
+digest key, below), and the recording needs steps (`prepare_warm_start()`),
+because one 500-frame boot blocks the page for seconds.
 
 **The image identity** on the desktop is size + mtime; in the browser it is
 the sha256 the JS checked (one comparison, no hashing a large file).

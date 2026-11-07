@@ -32,7 +32,7 @@ the guest's own driver talks to. Both are called out below.
 | `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
-(the `ext` chain, `src/main.cpp:2674-2732`), and again in the GUI's file dialogs and in the headless
+(the `ext` chain, `src/main.cpp:2742-2800`), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -383,7 +383,8 @@ Fixing such defaults one at a time is a treadmill, because the reference —
 what the firmware leaves behind — exists only as a running machine.
 
 **The mechanism.** `Emulator::ensure_warm_start_state()` looks for a cached
-recording and, on a miss, calls `record_warm_start_state()`, which
+recording and, on a miss, records one (`begin_warm_start_recording()` and
+`finish_warm_start_recording()`), which
 
 1. constructs a **separate `Emulator`**,
 2. `init()`s it with `load_file` cleared (which arms the boot-ROM overlay),
@@ -418,14 +419,45 @@ booted one does.
 
 **The cache** is `src/core/warm_start_cache.{h,cpp}`: one file per machine
 type under `<config-dir>/warm-start`, with a 96-byte header carrying the
-identity that invalidates it — the SD image's size and mtime, the machine
-type, a state-format version, and the exact *uncompressed* stream length. Any mismatch
+identity that invalidates it — the SD image's size and mtime (or, in digest
+mode, its SHA-256 and size, below), the machine type, a state-format version, and the exact *uncompressed* stream length. Any mismatch
 discards the file and re-boots. The length is not a convenience:
 `Ram::load_state` reads a count-prefixed blob straight into the live RAM
 buffer, so refusing a stream whose length is not exactly what this build
 writes is what keeps a foreign recording from writing past it. It is
 **generated locally and never vendored** — a post-NextZXOS snapshot holds
 NextZXOS and DivMMC ROM content in RAM.
+
+**Digest mode (`--sdcard-sha256`).** A caller that has already checked the
+card's SHA-256 (the browser page: it rewrites the card into memory on every
+visit, so the mtime is the time of the visit) passes it to jnext, which never
+hashes the file. `EmulatorConfig::sd_card_sha256` holds it, bound to the path
+it describes in `sd_card_sha256_for`; it applies only while that equals the
+mounted image, so a live card change cannot inherit it. The key is then the
+digest plus the file size, with the mtime written as 0 and never read. The
+digest is the 32 header bytes at offset 40 (reserved-zero before; the magic did
+not change, and zero means "no digest", so every desktop cache keeps its
+meaning), compared inside the same refusal branch as size and mtime. A digest
+describes the file only until jnext writes to it: a process-wide baseline of
+the write generation is taken the first time a (path, digest) pair is mounted,
+and once the generation has moved a recording is used for the session but is
+neither restored from nor stored under that digest. The "recorded" line also
+reports how many sectors the boot itself wrote.
+
+**Stepped recording.** `prepare_warm_start(max_frames)` is
+`ensure_warm_start_state()` made resumable: at most `max_frames` frames of the
+recording per call, returning `Recording` until all `kWarmStartBootFrames` have
+run, then `Ready` or `Unavailable`. A frontend that must keep painting calls it
+once per tick; `ensure_warm_start_state()` is a loop over it, so the native
+sequence of frames, log lines and stores is unchanged, and it finishes a
+recording begun with smaller steps. A live card change drops the recording in
+progress.
+
+**A zipped card is refused.** `--sdcard`, the Preferences path and a live
+insert all end in a mount, and a ZIP archive mounted as a card makes the
+firmware read garbage; `program_archive::is_archive_path()` recognises one, and
+main and `Emulator::change_sd_card()` refuse it. `extract_single_sd_image()`
+unpacks the single `.img` member (the browser build's route).
 
 **The header is plain; the payload is deflated.** The stream is ~2.29 MB, of
 which RAM is 91.5 % and 89.5 % of the whole file is zero bytes; zlib takes it

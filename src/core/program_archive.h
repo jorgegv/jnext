@@ -137,4 +137,10 @@ bool extracted_from(const std::string& path, std::string& archive, std::string& 
 bool extract_single_program(const std::string& archive, std::string& out_path,
                             std::string& why, std::string* member = nullptr);
 
+/// The SD-card-image rule: exactly one `.img` member (case-insensitive,
+/// ignoring `__MACOSX/` and `._*`), extracted to the process scratch directory.
+/// `member` (optional) receives its name.
+bool extract_single_sd_image(const std::string& archive, std::string& out_path,
+                             std::string& why, std::string* member = nullptr);
+
 }  // namespace program_archive

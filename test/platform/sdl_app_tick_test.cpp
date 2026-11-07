@@ -10,6 +10,7 @@
 // tick() is one such iteration; it reports the sleep instead of doing it.
 
 #include "platform/sdl_app.h"
+#include "platform/host_modifier.h"
 #include "../test_portable.h"
 #include "../row_id.h"
 
@@ -99,36 +100,46 @@ int main()
               " frames=" + std::to_string(frames) + " frame_ms=" + std::to_string(frame_ms));
     }
 
-    // --- SDLT-02: tick() reports the sleep, it does not perform it ------------
-    // Run at --speed 10 % (frame period 200 ms) so the margin does not depend on
-    // the dummy driver's simulated 60 Hz vsync: at 1x a back-to-back tick takes
-    // ~16.7 ms inside present() and reports only 1-5 ms of sleep, and under load
-    // every tick reaches 20 ms and reports 0. At 10 % the same tick (w ~ 17 ms)
-    // reports s ~ 183 ms (measured per tick, w/s: 7/192 16/184 16/183 16/184 16/183 16/183):
-    // a tick that only reports has w + s ~ 200, one that also
-    // sleeps inside has w ~ 200 with s ~ 183 (M2) or s = 0 (M1). A good tick has
-    // s > 0 and w <= frame_ms - s + 60; most of the 6 must be good.
+    // --- SDLT-02: tick() reports the sleep, it does not PERFORM it ------------
+    // Run at --speed 10 % (frame period 200 ms, the lowest speed there is) so a
+    // tick that sleeps inside is told apart by its wall time w: with e the
+    // tick's own work, a tick that only reports has w = e and s = 200 - e; one
+    // that also sleeps has w >= 200 (s = 200 - e, or 0 for a sleep taken first).
+    // A GOOD tick has s >= 50, w < 200 - 25 (it came back long before the period
+    // was up) and w + s <= 200 + 5 (the sleep it reports is the rest of the period
+    // after the time it really took: a tick that performed part of the sleep, or
+    // reported the whole period whatever its work, breaks that). Whether a given tick is good depends on the host (a
+    // slow or loaded one spends > 150 ms on a frame and reports s = 0, GH #462),
+    // so the row does not count ticks of a fixed batch: it runs ticks until 3 are
+    // good (at most 30). A tick that sleeps inside is never good, so that
+    // mutant exhausts the 30; the bound on the sleep (s <= period) and the
+    // return value are checked on every tick.
     {
         bool ok = false;
         auto app = make_app(ok);
         app->set_speed_percent(10);
         const long frame_ms = std::lround(app->emulator().frame_period_ms() / 0.1);
         bool bounded = true;
-        int good = 0;
+        int good = 0, ticks = 0;
         std::string detail = "frame_ms=" + std::to_string(frame_ms);
-        for (int i = 0; i < 6; ++i) {
+        while (good < 3 && ticks < 30) {
             uint32_t s = 12345;
             const auto t0 = SteadyClock::now();
             const bool more = app->tick(s);
             const double w = ms_since(t0);
+            ++ticks;
             if (!more || s > static_cast<uint32_t>(frame_ms)) bounded = false;
-            if (s > 0 && w <= static_cast<double>(frame_ms) - s + 60.0) ++good;
-            detail += " w/s=" + std::to_string(static_cast<int>(w)) + "/" + std::to_string(s);
+            if (s >= 50 && w < static_cast<double>(frame_ms) - 25.0 &&
+                w + s <= static_cast<double>(frame_ms) + 5.0) ++good;
+            if (ticks <= 8)
+                detail += " w/s=" + std::to_string(static_cast<int>(w)) + "/" + std::to_string(s);
         }
         app->shutdown();
-        check("SDLT-02", "speed 10%, 6 ticks: each sleep <= the frame period; most ticks report a "
-                         "sleep > 0 without having performed it",
-              ok && frame_ms == 200 && bounded && 2 * good > 6, detail);
+        detail += " ticks=" + std::to_string(ticks) + " good=" + std::to_string(good);
+        check("SDLT-02", "speed 10%: each sleep <= the frame period; 3 ticks report a sleep "
+                         ">= 50 ms, return well before it and have w + s ~ the period, "
+                         "without having performed it",
+              ok && frame_ms == 200 && bounded && good >= 3, detail);
     }
 
     // --- SDLT-03: an automatic exit ends the loop on the right tick -----------
@@ -262,7 +273,7 @@ int main()
     }
 
     // --- SDLT-09: a Quick Load cold-boots and returns early -------------------
-    // Alt+Shift+F5 (save) in one tick, then Alt+Shift+F9 (load) with the exit
+    // Host-modifier+Shift+F5 (save) in one tick, then +F9 (load) with the exit
     // armed after the save: the load tick cold-boots through service_quick_
     // requests() and returns early (true, sleep 0, countdown untouched), so
     // exit 1 still runs two more frames. The snapshots go to a private
@@ -277,7 +288,10 @@ int main()
         jtp::set_env("JNEXT_CONFIG_DIR", cfgdir.string().c_str());
         bool ok = false;
         auto app = make_app(ok);
-        bool pushed = push_key(SDL_SCANCODE_LALT, true) && push_key(SDL_SCANCODE_LSHIFT, true) &&
+        // The frontend's host modifier: Alt, or Command on macOS (GH #403).
+        const SDL_Scancode host_mod =
+            host_modifier::kIsGui ? SDL_SCANCODE_LGUI : SDL_SCANCODE_LALT;
+        bool pushed = push_key(host_mod, true) && push_key(SDL_SCANCODE_LSHIFT, true) &&
                       push_key(SDL_SCANCODE_F5, true) && push_key(SDL_SCANCODE_F5, false);
         uint32_t s = 12345;
         app->tick(s);                                   // the save

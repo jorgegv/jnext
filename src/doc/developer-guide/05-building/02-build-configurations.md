@@ -179,6 +179,30 @@ NextPi audio thread sleep in their own thread bodies, and neither is reachable
 from `tick()`: the flags that start them are refused, and a thread cannot start
 without shared memory.
 
+*The card and the warm start in the browser.* `web/jnext-image.js` gets the SD
+card into the page: it fetches the image cross-origin (`mode: 'cors'`, no
+credentials), checks its SHA-256 against the digest the page was given on every
+visit, and keeps the verified bytes in the Cache API (keyed by URL; an entry that
+no longer hashes right is dropped and fetched again). The card is a plain file in
+the in-memory filesystem, read one 512-byte block at a time through a stream, so
+the SD code needed no block-device seam. The page then passes
+`--sdcard FILE --sdcard-sha256 HEX`: the warm-start recording is keyed on that
+digest, because the page rewrites the card on every visit and its modification
+time would never match. A zipped image is extracted in `main()` with the
+program-archive reader (exactly one `.img` member; the zip's digest stands for
+it) and the extracted card is removed when the run ends. The recording is the
+one thing kept between visits: IndexedDB (IDBFS) is mounted on the warm-start
+directory only (`JNEXT_CONFIG_DIR=/jnext`, so `/jnext/warm-start`), and
+`warm_start::store()` calls a persist hook, installed by the browser frontend,
+that flushes it. Guest writes to the card live in memory and are gone at
+reload. A first NEX load records the NextZXOS machine in steps: `SdlApp::tick()`
+calls `Emulator::prepare_warm_start()` for a time budget per tick and reports
+`Module.jnextProgress(phase, fraction)` (`'warm-start'` while recording,
+`'restore'` for a cached recording; the page adds `'download'`), so the page can
+repaint and show progress instead of freezing for the length of the boot. With no
+image the provisioner declines the download without reading stdin (a stdin read
+is `window.prompt()` in a browser).
+
 ## Dev build versus release build
 
 With no `-DCMAKE_BUILD_TYPE` given, CMake here defaults to **RelWithDebInfo**

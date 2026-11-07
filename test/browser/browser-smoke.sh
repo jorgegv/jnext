@@ -4,7 +4,8 @@
 #
 #   bash test/browser/browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]
 #
-# Specs default to `smoke.mjs:29` (rows BRW-01..29, this directory). Further specs
+# Specs default to `smoke.mjs:29` (rows BRW-01..29, this directory) and `image.mjs:8`
+# (rows WBI-PW-01..08, the SD-card image and the warm start in the browser). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,
 # and its row count is pinned here, so a spec that loses rows fails the run.
@@ -29,7 +30,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:29" "$@")
+SPECS=("smoke.mjs:29" "image.mjs:8" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -58,6 +59,14 @@ mkdir "$SCRATCH/oracle" "$SCRATCH/out"
 
 bash "$ROOT/tools/make-minimal-sdcard-image.sh" "$DIST" "$SCRATCH/card.img" >"$SCRATCH/out/card.log" 2>&1 \
     || { cat "$SCRATCH/out/card.log" >&2; die "cannot build the minimal card"; }
+# For image.mjs: the card's sha256 and a ZIP of it made by a FOREIGN writer (CPython zipfile,
+# deflate), both computed here at run time (the card is reproducible for one mtools version
+# only, so no digest is ever pinned). Same scratch directory, same deletion.
+CARD_SHA256=$(sha256sum "$SCRATCH/card.img" | cut -d' ' -f1)
+python3 -I -c 'import sys, zipfile
+with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED) as z:
+    z.write(sys.argv[1], "minimal.img")' "$SCRATCH/card.img" "$SCRATCH/card.img.zip" || die "cannot zip the card"
+ZIP_SHA256=$(sha256sum "$SCRATCH/card.img.zip" | cut -d' ' -f1)
 python3 -I "$HERE/tap2tzx.py" "$ROOT/test/00regression/tap/beeper_demo.tap" "$SCRATCH/beeper_demo.tzx" || die "tap2tzx failed"
 
 # Native oracle: oracle <name> <sdl|headless> <jnext args...>; the card is a throwaway clone.
@@ -95,7 +104,7 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/copper.cfg" \
 rm -rf "$O/copper.card" "$O/copper.cfg"
 
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
-       SMOKE_ORACLE="$O" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION"
+       SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION"
 
 TOTAL=0; PASS=0; FAIL=0; SKIP=0; FAULT=0
 for spec in "${SPECS[@]}"; do
