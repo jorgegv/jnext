@@ -2212,10 +2212,15 @@ static void test_snapsave_nex_roundtrip() {
           "the .nex bank payload",
           ram_ok);
 
-    bool border_ok = emu2.ula().get_border() == 2;
+    // The border does NOT round-trip: the saved file has no loading screen,
+    // and the V1.0-V1.2 loader sets the border to 0 (nexload.asm:319) and
+    // writes the header border only past `or a:jp z,.skpbmp` on LOADSCR
+    // (:424-:425, :512). Measured on the real nexload (GH #454).
+    bool border_ok = emu2.ula().get_border() == 0;
     check("SNAPSAVE-NEX-RT-BORDER",
-          "border colour round-trips via the .nex header",
-          border_ok, fmt("border=%d (want 2)", emu2.ula().get_border()));
+          "border is 0 after reload: a .nex without a loading screen does not "
+          "carry the border (nexload.asm:319 sets 0, :424-:425 skip the header value)",
+          border_ok, fmt("border=%d (want 0)", emu2.ula().get_border()));
 
     bool entry_bank_ok = emu2.mmu().get_page(6) == 40 && emu2.mmu().get_page(7) == 41;
     check("SNAPSAVE-NEX-RT-ENTRYBANK",

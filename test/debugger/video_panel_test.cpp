@@ -1259,11 +1259,13 @@ static void test_fb_row_conversion(Emulator& emu) {
 //
 // Layer 2 / Tilemap / Sprites each apply their clip window inside their own
 // render_scanline, so the debug views inherit it for free.  The ULA does not:
-// in VHDL the clip is a compositor-stage signal (zxnext.vhd:7104 — ula_clipped
-// is OR'd into ula_transparent), so Ula::render_scanline emits an UNCLIPPED
+// in VHDL the clip is a compositor-stage signal (zxula.vhd:562, zxnext.vhd:7063,
+// 7100, 7103 - ula_clipped is OR'd into ula_transparent), so Ula::render_scanline emits an UNCLIPPED
 // line and Renderer::apply_ula_clip masks it.  The panel skipped that pass, so
 // the ULA view was the only layer view showing content the compositor
-// suppresses.
+// suppresses.  The border is never clipped (zxula.vhd:414-415 border_active is
+// OR'd into "not clipped" at :562), so the view keeps its border strips whatever
+// the window; DVP-12b asserts that with a non-black border colour.
 
 static void test_ula_clip_window(Emulator& emu) {
     set_group("DVP-ULA-CLIP");
@@ -1289,6 +1291,9 @@ static void test_ula_clip_window(Emulator& emu) {
     ula.set_clip_y1(0);
     ula.set_clip_y2(191);
 
+    // Non-black border (port 0xFE colour 5, cyan) so a cleared border cell
+    // cannot read as the reset colour; begin_frame snapshots it per line.
+    ula.set_border(5);
     begin_frame(emu);
 
     const int row = fb_row_of(20);
@@ -1296,7 +1301,8 @@ static void test_ula_clip_window(Emulator& emu) {
 
     const uint32_t inside  = px(img, 64 + 2 * 40, row);   // src col 40 → kept
     const uint32_t outside = px(img, 64 + 2 * 10, row);   // src col 10 → clipped
-    const uint32_t border  = px(img, 4, row);             // left border → clipped
+    const uint32_t border  = px(img, 4, row);             // left border → kept
+    const uint32_t border_r = px(img, Renderer::FB_WIDTH - 4, row); // right border → kept
 
     const bool     pbank    = ula.get_active_ula_palette();
     const uint32_t argb_ink = emu.palette().ula_colour(pbank, 0x02);
@@ -1310,10 +1316,15 @@ static void test_ula_clip_window(Emulator& emu) {
           outside != argb_ink,
           fmt("got=0x%08X (must not be the ink colour 0x%08X)",
               outside, argb_ink));
+    // std_ula_paper_pixel(attr 0x2D) = 0x10 | ((attr & 0x40) >> 3) | ((attr >> 3) & 7)
+    const uint32_t argb_border = emu.palette().ula_colour(pbank, 0x15);
     check("DVP-12b",
-          "…and clips the border strips when clip_x1 > 0 / clip_x2 < 255",
-          border != argb_ink,
-          fmt("got=0x%08X", border));
+          "…and keeps the border strips whatever the window (zxula.vhd:415, 562)",
+          border == argb_border && border_r == argb_border,
+          fmt("left=0x%08X right=0x%08X want=0x%08X", border, border_r,
+              argb_border));
+    ula.set_border(0);
+    begin_frame(emu);
 }
 
 // ── DVP-22: ULA views thread the per-line NR 0x4A fallback (GH #95) ───

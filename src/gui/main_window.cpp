@@ -2085,7 +2085,7 @@ void MainWindow::on_insert_sd() {
     if (current.isEmpty()) current = app_config_.data().sd_card_path;
     QString path = QFileDialog::getOpenFileName(
         this, tr("Insert SD Card Image"), QFileInfo(current).absolutePath(),
-        tr("Disk Images (*.img *.bin);;All Files (*)"));
+        tr("Disk Images (*.img *.bin *.raw);;All Files (*)"));
     if (!path.isEmpty()) handle_sd_card_path(path);
 }
 

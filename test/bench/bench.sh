@@ -77,7 +77,10 @@ pgo=$(grep -oP '^JNEXT_PGO:\w+=\K.*' "$CACHE" || true)
 BENCH_RUN_DIR="$HOME/.jnext/runs/bench-$$-$RANDOM"
 bench_cleanup() {
     [[ -n "${BENCH_RUN_DIR:-}" ]] && rm -rf "$BENCH_RUN_DIR"
-    rmdir "$HOME/.jnext/runs" 2>/dev/null || true
+    # The shared parent $HOME/.jnext/runs is NEVER removed, by this or any other script: only a run's
+    # own directory is. A run that pruned the parent when it ended raced every concurrent run's
+    # `mkdir -p`/`mktemp -d`/QTemporaryDir under it (ENOENT, a lost clone), and a parent that is
+    # never deleted cannot be lost at any site, present or future.
     return 0
 }
 # Armed before the clone exists: every `die()` below would otherwise leak a

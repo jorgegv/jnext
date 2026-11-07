@@ -41,7 +41,7 @@ digraph core_subsystems {
     cpu   [label="CPU — src/cpu\lZ80Cpu (FUSE core + Z80N)\lIm2Controller\l"];
     mem   [label="memory — src/memory\lRam · Rom · Mmu · ContentionModel\l"];
     io    [label="I/O — src/port\lPortDispatch · NextReg\l"];
-    // Renderer owns Ula and Lores as members (`ula_`, `lores_`: renderer.h:564-565) and takes
+    // Renderer owns Ula and Lores as members (`ula_`, `lores_`: renderer.h:566-567) and takes
     // Layer2, SpriteEngine, Tilemap and PaletteManager as PARAMETERS — they
     // are Emulator's own members, siblings of renderer_. In an ownership map
     // that distinction is the whole point, so keep Layer 2 out of the

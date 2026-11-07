@@ -31,6 +31,7 @@
 #include "memory/mmu.h"
 #include "peripheral/copper.h"
 #include "video/layer2.h"
+#include "video/ula.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -108,6 +109,9 @@ struct V13Opts {
     uint8_t     hires_colour   = 0;
     uint8_t     entry_bank     = 0;
     uint8_t     preserve_regs  = 0;
+    uint8_t     border         = 0;      // header BORDERCOL (offset 11)
+    bool        seed_bank5     = false;  // fill bank 5 with 0xC3 before apply() (GH #454)
+    int         preset_border  = -1;     // >= 0: ULA border before apply() (GH #454)
     std::vector<int> banks;            // bank numbers present, in kBankOrder order
     uint32_t    gap_before_banks = 0;  // unknown-block bytes between screens and banks
     bool        write_crc      = false;  // compute and store the real CRC-32C
@@ -198,7 +202,7 @@ bool write_v13_nex(const std::string& path, const V13Opts& o, std::vector<uint8_
     f[8]  = 0;                                        // ram_required: 768 KB
     f[9]  = static_cast<uint8_t>(o.banks.size());     // num_banks
     f[10] = o.screen_flags;
-    f[11] = 0;                                        // border
+    f[11] = o.border;                                 // border
     put_u16(f, 12, 0xFF00);                           // SP
     put_u16(f, 14, 0x8000);                           // PC
     for (int b : o.banks) f[18 + b] = 1;              // bank presence bitmap
@@ -270,6 +274,16 @@ uint8_t read_page(Mmu& mmu, uint16_t page, uint16_t off) {
     return v;
 }
 
+// Write one byte of physical 8K page `page` at `off` through the temp slot.
+void write_page(Mmu& mmu, uint16_t page, uint16_t off, uint8_t v) {
+    constexpr int      TEMP_SLOT = 7;
+    constexpr uint16_t SLOT_BASE = 0xE000;
+    const uint8_t saved = mmu.get_page(TEMP_SLOT);
+    mmu.set_page(TEMP_SLOT, static_cast<uint8_t>(page));
+    mmu.write(static_cast<uint16_t>(SLOT_BASE + off), v);
+    mmu.set_page(TEMP_SLOT, saved);
+}
+
 // One loaded fixture: a real Emulator with a real NexLoader::load()+apply().
 //
 // `cli_args` is the --nex-args value (EmulatorConfig::nex_cli_args, GH #172).
@@ -290,6 +304,11 @@ struct Fixture {
         cfg.nex_cli_args = cli_args;
         emu.init(cfg);
         if (nr80_seed) emu.nextreg().write(0x80, nr80_seed);
+        if (o.seed_bank5) {
+            for (uint16_t pg = 10; pg <= 11; ++pg)
+                for (uint16_t off = 0; off < 0x2000; ++off) write_page(emu.mmu(), pg, off, 0xC3);
+        }
+        if (o.preset_border >= 0) emu.ula().set_border(static_cast<uint8_t>(o.preset_border));
 
         // The PID is load-bearing, not cosmetic: two copies of this suite
         // running at once (parallel agent worktrees, concurrent reviewer
@@ -1805,6 +1824,106 @@ void test_bar_and_delay() {
     }
 }
 
+// ── GH #454: what apply() writes to bank 5 and the border (V1.3) ─────
+//
+// Oracle: nexload2.asm. clsWithBordercol (:1114-:1126) sets the border to
+// BORDERCOL (:1115-:1116), pixels $4000-$57FF to 0 (:1117-:1122) and
+// attributes $5800-$5AFF to BORDERCOL*8 (`.3 add a,a`, :1123-:1126). It is
+// called from setupBeforeBlockLoading (:828) after the `ret nz` of
+// PRESERVENEXTREG (:781-:783), so a preserving file gets no clear at all.
+// $5B00-$7FFF is never written. LoadScreenBlock writes BORDERCOL again for
+// every block that loads (:634-:635). Measured on the real loader as well
+// (probe NEX dumping bank 5 to a magic port). Bank 5 is seeded with 0xC3 and
+// the border preset to 6, the warm-start situation.
+int b5_first_not(Fixture& f, uint32_t lo, uint32_t hi, uint8_t want) {
+    for (uint32_t a = lo; a <= hi; ++a) {
+        const uint32_t off = a - 0x4000u;
+        if (read_page(f.emu.mmu(), static_cast<uint16_t>(10 + off / 0x2000),
+                      static_cast<uint16_t>(off % 0x2000)) != want)
+            return static_cast<int>(a);
+    }
+    return -1;
+}
+
+void test_bank5_clear() {
+    {
+        V13Opts o; o.border = 5; o.seed_bank5 = true; o.preset_border = 6;
+        Fixture f(o, "b5a");
+        const int px = f.apply_ok ? b5_first_not(f, 0x4000, 0x57FF, 0x00) : 0x4000;
+        check("NEXB5-V13-01", "V1.3 preserve=0, no screen: pixels $4000-$57FF are cleared to 0 (nexload2.asm:1117-1122)",
+              f.apply_ok && px < 0, fmt("first non-zero pixel byte at $%04X", px));
+        const int at = f.apply_ok ? b5_first_not(f, 0x5800, 0x5AFF, 0x28) : 0x5800;
+        check("NEXB5-V13-02", "V1.3 preserve=0, border 5: attributes $5800-$5AFF are BORDERCOL*8 = 0x28 (nexload2.asm:1123-1126)",
+              f.apply_ok && at < 0, fmt("first bad attribute at $%04X", at));
+        const int sy = f.apply_ok ? b5_first_not(f, 0x5B00, 0x7FFF, 0xC3) : 0x5B00;
+        check("NEXB5-V13-03", "V1.3 preserve=0: $5B00-$7FFF is kept (nexload2.asm writes nothing past $5AFF)",
+              f.apply_ok && sy < 0, fmt("first bad byte at $%04X", sy));
+        check("NEXB5-V13-04", "V1.3 preserve=0, header border 5, preset 6: border is 5 (nexload2.asm:1115-1116)",
+              f.apply_ok && f.emu.ula().get_border() == 5,
+              fmt("border=%d (want 5)", f.emu.ula().get_border()));
+    }
+    {
+        V13Opts o; o.border = 5; o.preserve_regs = 1; o.seed_bank5 = true; o.preset_border = 6;
+        Fixture f(o, "b5p");
+        const int all = f.apply_ok ? b5_first_not(f, 0x4000, 0x7FFF, 0xC3) : 0x4000;
+        check("NEXB5-V13-05", "V1.3 preserve=1, no screen: bank 5 untouched and border kept at 6 (nexload2.asm:781-783 ret nz before the clear)",
+              f.apply_ok && all < 0 && f.emu.ula().get_border() == 6,
+              fmt("first bad $%04X, border=%d (want 6)", all, f.emu.ula().get_border()));
+    }
+    {
+        V13Opts o; o.border = 5; o.preserve_regs = 1; o.seed_bank5 = true; o.preset_border = 6;
+        o.screen_flags = 0x40; o.screen_flags2 = 3;   // tilemode block
+        Fixture f(o, "b5t");
+        check("NEXB5-V13-06", "V1.3 preserve=1 with a loading-screen block (tilemode): border is 5 (LoadScreenBlock, nexload2.asm:634-635)",
+              f.apply_ok && f.emu.ula().get_border() == 5,
+              fmt("border=%d (want 5)", f.emu.ula().get_border()));
+    }
+    {
+        V13Opts o; o.border = 5; o.preserve_regs = 1; o.seed_bank5 = true; o.preset_border = 6;
+        o.screen_flags = 0x80;   // NOPAL alone: nonzero flags, but no block triggers
+        Fixture f(o, "b5n");
+        check("NEXB5-V13-07", "V1.3 preserve=1, LOADSCR=0x80 (NOPAL only, no block loads): border kept at 6 (no TRIGGER_BIT matches, nexload2.asm:304-311)",
+              f.apply_ok && f.emu.ula().get_border() == 6,
+              fmt("border=%d (want 6)", f.emu.ula().get_border()));
+    }
+    // Every block kind that reaches LoadScreenBlock writes BORDERCOL there
+    // (nexload2.asm:304-311 trigger, :630-635). preserve=1, so the clear does
+    // not run and only the block can set the border: header 5, preset 6.
+    {
+        struct Kind { const char* id; const char* desc; uint8_t sf; uint8_t sf2; };
+        static const Kind kinds[] = {
+            {"NEXB5-V13-08", "V1.3 preserve=1, Layer 2 256x192 block (LOADSCR 0x01): border is 5 (LoadScreenBlock :634-635)", 0x01, 0},
+            {"NEXB5-V13-09", "V1.3 preserve=1, ULA block (LOADSCR 0x02): border is 5 (LoadScreenBlock :634-635)", 0x02, 0},
+            {"NEXB5-V13-10", "V1.3 preserve=1, LoRes block (LOADSCR 0x04): border is 5 (LoadScreenBlock :634-635)", 0x04, 0},
+            {"NEXB5-V13-11", "V1.3 preserve=1, HiRes block (LOADSCR 0x08): border is 5 (LoadScreenBlock :634-635)", 0x08, 0},
+            {"NEXB5-V13-12", "V1.3 preserve=1, HiColour block (LOADSCR 0x10): border is 5 (LoadScreenBlock :634-635)", 0x10, 0},
+            {"NEXB5-V13-13", "V1.3 preserve=1, Layer 2 320x256 block (0x40, LOADSCR2 1): border is 5 (LoadScreenBlock :634-635)", 0x40, 1},
+            {"NEXB5-V13-14", "V1.3 preserve=1, Layer 2 640x256 block (0x40, LOADSCR2 2): border is 5 (LoadScreenBlock :634-635)", 0x40, 2},
+        };
+        int n = 0;
+        for (const Kind& k : kinds) {
+            V13Opts o; o.border = 5; o.preserve_regs = 1; o.preset_border = 6;
+            o.screen_flags = k.sf; o.screen_flags2 = k.sf2;
+            char tag[16]; std::snprintf(tag, sizeof(tag), "b5k%d", n++);
+            Fixture f(o, tag);
+            check(k.id, k.desc, f.apply_ok && f.emu.ula().get_border() == 5,
+                  fmt("border=%d (want 5)", f.emu.ula().get_border()));
+        }
+    }
+    {
+        // Raw byte (nexload2.asm:1115-1116 out ($FE),a; :1123-1126 .3 add a,a):
+        // header 0x15 gives attributes 0xA8, not the masked 0x28; OUT 0xFE bit 4
+        // is the EAR latch and IN 0xFE bit 6 reads it back.
+        V13Opts o; o.border = 0x15; o.seed_bank5 = true; o.preset_border = 6;
+        Fixture f(o, "b5r");
+        const int at = f.apply_ok ? b5_first_not(f, 0x5800, 0x5AFF, 0xA8) : 0x5800;
+        const uint8_t in_fe = f.apply_ok ? f.emu.port().in(0x00FE) : 0;
+        check("NEXB5-V13-15", "V1.3 preserve=0, header border 0x15: attributes are 0xA8, border is 5, EAR latch set so IN 0xFE bit 6 reads 1 (raw byte, nexload2.asm:1115-1126)",
+              f.apply_ok && at < 0 && f.emu.ula().get_border() == 5 && (in_fe & 0x40) != 0,
+              fmt("first bad attr $%04X, border=%d, IN 0xFE=%02X", at, f.emu.ula().get_border(), in_fe));
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1825,6 +1944,7 @@ int main() {
     test_cli_buffer();
     test_cli_args();
     test_bar_and_delay();
+    test_bank5_clear();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);

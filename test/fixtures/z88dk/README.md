@@ -6,21 +6,30 @@ address, line and section in a test row comes from these files, never from the c
 under test (design: `doc/design/SOURCE-LEVEL-DEBUGGING.md` section 2.3). CI has no
 z88dk, hence committed outputs and a hash check (rows Z88FIX-01/02 in `source_map_test`).
 
-## The three installs
+## The installs
 
 | dir | commit | describe | zsdcc |
 |-----|--------|----------|-------|
 | `v2.4/` | `4d530b6eb779ad0f2a1d13c0bb670cf717477501` | v2.4 | 4.5.0 #15242 |
 | `master/` | `97731e4e2988543e2c849cd1ae1d0aeddf372fcd` | v2.4-2883-g97731e4e29 | 4.6.0 #16639 pr3093 Nov 3 2026 |
 | `master-fixed/`, `master-fixed-zsdcc/`, `master-fixed-80cc/`, `master-fixed-sccz80/` | `0f0a1cf70e48856af8191af6f86096d2e1362482` | v2.4-2954-g0f0a1cf70e | 4.6.0 #16639 pr3093 Nov 5 2026 |
+| `nightly/` | `965fd0e628` (master, 2026-11-06 21:28 UTC), nightly `z88dk-20261107-965fd0e628-26852.tgz` | v26852-965fd0e628-20261107 | none (the kit has no zsdcc) |
+| `v2.4-fp/` | the `v2.4/` install | v2.4 | 4.5.0 #15242 |
 
 `master/` is master BEFORE the debug-record fixes that merged on 2026-11-04 and 2026-11-05 (z88dk PRs #3227, #3229, #3230, #3231, #3237,
-#3238, #3241, #3242, #3243, #3244, #3250 to #3253, #3257, #3258, #3260 to #3265; #3240, floats, is not merged); `master-fixed/`, `master-fixed-zsdcc/`, `master-fixed-80cc/` and `master-fixed-sccz80/`
+#3238, #3241, #3242, #3243, #3244, #3250 to #3253, #3257, #3258, #3260 to #3265; #3240, floats, was not merged yet; it merged on 2026-11-06 and `nightly/` has it); `master-fixed/`, `master-fixed-zsdcc/`, `master-fixed-80cc/` and `master-fixed-sccz80/`
 are master with them (GH #438), the tip of z88dk master when the owner rebuilt `-latest` on 2026-11-05. The name `master-fixed` is kept from the days
 when the fixed install was a hand-patched `a52baaf7d9` (the first six fixes only); it now means "real master after the fixes". `master-fixed-zsdcc/`
 holds the zsdcc builds (own directory: the rows that walk every map of `master-fixed/` count sccz80 and 80cc modules).
 The pre-fix install is `~/src/spectrum/z88dk-original-97731e4e29`, a reflink copy kept for `master/` (never the other two); the post-fix one is
 `~/src/spectrum/z88dk-original-latest`.
+That install has since moved on in git (HEAD `1ead95546d`) without its compilers being rebuilt: regenerating the four `master-fixed*` trees with it gives byte-identical maps, listings and
+binaries, and only each `PROVENANCE` and the first line of each `build.log` (the commit) differ. Those four trees therefore keep `0f0a1cf70e`'s provenance and are not regenerated;
+`generate.sh` run today writes the newer commit into them, which a commit must not take (check `git diff --stat` and keep only the new directories).
+`nightly/` is built with `~/src/spectrum/z88dk-original-965fd0e628` (`Z88DK_NIGHTLY`): the nightly source kit, downloaded from <http://nightly.z88dk.org/>, sha256
+`8362689a3cd10138c3c082eadb2cb8f947ad32220150e667ff1a5c7ca60736db`, with its own prebuilt libraries and its binaries built locally by `./build.sh -l`
+(`ulimit -v 4194304`, `nice`). It has no `.git`: the commit is in its `NIGHTLY` file (tarball, sha256, URL, commit) and `generate.sh` reads it from there. There is no zsdcc in it.
+`v2.4-fp/` is the same program as `nightly/` built with the 2.4 install, which writes no float format (the fallback A/B).
 All four fixture trees have no local modification (`PROVENANCE`: `modified tracked files:` is empty) except `v2.4/`, which lists two modified yaz180 `.inc` files (a target this tree never builds), older than GH #438.
 Each `PROVENANCE` and each `build.log` (first line) record the commit. The master tools
 print a stale banner (`v23856-580777436e-20251005`, from an old generated `config.h`):
@@ -30,8 +39,8 @@ trust the commit, not `zcc`'s banner.
 
     bash test/fixtures/z88dk/generate.sh
 
-Env overrides: `Z88DK_24`, `Z88DK_MASTER`, `Z88DK_FIXED` (install roots; defaults
-`~/src/spectrum/z88dk-original-2.4`, `...-97731e4e29` (`master/`) and `...-latest` (`master-fixed*/`)). The output is deterministic:
+Env overrides: `Z88DK_24`, `Z88DK_MASTER`, `Z88DK_FIXED`, `Z88DK_NIGHTLY` (install roots; defaults
+`~/src/spectrum/z88dk-original-2.4`, `...-97731e4e29` (`master/`), `...-latest` (`master-fixed*/`) and `...-965fd0e628` (`nightly/`)). The output is deterministic:
 `git diff --stat` must be empty unless an install changed. When it did, commit the new
 outputs and `MANIFEST.sha256` together and say which rows' values moved. The script
 exits non-zero if a build that should succeed fails, or one recorded as failing starts to
@@ -89,6 +98,18 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | master-fixed-80cc/80cc-x | `x.c`: a function really named `x` | ok | GH #438 S4b: the module is 80cc, not zsdcc's `x` placeholder |
 | master-fixed-80cc/80cc-shadow, master-fixed-sccz80/sccz80-shadow, master-fixed-zsdcc/sdcc-shadow | `shadow.c`: an inner `{ int16_t t = 5; g += t; }` over the function's `t` | ok | GH #438 S4b: shadowed names (zsdcc keeps the outer t in DE and records the inner t as `[]`) |
 | master-fixed-zsdcc/sdcc-stub | `stub1.c stub2.c`: `-clib=sdcc_iy -debug`; `void p(int a) {}` | ok | GH #438 S4b (review 7 F3): a zsdcc module with only level-0 `x` records |
+
+| nightly/sccz80-zx-{math48, genmath, lmz} | `fpfmt.c` for `+zx` (classic library): `-debug --math48` / `--genmath` / `-lmz` | ok | GH #477: float format 0/128/5 (z80, 6-byte floats) |
+| nightly/sccz80-zx-{math32, lm, am9511} | `-debug --math32` / `-lm` / `--am9511` | ok | GH #477: 1/126/3 (IEEE binary32) |
+| nightly/sccz80-zx-mbf32, -mbf40, -mbf64 | `-debug --math-mbf32` / `-Cc-fp-mode=mbf40` / `--math-mbf64` | ok | GH #477: 2/128/3, 3/128/4, 4/128/7 |
+| nightly/sccz80-zx-bbc, -z88 | `-debug --math-bbc` / `-Cc-math-z88 -lz88_math` | ok | GH #477: 5/127/4 (z88, with its integer form) |
+| nightly/sccz80-zx-dai32 | `-debug --math-dai32` | ok | GH #477: 6/0/3 (AM9511-style) |
+| nightly/sccz80-zx-bias129 | `-debug --math48 -Cc-fp-exponent-bias=129 -Cc-fp-mantissa-size=4` | ok | GH #477: 0/129/4, a user format (the bytes decode only with the map's values) |
+| nightly/80cc-zx-{math48, math32, mbf32} | `-debug -compiler=80cc --math48` / `--math32` / `--math-mbf32` | ok | GH #477: 80cc writes the same three symbols |
+| nightly/sccz80-zxn, sccz80-zxn-math32, 80cc-zxn | `fpfmt.c` for `+zxn`: `-clib=new -debug` [`--math32`] [`-compiler=80cc`] | ok | GH #477: 0/128/5, 1/126/3, 0/128/5 |
+| nightly/sccz80-zx-fl-mbf32, -fl-dai32 | `fl.c` (float arithmetic, so the library links): `+zx -debug --math-mbf32` / `--math-dai32` | ok | GH #477: the map also names the library (`__code_fp_mbf32_size`, `__code_fp_dai32_size`); the recorded format beats that guess |
+| nightly/sccz80-zx-mix | `fpmix48.c` with `--math48` and `fpmix32.c` with `--math32`, compiled apart, linked with `--math32` | ok | GH #477: two float formats in one map, one `T:` record of `struct sf` per module |
+| v2.4-fp/sccz80-zxn | `fpfmt.c`: `-clib=new -debug` | ok | GH #477: the program of `nightly/sccz80-zxn` without any `__fp_*` symbol |
 
 The dot builds (`dot:<subtype>` in `generate.sh`) compile `dot.c dutil.c` with `-subtype=dot|dotx|dotn`
 instead of `-subtype=nex`. Classic dot is not built: `-debug` fails (Z1) and without it there are no lines.
@@ -311,8 +332,20 @@ What each z88dk gives the debugger for the new `blocks.c`, `bits.c`, `fm.c`, `u5
   each enum-typed object (`SEF<file>$<tag>` type); the empty enumerator records `S:G$RED$0_0$0({0})` are no longer written (`master-fixed/{sccz80,80cc}-cvars`).
 - **80cc scope data (z88dk#3243).** 80cc's `C_LINE` carries `level::block` of its own (`main::1::3`, not `main::0::3`), and since #3244 and #3264 (locals and parameters are stored to their frame
   slots) a `-debug` function whose frame the compiler used to elide has an IX frame with its parameters at IX+4 (`master-fixed/80cc-u5`, `-cvars`).
-- **Floats (z88dk#3236).** The record says `{4}SF` for mbf32, dai32 and math32 alike; `__code_fp_<lib>_size` is the only trace
-  of the library.
+- **Floats (z88dk#3236, #3240).** The record says `{4}SF` for mbf32, dai32 and math32 alike. Before 2026-11-06 `__code_fp_<lib>_size` was the only trace of the
+  library, and it is non-zero only when the program calls the library (a program with float constants and no float arithmetic names none). z88dk master from
+  2026-11-06 (`nightly/`) writes, into the map of every C module sccz80 and 80cc compile, three LOCAL constants:
+  `__fp_exponent_bias`, `__fp_mantissa_size` and `__fp_mode` (0 z80, 1 ieee, 2 mbf32, 3 mbf40, 4 mbf64, 5 z88, 6 am9511), field 4 being the module like a `__CDBINFO__`
+  line. Measured on `fpfmt.c` (mode/bias/mantissa, record size): `--math48`, `--genmath`, `-lmz`, `+zxn -clib=new` (sccz80 and 80cc): 0/128/5, 6;
+  `--math32`, `-lm`, `--am9511`: 1/126/3, 4; `--math-mbf32`: 2/128/3, 4; `-Cc-fp-mode=mbf40`: 3/128/4, 6 (byte 5 unused); `--math-mbf64`: 4/128/7, 8;
+  `--math-bbc` and `-Cc-math-z88 -lz88_math`: 5/127/4, 6 (byte 0 unused; exponent byte 0 is a 32-bit integer); `--math-dai32`: 6/0/3, 4;
+  user options `-Cc-fp-exponent-bias=129 -Cc-fp-mantissa-size=4` on `--math48`: 0/129/4, 6. -3.25 is `00 00 00 00 D0 82` (math48), `00 00 50 C0` (IEEE),
+  `00 00 D0 82` (mbf32 and dai32), `00 00 00 D0 82 00` (mbf40), `00 00 00 00 00 00 D0 82` (mbf64), `00 00 00 00 D0 81` (z88), `00 00 00 D0 83 00` (bias 129).
+  zsdcc and assembly modules write none; neither does z88dk 2.4 (`v2.4-fp/`). A mixed link keeps one set per module and, because the struct's text differs by
+  its float size, one `T:` record of a shared struct per module. Not built (the same modes and values as the builds above; JNEXT loads maps of programs for the
+  machines it emulates): `+zx81 -lm`, `-lmz` on zx81, lambda and cpc, `--math-cpc`, `+z88 -lmz`.
+- **The #439 check.** The whole fixture set regenerated with the nightly standing in for `Z88DK_FIXED` (scratch directory, never committed) and the 12 suites that read
+  `JNEXT_Z88DK_FIXTURE_DIR` run against it: see "The nightly check" below.
 
 ### Scope-table and extent goldens: `derive-scopes.py`
 
@@ -322,6 +355,34 @@ holds the rules and the command that prints one map's block. Re-derive, never pa
 whenever a fixture is regenerated or the equal-line rule changes. `--extents` prints each function's extent (pieces split at the 8 KB boundaries) for rows Z88CDB-41/42 (GH #434). The script is hashed in `MANIFEST.sha256`
 (`generate.sh` lists it), because `Z88FIX-02` demands every file here to be in the manifest; nothing runs it
 in a gate.
+
+## The nightly check (GH #477, from #439)
+
+2026-11-07: the whole fixture set was regenerated with the nightly `z88dk-20261107-965fd0e628-26852` standing in for `Z88DK_FIXED` (scratch directory, never committed:
+`master-fixed*` stay at `0f0a1cf70e`), the three zsdcc trees were kept from the committed ones (the kit has no zsdcc), and the 12 suites that read `JNEXT_Z88DK_FIXTURE_DIR`
+(c_value, z88dk_map, source_debug, cdb_record, source_map, z88dk_lis, gdb_rsp, script_eval, script_events, zrcp_adapter, debugger_variables_panel, debugger_source_panel) ran
+against it in a scratch copy of the source tree.
+
+What changed in the compilers' output (`master-fixed`, `master-fixed-80cc`, `master-fixed-sccz80`: 32, 18 and 8 files differ besides each `build.log`'s first line and `PROVENANCE`;
+`v2.4`, `v2.4-dotn`, `master` and every zsdcc tree are byte-identical; `80cc-bits`, `80cc-u5`, `80cc-x` and `80cc-shadowagg` differ only by the `__fp_*` lines):
+- every sccz80 and 80cc map and listing gains the three `__fp_*` constants (the listing five `defc`/`IF`/`ENDIF` lines);
+- sccz80 and 80cc now optimise across `C_LINE` boundaries (z88dk master 2026-11-06, copt "C_LINE handling shouldn't disrupt optimisations"): redundant `push`/`pop` pairs are gone,
+  the code is shorter, every later address moves, and adjacent source lines can share one address (`master-fixed/sccz80-blocks`: lines 15-17 at `$8D00`, no separate entry for 16 or 17);
+- 80cc: a `for` opens a block of its own (block numbers of `80cc-scope`: `f::4::3` became `f::4::5`, `f::2::1` became `f::2::3`; addresses unchanged), and a line that holds code of
+  two blocks gets one `C_LINE` for each (shown on a one-line `if/else`: old one record, nightly one per block);
+- 80cc loop code changes address in `80cc-ifelse`, `80cc-fm`, `80cc-shadow` and `80cc-static`.
+
+Suites: 7 green with no change (cdb_record 55, source_map 130, z88dk_lis 47, script_eval 76, script_events 153, zrcp_adapter 231, debugger_source_panel 271). Failing rows, each
+explained, none a JNEXT defect (every one pins an address, a scope-table entry, a byte or a listing line of the `0f0a1cf70e` build, or says that `master-fixed` has no float format):
+- c_value_test CVZB-05, CVZB-06 (the entries of `blocks.c` lines 16 and 17 no longer exist: one address); CVFMT-22 (the scratch `master-fixed*` have `__fp_mode`: D4);
+- z88dk_map_test Z88ZB-06 (the fc.c / fm.c entry listings lost their `push`/`pop` pairs), Z88ZB-12 (f3254.c block numbers `4/3` are `4/5`), Z88FP-02 (as CVFMT-22);
+- source_debug_test SRCDBG-ZB-03, -05, -06, -07, -09, -11, -14, -17, -18, -19, -25; gdb_rsp_test GDB-ZB-02; debugger_variables_panel_test QVARSH-01, -03, -05: each runs to a hard-coded PC or
+  pokes a hard-coded address of an sccz80 or 80cc build whose addresses moved.
+Not re-derived row by row; checked instead through the facade on the nightly maps (scratch probe: every `C_LINE` address of `80cc-scope`, `80cc-ifelse`, an 80cc `blocks.c` and
+`sccz80-blocks`, `sccz80-shadow` and a one-line two-block 80cc program): the locals listed at each stop match the C programs' scopes and the user guide's description. The `for`
+variable of the nightly `80cc-scope` is shown exactly as on `0f0a1cf70e` (listed on the `for` line and in the body, hidden after, `scope unknown`).
+Verdict: the nightly changes the guide (user guide "What each z88dk can show": the `for` row, the two-blocks note, the float rows, the first nightly with every fix) and no test
+that stays committed. A new `nightly/` row set pins what the nightly writes for floats (CVFMT-01..21, Z88FP-01).
 
 ## Normalisation and trimming (in `generate.sh`)
 

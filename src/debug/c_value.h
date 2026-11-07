@@ -143,6 +143,13 @@ std::optional<int64_t> c_integer_value(const CdbType& type, const uint8_t* bytes
 /// The value of a 48-bit, binary32 or binary16 float; nullopt for anything else.
 std::optional<double> c_float_value(const CdbType& type, const uint8_t* bytes, size_t avail);
 
+/// GH #477: the float format the module of `ctx` records (`__fp_mode`, `__fp_exponent_bias`, `__fp_mantissa_size`); null when it records none,
+/// and the size (and the library guess) decide as they always did. One decoder serves the printout, the typed value (`real`), the size of
+/// a pointed-to float and the encoder, so the four cannot disagree. Modes: z80 (48-bit family), ieee, mbf32, mbf40, mbf64, z88, am9511.
+const CFloatFormat* c_float_format(const CFormatCtx& ctx);
+/// As above, in the module's format when it records one (nullopt when that format cannot read the bytes: the facade shows the reason).
+std::optional<double> c_float_value(const CFormatCtx& ctx, const CdbType& type, const uint8_t* bytes, size_t avail);
+
 /// E353-06's int32 atom (`cvar()` in a script, `CVAR()` over ZRCP; GH #436): the value of the object at `loc` as the DSL's
 /// 32-bit pattern, or why it is not an integer scalar. `integer` is the object's value sign- or zero-extended from its
 /// size, as the reader gave it (nullopt when it gave none). A Char, Int, Long, Scalar, Bitfield or Pointer of at most 4
@@ -176,6 +183,10 @@ struct CEncoded {
 /// float is rounded to nearest (z88dk does). `current` / `avail` are the object's present bytes: only a bitfield reads them,
 /// to keep its unit's other bits. No printf, no ostream: locale independent.
 CEncoded c_encode_value(const CdbType& type, const CNewValue& v, const uint8_t* current, size_t avail);
+
+/// GH #477: the same, a float in the format its module records (the inverse of the decoder; the bytes outside the layout of the format
+/// are kept from `current`); a value that is not a float, or a module that records no format, goes to the function above.
+CEncoded c_encode_value(const CFormatCtx& ctx, const CdbType& type, const CNewValue& v, const uint8_t* current, size_t avail);
 
 /// Read `loc.type.size` bytes at `loc.addr` and format them, with `loc.note` among the notes.
 CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc, std::vector<uint8_t>* bytes = nullptr);

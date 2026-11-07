@@ -134,7 +134,11 @@ the SPI-mode command set for NextZXOS, esxdos and the firmware boot — includin
 CMD18 multi-block streaming, which is how tbblue.fw reads `/TBBLUE.FW`. **The
 image is opened read-write and guest writes persist.** `--sdcard-readonly` opens
 it read-only, and the card then answers CMD24 with the write-error token exactly
-as a write-protected card would. This runtime path is entirely separate from the
+as a write-protected card would. The same holds when the image cannot be opened
+for writing. A refused block never reaches the host stream, so reads keep working
+after any number of refused writes (libc++ keeps a failed block buffered and would
+fail every later seek). A host write error on a read-write card is answered with
+the same token and reopens the image. This runtime path is entirely separate from the
 host-side FAT32 reader in `src/core/sd_rom_extractor.{h,cpp}`, which pulls the
 ROM images out of the same file at startup.
 

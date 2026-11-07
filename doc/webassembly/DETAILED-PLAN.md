@@ -90,6 +90,7 @@ Rejected suggestions, with the reason:
 | C6 | No hard-coded version: artifact names come from `version.yaml` |
 | C7 | The warm-start recording is never shipped (it contains NextZXOS and DivMMC ROM content): it is recorded in the visitor's browser |
 | C8 | Child processes run under `LANG=C` (moot in a browser: there are none) |
+| C9 | No NextZXOS image, standard or minimal, is ever committed or posted to GitHub (copyrighted; owner, 2026-11-06): not in a commit, a fixture, a CI artifact, a release asset or `make package-web`. The script that builds the minimal image is public code and goes in the repo; only SpecNext hosts the image |
 
 ---
 
