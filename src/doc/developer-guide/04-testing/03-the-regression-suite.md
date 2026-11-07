@@ -289,25 +289,51 @@ baseline and every future run agrees with it. Regenerate only when a rendering
 change is both intentional and understood, name the specific rows wherever you
 can, and treat a reference diff appearing in a review as a claim to be checked.
 
-## Platform runs: macOS and Windows under wine
+## Platform runs: macOS, Windows under wine and WebAssembly under node
 
-`regression.sh --platform` (`make regression-win`, `make regression-macos`) runs
+`regression.sh --platform` (`make regression-win`, `make regression-macos`,
+`make regression-wasm`) runs
 the screenshots and the functional rows an OS can run against that OS's
 binaries. It reuses the whole driver: the manifest pins, the per-row processes,
 SKIP = failure and the completeness accounting stay as they are; only the
 selection, the binaries and the accounting change.
 
 **Declaring applicability.** A row's line in `functional_tests.conf` may carry
-`os=<list>`, a comma-separated subset of `linux,macos,windows`. `linux` is
-mandatory (a Linux run runs every row; the Linux pins never change), no tag means
-all three, and an unknown or empty element, or a list without `linux`, is a
+`os=<list>`, a comma-separated subset of `linux,macos,windows,emscripten`. `linux`
+is mandatory (a Linux run runs every row; the Linux pins never change), no tag
+means linux, macos and windows (`emscripten` is opt-in: that run executes a row
+only when its tag names it), and an unknown or empty element, or a list without `linux`, is a
 harness fault. The reason sits in a `# os:` comment on the line above the row.
-`# expect-macos: N` and `# expect-windows: N` beside `# expect:` pin how many rows
-each OS runs; once any row is tagged both are required, and a mismatch in either
-direction is a harness fault, so retagging a row is a deliberate edit. Absent rows
+`# expect-macos: N`, `# expect-windows: N` and `# expect-emscripten: N` beside
+`# expect:` pin how many rows each OS runs; once any row is tagged the first two
+are required (the third as soon as a row names emscripten; it is 0 until then),
+and a mismatch in either direction is a harness fault, so retagging a row is a
+deliberate edit. Absent rows
 are printed by name; a named row the OS does not run is refused; an absent row
 that reports is a harness fault. A platform run's total is 1 provision + the
 screenshots + the admitted rows (no lints, no stamp).
+
+**The WebAssembly run.** `make regression-wasm` builds `build/wasm-core` (the one
+tree stands for both: there is no Qt build for the web) and runs every screenshot
+row against `jnext.js` under the SDK's node. No functional row runs yet: none
+names emscripten, so all are printed absent and a WebAssembly run reports 1
+provision + the screenshots. `jnext` in that tree is linked for node
+(`-sNODERAWFS=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1`, per target; the browser
+build is `jnext_web`, which does not inherit them): NODERAWFS gives it the host
+filesystem, which is how it finds the run's SD clone and writes the PNG to the
+row's path. The driver writes one-line shims that `exec` `test/node-run.sh
+--jnext` (the node the tree was configured with, never one from `PATH`; locale
+fixed; no display; a private `TMPDIR`; TERM and INT forwarded; node's exit
+status returned), so a row invokes `"$JNEXT"` as one word. emcc's `jnext.js` and
+`jnext.wasm` are not executable, so the driver checks both with `-f`. The SD
+master is derived by the host's own `jnext` (the SDL unit-test tree), because the
+WebAssembly build declines downloads, as under wine. The screenshots are compared
+exactly as everywhere else, decoded pixels at tolerance 0, against the committed
+native references; none is regenerated for WebAssembly. The only
+concession is the wall-clock safety bound: the emulated exit is untouched (it
+counts emulated seconds), but a row's `timeout` is widened by
+`SHOT_WALL_FACTOR` (4, set by the driver for this run only), because node runs the
+core slower than the native build the bound was written for.
 
 **The Windows runner.** `test/wine-run.sh --jnext` runs `jnext.exe` as `$JNEXT`
 (two one-line shims in the run's `$TMP_DIR` call it, so rows keep invoking

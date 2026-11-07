@@ -204,7 +204,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web wasm-browser-test wasm-core-clean unit-test-wasm unit-test-wasm-build
+       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web wasm-browser-test wasm-core-clean unit-test-wasm unit-test-wasm-build regression-wasm
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -586,7 +586,7 @@ playwright:
 
 # Build the SDL-only core for WebAssembly into build/wasm-core and check it under node
 wasm-core: emsdk
-	@# The same commands locally and in CI (the `wasm` leg). Only `jnext` and
+	@# The same commands locally and in CI (a prerequisite of `regression-wasm`). Only `jnext` and
 	@# `sha256_test` are built: the rest of the test tree is not yet ported. The
 	@# toolchain file is used directly (no emcmake, no emsdk_env.sh); node is the
 	@# SDK's own, as the cross-compiling emulator. A cache configured with Qt, the
@@ -659,6 +659,20 @@ wasm-browser-test: wasm-web playwright sdl-release sdcard-image
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core
+
+# Run the regression suite's screenshot rows against the WebAssembly jnext under node
+regression-wasm: wasm-core unit-test-sdl-build sdcard-image
+	@# `regression.sh --platform` against build/wasm-core: jnext.js, linked for node
+	@# (NODERAWFS, so it sees the host SD clone and writes the PNG to a host path), is
+	@# run by the SDK's own node through test/node-run.sh --jnext. There is no Qt
+	@# build for the web, so the one tree stands for both. The native helper tools
+	@# and the jnext that derives the SD master come from the SDL unit-test tree. Every
+	@# screenshot row is compared at tolerance 0 against the committed native
+	@# reference; functional rows run only where `os=` names emscripten (none yet),
+	@# the rest are printed absent by name. A full run takes the host lock like
+	@# `make regression`; ROWS="a b" runs named rows. It is not stamped.
+	JNEXT_TARGET_BUILD=build/wasm-core JNEXT_TARGET_SDL_BUILD=build/wasm-core \
+		TEST_BIN_DIR=$(BUILD_DIR_SDL_UNIT_TEST)/test bash test/00regression/regression.sh --platform $(ROWS)
 
 # Remove the WebAssembly build directory
 wasm-core-clean:

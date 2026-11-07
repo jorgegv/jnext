@@ -7,8 +7,9 @@
 # Rows WCORE-01..09, printed in the suite's uniform format; exits non-zero on any
 # FAIL or SKIP. The oracle is the native binary's behaviour for the same command
 # where one exists (the CLI refusals, the log-file error), else the SDK's own
-# contract (no shared memory). The node is the SDK's, resolved through
-# test/provision-emsdk.sh (never one on PATH).
+# contract (no shared memory). `jnext` is the node build (NODERAWFS), so the size
+# line below measures that link; the browser size is jnext_web's. The node is the
+# SDK's, resolved through test/provision-emsdk.sh (never one on PATH).
 set -uo pipefail
 
 export LC_ALL=C LANG=C
@@ -47,6 +48,13 @@ row() { # id desc ok(0/1) detail
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/wasm-core-check.XXXXXX")
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
+
+# jnext.js is linked for node with NODERAWFS, so it sees the HOST filesystem: an
+# SD image under the caller's ~/.jnext would be found, and WCORE-09 (no image)
+# would boot NextZXOS instead of declining. The rows run with an empty config
+# directory and HOME of their own.
+mkdir -p "$SCRATCH/home" "$SCRATCH/cfg"
+export HOME="$SCRATCH/home" JNEXT_CONFIG_DIR="$SCRATCH/cfg"
 
 # Run jnext.js under node with the given arguments: OUT, ERR, RC. Bounded, and
 # escalated to SIGKILL.

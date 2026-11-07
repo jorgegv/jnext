@@ -83,7 +83,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        leg: [build-matrix, unit, unit-win, regression, regression-win, wasm, unit-wasm, browser]
+        leg: [build-matrix, unit, unit-win, regression, regression-win, regression-wasm, unit-wasm, browser]
     runs-on: ubuntu-latest
     # Same fedora:44 container release.yml builds the rpm and Windows artifacts
     # in, and the same distro the maintainer develops on. That is the point: the
@@ -318,11 +318,12 @@ jobs:
 
       # The unit leg needs it for sd_rom_extractor_test, the regression leg
       # for every row that boots NextZXOS; the build matrix runs nothing. The
+      # regression-wasm leg boots it in every screenshot row. The
       # unit-win and unit-wasm legs need it for sd_rom_extractor_test too, and on
       # a miss `make unit-test-win` / `make unit-test-wasm` provision it
       # themselves (the `sdcard-image` target), since those legs build no PGO binary.
       - name: Cache NextZXOS SD-card image
-        if: matrix.leg != 'build-matrix' && matrix.leg != 'wasm'
+        if: matrix.leg != 'build-matrix'
         id: sdcache
         uses: actions/cache@v5
         with:
@@ -371,7 +372,7 @@ jobs:
       # and the three pin prefixes: a bump changes it and a stale entry is never
       # reused (an entry without the provisioner's stamp is replaced anyway).
       - name: Cache the Emscripten SDK
-        if: matrix.leg == 'wasm' || matrix.leg == 'unit-wasm' || matrix.leg == 'browser'
+        if: matrix.leg == 'regression-wasm' || matrix.leg == 'unit-wasm' || matrix.leg == 'browser'
         uses: actions/cache@v5
         with:
           path: ~/.cache/jnext/tools/emsdk-6.0.13
@@ -398,12 +399,17 @@ jobs:
         if: matrix.leg == 'build-matrix'
         run: LANG=C make build-matrix
 
-      # The SDL-only core built for WebAssembly and run under node (GH #459):
-      # provisions the pinned Emscripten SDK, builds jnext.js/jnext.wasm and the
-      # SHA-256 suite, and runs test/wasm-core-check.sh. BLOCKING, like the others.
-      - name: make wasm-core (the SDL-only core as WebAssembly, run under node)
-        if: matrix.leg == 'wasm'
-        run: LANG=C make wasm-core
+      # The regression suite's screenshot rows against the SDL-only core built for
+      # WebAssembly and run under node (GH #461). `make regression-wasm` has
+      # `make wasm-core` as a prerequisite (the pinned Emscripten SDK, jnext.js/
+      # jnext.wasm, the SHA-256 suite and test/wasm-core-check.sh), so that is not
+      # a step of its own. Every screenshot row must equal the committed native
+      # reference pixel for pixel; the functional rows run only where their `os=`
+      # tag names emscripten. The host's own jnext (SDL unit-test tree) derives the
+      # SD master, as under wine. BLOCKING, like regression-win.
+      - name: make regression-wasm (the screenshot rows as WebAssembly under node)
+        if: matrix.leg == 'regression-wasm'
+        run: LANG=C make regression-wasm
 
       # GH #460. The same SDL-only suites as unit-win, built as WebAssembly in
       # their own tree (LTO off) and run one per CPU under the SDK's node through

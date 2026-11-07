@@ -109,7 +109,7 @@ as shipped minus PGO (`win-release-non-pgo`, with `qoffscreen.dll` bundled into
 that test tree only), the SDL-only exe, and the native helpers from the SDL
 unit-test tree. `make regression-macos` is its macOS twin (CI `macos-regression`).
 `ROWS="..."` names rows. Neither is stamped; see
-[the regression suite](../04-testing/03-the-regression-suite.md#platform-runs-macos-and-windows-under-wine).
+[the regression suite](../04-testing/03-the-regression-suite.md#platform-runs-macos-windows-under-wine-and-webassembly-under-node).
 
 The built tree is **not yet a relocatable directory**, so there is no recipe for
 running it by hand on a real Windows machine, and none has been tried. What
@@ -134,6 +134,13 @@ with `setpriv`, as the wine runner does; and forwards TERM and INT and returns
 node's exit status. What node cannot stand in for (processes, threads, listening
 sockets) is declared absent with `# os: native`, and the run names every absent
 suite in its NOTICE. It needs the SD image like the other two.
+
+`make regression-wasm` runs the regression suite's screenshot rows against
+`build/wasm-core/jnext.js` under node (`wasm-core` is a prerequisite, so the WCORE
+rows run first; the native helpers and the host `jnext` that derives the SD master
+come from the SDL unit-test tree). Every screenshot must equal the committed
+native reference pixel for pixel. `ROWS="..."` names rows; a full run takes the
+host lock like `make regression`; it is not stamped.
 
 `make emsdk` provides the pinned Emscripten SDK (6.0.13) in the user cache,
 `~/.cache/jnext/tools/emsdk-6.0.13`, through `test/provision-emsdk.sh`: it
