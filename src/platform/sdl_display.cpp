@@ -15,18 +15,27 @@ bool SdlDisplay::init(int native_w, int native_h, int display_h) {
     // best-effort call — a window manager may place the window itself, which
     // was equally true of SDL2's SDL_WINDOWPOS_CENTERED hint.
 #ifdef __EMSCRIPTEN__
-    // The page owns the canvas size and the document title: no title (SDL
-    // would set document.title), follow CSS resizes and render at device
-    // pixels. The window is created OpenGL ES 2 from the start, as the renderer
-    // wants it: otherwise SDL_CreateRenderer destroys and recreates the window,
-    // and on a HiDPI display the SDL Emscripten port sets the canvas CSS size
-    // to 1x1 in between, so the new window reads "no CSS controls the size"
-    // and a 640x512 box became 1280x1024 CSS pixels at a device pixel ratio of 2.
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-    window_ = SDL_CreateWindow(nullptr, native_w * scale_, display_h * scale_,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_OPENGL);
+    // The `dummy` video driver (the unit suites under node, which have no page and no GL)
+    // creates a plain window like any native build does; only a real browser driver gets
+    // the canvas treatment below.
+    const char* video_driver = SDL_GetCurrentVideoDriver();
+    if (video_driver && SDL_strcmp(video_driver, "dummy") == 0) {
+        window_ = SDL_CreateWindow(JNEXT_WINDOW_TITLE,
+            native_w * scale_, display_h * scale_, 0);
+    } else {
+        // The page owns the canvas size and the document title: no title (SDL
+        // would set document.title), follow CSS resizes and render at device
+        // pixels. The window is created OpenGL ES 2 from the start, as the renderer
+        // wants it: otherwise SDL_CreateRenderer destroys and recreates the window,
+        // and on a HiDPI display the SDL Emscripten port sets the canvas CSS size
+        // to 1x1 in between, so the new window reads "no CSS controls the size"
+        // and a 640x512 box became 1280x1024 CSS pixels at a device pixel ratio of 2.
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+        window_ = SDL_CreateWindow(nullptr, native_w * scale_, display_h * scale_,
+            SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_OPENGL);
+    }
 #else
     window_ = SDL_CreateWindow(JNEXT_WINDOW_TITLE,
         native_w * scale_, display_h * scale_, 0);
