@@ -39,7 +39,8 @@
 # Usage: bash test/run-unit-tests.sh [build_dir]      (default: build)
 # Env:   JNEXT_UNIT_TEST_CONF   override the manifest path (the self-test uses this)
 #        JNEXT_TEST_RUNNER      a program prefixed to every suite (the Windows
-#                               suites run under wine: test/wine-run.sh)
+#                               suites run under wine: test/wine-run.sh; the
+#                               WebAssembly ones under node: test/node-run.sh)
 #        JNEXT_UNIT_TEST_JOBS   cap on suites running at once (default: no cap)
 
 set -euo pipefail
@@ -226,16 +227,19 @@ cache_str() {
 # The OS the suites were built FOR (GH #214): CMakeLists.txt records it from
 # CMAKE_SYSTEM_NAME, so a MinGW cross build says windows on a Linux host.
 TARGET_OS=$(cache_str JNEXT_TARGET_OS)
-# The closed set of `# os:` names. linux satisfies every one of them; macOS
-# satisfies all and posix; windows satisfies all only.
-os_known() { case "$1" in all|posix|linux) return 0 ;; *) return 1 ;; esac; }
-target_os_known() { case "$1" in linux|macos|windows) return 0 ;; *) return 1 ;; esac; }
+# The closed set of `# os:` names. The classes form one chain, linux < posix <
+# native < all: linux satisfies every one of them; macOS satisfies all, native
+# and posix; windows satisfies all and native; emscripten (WebAssembly under
+# node) satisfies all only.
+os_known() { case "$1" in all|native|posix|linux) return 0 ;; *) return 1 ;; esac; }
+target_os_known() { case "$1" in linux|macos|windows|emscripten) return 0 ;; *) return 1 ;; esac; }
 target_os_known "$TARGET_OS" || die "Unknown target OS '${BOLD}$TARGET_OS${RESET}' (JNEXT_TARGET_OS in $CACHE_FILE)." \
-                                    "Known: linux, macos, windows."
+                                    "Known: linux, macos, windows, emscripten."
 # os_active <spec> — does the target OS own a suite under this `# os:`? Use in an `if`.
 os_active() {
     case "$1" in
         all)   return 0 ;;
+        native) [[ "$TARGET_OS" != emscripten ]] && return 0; return 1 ;;
         posix) [[ "$TARGET_OS" == linux || "$TARGET_OS" == macos ]] && return 0; return 1 ;;
         linux) [[ "$TARGET_OS" == linux ]] && return 0; return 1 ;;
     esac
@@ -286,7 +290,7 @@ while read -r name rows rest; do
         if [[ "$name $rows $rest" =~ ^\#[[:space:]]*os:[[:space:]]*([a-z]+) ]]; then
             osreq="${BASH_REMATCH[1]}"
             os_known "$osreq" || die "Unknown os '${BOLD}$osreq${RESET}' in $CONF." \
-                                     "Valid values: all, posix, linux."
+                                     "Valid values: all, native, posix, linux."
         fi
         continue
     fi
@@ -340,15 +344,36 @@ done < <(awk '{ if ($0 !~ /^[[:space:]]*#/) sub(/#.*/, ""); print }' "$CONF")
 # CTestTestfile.cmake, see every binary twice, and refuse to run with a false
 # "registered twice" diagnosis after a plain `make gui-debug`. A directory with its own
 # CMakeCache.txt is an independent build root and is not ours to enumerate.
+# A cross build run by an emulator (Emscripten: node) registers every test as
+# add_test(<name> "<emulator>" "<suite>" args...), because CMake prefixes
+# CMAKE_CROSSCOMPILING_EMULATOR. The emulator is read from the build tree's own
+# cache like the OS, and every line must carry it: a line without it would make
+# the harness take the wrong word for the suite, so it is a refusal. A native
+# cache has none.
+EMULATOR=$(grep -m1 -oP '^CMAKE_CROSSCOMPILING_EMULATOR:[A-Z]+=\K.*' "$CACHE_FILE" || true)
 mapfile -t CTEST_FILES < <(
     find "$BUILD" -mindepth 1 -type d -exec test -e '{}/CMakeCache.txt' ';' -prune -o \
          -name CTestTestfile.cmake -print
 )
 REGISTERED=()
-while read -r bin; do
-    # A Windows build registers NAME.exe; the manifest names the suite.
-    [[ -n "$bin" ]] && REGISTERED+=("$(basename "$bin" .exe)")
-done < <(grep -hoP '^add_test\([^ ]+ "\K[^"]+' "${CTEST_FILES[@]}" 2>/dev/null || true)
+SUITE_SUFFIX=.exe; [[ "$TARGET_OS" != emscripten ]] || SUITE_SUFFIX=.js
+if [[ -n "$EMULATOR" ]]; then
+    # The emulator must lead every add_test() line; the suite is the next word.
+    while read -r line; do
+        [[ -n "$line" ]] || continue
+        tname=${line#add_test(}; tname=${tname%% *}
+        [[ "$line" == "add_test($tname \"$EMULATOR\" \""* ]] \
+            || die "add_test($tname ...) does not start with the cross-compiling emulator ${BOLD}$EMULATOR${RESET} (CMAKE_CROSSCOMPILING_EMULATOR in $CACHE_FILE)." \
+                   "The harness cannot tell which argument is the suite."
+        rest=${line#"add_test($tname \"$EMULATOR\" \""}
+        REGISTERED+=("$(basename "${rest%%\"*}" "$SUITE_SUFFIX")")
+    done < <(grep -h '^add_test(' "${CTEST_FILES[@]}" 2>/dev/null || true)
+else
+    while read -r bin; do
+        # A Windows build registers NAME.exe; the manifest names the suite.
+        [[ -n "$bin" ]] && REGISTERED+=("$(basename "$bin" .exe)")
+    done < <(grep -hoP '^add_test\([^ ]+ "\K[^"]+' "${CTEST_FILES[@]}" 2>/dev/null || true)
+fi
 
 # Assert we parsed every add_test line: a silent parse miss would be the very blindness
 # this file exists to prevent. `|| true` is load-bearing — grep exits 1 when a file has
@@ -422,7 +447,17 @@ for name in "${DECLARED[@]}"; do
     fi
     suite_exe="$BUILD/test/$name"
     [[ "$TARGET_OS" != windows ]] || suite_exe="$suite_exe.exe"
-    if [[ ! -x "$suite_exe" ]]; then
+    if [[ "$TARGET_OS" == emscripten ]]; then
+        # emcc writes NAME.js and NAME.wasm, neither executable: both must exist.
+        if [[ ! -f "$suite_exe.js" ]]; then
+            errors+=("declared in $CONF but NOT built: ${BOLD}$name${RESET} (no $suite_exe.js)")
+            continue
+        fi
+        if [[ ! -f "$suite_exe.wasm" ]]; then
+            errors+=("declared in $CONF but NOT built: ${BOLD}$name${RESET} (no $suite_exe.wasm)")
+            continue
+        fi
+    elif [[ ! -x "$suite_exe" ]]; then
         errors+=("declared in $CONF but NOT built: ${BOLD}$name${RESET} (no $suite_exe)")
         continue
     fi
@@ -494,7 +529,9 @@ if (( ${#EXEMPT_RUN[@]} )); then
 fi
 
 # --- Run every runnable suite in parallel ---
-EXE_SUFFIX=""; [[ "$TARGET_OS" != windows ]] || EXE_SUFFIX=".exe"
+EXE_SUFFIX=""
+[[ "$TARGET_OS" != windows ]] || EXE_SUFFIX=".exe"
+[[ "$TARGET_OS" != emscripten ]] || EXE_SUFFIX=".js"
 TMPDIR_RUN=$(mktemp -d)
 # ONE trap for the whole script. `trap ... EXIT` REPLACES any previous EXIT
 # handler, so this must clean up the SD clone too — installing a second trap

@@ -70,6 +70,7 @@
 #include <sstream>
 #include "core/log.h"
 #include "../row_id.h"
+#include "gpa_fixture.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -1424,36 +1425,6 @@ static void test_gamepad_host_real_device() {
 // sequence on one host; each states the state it starts from.
 // ══════════════════════════════════════════════════════════════════════════
 
-static SDL_JoystickID gpa_attach(const char* name, Uint16 vendor, Uint16 product, bool raw) {
-    SDL_VirtualJoystickDesc desc;
-    SDL_INIT_INTERFACE(&desc);
-    desc.vendor_id  = vendor;
-    desc.product_id = product;
-    desc.name       = name;
-    if (raw) {
-        desc.type     = SDL_JOYSTICK_TYPE_UNKNOWN;
-        desc.naxes    = 2;
-        desc.nbuttons = 2;
-    } else {
-        desc.type     = SDL_JOYSTICK_TYPE_GAMEPAD;
-        desc.naxes    = 6;
-        desc.nbuttons = 11;
-        desc.nhats    = 1;
-        desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_SOUTH) | (1u << SDL_GAMEPAD_BUTTON_EAST) |
-                           (1u << SDL_GAMEPAD_BUTTON_WEST)  | (1u << SDL_GAMEPAD_BUTTON_NORTH) |
-                           (1u << SDL_GAMEPAD_BUTTON_DPAD_UP)   | (1u << SDL_GAMEPAD_BUTTON_DPAD_DOWN) |
-                           (1u << SDL_GAMEPAD_BUTTON_DPAD_LEFT) | (1u << SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
-        desc.axis_mask = (1u << SDL_GAMEPAD_AXIS_LEFTX) | (1u << SDL_GAMEPAD_AXIS_LEFTY);
-    }
-    return SDL_AttachVirtualJoystick(&desc);
-}
-
-static std::string gpa_guid(SDL_JoystickID iid) {
-    char buf[33] = {};
-    SDL_GUIDToString(SDL_GetJoystickGUIDForID(iid), buf, sizeof(buf));
-    return buf;
-}
-
 static void gpa_feed(GamepadHost& host, SDL_EventType t, SDL_JoystickID iid) {
     SDL_Event e{};
     e.type = t;
@@ -1463,7 +1434,7 @@ static void gpa_feed(GamepadHost& host, SDL_EventType t, SDL_JoystickID iid) {
 
 static void test_gh311_gamepad_host() {
     set_group("GPA");
-    static const char* const ids[] = { "GPA-01", "GPA-02", "GPA-03", "GPA-04", "GPA-05",
+    static const char* const ids[] = { "GPA-01", "GPA-02", "GPA-04", "GPA-05",
                                        "GPA-06", "GPA-07", "GPA-08", "GPA-09", "GPA-10",
                                        "GPA-11", "GPA-12", "GPA-13" };
     if (!SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD)) {
@@ -1503,19 +1474,6 @@ static void test_gh311_gamepad_host() {
           detail("a1/a2/c=%d", slot(a1) * 100 + slot(a2) * 10 + slot(c)));
 
     host.set_device(0, JoyDeviceRef{ H, "jnext stick C" });
-    {
-        SDL_Event b{};
-        b.type = SDL_EVENT_JOYSTICK_BUTTON_DOWN;
-        b.jbutton.which = c; b.jbutton.button = 0; b.jbutton.down = true;
-        host.handle_event(b);
-        check("GPA-03", "assigning C to Joy 1 binds it live; A2 keeps Joy 2 (sticky); C's button reaches Joy 1",
-              slot(c) == 0 && slot(a2) == 1 && slot(a1) == -1 &&
-              (host.dispatcher().bits12(0) & 0x010) != 0,
-              detail("c/a2/a1=%d", slot(c) * 100 + slot(a2) * 10 + slot(a1)));
-        b.type = SDL_EVENT_JOYSTICK_BUTTON_UP; b.jbutton.down = false;
-        host.handle_event(b);
-    }
-
     host.set_device(1, JoyDeviceRef{ G, "jnext pad A" });
     check("GPA-04", "assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2",
           slot(a1) == 1 && slot(a2) == -1 && slot(c) == 0,

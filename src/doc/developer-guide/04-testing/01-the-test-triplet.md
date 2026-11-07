@@ -12,7 +12,7 @@ $ make regression
 ```
 
 The triplet is the core of the **batch gate**, which adds `make unit-test-sdl`,
-`make unit-test-win` and `make regression-win`.
+`make unit-test-win`, `make unit-test-wasm` and `make regression-win`.
 
 - **When it runs:** on `main`'s tip, once, after all of a work session's landings
   and before any push.

@@ -41,10 +41,12 @@ machine. The two ESP-01 suites are the exception to the layout: they live under
 
 ## Portable suites
 
-The SDL-only suites run on three operating systems: natively on Linux and macOS,
-and as MinGW-built Windows executables under wine (`make unit-test-win`). So a
-suite that is not `# os: posix` must build and pass on all three, which in
-practice means a handful of rules:
+The SDL-only suites run on three operating systems and under node: natively on
+Linux and macOS, as MinGW-built Windows executables under wine
+(`make unit-test-win`), and as WebAssembly modules (`make unit-test-wasm`). So a
+suite that is not `# os: posix` must build and pass on all three native ones, and
+a suite that is not `# os: native` also under node, which in practice means a
+handful of rules:
 
 - Do not call `setenv`, `unsetenv`, `mkdtemp`, `localtime_r`, `mkdir(path, mode)`
   or `geteuid` directly. `test/test_portable.h` has `jtp::set_env`,
@@ -67,6 +69,11 @@ practice means a handful of rules:
 - A test whose fixture needs `fork`, FIFOs, ptys, symbolic links or `chmod 0`
   belongs in a suite the manifest declares `# os: posix`, with the rows moved
   there unchanged; see [4.2](02-declared-suites-and-pinned-counts.md).
+  A test that needs a process, a thread or a listening socket (the WebAssembly
+  build has none) belongs in a suite declared `# os: native`.
+- Under node `getpid()` is the constant 42, so a scratch name built from it is not
+  unique; the runner gives every run a private `TMPDIR`, which is where
+  `std::filesystem::temp_directory_path()` points.
 
 A row that needs a write to FAIL (a full disk) uses `jtp::FullDisk`: `/dev/full`
 where it exists, else, on macOS, a file whose writes a zero file-size limit denies

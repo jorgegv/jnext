@@ -46,10 +46,11 @@ SDL with it, are not used in practice and remain build-only. CI runs both
 targets.
 
 The configurations are about *what* is built; the suites also run on three
-operating systems. The SDL-only set runs natively on Linux
+operating systems and under node. The SDL-only set runs natively on Linux
 (`make unit-test-sdl`), natively on macOS (the same target, with Homebrew's GNU
 tools first on `PATH`), and as MinGW-built Windows executables under wine
-(`make unit-test-win`). Which suites each OS owes is declared by `# os:` in
+(`make unit-test-win`), and as WebAssembly modules under node
+(`make unit-test-wasm`). Which suites each OS owes is declared by `# os:` in
 `test/unit-tests.conf` ([4.2](../04-testing/02-declared-suites-and-pinned-counts.md)).
 The Qt and debugger suites run on Linux only, and the regression suite, the
 documentation gates and the traceability matrix are Linux-only by design: they
@@ -88,6 +89,18 @@ growable memory, and the flags and `--set` keys that need a process, a socket
 or the script host refused with a message (`cli::browser_refusal`). zlib and
 libpng come from the SDK's ports (`-sUSE_ZLIB=1`, `-sUSE_LIBPNG=1`), which pick
 the libpng variant that matches the exception model.
+
+`build/wasm-unit-test` (`make unit-test-wasm-build`) is the same configuration
+with `JNEXT_ENABLE_LTO=OFF` and every target built, the test executables
+included; the Windows test tree is the precedent (the suites need no cross-TU
+inlining, and an LTO link of the whole core per suite would cost about a hundred
+times as much). Its test executables link with an 8 MB stack as the Windows ones
+do, with `-sSTACK_OVERFLOW_CHECK=2` (a release module has no stack guard, so an
+overflow would silently overwrite static data) and `-sEXIT_RUNTIME=1` (static
+destructors, `atexit` and a stdio flush at exit, as natively) and a link at `-O1`
+(the objects stay `-O3`; skipping the final wasm-opt pass turns a link of up to two
+minutes into one second with no measurable cost in run time), all in
+`test/CMakeLists.txt`; `jnext` keeps its own link options.
 
 The browser frontend is a second target of the same tree, `jnext_web`: the same
 `main.cpp`, compiled with `JNEXT_BROWSER`, plus `browser_frontend.cpp`, linked

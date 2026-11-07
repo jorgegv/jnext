@@ -3184,7 +3184,10 @@ the OPTIONS section of <code>doc/man/jnext.1.md</code> in both directions:</p>
   unenumerable in the first place, and it would re-open the gap invisibly,
   because such a flag appears neither in the table nor in this check.</li>
 <li><code>CLI-BIN-01</code> runs the real binary end to end, proving that the table drives
-  the actual parser rather than only this test.</li>
+  the actual parser rather than only this test. It, and every row that starts
+  the built <code>jnext</code> as a child process (among them <code>CLI-BIN-04</code>, the binary's
+  <code>--help</code> against the table), is in <code>cli_options_native_test</code>, a second suite
+  because the WebAssembly build starts no process.</li>
 <li><code>CLI-NUM-05</code> gives every option that takes a value the argument <code>x</code> and fails
   on any crash, so a future flag parsed with a throwing call is caught without
   anyone listing it.</li>
@@ -3192,8 +3195,9 @@ the OPTIONS section of <code>doc/man/jnext.1.md</code> in both directions:</p>
   accepts its bounds, and that its case table covers every numeric option in
   <code>cli::OPTIONS</code>.</li>
 </ul>
-<p>The suite runs both as <code>make cli-check</code>, a prerequisite of <code>make regression</code>,
-and as a declared row of <code>test/unit-tests.conf</code>. It hangs off <code>unit-test-build</code>
+<p>The two suites run both as <code>make cli-check</code> (which runs <code>cli_options_test</code> and
+then <code>cli_options_native_test</code>), a prerequisite of <code>make regression</code>, and as
+declared rows of <code>test/unit-tests.conf</code>. It hangs off <code>unit-test-build</code>
 rather than off <code>docs-check</code>, because the table is C++ and <code>docs-check</code>
 deliberately needs no compiler.</p>
 <h2 id="declaring-a-deliberate-exception">Declaring a deliberate exception<a class="headerlink" href="#declaring-a-deliberate-exception" title="Permanent link">&para;</a></h2>

@@ -73,31 +73,38 @@ if(ENABLE_TESTS)
         add_compile_options(-Werror)
     endif()
 
-    # Drives the AT engine against an in-memory fake transport: no socket, no
-    # DNS, no listener. Portable to any platform the module builds on.
-    add_executable(esp_at_test test/esp_at_test.cpp)
-    target_link_libraries(esp_at_test PRIVATE esp01)
+    # The ESP-01 is refused by the browser build (no sockets, no fork), so a
+    # WebAssembly test tree has none of its suites; test/unit-tests.conf declares
+    # esp_at_test and esp_socket_test `# os: native`.
+    if(NOT EMSCRIPTEN)
+        # Drives the AT engine against an in-memory fake transport: no socket, no
+        # DNS, no listener. Portable to any platform the module builds on.
+        add_executable(esp_at_test test/esp_at_test.cpp)
+        target_link_libraries(esp_at_test PRIVATE esp01)
 
-    # The address policy is pure and portable; the transport half drives an
-    # in-process loopback listener with a POSIX and a Winsock spelling
-    # (test/esp_test_net.h), so this suite builds on every platform (GH #214).
-    add_executable(esp_socket_test test/esp_socket_test.cpp)
-    target_link_libraries(esp_socket_test PRIVATE esp01)
+        # The address policy is pure and portable; the transport half drives an
+        # in-process loopback listener with a POSIX and a Winsock spelling
+        # (test/esp_test_net.h), so this suite builds on every platform (GH #214).
+        add_executable(esp_socket_test test/esp_socket_test.cpp)
+        target_link_libraries(esp_socket_test PRIVATE esp01)
+    endif()
 
     # The SIG rows: a blind write into a closed peer must not raise SIGPIPE.
     # They fork(), and SIGPIPE does not exist on Windows, so the suite is
     # POSIX-only and test/unit-tests.conf declares it `# os: posix`.
-    if(NOT WIN32)
+    if(NOT WIN32 AND NOT EMSCRIPTEN)
         add_executable(esp_sigpipe_test test/esp_sigpipe_test.cpp)
         target_link_libraries(esp_sigpipe_test PRIVATE esp01)
     endif()
 
-    set_target_properties(esp_at_test esp_socket_test PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    if(NOT EMSCRIPTEN)
+        set_target_properties(esp_at_test esp_socket_test PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/test)
 
-    add_test(NAME esp_at_tests     COMMAND esp_at_test)
-    add_test(NAME esp_socket_tests COMMAND esp_socket_test)
-    if(NOT WIN32)
+        add_test(NAME esp_at_tests     COMMAND esp_at_test)
+        add_test(NAME esp_socket_tests COMMAND esp_socket_test)
+    endif()
+    if(NOT WIN32 AND NOT EMSCRIPTEN)
         set_target_properties(esp_sigpipe_test PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/test)
         add_test(NAME esp_sigpipe_tests COMMAND esp_sigpipe_test)

@@ -65,7 +65,15 @@ my %ALLOW;
     }
 }
 
-my $ID_RE = qr{"([A-Z][A-Z0-9_]*(?:\.[A-Z0-9_]+)*-[A-Za-z0-9._\-+]+|\d+\.\d+[a-z]?|S\d+\.\d+[a-z]?)"};
+# What reads as a row ID. A NAMED ID ("FOO-01", "S1.01") is unmistakable wherever it
+# stands, so it counts anywhere on a line (case tables, ID arrays). A bare number
+# ("1.5", "3.50") is also how a VALUE under test is spelled, so it counts only as
+# the FIRST ARGUMENT of a call -- check("1.1", ...), the way the numbered suites
+# assert -- and never as an element of a table or list of values. Before this a
+# test value that looked like a number was a "collision" between two suites that
+# both listed it (GH #460).
+my $ID_RE  = qr{"([A-Z][A-Z0-9_]*(?:\.[A-Z0-9_]+)*-[A-Za-z0-9._\-+]+|S\d+\.\d+[a-z]?)"};
+my $NUM_RE = qr{\(\s*"(\d+\.\d+[a-z]?)"};
 
 open(my $mf, '<', "$ROOT/test/unit-tests.conf") or die "open manifest: $!\n";
 my (@suites, @unresolved);
@@ -105,7 +113,8 @@ for my $suite (@suites) {
         while (my $line = <$fh>) {
             next if $line =~ m{^\s*//};
             $line =~ s/\bset_group\s*\(\s*"[^"]*"/set_group(/g;
-            while ($line =~ /$ID_RE/g) { $where{$1}{$suite} = 1; }
+            while ($line =~ /$ID_RE/g)  { $where{$1}{$suite} = 1; }
+            while ($line =~ /$NUM_RE/g) { $where{$1}{$suite} = 1; }
         }
         close $fh;
     }

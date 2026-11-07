@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=315  # 312 -> 315: HS-160a..b, HS-161 added (GH #463: the Playwright provisioner refuses a wrong sha256 on each of its two pins and re-resolves under its lock). 311 -> 312: HS-159 added (GH #459 review: the emsdk provisioner re-resolves under its lock). 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=330  # 315 -> 330: HS-162a..j (GH #460: the emscripten target OS, `# os: native`, the emulator-led add_test() and NAME.js + NAME.wasm) and HS-163a..e (test/node-run.sh) added. 312 -> 315: HS-160a..b, HS-161 added (GH #463: the Playwright provisioner refuses a wrong sha256 on each of its two pins and re-resolves under its lock). 311 -> 312: HS-159 added (GH #459 review: the emsdk provisioner re-resolves under its lock). 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2842,6 +2842,165 @@ check "HS-88b" "JNEXT_UNIT_TEST_JOBS=1 runs them one at a time (no overlap) and 
 check "HS-88c" "...and the overlap flag stays unset under the cap" 0 $((capped_overlap == 0 ? 0 : 1)) "overlap=$capped_overlap" "overlap=0"
 out=$(JNEXT_UNIT_TEST_JOBS=lots run_harness); rc=$?
 check "HS-88d" "a non-numeric JNEXT_UNIT_TEST_JOBS is a refusal" 2 $rc "$out" "REFUSES TO RUN" "JNEXT_UNIT_TEST_JOBS"
+
+# ---------------- WebAssembly under node (GH #460) ----------------
+# An Emscripten build run by node: JNEXT_TARGET_OS=emscripten, every add_test() led by
+# the cross-compiling emulator CMake read from the cache (CMAKE_CROSSCOMPILING_EMULATOR),
+# and a suite that is NAME.js + NAME.wasm, neither executable. `# os: native` is the class
+# of Linux, macOS and Windows: everything but emscripten. The oracle is the harness
+# contract (CLAUDE.md, the test manifests), and the add_test() format of a real wasm tree
+# (an emulator-prefixed line, read from build/wasm-unit-test).
+wasm_cache() {   # wasm_cache <os> [emulator] — the fake tree's cache, with a cross emulator
+    cache ON ON "$1"
+    [[ -z "${2:-}" ]] || echo "CMAKE_CROSSCOMPILING_EMULATOR:FILEPATH=$2" >> "$T/build/CMakeCache.txt"
+}
+wasm_suite() {   # wasm_suite <name> <rows> — NAME.js (a non-executable script) + NAME.wasm
+    stub "$1" "$2" 0
+    mv "$T/build/test/$1" "$T/build/test/$1.js"
+    chmod 644 "$T/build/test/$1.js"
+    : > "$T/build/test/$1.wasm"
+}
+wasm_register() {   # wasm_register <name...> — add_test(<n>s "/x/node" "<n>.js"), sources = the .js
+    : > "$T/build/test/CTestTestfile.cmake"; : > "$T/sources.tsv"
+    local n
+    for n in "$@"; do
+        echo "add_test(${n}s \"/x/node\" \"$T/build/test/$n.js\")" >> "$T/build/test/CTestTestfile.cmake"
+        printf '%s\t%s\n' "$n" "$T/build/test/$n.js" >> "$T/sources.tsv"
+    done
+}
+# The runner of these rows plays node: it is handed the .js and executes it with bash.
+printf '#!/usr/bin/env bash\necho "runner ran $*" >"%s/runner.log"\nexec bash "$@"\n' "$T" > "$T/wasm-runner.sh"
+chmod +x "$T/wasm-runner.sh"
+run_wasm() { JNEXT_TEST_RUNNER="$T/wasm-runner.sh" run_harness; }
+
+wasm_suite good_test 10
+wasm_cache emscripten /x/node
+wasm_register good_test
+manifest "good_test 10"
+out=$(run_wasm); rc=$?
+check "HS-162a" "an emscripten tree: the emulator-led add_test(), a NAME.js that is not executable and a NAME.wasm run, and the config line names the OS" 0 $rc "$out" \
+    "good_test" "Total: 10" "os=emscripten"
+rm -f "$T/runner.log"
+out=$(run_wasm); rc=$?
+runner_log=$(cat "$T/runner.log" 2>/dev/null || true)
+check "HS-162b" "the runner is handed NAME.js, the .js path of the suite, not the emulator and not the bare name" 0 $([[ "$runner_log" == "runner ran $T/build/test/good_test.js" ]] && echo 0 || echo 1) "$runner_log" "runner ran"
+rm -f "$T/build/test/good_test.wasm"
+out=$(run_wasm); rc=$?
+check "HS-162c" "an emscripten suite whose .wasm is missing is not built: a refusal naming the .wasm" 2 $rc "$out" "REFUSES TO RUN" "NOT built" "good_test.wasm"
+: > "$T/build/test/good_test.wasm"
+
+wasm_suite other_test 5
+wasm_register good_test other_test
+sed -i 's|^add_test(other_tests "/x/node" |add_test(other_tests |' "$T/build/test/CTestTestfile.cmake"
+manifest "good_test 10" "other_test 5"
+out=$(run_wasm); rc=$?
+check "HS-162d" "a cache naming a cross emulator and an add_test() line without it is a refusal naming that suite, not a guess at the suite word" 2 $rc "$out" \
+    "REFUSES TO RUN" "other_tests" "cross-compiling emulator" "which argument is the suite"
+
+wasm_register good_test other_test
+manifest "good_test 10" "# os: native" "?other_test 5"
+out=$(run_wasm); rc=$?
+check "HS-162e" "an '# os: native' suite registered on emscripten is a refusal" 2 $rc "$out" \
+    "REFUSES TO RUN" "other_test" "gates it to"
+
+wasm_register good_test
+manifest "good_test 10" "# os: native" "?other_test 5"
+out=$(run_wasm); rc=$?
+check "HS-162f" "an '# os: native' suite absent on emscripten is expected: NOTICE naming it and the OS, not silence" 0 $rc "$out" \
+    "NOTICE" "gated out" "other_test" "os=emscripten" "Suites: 1 pass, 0 fail"
+
+manifest "good_test 10" "# os: posix" "?other_test 5"
+out=$(run_wasm); rc=$?
+check "HS-162h" "an '# os: posix' suite absent on emscripten is expected: NOTICE naming it (posix does not include emscripten)" 0 $rc "$out" \
+    "NOTICE" "gated out" "other_test" "os=emscripten"
+wasm_register good_test other_test
+out=$(run_wasm); rc=$?
+check "HS-162i" "...and one registered there is a refusal" 2 $rc "$out" "REFUSES TO RUN" "other_test" "gates it to"
+
+# native on the other OSes (Windows here): owed, so absent is a refusal and registered runs.
+rm -f "$T/build/test/"*.js "$T/build/test/"*.wasm
+stub good_test 10 0; stub other_test 5 0
+register good_test
+cache ON ON windows
+manifest "good_test 10" "# os: native" "?other_test 5"
+out=$(run_harness); rc=$?
+check "HS-162g" "an '# os: native' suite absent on windows is a refusal: native includes windows" 2 $rc "$out" \
+    "REFUSES TO RUN" "other_test" "NOT registered by CMake"
+mv "$T/build/test/good_test" "$T/build/test/good_test.exe"; mv "$T/build/test/other_test" "$T/build/test/other_test.exe"
+: > "$T/build/test/CTestTestfile.cmake"; : > "$T/sources.tsv"
+for n in good_test other_test; do
+    echo "add_test(${n}s \"$T/build/test/$n.exe\")" >> "$T/build/test/CTestTestfile.cmake"
+    printf '%s\t%s\n' "$n" "$T/build/test/$n.exe" >> "$T/sources.tsv"
+done
+out=$(run_harness); rc=$?
+check "HS-162j" "...and the control: registered on windows it runs" 0 $rc "$out" "Total: 15" "os=windows"
+rm -f "$T/build/test/good_test.exe" "$T/build/test/other_test.exe"
+
+# ---- test/node-run.sh: the runner behind make unit-test-wasm ----
+NR="$T/nr"; mkdir -p "$NR/build/test" "$NR/bin"
+NODE_RUN="$PROJECT_DIR/test/node-run.sh"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$#" "$@" > "%s/argv.txt"\nexit 7\n' "$NR" > "$NR/node"
+chmod +x "$NR/node"
+echo "CMAKE_CROSSCOMPILING_EMULATOR:FILEPATH=$NR/node" > "$NR/build/CMakeCache.txt"
+: > "$NR/build/test/x.js"; : > "$NR/build/test/x.wasm"
+out=$(timeout --kill-after=5s 60s bash "$NODE_RUN" "$NR/build/test/x.js" "a b" c 2>&1); rc=$?
+argv=$(tr '\n' '|' < "$NR/argv.txt" 2>/dev/null || true)
+check "HS-163a" "node-run.sh hands the .js and the arguments to the cache's node intact (3 words: the module, 'a b', c) and returns its exit status" 7 $rc "$argv" \
+    "3|$NR/build/test/x.js|a b|c|"
+
+cat > "$NR/node" <<EOS
+#!/usr/bin/env bash
+n=\$(cat "$NR/count" 2>/dev/null || echo 0); echo \$((n + 1)) > "$NR/count"
+env > "$NR/env.\$n"
+echo "\$TMPDIR" >> "$NR/tmps"
+[[ -d "\$TMPDIR" ]] && echo exists >> "$NR/during"
+exit 0
+EOS
+rm -f "$NR/count" "$NR/tmps" "$NR/during" "$NR"/env.*
+DISPLAY=:99 WAYLAND_DISPLAY=wayland-99 LC_ALL=es_ES.UTF-8 LANG=es_ES.UTF-8 \
+    timeout --kill-after=5s 60s bash "$NODE_RUN" "$NR/build/test/x.js" >/dev/null 2>&1; rc=$?
+DISPLAY=:99 WAYLAND_DISPLAY=wayland-99 LC_ALL=es_ES.UTF-8 LANG=es_ES.UTF-8 \
+    timeout --kill-after=5s 60s bash "$NODE_RUN" "$NR/build/test/x.js" >/dev/null 2>&1; rc2=$?
+env_ok=1
+for f in "$NR"/env.0 "$NR"/env.1; do
+    if ! { grep -qx 'LC_ALL=C' "$f" && grep -qx 'LANG=C' "$f" && ! grep -q '^DISPLAY=' "$f" && ! grep -q '^WAYLAND_DISPLAY=' "$f"; }; then env_ok=0; fi
+done
+t1=$(sed -n 1p "$NR/tmps" 2>/dev/null || true); t2=$(sed -n 2p "$NR/tmps" 2>/dev/null || true)
+priv_ok=0
+[[ -n "$t1" && -n "$t2" && "$t1" != "$t2" && ! -e "$t1" && ! -e "$t2" && "$(grep -c exists "$NR/during" 2>/dev/null)" == 2 ]] && priv_ok=1
+check "HS-163b" "node-run.sh runs node with LC_ALL=C LANG=C and no DISPLAY / WAYLAND_DISPLAY, in a private TMPDIR that exists during the run, differs per run and is gone after" 0 $(( rc == 0 && rc2 == 0 && env_ok == 1 && priv_ok == 1 ? 0 : 1 )) \
+    "rc=$rc rc2=$rc2 env_ok=$env_ok priv_ok=$priv_ok t1=$t1 t2=$t2"
+
+printf '#!/usr/bin/env bash\ntouch "%s/path-node-ran"\n' "$NR" > "$NR/bin/node"; chmod +x "$NR/bin/node"
+rm -f "$NR/path-node-ran"
+echo "CMAKE_CROSSCOMPILING_EMULATOR:FILEPATH=$NR/no-such-node" > "$NR/build/CMakeCache.txt"
+out=$(PATH="$NR/bin:/usr/bin:/bin" timeout --kill-after=5s 60s bash "$NODE_RUN" "$NR/build/test/x.js" 2>&1); rc=$?
+check "HS-163c" "node-run.sh with a missing cache emulator exits 2 naming CMAKE_CROSSCOMPILING_EMULATOR and never runs a node found on PATH" 2 $rc \
+    "$out"$([[ -e "$NR/path-node-ran" ]] && echo " PATH-NODE-RAN") "CMAKE_CROSSCOMPILING_EMULATOR"
+[[ ! -e "$NR/path-node-ran" ]] || { echo "HS-163c: a node from PATH ran"; fail=$((fail + 1)); }
+echo "CMAKE_CROSSCOMPILING_EMULATOR:FILEPATH=$NR/node" > "$NR/build/CMakeCache.txt"
+rm -f "$NR/build/test/x.wasm"
+out=$(timeout --kill-after=5s 60s bash "$NODE_RUN" "$NR/build/test/x.js" 2>&1); rc=$?
+check "HS-163d" "node-run.sh with no NAME.wasm beside the .js exits 2 naming it" 2 $rc "$out" "x.wasm"
+: > "$NR/build/test/x.wasm"
+
+cat > "$NR/node" <<EOS
+#!/usr/bin/env bash
+echo "\$TMPDIR" > "$NR/term-tmp"
+trap 'echo term > "$NR/term-marker"; exit 143' TERM
+echo ready > "$NR/ready"
+for ((i = 0; i < 300; i++)); do sleep 0.1; done
+exit 0
+EOS
+rm -f "$NR/term-marker" "$NR/ready" "$NR/term-tmp"
+bash "$NODE_RUN" "$NR/build/test/x.js" >/dev/null 2>&1 &
+rpid=$!
+for ((i = 0; i < 100; i++)); do [[ -e "$NR/ready" ]] && break; sleep 0.1; done
+kill -TERM "$rpid" 2>/dev/null
+rc=0; wait "$rpid" || rc=$?
+tt=$(cat "$NR/term-tmp" 2>/dev/null || true)
+check "HS-163e" "TERM sent to node-run.sh reaches node (its trap writes the marker), the runner exits with node's status 143 and removes the private TMPDIR" 143 $rc \
+    "marker=$(cat "$NR/term-marker" 2>/dev/null) gone=$([[ -n "$tt" && ! -e "$tt" ]] && echo yes || echo no)" "marker=term" "gone=yes"
 
 # ---------------------------------------------------------------------------
 # GH #319: regression.sh --platform (macOS / wine runs), the os= tag grammar and
