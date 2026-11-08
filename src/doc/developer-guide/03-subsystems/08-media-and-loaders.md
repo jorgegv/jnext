@@ -133,6 +133,9 @@ the ROM run against jnext's own real-time player, except the ROM's edge-tracking
 byte C, whose value after the sync depends on the pilot phase the ROM caught and
 which the trap pins to `0x21`. A custom or turbo loader that never enters the ROM
 routine is never intercepted, and real time is then the only way it will load.
+The real-time players cover the pure-EAR turbo loaders too: a TZX Direct
+Recording block (0x15) plays as a TZX block, and WAV playback interpolates the
+edge position inside a sample, which is what DeciLoad's 12k8 loader needs.
 
 **A fast load also runs the machine uncapped**, so the BASIC between the blocks
 does not cost real time: `Emulator::fastload_active()` drops the frame pacing (the
@@ -309,6 +312,11 @@ is not one.
 A directly loaded NEX can also keep its own file handle open and stream from
 itself. `extended_nex_host.*` presents the host file to the guest as a
 synthetic block-addressed SD extent, so NextZXOS's file APIs work against it.
+
+A V1.3 header also carries the expansion-bus and CLI-buffer fields, and the file
+offset of the first bank, which lets the loader skip block types it does not
+know; a loading-screen kind it cannot size is refused rather than loading every
+bank from the wrong offset.
 
 Whatever follows the header-described banks is never read into host memory:
 `NexLoader::load()` reads only up to `payload_offset()`. What happens to those
@@ -494,7 +502,8 @@ BASIC program resident. Measured against the real chain (boot, *Command Line*,
 bytes, all edit-line and interpreter scratch, and the screenshots of a program
 that prints are identical.
 
-**The cache** is `src/core/warm_start_cache.{h,cpp}`: one file per machine
+**The cache** is `src/core/warm_start_cache.{h,cpp}`: the recording is made once
+per SD image by cold-booting it (about 3.5 s), and kept as one file per machine
 type under `<config-dir>/warm-start`, with a 96-byte header carrying the
 identity that invalidates it — the SD image's size and mtime, the machine
 type, a state-format version, a recording-procedure version (header offset 72,
