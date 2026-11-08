@@ -2826,7 +2826,7 @@ private:
     /// hc_ula == 0 (`hc = line_mc >> 2`), cvc (0 .. lines per frame - 1), and the offset
     /// cvc counts from. The one rebase both the Copper step loop and the HALT batch use.
     struct CopperPos { int line_mc; int cvc; uint8_t cvc_offset; };
-    CopperPos copper_position_at_(uint64_t cycle) const;
+    [[gnu::always_inline]] inline CopperPos copper_position_at_(uint64_t cycle) const;
 
     /// GH #272 — advance the Copper across the master-cycle window this
     /// instruction consumed, stopping at every video-row boundary inside
@@ -2869,25 +2869,24 @@ private:
     /// and md6_.tick() — stepping through interrupt-driven code never
     /// delivered CTC/UART/ULA-frame interrupts.
     ///
-    /// GH #452 - `allow_halt_batch` is passed true ONLY by run_frame(): when the
-    /// instruction was a HALT repeat and every gate of try_halt_batch_() holds, the slot
-    /// covers the following repeats up to the next thing that can matter, as one slot.
-    /// step_frame_slot() and execute_single_instruction() leave it false, so a debugger
-    /// Step is exactly one repeat.
-    uint64_t step_one_instruction(bool allow_halt_batch = false);
+    uint64_t step_one_instruction();
 
-    /// GH #452 - called right after the real execute() of a slot. If that slot was a HALT
-    /// repeat and the machine is provably in a state where each further repeat does exactly
-    /// what this one did (gates G1-G12 and P1-P5 of the stage-3 plan), absorb as many as fit
-    /// before the next scheduler event, CTC event or Copper action, and return the T-states
-    /// of the WHOLE batched slot (otherwise `tstates` unchanged).
-    int try_halt_batch_(int tstates, uint16_t pc_pre_exec, uint64_t slot_start);
+    /// GH #452 - the HALT batch. run_frame() calls halted_slot_() after a slot that left the CPU
+    /// halted (and only then: the whole of it is out of line, because inline code in that loop cost
+    /// every program, halting or not, instructions). It returns true when the slot was a HALT repeat
+    /// that stands for several: halt_batch_after_slot_() has proved that each further repeat would do
+    /// exactly what the real one did (every gate and bound listed there), has absorbed them (CPU
+    /// counters, master clock, DMA prescaler) and returned the master cycles of the WHOLE slot, and
+    /// tick_devices_after_batched_halt_() has run the device cluster over that window, the PSG and the
+    /// mixer replayed repeat by repeat first (advance_audio_batched_() is its own copy of
+    /// advance_audio(), see the comment at its definition).
+    bool halted_slot_(uint64_t master_cycles);
+    uint64_t halt_batch_after_slot_(uint64_t master_cycles, bool& batched);
+    void tick_devices_after_batched_halt_(uint64_t master_cycles);
+    void advance_audio_batched_(uint64_t master_cycles);
 
-    /// GH #452 - the PSG tick and the audio integration of one slot's `master_cycles`. A
-    /// batched slot (slot_repeat_mc_ != 0) replays them repeat by repeat in the same order:
-    /// the PSG ticks, then that repeat's cycles integrate at the post-tick level.
-    void tick_psg_and_audio_(uint64_t master_cycles);
-    uint64_t slot_repeat_mc_ = 0;   ///< master cycles of ONE repeat of a batched slot, else 0
+    /// GH #452 - master cycles of ONE repeat of a batched HALT slot while one is in flight, else 0.
+    uint64_t slot_repeat_mc_ = 0;
 
     /// Task 60a — the shared post-instruction device-tick cluster:
     /// Copper (G117), deferred CPU NR-write drain (G65), contention /

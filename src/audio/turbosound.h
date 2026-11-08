@@ -88,6 +88,10 @@ public:
     /// Advance all three AY chips by one PSG clock-enable tick; every ym2149 runs on
     /// clock_en_i (turbosound.vhd:162/217/272).
     void tick();
+    /// The same, for the HALT batch's PSG replay (GH #452): a separate copy of the body, so that
+    /// tick() keeps its ONE caller (the device cluster, which GCC inlines) and neither copy makes the
+    /// other's callee (compute_stereo_mix, inlined into each) a shared out-of-line function.
+    void tick_cold();
 
     /// Debugger-only per-chip mute (AudioMute::AY0/AY1/AY2; bit i = chip i).
     /// Gates ONLY this chip's contribution to the 3-PSG sum in
@@ -149,5 +153,6 @@ private:
 
     int active_ay_index() const;
     void compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) const;
-    void compute_stereo_mix();
+    [[gnu::always_inline]] inline void compute_stereo_mix();
+    [[gnu::always_inline]] inline void tick_impl_();
 };

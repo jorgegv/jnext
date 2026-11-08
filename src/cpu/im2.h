@@ -138,6 +138,14 @@ public:
     /// resolving a request, and clears quiescent_ when it does. Emulator's
     /// per-instruction fast path; the tick it skips only stores intra-tick
     /// scratch (pulse_count_advance_, read solely by step_pulse() in tick()).
+    /// GH #452 - slot_idle() without the NMI-activated comparison: the cheap, inline half a
+    /// HALT-batch decision tests first (hardware mode and any interrupt in flight refuse here).
+    /// GH #452 - is_im2_mode() inline: the one test that refuses every HALT repeat of a hardware-mode
+    /// program, made first and without a call.
+    bool hardware_mode() const { return im2_mode_; }
+    bool pulse_mode_quiescent() const {
+        return quiescent_ && !reti_seen_pulse_ && !im2_mode_;
+    }
     bool slot_idle(bool nmi_activated) const {
         return quiescent_ && !reti_seen_pulse_ && !im2_mode_
             && nmi_activated == nmi_activated_;

@@ -338,7 +338,7 @@ public:
 
     /// GH #452 - the first opcode byte the last execute() fetched at PC (valid when
     /// last_slot_kind() == Opcode). A HALT repeat is a slot whose opcode was 0x76.
-    uint8_t last_opcode() const { return last_opcode_; }
+    uint8_t last_opcode() const;
 
     /// GH #452 - account `count` MORE HALT repeats after one the caller has just run for
     /// real, each costing `each` T-states, without executing them. What `count` further
@@ -452,5 +452,4 @@ private:
     bool             executing_ = false;
     uint32_t         exec_start_tstates_ = 0;
     uint64_t         execute_serial_ = 0;
-    uint8_t          last_opcode_ = 0;   // GH #452 - see last_opcode()
 };

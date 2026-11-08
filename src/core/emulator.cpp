@@ -10216,7 +10216,19 @@ void Emulator::run_frame()
         // DMA burst prescaler). Shared verbatim with
         // execute_single_instruction() so the free-running and
         // debugger single-step paths cannot drift.
-        const uint64_t master_cycles = step_one_instruction(/*allow_halt_batch=*/true);
+        // GH #452 - a HALT repeat may stand for several. Decided HERE, after the real repeat has run
+        // through the whole slot body and advanced the clock, so that step_one_instruction() and the
+        // device cluster stay byte-for-byte what they were: any batch test inside either of them cost
+        // every slot of every program 1-2 % in instructions (measured; the compiler's inlining of the
+        // cluster's callees shifted). A program that is not halted pays one test of the CPU's halted
+        // flag per slot, in this function.
+        const uint64_t master_cycles = step_one_instruction();
+        // The whole of it out of line: this loop pays a load, a test and a never-taken branch per slot,
+        // and nothing else (inline code here made the loop's register allocation worse for every
+        // program: 0.3 % of all instructions on a non-halting one).
+        if (__builtin_expect(cpu_.is_halted(), 0) && !im2_.hardware_mode() && batch_halt_enabled_ &&
+            im2_.pulse_mode_quiescent() && halted_slot_(master_cycles))
+            continue;
 
         // GH #276 B2 §4.3 — THE BOUNDARY DRAIN. Everything latched at a site
         // during this instruction is delivered here, with the machine stopped:
@@ -10564,7 +10576,7 @@ void Emulator::snapshot_raster()
     paused_hc_ = static_cast<int>((elapsed % timing_.master_cycles_per_line) / 4);
 }
 
-uint64_t Emulator::step_one_instruction(bool allow_halt_batch)
+uint64_t Emulator::step_one_instruction()
 {
     // Task 60a — the ONE shared per-instruction body for run_frame()'s
     // inner loop and the debugger's execute_single_instruction().
@@ -10605,7 +10617,6 @@ uint64_t Emulator::step_one_instruction(bool allow_halt_batch)
     tap_sync_valid_       = false;
     slot_ran_instruction_ = false;
     slot_m1_count_        = 0;
-    slot_repeat_mc_       = 0;   // GH #452 - only a batched HALT slot sets it
 
     // GH #102 session 4 — resample the LIVE im2_.dma_delay() latch every
     // instruction, not once per video frame. VHDL zxnext.vhd:2001-2010
@@ -11073,11 +11084,6 @@ uint64_t Emulator::step_one_instruction(bool allow_halt_batch)
         // step; run_frame()'s loop head sees paused() on its next iteration
         // and returns, after this instruction's devices have been ticked.
 
-        // GH #452 - a HALT repeat may stand for several: the slot then covers them all.
-        // run_frame() alone asks for it; try_halt_batch_() refuses unless every one of its
-        // gates holds, and returns `tstates` unchanged then.
-        if (allow_halt_batch) tstates = try_halt_batch_(tstates, pc_pre_exec, clock_.get());
-
         // Convert T-states to 28 MHz master cycles for the master-clock
         // advance and the CTC / UART / md6 / nmi device ticks below.
         master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
@@ -11467,7 +11473,21 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // only the oscillator/mixer work that turns them into samples is
     // skipped. See EmulatorConfig::silent doc comment.
     if (!config_.silent) {
-        tick_psg_and_audio_(master_cycles);
+        // Tick PSG (TurboSound) at 1.75 MHz rate. (A batched HALT slot arrives here with its PSG and
+        // audio switched off through this very test: tick_devices_after_batched_halt_() has replayed
+        // them repeat by repeat already.)
+        psg_accum_ += master_cycles;
+        while (psg_accum_ >= PSG_DIVISOR) {
+            psg_accum_ -= PSG_DIVISOR;
+            turbosound_.tick();
+        }
+
+        // Feed this instruction's span to the mixer, which INTEGRATES the source
+        // levels across each output-sample interval rather than point-sampling
+        // them. Suppressed in replay mode (fast-forward rewind path).
+        if (!replay_mode_) {
+            advance_audio(master_cycles);
+        }
     } else if (config_.pi_audio && !replay_mode_) {
         // --silent skips the mixer, but the Pi's samples still have to be
         // latched: NR 0xA2 bit 0 turns them into the EAR input, and --silent
@@ -11487,145 +11507,179 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     finish_slot_interrupts();
 }
 
-void Emulator::tick_psg_and_audio_(uint64_t master_cycles)
+[[gnu::noinline]] void Emulator::tick_devices_after_batched_halt_(uint64_t master_cycles)
 {
-    // PSG clock = 28 MHz / 16 = 1.75 MHz: one PSG tick every 16 master cycles.
+    // GH #452 - the device cluster of a batched HALT slot of n repeats of `slot_repeat_mc_`. All of it
+    // is linear in the window (the batch's gates and bounds see to that) EXCEPT the PSG and the mixer,
+    // which are NOT split-invariant: per repeat the PSG ticks first and then that repeat's cycles
+    // integrate at the level the tick left. They are replayed here, first, repeat by repeat
+    // (consecutive repeats with no PSG tick between them integrate at one level and the mixer is
+    // additive, so a segment is [ticks of its first repeat][one audio span over its repeats]); the
+    // cluster then runs once for the whole window with its PSG / audio block switched off through
+    // the two flags it already tests per slot (--silent, and the Pi audio input it feeds when silent).
+    // This path uses its OWN copies of the PSG tick, the audio integration and the mixer's two entry
+    // points (tick_cold(), advance_audio_batched_(), accumulate_cold(), emit_sample_cold()), each an
+    // always-inline body behind its own wrapper: the cluster's single direct caller of each original is
+    // what GCC inlines, and a second caller of the same function made it stop (measured: 1-2 % of all
+    // instructions of every program).
     static constexpr uint64_t PSG_DIVISOR = 16;
-
-    if (slot_repeat_mc_ == 0) {
-        // Tick PSG (TurboSound) at 1.75 MHz rate.
-        psg_accum_ += master_cycles;
-        while (psg_accum_ >= PSG_DIVISOR) {
-            psg_accum_ -= PSG_DIVISOR;
-            turbosound_.tick();
-        }
-
-        // Feed this instruction's span to the mixer, which INTEGRATES the source
-        // levels across each output-sample interval rather than point-sampling
-        // them. Suppressed in replay mode (fast-forward rewind path).
-        if (!replay_mode_) {
-            advance_audio(master_cycles);
-        }
+    const uint64_t each = slot_repeat_mc_;
+    slot_repeat_mc_ = 0;
+    if (config_.silent) {
+        tick_devices_after_instruction(master_cycles);
         return;
     }
-
-    // GH #452 - a batched HALT slot of n repeats of `slot_repeat_mc_` cycles each. The PSG
-    // and the mixer are NOT split-invariant: per repeat the PSG ticks first and then that
-    // repeat's cycles integrate at the level the tick left. So the repeats are replayed in
-    // that order. Consecutive repeats with no PSG tick between them integrate at one level,
-    // and the mixer is additive and cuts every output-sample edge itself (Mixer::
-    // accumulate(), advance_audio()), so they go to it as one span: flush the pending span
-    // BEFORE a repeat that ticks (it was integrated at the pre-tick level), tick, and let
-    // that repeat's own cycles start the next span.
-    const uint64_t each = slot_repeat_mc_;
     const uint64_t n = master_cycles / each;
-    uint64_t pending = 0;
-    for (uint64_t i = 0; i < n; ++i) {
+    for (uint64_t i = 0; i < n; ) {
         psg_accum_ += each;
-        if (psg_accum_ >= PSG_DIVISOR) {
-            if (pending != 0 && !replay_mode_) advance_audio(pending);
-            pending = 0;
-            do {
-                psg_accum_ -= PSG_DIVISOR;
-                turbosound_.tick();
-            } while (psg_accum_ >= PSG_DIVISOR);
+        while (psg_accum_ >= PSG_DIVISOR) {
+            psg_accum_ -= PSG_DIVISOR;
+            turbosound_.tick_cold();
         }
-        pending += each;
+        uint64_t span = each;
+        ++i;
+        while (i < n && psg_accum_ + each < PSG_DIVISOR) {
+            psg_accum_ += each;
+            span += each;
+            ++i;
+        }
+        if (!replay_mode_) advance_audio_batched_(span);
     }
-    if (pending != 0 && !replay_mode_) advance_audio(pending);
+    PiAudio* const pi = config_.pi_audio;
+    config_.silent = true;
+    config_.pi_audio = nullptr;
+    tick_devices_after_instruction(master_cycles);
+    config_.silent = false;
+    config_.pi_audio = pi;
 }
 
-int Emulator::try_halt_batch_(int tstates, uint16_t pc_pre_exec, uint64_t slot_start)
+[[gnu::noinline]] bool Emulator::halted_slot_(uint64_t master_cycles)
 {
-    // GH #452 - see the declaration. Each condition names the observable it protects; a
-    // refusal costs nothing but the batch (the slot stays the one real repeat).
+    // GH #452 - run_frame() calls this for every slot the CPU is halted after. True when the slot was
+    // batched and its device cluster has been run (the caller then skips its own: batching requires the
+    // debugger idle, G2, so the boundary drain and the data-breakpoint test it would skip are empty).
+    // The caller has already tested the two cheapest refusals inline (the switch, and hardware IM2 mode
+    // or an interrupt in flight): a halted program that cannot batch pays a few loads per slot and no call.
+    bool batched = false;
+    const uint64_t total = halt_batch_after_slot_(master_cycles, batched);
+    if (!batched) return false;
+    tick_devices_after_batched_halt_(total);
+    return true;
+}
+
+[[gnu::noinline]] uint64_t Emulator::halt_batch_after_slot_(uint64_t master_cycles, bool& batched)
+{
+    // GH #452 - see the declaration. Called by run_frame() right after step_one_instruction()
+    // returned for a slot with the CPU halted; the real repeat has run through the whole slot body
+    // (M1 hooks, fetch, T-states, the clock advanced by `master_cycles`, the DMA prescaler) and the
+    // device cluster has NOT run yet. Each condition names the observable it protects; a refusal
+    // costs nothing but the batch (the slot stays the one real repeat).
+    //
+    // ORDER IS A COST DECISION, not a logical one (every condition is an AND): a program that keeps
+    // HALTing but never batches (hardware IM2 mode, a debugger, a tape) pays for the chain on EVERY
+    // repeat slot, which at 28 MHz is over 100k slots a frame. So: P1 in full, then the inline-field
+    // tests that refuse most often, then the two scheduler bounds (two compares), then the tests that
+    // call out of line (NMI source, contention decode), then the bounds that loop or divide.
+    const int tstates = static_cast<int>(master_cycles / static_cast<uint64_t>(clock_.cpu_divisor()));
+    const uint64_t slot_start = clock_.get() - master_cycles;
+    const uint16_t pc_pre_exec = cpu_.pc();   // HALT leaves PC on the opcode: P1 checks the opcode itself
+    batched = false;
 
     // G1: the A/B switch (default on).
-    if (!batch_halt_enabled_) return tstates;
+    if (!batch_halt_enabled_) return master_cycles;
 
-    // P1: the slot WAS a HALT repeat: halted, an opcode was fetched, it was 0x76, and PC
-    // is where it was (HALT leaves it on the opcode).
-    if (!cpu_.is_halted() || cpu_.last_slot_kind() != Z80Cpu::SlotKind::Opcode ||
-        cpu_.last_opcode() != 0x76 || cpu_.pc() != pc_pre_exec)
-        return tstates;
+    // P1: the slot WAS a HALT repeat: halted, an opcode was fetched at PC and it was 0x76 (HALT
+    // leaves PC on the opcode, so PC is where it was).
+    if (cpu_.last_slot_kind() != Z80Cpu::SlotKind::Opcode || cpu_.last_opcode() != 0x76)
+        return master_cycles;
 
-    // G7: no /INT or /NMI waiting for an instruction boundary (acceptance, and the drop
-    // of an expired pulse window, are per-slot decisions).
-    if (cpu_.int_pending() || cpu_.nmi_pending()) return tstates;
+    // G9, the part that refuses most: the IM2 fabric is quiescent and in PULSE mode (hardware mode
+    // and any interrupt in flight refuse here), so finish_slot_interrupts() takes its fast path
+    // for the batched slot exactly as for each repeat. The NMI-activated half is tested below.
+    if (!im2_.pulse_mode_quiescent()) return master_cycles;
 
-    // G2: nothing is observing the machine: breakpoints, watchpoints, events, step modes,
-    // the raster walk, coverage, trace, call stack, profiler, a rewind replay.
+    // G7: no /INT or /NMI waiting for an instruction boundary (acceptance, and the drop of an
+    // expired pulse window, are per-slot decisions).
+    if (cpu_.int_pending() || cpu_.nmi_pending()) return master_cycles;
+
+    // G2: nothing is observing the machine: breakpoints, watchpoints, events, step modes, the
+    // raster walk, coverage, trace, call stack, profiler, a rewind replay.
     if (debug_state_.attached() || debug_state_.armed() || debug_state_.raster_live() ||
         debug_state_.coverage_sink() || debug_state_.mem_gate_live() ||
         trace_log_.enabled() || call_stack_.enabled() || profiler_.active() || replay_mode_)
-        return tstates;
+        return master_cycles;
 
     // G3: RZX counts instructions per frame and replays input per instruction.
-    if (rzx_recorder_.is_recording() || rzx_player_.is_playing()) return tstates;
+    if (rzx_recorder_.is_recording() || rzx_player_.is_playing()) return master_cycles;
 
     // G4: real-time tape playback and tape-out sampling tick per instruction.
     if (tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing() ||
         tape_capture_live_)
-        return tstates;
+        return master_cycles;
 
     // G5: the DMA has nothing to arbitrate and is not in its burst prescaler wait.
-    if (!dma_.idle_for_batch()) return tstates;
+    if (!dma_.idle_for_batch()) return master_cycles;
 
     // G10: the UART bit engine and the host serial sources tick per slot.
-    if (!uart_.tick_is_noop() || joy_uart_source_ || joy_uart_link_) return tstates;
+    if (!uart_.tick_is_noop() || joy_uart_source_ || joy_uart_link_) return master_cycles;
 
-    // G11: no NR 0x07 / NR 0x08 b6 commit waiting for its edge (zxnext.vhd:5796-5828).
+    // G11: no NR 0x07 / NR 0x08 b6 commit waiting for its edge (zxnext.vhd:5796-5828). The b6
+    // half is NOT redundant with P2: a contended page is uncontended while the disable is in
+    // force (contention.cpp:131), so P2 passes with the re-enable still pending.
     if (clock_.pending_cpu_divisor() != clock_.cpu_divisor() ||
         contention_.pending_cpu_speed() != contention_.cpu_speed() ||
         contention_.contention_disable_shadow() != contention_.contention_disable())
-        return tstates;
-
-    // G12 (and B1's precondition): the frame's own events are queued.
-    if (scheduler_.empty()) return tstates;
-
-    // G8: the NMI source pipeline would tick to no effect (a pending host NMI press is
-    // consumed at the next tick: never span it).
-    if (!nmi_source_.tick_is_noop()) return tstates;
-
-    // G9: the IM2 fabric is quiescent and in pulse mode, so finish_slot_interrupts() takes
-    // its fast path for the batched slot exactly as for each repeat.
-    if (!im2_.slot_idle(nmi_source_.is_activated())) return tstates;
-
-    // P2: the real repeat's contend_read(PC, 4) set the active page: not a contended one,
-    // so every further repeat costs exactly `tstates` (contention follows the beam).
-    if (contention_.is_contended_access()) return tstates;
+        return master_cycles;
 
     // P3: the PC is not one the DivMMC automap (RST vectors, the NMI vector, the tape traps,
     // 0x1FF8-0x1FFF, 0x3Dxx) or anything else reacts to by address: the esxDOS shim fires on
     // every execute() at 0x0008 and NmiSource watches the 0x0066 fetch. NOT the DivMMC / Multiface
     // flip-flop STATE: at a non-candidate PC every one of their transitions converges within one
     // M1 edge, which the real repeat is, so the state a batch would hide is invisible (mutants of
-    // both state gates survive everything, the cold boot included; GH #452 stage 3 review).
-    if (DivMmc::automap_pc_candidate(pc_pre_exec)) return tstates;
+    // both state gates survive everything, the cold boot included). No row pins this PC half (a
+    // HALT at 0x0008 changes nothing the shim acts on without an RST $08 hook byte); it is kept
+    // as the named protection of two consumers that do not depend on DivMMC internals.
+    if (DivMmc::automap_pc_candidate(pc_pre_exec)) return master_cycles;
 
-    // Bounds: the batched window [slot_start, slot_start + n * p) must hold no action of
-    // anything that acts at a time of its own; the action then happens in a later slot.
+    // Bounds: the batched window [slot_start, slot_start + n * p) must hold no action of anything
+    // that acts at a time of its own; the action then happens in a later slot. `need` is the least
+    // window that is worth a batch (two repeats): every bound returns the moment it falls below it.
     const uint64_t p = static_cast<uint64_t>(tstates) * static_cast<uint64_t>(clock_.cpu_divisor());
-    if (p == 0) return tstates;
+    if (p == 0) return master_cycles;
+    const uint64_t need = 2 * p;
     uint64_t limit = UINT64_MAX;
+
+    // G12 (and B1's precondition): the frame's own events are queued.
+    if (scheduler_.empty()) return master_cycles;
 
     // B1: video rows, the CVC reload and the frame's VSYNC (so never past the frame end).
     {
         const uint64_t e = scheduler_.next_cycle();
-        if (e <= slot_start + 1) return tstates;
-        limit = std::min(limit, e - slot_start - 1);
+        if (e <= slot_start + 1 || e - slot_start - 1 < need) return master_cycles;
+        limit = e - slot_start - 1;
     }
     // B2: the ULA frame and line interrupts, keyboard release.
     if (!irq_scheduler_.empty()) {
         const uint64_t e = irq_scheduler_.next_cycle();
-        if (e <= slot_start + 1) return tstates;
+        if (e <= slot_start + 1 || e - slot_start - 1 < need) return master_cycles;
         limit = std::min(limit, e - slot_start - 1);
     }
+
+    // G8: the NMI source pipeline would tick to no effect (a pending host NMI press is consumed
+    // at the next tick: never span it), and G9's other half: the NMI-activated sample is the one
+    // the IM2 fabric last saw. Both call out of line, so they come after the cheap refusals.
+    if (!nmi_source_.tick_is_noop()) return master_cycles;
+    if (!im2_.slot_idle(nmi_source_.is_activated())) return master_cycles;
+
+    // P2: the real repeat's contend_read(PC, 4) set the active page: not a contended one, so
+    // every further repeat costs exactly `tstates` (contention follows the beam).
+    if (contention_.is_contended_access()) return master_cycles;
+
     // B3: the next CTC event (a ZC/TO, a timer leaving S_TRIGGER, a chained trigger).
     {
         const uint32_t d = ctc_.cycles_to_next_event();
         if (d != UINT32_MAX) {
-            if (d <= 1) return tstates;
+            if (d <= 1 || d - 1 < need) return master_cycles;
             limit = std::min<uint64_t>(limit, d - 1);
         }
     }
@@ -11636,17 +11690,24 @@ int Emulator::try_halt_batch_(int tstates, uint16_t pc_pre_exec, uint64_t slot_s
         const uint32_t k = copper_.idle_cycles(
             pos.line_mc, pos.cvc, pos.cvc_offset,
             static_cast<int>(timing_.master_cycles_per_line), timing_.lines_per_frame, room);
-        if (k == 0) return tstates;
+        if (k == 0 || k < need) return master_cycles;
         limit = std::min<uint64_t>(limit, k);
     }
 
     const uint64_t n = limit / p;
-    if (n < 2) return tstates;
+    if (n < 2) return master_cycles;
 
-    cpu_.repeat_halt(static_cast<uint32_t>(n - 1), static_cast<uint32_t>(tstates));
+    // Absorb the n - 1 repeats the real one stands for: the CPU's counters, then the two things
+    // step_one_instruction()'s tail does per slot that are not the cluster's: the master clock, and
+    // the DMA burst prescaler timer (linear in CPU clocks while idle: one unit per CPU clock).
+    const uint64_t extra_repeats = n - 1;
+    cpu_.repeat_halt(static_cast<uint32_t>(extra_repeats), static_cast<uint32_t>(tstates));
+    clock_.tick(extra_repeats * p);
+    dma_.tick_burst_wait(extra_repeats * static_cast<uint64_t>(tstates));
     slot_repeat_mc_ = p;
-    halt_repeats_batched_ += n - 1;
-    return static_cast<int>(static_cast<uint64_t>(tstates) * n);
+    halt_repeats_batched_ += extra_repeats;
+    batched = true;
+    return n * p;
 }
 
 uint64_t Emulator::step_frame_slot()
@@ -11891,6 +11952,53 @@ void Emulator::advance_audio(uint64_t master_cycles)
         }
     }
 }
+
+// GH #452: a verbatim second copy of advance_audio() for the batched HALT replay (see
+// tick_devices_after_batched_halt_), calling the mixer's own cold copies.
+[[gnu::noinline]] void Emulator::advance_audio_batched_(uint64_t master_cycles)
+{
+    // Sample generation: 28 MHz / 44100 Hz ≈ 634.92 master cycles per sample.
+    // Bresenham-style accumulator: a sample completes each time accum >= MASTER_CLOCK_HZ.
+    static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
+
+    // Walk the slice in chunks that stop at each output-sample boundary, so the
+    // mixer integrates the source levels ACROSS each sample interval instead of
+    // point-sampling them at its end.
+    //
+    // Point-sampling was the source of the beeper "whistle": output samples are
+    // ~635 master cycles (~79 T-states) apart, and a 1-bit beeper engine toggles
+    // the speaker far faster than that, so most toggles were never observed at
+    // all. The energy they carry does not vanish — it folds down into the
+    // audible band as an inharmonic tone over the music. Averaging over the
+    // interval is a box filter, and it cut jnext's energy above 6 kHz on the
+    // Cesare intro from 6.2% of total to 1.8% (FUSE, which does the same, 0.5%).
+    //
+    // The source levels are constant between accumulate() calls (we observe the
+    // machine at instruction boundaries), so weighting each level by the cycles
+    // it held is exact at that granularity.
+    uint64_t remaining = master_cycles;
+    while (remaining > 0) {
+        // Master cycles still owed before the current output sample completes.
+        const uint64_t need =
+            (SAMPLE_THRESHOLD - sample_accum_ + Mixer::SAMPLE_RATE - 1) / Mixer::SAMPLE_RATE;
+        const uint64_t take = std::min(remaining, need);
+
+        mixer_.accumulate_cold(beeper_, turbosound_, dac_, static_cast<uint32_t>(take));
+        sample_accum_ += take * Mixer::SAMPLE_RATE;
+        remaining -= take;
+
+        if (sample_accum_ >= SAMPLE_THRESHOLD) {
+            sample_accum_ -= SAMPLE_THRESHOLD;
+            mixer_.emit_sample_cold();
+            // The Pi's next sample is latched at each output-sample boundary,
+            // so each one holds for exactly one output sample: QEMU is asked
+            // for the mixer's own 44.1 kHz. Before or after emit_sample() is
+            // the same: it only averages what was already accumulated.
+            if (config_.pi_audio) feed_pi_audio();
+        }
+    }
+}
+
 
 // ---------------------------------------------------------------------------
 // Task 79 — per-connector host input source coordination.
@@ -12943,7 +13051,7 @@ void Emulator::advance_copper_across_row_boundaries(uint64_t master_cycles)
     if (cur < post) tick_copper_for_master_cycles(cur, post - cur);
 }
 
-Emulator::CopperPos Emulator::copper_position_at_(uint64_t cycle) const
+inline Emulator::CopperPos Emulator::copper_position_at_(uint64_t cycle) const
 {
     // GH #452 - the rebase of a master cycle onto the Copper's counters, derived and
     // explained at length in tick_copper_for_master_cycles() (GH #181: hc_ula / cvc are

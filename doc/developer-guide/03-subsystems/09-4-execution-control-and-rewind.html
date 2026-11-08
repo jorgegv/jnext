@@ -3069,7 +3069,7 @@ on a breakpoint.</p>
 <p>The hot path pays nothing for any of this: <code>Mmu::read</code> and <code>Mmu::write</code> compile
 to the same instructions they did without it, every difference being a
 structure offset.</p>
-<p><strong>The HALT batch stands aside for all of it.</strong> <code>Emulator::try_halt_batch_()</code> refuses while a
+<p><strong>The HALT batch stands aside for all of it.</strong> <code>Emulator::halt_batch_after_slot_()</code> refuses while a
 client is attached, breakpoints or watchpoints are live, the raster walk, the coverage sets,
 the trace log, the call stack or the profiler is on, or a rewind replay runs: rewind turns the
 trace on, so a machine with rewind never batches. Stepping is untouched by construction:

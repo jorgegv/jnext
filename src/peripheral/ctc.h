@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <array>
@@ -191,7 +192,16 @@ public:
     /// timer leaving S_TRIGGER, a chained trigger arriving. UINT32_MAX when the CTC is idle.
     /// tick_events() jumps by this same distance, so both agree by construction. A HALT
     /// repeat batch ends at least one edge before it.
-    uint32_t cycles_to_next_event() const;
+    [[gnu::always_inline]] uint32_t cycles_to_next_event() const {
+        uint32_t d = UINT32_MAX;
+        for (int ch = 0; ch < 4; ++ch) {
+            const CtcChannel& c = channels_[ch];
+            if (c.leaving_trigger()) d = 1;
+            else if (c.timer_running()) d = std::min(d, c.cycles_to_zc());
+            if (trg_delay_[ch]) d = std::min<uint32_t>(d, trg_delay_[ch]);
+        }
+        return d;
+    }
 
     /// GH #265 — the CLK_28 edge the channels are at. tick() advances it by
     /// one for every edge it processes, so an on_interrupt / on_zc_to

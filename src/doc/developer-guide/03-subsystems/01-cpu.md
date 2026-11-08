@@ -44,7 +44,7 @@ every later `execute()` re-fetches it (the VHDL does the same, `t80n.vhd:496-503
 Q = 0; halted = 1; PC--` and the T-states of one M1. `Z80Cpu::repeat_halt(count, each)`
 accounts `count` further repeats of a repeat the caller just ran for real, by adding exactly
 what they would have added (the T-state counter, `R`, the `execute()` serial). It changes
-nothing else, and its caller (`Emulator::try_halt_batch_()`) is the one that proves that no
+nothing else, and its caller (`Emulator::halt_batch_after_slot_()`) is the one that proves that no
 other component could have told the repeats apart; `last_opcode()` lets it check that the
 opcode really was `0x76`.
 

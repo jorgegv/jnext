@@ -169,7 +169,7 @@ leaves PC on the opcode, so a halted CPU re-fetches the `0x76` and burns one slo
 5 T at 28 MHz from SRAM) in the whole body above, and in the device cluster below, for
 every repeat: most of the frame of a program that idles on `EI; HALT`. When
 `run_frame()` (and only `run_frame()`: a debugger Step is one repeat, always) executes a
-slot that was such a repeat, `try_halt_batch_()` asks whether each further repeat would do
+slot that was such a repeat, `halt_batch_after_slot_()` asks whether each further repeat would do
 exactly what this one did. The first repeat is always real, so every M1 hook, the fetch and
 the T-states come from the real path and no contention or wait formula is restated. The
 answer is yes only if nothing observes the machine (no debugger, trace, rewind, RZX, tape),

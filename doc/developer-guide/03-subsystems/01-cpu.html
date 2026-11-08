@@ -3029,7 +3029,7 @@ every later <code>execute()</code> re-fetches it (the VHDL does the same, <code>
 Q = 0; halted = 1; PC--</code> and the T-states of one M1. <code>Z80Cpu::repeat_halt(count, each)</code>
 accounts <code>count</code> further repeats of a repeat the caller just ran for real, by adding exactly
 what they would have added (the T-state counter, <code>R</code>, the <code>execute()</code> serial). It changes
-nothing else, and its caller (<code>Emulator::try_halt_batch_()</code>) is the one that proves that no
+nothing else, and its caller (<code>Emulator::halt_batch_after_slot_()</code>) is the one that proves that no
 other component could have told the repeats apart; <code>last_opcode()</code> lets it check that the
 opcode really was <code>0x76</code>.</p>
 <p><code>Z80Registers</code> carries the architectural registers plus MEMPTR, FUSE's <code>Q</code> latch

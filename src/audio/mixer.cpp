@@ -49,7 +49,7 @@ void Mixer::reset()
     acc_l_ = acc_r_ = acc_cycles_ = 0;
 }
 
-void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+[[gnu::always_inline]] inline void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
                 int32_t& pcm_L, int32_t& pcm_R) const
 {
     // VHDL audio_mixer.vhd scaling (all values are 13-bit unsigned, 0-8191):
@@ -169,7 +169,7 @@ void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
     pcm_R = beeper_term + ay_R + dac_R + i2s_R;
 }
 
-void Mixer::accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+[[gnu::always_inline]] inline void Mixer::accumulate_impl_(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
                        uint32_t master_cycles)
 {
     if (master_cycles == 0) return;
@@ -183,13 +183,18 @@ void Mixer::accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& da
     acc_cycles_ += master_cycles;
 }
 
+void Mixer::accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint32_t master_cycles)
+{ accumulate_impl_(beeper, ts, dac, master_cycles); }
+[[gnu::noinline]] void Mixer::accumulate_cold(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint32_t master_cycles)
+{ accumulate_impl_(beeper, ts, dac, master_cycles); }
+
 void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Dac& dac)
 {
     accumulate(beeper, ts, dac, 1);
     emit_sample();
 }
 
-void Mixer::emit_sample()
+[[gnu::always_inline]] inline void Mixer::emit_sample_impl_()
 {
     // Nothing was accumulated for this sample — emit nothing rather than invent
     // a level. (The emulator always accumulates before emitting.)
@@ -247,6 +252,9 @@ void Mixer::emit_sample()
         if (capture_callback_) capture_callback_(pair, 1);
     }
 }
+
+void Mixer::emit_sample() { emit_sample_impl_(); }
+[[gnu::noinline]] void Mixer::emit_sample_cold() { emit_sample_impl_(); }
 
 int Mixer::available() const { return count_; }
 

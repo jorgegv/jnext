@@ -3129,7 +3129,7 @@ leaves PC on the opcode, so a halted CPU re-fetches the <code>0x76</code> and bu
 5 T at 28 MHz from SRAM) in the whole body above, and in the device cluster below, for
 every repeat: most of the frame of a program that idles on <code>EI; HALT</code>. When
 <code>run_frame()</code> (and only <code>run_frame()</code>: a debugger Step is one repeat, always) executes a
-slot that was such a repeat, <code>try_halt_batch_()</code> asks whether each further repeat would do
+slot that was such a repeat, <code>halt_batch_after_slot_()</code> asks whether each further repeat would do
 exactly what this one did. The first repeat is always real, so every M1 hook, the fetch and
 the T-states come from the real path and no contention or wait formula is restated. The
 answer is yes only if nothing observes the machine (no debugger, trace, rewind, RZX, tape),

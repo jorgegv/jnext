@@ -314,17 +314,6 @@ uint8_t Ctc::read(int channel) const {
     return val;
 }
 
-uint32_t Ctc::cycles_to_next_event() const {
-    uint32_t d = UINT32_MAX;
-    for (int ch = 0; ch < 4; ++ch) {
-        const CtcChannel& c = channels_[ch];
-        if (c.leaving_trigger()) d = 1;
-        else if (c.timer_running()) d = std::min(d, c.cycles_to_zc());
-        if (trg_delay_[ch]) d = std::min<uint32_t>(d, trg_delay_[ch]);
-    }
-    return d;
-}
-
 void Ctc::tick_events(uint32_t master_cycles) {
     // Task 27 C1: event-horizon loop, O(events) instead of
     // O(master_cycles * 4). Between events the only state change is
