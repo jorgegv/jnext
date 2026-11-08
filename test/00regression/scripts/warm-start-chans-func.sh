@@ -31,7 +31,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   D. 60 HZ    on a card whose config.ini says 50_60hz=1 (edited in place with
 #               mtools, never replaced by a foreign file), the same.
 #   E. CLOCK   the recording does not depend on the clock: three recordings of the
-#               same card, with --rtc 08:55, --rtc 09:07 and the host's own time,
+#               same card, with --rtc 08:55, --rtc 23:10 (another day) and the host's own time,
 #               are byte-identical files. (The NextZXOS menu's work depends on
 #               the RTC minute, which moved R, the clock phase and a RAM byte, so
 #               R-seeded programs such as celeste differed run to run; the
@@ -364,7 +364,7 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
 
     # ---- E. the recording does not depend on the clock -----------------------
     wc_i=0
-    for wc_t in "--rtc 2026-07-10T08:55:00" "--rtc 2026-07-10T09:07:00" "--no-rtc"; do
+    for wc_t in "--rtc 2026-07-10T08:55:00" "--rtc 2026-03-02T23:10:00" "--no-rtc"; do
         wc_i=$((wc_i + 1))
         rm -rf "$wc_w/e$wc_i"; mkdir -p "$wc_w/e$wc_i"
         wc_rtc=(); [[ "$wc_t" == "--no-rtc" ]] || read -ra wc_rtc <<<"$wc_t"
