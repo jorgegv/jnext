@@ -3174,7 +3174,7 @@ the interrupt-status NextREGs, the tape EAR bit — first brings them up to the
 edge its bus cycle latches or commits on (<code>Emulator::sync_io_devices_to()</code>),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.</p>
-<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:12960</code>) renders nothing at all. What it does is
+<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:12979</code>) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 <code>snapshot_row_render_state()</code> — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

@@ -12,7 +12,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind                |      369 |      369 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind call stack     |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Copper                |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Copper                |       88 |       83 |      0 |       0 |     94% | 🟢 All tests pass. |
 | Copper (integration)  |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU (int)      |      130 |      130 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -102,7 +102,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Extended NEX streaming |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
 | TAP loader (container) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZIP program archives  |       71 |       71 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Cycle batching equivalence (fixtures) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (fixtures) |       17 |       15 |      0 |       0 |     88% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 1/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 2/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 3/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -196,6 +196,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      271 |      271 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **15882**| **15882**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **15889**| **15882**|  **0** |   **0** | **99%** | 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

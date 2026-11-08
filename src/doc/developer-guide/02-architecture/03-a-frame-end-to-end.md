@@ -220,7 +220,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:12960`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:12979`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA
