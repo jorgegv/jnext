@@ -10,7 +10,7 @@
 // every kind of HALT the corpus lacks: firmware loops, the esxDOS and DivMMC paths, the boot ROM
 // overlay, the supervisor's interrupt handling.
 //
-// It is a suite of its own because its wall time is the boot's (about 50 s solo).
+// It is a suite of its own because its wall time is the boot's (about 17 s wall solo).
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -83,8 +83,8 @@ int main() {
     // HBB-02: the boot reaches something worth comparing (it draws: the screen is not all one
     // colour by the end) and the optimisation engaged in it at least once.
     const bool drew = b.frames.size() > 100 && b.frames[100].video != b.frames.back().video;
-    check("HBB-02", "the cold boot's picture changes between frame 100 and the last (the boot ran), and the batching engaged in the 'on' run",
-          drew && (b.halt_batched > 0 || b.copper_skipped > 0),
+    check("HBB-02", "the cold boot's picture changes between frame 100 and the last (the boot ran), and the HALT batch engaged in the 'on' run",
+          drew && b.halt_batched > 0,
           "halt_batched=" + std::to_string(b.halt_batched) + " copper_skipped=" +
           std::to_string(b.copper_skipped));
 

@@ -11595,15 +11595,13 @@ int Emulator::try_halt_batch_(int tstates, uint16_t pc_pre_exec, uint64_t slot_s
     // so every further repeat costs exactly `tstates` (contention follows the beam).
     if (contention_.is_contended_access()) return tstates;
 
-    // P3: the DivMMC automap cannot react to this M1 (VHDL-cited proof at
-    // DivMmc::automap_m1_may_react), and nothing at or below the NMI vector (RST vectors,
-    // the esxDOS shim at 0x0008, the boot probe trap) is ever batched.
-    if (pc_pre_exec <= 0x0066 || divmmc_.automap_m1_may_react(pc_pre_exec)) return tstates;
-
-    // P4: the Multiface M1 hook is a no-op. (The IM2 opcode decoder needs no gate: after the
-    // real repeat's HALT M1 it is in S_0 whatever it was in, advance_decoder(0x76) of S_0 is
-    // S_0, and no RETI/RETN pulse can be live, im2_control.vhd:161-170.)
-    if (!multiface_.m1_quiescent()) return tstates;
+    // P3: the PC is not one the DivMMC automap (RST vectors, the NMI vector, the tape traps,
+    // 0x1FF8-0x1FFF, 0x3Dxx) or anything else reacts to by address: the esxDOS shim fires on
+    // every execute() at 0x0008 and NmiSource watches the 0x0066 fetch. NOT the DivMMC / Multiface
+    // flip-flop STATE: at a non-candidate PC every one of their transitions converges within one
+    // M1 edge, which the real repeat is, so the state a batch would hide is invisible (mutants of
+    // both state gates survive everything, the cold boot included; GH #452 stage 3 review).
+    if (DivMmc::automap_pc_candidate(pc_pre_exec)) return tstates;
 
     // Bounds: the batched window [slot_start, slot_start + n * p) must hold no action of
     // anything that acts at a time of its own; the action then happens in a later slot.

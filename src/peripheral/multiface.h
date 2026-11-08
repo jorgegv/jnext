@@ -113,10 +113,6 @@ public:
     /// per-FF proof), the call reduces to a few byte loads. Behaviour
     /// is identical except that the trace-level clock_edge_ log line is
     /// not emitted for these provably state-preserving edges.
-    /// GH #452 - on_m1() is a provable no-op (its inline fast path would return at once):
-    /// a HALT repeat batch may skip its calls.
-    bool m1_quiescent() const { return m1_quiescent_(); }
-
     void on_m1(uint16_t pc, bool mreq_low) {
         if (m1_quiescent_()) return;
         on_m1_clock_(pc, mreq_low);

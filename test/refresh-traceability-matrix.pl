@@ -969,6 +969,7 @@ my %NO_MATRIX_SECTION = (
     'tap_loader_test'         => 'TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart',
     'program_archive_test'    => 'ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart',
     'halt_batch_equiv_test'   => 'cycle-batching equivalence (GH #452): the oracle is the unbatched path of the same emulator, held to the VHDL by the other suites; each row cites the hardware behaviour a batch span must not move in its own source (jnext-internal)',
+    'halt_batch_periph_test'  => 'cycle-batching equivalence on peripheral, observer and host-input fixtures (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'halt_batch_boot_test'    => 'cycle-batching equivalence on the NextZXOS cold boot (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'halt_batch_corpus_1_test'=> 'cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'halt_batch_corpus_2_test'=> 'cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal)',
