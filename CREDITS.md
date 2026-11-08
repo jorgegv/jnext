@@ -32,6 +32,7 @@ and it will be changed.
 | [ZOT](https://github.com/antirez/zot) | MIT | TZX/TAP tape player library by antirez (vendored in `third_party/zot/`) |
 | [crtemu](https://github.com/mattiasgustavsson/libs) by Mattias Gustavsson | MIT / Unlicense | CRT emulation shader for the optional OpenGL display filter (vendored, patched, in `third_party/crtemu/`) |
 | [nexlib + tests](https://github.com/dcrespo3d) by David Crespo | GPLv3 | Next demo/test programs used as rendering and timing fixtures (vendored in `demo/dapr-nexlib+tests/`) |
+| [Emscripten](https://emscripten.org/) | MIT / NCSA | Compiler and runtime of the browser build; its runtime is in the shipped `.js`, with musl and LLVM's libc++, libc++abi, libunwind and compiler-rt (licences in the web zip's `licenses/`) |
 | zlib | zlib | Compressed snapshot (SZX) and RZX blocks |
 | libpng | libpng | PNG screenshots |
 

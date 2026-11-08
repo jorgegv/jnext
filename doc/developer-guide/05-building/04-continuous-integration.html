@@ -3087,8 +3087,11 @@ dependency set and checks out the repository with submodules; then</p>
   (<code>~/.cache/jnext/tools/playwright-1.65.0</code>, keyed by the version and the two pin
   prefixes) and uses the SD-image cache: the run turns the cached distribution
   image into a minimal card in a scratch directory that is deleted at the end,
-  and the leg has no artifact step that could carry it. The dnf list carries the
-  shared libraries the headless shell links.</li>
+  and the leg's one artifact step uploads exactly <code>build/wasm-core/jnext-*-web.zip</code>,
+  which cannot carry it. The run also builds the browser package (<code>make package-web</code>
+  is a prerequisite of <code>wasm-browser-test</code>, so there is no step of its own), and its
+  row WEBPKG-BR-01 boots the extracted zip; the zip is uploaded as <code>jnext-web-zip</code>.
+  The dnf list carries the shared libraries the headless shell links, and <code>zip</code>.</li>
 </ul>
 <p>They used to be steps of one job, so the 28-minute build matrix and the
 regression ran back to back although neither uses the other's output. Each leg
@@ -3192,6 +3195,11 @@ and compression is off since the packages are already compressed.</p>
 <td><code>package</code></td>
 </tr>
 <tr>
+<td><code>jnext-web-zip</code></td>
+<td><code>jnext-&lt;v&gt;-web.zip</code></td>
+<td><code>test</code> (<code>browser</code> leg)</td>
+</tr>
+<tr>
 <td><code>jnext-macos-dmg</code></td>
 <td><code>jnext-&lt;v&gt;-Darwin.dmg</code></td>
 <td><code>macos</code></td>
@@ -3235,13 +3243,15 @@ whose reference screenshot is an SD-card directory listing.</p>
 <code>releases.yaml</code> <strong>from the tag's own commit</strong> and decides whether this tag is
 public — the allowlist described in <a href="03-packaging-and-release.html">5.3</a>. When it
 is not, nothing builds, and the tag remains a private history marker.</p>
-<p>When it is, six artifact jobs run. <code>deb</code> is a matrix over two pinned Ubuntu LTS
+<p>When it is, seven artifact jobs run. <code>deb</code> is a matrix over two pinned Ubuntu LTS
 containers, one per supported release, because <code>dpkg-shlibdeps</code> bakes the
 container's own library package names into the dependency list, so a deb built
 in one release's container is uninstallable on the next. <code>rpm</code> builds in the
 pinned Fedora container, so that its dependencies are Fedora-native. Then <code>src</code>,
 <code>windows</code> (three zips from one Fedora container), <code>flatpak</code> (one line, calling
-<code>flatpak-build.yml</code>), and <code>macos</code>.
+<code>flatpak-build.yml</code>), <code>web</code> (<code>make package-web</code> in a Fedora container: the browser
+zip, with the Emscripten SDK cache of the <code>test</code> job and no SD image, since the
+zip never holds one) and <code>macos</code>.
 Finally <strong><code>publish</code></strong> attaches everything to a GitHub Release, gated on
 <code>if: success() &amp;&amp; needs.gate.outputs.publish == 'true'</code>.</p>
 <p>That explicit <code>success()</code> is what makes a failed artifact job withhold the

@@ -6,6 +6,13 @@ by a page you write (or by an itch.io upload). A page needs one script file,
 global, `jnext`, and `jnext.mount(container, options)` puts a player in a DOM
 element.
 
+Every public release carries `jnext-VERSION-web.zip`: the two files, the three
+example pages (`plain.html`, `itch-game.html`, `itch-host.html`), a `README.txt`
+with the link to the source of that build, `LICENSE`, `CREDITS.md` and a
+`licenses/` directory. Host `jnext-VERSION.js` and `jnext-VERSION.wasm` together,
+and keep the licence files beside them. There is no NextZXOS in the zip: the
+page fetches the system image from the address you give it.
+
 Everything the player is told is a command-line flag or a `--set` key of the
 desktop emulator; the reference list is in the man page section "THE BROWSER
 BUILD". The player's `argv` property shows the command line your options became.

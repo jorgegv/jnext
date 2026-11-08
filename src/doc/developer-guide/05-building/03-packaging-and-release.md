@@ -16,8 +16,10 @@ you read it; it is not a replacement for it.
 | `make package-win-sdl` / `package-win32-sdl` | SDL-only Windows zips — repo-internal validation legs, not published |
 | `make package-flatpak` | Flatpak bundle, in `build/flatpak-release/` |
 | `make package-macos` | macOS `.dmg` — Darwin only; prints a SKIP and exits cleanly elsewhere |
+| `make package-web` | the browser build as `jnext-<ver>-web.zip` in `build/wasm-core/`: the `.js` and `.wasm`, the example pages, the licence texts. Needs the Emscripten SDK (built by `make wasm-web`) |
 | `make package-test` | builds every package except macOS and Flatpak and **asserts its contents** (a missing tool fails) |
-| `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain |
+| `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain; it also runs `make web-package-test` |
+| `make web-package-test` | the contract suite of `packaging/web/package-web.sh` (WEBPKG-01 to WEBPKG-36), on fake trees, hermetic |
 
 The source tarball is deliberately not a `git archive`. That would produce an
 *empty* `third_party/spdlog` directory, which fails CMake configure the moment
@@ -192,3 +194,55 @@ unit-test`, run against the cached distribution image) and the
 `minimal-sdcard-image-func` regression row, which boots the card to the
 NextZXOS menu and warm-starts a NEX, both compared with the full card's
 references.
+
+## The browser package
+
+`make package-web` zips the output of `make wasm-web` as
+`build/wasm-core/jnext-<ver>-web.zip`, through `packaging/web/package-web.sh`. The
+zip has one top directory, `jnext-<ver>-web/`, and 21 files:
+
+- `jnext-<ver>.js` and `jnext-<ver>.wasm`: two files, not one, because a page
+  author hosts them and GitHub serves a release asset as `octet-stream`, so the
+  asset is the zip; the build does not use `SINGLE_FILE`;
+- the three example pages `plain.html`, `itch-host.html` and `itch-game.html`,
+  which load nothing but `jnext-<ver>.js`;
+- `README.txt` (from `packaging/web/README.txt.in`, with the link to the source
+  of exactly that version), `LICENSE` and `CREDITS.md`;
+- `licenses/`: the licence texts of the libraries linked into `jnext_web`
+  (Emscripten, musl, libc++, libc++abi, libunwind, compiler-rt, SDL3, zlib, libpng
+  from the Emscripten SDK; spdlog, nlohmann-json, zot, FatFs from `third_party`).
+  The script's header records the link set and when it was measured; a library
+  linked later needs a line in the `manifest` function, and no test can see that.
+
+Every name comes from `version.yaml` (through CMake for the build output, through
+the script for the rest), and the script takes exact names, never a glob, because
+a build directory keeps the previous versions' `jnext-<old>.js`. It refuses a
+non-Release tree, a missing or ambiguous licence source, a malformed
+`version.yaml` and a missing date source.
+
+The zip is reproducible: the entry time is `SOURCE_DATE_EPOCH`, else the commit
+time of `HEAD`, never the current time; the script forces `TZ=UTC` (Info-ZIP
+stores local DOS time), file mode 0644, names sorted under `LC_ALL=C`, and
+`zip -X -D` (no uid/gid, no directory entries). The same sources give the same
+bytes whatever the caller's time zone, umask, locale or file times.
+
+**No NextZXOS image is ever in the package.** It is copyrighted; the page fetches
+it from the host the page author names. After writing the zip the script reads it
+back with CPython's `zipfile` (`--verify`, which also runs on its own) and deletes
+it if anything is wrong: the entry names must equal the list exactly, a name
+ending in `.img` or `.mmc` is refused at any depth, no entry may be a symlink,
+every entry must equal its source byte for byte, and each file has a size cap read
+from the zip's central directory (the `.wasm` at most 16 MiB, against the 40 MiB
+minimal card), so an image embedded raw into the module or renamed into the package
+is refused. An image deliberately compressed and embedded into the module is out of
+scope, and so is a zip whose central directory lies.
+
+It is built on every push: the `browser` leg of the `test` job runs `make
+wasm-browser-test`, which has `package-web` as a prerequisite and ends with the row
+WEBPKG-BR-01, which serves only the extracted zip and boots `plain.html` from it
+(see [5.4](04-continuous-integration.md)); and `release.yml` has a `web` job that
+runs the same target. It is not a `package-test` row: that would need a second
+Emscripten SDK restore and a second wasm build in the `package` job, for what the
+browser leg and `web-package-test` already prove (the Flatpak's SDK is the same
+case). `make web-package-test` runs in `make unit-test` through
+`package-contract-test`.
