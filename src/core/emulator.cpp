@@ -7637,6 +7637,116 @@ bool Emulator::nextzxos_resident(std::string& why) const
     return false;
 }
 
+namespace {
+std::string hex4(unsigned v) { char t[8]; std::snprintf(t, sizeof t, "%04X", v); return t; }
+std::string hex2(unsigned v) { char t[8]; std::snprintf(t, sizeof t, "%02X", v); return t; }
+}  // namespace
+
+bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t after)
+{
+    using AutoKey = Keyboard::AutoKey;
+    // A point is crossed by the frame whose (before, after] contains it.
+    auto crossed = [&](uint32_t p) { return before < p && p <= after; };
+    constexpr int kHold = 5;   // frames each typed key is held
+
+    const bool t0 = crossed(kWarmStartT0Units);
+    if (t0) {
+        // The welcome program (autoexec.1st) is still a resident BASIC
+        // program: PROG != VARS. Its own "SPACE=Start NextZXOS" leaves it. A
+        // card whose welcome is disabled sits at the menu with PROG == VARS,
+        // where SPACE would open the menu's second page instead.
+        const uint8_t* b5 = rec.mmu_.bank5_vram();
+        const uint16_t prog = static_cast<uint16_t>(b5[0x5C53 - 0x4000] |
+                                                    (b5[0x5C54 - 0x4000] << 8));
+        const uint16_t vars = static_cast<uint16_t>(b5[0x5C4B - 0x4000] |
+                                                    (b5[0x5C4C - 0x4000] << 8));
+        if (prog != vars) rec.keyboard_.queue_auto_type({{7, 0, -1, -1, kHold}});
+    }
+    // Cursor DOWN is CAPS SHIFT + 6: Browser -> Command Line.
+    if (crossed(kWarmStartT1Units)) rec.keyboard_.queue_auto_type({{4, 4, 0, 0, kHold}});
+    if (crossed(kWarmStartT2Units)) rec.keyboard_.queue_auto_type({{6, 0, -1, -1, kHold}});
+    if (crossed(kWarmStartT3Units)) {
+        // "print;:pause 0" ENTER. PRINT opens stream 2 through ROM 3's own
+        // CHAN-OPEN; PAUSE 0 then holds the interpreter inside the statement.
+        // ';' and ':' are SYMBOL SHIFT + O and + Z.
+        rec.keyboard_.queue_auto_type({
+            {5, 0, -1, -1, kHold},   // p
+            {2, 3, -1, -1, kHold},   // r
+            {5, 2, -1, -1, kHold},   // i
+            {7, 3, -1, -1, kHold},   // n
+            {2, 4, -1, -1, kHold},   // t
+            {5, 1, 7, 1, kHold},     // ;
+            {0, 1, 7, 1, kHold},     // :
+            {5, 0, -1, -1, kHold},   // p
+            {1, 0, -1, -1, kHold},   // a
+            {5, 3, -1, -1, kHold},   // u
+            {1, 1, -1, -1, kHold},   // s
+            {2, 2, -1, -1, kHold},   // e
+            {7, 0, -1, -1, kHold},   // SPACE
+            {4, 0, -1, -1, kHold},   // 0
+            {6, 0, -1, -1, kHold},   // ENTER
+        });
+    }
+    return t0;
+}
+
+bool Emulator::warm_start_capture_ready(std::string& why) const
+{
+    // 48K-ROM system variables, as byte offsets into bank 5 (0x4000-0x7FFF).
+    const uint8_t* b5 = mmu_.bank5_vram();
+    auto b = [&](uint16_t a) { return b5[a - 0x4000]; };
+    auto w = [&](uint16_t a) { return static_cast<uint16_t>(b(a) | (b(static_cast<uint16_t>(a + 1)) << 8)); };
+    constexpr uint16_t kErrNr = 0x5C3A, kTvFlag = 0x5C3C, kStrms2 = 0x5C1A,
+                       kChans = 0x5C4F, kCurchl = 0x5C51, kPpc = 0x5C45;
+    constexpr uint16_t kChannelData = 0x15AF;   // ROM 3: the K and S records
+    constexpr size_t   kRecBytes    = 10;
+
+    // C1: channels K and S are the 48K ROM's own. The welcome program's
+    // recording has K and S output at the RAM stub $5B4D (`nextreg $8E,0 : ret`),
+    // which pages ROM 0 and hangs a program's first RST $10.
+    const uint16_t chans = w(kChans);
+    const uint8_t* rom3 = ram_.page_ptr(6);
+    if (chans < 0x4000 || chans > 0x8000 - kRecBytes || !rom3) {
+        why = "channel area CHANS=$" + hex4(chans) + " is outside bank 5";
+        return false;
+    }
+    for (size_t i = 0; i < kRecBytes; ++i) {
+        if (b(static_cast<uint16_t>(chans + i)) != rom3[kChannelData + i]) {
+            why = std::string("channel ") + (i < 5 ? "K" : "S") +
+                  " is not the 48K ROM's record (byte " + std::to_string(i % 5) +
+                  " at $" + hex4(static_cast<uint16_t>(chans + i)) + ")";
+            return false;
+        }
+    }
+    // C2: stream 2 (the upper screen) is the current channel.
+    if (w(kCurchl) != static_cast<uint16_t>(chans + w(kStrms2) - 1)) {
+        why = "stream 2 is not the current channel (CURCHL=$" + hex4(w(kCurchl)) + ")";
+        return false;
+    }
+    // C3: output goes to the upper screen.
+    if (b(kTvFlag) & 0x01) {
+        why = "output goes to the lower screen (TV_FLAG=$" + hex2(b(kTvFlag)) + ")";
+        return false;
+    }
+    // C4: a statement is executing with no report pending.
+    if (b(kErrNr) != 0xFF) {
+        why = "no statement is executing (ERR_NR=$" + hex2(b(kErrNr)) + ")";
+        return false;
+    }
+    // C5: the executing line is the edit line, a typed command.
+    if (w(kPpc) != 0xFFFE) {
+        why = "the executing line is not a typed command (PPC=$" + hex4(w(kPpc)) + ")";
+        return false;
+    }
+    // C6: no key still queued: the queue is saved state and would replay.
+    if (keyboard_.auto_typing()) {
+        why = "the keyboard still has auto-typed keys queued";
+        return false;
+    }
+    why.clear();
+    return true;
+}
+
 bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
 {
     // A RECORDING IS A COLD BOOT, and it must be one on a machine that has
@@ -7683,23 +7793,41 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
 
     Log::emulator()->info(
         "warm start: no usable cached state - cold-booting the firmware "
-        "(nextboot.rom -> TBBLUE.FW -> NextZXOS) for {} frames to record one. "
-        "This happens once per SD image.",
-        kWarmStartBootFrames);
+        "(nextboot.rom -> TBBLUE.FW -> NextZXOS) and driving it to its Command "
+        "Line (about {} frames) to record one. This happens once per SD image.",
+        kWarmStartT4Units / kWarmStartUnitsPer50HzFrame);
 
     if (!rec->init(boot_cfg)) {
         Log::emulator()->error("warm start: the recording boot could not initialise");
         return false;
     }
 
-    for (uint32_t f = 0; f < kWarmStartBootFrames; ++f) rec->run_frame();
-
+    // The recipe runs in emulated time (see kWarmStartUnitsPer50HzFrame): the
+    // firmware switches the refresh rate from config.ini during the boot, so
+    // the units one frame adds are read each frame.
+    uint32_t units  = 0;
+    uint32_t frames = 0;
     std::string why;
-    if (!rec->nextzxos_resident(why)) {
+    while (units < kWarmStartT4Units) {
+        const uint32_t before = units;
+        rec->run_frame();
+        ++frames;
+        units += warm_start_frame_units(rec->video_timing().refresh_60hz());
+        if (warm_start_recipe_tick(*rec, before, units) &&
+            !rec->nextzxos_resident(why)) {
+            Log::emulator()->error(
+                "warm start: after {} frames of boot, {}. Not recording; this load "
+                "falls back to the synthetic machine.",
+                frames, why);
+            return false;
+        }
+    }
+
+    if (!rec->warm_start_capture_ready(why)) {
         Log::emulator()->error(
-            "warm start: after {} frames of boot, {}. Not recording; this load "
-            "falls back to the synthetic machine.",
-            kWarmStartBootFrames, why);
+            "warm start: NextZXOS could not be brought to its Command Line ({}). "
+            "Not recording; this load falls back to the synthetic machine.",
+            why);
         return false;
     }
 
@@ -7810,6 +7938,7 @@ bool Emulator::ensure_warm_start_state()
     warm_start::Identity id;
     id.machine_type   = static_cast<uint8_t>(config_.type);
     id.format_version = warm_start::kFormatVersion;
+    id.recording_version = warm_start::kRecordingVersion;
     {
         StateWriter measure;
         save_state(measure);
@@ -7983,8 +8112,8 @@ bool Emulator::init_for_load_from_file()
     // 7FFD=0x10, 1FFD=0x06, sram_rom=3 from the moment the program's first
     // instruction runs. The synthetic path has only the 48K image in its
     // SRAM ROM pages, so it got this right by having no alternative; the
-    // recording, taken at the NextZXOS menu, carries the OS's own ROM 0 and
-    // got it wrong. Two committed references caught it — magic-bp-demo and
+    // recording, taken at the Command Line executing a statement, carries
+    // the OS's own ROM 0 (PAUSE runs with 7FFD=0, 1FFD=0) and got it wrong. Two committed references caught it — magic-bp-demo and
     // magic-port-demo both read the character set straight out of ROM
     // (`ROM_CHARSET 0x3C00`), and rendered noise where glyphs belong.
     //
