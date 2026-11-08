@@ -223,7 +223,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
 - **RZX.** An RZX playback start is a landing like any other ([above](#tier-2-any-other-landing)), and
   `--source-map` with a replay accepts only a dot map ([7.3](03-loaders.md)): the map attaches pending
   at start-up and the verify hook does not distinguish a replayed session from a live one
-  (`replay_mode()` is the rewind replay's flag, `emulator.h:1254`, not RZX's). What the row
+  (`replay_mode()` is the rewind replay's flag, `emulator.h:1253`, not RZX's). What the row
   `z88dk-dot-source-rzx-func` pins is the attach and the refusal, not a verdict reached during playback.
 - **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1214`, set at `SourceMapStatus::dot`, `debugger_source.cpp:603`) tells the Source tab to word its pending note
   *...when the dot command runs* ([7.7](07-frontends.md)).
