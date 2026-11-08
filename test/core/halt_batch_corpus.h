@@ -75,16 +75,17 @@ void script_keys(Emulator& e, int f) {
 struct Program {
     const char* id;       // a literal row ID
     const char* path;     // relative to the repository's test/ directory
+    int  frames = 0;      // 0 = the default kFrames
     bool copper = false;  // runs a Copper program: the Copper skip must engage (GH #452 stage 2)
 };
 
 
 batch_ab::Scratch g_scratch;
 
-batch_ab::Run run_program(const std::string& path, bool batch, std::string& why) {
+batch_ab::Run run_program(const std::string& path, int frames, bool batch, std::string& why) {
     batch_ab::Scenario sc;
     sc.name = "corpus";
-    sc.frames = kFrames;
+    sc.frames = frames ? frames : kFrames;
     sc.config = [&](EmulatorConfig& c) {
         c.sd_card_image = sd_image();
         c.sd_card_readonly = true;
@@ -111,8 +112,8 @@ int run_corpus(const Program* programs, int count, const char* label) {
         const Program& p = programs[i];
         const auto t0 = std::chrono::steady_clock::now();
         std::string why_a, why_b;
-        const batch_ab::Run a = run_program(root + p.path, false, why_a);
-        const batch_ab::Run b = run_program(root + p.path, true, why_b);
+        const batch_ab::Run a = run_program(root + p.path, p.frames, false, why_a);
+        const batch_ab::Run b = run_program(root + p.path, p.frames, true, why_b);
         std::string diff = batch_ab::first_diff(a, b);
         if (diff.empty() && (!why_a.empty() || !why_b.empty())) diff = why_a + why_b;
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
