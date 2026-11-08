@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=322  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=324  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -37,7 +37,7 @@ EXPECTED_TOTAL=322  # 321 -> 322: HS-169 (the scratch HOME carries the git confi
 # prints the rc: 124, or 137 when only the follow-up SIGKILL could end it
 # (e.g. a TERM-trapped cleanup that just hangs again) — and the run
 # continues. 120 s, because the slowest legitimate invocation is no longer
-# HS-04 (~2.1 s): the HS-49/56/57/67 rows run the whole six-lint preflight,
+# HS-04 (~2.1 s): the HS-49/56/57/67 rows run the whole seven-lint preflight,
 # ~4.7 s solo, and since GH #295 this self-test runs inside the regression's
 # parallel phase — where HS-57b's preflight (a C++ preprocessing pass per
 # published header) outlived the old 30 s bound at load 13 on 12 CPUs (exit
@@ -1301,14 +1301,14 @@ run_preflight_lint() {   # run_preflight_lint <clean|dirty>
 
 # A clean fixture must reach the lint (its own "[lint-traps] scanned:" line is printed
 # by lint-traps.sh, so seeing it proves the script actually ran) and pass, giving the
-# preflight its documented 6 rows (assertions, traps, timeouts, hardcoded paths,
-# debug-headers, pipe-grepq — GH #204 added the third, the unescalated-timeout lint the
+# preflight its documented 7 rows (assertions, traps, timeouts, hardcoded paths,
+# debug-headers, pipe-grepq, sed-i — GH #204 added the third, the unescalated-timeout lint the
 # fourth, GH #276 B0's published-header include-graph lint the fifth and the quiet-grep
-# pipe lint the sixth; this count is deliberately pinned, so adding a seventh fails here
+# pipe lint the sixth and the bare in-place sed lint the seventh; this count is deliberately pinned, so adding an eighth fails here
 # first).
 out=$(run_preflight_lint clean); rc=$?
 check "HS-49a" "the trap lint is reached from the regression preflight, as row 2 (GH #153)" 0 $rc \
-    "$out" "[lint-traps] scanned:" "no row script installs its own trap" "Pass: 6"
+    "$out" "[lint-traps] scanned:" "no row script installs its own trap" "Pass: 7"
 
 # The other arm: an offending fixture must turn that row red and fail the preflight.
 # Without it HS-49a would also pass on a call whose exit status was discarded.
@@ -1340,7 +1340,7 @@ run_preflight_timeouts() {   # run_preflight_timeouts <clean|dirty>
 
 out=$(run_preflight_timeouts clean); rc=$?
 check "HS-56a" "the unescalated-timeout lint is reached from the regression preflight, as row 3" 0 $rc \
-    "$out" "[lint-timeouts] scanned:" "every 'timeout' escalates to SIGKILL" "Pass: 6"
+    "$out" "[lint-timeouts] scanned:" "every 'timeout' escalates to SIGKILL" "Pass: 7"
 
 # The other arm: a bare `timeout` must turn that row red and fail the whole preflight.
 # Without it HS-56a would also pass on a call whose exit status was discarded.
@@ -1383,7 +1383,7 @@ run_preflight_debug_headers() {   # run_preflight_debug_headers <clean|dirty>
 
 out=$(run_preflight_debug_headers clean); rc=$?
 check "HS-57a" "the published-header include-graph lint is reached from the regression preflight, as row 5 (GH #276)" 0 $rc \
-    "$out" "published header(s) checked" "no published debug header reaches a forbidden dependency" "Pass: 6"
+    "$out" "published header(s) checked" "no published debug header reaches a forbidden dependency" "Pass: 7"
 
 # The other arm: a forbidden include must turn that row red and fail the whole preflight.
 # Without it HS-57a would also pass on a call whose exit status was discarded — which is
@@ -1411,12 +1411,35 @@ run_preflight_pipe_grepq() {   # run_preflight_pipe_grepq <clean|dirty>
 
 out=$(run_preflight_pipe_grepq clean); rc=$?
 check "HS-67a" "the quiet-grep pipe lint is reached from the regression preflight, as row 6" 0 $rc \
-    "$out" "[lint-pipe-grepq] scanned:" "no pipeline ends in a quiet grep" "Pass: 6"
+    "$out" "[lint-pipe-grepq] scanned:" "no pipeline ends in a quiet grep" "Pass: 7"
 
 # The other arm: an offending pipe must turn that row red and fail the whole preflight.
 out=$(run_preflight_pipe_grepq dirty); rc=$?
 check "HS-67b" "a pipe into grep -q FAILS the preflight, not just the lint" 1 $rc \
     "$out" "a pipeline ends in a quiet grep under pipefail" "Fail: 1"
+
+# ------------- the bare in-place sed lint must stay wired to the same preflight
+# Seventh instance of the shape. test/lint-sed-inplace.sh self-tests its case table on
+# every invocation; only these two rows prove it is still REACHED and that its verdict
+# still turns the preflight row red. What it guards fails nothing on Linux: BSD sed
+# (macOS) rejects `sed -i 's/a/b/' f`, and only CI's macos-regression sees it.
+# JNEXT_LINT_SED_I_DIR aims the lint at a fixture directory (these rows alone).
+LSI_FIX="$T/lint-sed-i"
+rm -rf "$LSI_FIX"; mkdir -p "$LSI_FIX/clean" "$LSI_FIX/dirty"
+printf '#!/usr/bin/env bash\nsed "s/a/b/" f >f.new && mv f.new f\n' > "$LSI_FIX/clean/row-func.sh"
+printf '#!/usr/bin/env bash\nsed -i "s/a/b/" f\n'                  > "$LSI_FIX/dirty/row-func.sh"
+run_preflight_sed_i() {   # run_preflight_sed_i <clean|dirty>
+    JNEXT_LINT_SED_I_DIR="$LSI_FIX/$1" timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
+        bash "$PROJECT_DIR/test/00regression/scripts/00-preflight-lint.sh" 2>&1
+}
+
+out=$(run_preflight_sed_i clean); rc=$?
+check "HS-170a" "the bare in-place sed lint is reached from the regression preflight, as row 7" 0 $rc \
+    "$out" "[lint-sed-i] scanned:" "no test script uses a bare in-place sed" "Pass: 7"
+
+out=$(run_preflight_sed_i dirty); rc=$?
+check "HS-170b" "a bare sed -i FAILS the preflight, not just the lint (BSD sed rejects it)" 1 $rc \
+    "$out" "a test script runs a bare in-place sed" "Fail: 1"
 
 # Where the run LIVES must not decide the verdict. The lint's patterns once saw
 # absolute paths, so its own `mktemp -d` translation unit, or a source root under a
@@ -2485,9 +2508,9 @@ cp "$PROJECT_DIR/test/00regression/regression.sh" "$PROJECT_DIR/test/00regressio
    "$PROJECT_DIR/test/00regression/parallel-rows.inc" "$PROJECT_DIR/test/00regression/row-runner.sh" "$SRT/"
 cp "$PROJECT_DIR/test/regression-stamp.sh" "$SR/test/"
 printf '# expect: 0\n' > "$SRT/regression_tests.conf"
-# the seven group rows a full run counts (6 lints + sdcard-provision), as stand-ins
+# the eight group rows a full run counts (7 lints + sdcard-provision), as stand-ins
 cat > "$SRT/scripts/00-preflight-lint.sh" <<'GROUP'
-for lint_n in 1 2 3 4 5 6; do CURRENT_ROW="lint-$lint_n"; pass_row; done
+for lint_n in 1 2 3 4 5 6 7; do CURRENT_ROW="lint-$lint_n"; pass_row; done
 GROUP
 printf 'CURRENT_ROW=sdcard-provision; pass_row\n' > "$SRT/scripts/01-sdcard-provision.sh"
 printf 'ORDERED_TESTS=()\n' > "$SRT/scripts/screenshots.sh"
@@ -2982,7 +3005,7 @@ cp "$PROJECT_DIR/test/00regression/regression.sh" "$PROJECT_DIR/test/00regressio
    "$PROJECT_DIR/test/00regression/parallel-rows.inc" "$PROJECT_DIR/test/00regression/row-runner.sh" "$PLT/"
 cp "$PROJECT_DIR/test/regression-stamp.sh" "$PL/test/"
 printf '# expect: 2\nshot-a\nshot-b\n' > "$PLT/regression_tests.conf"
-printf 'touch "%s/lint-ran"\nfor lint_n in 1 2 3 4 5 6; do CURRENT_ROW="lint-$lint_n"; pass_row; done\n' "$PLM" > "$PLT/scripts/00-preflight-lint.sh"
+printf 'touch "%s/lint-ran"\nfor lint_n in 1 2 3 4 5 6 7; do CURRENT_ROW="lint-$lint_n"; pass_row; done\n' "$PLM" > "$PLT/scripts/00-preflight-lint.sh"
 printf 'CURRENT_ROW=sdcard-provision; pass_row\n' > "$PLT/scripts/01-sdcard-provision.sh"
 printf 'ORDERED_TESTS=(shot-a shot-b)\nfor shot_n in shot-a shot-b; do CURRENT_ROW=$shot_n; pass_row; done\n' > "$PLT/scripts/screenshots.sh"
 printf 'if want adm-a-func; then begin_func adm-a-func; pass_row; fi\n' > "$PLT/scripts/adm-a-func.sh"

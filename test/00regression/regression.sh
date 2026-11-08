@@ -17,7 +17,7 @@
 #                     from the build trees (JNEXT_TARGET_BUILD / JNEXT_TARGET_SDL_BUILD,
 #                     JNEXT_TARGET_OS in their CMakeCache.txt), never from the caller.
 #                     Runs the screenshots and the functional rows whose `os=` tag in
-#                     functional_tests.conf admits that OS; the 6 lints (tree checks)
+#                     functional_tests.conf admits that OS; the 7 lints (tree checks)
 #                     and the stamp stay with the Linux run. `make regression-win` /
 #                     `make regression-macos`.
 #   --preflight-only  Run only the harness preflight checks and exit (no tests).
@@ -217,7 +217,7 @@ source "$(dirname "$0")/parallel-rows.inc"
 regression_lanes
 
 # The tools the HARNESS itself executes — this driver, its .inc files, the
-# row runner, the stamp script, the group scripts and the six lints — checked
+# row runner, the stamp script, the group scripts and the seven lints — checked
 # before anything runs, so a missing one is a named harness fault and never a
 # lint or a row that FAILs "exit 127" (GH #295 CI: procps was missing in CI and
 # a check read the failure as evidence). Rows check their own tools (python3,
@@ -662,12 +662,12 @@ if [[ "$REG_STAMP_MODE" == 1 || "$REG_STAMP_MODE" == confirm ]]; then
 fi
 echo ""
 
-# Group rows: the six preflight lints and the SD-image provisioning, then the
+# Group rows: the seven preflight lints and the SD-image provisioning, then the
 # whole screenshot suite. Every test script is SOURCED (never exec'd) so all of
 # them share this one shell's counters, REPORTED_FUNC and ORDERED_TESTS.
 # shellcheck source=test/00regression/scripts/00-preflight-lint.sh
 if $PLATFORM_MODE; then
-    # The 6 lints check the source tree; they run in the Linux run.
+    # The 7 lints check the source tree; they run in the Linux run.
     echo "  (lints: tree checks, run by the Linux run only)"
 else
     source "$SCRIPTS_DIR/00-preflight-lint.sh"
@@ -773,7 +773,7 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
         # row's merge adds a name, it must equal the row's own, and started rows are
         # RUN_FUNC -- run_row_merge faults on any other name, HS-95d.)
     done
-    reg_lints=6; $PLATFORM_MODE && reg_lints=0
+    reg_lints=7; $PLATFORM_MODE && reg_lints=0
     expected=$(( reg_lints + 1 + ${#ORDERED_TESTS[@]} + ${#RUN_FUNC[@]} ))
     actual=$(( pass + fail + skip ))
     [[ "$actual" -eq "$expected" ]] \

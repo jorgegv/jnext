@@ -3104,7 +3104,7 @@ produced <code>regression-doc-check</code>, which wired up a screenshot-document
 checker that had existed, had been correct, and had been invoked by nothing for
 long enough to rot into failing on 18 rows.</p>
 <h2 id="the-lint-self-tests">The lint self-tests<a class="headerlink" href="#the-lint-self-tests" title="Permanent link">&para;</a></h2>
-<p>Six of the lints verify themselves on <strong>every invocation</strong>, before their
+<p>Seven of the lints verify themselves on <strong>every invocation</strong>, before their
 verdict on the real tree is trusted at all:</p>
 <ul>
 <li><code>test/lint-assertions.sh</code> writes a fixture containing one instance of each
@@ -3162,6 +3162,16 @@ verdict on the real tree is trusted at all:</p>
   because an earlier version that guessed where heredocs end hid 555 lines.
   The lint also counts the lines that reached its matcher and refuses the run
   unless that is every line of every in-scope file.</li>
+<li><code>test/lint-sed-inplace.sh</code> (row 7 of the preflight) refuses a <code>sed -i</code> with
+  no attached suffix in the test scripts macOS runs, because BSD sed reads the
+  next word as the suffix and fails with "-I or -i may not be used with stdin".
+  It carries <strong>34 pinned cases: 21 that must flag, 10 that must not, and 3 that
+  pin its coverage check</strong>. Bare <code>-i</code>, <code>-ni</code>, <code>-i ''</code>, a path-qualified <code>sed</code>
+  and every <code>--i…</code> long option (BSD sed has none) are flagged; <code>-i.bak</code>, a temp
+  file plus <code>mv</code>, and the text <code>sed -i</code> inside a quote or comment are not.
+  Cases for a <code>sed -i</code> hidden after <code>-i''</code>, <code>a#b</code>, <code>\'</code> or <code>\"</code> pin the quote
+  scanner, each added because deleting that branch of it left the table green. <code>test/packaging/</code> and
+  <code>harness-selftest.sh</code> are out of scope because only Linux runs them.</li>
 </ul>
 <p>The developer-guide cite check, <code>test/lint-devguide-cites.pl</code> (see
 <a href="05-documentation-and-cli-gates.html#the-developer-guide-cite-rule">4.5</a>), is not self-checking
