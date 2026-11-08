@@ -163,11 +163,19 @@ static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) 
                 // (nexload2.asm:133; block def :625 loads 0 pages).
                 break;
             default:
-                why = "screen_flags bit 6 selects a V1.3 screen but screen_flags2 "
-                      "(offset 152) is " + std::to_string(h.screen_flags2) +
-                      ", which is not one of 1 (L2 320x256x8bpp), "
-                      "2 (L2 640x256x4bpp) or 3 (tilemode)";
-                return false;
+                // nexload2.asm:623-:625 define exactly three EXT2 blocks, and
+                // LoadScreenBlock (:630-:632) returns at `cp (hl) : ret nz`
+                // for every other byte 152 (0, 4, 255, ...): no block is
+                // read, nothing is written, the loader carries on with the
+                // next block. No header check refuses it (checkHeader,
+                // :544-:570). So for a V1.3 header the value declares no
+                // data block. A V1.0-V1.2 header is nexload.asm's, which
+                // has no bit 6 at all: its size is unknown, refuse.
+                if (!v13) {
+                    why = "screen_flags bit 6 selects a V1.3 screen but this is not a V1.3 header";
+                    return false;
+                }
+                break;
         }
     }
 

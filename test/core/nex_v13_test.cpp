@@ -23,7 +23,8 @@
 //
 // Note that "loading screen flags 2" at 152 is an ENUMERATED value despite
 // its name: 1 / 2 / 3, not bit flags (nexload2.asm:74-76). Rows
-// NEXV13-REFUSE-02/03 pin the refusal of every other value.
+// NEXV13-REFUSE-02/03 and EXT2-11..14 pin what a V1.3 header with any other
+// value does: no EXT2 block, the loader carries on (nexload2.asm:630-632).
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -813,21 +814,92 @@ void refuse_row(const char* id, const char* desc, V13Opts o, const char* tag) {
           "read from the wrong file offset (issue #156)");
 }
 
+// A bit-6 header whose byte 152 selects no EXT2 block (0, 4, 255, ...), with
+// preserve=1, header border 5 and a preset border 6. nexload2 reads no block
+// for it (:630-632) and writes no border from it (:634-635), so the file's
+// bank offset is header + (palette) + whatever classic blocks survive
+// (`want_off`), the border stays 6 unless a surviving classic block writes
+// it (`want_border`), and no screen page or NextREG moves vs a control that
+// triggers no block. `expect_ula`: a classic ULA block survives and lands in
+// bank 5 (banks then exclude 5).
+void ext2_unknown_row(const char* id, const char* desc, uint8_t sf, uint8_t sf2,
+                      size_t want_off, int want_border, bool expect_ula, const char* tag) {
+    V13Opts o;
+    o.screen_flags = sf; o.screen_flags2 = sf2;
+    o.border = 5; o.preserve_regs = 1; o.preset_border = 6;
+    o.omit_banks_offset = true;
+    o.banks = {2, 0, 1, 3, 4};
+    V13Opts ctl = o;
+    ctl.screen_flags = 0x80; ctl.screen_flags2 = 0;
+
+    Fixture f(o, tag);
+    Fixture c(ctl, (std::string(tag) + "c").c_str());
+    const bool loaded = f.load_ok && f.apply_ok && c.load_ok && c.apply_ok;
+    const bool off_ok = loaded && f.loader.bank_data_offset() == want_off &&
+                        f.loader.bank_data_offset() == expected_bank_offset(o);
+    const bool bank_ok = loaded && read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0) &&
+                         read_page(f.emu.mmu(), 4, 0x1FFF) == bank_byte(2, 0x1FFF);
+    bool pages_ok = loaded;
+    for (uint16_t pg = 16; pg <= 27 && pages_ok; ++pg)
+        pages_ok = read_page(f.emu.mmu(), pg, 0) == read_page(c.emu.mmu(), pg, 0);
+    const bool ula_ok = !loaded ? false
+        : expect_ula ? read_page(f.emu.mmu(), 10, 0) == scr_byte(0)
+                     : read_page(f.emu.mmu(), 10, 0) == read_page(c.emu.mmu(), 10, 0);
+    auto& nr = f.emu.nextreg(); auto& cnr = c.emu.nextreg();
+    bool regs_ok = loaded;
+    for (int r : {0x70, 0x12, 0x6B, 0x6C, 0x6E, 0x6F})
+        regs_ok = regs_ok && nr.read(r) == cnr.read(r);
+    if (!expect_ula) regs_ok = regs_ok && nr.read(0x15) == cnr.read(0x15) &&
+                               nr.read(0x69) == cnr.read(0x69);
+    const int border = f.emu.ula().get_border();
+    check(id, desc, off_ok && bank_ok && pages_ok && ula_ok && regs_ok && border == want_border,
+          fmt("load=%d apply=%d offset=%llu want %zu bank_ok=%d pages_ok=%d ula_ok=%d "
+              "regs_ok=%d border=%d want %d",
+              f.load_ok, f.apply_ok, static_cast<unsigned long long>(f.loader.bank_data_offset()),
+              want_off, bank_ok, pages_ok, ula_ok, regs_ok, border, want_border));
+}
+
 void test_refusal() {
     V13Opts a; a.screen_flags = 0x20;   // bit 5: the one unassigned bit
     refuse_row("NEXV13-REFUSE-01",
                "screen_flags bit 5 (0x20) is unassigned, so its block size is unknown "
                "and load() must refuse rather than mis-size the region", a, "rf1");
 
-    V13Opts b; b.screen_flags = 0x40; b.screen_flags2 = 0;
-    refuse_row("NEXV13-REFUSE-02",
-               "screen_flags bit 6 set with screen_flags2 == 0 declares a V1.3 screen "
-               "that does not exist; load() must refuse", b, "rf2");
+    // NEXV13-REFUSE-02/03 used to refuse bit 6 with byte 152 = 0 / 4. nexload2
+    // does not (owner-approved change, 2026-11-08): all three EXT2 definitions
+    // return at `cp (hl) : ret nz` (:630-632), no header check refuses, and the
+    // loader carries on. See ext2_unknown_row() below.
+    ext2_unknown_row("NEXV13-REFUSE-02",
+                     "screen_flags bit 6 set with screen_flags2 == 0 matches none of the three "
+                     "EXT2 definitions: load() accepts it, no block is sized or read, no border "
+                     "or NextREG is written (nexload2.asm:623-625,:630-632)",
+                     0x40, 0, 1024, 6, false, "rf2");
 
-    V13Opts c; c.screen_flags = 0x40; c.screen_flags2 = 4;
-    refuse_row("NEXV13-REFUSE-03",
-               "screen_flags2 is enumerated 1..3, not a bit field — value 4 is not "
-               "'modes 1 and 3' and load() must refuse", c, "rf3");
+    ext2_unknown_row("NEXV13-REFUSE-03",
+                     "screen_flags2 == 4 with bit 6 set is likewise no EXT2 block (the byte is "
+                     "an enumeration, not a bit field): accepted, nothing sized, read or "
+                     "written (nexload2.asm:630-632)",
+                     0x40, 4, 1024, 6, false, "rf3");
+
+    ext2_unknown_row("NEXV13-EXT2-11",
+                     "screen_flags2 == 255 with bit 6 set: no EXT2 block, accepted, banks follow "
+                     "header + palette, border kept (nexload2.asm:630-635)",
+                     0x40, 255, 1024, 6, false, "u255");
+
+    ext2_unknown_row("NEXV13-EXT2-12",
+                     "bit 6 + NOPAL with an unknown byte 152 (4): no palette block, no screen, "
+                     "banks start at 512 (nexload2.asm:296-300,:630-632)",
+                     0x40 | 0x80, 4, 512, 6, false, "u4np");
+
+    ext2_unknown_row("NEXV13-EXT2-13",
+                     "ULA|EXT2 with byte 152 = 0: the ULA block (LOADSCR2 NONE matches) IS read "
+                     "and writes the border, the EXT2 block is skipped: banks at 512+512+6912",
+                     0x42, 0, 512 + 512 + 6912, 5, true, "uula0");
+
+    ext2_unknown_row("NEXV13-EXT2-14",
+                     "ULA|EXT2 with byte 152 = 4: both blocks are skipped (ULA needs 0, EXT2 "
+                     "needs 1..3): banks at 1024, border kept (nexload2.asm:618-625,:630-632)",
+                     0x42, 4, 1024, 6, false, "uula4");
 
     // A V1.2 file that sets bit 6 has no flags-2 byte (offset 152 is reserved
     // and zero there), so it is unsizable in exactly the same way.

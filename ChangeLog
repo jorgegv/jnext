@@ -8,6 +8,7 @@
 - The ULA clip window (NR 0x1A) no longer hides the border; only the 256x192 picture is clipped
 - Source debugger: z88dk code and data in a section placed in a named bank block (BANK_n_*, PAGE_n_*) now map to the right page
 - NEX V1.3: a classic screen (Layer 2, ULA, LoRes, HiRes, HiColour) is skipped when header byte 152 is non-zero, as nexload2 does
+- NEX V1.3: a header with bit 6 set and an unrecognised screen byte (0, 4, 255...) now loads with no screen instead of being refused, as nexload2 does
 
 ### Contributors in this release
 - @shrek128, @vmorilla

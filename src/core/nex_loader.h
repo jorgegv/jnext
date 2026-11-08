@@ -49,7 +49,7 @@ struct NexHeader {
     uint32_t banks_offset;       // 144: file offset where the first bank's data starts
     uint16_t cli_buffer_addr;    // 148: buffer for the loader's argument line (0 = none)
     uint16_t cli_buffer_size;    // 150: buffer size, max 2048
-    uint8_t  screen_flags2;      // 152: SCREEN2_* — valid only when SCREEN_EXT2 is set
+    uint8_t  screen_flags2;      // 152: SCREEN2_* (EXT2 screen kind, bit 6); any non-zero value also skips the classic blocks (V1.3)
     uint8_t  copper_flag;        // 153: 1 = 2048-byte copper block follows the screen data
     uint8_t  tilemode_cfg[4];    // 154: NR 0x6B, 0x6C, 0x6E, 0x6F for the tilemode screen
     uint8_t  loading_bar_y;      // 158: loading-bar Y for the two big Layer 2 screens
