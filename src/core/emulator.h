@@ -402,12 +402,14 @@ public:
     /// saves to this value. Nothing else reads it as a true boot-frame count.
     static constexpr uint32_t kWarmStartProgramFrame = 500;
 
-    /// The R register the recorder saves. R at the capture counts instructions
-    /// since power-on, and the NextZXOS menu's work depends on the RTC minute
-    /// (measured), so it moved with the wall clock; a program that seeds its RNG
-    /// from R (celeste) then looked different on every run. Hardware has no
-    /// defined R at a program's entry either, so a fixed value costs nothing.
-    static constexpr uint8_t kWarmStartProgramR = 0;
+    /// The recorder's RTC year; the full constant (2026-07-10 08:55:00) is set
+    /// in warm_start_boot_config(). Not part of the saved state.
+    static constexpr int kWarmStartRtcYear = 2026;
+
+    /// The fix-ups a recording needs after the capture check and before
+    /// save_state(): today the frame rebase. One helper, so the stepped recorder
+    /// of the web build calls it as well.
+    static void warm_start_finish_recording(Emulator& rec);
 
     /// The per-frame step of the recording recipe. Call it once per
     /// `run_frame()` of the recorder, with the emulated-time units BEFORE and

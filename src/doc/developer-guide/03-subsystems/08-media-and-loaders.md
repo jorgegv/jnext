@@ -411,14 +411,20 @@ recording and, on a miss, calls `record_warm_start_state()`, which
 5. serialises it with `save_state()` — the same `Saveable` stream the rewind
    buffer uses.
 
-Before the capture the recorder sets two values in the state it saves. The frame
-counter is rebased to 500 (`kWarmStartProgramFrame`), because scripts recorded
-with `--record-script`, and the committed DAPR replays, key on `on frame N` and
-were recorded when the recording was 500 frames long. The CPU's R register is set
-to 0 (`kWarmStartProgramR`): R counts instructions since power-on and the
-NextZXOS menu's work depends on the RTC minute (measured), so it moved with the
-wall clock, and a program that seeds its RNG from R (`celeste`) looked different
-on every run. Hardware has no defined R at a program's entry either.
+Two things keep the recording a pure function of the card, the machine and the
+recipe. The recorder runs on a **constant clock** (`warm_start_boot_config()` pins
+the RTC to 2026-07-10 08:55:00): the NextZXOS menu's work depends on the RTC
+minute, and without the pin the same card recorded different machines at
+different times of day (R, the master clock's phase, a NextZXOS RAM byte), so a
+program that seeds its RNG from R (`celeste`) looked different on every run.
+With it, recordings made under three different clock settings, host time
+included, are byte-identical files. The pin is not saved state: the live machine
+keeps its own `--rtc` or the host clock after the restore, and the DS1307
+register cache that travels in the recording is refreshed at the program's first
+I2C transaction. And before saving, `warm_start_finish_recording()` rebases the
+frame counter to 500 (`kWarmStartProgramFrame`), because scripts recorded with
+`--record-script`, and the committed DAPR replays, key on `on frame N` and were
+recorded when the recording was 500 frames long.
 
 The schedule is in emulated time, not frames: a frame adds 6 units at 50 Hz and
 5 at 60 Hz, read each frame from the recorder's own refresh rate, because the

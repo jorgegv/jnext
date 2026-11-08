@@ -7690,6 +7690,13 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
     return t0;
 }
 
+void Emulator::warm_start_finish_recording(Emulator& rec)
+{
+    // The fix-ups a recording needs between the capture check and save_state().
+    // Rebase the frame counter (see kWarmStartProgramFrame).
+    rec.frame_num_ = kWarmStartProgramFrame;
+}
+
 bool Emulator::warm_start_capture_ready(std::string& why) const
 {
     // 48K-ROM system variables, as byte offsets into bank 5 (0x4000-0x7FFF).
@@ -7785,7 +7792,14 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
     //                  joystick-port cable belong to the live machine; a second
     //                  opener would be a second writer (GH #89 review B4).
     //
-    // Everything else — the SD image, --rtc, the machine type, audio gains,
+    //   rtc            pinned to a constant (kWarmStartRtc*): the NextZXOS menu's
+    //                  work depends on the RTC minute, which moved R, the clock
+    //                  phase and a RAM byte of the recording, so the same card
+    //                  recorded different machines at different times of day.
+    //                  The pin is not saved state; the live machine keeps its
+    //                  own --rtc or host clock after the restore.
+    //
+    // Everything else — the SD image, the machine type, audio gains,
     // CPU speed — is left alone on purpose. A boot recorded under a different
     // configuration is a recording of a different machine, and the divergences
     // that would introduce are precisely the class this mechanism removes.
@@ -7831,13 +7845,7 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
         return false;
     }
 
-    // Rebase the frame counter (see kWarmStartProgramFrame).
-    rec->frame_num_ = kWarmStartProgramFrame;
-    {
-        Z80Registers regs = rec->cpu().get_registers();
-        regs.R = kWarmStartProgramR;
-        rec->cpu().set_registers(regs);
-    }
+    warm_start_finish_recording(*rec);
 
     StateWriter measure;
     rec->save_state(measure);
@@ -14871,5 +14879,15 @@ EmulatorConfig Emulator::warm_start_boot_config(const EmulatorConfig& live)
     boot_cfg.pi_uart_fifo_tx.clear();
     boot_cfg.pi_uart_tcp_port     = 0;
     boot_cfg.pi_audio = nullptr;   // one consumer of the Pi's sound
+    // The recorder's clock is a constant, not the host's or the user's: see
+    // record_warm_start_state(). 2026-07-10 08:55:00, a Friday.
+    boot_cfg.rtc_fixed = true;
+    boot_cfg.rtc_fixed_tm = std::tm{};
+    boot_cfg.rtc_fixed_tm.tm_year = kWarmStartRtcYear - 1900;
+    boot_cfg.rtc_fixed_tm.tm_mon  = 6;
+    boot_cfg.rtc_fixed_tm.tm_mday = 10;
+    boot_cfg.rtc_fixed_tm.tm_hour = 8;
+    boot_cfg.rtc_fixed_tm.tm_min  = 55;
+    boot_cfg.rtc_fixed_tm.tm_wday = 5;
     return boot_cfg;
 }

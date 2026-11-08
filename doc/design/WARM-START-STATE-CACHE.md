@@ -710,3 +710,23 @@ offset 72, so a cache written before is re-recorded.
 recorded bank 5 differs in 35 bytes: E_LINE and its dependent pointers, SUBPPC,
 FLAGS bit 6, interpreter scratch and 5 NextZXOS-internal bytes in `$5B00-$5BFF`;
 the screenshots of a program that prints are identical.
+
+**Determinism and the frame number (added the same day).** Two decisions follow
+from measurement, and both extend plan §10.8.
+- *The recorder's clock is a constant.* The recording was a function of the RTC
+  minute: R at capture, the clock phase (`clock.cycle` and the counters derived
+  from it), one NextZXOS RAM byte and the DS1307 register cache all moved with it,
+  so the same card gave different machines at different times of day and an
+  R-seeded program (`celeste`) a different picture. Pinning R alone (tried first)
+  left 12 to 18 bytes of residue that reached the running program; pinning the
+  recorder's RTC in `warm_start_boot_config()` (2026-07-10 08:55:00) makes
+  recordings under four clock settings, host time included, byte-identical, and
+  fabricates no CPU state. The cache key never covered the clock, so a
+  clock-dependent recording contradicted it. The pin is not saved state: the live
+  machine keeps its `--rtc` or the host clock after the restore (a row reads the
+  DS1307 from a warm-loaded program to prove it).
+- *The frame counter is rebased to 500.* The recording is about 760 frames long;
+  `frame_num_` is saved state, and scripts recorded with `--record-script` key on
+  `on frame N` from the 500-frame recording (the committed DAPR replays, and any
+  user script). `warm_start_finish_recording()` sets it back to 500 before the
+  state is saved. The guest cannot see it (FRAMES, `$5C78`, is guest RAM).

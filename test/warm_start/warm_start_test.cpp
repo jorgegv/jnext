@@ -72,6 +72,8 @@
 //                 directly, not inferred from the refusal message
 //   WSR-RES-07    a firmware-less CARD declines after a real boot,
 //                 named as such, and caches nothing
+//   WSR-RES-10    …and it is refused by the residency check at frame 400, not
+//                 after the whole recipe by the capture criterion (GH #481)
 //   WSR-RES-08    that verdict is latched per image — no second boot
 //   WSR-RES-09    …and the non-Next decline is at DEBUG severity, not warn
 //                 or error: it is not a refusal, and it is on every legacy
@@ -1138,6 +1140,19 @@ int main()
               det("not-recorded=%d machine-type=%d no-sd=%d cached=%d",
                   tap.count(kWhyNotRecorded), tap.count(kWhyMachineType),
                   tap.count(kWhyNoSdImage), cached ? 1 : 0));
+
+        // GH #481: the refusal comes from the residency check at the recipe's
+        // first point (frame 400, plan D8), not from the capture criterion
+        // after the whole ~760-frame recipe. Both log "Not recording", so the
+        // row names the text only the first can produce.
+        check("WSR-RES-10",
+              "…and a card with no firmware is refused by the residency check at "
+              "frame 400 (\"after 400 frames of boot\"), not after the whole recipe "
+              "by the capture criterion",
+              tap.count("after 400 frames of boot") == 1 &&
+                  tap.count("could not be brought to its Command Line") == 0,
+              det("at-400=%d capture-criterion=%d", tap.count("after 400 frames of boot"),
+                  tap.count("could not be brought to its Command Line")));
 
         // The per-IMAGE failure latch, which is the opposite of WSR-RES-05's
         // claim and deliberately so: "no SD image" is not a verdict about a
