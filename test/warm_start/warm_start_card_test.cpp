@@ -207,8 +207,8 @@ int main() {
         const bool ready = p.status == Emulator::WarmStartProgress::Status::Ready;
         check("WSCARD-02",
               "a recording stepped 7 frames per call advances exactly 7 each time, ends at "
-              "500 frames after 72 calls, and is byte-identical to the one-shot recording",
-              ready && steps_ok && calls == 72 && p.frames_done == 500 && !state1.empty() &&
+              "760 frames after 109 calls, and is byte-identical to the one-shot recording",
+              ready && steps_ok && calls == 109 && p.frames_done == 760 && !state1.empty() &&
                   e.warm_start_state() == state1,
               det("ready=%d steps_ok=%d calls=%u done=%u same=%d", ready, steps_ok, calls,
                   p.frames_done, e.warm_start_state() == state1));

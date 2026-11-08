@@ -834,9 +834,9 @@ int main()
             const bool st2 = warm_start::store(id, state, w2);
             raw = read_file(warm_start::cache_path(0));
             bool zero = raw.size() >= warm_start::kHeaderBytes;
-            for (size_t i = 40; zero && i < 88; ++i) zero = raw[i] == 0;
+            for (size_t i = 40; zero && i < 72; ++i) zero = raw[i] == 0;
             check("WSC-SHA-01",
-                  "store() writes the digest at header offset 40; without one bytes 40-87 stay zero",
+                  "store() writes the digest at header offset 40; without one bytes 40-71 stay zero (72-75 hold the recording version)",
                   st1 && st2 && at40 && zero, w2);
 
             warm_start::store(dig, state, w2);
@@ -1836,7 +1836,7 @@ int main()
         }
 
         // ── Stepped recording. Oracle: the plan, 2.2 (at most max_frames per
-        // call; Recording until all kWarmStartBootFrames; ensure() finishes).
+        // call; Recording until the recipe's frames_total; ensure() finishes).
         using Status = Emulator::WarmStartProgress::Status;
         constexpr const char* kColdBoot = "cold-booting the firmware";
         // WSR-STEP-01
@@ -1851,22 +1851,22 @@ int main()
             LogTap tap(Log::emulator());
             bool ok = true;
             std::string seen;
-            for (uint32_t want = 100; want <= 400; want += 100) {
+            for (uint32_t want = 100; want <= 300; want += 100) {
                 const auto p = e.prepare_warm_start(100);
                 seen += det("%d/%u ", static_cast<int>(p.status), p.frames_done);
                 ok = ok && p.status == Status::Recording && p.frames_done == want &&
-                     p.frames_total == 500;
+                     p.frames_total == 760;
             }
+            const auto p4 = e.prepare_warm_start(100);
             const auto p5 = e.prepare_warm_start(100);
-            const auto p6 = e.prepare_warm_start(100);
-            seen += det("%d/%u %d/%u", static_cast<int>(p5.status), p5.frames_done,
-                        static_cast<int>(p6.status), p6.frames_done);
+            seen += det("%d/%u %d/%u", static_cast<int>(p4.status), p4.frames_done,
+                        static_cast<int>(p5.status), p5.frames_done);
             check("WSR-STEP-01",
-                  "prepare_warm_start(100) reports Recording at 100..400 of 500; the fifth "
-                  "call ends it (firmware-less: Unavailable at 500) and a sixth is the "
-                  "latch, with no second boot",
-                  ok && p5.status == Status::Unavailable && p5.frames_done == 500 &&
-                      p6.status == Status::Unavailable && tap.count(kColdBoot) == 1,
+                  "prepare_warm_start(100) reports Recording at 100..300 of 760; the fourth "
+                  "call ends it (firmware-less: the recipe's residency check refuses at "
+                  "frame 400, GH #481) and a fifth is the latch, with no second boot",
+                  ok && p4.status == Status::Unavailable && p4.frames_done == 400 &&
+                      p5.status == Status::Unavailable && tap.count(kColdBoot) == 1,
                   seen + det(" coldboot=%d", tap.count(kColdBoot)));
         }
         // WSR-STEP-02
