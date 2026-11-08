@@ -2145,6 +2145,164 @@ static void test_snapsave_sna_machine_boundary() {
     }
 }
 
+// SNAPSAVE-SZX-AY — GH #484: the .szx saver writes the ZXSTAY ('AY\0\0')
+// chunk. Oracle: libspectrum 1.5.0 szx.c write_ay_chunk() (18 bytes: chFlags,
+// chCurrentRegister, chAyRegs[16]; written for every machine with the AY
+// capability, 128K/+2A/+3/Pentagon, never for a 48K) and read_ay_chunk().
+static uint8_t ay_test_value(int r) {
+    // Distinct per register, and legal for the narrow ones (R1/3/5/13 are 4 bits,
+    // R6/8-10 5 bits), so the chip stores exactly what was written.
+    const bool wide = (r == 0 || r == 2 || r == 4 || r == 7 || r == 12 || r == 14 || r == 15);
+    return static_cast<uint8_t>((r + 1) | (wide ? 0x40 : 0));
+}
+
+static void ay_test_program(Emulator& emu, uint8_t selected) {
+    for (int r = 0; r < 16; ++r) {
+        emu.port().out(0xFFFD, static_cast<uint8_t>(r));
+        emu.port().out(0xBFFD, ay_test_value(r));
+    }
+    emu.port().out(0xFFFD, selected);
+}
+
+// The payload offset of the first chunk with `id` (4 chars), or -1; counts
+// every chunk with that id in *count.
+static long szx_find_chunk(const std::vector<uint8_t>& b, const char* id, int* count) {
+    long found = -1;
+    int n = 0;
+    size_t pos = 8;
+    while (pos + 8 <= b.size()) {
+        const uint32_t sz = ru32le(b, pos + 4);
+        if (std::memcmp(&b[pos], id, 4) == 0) { if (found < 0) found = static_cast<long>(pos + 8); ++n; }
+        pos += 8 + sz;
+    }
+    if (count) *count = n;
+    return found;
+}
+
+static bool ay_chunk_matches(const std::vector<uint8_t>& b, uint8_t selected, std::string& why) {
+    int n = 0;
+    const long off = szx_find_chunk(b, "AY\0\0", &n);   // 4 bytes compared: id is "AY\0\0"
+    if (off < 0 || n != 1) { why = fmt("AY chunks=%d", n); return false; }
+    if (ru32le(b, static_cast<size_t>(off) - 4) != 18) { why = "dwSize != 18"; return false; }
+    if (b[off] != 0) { why = fmt("chFlags=0x%02X (want 0)", b[off]); return false; }
+    if (b[off + 1] != selected) { why = fmt("chCurrentRegister=%u (want %u)", b[off + 1], selected); return false; }
+    for (int r = 0; r < 16; ++r)
+        if (b[off + 2 + r] != ay_test_value(r)) {
+            why = fmt("chAyRegs[%d]=0x%02X (want 0x%02X)", r, b[off + 2 + r], ay_test_value(r));
+            return false;
+        }
+    return true;
+}
+
+static void test_snapsave_szx_ay() {
+    set_group("SNAPSAVE-SZX-AY");
+
+    // 128K: chunk bytes, then save -> fresh machine -> load.
+    {
+        Emulator emu1;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX128K;
+        cfg.rewind_buffer_frames = 0;
+        emu1.init(cfg);
+        ay_test_program(emu1, 9);
+        auto res = SzxSaver::save(emu1);
+        std::string why;
+        check("SNAPSAVE-SZX-AY-CHUNK-128K",
+              "a 128K save carries exactly one 18-byte AY chunk: chFlags 0 (no Fuller Box/"
+              "Melodik), chCurrentRegister = the selected register, all 16 registers "
+              "(libspectrum szx.c write_ay_chunk)",
+              res.ok && ay_chunk_matches(res.data, 9, why), why);
+
+        std::string path;
+        bool loaded = false;
+        Emulator emu2;
+        if (res.ok && write_temp_file(res.data, path)) {
+            emu2.init(cfg);
+            loaded = emu2.load_szx(path);
+            std::remove(path.c_str());
+        }
+        bool regs_ok = loaded;
+        std::string bad;
+        for (int r = 0; r < 16 && regs_ok; ++r)
+            if (emu2.turbosound().ay(0).read_register(static_cast<uint8_t>(r)) != ay_test_value(r)) {
+                regs_ok = false;
+                bad = fmt("R%d=0x%02X want 0x%02X", r,
+                          emu2.turbosound().ay(0).read_register(static_cast<uint8_t>(r)), ay_test_value(r));
+            }
+        check("SNAPSAVE-SZX-AY-RT-REGS",
+              "all 16 AY registers survive save -> .szx -> load into a fresh 128K",
+              regs_ok, bad.empty() ? fmt("loaded=%d", loaded) : bad);
+        check("SNAPSAVE-SZX-AY-RT-SEL",
+              "the selected AY register (9) survives save -> .szx -> load",
+              loaded && emu2.turbosound().ay(0).selected_register() == 9,
+              fmt("selected=%u", emu2.turbosound().ay(0).selected_register()));
+    }
+
+    // +3 and Pentagon 128: same chunk.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX_PLUS3;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        ay_test_program(emu, 14);
+        auto res = SzxSaver::save(emu);
+        std::string why;
+        check("SNAPSAVE-SZX-AY-CHUNK-P3",
+              "a +3 save (machine id 5) carries the AY chunk with selected register 14",
+              res.ok && res.data[6] == 5 && ay_chunk_matches(res.data, 14, why), why);
+    }
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::PENTAGON;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        ay_test_program(emu, 0);
+        auto res = SzxSaver::save(emu);
+        std::string why;
+        check("SNAPSAVE-SZX-AY-CHUNK-PENT",
+              "a Pentagon 128 save (machine id 7) carries the AY chunk with selected register 0",
+              res.ok && res.data[6] == 7 && ay_chunk_matches(res.data, 0, why), why);
+    }
+
+    // 48K: no AY (libspectrum gates the chunk on the AY capability).
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        auto res = SzxSaver::save(emu);
+        int n = -1;
+        szx_find_chunk(res.data, "AY\0\0", &n);
+        check("SNAPSAVE-SZX-AY-NONE-48K",
+              "a 48K save carries no AY chunk (libspectrum writes none without the AY capability)",
+              res.ok && n == 0, fmt("ok=%d AY chunks=%d", res.ok, n));
+    }
+
+    // TurboSound: the chip a classic program reaches (the selected one) is saved.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX128K;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        emu.turbosound().set_enabled(true);
+        emu.port().out(0xFFFD, 0xFF);                 // select AY#0 (0xFF & 3 = 3)
+        emu.port().out(0xFFFD, 0x00);
+        emu.port().out(0xBFFD, 0x77);                 // AY#0 R0 = 0x77
+        emu.port().out(0xFFFD, 0xFE);                 // select AY#1 (0xFE & 3 = 2)
+        ay_test_program(emu, 3);                      // AY#1 gets the test registers
+        auto res = SzxSaver::save(emu);
+        std::string why;
+        check("SNAPSAVE-SZX-AY-TURBOSOUND",
+              "with TurboSound on and AY#1 selected, the chunk holds AY#1's registers and "
+              "selected register, not AY#0's (the chip ports 0xFFFD/0xBFFD reach)",
+              res.ok && ay_chunk_matches(res.data, 3, why), why);
+    }
+}
+
 static void test_snapsave_nex_roundtrip() {
     set_group("SNAPSAVE-NEX-RT");
 
@@ -4143,6 +4301,9 @@ int main() {
 
     test_snapsave_szx_roundtrip_48k();
     std::printf("  Group: SNAPSAVE-SZX-RT-48K (Task 13b .szx 48K page-set round trip) — done\n");
+
+    test_snapsave_szx_ay();
+    std::printf("  Group: SNAPSAVE-SZX-AY (GH #484 .szx AY chunk) - done\n");
 
     test_snapsave_nex_roundtrip();
     std::printf("  Group: SNAPSAVE-NEX-RT (Task 13b .nex full round trip) — done\n");
