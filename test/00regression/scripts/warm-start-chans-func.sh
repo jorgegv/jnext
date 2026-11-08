@@ -359,7 +359,9 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
     wc_off=$(( ${wc_lba:-0} * 512 ))
     if mcopy -i "$wc_d_img@@$wc_off" ::/MACHINES/NEXT/CONFIG.INI "$wc_w/config.ini" 2>/dev/null \
         && grep -q '^50_60hz=' "$wc_w/config.ini"; then
-        sed -i 's/^50_60hz=.*/50_60hz=1/' "$wc_w/config.ini"
+        # edit through a temp file: BSD sed (macOS) wants a suffix argument after the in-place option, GNU sed takes none
+        sed 's/^50_60hz=.*/50_60hz=1/' "$wc_w/config.ini" >"$wc_w/config.ini.new" \
+            && mv "$wc_w/config.ini.new" "$wc_w/config.ini"
         mcopy -o -i "$wc_d_img@@$wc_off" "$wc_w/config.ini" ::/MACHINES/NEXT/CONFIG.INI \
             || wc_faults+=("harness: could not write CONFIG.INI back")
         wc_warm d d-run
