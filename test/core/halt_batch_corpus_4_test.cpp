@@ -5,12 +5,12 @@
 
 namespace {
 const Program kPrograms[] = {
-    {"HBC-19", "00regression/nex/palette_demo.nex"},
-    {"HBC-20", "00regression/nex/parallax.nex", 0, true},
+    {"HBC-19", "00regression/nex/palette_demo.nex", 0, false, true},
+    {"HBC-20", "00regression/nex/parallax.nex", 0, true, false},
     {"HBC-21", "00regression/nex/red.nex"},
-    {"HBC-22", "00regression/nex/santaspressie.nex"},
+    {"HBC-22", "00regression/nex/santaspressie.nex", 0, false, true},
     {"HBC-23", "00regression/nex/shift.nex"},
-    {"HBC-24", "00regression/nex/show512.nex", 0, true},
+    {"HBC-24", "00regression/nex/show512.nex", 0, true, false},
 };
 } // namespace
 

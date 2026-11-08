@@ -526,16 +526,26 @@ Scenario ctc_grace() {
     return s;
 }
 
-// NR 0x07 written between two frames while the CPU sits on DI;HALT: the new speed is a pending
-// shadow that commits at the end of the next slot, so the first repeat of the frame runs at the old
+// NR 0x07 written mid-frame while the CPU sits on DI;HALT: the new speed is a pending
+// shadow that commits at the end of the next slot, so the first repeat after the write runs at the old
 // one and the rest at the new (zxnext.vhd:5796-5828).
 Scenario speed_switch() {
     Scenario s = di_halt("speed-switch", 0, 60);
-    s.before_frame = [](Emulator& e, int f) {
-        if (f == 10) nr(e, 0x07, 0x03);
-        if (f == 30) nr(e, 0x07, 0x00);
-        if (f == 45) nr(e, 0x07, 0x02);
+    auto stops = std::make_shared<int>(0);
+    s.setup = [=, base = s.setup](Emulator& e) { base(e); *stops = 0; };
+    // The write must land mid-frame (a frame start commits a pending speed itself): stop the frame
+    // half-way as nmi_hotkey() does, write, resume.
+    s.before_frame = [=](Emulator& e, int f) {
+        if (f != 10 && f != 30 && f != 45) return;
+        e.debug_state().set_persistent_breakpoints(true);
+        e.debug_state().run_to_cycle(e.clock().get() + 400000);
+        e.run_frame();
+        if (e.debug_state().paused()) ++*stops;
+        e.debug_state().resume();
+        e.debug_state().set_persistent_breakpoints(false);
+        nr(e, 0x07, f == 10 ? 0x03 : f == 30 ? 0x00 : 0x02);
     };
+    s.alive = [=](Emulator& e) { return *stops == 3 && e.cpu().is_halted(); };
     return s;
 }
 
@@ -792,7 +802,7 @@ int main() {
 
     // HBQ-48: NR 0x07 written between frames while halted (G11: a pending speed commits at the end of
     // the next slot).
-    check_ab("HBQ-48", "NR 0x07 written between frames while halted on DI;HALT: identical per frame, the batch engaged",
+    check_ab("HBQ-48", "NR 0x07 written mid-frame while halted on DI;HALT: identical per frame, the batch engaged",
              {speed_switch()}, false, nullptr, Halt::Engaged);
 
     // HBQ-49: a UART TX byte completing inside what would be a batch, with its interrupt on (G10).

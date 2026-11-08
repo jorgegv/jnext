@@ -187,6 +187,7 @@ BEGIN {
     M["tap_loader_test"]               = "TAP loader (container)"
     M["program_archive_test"]          = "ZIP program archives"
     M["halt_batch_equiv_test"]         = "Cycle batching equivalence (fixtures)"
+    M["halt_batch_boot_test"]          = "Cycle batching equivalence (cold boot)"
     M["halt_batch_corpus_1_test"]      = "Cycle batching equivalence (NEX corpus 1/8)"
     M["halt_batch_corpus_2_test"]      = "Cycle batching equivalence (NEX corpus 2/8)"
     M["halt_batch_corpus_3_test"]      = "Cycle batching equivalence (NEX corpus 3/8)"

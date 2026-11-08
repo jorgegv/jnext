@@ -77,6 +77,7 @@ struct Program {
     const char* path;     // relative to the repository's test/ directory
     int  frames = 0;      // 0 = the default kFrames
     bool copper = false;  // runs a Copper program: the Copper skip must engage (GH #452 stage 2)
+    bool halt = false;    // idles on HALT: the HALT batch must engage (GH #452 stage 3)
 };
 
 
@@ -123,12 +124,14 @@ int run_corpus(const Program* programs, int count, const char* label) {
         // The row also names the programs the optimisation must engage in: one that stops
         // engaging (an optimisation silently disabled) cannot pass the corpus.
         if (diff.empty() && p.copper && b.copper_skipped == 0) diff = "the Copper skip never engaged";
+        if (diff.empty() && p.halt && b.halt_batched == 0) diff = "the HALT batch never engaged";
         // And the OFF run must really be off, or the A/B compares the optimisation with itself.
         if (diff.empty() && (a.copper_skipped != 0 || a.halt_batched != 0))
             diff = "the OFF run batched (copper_skipped=" + std::to_string(a.copper_skipped) +
                    " halt_batched=" + std::to_string(a.halt_batched) + ")";
         check(p.id, std::string(p.path) + ": identical per frame, batching off vs on" +
-                    (p.copper ? ", Copper skip engaged" : ""),
+                    (p.copper ? ", Copper skip engaged" : "") +
+                    (p.halt ? ", HALT batch engaged" : ""),
               diff.empty(), diff);
     }
 

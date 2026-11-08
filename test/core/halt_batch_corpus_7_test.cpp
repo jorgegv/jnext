@@ -5,9 +5,9 @@
 
 namespace {
 const Program kPrograms[] = {
-    {"HBC-37", "00regression/nex/tilemap_demo.nex"},
+    {"HBC-37", "00regression/nex/tilemap_demo.nex", 0, false, true},
     {"HBC-38", "00regression/nex/trainyard-express.nex"},
-    {"HBC-39", "nex-nonworking/bloaters.nex", 400, true},
+    {"HBC-39", "nex-nonworking/bloaters.nex", 400, true, true},
     {"HBC-40", "nex-nonworking/hott.nex"},
     {"HBC-41", "nex-nonworking/lom.nex"},
 };
