@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=321  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=322  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -143,6 +143,19 @@ REAL_MASTER_SIG=$(master_sig "$REAL_MASTER")
 SCRATCH_HOME="$T/home"
 mkdir -p "$SCRATCH_HOME/.jnext/sdcard"
 printf card > "$SCRATCH_HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"
+# The scratch HOME must still carry the user's git config: CI's checkout belongs to another uid
+# and is trusted only by a global safe.directory in the real $HOME/.gitconfig, so without it
+# every `git ls-files` in the preflight lints dies with "dubious ownership" (run 42460116296).
+# Only the git config files are copied, never the real HOME. HS-169 pins it.
+carry_git_config() {   # carry_git_config <from-home> <to-home>
+    [[ -f "$1/.gitconfig" ]] && cp "$1/.gitconfig" "$2/.gitconfig"
+    if [[ -f "$1/.config/git/config" ]]; then
+        mkdir -p "$2/.config/git"; cp "$1/.config/git/config" "$2/.config/git/config"
+    fi
+    return 0
+}
+ORIG_HOME="${HOME:-/nonexistent}"
+carry_git_config "$ORIG_HOME" "$SCRATCH_HOME"
 export HOME="$SCRATCH_HOME"
 
 # The harness reads the build's configuration out of its CMakeCache.txt to decide
@@ -3471,6 +3484,25 @@ res+=" unit=$([[ "$unit_img" == "$T/home/.jnext/runs/unit-"* ]] && echo scratch 
 res+=" regr=$([[ "$regr_dir" == "$T/home/.jnext/runs/"* ]] && echo scratch || echo "OTHER:$regr_dir")"
 check "HS-167" "a self-test run clones the SD master only inside its scratch HOME: unit suite image and regression RUN_DIR (owner decision 2026-11-07)" 0 $rc "$res" \
     "home=scratch unit=scratch regr=scratch"
+
+# ---- the scratch HOME carries the git config (HS-169) ----
+# Oracle: CI run 42460116296: the checkout's owner differs from the runner's uid, git trusts it
+# only through the global safe.directory of the real HOME, and the preflight lints (git
+# ls-files) failed under the scratch HOME. Fixture: a fake home with a safe.directory entry;
+# live: the scratch HOME must report the same safe.directory list as the original HOME.
+cgf="$T/cgfix"; mkdir -p "$cgf/from/.config/git" "$cgf/to"
+printf '[safe]\n\tdirectory = /selftest/marker-dir\n' > "$cgf/from/.gitconfig"
+printf '[safe]\n\tdirectory = /selftest/marker-xdg\n' > "$cgf/from/.config/git/config"
+carry_git_config "$cgf/from" "$cgf/to"
+# git's own lookup (both the home file and the XDG one, as the ownership check reads them);
+# --global would ignore the XDG file whenever ~/.gitconfig exists.
+git_safe_dirs() {   # git_safe_dirs <home>
+    (cd / && env -u XDG_CONFIG_HOME GIT_CONFIG_NOSYSTEM=1 HOME="$1" git config --get-all safe.directory 2>&1 | sort | tr "\n" " ")
+}
+res="fixture=$(git_safe_dirs "$cgf/to")"
+res+=" live=$([[ "$(git_safe_dirs "$ORIG_HOME")" == "$(git_safe_dirs "$HOME")" ]] && echo same || echo DIFFERENT)"
+check "HS-169" "the scratch HOME carries both git config files (~/.gitconfig and ~/.config/git/config, safe.directory), so the preflight lints work in a checkout owned by another uid (CI run 42460116296)" 0 0 "$res" \
+    "fixture=/selftest/marker-dir /selftest/marker-xdg" "live=same"
 
 # ---- the real SD master is never touched by the self-test (HS-168) ----
 # Hard guard, from the 2026-11-07 incident (the real master became the 4-byte stand-in).
