@@ -165,7 +165,7 @@ tag (a subset of `linux,macos,windows`; `linux` is mandatory, so a Linux run is
 unchanged; no tag means all three), with a `# os:` reason on the line above the
 row. `# expect-macos: N` and `# expect-windows: N` pin the counts both ways. The
 run prints the absent rows by name; they are not SKIPs and are not counted. The
-6 lints (tree checks) run in the Linux run only. Currently absent: the X11
+7 lints (tree checks) run in the Linux run only. Currently absent: the X11
 key-injection rows and the rows that do not run jnext (Linux only); the
 `--record`/ffmpeg rows, `joy-uart-link`, `nextpi`, `startup-stack` on Windows;
 `audio-underrun`, `sdl-options` and `dzrp-paused-headless` (the macOS CI runner's

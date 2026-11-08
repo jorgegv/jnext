@@ -218,6 +218,13 @@ verdict on the real tree is trusted at all:
   because an earlier version that guessed where heredocs end hid 555 lines.
   The lint also counts the lines that reached its matcher and refuses the run
   unless that is every line of every in-scope file.
+- `test/lint-sed-inplace.sh` (row 7 of the preflight) refuses a `sed -i` with
+  no attached suffix in the test scripts macOS runs, because BSD sed reads the
+  next word as the suffix and fails with "-I or -i may not be used with stdin".
+  Its case table pins both ways: bare `-i`, `-ni`, `-i ''` and `--in-place` are
+  flagged; `-i.bak`, a temp file plus `mv`, and the text `sed -i` inside a
+  quote or comment are not. `test/packaging/` and `harness-selftest.sh` are
+  out of scope because only Linux runs them.
 
 The developer-guide cite check, `test/lint-devguide-cites.pl` (see
 [4.5](05-documentation-and-cli-gates.md#the-developer-guide-cite-rule)), is not self-checking
