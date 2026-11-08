@@ -198,6 +198,13 @@ PY
     wc_warm ab a
     grep -q "recorded a NextZXOS-resident machine" "$wc_w/a.log" \
         || wc_faults+=("A: the warm start did not record")
+    # The recipe's length on this card is a deterministic function of the card
+    # and the recipe's idle/state rules (605 frames on the distribution card);
+    # a change to any of them moves it, so it is pinned here, not only through
+    # the pixels of an R-seeded program.
+    wc_n=$(sed -n 's/.*recorded a NextZXOS-resident machine ([0-9]* KB, \([0-9]*\) frames).*/\1/p' "$wc_w/a.log" | head -1)
+    [[ "$wc_n" == 605 ]] \
+        || wc_faults+=("A: the recording took ${wc_n:-?} frames, not the 605 measured on the distribution card")
     wc_v=$(python3 -I "$wc_w/fields.py" a A "$wc_w/a.log")
     [[ -z "$wc_v" ]] || wc_faults+=("$wc_v")
 
@@ -301,6 +308,8 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
         || wc_faults+=("F: the load did not report that NextZXOS could not be brought to its Command Line")
     grep -q "Not recording" "$wc_w/f.log" \
         || wc_faults+=("F: the refusal does not say 'Not recording'")
+    grep -q "the recipe was waiting for the Command Line to be idle" "$wc_w/f.log" \
+        || wc_faults+=("F: the refusal does not say what the recipe was waiting for")
     if compgen -G "$wc_w/f/warm-start/*" >/dev/null; then
         wc_faults+=("F: a recording was cached for a machine that never reached the Command Line")
     fi

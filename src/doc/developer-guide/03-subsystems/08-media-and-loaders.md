@@ -409,7 +409,7 @@ recording and, on a miss, calls `record_warm_start_state()`, which
    recipe is done when the statement executes (`ERR_NR` $FF, `PPC` $FFFE). The
    keys go through `Keyboard::queue_auto_type()`, and the per-frame step is
    `Emulator::warm_start_recipe_tick()`. A state that does not come within 400
-   frames ends the recipe, and the capture check then refuses,
+   frames ends the recipe (so at most five waits, 2000 frames, after frame 400), and the capture check then refuses,
 4. checks `nextzxos_resident()` (once, when the clock passes frame 400, before
    any key) and `warm_start_capture_ready()` (when the recipe is done or gave
    up; its message names what the recipe was waiting for), and
@@ -420,8 +420,11 @@ Nothing is pressed at a fixed frame count. The first version pressed SPACE at
 frame 400, DOWN at 470, ENTER at 500, and was measured to work on the
 distribution card only: on the minimal card (a 40 MB card with the boot set) the
 welcome program is up about ten frames later and the menu was never reached. The
-idle signal is not a pinned address: any build's key-wait loop is a HALT or a
-keyscan loop that the frame boundary samples at the same instruction. The
+idle signal is not a pinned address. It is what was measured: every key wait on
+both cards is a HALT at one instruction (with a different SP on each screen), and
+every busy phase moves the PC at each frame boundary. A wait loop that polls the
+keyboard without HALT would not be sampled at one instruction and would never read
+as idle, so the recipe would give up and the capture check refuse. The
 recording takes about 600 frames on the two cards measured, and is the same file
 on every run of one card (the clock is pinned, below).
 

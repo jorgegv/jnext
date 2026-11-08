@@ -7885,7 +7885,7 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
     uint32_t units  = 0;
     uint32_t frames = 0;
     std::string why;
-    while (units < kWarmStartMaxUnits && !rec->warm_start_recipe_done()) {
+    while (!rec->warm_start_recipe_done()) {
         const uint32_t before = units;
         rec->run_frame();
         ++frames;

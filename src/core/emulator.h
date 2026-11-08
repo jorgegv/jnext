@@ -390,8 +390,6 @@ public:
     /// A recipe state that has waited this long (400 frames at 50 Hz) for its
     /// condition gives up; the capture check then refuses loudly, naming it.
     static constexpr uint32_t kWarmStartPhaseUnits = 400 * 6;
-    /// The recording as a whole stops here (2400 frames at 50 Hz).
-    static constexpr uint32_t kWarmStartMaxUnits = 2400 * 6;
     /// Frames the machine must sit at the same PC and SP, with no auto-typed key
     /// queued, to count as idle (waiting for a key in a HALT or keyscan loop).
     static constexpr uint32_t kWarmStartCalmFrames = 8;
@@ -426,7 +424,8 @@ public:
     /// Returns true when T0 was crossed: the caller then checks
     /// `nextzxos_resident()` (not done here, so rows can drive the recipe on a
     /// machine that never booted). Keep calling until warm_start_recipe_done()
-    /// or kWarmStartMaxUnits, then run warm_start_capture_ready(), which is what
+    /// (it always comes: every state gives up after kWarmStartPhaseUnits, so
+    /// at most 5 budgets after T0), then run warm_start_capture_ready(), which is what
     /// decides (and names what the recipe was waiting for when it gave up).
     static bool warm_start_recipe_tick(Emulator& rec, uint32_t units_before,
                                        uint32_t units_after);
@@ -2149,12 +2148,6 @@ private:
     /// runtime frame-edge commit cannot program different constants.
     void apply_video_timing(MachineTimingMode mode, bool refresh_60hz);
 
-    /// True between the start of a frame and its completion. The debugger pauses by
-    /// returning from inside run_frame()'s loop, so the next call must RESUME that frame,
-    /// not restart it.
-    bool frame_in_progress_ = false;
-
-    /// GH #278 — see at_restored_frame_start().
     /// The warm-start recording recipe's state machine (see
     /// warm_start_recipe_tick()). Only a recorder's Emulator uses it.
     enum class WsPhase { kMenu, kDown, kEnter, kStatement, kDone, kGaveUp };
@@ -2168,6 +2161,13 @@ private:
         WsPhase  stuck        = WsPhase::kMenu;   // the phase that gave up
     };
     WsRecipe ws_recipe_;
+
+    /// True between the start of a frame and its completion. The debugger pauses by
+    /// returning from inside run_frame()'s loop, so the next call must RESUME that frame,
+    /// not restart it.
+    bool frame_in_progress_ = false;
+
+    /// GH #278 — see at_restored_frame_start().
     bool restored_frame_start_ = false;
 
     /// GH #276 B4 — see frame_edge_open().
