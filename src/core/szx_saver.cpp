@@ -72,7 +72,14 @@ SzxSaver::SaveResult SzxSaver::save(Emulator& emu)
 
     uint32_t tstates = *fuse_z80_tstates_ptr();
 
-    result.data = build(regs, tstates, machine_id, spec, mmu, &result.error);
+    // The AY of the chip a classic program sees (TurboSound's selected one),
+    // symmetric with Emulator::restore_ay_registers() on load.
+    const AyChip& chip = emu.turbosound().active_ay();
+    AyState ay;
+    ay.selected = chip.selected_register();
+    for (int i = 0; i < 16; ++i) ay.regs[i] = chip.read_register(static_cast<uint8_t>(i));
+
+    result.data = build(regs, tstates, machine_id, spec, mmu, &result.error, &ay);
     result.ok   = !result.data.empty();
     if (result.ok) {
         Log::emulator()->info("SZX saver: saved snapshot ({} bytes, machine_id={})",

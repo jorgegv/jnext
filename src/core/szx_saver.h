@@ -85,6 +85,13 @@ public:
         uint8_t port_fe   = 0;  // ZXSTSPECREGS.chFe (bits 2:0 = border, 3 = MIC, 4 = EAR)
     };
 
+    /// The ZXSTAY ('AY\0\0') payload values: the selected register and the
+    /// 16 registers of the chip a classic program sees.
+    struct AyState {
+        uint8_t selected = 0;
+        uint8_t regs[16] = {};
+    };
+
     /// The set of physical RAM bank numbers (== ZXSTRAMPAGE chPageNo, see
     /// class doc-comment PAGE NUMBERING) that make up a given chMachineId's
     /// RAM. Empty iff `machine_id` is not one of the four .szx supports
@@ -109,7 +116,8 @@ public:
     /// fixture (no Emulator needed).
     static std::vector<uint8_t> build(const Z80Registers& regs, uint32_t tstates,
                                        uint8_t machine_id, const SpecRegs& spec,
-                                       Mmu& mmu, std::string* error = nullptr)
+                                       Mmu& mmu, std::string* error = nullptr,
+                                       const AyState* ay = nullptr)
     {
         std::vector<uint8_t> banks = ram_page_set(machine_id);
         if (banks.empty()) {
@@ -190,6 +198,22 @@ public:
             out[p + 2] = spec.port_1ffd;
             out[p + 3] = spec.port_fe;
             // out[p+4..7] chReserved = 0 (already zero-filled)
+
+            uint32_t sz = static_cast<uint32_t>(out.size() - p);
+            put_u32(hdr + 4, sz);
+        }
+
+        // ---- ZXSTAY ('AY\0\0'), 18-byte payload: 128K-class machines only
+        // (libspectrum szx.c:2776-2779 gates on the AY capability; a 48K has none).
+        if (ay && machine_id != 1) {
+            size_t hdr = out.size();
+            out.insert(out.end(), {'A', 'Y', 0, 0});
+            out.resize(out.size() + 4);
+            size_t p = out.size();
+            out.resize(p + 18, 0);
+            out[p + 0] = 0;                       // chFlags: no Fuller Box / Melodik
+            out[p + 1] = ay->selected;            // chCurrentRegister
+            for (int i = 0; i < 16; ++i) out[p + 2 + i] = ay->regs[i];
 
             uint32_t sz = static_cast<uint32_t>(out.size() - p);
             put_u32(hdr + 4, sz);
