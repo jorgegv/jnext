@@ -730,3 +730,20 @@ from measurement, and both extend plan §10.8.
   `on frame N` from the 500-frame recording (the committed DAPR replays, and any
   user script). `warm_start_finish_recording()` sets it back to 500 before the
   state is saved. The guest cannot see it (FRAMES, `$5C78`, is guest RAM).
+
+**The recipe drives on state, not on frame counts (added 2026-11-08, later).**
+The first recipe pressed SPACE at frame 400, DOWN at 470, ENTER at 500 and typed
+at 560, the points `boot-nextzxos-menu` and `boot-nextzxos-dotls` prove on the
+distribution card. On the minimal card (40 MB, boot set only) the welcome program
+is up about ten frames later (PROG != VARS from frame ~410, not 400), so SPACE was
+never sent and the load fell back with "ERR_NR=$2F". A schedule of fixed frames is
+a property of one card. The recorder now sends each key only when the machine has
+been idle (same PC and SP at the frame boundary, no key queued) for 8 frames in
+the state that takes it, with a 400-frame budget per state; the capture check
+decides and names what the recipe was waiting for when it gave up. Measured:
+distribution card 605 frames, minimal card 613, byte-identical recordings across
+four clock settings per card, the minimal card's warm `RST $10` probes 0 px from
+the distribution card's real chain. Idle was chosen over FLAGS bit 5 (always clear
+while waiting, measured) and over a pinned PC (the key-wait address is a property
+of one build, plan §7.3); the sample at 0C8F that every wait shared is incidental.
+
