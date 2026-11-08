@@ -44,6 +44,7 @@ A few things to know:
   cannot start a machine without one.
 - The card cannot be changed while an RZX recording is being made or played, or
   while a directly loaded `.nex` keeps its own file open. JNEXT says why.
-- Changing the card clears the debugger's rewind history.
+- Changing the card clears the debugger's rewind history and drops the warm-start
+  recording (the next NEX load records again from the new card).
 - A `.jns` snapshot saved with one card refuses to load once a *different* card
   is in (chapter 5, Snapshots). A copy of the same card is the same card to it.

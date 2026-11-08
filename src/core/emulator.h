@@ -377,23 +377,22 @@ public:
     /// 50 Hz frame count times 6.
     static constexpr uint32_t kWarmStartUnitsPer50HzFrame = 6;
     static constexpr uint32_t kWarmStartUnitsPer60HzFrame = 5;
-    /// T0: frame 400. The `boot-nextzxos-welcome` regression row pins the
-    /// welcome as fully rendered by then. NextZXOS residency is checked, and a
-    /// BASIC program still resident (the welcome's own) gets SPACE
-    /// ("SPACE=Start NextZXOS").
+    /// T0: frame 400. NextZXOS residency is checked once there (the first point
+    /// at which the firmware has certainly loaded NextZXOS, so a card without
+    /// it is refused early), and the recipe's state machine starts looking at
+    /// the machine. Nothing is pressed at a fixed frame: every key waits for
+    /// the machine to be idle in the state that wants it (see
+    /// warm_start_recipe_tick()).
     static constexpr uint32_t kWarmStartT0Units = 400 * 6;
-    /// T1: frame 470, cursor DOWN on the menu (Browser -> Command Line).
-    static constexpr uint32_t kWarmStartT1Units = 470 * 6;
-    /// T2: frame 500, ENTER: the Command Line. T0-T2 are the points the
-    /// `boot-nextzxos-menu` and `boot-nextzxos-dotls` rows already prove.
-    static constexpr uint32_t kWarmStartT2Units = 500 * 6;
-    /// T3: frame 560, `print;:pause 0` + ENTER typed at the Command Line. The
-    /// queue drains at frame 691 (measured).
-    static constexpr uint32_t kWarmStartT3Units = 560 * 6;
-    /// T4: frame 760, the capture. NextZXOS sits inside PAUSE 0 with the
-    /// stream-2 channel opened by PRINT, which is the state a dot command's
-    /// program entry has; warm_start_capture_ready() then decides.
+    /// The nominal length of a recording on the measured cards (about 760
+    /// frames at 50 Hz): a progress figure, not a deadline.
     static constexpr uint32_t kWarmStartT4Units = 760 * 6;
+    /// A recipe state that has waited this long (400 frames at 50 Hz) for its
+    /// condition gives up; the capture check then refuses loudly, naming it.
+    static constexpr uint32_t kWarmStartPhaseUnits = 400 * 6;
+    /// Frames the machine must sit at the same PC and SP, with no auto-typed key
+    /// queued, to count as idle (NextZXOS waits for a key in a HALT loop; measured).
+    static constexpr uint32_t kWarmStartCalmFrames = 8;
 
     /// The frame number a warm-started program starts at. The recording is
     /// about 760 frames long, but scripts recorded with --record-script (and the
@@ -411,15 +410,33 @@ public:
     /// of the web build calls it as well.
     static void warm_start_finish_recording(Emulator& rec);
 
-    /// The per-frame step of the recording recipe. Call it once per
-    /// `run_frame()` of the recorder, with the emulated-time units BEFORE and
-    /// AFTER that frame (`warm_start_frame_units()` per frame). It queues, on
-    /// `rec`'s keyboard, what each point crossed in (before, after] asks for.
+    /// The per-frame step of the recording recipe, driven by the MACHINE'S
+    /// STATE and not by frame counts. Call it once per `run_frame()` of the
+    /// recorder, with the emulated-time units BEFORE and AFTER that frame
+    /// (`warm_start_frame_units()` per frame). From T0 on it sends one input at
+    /// a time, each only when the machine has been idle (same PC and SP, no key
+    /// queued) for kWarmStartCalmFrames frames in the state that takes it:
+    ///   welcome program resident (PROG != VARS)  -> SPACE ("Start NextZXOS")
+    ///   menu idle (ERR_NR $2F, PPC 0, TV_FLAG $20) -> cursor DOWN, then ENTER
+    ///   Command Line idle (TV_FLAG $21)           -> `print;:pause 0` ENTER
+    ///   statement executing (ERR_NR $FF, PPC $FFFE) -> done
+    /// A state that does not come within kWarmStartPhaseUnits ends the recipe.
     /// Returns true when T0 was crossed: the caller then checks
-    /// `nextzxos_resident()` (it is not done here, so the rows can drive the
-    /// recipe on a machine that never booted).
+    /// `nextzxos_resident()` (not done here, so rows can drive the recipe on a
+    /// machine that never booted). Keep calling until warm_start_recipe_done()
+    /// (it always comes: each of the four states gives up after
+    /// kWarmStartPhaseUnits, so at most 4 budgets after T0, about 2000 frames at
+    /// 50 Hz and 2400 at 60 Hz), then run warm_start_capture_ready(), which is what
+    /// decides (and names what the recipe was waiting for when it gave up).
     static bool warm_start_recipe_tick(Emulator& rec, uint32_t units_before,
                                        uint32_t units_after);
+
+    /// True once the recipe has reached the executing statement or given up
+    /// waiting: stop stepping and run warm_start_capture_ready().
+    bool warm_start_recipe_done() const { return ws_recipe_.phase == WsPhase::kDone || ws_recipe_.phase == WsPhase::kGaveUp; }
+
+    /// What the recipe was last waiting for, for a refusal message.
+    std::string warm_start_recipe_waiting_for() const;
 
     /// Units one frame adds to the recipe's clock, from the machine's current
     /// refresh rate (the firmware switches it from config.ini during boot).
@@ -2150,6 +2167,20 @@ private:
     /// repush_video_timing_from_machine_timing(), so the boot seed and the
     /// runtime frame-edge commit cannot program different constants.
     void apply_video_timing(MachineTimingMode mode, bool refresh_60hz);
+
+    /// The warm-start recording recipe's state machine (see
+    /// warm_start_recipe_tick()). Only a recorder's Emulator uses it.
+    enum class WsPhase { kMenu, kDown, kEnter, kStatement, kDone, kGaveUp };
+    struct WsRecipe {
+        WsPhase  phase        = WsPhase::kMenu;
+        uint16_t last_pc      = 0xFFFF;
+        uint16_t last_sp      = 0xFFFF;
+        uint32_t calm         = 0;      // consecutive idle frames
+        uint32_t phase_start  = 0;      // units when the phase began
+        uint32_t space_units  = 0;      // units of the last SPACE (0 = none)
+        WsPhase  stuck        = WsPhase::kMenu;   // the phase that gave up
+    };
+    WsRecipe ws_recipe_;
 
     /// True between the start of a frame and its completion. The debugger pauses by
     /// returning from inside run_frame()'s loop, so the next call must RESUME that frame,

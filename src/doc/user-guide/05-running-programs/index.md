@@ -110,7 +110,8 @@ a switch made while JNEXT is running.
 **Light and dark.** JNEXT's windows, the debugger included, follow your
 desktop's light or dark setting, and change with it while running. On Linux
 that is the setting your desktop publishes to applications (GNOME's *Dark
-style*, KDE's colour scheme); on Windows and macOS it is the system
+style*, KDE's colour scheme), which JNEXT reads from the XDG desktop portal
+because Qt itself misses it under GNOME; on Windows and macOS it is the system
 appearance. The legacy Windows packages (Windows 7 and 8) stay light. To force
 one regardless (not in the legacy packages), start JNEXT with `JNEXT_COLOR_SCHEME=dark` or
 `JNEXT_COLOR_SCHEME=light` in its environment.

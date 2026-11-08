@@ -3,7 +3,7 @@
 ## Unreleased (2026-11-07)
 
 ### User Features
-- Much faster emulation of programs that HALT or wait on the Copper: 20 to 83 % fewer host instructions per frame, same output (suggested by @shrek128)
+- Much faster emulation of programs that HALT or wait on the Copper: 20 to 84 % fewer host instructions per frame, same output (suggested by @shrek128)
 
 ### Bug Fixes
 - Programs loaded on the Next that print through the ROM (RST $10) no longer hang; the warm start records NextZXOS at its Command Line

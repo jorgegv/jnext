@@ -125,6 +125,12 @@ from screens 0 and 1 byte-interleaved. The ULA also owns ULA scroll (NR 0x26 /
 shadow-screen bank selector, the flash counter, and the active-palette selector
 bits for *all four* palettes.
 
+The default ULA colours are the boot chain's own: the 16-byte table that NextZXOS
+and the NEX loader write. A program loaded with `--load`, and the 48K/128K/+3
+machine types (which never run the firmware), therefore show the shades a real
+machine does, not a brighter approximation. This also keeps bright magenta clear
+of the default transparency colour, where it was once drawn see-through.
+
 Two things a reader expects to find here are somewhere else. The **clip window**
 is one: `Ula::render_scanline` emits an unclipped line and
 `Renderer::apply_ula_clip` masks it afterwards, because in hardware NR 0x1A

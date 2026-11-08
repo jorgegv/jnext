@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.16</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.16</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4209,7 +4209,8 @@ again.</p>
   cannot start a machine without one.</li>
 <li>The card cannot be changed while an RZX recording is being made or played, or
   while a directly loaded <code>.nex</code> keeps its own file open. JNEXT says why.</li>
-<li>Changing the card clears the debugger's rewind history.</li>
+<li>Changing the card clears the debugger's rewind history and drops the warm-start
+  recording (the next NEX load records again from the new card).</li>
 <li>A <code>.jns</code> snapshot saved with one card refuses to load once a <em>different</em> card
   is in (chapter 5, Snapshots). A copy of the same card is the same card to it.</li>
 </ul>
