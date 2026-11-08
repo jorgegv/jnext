@@ -197,7 +197,8 @@ row MINIMG-10 "$ok" "a source without SYS (partition at sector 2048) is refused 
 # ---- MINIMG-11: too few clusters refused ----
 mkdir -p "$T/tools" "$T/f"
 cp "$SCRIPT" "$T/tools/make-minimal-sdcard-image.sh"; cp "$FIXSH" "$T/tools/fix-sdcard-image.sh"
-sed -i 's/^CARD_MB=40$/CARD_MB=32/' "$T/tools/make-minimal-sdcard-image.sh"
+sed 's/^CARD_MB=40$/CARD_MB=32/' "$T/tools/make-minimal-sdcard-image.sh" > "$T/tools/make-minimal-sdcard-image.sh.new" \
+    && mv "$T/tools/make-minimal-sdcard-image.sh.new" "$T/tools/make-minimal-sdcard-image.sh"
 changed=$(diff "$SCRIPT" "$T/tools/make-minimal-sdcard-image.sh" | grep -c '^>' || true)
 rc=0; err=$(bash "$T/tools/make-minimal-sdcard-image.sh" "$SRC" "$T/f/out.img" 2>&1 >/dev/null) || rc=$?
 ok=0
