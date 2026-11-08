@@ -163,6 +163,8 @@ for op in sys.argv[3:]:
         find(a[0])[1] = find(a[0])[1][:int(a[1])]
     elif k == "sym":
         e = find(a[0]); e[1] = a[1].encode(); e[3] = 0o120777 << 16
+    elif k == "flip":
+        e = find(a[0]); e[1] = bytes([e[1][0] ^ 1]) + e[1][1:]
     elif k == "nopre":
         e = find(a[0]); e[1] = b"\x01\x02\x03\x04" + e[1][4:]
     else:
@@ -447,7 +449,10 @@ row WEBPKG-31 "$ok" "the good entries in a zip named jnext-9.9.8-web.zip refused
 mz "$T/c32.zip" trunc:jnext-9.9.9-web/LICENSE:100
 run_verify "$GOOD" "$T/c32.zip"
 ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "LICENSE" && errhas "$GOOD" "differs from its source" && ok=1
-row WEBPKG-32 "$ok" "a truncated LICENSE entry refused (identity)"
+mz "$T/c32b.zip" flip:jnext-9.9.9-web/CREDITS.md
+run_verify "$GOOD" "$T/c32b.zip"
+[[ $RC -ne 0 ]] && errhas "$GOOD" "CREDITS.md differs from its source" || ok=0
+row WEBPKG-32 "$ok" "a truncated LICENSE entry and a same-size CREDITS.md with one bit flipped refused (identity)"
 
 # ---- WEBPKG-33: a symlink entry ----
 mz "$T/c33.zip" sym:jnext-9.9.9-web/CREDITS.md:/etc/passwd
