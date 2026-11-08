@@ -84,7 +84,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--warm-start-regenerate` forces a fresh warm-start recording after the card's firmware changes
 - SNA: 48K and 128K snapshots with full register and paging restore
 - SNA saving follows the machine (48K or 128K form); formats that cannot describe the state are refused with a pointer to `.szx` or `.jns`
-- SZX: load (zlib-compressed RAM, AY registers) and save (full RAM, CPU, paging, border) for 48K/128K/Pentagon 128/+2A/+3
+- SZX: load (zlib-compressed RAM, AY registers) and save (full RAM, CPU, paging, border, AY registers) for 48K/128K/Pentagon 128/+2A/+3
 - SZX loading runs the file on the machine its header names (incl. NTSC 48K at 60 Hz)
 - Z80: v1/v2/v3 snapshots, 48K and 128K, compressed and uncompressed pages, full register and paging restore
 - JNS (`.jns`): jnext's own whole-machine snapshot and the only format that can represent a Next (ZIP of named JSON subsystems; `--snapshot-compression off`)

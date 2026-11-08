@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Group rows: the six static preflight lints, always rows 1-6 of the suite.
+# Group rows: the seven static preflight lints, always rows 1-7 of the suite.
 # Sourced by regression.sh (the driver); also directly executable.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
@@ -101,6 +101,21 @@ if bash "$PROJECT_DIR/test/lint-pipe-grepq.sh"; then
     printf "  "; pass_row ": no pipeline ends in a quiet grep"
 else
     printf "  "; fail_row ": a pipeline ends in a quiet grep under pipefail (see above)"
+fi
+echo ""
+
+# --- bare in-place sed lint ---
+# BSD sed (macOS) takes the word after -i as the backup suffix, so a GNU-style
+# `sed -i 's/a/b/' f` dies there with "-I or -i may not be used with stdin".
+# warm-start-chans-func did exactly that on CI's macos-regression job while
+# passing on every Linux run. Scope: every tracked test script macOS runs
+# (test/packaging/ and harness-selftest.sh are Linux-only and excluded).
+echo -e "${BOLD}[lint-sed-i] Scanning test shell scripts for an in-place sed with no attached suffix...${RESET}"
+CURRENT_ROW=lint-sed-i
+if bash "$PROJECT_DIR/test/lint-sed-inplace.sh"; then
+    printf "  "; pass_row ": no test script uses a bare in-place sed"
+else
+    printf "  "; fail_row ": a test script runs a bare in-place sed, which BSD sed rejects (see above)"
 fi
 echo ""
 
