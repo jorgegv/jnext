@@ -152,6 +152,15 @@ static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) 
     if (blk & NexHeader::SCREEN_HICOLOUR) out += 12288;
 
     if (sf & NexHeader::SCREEN_EXT2) {
+        // Field 152 does not exist for a V1.0-V1.2 header (nexload.asm has no
+        // reference to it), so there its byte can never select a block.
+        // nexload.asm never tests bit 6 at all (it would read the palette and
+        // load no screen); jnext refuses the combination by its own decision
+        // (NEXV13-REFUSE-04, EXT2-15..17), for every byte 152.
+        if (!v13) {
+            why = "screen_flags bit 6 selects a V1.3 screen but this is not a V1.3 header";
+            return false;
+        }
         switch (h.screen_flags2) {
             case NexHeader::SCREEN2_L2_320x256:
             case NexHeader::SCREEN2_L2_640x256:
@@ -169,12 +178,7 @@ static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) 
                 // read, nothing is written, the loader carries on with the
                 // next block. No header check refuses it (checkHeader,
                 // :544-:570). So for a V1.3 header the value declares no
-                // data block. A V1.0-V1.2 header is nexload.asm's, which
-                // has no bit 6 at all: its size is unknown, refuse.
-                if (!v13) {
-                    why = "screen_flags bit 6 selects a V1.3 screen but this is not a V1.3 header";
-                    return false;
-                }
+                // data block.
                 break;
         }
     }
@@ -1021,10 +1025,10 @@ bool NexLoader::apply(Emulator& emu) const
     // with bit 6 clear the call never happens and LoadScreenBlock — the only
     // place field 152 picks a block (:628-:633) — is never reached. No data
     // block is sized or read, and none of the mode's NextREG writes fire.
-    // load() has already rejected any value other than the three known kinds
-    // whenever bit 6 IS set, so this is one of them when it is non-zero.
-    const uint8_t sf2 = (sf & NexHeader::SCREEN_EXT2) ? header_.screen_flags2
-                                                      : NexHeader::SCREEN2_NONE;
+    // A value other than the three known kinds matches no definition (and a
+    // V1.0-V1.2 header is refused in load() when bit 6 is set), so no block runs.
+    const uint8_t sf2 = (v13 && (sf & NexHeader::SCREEN_EXT2)) ? header_.screen_flags2
+                                                               : NexHeader::SCREEN2_NONE;
     // sf2_raw — the PALETTE DESTINATION selector, NOT gated. LoadFilePalette
     // reads the byte with no bit-6 test at all (nexload2.asm:732), and
     // checkHeader (:544-:570) never sanitises it, so the raw file byte is
