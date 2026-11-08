@@ -84,7 +84,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--warm-start-regenerate` forces a fresh warm-start recording after the card's firmware changes
 - SNA: 48K and 128K snapshots with full register and paging restore
 - SNA saving follows the machine (48K or 128K form); formats that cannot describe the state are refused with a pointer to `.szx` or `.jns`
-- SZX: load and save for 48K/128K/Pentagon 128/+2A/+3 with zlib-compressed RAM and AY registers
+- SZX: load (zlib-compressed RAM, AY registers) and save (full RAM, CPU, paging, border) for 48K/128K/Pentagon 128/+2A/+3
 - SZX loading runs the file on the machine its header names (incl. NTSC 48K at 60 Hz)
 - Z80: v1/v2/v3 snapshots, 48K and 128K, compressed and uncompressed pages, full register and paging restore
 - JNS (`.jns`): jnext's own whole-machine snapshot and the only format that can represent a Next (ZIP of named JSON subsystems; `--snapshot-compression off`)
@@ -149,7 +149,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - I/O port breakpoints: IO Read on `IN`, IO Write on `OUT`, by low byte or exact 16-bit port
 - Breakpoint enable/disable per row, plus a master switch
 - Symbol table from Z88DK MAP files and sjasmplus `--sym` / `--exp` files (`--map` or the Map menu), with inline symbol names in disassembly
-- **Source-level debugging**: z88dk `-debug` maps, listings, sjasmplus SLD maps and NextBuild / Boriel `Memory.txt` symbols give C and assembly source lines (`--source-map FILE`) (user guide: The Source Debugger)
+- **Source-level debugging**: z88dk `-debug` maps and listings and sjasmplus SLD maps give C and assembly source lines, NextBuild / Boriel `Memory.txt` gives symbols (`--source-map FILE`) (user guide: The Source Debugger)
 - Banked code matched by page, with identity checks against the linker's section binaries
 - z88dk dot commands debugged from their map (`jnext --source-map prog.map`, also with RZX replay)
 - Source tab: current line, statement stepping (Into, Over, Out, Back, Reverse Continue), search path for sources (`--source-dir`)
@@ -177,7 +177,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - **Remote debugging over DZRP (DeZog)**: `--dzrp-port N` in every frontend, loopback-only unless `--debug-listen-address` says otherwise
 - **Remote debugging with z88dk-gdb**: `--gdb-port N` serves the GDB Remote Serial Protocol in every frontend
 - **Debugger scripts (`.jds`)**: rules on execution, memory, ports, NextREG writes, frames, interrupts, Copper and DMA with logging, stop, assert and snapshot actions
-- Script loading via `--script FILE` / `--map FILE`; the exit status is the verdict in `--headless` and the SDL build
+- `--script FILE` loads a script (symbols from `--map FILE`); the exit status is the verdict in `--headless` and the SDL build
 - Qt debugger Script tab, and Alt+1..Alt+8 script host keys (`--script-key FRAME N` headless)
 - Debugger-script use cases: write guards, MMU consistency checks, interrupt-handler audit and MemPoint scripts in `test/scripts/dsl/`
 - **Record and replay**: Script > Record Script... or `--record-script FILE` writes a session as a replay script with screen-capture checks
