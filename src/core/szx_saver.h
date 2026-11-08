@@ -14,9 +14,19 @@ class Emulator;
 /// snapshot. Mirrors src/core/szx_loader.h/.cpp.
 ///
 /// Format reference: "The zx-state File Format" 1.5, spectaculator.com/docs
-/// /zx-state/{header,block,z80regs,specregs,rampage}.shtml. Only the three
-/// block types SzxLoader::load() understands are emitted:
-///   ZXSTZ80REGS ('Z80R'), ZXSTSPECREGS ('SPCR'), ZXSTRAMPAGE ('RAMP')
+/// /zx-state/{header,block,z80regs,specregs,rampage,ay}.shtml. Only the block
+/// types SzxLoader::load() understands are emitted:
+///   ZXSTZ80REGS ('Z80R'), ZXSTSPECREGS ('SPCR'), ZXSTRAMPAGE ('RAMP'),
+///   and ZXSTAY ('AY\0\0') on the machines with an AY (128K, +2A/+3,
+///   Pentagon 128; not the 48K): libspectrum szx.c write_ay_chunk(), gated at
+///   szx.c:2776-2779 on LIBSPECTRUM_MACHINE_CAPABILITY_AY. 18 bytes: chFlags,
+///   chCurrentRegister, chAyRegs[16]. chFlags holds only the Fuller Box /
+///   Melodik add-on bits (ZXSTAYF_FULLERBOX = 1, ZXSTAYF_128AY = 2), which
+///   jnext does not model, so it is 0. The registers are those of the chip a
+///   classic program reaches through ports 0xFFFD/0xBFFD (TurboSound's
+///   selected one, AY#0 by default). The format cannot carry the rest of the
+///   AY state (envelope phase, tone/noise counters, the other two TurboSound
+///   chips, the select latch's bit 4); that is accepted.
 ///
 /// SCOPE — .szx is a CLASSIC-SPECTRUM interchange format, not a Next
 /// snapshot format (Task 13b, reopened 2026-07-13 after a first cut wrongly
@@ -37,8 +47,8 @@ class Emulator;
 /// 1.5.0 source (szx.c `write_ram_pages()`/`write_ramp_chunk()`, the same
 /// convention `read_ramp_chunk()` enforces on load):
 ///
-///  * chMachineId: 1 = 48K, 2 = 128K, 4 = +2A, 5 = +3 (SZX_MACHINE_* enum,
-///    szx.c:42-48). jnext has no distinct +2A `MachineType` — `ZX_PLUS3`
+///  * chMachineId: 1 = 48K, 2 = 128K, 4 = +2A, 5 = +3, 7 = Pentagon 128
+///    (SZX_MACHINE_* enum, szx.c:42-49). jnext has no distinct +2A `MachineType` — `ZX_PLUS3`
 ///    covers both +2A and +3 (identical memory model: 4 ROMs, port 0x1FFD
 ///    paging) — so jnext always emits 5 for that machine, never 4.
 ///  * chPageNo is NOT jnext's currently-mapped MMU *slot* number, and
@@ -59,8 +69,9 @@ class Emulator;
 ///        machine has wired to 0x4000/0x8000/0xC000 — there is no
 ///        paging, so no other bank number is meaningful. Banks 1, 3, 4,
 ///        6, 7 must NOT be written for a 48K save.
-///      - 128K / +2A / +3: all banks {0..7} (szx.c:3337-3342, gated on
-///        `LIBSPECTRUM_MACHINE_CAPABILITY_128_MEMORY`, true for all three).
+///      - 128K / +2A / +3 / Pentagon 128: all banks {0..7} (szx.c:3337-3342,
+///        gated on `LIBSPECTRUM_MACHINE_CAPABILITY_128_MEMORY`, true for all
+///        four; libspectrum.c:312 for Pentagon).
 ///
 /// `build()` reads RAM in ascending bank order for readability; order
 /// within the file has no semantic meaning (each ZXSTRAMPAGE chunk is
@@ -85,11 +96,18 @@ public:
         uint8_t port_fe   = 0;  // ZXSTSPECREGS.chFe (bits 2:0 = border, 3 = MIC, 4 = EAR)
     };
 
+    /// The ZXSTAY ('AY\0\0') payload values: the selected register and the
+    /// 16 registers of the chip a classic program sees.
+    struct AyState {
+        uint8_t selected = 0;
+        uint8_t regs[16] = {};
+    };
+
     /// The set of physical RAM bank numbers (== ZXSTRAMPAGE chPageNo, see
     /// class doc-comment PAGE NUMBERING) that make up a given chMachineId's
-    /// RAM. Empty iff `machine_id` is not one of the four .szx supports
+    /// RAM. Empty iff `machine_id` is not one of the five .szx supports
     /// (1=48K, 2=128K, 4=+2A, 5=+3, 7=Pentagon 128) — jnext's `save()` only ever produces
-    /// 1, 2 or 5 (no distinct +2A `MachineType`), but `build()`/this helper
+    /// 1, 2, 5 or 7 (no distinct +2A `MachineType`), but `build()`/this helper
     /// accept 4 too since it is a valid chMachineId per spec.
     static std::vector<uint8_t> ram_page_set(uint8_t machine_id)
     {
@@ -109,14 +127,15 @@ public:
     /// fixture (no Emulator needed).
     static std::vector<uint8_t> build(const Z80Registers& regs, uint32_t tstates,
                                        uint8_t machine_id, const SpecRegs& spec,
-                                       Mmu& mmu, std::string* error = nullptr)
+                                       Mmu& mmu, std::string* error = nullptr,
+                                       const AyState* ay = nullptr)
     {
         std::vector<uint8_t> banks = ram_page_set(machine_id);
         if (banks.empty()) {
             if (error) {
                 *error = "SzxSaver::build(): unsupported chMachineId " + std::to_string(machine_id)
-                       + " - .szx can only represent 48K (1), 128K (2), +2A (4) or "
-                         "+3 (5); refusing rather than truncating or lying in the header.";
+                       + " - .szx can only represent 48K (1), 128K (2), +2A (4), "
+                         "+3 (5) or Pentagon 128 (7); refusing rather than truncating or lying in the header.";
             }
             return {};
         }
@@ -190,6 +209,22 @@ public:
             out[p + 2] = spec.port_1ffd;
             out[p + 3] = spec.port_fe;
             // out[p+4..7] chReserved = 0 (already zero-filled)
+
+            uint32_t sz = static_cast<uint32_t>(out.size() - p);
+            put_u32(hdr + 4, sz);
+        }
+
+        // ---- ZXSTAY ('AY\0\0'), 18-byte payload: 128K-class machines only
+        // (libspectrum szx.c:2776-2779 gates on the AY capability; a 48K has none).
+        if (ay && machine_id != 1) {
+            size_t hdr = out.size();
+            out.insert(out.end(), {'A', 'Y', 0, 0});
+            out.resize(out.size() + 4);
+            size_t p = out.size();
+            out.resize(p + 18, 0);
+            out[p + 0] = 0;                       // chFlags: no Fuller Box / Melodik
+            out[p + 1] = ay->selected;            // chCurrentRegister
+            for (int i = 0; i < 16; ++i) out[p + 2 + i] = ay->regs[i];
 
             uint32_t sz = static_cast<uint32_t>(out.size() - p);
             put_u32(hdr + 4, sz);

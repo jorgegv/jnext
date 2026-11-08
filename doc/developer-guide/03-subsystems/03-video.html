@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3118,6 +3118,11 @@ from screens 0 and 1 byte-interleaved. The ULA also owns ULA scroll (NR 0x26 /
 0x27, NR 0x68 b2), ULAnext (NR 0x42/0x43), ULA+ (ports 0xBF3B/0xFF3B), the
 shadow-screen bank selector, the flash counter, and the active-palette selector
 bits for <em>all four</em> palettes.</p>
+<p>The default ULA colours are the boot chain's own: the 16-byte table that NextZXOS
+and the NEX loader write. A program loaded with <code>--load</code>, and the 48K/128K/+3
+machine types (which never run the firmware), therefore show the shades a real
+machine does, not a brighter approximation. This also keeps bright magenta clear
+of the default transparency colour, where it was once drawn see-through.</p>
 <p>Two things a reader expects to find here are somewhere else. The <strong>clip window</strong>
 is one: <code>Ula::render_scanline</code> emits an unclipped line and
 <code>Renderer::apply_ula_clip</code> masks it afterwards, because in hardware NR 0x1A

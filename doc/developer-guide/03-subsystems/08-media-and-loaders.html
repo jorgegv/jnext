@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3084,7 +3084,7 @@ the guest's own driver talks to. Both are called out below.</p>
 <td>yes</td>
 <td>yes</td>
 <td><code>szx_loader.*</code>, <code>szx_saver.*</code></td>
-<td>Writes only 48K/128K/+3; refuses Next</td>
+<td>Writes only 48K/128K/Pentagon/+3, with the <code>AY</code> chunk (selected register + 16 registers) on all but the 48K; refuses Next</td>
 </tr>
 <tr>
 <td><code>.z80</code></td>
@@ -3236,7 +3236,10 @@ caller's return address for a <code>0x0562</code> one. The registers it leaves a
 the ROM run against jnext's own real-time player, except the ROM's edge-tracking
 byte C, whose value after the sync depends on the pilot phase the ROM caught and
 which the trap pins to <code>0x21</code>. A custom or turbo loader that never enters the ROM
-routine is never intercepted, and real time is then the only way it will load.</p>
+routine is never intercepted, and real time is then the only way it will load.
+The real-time players cover the pure-EAR turbo loaders too: a TZX Direct
+Recording block (0x15) plays as a TZX block, and WAV playback interpolates the
+edge position inside a sample, which is what DeciLoad's 12k8 loader needs.</p>
 <p><strong>A fast load also runs the machine uncapped</strong>, so the BASIC between the blocks
 does not cost real time: <code>Emulator::fastload_active()</code> drops the frame pacing (the
 Qt frontend runs up to 200 frames per tick, the SDL one skips its delay) and the
@@ -3401,6 +3404,10 @@ is not one.</p>
 <p>A directly loaded NEX can also keep its own file handle open and stream from
 itself. <code>extended_nex_host.*</code> presents the host file to the guest as a
 synthetic block-addressed SD extent, so NextZXOS's file APIs work against it.</p>
+<p>A V1.3 header also carries the expansion-bus and CLI-buffer fields, and the file
+offset of the first bank, which lets the loader skip block types it does not
+know; a loading-screen kind it cannot size is refused rather than loading every
+bank from the wrong offset.</p>
 <p>Whatever follows the header-described banks is never read into host memory:
 <code>NexLoader::load()</code> reads only up to <code>payload_offset()</code>. What happens to those
 trailing bytes depends on the header's <code>file_handle</code>. Any non-zero value
@@ -3570,7 +3577,8 @@ BASIC program resident. Measured against the real chain (boot, <em>Command Line<
 <code>.nexload</code> of a probe that dumps bank 5), the recorded state differs in 35
 bytes, all edit-line and interpreter scratch, and the screenshots of a program
 that prints are identical.</p>
-<p><strong>The cache</strong> is <code>src/core/warm_start_cache.{h,cpp}</code>: one file per machine
+<p><strong>The cache</strong> is <code>src/core/warm_start_cache.{h,cpp}</code>: the recording is made once
+per SD image by cold-booting it (about 3.5 s), and kept as one file per machine
 type under <code>&lt;config-dir&gt;/warm-start</code>, with a 96-byte header carrying the
 identity that invalidates it — the SD image's size and mtime (or, in digest
 mode, its SHA-256 and size, below), the machine type, a state-format version, a recording-procedure version (header offset 72,
