@@ -3490,14 +3490,19 @@ check "HS-167" "a self-test run clones the SD master only inside its scratch HOM
 # only through the global safe.directory of the real HOME, and the preflight lints (git
 # ls-files) failed under the scratch HOME. Fixture: a fake home with a safe.directory entry;
 # live: the scratch HOME must report the same safe.directory list as the original HOME.
-cgf="$T/cgfix"; mkdir -p "$cgf/from" "$cgf/to"
+cgf="$T/cgfix"; mkdir -p "$cgf/from/.config/git" "$cgf/to"
 printf '[safe]\n\tdirectory = /selftest/marker-dir\n' > "$cgf/from/.gitconfig"
+printf '[safe]\n\tdirectory = /selftest/marker-xdg\n' > "$cgf/from/.config/git/config"
 carry_git_config "$cgf/from" "$cgf/to"
-res="fixture=$(HOME="$cgf/to" git config --global --get-all safe.directory 2>&1)"
-res+=" live=$([[ "$(HOME="$ORIG_HOME" git config --global --get-all safe.directory 2>/dev/null)" == \
-    "$(git config --global --get-all safe.directory 2>/dev/null)" ]] && echo same || echo DIFFERENT)"
-check "HS-169" "the scratch HOME carries the git config (safe.directory), so the preflight lints work in a checkout owned by another uid (CI run 42460116296)" 0 0 "$res" \
-    "fixture=/selftest/marker-dir" "live=same"
+# git's own lookup (both the home file and the XDG one, as the ownership check reads them);
+# --global would ignore the XDG file whenever ~/.gitconfig exists.
+git_safe_dirs() {   # git_safe_dirs <home>
+    (cd / && env -u XDG_CONFIG_HOME GIT_CONFIG_NOSYSTEM=1 HOME="$1" git config --get-all safe.directory 2>&1 | sort | tr "\n" " ")
+}
+res="fixture=$(git_safe_dirs "$cgf/to")"
+res+=" live=$([[ "$(git_safe_dirs "$ORIG_HOME")" == "$(git_safe_dirs "$HOME")" ]] && echo same || echo DIFFERENT)"
+check "HS-169" "the scratch HOME carries both git config files (~/.gitconfig and ~/.config/git/config, safe.directory), so the preflight lints work in a checkout owned by another uid (CI run 42460116296)" 0 0 "$res" \
+    "fixture=/selftest/marker-dir /selftest/marker-xdg" "live=same"
 
 # ---- the real SD master is never touched by the self-test (HS-168) ----
 # Hard guard, from the 2026-11-07 incident (the real master became the 4-byte stand-in).
