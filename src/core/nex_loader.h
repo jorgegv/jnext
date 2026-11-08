@@ -49,7 +49,7 @@ struct NexHeader {
     uint32_t banks_offset;       // 144: file offset where the first bank's data starts
     uint16_t cli_buffer_addr;    // 148: buffer for the loader's argument line (0 = none)
     uint16_t cli_buffer_size;    // 150: buffer size, max 2048
-    uint8_t  screen_flags2;      // 152: SCREEN2_* — valid only when SCREEN_EXT2 is set
+    uint8_t  screen_flags2;      // 152: SCREEN2_* (EXT2 screen kind, bit 6); any non-zero value also skips the classic blocks (V1.3)
     uint8_t  copper_flag;        // 153: 1 = 2048-byte copper block follows the screen data
     uint8_t  tilemode_cfg[4];    // 154: NR 0x6B, 0x6C, 0x6E, 0x6F for the tilemode screen
     uint8_t  loading_bar_y;      // 158: loading-bar Y for the two big Layer 2 screens
@@ -412,7 +412,7 @@ public:
     /// checks header_.loading_bar before calling, per bank slot, so the
     /// call itself is unconditional and independently testable — BOOT-NEX-03/06).
     /// Inline so unit tests can link without pulling in jnext_core
-    /// (mirrors ram_required_kb / zero_bank5_screen_pages above).
+    /// (mirrors ram_required_kb above).
     static inline void render_progress_mark(Mmu& mmu, uint8_t d, uint8_t colour) {
         constexpr uint8_t PAGE_LO = 22;   // LAYER_2_PAGE_2 (bank 11) low 8K page
         constexpr uint8_t PAGE_HI = 23;   // LAYER_2_PAGE_2 (bank 11) high 8K page
@@ -440,44 +440,6 @@ public:
 
         mmu.set_page(SLOT_LO, saved_lo);
         mmu.set_page(SLOT_HI, saved_hi);
-    }
-
-    /// G16 fix: pre-zero bank 5 (pages 10+11 = 16 KB) before screen-data
-    /// ingest. The four optional NEX screen formats (ULA / LoRes / HiRes /
-    /// HiColour) all write into bank 5 starting at page 10 offset 0 with
-    /// payload sizes 6912 / 12288 / 12288 / 12288 respectively. Bank 5 is
-    /// 16384 bytes, so the ULA path leaves the upper 9472 bytes (and the
-    /// LoRes/HiRes/HiCol paths leave the upper 4096 bytes) holding stale
-    /// RAM contents from before the load. That residue is observable as
-    /// attribute / pixel leak in shadow-screen / Layer 2 / certain ULA
-    /// modes that consume past the ULA classic 0x1AFF boundary. See
-    /// `doc/issues/beast-demo/BEAST-NEX-INVESTIGATION.md` § Verdict and
-    /// `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md` G16. The Layer 2
-    /// screen ingest writes pages 16-21 (banks 8/9/10) — bank 5 / pages
-    /// 10-11 are not in that range, so Layer 2 stays clean.
-    ///
-    /// Routed through the same temp-slot-7 MMU mapping that the screen
-    /// ingest's write_to_ram() helper uses, so the zeroing passes through
-    /// the identical machinery and exercises the same to_sram_page()
-    /// shift / dual-port-bypass logic. Inline so unit tests can link
-    /// without pulling in the full jnext_core (Emulator).
-    static inline void zero_bank5_screen_pages(Mmu& mmu) {
-        constexpr int      TEMP_SLOT  = 7;
-        constexpr uint16_t SLOT_BASE  = 0xE000;
-        constexpr uint16_t MMU_PAGE_BYTES  = 0x2000;  // 8 KB per MMU page
-        const uint8_t saved = mmu.get_page(TEMP_SLOT);
-        // Pages 10 and 11 are bank 5 — the dedicated 16K dual-port VRAM
-        // (VHDL bank5_ram dpram2, zxnext.vhd:6558; Task 25). Writing via
-        // the MMU slot routes rebuild_ptr()'s bank-5 gate to the
-        // Mmu::bank5_vram_ buffer in Next mode (flat pages 10/11 on
-        // standalone machines).
-        for (uint8_t page = 10; page <= 11; ++page) {
-            mmu.set_page(TEMP_SLOT, page);
-            for (uint16_t off = 0; off < MMU_PAGE_BYTES; ++off) {
-                mmu.write(static_cast<uint16_t>(SLOT_BASE + off), 0x00);
-            }
-        }
-        mmu.set_page(TEMP_SLOT, saved);
     }
 
 private:

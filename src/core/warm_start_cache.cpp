@@ -55,7 +55,8 @@ namespace {
 //       24     8  SD image size in bytes      (u64 LE)  <- identity
 //       32     8  SD image mtime, file_clock ticks (i64 LE) <- identity
 //       40    32  SD image SHA-256 (zero = none)   <- identity
-//       72    16  reserved, zero
+//       72     4  recording-procedure version (u32 LE) <- identity
+//       76    12  reserved, zero
 //       88     8  STORED payload length       (u64 LE)  <- bytes on disk
 //       96   ...  zlib stream, exactly `stored` bytes
 //
@@ -77,6 +78,7 @@ constexpr size_t kOffPlainBytes   = 16;   // u64 — uncompressed stream length
 constexpr size_t kOffSdBytes      = 24;   // u64 — SD image size
 constexpr size_t kOffSdMtime      = 32;   // i64 — SD image mtime, raw file_clock ticks
 constexpr size_t kOffSdSha256     = 40;   // 32 bytes — SD image SHA-256, zero = none
+constexpr size_t kOffRecordingVer = 72;   // u32 - recording procedure version
 constexpr size_t kOffStoredBytes  = 88;   // u64 — compressed payload length
 
 void put_u32(uint8_t* p, uint32_t v) {
@@ -233,6 +235,7 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
     const uint64_t plain  = get_u64(hdr + kOffPlainBytes);
     const uint64_t stored = get_u64(hdr + kOffStoredBytes);
 
+    const uint32_t rec_ver = get_u32(hdr + kOffRecordingVer);
     const uint64_t sd_bytes = get_u64(hdr + kOffSdBytes);
     const int64_t  sd_mtime = static_cast<int64_t>(get_u64(hdr + kOffSdMtime));
     std::array<uint8_t, 32> sd_sha{};
@@ -244,6 +247,11 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
     if (ver != want.format_version) {
         why = "state-format version " + std::to_string(ver) + " != " +
               std::to_string(want.format_version);
+        return false;
+    }
+    if (rec_ver != want.recording_version) {
+        why = "recorded by a different recording procedure (version " +
+              std::to_string(rec_ver) + " != " + std::to_string(want.recording_version) + ")";
         return false;
     }
     if (mtype != want.machine_type) {
@@ -342,6 +350,7 @@ bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& w
     std::memcpy(hdr + kOffMagic, kMagic, sizeof(kMagic));
     put_u32(hdr + kOffFormatVer, id.format_version);
     put_u32(hdr + kOffMachineType, id.machine_type);
+    put_u32(hdr + kOffRecordingVer, id.recording_version);
     put_u64(hdr + kOffPlainBytes, id.plain_bytes);
     put_u64(hdr + kOffSdBytes, id.sd_image_bytes);
     put_u64(hdr + kOffSdMtime, static_cast<uint64_t>(id.sd_image_mtime));

@@ -87,6 +87,53 @@ body:
       description: The file or SD image involved (NEX/TAP/TZX/SNA/SZX/Z80/WAV/RZX), if any. Attach it if you can share it.
     validations:
       required: false
+  - type: markdown
+    attributes:
+      value: |
+        ### A NEX program that does not work
+
+        `--load` starts a NEX without NextZXOS, so a program that reads its own files
+        (a data folder next to the NEX, for example) may behave differently there.
+        Before reporting, please try both of these:
+
+        1. **From the SD card, like a real Next.** Copy the NEX (and its data folder,
+           if it has one) onto the card, then start jnext, open the NextZXOS Browser
+           and run it from there:
+           ```
+           jnext --sdcard-file-add game.nex
+           jnext --sdcard-file-add game-data-folder
+           jnext
+           ```
+        2. **With `--load` and each esxDOS emulation mode**, from the directory that
+           holds the NEX and its files:
+           ```
+           jnext --load game.nex --esxdos-stub
+           jnext --load game.nex --esxdos-stub-root .
+           jnext --load game.nex --esxdos-stub-root . --esxdos-stub-writable
+           ```
+           The last one lets the program write to that directory.
+  - type: dropdown
+    id: nex-browser
+    attributes:
+      label: "NEX only: run from the NextZXOS Browser"
+      description: Result of step 1 above.
+      options:
+        - Not a NEX problem
+        - Fails the same way there
+        - Works there (fails only with --load)
+    validations:
+      required: true
+  - type: dropdown
+    id: nex-esxdos-stub
+    attributes:
+      label: "NEX only: run with the esxDOS emulation modes"
+      description: Result of step 2 above. Say which modes work in "What happened?".
+      options:
+        - Not a NEX problem
+        - Fails the same way in all three modes
+        - Works in at least one mode
+    validations:
+      required: true
   - type: textarea
     id: logs
     attributes:

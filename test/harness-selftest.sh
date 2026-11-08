@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=350  # 344 -> 350: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07). 343 -> 344: HS-166n (screenshots.sh calls shot_wall_bound). 339 -> 343: HS-166j..m (the wasm run settings: SHOT_WALL_FACTOR and JNEXT_NATIVE plumbing, the wall-bound formula). 330 -> 339: HS-166a..i (GH #461: the emscripten platform run, its opt-in os= grammar and pin, the .js + .wasm binary check, node-run.sh --jnext). 315 -> 330: HS-162a..j (GH #460: the emscripten target OS, `# os: native`, the emulator-led add_test() and NAME.js + NAME.wasm) and HS-163a..e (test/node-run.sh) added. 312 -> 315: HS-160a..b, HS-161 added (GH #463: the Playwright provisioner refuses a wrong sha256 on each of its two pins and re-resolves under its lock). 311 -> 312: HS-159 added (GH #459 review: the emsdk provisioner re-resolves under its lock). 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=358  # 350 -> 358: the main side, merged onto the epic's 350 (recounted from the file): 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 344 -> 350: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07). 343 -> 344: HS-166n (screenshots.sh calls shot_wall_bound). 339 -> 343: HS-166j..m (the wasm run settings: SHOT_WALL_FACTOR and JNEXT_NATIVE plumbing, the wall-bound formula). 330 -> 339: HS-166a..i (GH #461: the emscripten platform run, its opt-in os= grammar and pin, the .js + .wasm binary check, node-run.sh --jnext). 315 -> 330: HS-162a..j (GH #460: the emscripten target OS, `# os: native`, the emulator-led add_test() and NAME.js + NAME.wasm) and HS-163a..e (test/node-run.sh) added. 312 -> 315: HS-160a..b, HS-161 added (GH #463: the Playwright provisioner refuses a wrong sha256 on each of its two pins and re-resolves under its lock). 311 -> 312: HS-159 added (GH #459 review: the emsdk provisioner re-resolves under its lock). 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -121,6 +121,42 @@ proc_with_args() {   # proc_with_args <exact argv string> — the pids running i
 
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
+
+# A scratch $HOME for the WHOLE self-test. The real run-unit-tests.sh and regression_lib_init
+# each clone the SD master from $HOME/.jnext/sdcard into $HOME/.jnext/runs, and many rows run
+# them end to end: 85 reads of the real 1 GB master per run (33 unit clones, 52 regression
+# clones), each a full copy where reflink is unavailable (CI's ext4), and a SIGKILL leaks it.
+# So no row reaches the real ~/.jnext. The master here is 4 bytes of non-image data: the
+# clone modes only need a regular file to copy, and a row that sets its own HOME (HS-164,
+# HS-165, the fixtures) keeps it. HS-167 pins the property, HS-168 guards the real master.
+#
+# The stand-in is written through SCRATCH_HOME, never through $HOME: a self-test whose export
+# is lost (a mutation of this block, an edit) must not be able to write "card" over the real
+# 1 GB master. That happened on 2026-11-07 (a mutation run replaced the export with `true`
+# while the printf kept using $HOME). HS-168c is the hard guard: the real master's identity
+# (size, mtime, inode) is recorded here and compared at the end of the run.
+master_sig() {   # master_sig <file> -- "size:mtime:inode", or "absent"; metadata only, never opened
+    stat -c '%s:%.9Y:%i' "$1" 2>/dev/null || echo absent   # %.9Y: an in-place write within the same second still shows
+}
+REAL_MASTER="${HOME:-/nonexistent}/.jnext/sdcard/cspect-next-1gb-fixed.img"
+REAL_MASTER_SIG=$(master_sig "$REAL_MASTER")
+SCRATCH_HOME="$T/home"
+mkdir -p "$SCRATCH_HOME/.jnext/sdcard"
+printf card > "$SCRATCH_HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"
+# The scratch HOME must still carry the user's git config: CI's checkout belongs to another uid
+# and is trusted only by a global safe.directory in the real $HOME/.gitconfig, so without it
+# every `git ls-files` in the preflight lints dies with "dubious ownership" (run 42460116296).
+# Only the git config files are copied, never the real HOME. HS-169 pins it.
+carry_git_config() {   # carry_git_config <from-home> <to-home>
+    [[ -f "$1/.gitconfig" ]] && cp "$1/.gitconfig" "$2/.gitconfig"
+    if [[ -f "$1/.config/git/config" ]]; then
+        mkdir -p "$2/.config/git"; cp "$1/.config/git/config" "$2/.config/git/config"
+    fi
+    return 0
+}
+ORIG_HOME="${HOME:-/nonexistent}"
+carry_git_config "$ORIG_HOME" "$SCRATCH_HOME"
+export HOME="$SCRATCH_HOME"
 
 # The harness reads the build's configuration out of its CMakeCache.txt to decide
 # which `# gate:`d suites this build owes it (GH #273), so every fake build tree
@@ -3737,6 +3773,96 @@ out=$( unset JNEXT_TEST_SD_IMAGE; export HOME="$CLF/home2" PATH="$CLF/shim:$PATH
 check "HS-165b" "...and so does a copy that fails (cause: the cp error is shown), again with no suite run (owner decision 2026-11-07)" 2 $rc "$out" \
     "REFUSES TO RUN" "No space left on device"
 [[ "$out" != *"Total:"* ]] || { echo "  HS-165b: a suite ran after the clone failed"; fail=$((fail + 1)); }
+
+# ---- the self-test never reaches the real ~/.jnext (HS-167) ----
+# The scratch $HOME exported at the top of this file is what keeps run-unit-tests.sh and
+# regression_lib_init away from the real SD master and the real runs/ parent. Pinned from the
+# real scripts, end to end: a unit run's suite sees its private clone under the scratch HOME,
+# a regression library init puts RUN_DIR there. The real ~/.jnext is deliberately not read,
+# not even listed: a clone made under the scratch HOME cannot be one made under the real one,
+# and another agent's concurrent runs cannot disturb the row.
+# Oracle: the harness contract (an isolated clone per run, GH #75) and the owner's rule of
+# 2026-11-07 (a self-test never reads or clones the real master).
+cache ON ON linux
+stub sdhome_test 10 0 'echo "SDIMG=${JNEXT_TEST_SD_IMAGE:-unset}" >> "$T_SDHOME_OUT"'
+register sdhome_test; manifest "sdhome_test 10"
+rm -f "$T/sdhome.out"
+out=$( unset JNEXT_TEST_SD_IMAGE; T_SDHOME_OUT="$T/sdhome.out" run_harness ); rc=$?
+unit_img=$(sed -n 's/^SDIMG=//p' "$T/sdhome.out" 2>/dev/null | head -1)
+regr_out=$(timeout --kill-after=3s 40s bash -c \
+    "set -euo pipefail
+     source '$PROJECT_DIR/test/00regression/test-functions.inc'
+     echo \"RUN_DIR=\$RUN_DIR\"
+     regression_cleanup" 2>&1 || true)
+regr_dir=$(sed -n 's/.*RUN_DIR=//p' <<<"$regr_out" | head -1)
+res="home=$([[ "$HOME" == "$T/home" ]] && echo scratch || echo REAL)"
+res+=" unit=$([[ "$unit_img" == "$T/home/.jnext/runs/unit-"* ]] && echo scratch || echo "OTHER:$unit_img")"
+res+=" regr=$([[ "$regr_dir" == "$T/home/.jnext/runs/"* ]] && echo scratch || echo "OTHER:$regr_dir")"
+check "HS-167" "a self-test run clones the SD master only inside its scratch HOME: unit suite image and regression RUN_DIR (owner decision 2026-11-07)" 0 $rc "$res" \
+    "home=scratch unit=scratch regr=scratch"
+
+# ---- the scratch HOME carries the git config (HS-169) ----
+# Oracle: CI run 42460116296: the checkout's owner differs from the runner's uid, git trusts it
+# only through the global safe.directory of the real HOME, and the preflight lints (git
+# ls-files) failed under the scratch HOME. Fixture: a fake home with a safe.directory entry;
+# live: the scratch HOME must report the same safe.directory list as the original HOME.
+cgf="$T/cgfix"; mkdir -p "$cgf/from/.config/git" "$cgf/to"
+printf '[safe]\n\tdirectory = /selftest/marker-dir\n' > "$cgf/from/.gitconfig"
+printf '[safe]\n\tdirectory = /selftest/marker-xdg\n' > "$cgf/from/.config/git/config"
+carry_git_config "$cgf/from" "$cgf/to"
+# git's own lookup (both the home file and the XDG one, as the ownership check reads them);
+# --global would ignore the XDG file whenever ~/.gitconfig exists.
+git_safe_dirs() {   # git_safe_dirs <home>
+    (cd / && env -u XDG_CONFIG_HOME GIT_CONFIG_NOSYSTEM=1 HOME="$1" git config --get-all safe.directory 2>&1 | sort | tr "\n" " ")
+}
+res="fixture=$(git_safe_dirs "$cgf/to")"
+res+=" live=$([[ "$(git_safe_dirs "$ORIG_HOME")" == "$(git_safe_dirs "$HOME")" ]] && echo same || echo DIFFERENT)"
+check "HS-169" "the scratch HOME carries both git config files (~/.gitconfig and ~/.config/git/config, safe.directory), so the preflight lints work in a checkout owned by another uid (CI run 42460116296)" 0 0 "$res" \
+    "fixture=/selftest/marker-dir /selftest/marker-xdg" "live=same"
+
+# ---- the real SD master is never touched by the self-test (HS-168) ----
+# Hard guard, from the 2026-11-07 incident (the real master became the 4-byte stand-in).
+# a/b prove the guard on scratch files (an unchanged file reads the same, an appended byte
+# reads different), c compares the REAL master's size/mtime/inode with the start of the run.
+# It is metadata only. A false red needs another process re-provisioning the master DURING
+# this run: loud on purpose, rerun once to confirm.
+gf="$T/guardfix"; printf 'abcd' > "$gf"; g0=$(master_sig "$gf")
+res="same=$([[ "$(master_sig "$gf")" == "$g0" ]] && echo yes || echo no)"
+check "HS-168a" "the master guard reads an untouched file as unchanged (the 2026-11-07 incident)" 0 0 "$res" "same=yes"
+printf x >> "$gf"
+res="same=$([[ "$(master_sig "$gf")" == "$g0" ]] && echo yes || echo no) absent=$(master_sig "$T/nonexistent-file")"
+check "HS-168b" "...and an appended byte (a write to the master) reads as changed; a missing file reads absent" 0 0 "$res" "same=no" "absent=absent"
+# One fixture per signature field: each changes ONE field and restores the others, so a
+# signature that dropped that field would read "same".
+sigfix() {   # sigfix <size|mtime|inode> -- one field changes, the other two are kept exactly
+    local f="$T/guardfix-$1"
+    printf 'abcd' > "$f"; touch -d '@1700000000.123456789' "$f"; touch -r "$f" "$f.ref"
+    local s0 r0; s0=$(master_sig "$f"); r0=$(stat -c '%s %.9Y %i' "$f")
+    case $1 in
+        size)  truncate -s +1 "$f"; touch -r "$f.ref" "$f" ;;
+        mtime) touch -d '@1700000000.987654321' "$f" ;;   # same second: only the fraction differs
+        inode) cp -p "$f" "$f.new"; mv "$f.new" "$f" ;;
+    esac
+    # An independent stat (not master_sig) names the fields that really changed, so a broken
+    # restore cannot pass for the single-field change the row claims.
+    local r1 a b ch=""; r1=$(stat -c '%s %.9Y %i' "$f")
+    read -r -a a <<<"$r0"; read -r -a b <<<"$r1"
+    [[ ${a[0]} == "${b[0]}" ]] || ch+="size,"
+    [[ ${a[1]} == "${b[1]}" ]] || ch+="mtime,"
+    [[ ${a[2]} == "${b[2]}" ]] || ch+="inode,"
+    echo "same=$([[ "$(master_sig "$f")" == "$s0" ]] && echo yes || echo no) changed=${ch%,}; before=$s0 after=$(master_sig "$f")"
+}
+res=$(sigfix size)
+check "HS-168d" "the master guard sees a SIZE-only change (mtime and inode kept)" 0 0 "$res" "same=no" "changed=size;"
+res=$(sigfix mtime)
+check "HS-168e" "the master guard sees an MTIME-only change (size and inode kept)" 0 0 "$res" "same=no" "changed=mtime;"
+res=$(sigfix inode)
+check "HS-168f" "the master guard sees an INODE-only change (replacement with the same size and mtime)" 0 0 "$res" "same=no" "changed=inode;"
+res="watch=$([[ "$REAL_MASTER" != "$T"/* && "$REAL_MASTER" == */.jnext/sdcard/cspect-next-1gb-fixed.img ]] && echo real || echo NOT-REAL)"
+res+=" same=$([[ "$(master_sig "$REAL_MASTER")" == "$REAL_MASTER_SIG" ]] && echo yes || echo no)"
+res+=" before=$REAL_MASTER_SIG after=$(master_sig "$REAL_MASTER") path=$REAL_MASTER"
+res+=" note=if same=no another process may have rewritten the master during this run (re-provisioning): rerun once, a second red is real"
+check "HS-168c" "the REAL SD master (a path outside the scratch tree) has the same size, mtime and inode as at the start of the self-test (the 2026-11-07 incident)" 0 0 "$res" "watch=real" "same=yes"
 
 echo ""
 echo "====================================="

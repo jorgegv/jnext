@@ -293,7 +293,7 @@ run() {   # run <name> <timeout s> <jnext args...>
 
 echo "pgo-train: training $BIN -> $PROFILE_DIR"
 # Unprofiled warm-up: the first NEX loaded on a Next records jnext's warm-start
-# cache (a 500-frame NextZXOS cold boot, once per SD image) into this run's
+# cache (a ~760-frame NextZXOS cold boot, once per SD image) into this run's
 # config directory. Profiled, that one-off boot would land on whichever run
 # came first and outweigh it several times over.
 EXTRA_ENV=("GCOV_PREFIX=$RUN_DIR/unprofiled" "LLVM_PROFILE_FILE=$RUN_DIR/unprofiled/%p.profraw")

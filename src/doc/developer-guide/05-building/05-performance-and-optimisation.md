@@ -188,7 +188,7 @@ Code that the training never reaches at all is a different case: with
   profile. It is gcc-only and needs `gcov-dump` beside the compiler.
 - **One-off work is not profiled.** The MOD player's navigation through
   NextZXOS (16 G counts, more than five other runs together) and jnext's
-  warm-start boot (the first NEX loaded on a Next records a 500-frame NextZXOS
+  warm-start boot (the first NEX loaded on a Next records a ~760-frame NextZXOS
   cold boot, once per SD image) run with their profile redirected into a
   scratch directory (`GCOV_PREFIX`; `LLVM_PROFILE_FILE` for clang).
 - **Weighting by run length, not by tool.** gcc's own tool for this,

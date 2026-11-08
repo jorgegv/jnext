@@ -88,6 +88,29 @@ static bool nex_has_palette_block(uint8_t sf, bool v13) {
                   NexHeader::SCREEN_EXT2)) != 0;
 }
 
+/// The classic screen-block bits (Layer 2, ULA, LoRes, HiRes, HiColour) of
+/// `sf` whose data block a loader really consumes. nexload2.asm's
+/// LoadScreenBlock (:628-:632) is entered for every block whose trigger bit is
+/// set (:304-:310), but its first act is
+///
+///   ld a,(nexHeader.LOADSCR2) : inc hl : cp (hl) : ret nz
+///
+/// and all five classic definitions carry LOADSCR2_NONE = 0 (:618-:622). So
+/// with ANY non-zero byte at offset 152 -- bit 6 set or not -- the call
+/// returns at once: nothing is read, the file position does not move, and no
+/// NextREG, port or border write happens (those follow at :634-:635). The
+/// screen is skipped, not seeked over; the bytes it would have held are read
+/// as whatever block comes next. V1.0-V1.2 files are modelled on the distro
+/// nexload.asm, which has no field 152; nexload2 also accepts them
+/// (:566-:567) but it is not the loader jnext follows for them, so the skip
+/// applies to V1.3 headers only.
+static uint8_t nex_classic_blocks(uint8_t sf, uint8_t sf2, bool v13) {
+    constexpr uint8_t kClassic =
+        NexHeader::SCREEN_LAYER2 | NexHeader::SCREEN_ULA | NexHeader::SCREEN_LORES |
+        NexHeader::SCREEN_HIRES | NexHeader::SCREEN_HICOLOUR;
+    return (v13 && sf2 != NexHeader::SCREEN2_NONE) ? static_cast<uint8_t>(sf & ~kClassic) : sf;
+}
+
 /// Bytes of optional screen data (palette + screen blocks) a NEX header
 /// declares, in the exact order and sizes NexLoader::apply() consumes them.
 /// Lets load() compute the header-described region (header + screens +
@@ -118,14 +141,21 @@ static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) 
     if (nex_has_palette_block(sf, v13)) out += 512;
 
     // Screen data blocks, in file order (nexload2.asm:614-625 — "order of
-    // block definitions must be same as block order in file").
-    if (sf & NexHeader::SCREEN_LAYER2)   out += 49152;
-    if (sf & NexHeader::SCREEN_ULA)      out += 6912;
-    if (sf & NexHeader::SCREEN_LORES)    out += 12288;
-    if (sf & NexHeader::SCREEN_HIRES)    out += 12288;
-    if (sf & NexHeader::SCREEN_HICOLOUR) out += 12288;
+    // block definitions must be same as block order in file"). A V1.3 header
+    // with a non-zero field 152 carries no classic block: see
+    // nex_classic_blocks().
+    const uint8_t blk = nex_classic_blocks(sf, h.screen_flags2, v13);
+    if (blk & NexHeader::SCREEN_LAYER2)   out += 49152;
+    if (blk & NexHeader::SCREEN_ULA)      out += 6912;
+    if (blk & NexHeader::SCREEN_LORES)    out += 12288;
+    if (blk & NexHeader::SCREEN_HIRES)    out += 12288;
+    if (blk & NexHeader::SCREEN_HICOLOUR) out += 12288;
 
-    if (sf & NexHeader::SCREEN_EXT2) {
+    // Bit 6 and field 152 belong to V1.3 alone. nexload.asm (V1.0-V1.2) tests
+    // only bits 7 and 0-4 (:424-:510): bit 6 is ignored, no block is read for
+    // it, and byte 152 is never read, so such a header declares no V1.3 screen
+    // (the palette rule above still applies, :426-:428).
+    if (v13 && (sf & NexHeader::SCREEN_EXT2)) {
         switch (h.screen_flags2) {
             case NexHeader::SCREEN2_L2_320x256:
             case NexHeader::SCREEN2_L2_640x256:
@@ -137,11 +167,14 @@ static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) 
                 // (nexload2.asm:133; block def :625 loads 0 pages).
                 break;
             default:
-                why = "screen_flags bit 6 selects a V1.3 screen but screen_flags2 "
-                      "(offset 152) is " + std::to_string(h.screen_flags2) +
-                      ", which is not one of 1 (L2 320x256x8bpp), "
-                      "2 (L2 640x256x4bpp) or 3 (tilemode)";
-                return false;
+                // nexload2.asm:623-:625 define exactly three EXT2 blocks, and
+                // LoadScreenBlock (:630-:632) returns at `cp (hl) : ret nz`
+                // for every other byte 152 (0, 4, 255, ...): no block is
+                // read, nothing is written, the loader carries on with the
+                // next block. No header check refuses it (checkHeader,
+                // :544-:570). So for a V1.3 header the value declares no
+                // data block.
+                break;
         }
     }
 
@@ -188,6 +221,13 @@ static void write_to_ram(Mmu& mmu, uint16_t start_page, size_t start_offset,
     }
 }
 
+/// Fill `len` bytes of bank 5 from bank-5 offset `off` (< 0x2000) with `value`.
+static void clear_bank5(Mmu& mmu, size_t off, size_t len, uint8_t value)
+{
+    const std::vector<uint8_t> fill(len, value);
+    write_to_ram(mmu, 10, off, fill.data(), len);
+}
+
 /// Ingest one 12288-byte NEX LoRes / HiRes / HiColour screen block into
 /// bank 5 the way the reference loader does: TWO 6144-byte reads separated
 /// by a 2048-byte hole — NOT one contiguous 12288-byte run (issue #68).
@@ -225,7 +265,7 @@ static void write_split_screen_block(Mmu& mmu, const uint8_t* src)
 
 // render_progress_mark — defined inline in nex_loader.h (G156). Inline
 // keeps unit tests linkable without jnext_core, same rationale as
-// ram_required_kb / zero_bank5_screen_pages above.
+// ram_required_kb above.
 
 /// Apply the three writes that end a loading-screen block in nexload.asm,
 /// making the just-ingested screen actually visible. The values come from
@@ -980,10 +1020,10 @@ bool NexLoader::apply(Emulator& emu) const
     // with bit 6 clear the call never happens and LoadScreenBlock — the only
     // place field 152 picks a block (:628-:633) — is never reached. No data
     // block is sized or read, and none of the mode's NextREG writes fire.
-    // load() has already rejected any value other than the three known kinds
-    // whenever bit 6 IS set, so this is one of them when it is non-zero.
-    const uint8_t sf2 = (sf & NexHeader::SCREEN_EXT2) ? header_.screen_flags2
-                                                      : NexHeader::SCREEN2_NONE;
+    // A value other than the three known kinds matches no definition (and a
+    // V1.0-V1.2 header is refused in load() when bit 6 is set), so no block runs.
+    const uint8_t sf2 = (v13 && (sf & NexHeader::SCREEN_EXT2)) ? header_.screen_flags2
+                                                               : NexHeader::SCREEN2_NONE;
     // sf2_raw — the PALETTE DESTINATION selector, NOT gated. LoadFilePalette
     // reads the byte with no bit-6 test at all (nexload2.asm:732), and
     // checkHeader (:544-:570) never sanitises it, so the raw file byte is
@@ -994,17 +1034,41 @@ bool NexLoader::apply(Emulator& emu) const
     // references in all 778 of its lines), so the V1.0-V1.2 branch never
     // looks at it.
     const uint8_t sf2_raw = header_.screen_flags2;
+    // The classic screen blocks nexload2 really ingests: none when field 152
+    // is non-zero (nex_classic_blocks(), nexload2.asm:628-:632). The palette
+    // block and its destination above still follow LOADSCR as written
+    // (LoadFilePalette runs on the header bits alone, :296-:300).
+    const uint8_t blk = nex_classic_blocks(sf, sf2_raw, v13);
 
-    // G16: pre-zero bank 5 (pages 10+11, 16 KB) before any of the optional
-    // ULA / LoRes / HiRes / HiColour screen-format ingest paths runs. They
-    // each write to page 10 offset 0 with 6912 / 12288 / 12288 / 12288
-    // bytes respectively, leaving the residual upper portion of bank 5 with
-    // stale RAM contents from before the load — observable as attribute /
-    // pixel leak in shadow-screen and certain ULA modes. The Layer 2
-    // screen ingest writes pages 16-21 (banks 8/9/10), so bank 5 is not
-    // in that range and Layer 2 remains untouched. See header doc-comment
-    // for full rationale (BEAST-NEX-INVESTIGATION.md § Verdict).
-    zero_bank5_screen_pages(mmu);
+    // The loaders' own screen clear, and nothing more. The old G16
+    // pre-zero wrote all 16 KB of bank 5, which neither loader does: on a
+    // warm start it wiped the NextZXOS system variables ($5B00-$5CBF) and
+    // the rest of bank 5 that the recorded machine holds. What each loader
+    // really writes, and the border with it:
+    //
+    //   V1.0-V1.2, nexload.asm:319-320, above the DONTRESETNEXTREGS gate
+    //   (:323), so on every load:
+    //       xor a:out (254),a
+    //       ld hl,$5800:ld de,$5801:ld bc,$2ff:ld (hl),0:ldir
+    //     = border 0 and the attributes $5800-$5AFF set to 0. Pixels and
+    //     $5B00-$7FFF are not touched.
+    //   V1.3, nexload2.asm clsWithBordercol (:1114-:1126), reached from
+    //   setupBeforeBlockLoading (:828) only AFTER the `ret nz` of
+    //   PRESERVENEXTREG (:781-:783):
+    //       out ($FE),BORDERCOL ; $4000-$57FF = 0 ; $5800-$5AFF = BORDERCOL*8
+    //     A file with PRESERVENEXTREG set gets no clear at all.
+    //
+    // Bank 5 is MMU pages 10/11; write_to_ram() reaches it through the
+    // temp slot, which routes to the bank-5 BRAM in Next mode.
+    if (!v13) {
+        emu.port().out(0x00FE, 0x00);                          // nexload.asm:319
+        clear_bank5(mmu, 0x1800, 0x0300, 0x00);                // :320
+    } else if (header_.preserve_regs == 0) {
+        emu.port().out(0x00FE, header_.border_colour);         // nexload2.asm:1115-1116
+        clear_bank5(mmu, 0x0000, 0x1800, 0x00);                // :1117-1122
+        clear_bank5(mmu, 0x1800, 0x0300,                       // :1123-1126
+                    static_cast<uint8_t>(header_.border_colour << 3));
+    }
 
     // Seed the tilemap palette with the ULA classic palette.
     //
@@ -1162,7 +1226,7 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // Layer 2 screen (48K = 256x192x8bpp, loaded into banks 8,9,10)
-    if (sf & NexHeader::SCREEN_LAYER2) {
+    if (blk & NexHeader::SCREEN_LAYER2) {
         constexpr size_t L2_SIZE = 49152;
         if (offset + L2_SIZE > file_data_.size()) {
             Log::emulator()->error("NEX: truncated Layer2 screen data");
@@ -1180,7 +1244,7 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // ULA screen (6912 bytes → bank 5 offset 0 = page 10, offset 0)
-    if (sf & NexHeader::SCREEN_ULA) {
+    if (blk & NexHeader::SCREEN_ULA) {
         constexpr size_t ULA_SIZE = 6912;
         if (offset + ULA_SIZE > file_data_.size()) {
             Log::emulator()->error("NEX: truncated ULA screen data");
@@ -1194,7 +1258,7 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // LoRes screen (12288 bytes)
-    if (sf & NexHeader::SCREEN_LORES) {
+    if (blk & NexHeader::SCREEN_LORES) {
         constexpr size_t LORES_SIZE = 12288;
         if (offset + LORES_SIZE > file_data_.size()) {
             Log::emulator()->error("NEX: truncated LoRes screen data");
@@ -1211,7 +1275,7 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // HiRes screen (12288 bytes)
-    if (sf & NexHeader::SCREEN_HIRES) {
+    if (blk & NexHeader::SCREEN_HIRES) {
         constexpr size_t HIRES_SIZE = 12288;
         if (offset + HIRES_SIZE > file_data_.size()) {
             Log::emulator()->error("NEX: truncated HiRes screen data");
@@ -1227,7 +1291,7 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // HiColour screen (12288 bytes)
-    if (sf & NexHeader::SCREEN_HICOLOUR) {
+    if (blk & NexHeader::SCREEN_HICOLOUR) {
         constexpr size_t HICOL_SIZE = 12288;
         if (offset + HICOL_SIZE > file_data_.size()) {
             Log::emulator()->error("NEX: truncated HiColour screen data");
@@ -1573,8 +1637,24 @@ bool NexLoader::apply(Emulator& emu) const
     // 5. Border colour (via ULA port 0xFE)
     // ---------------------------------------------------------------
 
-    emu.port().out(0x00FE, header_.border_colour & 0x07);
-    Log::emulator()->debug("NEX: border colour set to {}", header_.border_colour & 0x07);
+    // Both loaders write the raw header byte, and only when a loading
+    // screen is shown. V1.0-V1.2: BorderCol is read and written only past
+    // `or a:jp z,.skpbmp` on LOADSCR (nexload.asm:424-425, :512), so a file
+    // with no screen keeps the border 0 set at :319. V1.3: LoadScreenBlock
+    // writes BORDERCOL once per block that loads (nexload2.asm:634-635); a
+    // block loads for a classic LOADSCR bit that survives the LOADSCR2 test
+    // (`cp (hl) : ret nz`, :630-632, comes BEFORE the border write, so a
+    // skipped classic block writes no border either: `blk`, not `sf`) or for
+    // one of the three EXT2 kinds (:623-:625), the same decode the ingest
+    // above uses. The preserve=0 border was already written by the clear.
+    const bool v13_block = (blk & 0x1F) != 0 ||
+        sf2 == NexHeader::SCREEN2_L2_320x256 ||
+        sf2 == NexHeader::SCREEN2_L2_640x256 ||
+        sf2 == NexHeader::SCREEN2_TILEMODE;
+    if (v13 ? v13_block : sf != 0) {
+        emu.port().out(0x00FE, header_.border_colour);
+        Log::emulator()->debug("NEX: border colour set to {}", header_.border_colour);
+    }
 
     // ---------------------------------------------------------------
     // 6. Map entry_bank to MMU slots 6+7 (0xC000-0xFFFF)

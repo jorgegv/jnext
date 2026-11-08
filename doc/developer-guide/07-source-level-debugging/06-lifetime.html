@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.15</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.8</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.15</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3129,9 +3129,9 @@ where the loader puts the bytes.</p>
   checks (<code>set_verify_window()</code>). While it is set the machine is armed (<code>verify_hold_</code>
   is an <code>armed()</code> contributor of its own, with <code>magic_hold_</code>, in <code>refresh_gates_()</code> and
   <code>SuspendScope</code>). The emulator asks <code>verify_window_hit(pc)</code>, two compares, first in
-  <code>run_frame()</code>'s armed block (<code>verify_window_hit</code>, <code>emulator.cpp:10244</code>), before <code>consume_step_off()</code>, the
+  <code>run_frame()</code>'s armed block (<code>verify_window_hit</code>, <code>emulator.cpp:10396</code>), before <code>consume_step_off()</code>, the
   legacy breakpoint test and the execute gate, and in <code>step_frame_slot()</code> for a debugger
-  Step (<code>verify_window_hit</code>, <code>emulator.cpp:11670</code>).</li>
+  Step (<code>verify_window_hit</code>, <code>emulator.cpp:11822</code>).</li>
 <li><strong>The verdict is recorded, not applied.</strong> On a hit, <code>Impl::verify_hook(pc)</code> takes
   <code>predict_fetch(pc)</code>, finds the spans of each check that contain <code>pc</code> in <em>that exact
   memory</em>, judges each unit now with <code>verify_identity_unit()</code> (through
@@ -3204,7 +3204,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
 <li><strong>RZX.</strong> An RZX playback start is a landing like any other (<a href="#tier-2-any-other-landing">above</a>), and
   <code>--source-map</code> with a replay accepts only a dot map (<a href="03-loaders.html">7.3</a>): the map attaches pending
   at start-up and the verify hook does not distinguish a replayed session from a live one
-  (<code>replay_mode()</code> is the rewind replay's flag, <code>emulator.h:1196</code>, not RZX's). What the row
+  (<code>replay_mode()</code> is the rewind replay's flag, <code>emulator.h:1253</code>, not RZX's). What the row
   <code>z88dk-dot-source-rzx-func</code> pins is the attach and the refusal, not a verdict reached during playback.</li>
 <li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1214</code>, set at <code>SourceMapStatus::dot</code>, <code>debugger_source.cpp:603</code>) tells the Source tab to word its pending note
   <em>...when the dot command runs</em> (<a href="07-frontends.html">7.7</a>).</li>

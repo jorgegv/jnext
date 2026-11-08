@@ -196,13 +196,17 @@ jnext game.nex
 The first time you load a NEX file with a given SD card image, JNEXT cold-boots
 that image the way it does with no arguments — the FPGA boot ROM, then
 `TBBLUE.FW`, then NextZXOS — and saves the resulting machine under
-`~/.jnext/warm-start/`. That takes about three and a half seconds, and JNEXT
-prints a line saying it is doing it and another when it is done. Every load
+`~/.jnext/warm-start/`. To do that it also drives NextZXOS, by typing for you, to
+its Command Line. That takes a few seconds, and JNEXT prints a line saying it is
+doing it and another when it is done. Every load
 after that restores the saved machine instead of booting.
 
-What your program gets is a Next with NextZXOS resident and its ROM paged in —
-the environment a NEX file is written for, because on real hardware every NEX
-file is launched by NextZXOS. The alternative, which is what JNEXT did before
+What your program gets is a Next with NextZXOS resident, in the state it is in
+when it runs a command typed at its Command Line (as when you type `.nexload`
+or pick the file in the Browser), and its ROM paged in — the environment a NEX
+file is written for, because on real hardware every NEX file is launched by
+NextZXOS. That includes printing through the ROM, which works the same way it
+does on hardware. The alternative, which is what JNEXT did before
 version 1.0.11, is a machine JNEXT assembles: its settings are JNEXT's idea of
 what the firmware would have left rather than what it actually left, and some
 of them are states real hardware never reaches.
@@ -220,6 +224,8 @@ machine instead. The reasons are:
 - no SD card image is mounted, so there is no firmware to boot;
 - the card has no firmware on it, or the boot does not end with NextZXOS
   resident;
+- NextZXOS could not be brought to its Command Line (for example a customised
+  start-up menu);
 - the saved machine will not load back, or is not NextZXOS-resident once it
   has been through a file.
 
@@ -237,9 +243,10 @@ redistribute firmware — which is also why it downloads the SD card image rathe
 than including one.
 
 It is one file per machine type, a little over 100 KB, keyed by the size and
-modification time of the SD card image, the machine type and the save format.
-Change any of those — replace the image, switch machine, install a JNEXT update
-that changes the format — or let JNEXT itself write to the card, and it
+modification time of the SD card image, the machine type, the save format and
+the way the machine is recorded. Change any of those — replace the image,
+switch machine, install a JNEXT update that changes the format or the way the
+machine is recorded — or let JNEXT itself write to the card, and it
 re-records itself on the next load. The card's contents are not read, so
 loading stays fast on any card size. The one case this cannot see: an image
 replaced or edited outside JNEXT that ends up with the same size and the same
