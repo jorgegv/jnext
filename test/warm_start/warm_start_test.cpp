@@ -50,7 +50,7 @@
 //   WSC-INV-07    a missing file is REFUSED
 //   WSC-INV-08    a file shorter than the header is REFUSED
 //   WSC-INV-09    a refused load leaves the caller's buffer untouched
-//   WSC-INV-10    all twelve refusal branches state a DISTINCT reason
+//   WSC-INV-10    all thirteen refusal branches state a DISTINCT reason
 //   WSC-INV-12    a different recording-procedure version is REFUSED (GH #481)
 //   WSC-INV-13    a pre-#481 file (version 0 at offset 72) is REFUSED, so an old
 //                 cache is re-recorded rather than served
@@ -740,50 +740,8 @@ int main()
                   refused(id, "is shorter than its own header"), why);
         }
 
-        // Diagnosability, asserted rather than assumed. Every branch above
-        // must produce a DISTINCT message: the cache's whole recovery story is
-        // that a refusal tells the user which of the keys moved, and two
-        // branches sharing a message is that story quietly failing. The
-        // per-row `expect` fragments above prove each branch says the right
-        // thing; this proves no two of them say the same thing.
-        {
-            // TWELVE, not eight: four NEW branches (WSC-Z-02, -03, -05, -06)
-            // came with the compressed payload, and they refuse EARLIER in
-            // the file, so a ledger scoped to this block would have proved
-            // distinctness over a subset while the suite grew a thirteenth
-            // branch beside it. WSC-Z-04 is absent on purpose — it re-enters
-            // WSC-INV-06's branch. The number is the claim about how many
-            // ways this file can be rejected; adding a branch means changing
-            // it deliberately.
-            std::vector<std::string> sorted = g_refusals;
-            std::sort(sorted.begin(), sorted.end());
-            const bool all_set = std::none_of(
-                sorted.begin(), sorted.end(),
-                [](const std::string& r) { return r.empty(); });
-            const bool all_distinct =
-                std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end();
-            check("WSC-INV-10",
-                  "all twelve refusal branches state a reason, and no two state "
-                  "the same one",
-                  g_refusals.size() == 12 && all_set && all_distinct,
-                  det("%zu refusals", g_refusals.size()));
-        }
-
-        // GH #396: the key is (size, mtime). WSC-INV-01 moves the mtime; this
-        // moves only the SIZE. Run after WSC-INV-10 so its refusal is not
-        // counted among the twelve branches (it re-enters the same branch).
-        {
-            warm_start::store(id, state, why);
-            warm_start::Identity bigger = id;
-            bigger.sd_image_bytes += 1;
-            check("WSC-INV-11", "a different SD image size is refused, as such",
-                  refused(bigger, "recorded from a different SD image"), why);
-        }
-
-        // GH #481: the recording-procedure version (offset 72). Both rows run
-        // after WSC-INV-10 like WSC-INV-11, so the ledger above is not
-        // changed; each asserts its own reason is distinct from every
-        // reason in it.
+        // GH #481: the recording-procedure version (offset 72) is the thirteenth
+        // refusal branch, so WSC-INV-12 records its reason in the ledger below.
         {
             const bool unused_by_ledger = std::none_of(
                 g_refusals.begin(), g_refusals.end(), [](const std::string& r) {
@@ -800,7 +758,54 @@ int main()
                       why.find("version " + std::to_string(other.recording_version)) !=
                           std::string::npos,
                   why);
+        }
 
+        // Diagnosability, asserted rather than assumed. Every branch above
+        // must produce a DISTINCT message: the cache's whole recovery story is
+        // that a refusal tells the user which of the keys moved, and two
+        // branches sharing a message is that story quietly failing. The
+        // per-row `expect` fragments above prove each branch says the right
+        // thing; this proves no two of them say the same thing.
+        {
+            // THIRTEEN, not twelve (owner, 2026-11-08, GH #481): the
+            // recording-procedure version (WSC-INV-12) is a new branch. Before
+            // that, TWELVE, not eight: four NEW branches (WSC-Z-02, -03, -05, -06)
+            // came with the compressed payload, and they refuse EARLIER in
+            // the file, so a ledger scoped to this block would have proved
+            // distinctness over a subset while the suite grew a thirteenth
+            // branch beside it. WSC-Z-04 is absent on purpose — it re-enters
+            // WSC-INV-06's branch. The number is the claim about how many
+            // ways this file can be rejected; adding a branch means changing
+            // it deliberately.
+            std::vector<std::string> sorted = g_refusals;
+            std::sort(sorted.begin(), sorted.end());
+            const bool all_set = std::none_of(
+                sorted.begin(), sorted.end(),
+                [](const std::string& r) { return r.empty(); });
+            const bool all_distinct =
+                std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end();
+            check("WSC-INV-10",
+                  "all thirteen refusal branches state a reason, and no two state "
+                  "the same one",
+                  g_refusals.size() == 13 && all_set && all_distinct,
+                  det("%zu refusals", g_refusals.size()));
+        }
+
+        // GH #396: the key is (size, mtime). WSC-INV-01 moves the mtime; this
+        // moves only the SIZE. Run after WSC-INV-10 so its refusal is not
+        // counted among the thirteen branches (it re-enters the same branch).
+        {
+            warm_start::store(id, state, why);
+            warm_start::Identity bigger = id;
+            bigger.sd_image_bytes += 1;
+            check("WSC-INV-11", "a different SD image size is refused, as such",
+                  refused(bigger, "recorded from a different SD image"), why);
+        }
+
+        // GH #481: a pre-recipe file (version 0 at offset 72). Same branch as
+        // WSC-INV-12, reached with another value, so after the ledger check like
+        // WSC-INV-11.
+        {
             warm_start::store(id, state, why);
             const uint8_t zero[4] = {0, 0, 0, 0};
             poke(warm_start::cache_path(0), 72, zero, 4);
