@@ -8,9 +8,10 @@
 - SD card: a refused write no longer leaves a read-only card unreadable (macOS) or lands later after a host write error
 - The ULA clip window (NR 0x1A) no longer hides the border; only the 256x192 picture is clipped
 - Source debugger: z88dk code and data in a section placed in a named bank block (BANK_n_*, PAGE_n_*) now map to the right page
+- NEX: header bit 6 and byte 152 follow the loaders: V1.3 non-zero skips classic screens, an unknown value loads, V1.2 ignores bit 6
 
 ### Contributors in this release
-- @shrek128, @vmorilla
+- @shrek128, @vmorilla, @Luzie
 
 ## v1.2.0 (2026-11-06)
 
