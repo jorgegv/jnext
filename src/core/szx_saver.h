@@ -14,9 +14,19 @@ class Emulator;
 /// snapshot. Mirrors src/core/szx_loader.h/.cpp.
 ///
 /// Format reference: "The zx-state File Format" 1.5, spectaculator.com/docs
-/// /zx-state/{header,block,z80regs,specregs,rampage}.shtml. Only the three
-/// block types SzxLoader::load() understands are emitted:
-///   ZXSTZ80REGS ('Z80R'), ZXSTSPECREGS ('SPCR'), ZXSTRAMPAGE ('RAMP')
+/// /zx-state/{header,block,z80regs,specregs,rampage,ay}.shtml. Only the block
+/// types SzxLoader::load() understands are emitted:
+///   ZXSTZ80REGS ('Z80R'), ZXSTSPECREGS ('SPCR'), ZXSTRAMPAGE ('RAMP'),
+///   and ZXSTAY ('AY\0\0') on the machines with an AY (128K, +2A/+3,
+///   Pentagon 128; not the 48K): libspectrum szx.c write_ay_chunk(), gated at
+///   szx.c:2776-2779 on LIBSPECTRUM_MACHINE_CAPABILITY_AY. 18 bytes: chFlags,
+///   chCurrentRegister, chAyRegs[16]. chFlags holds only the Fuller Box /
+///   Melodik add-on bits (ZXSTAYF_FULLERBOX = 1, ZXSTAYF_128AY = 2), which
+///   jnext does not model, so it is 0. The registers are those of the chip a
+///   classic program reaches through ports 0xFFFD/0xBFFD (TurboSound's
+///   selected one, AY#0 by default). The format cannot carry the rest of the
+///   AY state (envelope phase, tone/noise counters, the other two TurboSound
+///   chips, the select latch's bit 4); that is accepted.
 ///
 /// SCOPE — .szx is a CLASSIC-SPECTRUM interchange format, not a Next
 /// snapshot format (Task 13b, reopened 2026-07-13 after a first cut wrongly
@@ -94,9 +104,9 @@ public:
 
     /// The set of physical RAM bank numbers (== ZXSTRAMPAGE chPageNo, see
     /// class doc-comment PAGE NUMBERING) that make up a given chMachineId's
-    /// RAM. Empty iff `machine_id` is not one of the four .szx supports
+    /// RAM. Empty iff `machine_id` is not one of the five .szx supports
     /// (1=48K, 2=128K, 4=+2A, 5=+3, 7=Pentagon 128) — jnext's `save()` only ever produces
-    /// 1, 2 or 5 (no distinct +2A `MachineType`), but `build()`/this helper
+    /// 1, 2, 5 or 7 (no distinct +2A `MachineType`), but `build()`/this helper
     /// accept 4 too since it is a valid chMachineId per spec.
     static std::vector<uint8_t> ram_page_set(uint8_t machine_id)
     {
@@ -123,8 +133,8 @@ public:
         if (banks.empty()) {
             if (error) {
                 *error = "SzxSaver::build(): unsupported chMachineId " + std::to_string(machine_id)
-                       + " - .szx can only represent 48K (1), 128K (2), +2A (4) or "
-                         "+3 (5); refusing rather than truncating or lying in the header.";
+                       + " - .szx can only represent 48K (1), 128K (2), +2A (4), "
+                         "+3 (5) or Pentagon 128 (7); refusing rather than truncating or lying in the header.";
             }
             return {};
         }

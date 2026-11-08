@@ -8,7 +8,7 @@ SzxSaver::SaveResult SzxSaver::save(Emulator& emu)
     SaveResult result;
 
     // .szx is a classic-Spectrum interchange format — it can only
-    // represent 48K, 128K and +2A/+3 (see class doc-comment SCOPE). jnext
+    // represent 48K, 128K, Pentagon 128 and +2A/+3 (see class doc-comment SCOPE). jnext
     // has no distinct +2A MachineType (ZX_PLUS3 covers both — identical
     // memory model). Every other machine, including the Next itself
     // (jnext's DEFAULT --machine), is refused outright: no truncation, no
