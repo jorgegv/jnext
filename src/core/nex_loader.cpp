@@ -88,6 +88,27 @@ static bool nex_has_palette_block(uint8_t sf, bool v13) {
                   NexHeader::SCREEN_EXT2)) != 0;
 }
 
+/// The classic screen-block bits (Layer 2, ULA, LoRes, HiRes, HiColour) of
+/// `sf` whose data block a loader really consumes. nexload2.asm's
+/// LoadScreenBlock (:628-:632) is entered for every block whose trigger bit is
+/// set (:304-:310), but its first act is
+///
+///   ld a,(nexHeader.LOADSCR2) : inc hl : cp (hl) : ret nz
+///
+/// and all five classic definitions carry LOADSCR2_NONE = 0 (:618-:622). So
+/// with ANY non-zero byte at offset 152 -- bit 6 set or not -- the call
+/// returns at once: nothing is read, the file position does not move, no
+/// NextREG or port is written. The screen is skipped, not seeked over; the
+/// bytes it would have held are read as whatever block comes next. Only a
+/// V1.3 header reaches nexload2 (V1.0-V1.2 files are nexload.asm's, which has
+/// no field 152).
+static uint8_t nex_classic_blocks(uint8_t sf, uint8_t sf2, bool v13) {
+    constexpr uint8_t kClassic =
+        NexHeader::SCREEN_LAYER2 | NexHeader::SCREEN_ULA | NexHeader::SCREEN_LORES |
+        NexHeader::SCREEN_HIRES | NexHeader::SCREEN_HICOLOUR;
+    return (v13 && sf2 != NexHeader::SCREEN2_NONE) ? static_cast<uint8_t>(sf & ~kClassic) : sf;
+}
+
 /// Bytes of optional screen data (palette + screen blocks) a NEX header
 /// declares, in the exact order and sizes NexLoader::apply() consumes them.
 /// Lets load() compute the header-described region (header + screens +
@@ -118,12 +139,15 @@ static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) 
     if (nex_has_palette_block(sf, v13)) out += 512;
 
     // Screen data blocks, in file order (nexload2.asm:614-625 — "order of
-    // block definitions must be same as block order in file").
-    if (sf & NexHeader::SCREEN_LAYER2)   out += 49152;
-    if (sf & NexHeader::SCREEN_ULA)      out += 6912;
-    if (sf & NexHeader::SCREEN_LORES)    out += 12288;
-    if (sf & NexHeader::SCREEN_HIRES)    out += 12288;
-    if (sf & NexHeader::SCREEN_HICOLOUR) out += 12288;
+    // block definitions must be same as block order in file"). A V1.3 header
+    // with a non-zero field 152 carries no classic block: see
+    // nex_classic_blocks().
+    const uint8_t blk = nex_classic_blocks(sf, h.screen_flags2, v13);
+    if (blk & NexHeader::SCREEN_LAYER2)   out += 49152;
+    if (blk & NexHeader::SCREEN_ULA)      out += 6912;
+    if (blk & NexHeader::SCREEN_LORES)    out += 12288;
+    if (blk & NexHeader::SCREEN_HIRES)    out += 12288;
+    if (blk & NexHeader::SCREEN_HICOLOUR) out += 12288;
 
     if (sf & NexHeader::SCREEN_EXT2) {
         switch (h.screen_flags2) {
@@ -1001,6 +1025,11 @@ bool NexLoader::apply(Emulator& emu) const
     // references in all 778 of its lines), so the V1.0-V1.2 branch never
     // looks at it.
     const uint8_t sf2_raw = header_.screen_flags2;
+    // The classic screen blocks nexload2 really ingests: none when field 152
+    // is non-zero (nex_classic_blocks(), nexload2.asm:628-:632). The palette
+    // block and its destination above still follow LOADSCR as written
+    // (LoadFilePalette runs on the header bits alone, :296-:300).
+    const uint8_t blk = nex_classic_blocks(sf, sf2_raw, v13);
 
     // The loaders' own screen clear, and nothing more. The old G16
     // pre-zero wrote all 16 KB of bank 5, which neither loader does: on a
@@ -1188,7 +1217,7 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // Layer 2 screen (48K = 256x192x8bpp, loaded into banks 8,9,10)
-    if (sf & NexHeader::SCREEN_LAYER2) {
+    if (blk & NexHeader::SCREEN_LAYER2) {
         constexpr size_t L2_SIZE = 49152;
         if (offset + L2_SIZE > file_data_.size()) {
             Log::emulator()->error("NEX: truncated Layer2 screen data");
@@ -1206,7 +1235,7 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // ULA screen (6912 bytes → bank 5 offset 0 = page 10, offset 0)
-    if (sf & NexHeader::SCREEN_ULA) {
+    if (blk & NexHeader::SCREEN_ULA) {
         constexpr size_t ULA_SIZE = 6912;
         if (offset + ULA_SIZE > file_data_.size()) {
             Log::emulator()->error("NEX: truncated ULA screen data");
@@ -1220,7 +1249,7 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // LoRes screen (12288 bytes)
-    if (sf & NexHeader::SCREEN_LORES) {
+    if (blk & NexHeader::SCREEN_LORES) {
         constexpr size_t LORES_SIZE = 12288;
         if (offset + LORES_SIZE > file_data_.size()) {
             Log::emulator()->error("NEX: truncated LoRes screen data");
@@ -1237,7 +1266,7 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // HiRes screen (12288 bytes)
-    if (sf & NexHeader::SCREEN_HIRES) {
+    if (blk & NexHeader::SCREEN_HIRES) {
         constexpr size_t HIRES_SIZE = 12288;
         if (offset + HIRES_SIZE > file_data_.size()) {
             Log::emulator()->error("NEX: truncated HiRes screen data");
@@ -1253,7 +1282,7 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // HiColour screen (12288 bytes)
-    if (sf & NexHeader::SCREEN_HICOLOUR) {
+    if (blk & NexHeader::SCREEN_HICOLOUR) {
         constexpr size_t HICOL_SIZE = 12288;
         if (offset + HICOL_SIZE > file_data_.size()) {
             Log::emulator()->error("NEX: truncated HiColour screen data");
