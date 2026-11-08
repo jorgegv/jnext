@@ -8121,7 +8121,7 @@ bool Emulator::init_for_load_from_file()
     // instruction runs. The synthetic path has only the 48K image in its
     // SRAM ROM pages, so it got this right by having no alternative; the
     // recording, taken at the Command Line executing a statement, carries
-    // the OS's own ROM 0 (PAUSE runs with 7FFD=0, 1FFD=0) and got it wrong. Two committed references caught it — magic-bp-demo and
+    // the OS's own ROM 0 (PAUSE runs with 7FFD=0, 1FFD=0) and got it wrong. Two committed references caught it - magic-bp-demo and
     // magic-port-demo both read the character set straight out of ROM
     // (`ROM_CHARSET 0x3C00`), and rendered noise where glyphs belong.
     //
