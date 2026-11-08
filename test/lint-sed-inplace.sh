@@ -29,8 +29,12 @@
 # CANNOT CATCH (EXAMPLES, not exhaustive): a quoted string spanning physical
 # lines (quote state is reset at each line end, so the closing line of a
 # multi-line awk/python program is read with its quotes inverted, and a
-# `'; sed -i ...` there is missed); a sed reached through a variable,
-# eval or alias; an option spelled via a here-doc body (scanned like code, so
+# `'; sed -i ...` there is missed). Carrying the state across lines was
+# rejected on purpose: one lone apostrophe in a heredoc body would then hide
+# the rest of the file, a worse failure than this rare miss. This lint's scope
+# is narrower than lint-traps' on purpose: it targets the accidental bare
+# `sed -i`, not deliberate or exotic spellings. Also not caught: a sed
+# reached through a variable, eval or alias; an option spelled via a here-doc body (scanned like code, so
 # it flags the safe way: mark fixture text); a sed split after a backslash
 # continuation (lines are not joined; options sit on the sed line in practice).
 # The escape for a deliberate case is a trailing
@@ -176,6 +180,7 @@ selftest() {
         1 'long, abbreviated'         "sed --in-pl 's/a/b/' f"
         1 'sed given by path'         "/usr/bin/sed -i 's/a/b/' f"
         1 'empty quote after -i'      "sed -i'' 's/a/b/' f"
+        1 'empty dquote after -i'     'sed -i"" "s/a/b/" f'
         1 'hash inside a word'        "echo a#b; sed -i 's/a/b/' f"
         1 'escaped apostrophe'        "echo it\\'s; sed -i 's/a/b/' f"
         1 'escaped quote in dquotes'  'echo "a \" b"; sed -i "s/a/b/" f'

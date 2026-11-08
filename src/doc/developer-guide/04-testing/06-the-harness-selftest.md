@@ -221,7 +221,7 @@ verdict on the real tree is trusted at all:
 - `test/lint-sed-inplace.sh` (row 7 of the preflight) refuses a `sed -i` with
   no attached suffix in the test scripts macOS runs, because BSD sed reads the
   next word as the suffix and fails with "-I or -i may not be used with stdin".
-  It carries **33 pinned cases: 20 that must flag, 10 that must not, and 3 that
+  It carries **34 pinned cases: 21 that must flag, 10 that must not, and 3 that
   pin its coverage check**. Bare `-i`, `-ni`, `-i ''`, a path-qualified `sed`
   and every `--i…` long option (BSD sed has none) are flagged; `-i.bak`, a temp
   file plus `mv`, and the text `sed -i` inside a quote or comment are not.
