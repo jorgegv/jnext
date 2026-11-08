@@ -286,7 +286,7 @@ row WEBPKG-07 "$ok" "RelWithDebInfo tree refused, stderr names the build type, n
 scen nomusl
 rm "$D/emsdk/upstream/emscripten/system/lib/libc/musl/COPYRIGHT"
 run_pkg "$D"
-ok=0; [[ $RC -ne 0 ]] && errhas "$D" "musl/COPYRIGHT" && nozip "$D" && ok=1
+ok=0; [[ $RC -ne 0 ]] && errhas "$D" "missing source" && errhas "$D" "musl/COPYRIGHT" && nozip "$D" && ok=1
 row WEBPKG-08 "$ok" "emsdk without musl/COPYRIGHT refused, stderr names the path, no zip"
 
 # ---- WEBPKG-09: ambiguous port directory ----
@@ -360,10 +360,10 @@ run_verify "$GOOD" "$T/c17.zip"
 ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "nextzxos-minimal.img has a NextZXOS image name" && ok=1
 row WEBPKG-17 "$ok" "zip plus nextzxos-minimal.img refused as a NextZXOS image name"
 
-mz "$T/c18.zip" add:card.IMG:10
+mz "$T/c18.zip" add:card.IMG:10 add:jnext-9.9.9-web/stray.txt:10
 run_verify "$GOOD" "$T/c18.zip"
-ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "card.IMG has a NextZXOS image name" && ok=1
-row WEBPKG-18 "$ok" "card.IMG outside the top directory refused, named"
+ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "card.IMG has a NextZXOS image name" && errhas "$GOOD" "unexpected entry jnext-9.9.9-web/stray.txt" && ok=1
+row WEBPKG-18 "$ok" "card.IMG outside the top directory refused, named; any other extra entry refused too"
 
 mz "$T/c19.zip" add:jnext-9.9.9-web/licenses/x/boot.mmc:10
 run_verify "$GOOD" "$T/c19.zip"
