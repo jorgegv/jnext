@@ -34,7 +34,6 @@ and it will be changed.
 | [nexlib + tests](https://github.com/dcrespo3d) by David Crespo | GPLv3 | Next demo/test programs used as rendering and timing fixtures (vendored in `demo/dapr-nexlib+tests/`) |
 | zlib | zlib | Compressed snapshot (SZX) and RZX blocks |
 | libpng | libpng | PNG screenshots |
-| [Emscripten](https://emscripten.org/) | MIT / University of Illinois NCSA | WebAssembly toolchain; its runtime JavaScript is part of the browser build's `jnext-<version>.js` |
 
 ## References and acknowledgments
 

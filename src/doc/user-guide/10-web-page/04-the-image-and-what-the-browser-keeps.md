@@ -75,6 +75,8 @@ their status line.
 
 | message | what it means |
 |---|---|
+| `unknown option '<name>'`, `image is required` or `option '<name>' must be ...` | A `mount()` option is misspelt, missing or of the wrong type. Nothing has been downloaded yet. |
+| `no image url` | `image.url` is empty. |
 | `image: no URL configured` | `plain.html` was opened with no `?image=` and no URL in its constants. |
 | `the image sha256 is not 64 hex digits` | The digest is missing or mistyped. |
 | `cannot fetch <url>: a network error, or the server does not allow cross-origin reads (no Access-Control-Allow-Origin header)` | The server is unreachable, or it does not send `Access-Control-Allow-Origin`. Make it send the header. |
