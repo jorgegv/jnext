@@ -175,18 +175,22 @@ the T-states come from the real path and no contention or wait formula is restat
 answer is yes only if nothing observes the machine (no debugger, trace, rewind, RZX, tape),
 nothing is waiting for an instruction boundary (an `/INT`, an `/NMI`, a pending host NMI
 press, a CPU speed or contention commit), the DMA, UART, NMI source and IM2 fabric are idle
-in pulse mode, the HALT page is not contended and the DivMMC and Multiface M1 hooks are
-provable no-ops. Then the slot absorbs `n - 1` more repeats (`Z80Cpu::repeat_halt()`: the
+in pulse mode, the HALT page is not contended (with the NR 0x08 bit-6 contention shadow
+settled, since a page is uncontended only while the disable is in force) and the PC is not
+one the DivMMC automap, the esxDOS shim or the NMI vector react to. Then the slot absorbs `n - 1` more repeats (`Z80Cpu::repeat_halt()`: the
 T-state counter, `R` and the `execute()` serial, which is all `n - 1` more `execute()` calls
 change), where `n` is bounded to end before the next scheduler event (a scanline, the CVC
 reload, the frame end), the next interrupt request, the next CTC event and the next Copper
 action (`Copper::idle_cycles()` from the Copper's own position, the same
 `copper_position_at_()` the Copper loop uses). The batched slot then runs the device cluster
 once; the PSG and the mixer are not split-invariant, so their part is replayed repeat by
-repeat in the same order. Every bound, and every gate whose absence changes what the machine does, is pinned by a row of
-`halt_batch_equiv_test` whose mutation turns it red; the few gates that are redundant with
-another (an `/INT` pending implies a non-quiescent IM2 fabric; an armed debugger implies the
-memory gate) stay as explicit statements of the contract.
+repeat in the same order. Every bound, and every gate whose absence changes what the machine
+does, is pinned by a row of `halt_batch_equiv_test` or `halt_batch_periph_test` whose mutation
+turns it red. A few gates are redundant with another and stay as explicit statements of the
+contract (an `/INT` pending implies a non-quiescent IM2 fabric; an armed debugger implies the
+memory gate). The DivMMC and Multiface flip-flop states are NOT gates: at a PC the automap
+does not react to by address, every transition of either converges within one M1 edge, which
+the real repeat already is, so a gate on their state was removed as provably redundant.
 
 Around that choice it also records the trace entry, notes what the end-of-slot
 interrupt tick will need (the instruction's T-states, its first edge, its opcode
@@ -244,7 +248,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13156`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13154`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA
