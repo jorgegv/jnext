@@ -63,15 +63,15 @@ no store, because it replaces nothing. `Load MAP` (symbols only) never has one.
 ## How it is filled
 
 `load_z88dk_source_map()` reads the map once. Pass 1 keeps a `const` line that
-starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:731`),
+starts `__CDBINFO__` in `cdb_lines` (`src/debug/z88dk_source_map.cpp:732`),
 and the parser gained `Z88dkMapLine::is_public` (the scope field). The line records
 of code sections are copied to `scope_records` right after they are placed and
-**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:820`):
+**before** a listing replaces its module's lines (`scope_records`, `src/debug/z88dk_source_map.cpp:824`):
 a listing's `C_LINE` keeps only the file, so the scope comes from the map; for an 80cc function the table is replaced by the listing's own occurrences (`fill_listing_scopes()`, S4a).
 Just before `map.replace()`, `build_variable_store()`
 (`src/debug/z88dk_source_map.cpp:557`)
 decodes each record, joins, and builds the store. A symbol is placed in its
-space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:1061`),
+space by one lambda, `place_symbol` (`src/debug/z88dk_source_map.cpp:1063`),
 shared by the extent code and the store, so no rule is kept twice.
 
 ## The joins

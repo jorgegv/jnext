@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.10</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.13</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.10</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.13</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3262,8 +3262,22 @@ refusal is the first bad line.</p>
 <h3 id="space">Space<a class="headerlink" href="#space" title="Permanent link">&para;</a></h3>
 <p><code>z88dk_section_space(section, value, page_head, dot)</code> (<code>debug/z88dk_space.cpp</code>) maps a
 section name and a (possibly 24-bit) value to a <code>Z88dkSpace</code>. Page numbers are
-0..223, banks 0..111; the numbers in a section name are 1 to 3 decimal digits.
-The rules, in order of the section name:</p>
+0..223, banks 0..111; the numbers in a section name are 1 to 3 decimal digits.</p>
+<p><strong>The block first.</strong> Since z88dk nightly 2026-10-21 z80asm writes
+the block, the top-level section, of each section in its <code>__&lt;section&gt;_head</code> line
+(<code>__game_const_head = $103546 ; const, public, def, , BANK_8_CODE,</code>). appmake puts
+the section's code in the bank its block names, so a user section such as
+<code>game_const</code> is in bank 8 although its own name says nothing. Both halves fill a
+<code>Z88dkBlocks</code> table from those lines (first wins) and pass it as a fifth
+argument; when the section has a block and the block names a bank by appmake's
+rule (<code>mb_enumerate_banks()</code>: the first of <code>BANK</code>, <code>DIV</code>, <code>PAGE</code>, in zxn's order,
+found anywhere in the block name and followed by <code>_&lt;n&gt;</code>; what follows the number
+is free), the section is placed by its block: <code>BANK_&lt;n&gt;</code> as rule 2, with <code>_L</code> /
+<code>_H</code> right after the number fixing the half; <code>PAGE_&lt;n&gt;</code> as rule 1 with the head
+<code>__&lt;block&gt;_head</code>; <code>DIV_&lt;n&gt;</code>, the ranges and the dot rules as below. Messages then
+name the section and its block. A section with no block (an older map) or whose
+block names no bank (<code>CODE</code>) takes the rules below on its own name, unchanged.</p>
+<p>The rules, in order of the section name:</p>
 <ol>
 <li><strong><code>PAGE_&lt;n&gt;</code></strong> and <code>&lt;KIND&gt;_PAGE_&lt;n&gt;</code> (KIND is <code>CODE</code>, <code>RODATA</code>, <code>DATA</code> or
    <code>BSS</code>): a section that starts in page <code>n</code> and may run into the next ones. The
@@ -3290,18 +3304,18 @@ The rules, in order of the section name:</p>
 <li>
 <p><strong>A dot command.</strong> NextZXOS copies a dot command's file into a DivMMC RAM bank and
    runs it from <code>$2000</code> there; the map names no bank. <code>z88dk_dot_command(consts, &amp;why)</code>
-   (<code>z88dk_space.cpp:136</code>) says whether a map is one: the constant <code>startupoffset</code> is <code>$0100</code> (dot),
+   (<code>z88dk_space.cpp:275</code>) says whether a map is one: the constant <code>startupoffset</code> is <code>$0100</code> (dot),
    <code>$0200</code> (dotx) or <code>$0300</code> (dotn) and <code>__CODE_head</code> is <code>$2000</code>. No <code>startupoffset</code>, or another
    value, is not a dot and has no reason; a dot whose <code>__CODE_head</code> is not <code>$2000</code> is not a dot
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
-   (<code>dot_why</code>, <code>z88dk_source_map.cpp:774-776</code>), while the symbol half places the map as any other
-   (<code>z88dk_dot_command()</code>, <code>symbol_table.cpp:82</code>, no reason asked). Both halves read the
-   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:755</code>; the symbol half keeps every constant). For a dot,
+   (<code>dot_why</code>, <code>z88dk_source_map.cpp:777-779</code>), while the symbol half places the map as any other
+   (<code>z88dk_dot_command()</code>, <code>symbol_table.cpp:84</code>, no reason asked). Both halves read the
+   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:757</code>; the symbol half keeps every constant). For a dot,
    <code>z88dk_section_space()</code> takes it as a last argument, after rules 1 to 3 (a value above <code>0xFFFF</code> in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:</p>
 <ul>
 <li>an unnumbered section at <code>$2000</code>-<code>$3FFF</code> is <code>DivMmcRam{kNextZxosDotBank}</code>, bank 2
-  (<code>kNextZxosDotBank</code>, <code>z88dk_space.cpp:176-181</code>), whatever the MMU maps there when the map is loaded;</li>
+  (<code>kNextZxosDotBank</code>, <code>z88dk_space.cpp:192-197</code>), whatever the MMU maps there when the map is loaded;</li>
 <li>a dotx's other unnumbered sections are rule 4: its main part (<code>PROG.X</code>, <code>prog_MAIN.bin</code>
   at <code>CRT_ORG_MAIN</code> <code>$8000</code>) is main RAM;</li>
 <li>in a dotn those sections, and every <code>PAGE_&lt;n&gt;</code> / <code>DIV_&lt;n&gt;</code> section, are <em>refused</em>

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.10</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.13</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.10</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.13</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3151,7 +3151,7 @@ binaries' bytes). In order:</p>
    patches an opcode, so a listing of this build is never excluded at its true start. The byte at
    <code>c + row address</code> comes from <code>view.byte_at(value, space)</code>, where <code>place()</code> gave the space; it is
    <em>unknown</em> (<code>nullopt</code>) when no section binary covers the byte, <strong>when two or more do</strong> (overlay
-   sections at one ORG: <code>bin_for(..., &amp;more)</code>, <code>z88dk_source_map.cpp:868</code>, and the <code>byte_at</code> lambda, <code>:940-945</code>), and when <code>place()</code> fails (a ROM area: the memory is not a RAM
+   sections at one ORG: <code>bin_for(..., &amp;more)</code>, <code>z88dk_source_map.cpp:870</code>, and the <code>byte_at</code> lambda, <code>:942-948</code>), and when <code>place()</code> fails (a ROM area: the memory is not a RAM
    page, so no byte can be read). The outcome is one of three:</p>
 <ul>
 <li><strong>no start survives</strong> (<code>survivors</code>, <code>z88dk_lis.cpp:664</code>; the search loop over <code>survivors</code>, <code>z88dk_lis.cpp:621-671</code>): the listing is dropped, with "section '<s>': its label-less lines match no

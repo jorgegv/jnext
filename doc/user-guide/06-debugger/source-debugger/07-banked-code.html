@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.10</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.13</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.10</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.13</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4256,6 +4256,18 @@ for example <code>0x14C000</code> for <code>PAGE_20</code>) and a stack below th
 page 0 or loses its stack. <strong>Over</strong> and <strong>Out</strong> step across <code>banked_call</code> and
 the <code>-debug</code> helpers; <strong>Out</strong> lands on the calling line at the return address
 (mid-statement), as gdb's <code>finish</code> does.</p>
+<p>A section of your own memory map is in the bank of the block it is placed in, as appmake builds
+it: with</p>
+<pre><code>SECTION BANK_8_CODE
+    ORG 0x100000
+section game_code
+section game_const
+</code></pre>
+<p><code>game_const</code> is in bank 8 (pages 16 and 17), and a <code>PAGE_95_CONST</code> block is page 95 and the pages
+it runs on into. The block name only has to contain <code>BANK_&lt;n&gt;</code>, <code>PAGE_&lt;n&gt;</code> or <code>DIV_&lt;n&gt;</code>; what
+follows the number is free (<code>BANK_&lt;n&gt;_L</code> and <code>_H</code> are the lower and upper 8K of the bank). The map
+says which block each section is in from z88dk nightly 2026-10-21 on; with an older z88dk such a
+section is refused when its addresses have 24 bits ("names no bank or page").</p>
 <p>Code in a section that names no page (<code>CODE</code>, <code>code_compiler</code>, the program
 itself) is tied to the RAM page the MMU maps at that address when the program
 is in memory (page 4 at <code>$8000</code> for a NEX).</p>
