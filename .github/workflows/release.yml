@@ -30,6 +30,9 @@ name: Release
 #               (also dispatchable by hand); flatpak-builder against
 #               org.kde.Sdk//6.10, the same manifest + runtime as a local
 #               `make package-flatpak`
+#   * web     → `make package-web` in a fedora:44 container: jnext-<ver>-web.zip,
+#               the browser build (js + wasm, example pages, licences). Never a
+#               NextZXOS image: that job restores no SD image.
 #   * macos   → `make package-macos` native on macos-latest (proven green on a
 #               real runner in v0.98.34). No longer continue-on-error since
 #               issue #61: it carries the GH #46 verify-bundle gate, and a gate
@@ -338,7 +341,7 @@ jobs:
   #
   # What it was actually doing: continue-on-error reports a FAILED job as
   # success to the `needs` context, so `publish` (which requires success() of
-  # all seven) went ahead and attached whatever artifacts existed. A release
+  # all eight) went ahead and attached whatever artifacts existed. A release
   # could therefore go out silently missing its flatpak bundle with nothing
   # anywhere red — the same fail-safe-but-fail-SILENT shape that was removed
   # from the macos job in issue #61, and for the same reason: a gate that
@@ -360,6 +363,42 @@ jobs:
     needs: gate
     if: needs.gate.outputs.build == 'true'
     uses: ./.github/workflows/flatpak-build.yml
+
+  # ---- Browser build: make package-web in a Fedora container -----------------
+  # jnext-<ver>-web.zip (jnext-<ver>.js + .wasm, example pages, README.txt with the
+  # source link, LICENSE, CREDITS.md, licenses/). NEVER a NextZXOS image: this job
+  # restores no SD-card image, and package-web.sh refuses any file outside its list.
+  # The same plain make target a local run uses. BLOCKING, like every artifact job.
+  web:
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      # git before the checkout (bare image); zip is package-web.sh's writer;
+      # curl, tar, xz, unzip and sha256sum (coreutils) are test/provision-emsdk.sh's own.
+      - name: Install build dependencies
+        run: |
+          dnf install -y make cmake git python3 zip unzip findutils coreutils diffutils \
+            tar xz curl util-linux gawk grep sed
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      # `git log` (the zip's date) refuses a checkout owned by another user in a container
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Cache the Emscripten SDK   # same path + key as ci.yml; bump together
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/jnext/tools/emsdk-6.0.13
+          key: emsdk-6.0.13-8c04da75-cda68010-14b342e7-fedora44
+      - name: make package-web
+        run: LANG=C make package-web
+      - uses: actions/upload-artifact@v6
+        with:
+          name: jnext-web-package
+          path: build/wasm-core/jnext-*-web.zip
+          if-no-files-found: error
 
   # ---- macOS: native CPack DragNDrop --------------------------------------
   macos:
@@ -445,7 +484,7 @@ jobs:
   # success() surprises): every build job is gated on build=='true', and
   # publish=='true' implies build=='true'.
   publish:
-    needs: [gate, deb, rpm, src, windows, flatpak, macos]
+    needs: [gate, deb, rpm, src, windows, flatpak, web, macos]
     if: success() && needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:

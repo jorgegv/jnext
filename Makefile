@@ -204,7 +204,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web wasm-browser-test wasm-core-clean unit-test-wasm unit-test-wasm-build regression-wasm
+       package-contract-test minimal-image-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra emsdk playwright wasm-core wasm-web package-web web-package-test wasm-browser-test wasm-core-clean unit-test-wasm unit-test-wasm-build regression-wasm
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -653,9 +653,20 @@ unit-test-wasm-build: emsdk
 wasm-web: wasm-core
 	$(CMAKE) --build build/wasm-core -j$(JOBS) --target jnext_web
 
+# Zip the browser build into build/wasm-core/jnext-<ver>-web.zip (js + wasm, example pages, licences, source link)
+package-web: wasm-web
+	@# Names come from version.yaml through CMake and the script. NEVER a NextZXOS image
+	@# (copyrighted: the page fetches it from SpecNext); package-web.sh verifies its own zip.
+	@E=$$(bash test/provision-emsdk.sh --print-path) && \
+	bash packaging/web/package-web.sh build/wasm-core "$$E"
+
+# Contract-test packaging/web/package-web.sh (36 rows) on fake trees - hermetic, no emsdk
+web-package-test:
+	@bash test/packaging/web-package-test.sh
+
 # Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
-wasm-browser-test: wasm-web playwright sdl-release sdcard-image
-	@# BRW-01..29, WBI-PW-01..08 and WEBAPI-01..29 on the pinned Playwright + Chromium headless shell. sdl-release is the
+wasm-browser-test: wasm-web package-web playwright sdl-release sdcard-image
+	@# BRW-01..29, WBI-PW-01..08, WEBAPI-01..29 and WEBPKG-BR-01 on the pinned Playwright + Chromium headless shell. sdl-release is the
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core
@@ -2124,5 +2135,5 @@ minimal-image-test:
 	@bash test/minimal-sdcard-image-test.sh
 
 # Contract-test the packaging scripts + package-* recipes (no builds) — hermetic, ~4s
-package-contract-test:
+package-contract-test: web-package-test
 	@bash test/packaging/packaging-test.sh --contracts-only
