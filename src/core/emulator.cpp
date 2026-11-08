@@ -7831,6 +7831,9 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
         return false;
     }
 
+    // Rebase the frame counter (see kWarmStartProgramFrame).
+    rec->frame_num_ = kWarmStartProgramFrame;
+
     StateWriter measure;
     rec->save_state(measure);
     const size_t bytes = measure.position();

@@ -395,6 +395,13 @@ public:
     /// program entry has; warm_start_capture_ready() then decides.
     static constexpr uint32_t kWarmStartT4Units = 760 * 6;
 
+    /// The frame number a warm-started program starts at. The recording is
+    /// about 760 frames long, but scripts recorded with --record-script (and the
+    /// committed DAPR replays) key on "on frame N" and were recorded when the
+    /// recording was 500 frames long, so the recorder rebases the counter it
+    /// saves to this value. Nothing else reads it as a true boot-frame count.
+    static constexpr uint32_t kWarmStartProgramFrame = 500;
+
     /// The per-frame step of the recording recipe. Call it once per
     /// `run_frame()` of the recorder, with the emulated-time units BEFORE and
     /// AFTER that frame (`warm_start_frame_units()` per frame). It queues, on
