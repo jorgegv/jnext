@@ -3491,7 +3491,7 @@ recording and, on a miss, calls <code>record_warm_start_state()</code>, which</p
    recipe is done when the statement executes (<code>ERR_NR</code> $FF, <code>PPC</code> $FFFE). The
    keys go through <code>Keyboard::queue_auto_type()</code>, and the per-frame step is
    <code>Emulator::warm_start_recipe_tick()</code>. A state that does not come within 400
-   frames ends the recipe (so at most five waits, 2000 frames, after frame 400), and the capture check then refuses,</li>
+   frames ends the recipe (four waits, so at most about 2000 frames in all at 50 Hz and 2400 at 60 Hz), and the capture check then refuses,</li>
 <li>checks <code>nextzxos_resident()</code> (once, when the clock passes frame 400, before
    any key) and <code>warm_start_capture_ready()</code> (when the recipe is done or gave
    up; its message names what the recipe was waiting for), and</li>
