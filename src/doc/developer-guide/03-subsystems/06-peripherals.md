@@ -60,8 +60,9 @@ if the line is the WAIT's, else to the line's end, where a mode-11 restart
 (`cvc` 0, master cycles 0 to 3 of the line) is tested again. It returns 0, and
 `execute()` runs, whenever the next cycle can act or is not a plain stall: a
 mode write not yet latched, a stopped Copper, a MOVE settling, a MOVE at the PC,
-an armed debugger event latch, or an Emulator line wrap that differs from the
-Copper's own `c_max_vc + 1` (the closed form assumes they are one counter).
+or an armed debugger event latch. The position advances at the Emulator's lines per
+frame while the Copper derives its own line counter with `c_max_vc + 1`, as `execute()`
+does, so the answer is exact even if the two wraps differ.
 The per-cycle `execute()` stays the oracle: `copper_test` checks the skip
 against it over 20000 reachable states, and
 `halt_batch_equiv_test` / `halt_batch_corpus_*_test` run whole machines with the

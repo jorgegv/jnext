@@ -273,7 +273,6 @@ uint32_t Copper::idle_cycles(int line_mc, int cvc, uint8_t cvc_offset, int mcpl,
     if (limit == 0 || mcpl <= 0) return 0;
     if (last_mode_ != mode_ || mode_ == 0 || move_pending_) return 0;
     if (events_armed()) return 0;
-    if (c_max_vc_ + 1 != lpf) return 0;
     const uint16_t instr = instructions_[pc_ & 0x3FF];
     if (!is_wait(instr)) return 0;
 

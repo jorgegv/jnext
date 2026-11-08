@@ -2011,16 +2011,25 @@ struct Case {
     Copper cu;
     Pos pos{};
     uint32_t limit = 0;
+    int cmax = 0;            // the Copper's own wrap, c_max_vc (not always lpf - 1)
 };
 
-Case make_case(Rng& rng) {
+// `mismatch`: 0 = a third of the cases draw a Copper wrap that differs from the Emulator's
+// lines per frame (c_max_vc + 1 != lpf), the rest match; 1 = every case does.
+Case make_case(Rng& rng, int mismatch = 0) {
     Case k;
     k.pos.mcpl = 40 + static_cast<int>(rng.below(900));
     k.pos.lpf = 12 + static_cast<int>(rng.below(60));
     k.pos.off = static_cast<uint8_t>(rng.below(4) == 0 ? rng.below(256) : rng.below(3));
     k.pos.lm = static_cast<int>(rng.below(static_cast<uint32_t>(k.pos.mcpl)));
     k.pos.cvc = static_cast<int>(rng.below(static_cast<uint32_t>(k.pos.lpf)));
-    k.cu.set_c_max_vc(k.pos.lpf - 1);
+    k.cmax = k.pos.lpf - 1;
+    if (mismatch == 1 || rng.below(3) == 0) {
+        int d = static_cast<int>(rng.below(7)) - 3;           // -3 .. +3
+        if (d == 0) d = 1;
+        k.cmax = k.pos.lpf - 1 + d;
+    }
+    k.cu.set_c_max_vc(k.cmax);
     const int nw = 3 + static_cast<int>(rng.below(8));
     for (int i = 0; i < nw; ++i) {
         uint16_t w;
@@ -2045,6 +2054,38 @@ Case make_case(Rng& rng) {
     if (rng.below(4) == 0) set_mode(k.cu, static_cast<uint8_t>(rng.below(4)));   // an unlatched edge
     k.limit = 1 + rng.below(static_cast<uint32_t>(4 * k.pos.mcpl));
     return k;
+}
+
+// Runs one window per-cycle and skip-then-execute; "" if the NextREG write streams and the
+// final state agree, else what differs.
+std::string windows_differ(const Case& k, uint64_t window, uint64_t& skipped, bool& wrote) {
+    auto run = [&](bool skip, std::vector<NrWrite>& out) {
+        Copper cu = k.cu;
+        Pos pos = k.pos;
+        NextReg nr;
+        uint64_t now = 0;
+        record_writes(nr, cu, now, out);
+        for (uint64_t c = 0; c < window; ) {
+            if (skip) {
+                const uint64_t room = window - c;
+                const uint32_t n = cu.idle_cycles(pos.lm, pos.cvc, pos.off, pos.mcpl, pos.lpf,
+                                                  static_cast<uint32_t>(room));
+                if (n) { pos.advance(n); c += n; skipped += n; continue; }
+            }
+            now = c;
+            cu.execute(pos.lm >> 2, pos.cvc, nr, pos.off);
+            pos.step();
+            ++c;
+        }
+        return blob_of(cu);
+    };
+    std::vector<NrWrite> wa, wb;
+    const auto ba = run(false, wa);
+    const auto bb = run(true, wb);
+    wrote = !wa.empty();
+    if (ba != bb) return "final state differs";
+    if (!(wa == wb)) return "NextREG writes differ";
+    return {};
 }
 
 void group11_idle_skip() {
@@ -2084,7 +2125,7 @@ void group11_idle_skip() {
             if (!ok && ++bad && first_bad.empty()) first_bad = fmt("case %d: skipped run of %u changed state/wrote NR", i, n);
             if (ok && n > 0 && n < k.limit) {
                 const std::vector<uint8_t> pre = blob_of(cu);
-                const int v = (pos.cvc + pos.off) % (k.pos.lpf);
+                const int v = (pos.cvc + pos.off) % (k.cmax + 1);
                 const bool restart = k.cu.mode() == 3 && v == 0 && (pos.lm >> 2) == 0;
                 cu.execute(pos.lm >> 2, pos.cvc, nr, pos.off);
                 if (!restart && w.empty() && blob_of(cu) == pre) {
@@ -2098,6 +2139,7 @@ void group11_idle_skip() {
 
     // CPSK-02: skip-then-execute and per-cycle loops over the same window end in the same
     // state with the same NextREG write stream (cycle, register, value, PC of the MOVE).
+    // A third of the cases draw a Copper wrap different from the Emulator's.
     {
         Rng rng{0x45202};
         int bad = 0, with_writes = 0;
@@ -2105,35 +2147,12 @@ void group11_idle_skip() {
         for (int i = 0; i < 4000; ++i) {
             Case k = make_case(rng);
             const uint64_t window = 1 + rng.below(static_cast<uint32_t>(6 * k.pos.mcpl));
-            auto run = [&](bool skip, std::vector<NrWrite>& out, uint64_t& skipped) {
-                Copper cu = k.cu;
-                Pos pos = k.pos;
-                NextReg nr;
-                uint64_t now = 0;
-                record_writes(nr, cu, now, out);
-                for (uint64_t c = 0; c < window; ) {
-                    if (skip) {
-                        const uint64_t room = window - c;
-                        const uint32_t n = cu.idle_cycles(pos.lm, pos.cvc, pos.off, pos.mcpl, pos.lpf,
-                                                          static_cast<uint32_t>(room));
-                        if (n) { pos.advance(n); c += n; skipped += n; continue; }
-                    }
-                    now = c;
-                    cu.execute(pos.lm >> 2, pos.cvc, nr, pos.off);
-                    pos.step();
-                    ++c;
-                }
-                return blob_of(cu);
-            };
-            std::vector<NrWrite> wa, wb;
-            uint64_t sa = 0, sb = 0;
-            const auto ba = run(false, wa, sa);
-            const auto bb = run(true, wb, sb);
-            if (!wa.empty()) ++with_writes;
-            if (ba != bb || !(wa == wb)) {
-                if (++bad && first_bad.empty()) first_bad = fmt("case %d (window %llu): %s", i,
-                    static_cast<unsigned long long>(window), ba != bb ? "final state differs" : "NextREG writes differ");
-            }
+            bool wrote = false;
+            uint64_t skipped = 0;
+            const std::string d = windows_differ(k, window, skipped, wrote);
+            if (wrote) ++with_writes;
+            if (!d.empty() && ++bad && first_bad.empty()) first_bad = fmt("case %d (window %llu): %s", i,
+                static_cast<unsigned long long>(window), d.c_str());
         }
         check("CPSK-02", "skip-then-execute and per-cycle loops over 4000 windows give the same NextREG write stream and the same final Copper state",
               bad == 0 && with_writes > 200, fmt("%d bad, %d windows with writes; %s", bad, with_writes, first_bad.c_str()));
@@ -2189,24 +2208,30 @@ void group11_idle_skip() {
               ok, detail);
     }
 
-    // CPSK-04: the closed form assumes the Emulator's line wrap is the Copper's
-    // (c_max_vc + 1 == lines per frame); otherwise there is no skip.
+    // CPSK-04: the Copper's own wrap (c_max_vc + 1) and the Emulator's lines per frame are two
+    // counters that need not agree (a 50/60 Hz change re-pushes the Copper wrap at the frame edge, Task 58 in this plan).
+    // idle_cycles() advances the position at the Emulator's wrap and derives the Copper's line
+    // counter with execute()'s own modulus, so it stays exact: with the Copper wrap one to
+    // three lines off in either direction, over windows of up to six lines, the skip loop and
+    // the per-cycle loop still give the same NextREG writes and final state.
     {
-        Copper good, bad;
-        const int mcpl = 400, lpf = 50;
-        for (Copper* c : {&good, &bad}) {
-            program_word(*c, 0, enc_wait(0, 511));
-            set_mode(*c, 1);
+        Rng rng{0x45204};
+        int bad = 0, skips = 0, with_writes = 0;
+        std::string first_bad;
+        for (int i = 0; i < 2500; ++i) {
+            Case k = make_case(rng, 1);
+            const uint64_t window = 1 + rng.below(static_cast<uint32_t>(6 * k.pos.mcpl));
+            bool wrote = false;
+            uint64_t skipped = 0;
+            const std::string d = windows_differ(k, window, skipped, wrote);
+            if (skipped) ++skips;
+            if (wrote) ++with_writes;
+            if (!d.empty() && ++bad && first_bad.empty())
+                first_bad = fmt("case %d (cmax %d, lpf %d): %s", i, k.cmax, k.pos.lpf, d.c_str());
         }
-        good.set_c_max_vc(lpf - 1);
-        bad.set_c_max_vc(lpf);        // one line too many
-        NextReg nr;
-        good.execute(0, 0, nr, 0);
-        bad.execute(0, 0, nr, 0);
-        const uint32_t g = good.idle_cycles(17, 10, 0, mcpl, lpf, 1000);
-        const uint32_t b = bad.idle_cycles(17, 10, 0, mcpl, lpf, 1000);
-        check("CPSK-04", "idle_cycles() refuses (0) when c_max_vc + 1 differs from the Emulator's lines per frame; the same Copper with the matching wrap skips",
-              g == 1000 && b == 0, fmt("matching=%u mismatched=%u", g, b));
+        check("CPSK-04", "with the Copper wrap (c_max_vc + 1) different from the Emulator's lines per frame, skip-then-execute still equals the per-cycle loop over 2500 windows",
+              bad == 0 && skips > 500 && with_writes > 100,
+              fmt("%d bad, %d windows skip, %d windows write; %s", bad, skips, with_writes, first_bad.c_str()));
     }
 
     // CPSK-05: with a debugger event latch armed (Move, Wait or Halt) every cycle must

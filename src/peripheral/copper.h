@@ -109,10 +109,12 @@ public:
     ///
     /// Returns 0 (execute() must run) when the next cycle can act or its outcome is
     /// not a pure stall: a mode write not yet latched, mode 00, a MOVE settling, the
-    /// instruction at the PC is a MOVE, a debugger event latch is armed, or the
-    /// Emulator's line wrap differs from the Copper's own (`c_max_vc_ + 1 != lpf`:
-    /// the closed form assumes they are the same counter). It mirrors execute() and
-    /// is checked against it cycle by cycle (copper_test CPSK-01..05).
+    /// instruction at the PC is a MOVE, or a debugger event latch is armed. The two
+    /// line wraps need no guard: the position advances at the Emulator's `lpf`, and
+    /// the Copper's own line counter is derived from it with execute()'s own modulus
+    /// (`c_max_vc_ + 1`), so the answer is exact whether or not the two are equal.
+    /// It mirrors execute() and is checked against it cycle by cycle (copper_test
+    /// CPSK-01..05, the mismatched-wrap cases included).
     uint32_t idle_cycles(int line_mc, int cvc, uint8_t cvc_offset, int mcpl, int lpf,
                          uint32_t limit) const;
 
