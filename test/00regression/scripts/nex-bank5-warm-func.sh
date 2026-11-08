@@ -22,8 +22,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #     header says 5 = cyan, written only when a screen is loaded, :424-425).
 #
 # Expectations were measured on the real chain: NextZXOS booted, Command Line,
-# `.nexload` of the same probe. Deliberately no ROM printing: that still hangs
-# from a warm start for a different reason (the recording is taken at the menu).
+# `.nexload` of the same probe. No ROM printing here: it is the business of
+# warm-start-chans-func (before GH #481 it hung from a warm start, because the
+# recording was taken at the welcome program, whose K and S channels hang it).
 if want nex-bank5-warm-func; then
     begin_func nex-bank5-warm-func
     nb_nex="$TMP_DIR/bank5-probe.nex"

@@ -48,10 +48,12 @@ int main() {
                "HBQ-23", "same: the HALT batch REFUSED on a contended page (the counter stays 0)",
                {contended_bank5()}, /*expect_engaged=*/false);
 
-    // HBQ-24: IM 2 hardware mode (im2_device.vhd:111-150) takes CTC and ULA through the fabric.
+    // HBQ-24: IM 2 hardware mode (im2_device.vhd:111-150) takes CTC and ULA through the fabric
+    // (im2_peripheral.vhd:154-194, zxnext.vhd:1840; ctc_chan.vhd:162-182). The batch engages in it
+    // (stage 4): a quiescent fabric is the same no-op per repeat in either mode.
     check_pair("HBQ-24", "IM 2 hardware mode (NR 0xC0 b0) with CTC and ULA through the fabric: identical per frame",
-               "HBQ-25", "same: the HALT batch REFUSED in hardware mode (the counter stays 0; stage 4 changes this)",
-               {im2_hardware()}, /*expect_engaged=*/false);
+               "HBQ-25", "same: the HALT batch ENGAGED in hardware mode (stage 4; the counter grows)",
+               {im2_hardware()});
 
     // HBQ-28: an idle DI;HALT across 60 frames reaches every frame's last line and the
     // frame end (run_frame's loop, emulator.cpp).

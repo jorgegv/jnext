@@ -7637,6 +7637,123 @@ bool Emulator::nextzxos_resident(std::string& why) const
     return false;
 }
 
+namespace {
+std::string hex4(unsigned v) { char t[8]; std::snprintf(t, sizeof t, "%04X", v); return t; }
+std::string hex2(unsigned v) { char t[8]; std::snprintf(t, sizeof t, "%02X", v); return t; }
+}  // namespace
+
+bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t after)
+{
+    using AutoKey = Keyboard::AutoKey;
+    // A point is crossed by the frame whose (before, after] contains it.
+    auto crossed = [&](uint32_t p) { return before < p && p <= after; };
+    constexpr int kHold = 5;   // frames each typed key is held
+
+    const bool t0 = crossed(kWarmStartT0Units);
+    if (t0) {
+        // The welcome program (autoexec.1st) is still a resident BASIC
+        // program: PROG != VARS. Its own "SPACE=Start NextZXOS" leaves it. A
+        // card whose welcome is disabled sits at the menu with PROG == VARS,
+        // where SPACE would open the menu's second page instead.
+        const uint8_t* b5 = rec.mmu_.bank5_vram();
+        const uint16_t prog = static_cast<uint16_t>(b5[0x5C53 - 0x4000] |
+                                                    (b5[0x5C54 - 0x4000] << 8));
+        const uint16_t vars = static_cast<uint16_t>(b5[0x5C4B - 0x4000] |
+                                                    (b5[0x5C4C - 0x4000] << 8));
+        if (prog != vars) rec.keyboard_.queue_auto_type({{7, 0, -1, -1, kHold}});
+    }
+    // Cursor DOWN is CAPS SHIFT + 6: Browser -> Command Line.
+    if (crossed(kWarmStartT1Units)) rec.keyboard_.queue_auto_type({{4, 4, 0, 0, kHold}});
+    if (crossed(kWarmStartT2Units)) rec.keyboard_.queue_auto_type({{6, 0, -1, -1, kHold}});
+    if (crossed(kWarmStartT3Units)) {
+        // "print;:pause 0" ENTER. PRINT opens stream 2 through ROM 3's own
+        // CHAN-OPEN; PAUSE 0 then holds the interpreter inside the statement.
+        // ';' and ':' are SYMBOL SHIFT + O and + Z.
+        rec.keyboard_.queue_auto_type({
+            {5, 0, -1, -1, kHold},   // p
+            {2, 3, -1, -1, kHold},   // r
+            {5, 2, -1, -1, kHold},   // i
+            {7, 3, -1, -1, kHold},   // n
+            {2, 4, -1, -1, kHold},   // t
+            {5, 1, 7, 1, kHold},     // ;
+            {0, 1, 7, 1, kHold},     // :
+            {5, 0, -1, -1, kHold},   // p
+            {1, 0, -1, -1, kHold},   // a
+            {5, 3, -1, -1, kHold},   // u
+            {1, 1, -1, -1, kHold},   // s
+            {2, 2, -1, -1, kHold},   // e
+            {7, 0, -1, -1, kHold},   // SPACE
+            {4, 0, -1, -1, kHold},   // 0
+            {6, 0, -1, -1, kHold},   // ENTER
+        });
+    }
+    return t0;
+}
+
+void Emulator::warm_start_finish_recording(Emulator& rec)
+{
+    // The fix-ups a recording needs between the capture check and save_state().
+    // Rebase the frame counter (see kWarmStartProgramFrame).
+    rec.frame_num_ = kWarmStartProgramFrame;
+}
+
+bool Emulator::warm_start_capture_ready(std::string& why) const
+{
+    // 48K-ROM system variables, as byte offsets into bank 5 (0x4000-0x7FFF).
+    const uint8_t* b5 = mmu_.bank5_vram();
+    auto b = [&](uint16_t a) { return b5[a - 0x4000]; };
+    auto w = [&](uint16_t a) { return static_cast<uint16_t>(b(a) | (b(static_cast<uint16_t>(a + 1)) << 8)); };
+    constexpr uint16_t kErrNr = 0x5C3A, kTvFlag = 0x5C3C, kStrms2 = 0x5C1A,
+                       kChans = 0x5C4F, kCurchl = 0x5C51, kPpc = 0x5C45;
+    constexpr uint16_t kChannelData = 0x15AF;   // ROM 3: the K and S records
+    constexpr size_t   kRecBytes    = 10;
+
+    // C1: channels K and S are the 48K ROM's own. The welcome program's
+    // recording has K and S output at the RAM stub $5B4D (`nextreg $8E,0 : ret`),
+    // which pages ROM 0 and hangs a program's first RST $10.
+    const uint16_t chans = w(kChans);
+    const uint8_t* rom3 = ram_.page_ptr(6);
+    if (chans < 0x4000 || chans > 0x8000 - kRecBytes || !rom3) {
+        why = "channel area CHANS=$" + hex4(chans) + " is outside bank 5";
+        return false;
+    }
+    for (size_t i = 0; i < kRecBytes; ++i) {
+        if (b(static_cast<uint16_t>(chans + i)) != rom3[kChannelData + i]) {
+            why = std::string("channel ") + (i < 5 ? "K" : "S") +
+                  " is not the 48K ROM's record (byte " + std::to_string(i % 5) +
+                  " at $" + hex4(static_cast<uint16_t>(chans + i)) + ")";
+            return false;
+        }
+    }
+    // C2: stream 2 (the upper screen) is the current channel.
+    if (w(kCurchl) != static_cast<uint16_t>(chans + w(kStrms2) - 1)) {
+        why = "stream 2 is not the current channel (CURCHL=$" + hex4(w(kCurchl)) + ")";
+        return false;
+    }
+    // C3: output goes to the upper screen.
+    if (b(kTvFlag) & 0x01) {
+        why = "output goes to the lower screen (TV_FLAG=$" + hex2(b(kTvFlag)) + ")";
+        return false;
+    }
+    // C4: a statement is executing with no report pending.
+    if (b(kErrNr) != 0xFF) {
+        why = "no statement is executing (ERR_NR=$" + hex2(b(kErrNr)) + ")";
+        return false;
+    }
+    // C5: the executing line is the edit line, a typed command.
+    if (w(kPpc) != 0xFFFE) {
+        why = "the executing line is not a typed command (PPC=$" + hex4(w(kPpc)) + ")";
+        return false;
+    }
+    // C6: no key still queued: the queue is saved state and would replay.
+    if (keyboard_.auto_typing()) {
+        why = "the keyboard still has auto-typed keys queued";
+        return false;
+    }
+    why.clear();
+    return true;
+}
+
 bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
 {
     // A RECORDING IS A COLD BOOT, and it must be one on a machine that has
@@ -7665,7 +7782,7 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
     //   load_file      the gate that disarms the boot-ROM overlay in init().
     //                  Clearing it is the whole point: this run must boot.
     //   inject_file    a raw binary would be written over the firmware's RAM.
-    //   rewind/trace   500 frames x ~2.3 MB of snapshots nobody will rewind to.
+    //   rewind/trace   the recording's frames x ~2.3 MB of snapshots nobody will rewind to.
     //   esp            a second module would open a second socket, and no part
     //                  of a NextZXOS boot sends an AT command.
     //   profile        the recorder is not the run the user is measuring.
@@ -7675,7 +7792,14 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
     //                  joystick-port cable belong to the live machine; a second
     //                  opener would be a second writer (GH #89 review B4).
     //
-    // Everything else — the SD image, --rtc, the machine type, audio gains,
+    //   rtc            pinned to a constant (kWarmStartRtc*): the NextZXOS menu's
+    //                  work depends on the RTC minute, which moved R, the clock
+    //                  phase and a RAM byte of the recording, so the same card
+    //                  recorded different machines at different times of day.
+    //                  The pin is not saved state; the live machine keeps its
+    //                  own --rtc or host clock after the restore.
+    //
+    // Everything else — the SD image, the machine type, audio gains,
     // CPU speed — is left alone on purpose. A boot recorded under a different
     // configuration is a recording of a different machine, and the divergences
     // that would introduce are precisely the class this mechanism removes.
@@ -7683,25 +7807,45 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
 
     Log::emulator()->info(
         "warm start: no usable cached state - cold-booting the firmware "
-        "(nextboot.rom -> TBBLUE.FW -> NextZXOS) for {} frames to record one. "
-        "This happens once per SD image.",
-        kWarmStartBootFrames);
+        "(nextboot.rom -> TBBLUE.FW -> NextZXOS) and driving it to its Command "
+        "Line (about {} frames) to record one. This happens once per SD image.",
+        kWarmStartT4Units / kWarmStartUnitsPer50HzFrame);
 
     if (!rec->init(boot_cfg)) {
         Log::emulator()->error("warm start: the recording boot could not initialise");
         return false;
     }
 
-    for (uint32_t f = 0; f < kWarmStartBootFrames; ++f) rec->run_frame();
-
+    // The recipe runs in emulated time (see kWarmStartUnitsPer50HzFrame): the
+    // firmware switches the refresh rate from config.ini during the boot, so
+    // the units one frame adds are read each frame.
+    uint32_t units  = 0;
+    uint32_t frames = 0;
     std::string why;
-    if (!rec->nextzxos_resident(why)) {
+    while (units < kWarmStartT4Units) {
+        const uint32_t before = units;
+        rec->run_frame();
+        ++frames;
+        units += warm_start_frame_units(rec->video_timing().refresh_60hz());
+        if (warm_start_recipe_tick(*rec, before, units) &&
+            !rec->nextzxos_resident(why)) {
+            Log::emulator()->error(
+                "warm start: after {} frames of boot, {}. Not recording; this load "
+                "falls back to the synthetic machine.",
+                frames, why);
+            return false;
+        }
+    }
+
+    if (!rec->warm_start_capture_ready(why)) {
         Log::emulator()->error(
-            "warm start: after {} frames of boot, {}. Not recording; this load "
-            "falls back to the synthetic machine.",
-            kWarmStartBootFrames, why);
+            "warm start: NextZXOS could not be brought to its Command Line ({}). "
+            "Not recording; this load falls back to the synthetic machine.",
+            why);
         return false;
     }
+
+    warm_start_finish_recording(*rec);
 
     StateWriter measure;
     rec->save_state(measure);
@@ -7779,7 +7923,7 @@ bool Emulator::ensure_warm_start_state()
         // machine is a load whose result the user cannot explain, and with the
         // warm start now the behaviour rather than an option there is no flag
         // on the command line to remind them it was even attempted. So the
-        // latch short-circuits the 500-frame boot, not the sentence.
+        // latch short-circuits the recording boot, not the sentence.
         Log::emulator()->error(
             "warm start: this SD image was already refused earlier in this session - "
             "this load falls back to the synthetic machine");
@@ -7810,6 +7954,7 @@ bool Emulator::ensure_warm_start_state()
     warm_start::Identity id;
     id.machine_type   = static_cast<uint8_t>(config_.type);
     id.format_version = warm_start::kFormatVersion;
+    id.recording_version = warm_start::kRecordingVersion;
     {
         StateWriter measure;
         save_state(measure);
@@ -7983,8 +8128,8 @@ bool Emulator::init_for_load_from_file()
     // 7FFD=0x10, 1FFD=0x06, sram_rom=3 from the moment the program's first
     // instruction runs. The synthetic path has only the 48K image in its
     // SRAM ROM pages, so it got this right by having no alternative; the
-    // recording, taken at the NextZXOS menu, carries the OS's own ROM 0 and
-    // got it wrong. Two committed references caught it — magic-bp-demo and
+    // recording, taken at the Command Line executing a statement, carries
+    // the OS's own ROM 0 (PAUSE runs with 7FFD=0, 1FFD=0) and got it wrong. Two committed references caught it - magic-bp-demo and
     // magic-port-demo both read the character set straight out of ROM
     // (`ROM_CHARSET 0x3C00`), and rendered noise where glyphs belong.
     //
@@ -10226,8 +10371,8 @@ void Emulator::run_frame()
         // The whole of it out of line: this loop pays a load, a test and a never-taken branch per slot,
         // and nothing else (inline code here made the loop's register allocation worse for every
         // program: 0.3 % of all instructions on a non-halting one).
-        if (__builtin_expect(cpu_.is_halted(), 0) && !im2_.hardware_mode() && batch_halt_enabled_ &&
-            im2_.pulse_mode_quiescent() && halted_slot_(master_cycles))
+        if (__builtin_expect(cpu_.is_halted(), 0) && batch_halt_enabled_ &&
+            im2_.span_quiescent() && halted_slot_(master_cycles))
             continue;
 
         // GH #276 B2 §4.3 — THE BOUNDARY DRAIN. Everything latched at a site
@@ -11597,10 +11742,12 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     if (cpu_.last_slot_kind() != Z80Cpu::SlotKind::Opcode || cpu_.last_opcode() != 0x76)
         return master_cycles;
 
-    // G9, the part that refuses most: the IM2 fabric is quiescent and in PULSE mode (hardware mode
-    // and any interrupt in flight refuse here), so finish_slot_interrupts() takes its fast path
-    // for the batched slot exactly as for each repeat. The NMI-activated half is tested below.
-    if (!im2_.pulse_mode_quiescent()) return master_cycles;
+    // G9, the part that refuses most: the IM2 fabric is quiescent (any interrupt in flight, a
+    // device in S_ACK, a RETI pulse refuse here), in either mode: one finish_slot_interrupts()
+    // for the batched slot then does what each repeat's did, the fast path in pulse mode and the
+    // full path's no-op in hardware mode (G7 keeps the /INT line out). The NMI-activated half is
+    // tested below.
+    if (!im2_.span_quiescent()) return master_cycles;
 
     // G7: no /INT or /NMI waiting for an instruction boundary (acceptance, and the drop of an
     // expired pulse window, are per-slot decisions).
@@ -11621,8 +11768,10 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
         tape_capture_live_)
         return master_cycles;
 
-    // G5: the DMA has nothing to arbitrate and is not in its burst prescaler wait.
-    if (!dma_.idle_for_batch()) return master_cycles;
+    // G5: the DMA has nothing to arbitrate, or is in the burst-mode prescaler wait with the bus
+    // released (then bound B5 keeps the batch short of the gate opening).
+    const bool dma_waiting = !dma_.idle_for_batch();
+    if (dma_waiting && !dma_.burst_wait_quiescent()) return master_cycles;
 
     // G10: the UART bit engine and the host serial sources tick per slot.
     if (!uart_.tick_is_noop() || joy_uart_source_ || joy_uart_link_) return master_cycles;
@@ -11673,7 +11822,7 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // at the next tick: never span it), and G9's other half: the NMI-activated sample is the one
     // the IM2 fabric last saw. Both call out of line, so they come after the cheap refusals.
     if (!nmi_source_.tick_is_noop()) return master_cycles;
-    if (!im2_.slot_idle(nmi_source_.is_activated())) return master_cycles;
+    if (!im2_.span_idle(nmi_source_.is_activated())) return master_cycles;
 
     // P2: the real repeat's contend_read(PC, 4) set the active page: not a contended one, so
     // every further repeat costs exactly `tstates` (contention follows the beam).
@@ -11686,6 +11835,13 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
             if (d <= 1 || d - 1 < need) return master_cycles;
             limit = std::min<uint64_t>(limit, d - 1);
         }
+    }
+    // B5: the DMA prescaler gate opening (the next byte, or the block's FINISH_DMA): `g` master
+    // cycles from now, which is after the real repeat, so the batch may absorb at most g - 1 more.
+    if (dma_waiting) {
+        const uint64_t e = static_cast<uint64_t>(dma_.cycles_to_prescaler_gate()) + p - 1;
+        if (e < need) return master_cycles;
+        limit = std::min(limit, e);
     }
     // B4: the next Copper action, from the Copper's own position at the slot start.
     if (copper_.is_running() || copper_.mode_edge_pending()) {
@@ -11710,6 +11866,8 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     dma_.tick_burst_wait(extra_repeats * static_cast<uint64_t>(tstates));
     slot_repeat_mc_ = p;
     halt_repeats_batched_ += extra_repeats;
+    if (dma_waiting) halt_repeats_batched_dma_wait_ += extra_repeats;
+    if (im2_.is_im2_mode()) halt_repeats_batched_hw_mode_ += extra_repeats;
     batched = true;
     return n * p;
 }
@@ -15010,5 +15168,15 @@ EmulatorConfig Emulator::warm_start_boot_config(const EmulatorConfig& live)
     boot_cfg.pi_uart_fifo_tx.clear();
     boot_cfg.pi_uart_tcp_port     = 0;
     boot_cfg.pi_audio = nullptr;   // one consumer of the Pi's sound
+    // The recorder's clock is a constant, not the host's or the user's: see
+    // record_warm_start_state(). 2026-07-10 08:55:00, a Friday.
+    boot_cfg.rtc_fixed = true;
+    boot_cfg.rtc_fixed_tm = std::tm{};
+    boot_cfg.rtc_fixed_tm.tm_year = kWarmStartRtcYear - 1900;
+    boot_cfg.rtc_fixed_tm.tm_mon  = 6;
+    boot_cfg.rtc_fixed_tm.tm_mday = 10;
+    boot_cfg.rtc_fixed_tm.tm_hour = 8;
+    boot_cfg.rtc_fixed_tm.tm_min  = 55;
+    boot_cfg.rtc_fixed_tm.tm_wday = 5;
     return boot_cfg;
 }

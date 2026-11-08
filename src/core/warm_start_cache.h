@@ -77,6 +77,19 @@ namespace warm_start {
 /// alone would catch it, and the bump is made for the same reason as 3's.
 constexpr uint32_t kFormatVersion = 4;
 
+/// Recording-procedure version: what the recorder DOES to reach the state it
+/// captures, which neither the stream's shape nor the card's key can show.
+/// BUMP IT whenever the recipe changes the recorded machine (the keys it
+/// presses, the capture point, the criterion). A cache from an older procedure
+/// has the same stream length and format version, so without this it would be
+/// served for ever.
+///
+/// **1 - 2026-11-08.** The recording stopped being taken at the welcome
+/// program (K and S channels at a RAM stub that hangs ROM printing, the
+/// welcome's BASIC program and screen resident) and is taken at the NextZXOS
+/// Command Line executing `PRINT ;: PAUSE 0`. Every cache written before has 0.
+constexpr uint32_t kRecordingVersion = 1;
+
 /// Everything a cached recording must agree with before it may be restored.
 ///
 /// A mismatch on ANY field discards the file and re-boots. That is what keeps
@@ -106,6 +119,9 @@ struct Identity {
 
     /// `kFormatVersion` at the time of recording.
     uint32_t format_version = kFormatVersion;
+
+    /// `kRecordingVersion` at the time of recording; header offset 72.
+    uint32_t recording_version = kRecordingVersion;
 
     /// Exact length of the serialised state stream BEFORE compression — the
     /// number of bytes `Emulator::save_state` writes and `load_state` will

@@ -3,9 +3,10 @@
 ## Unreleased (2026-11-07)
 
 ### User Features
-- Much faster emulation of programs that mostly HALT: 40 to 80 % fewer host instructions per frame, same output (suggested by @shrek128)
+- Much faster emulation of programs that HALT or wait on the Copper: 20 to 83 % fewer host instructions per frame, same output (suggested by @shrek128)
 
 ### Bug Fixes
+- Programs loaded on the Next that print through the ROM (RST $10) no longer hang; the warm start records NextZXOS at its Command Line
 - Loading a NEX keeps the NextZXOS system variables and screen pixels, and sets the border as the NEX loaders do
 - SD card: a refused write no longer leaves a read-only card unreadable (macOS) or lands later after a host write error
 - The ULA clip window (NR 0x1A) no longer hides the border; only the 256x192 picture is clipped

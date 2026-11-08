@@ -419,27 +419,6 @@ Scenario copper_nmi() {
     return s;
 }
 
-// A DMA burst with a prescaler (about one frame long), the CPU on EI;HALT: the bus and the
-// prescaler gate (dma.vhd:424, :451-464) re-arbitrate on their own clock. Engaged only after
-// the block ends.
-Scenario dma_burst() {
-    Scenario s = im2_halt("dma-burst", 0, 0xFF);
-    auto base = s.setup;
-    s.setup = [=](Emulator& e) {
-        base(e);
-        for (int i = 0; i < 128; ++i) e.mmu().write(static_cast<uint16_t>(0x9000 + i), static_cast<uint8_t>(i));
-        const uint8_t prog[] = {
-            0x7D, 0x00, 0x90, 100, 0x00,       // R0: A->B, source 0x9000, length 100
-            0x14,                              // R1: A is memory, increments
-            0x50, 0x21, 200,                   // R2: B is memory, increments; timing + prescaler 200
-            0xCD, 0x00, 0x98,                  // R4: burst, destination 0x9800
-            0xCF, 0x87};                       // LOAD, ENABLE
-        for (uint8_t b : prog) e.port().out(0x6B, b);
-    };
-    s.alive = [](Emulator& e) { return isr_ran(e, kHigh) && e.mmu().peek(0x9800 + 99) == 99; };
-    return s;
-}
-
 // DI; HALT at 0x3000 in RAM mapped over the ROM slot (NR 0x51 -> page 0x10): below 0x4000 the
 // Multiface and the DivMMC overlay memory over the fetch, so a state change in either decides
 // what the NEXT repeat fetches. (Above 0x4000 their transitions are invisible to the CPU and

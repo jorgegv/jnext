@@ -4,6 +4,7 @@
 // Split from halt_batch_equiv_test to keep each suite inside its CPU budget; the row IDs are
 // unchanged. The shared method, fixtures and row helpers are in halt_batch_fixtures.h.
 #include "halt_batch_fixtures.h"
+#include <memory>
 
 namespace {
 // NR 0x08 bit 6 (contention disable) toggled by a line-interrupt handler on a real 128K machine at
@@ -60,6 +61,102 @@ Scenario halted_then_no_cpu(const char* name, bool park) {
     };
     return s;
 }
+
+// ── Stage 4 fixtures: IM2 hardware mode and the DMA burst prescaler wait ──
+
+// CTC channel 0 as a slow timer (prescaler 256, time constant 255: 65280 master cycles, about a
+// ninth of a frame), interrupt through the fabric.
+void ctc0_slow(Emulator& e) {
+    nr(e, 0xC5, 0x01);
+    e.port().out(0x183B, 0xA7);       // int enable, timer, /256, auto trigger, TC follows, reset
+    e.port().out(0x183B, 255);
+}
+
+// Hardware mode, a busy main loop (EI; JR $, so it never HALTs) and a CTC0 handler that does the
+// HALT: EI; HALT inside the handler, so every repeat the batch can see is one with CTC0 in S_ISR
+// (im2_device.vhd:117-132: it blocks the lower-priority devices through IEI, and the LINE
+// interrupt, the top priority, ends the HALT). Vectors in hardware mode are 2 * device index:
+// LINE 0, CTC0 6 (the table's other entries stay the shared handler).
+Scenario hw_ctc_isr_halt() {
+    Scenario s;
+    s.name = "hw-ctc-isr-halt";
+    s.frames = 120;
+    s.setup = [](Emulator& e) {
+        nr(e, 0x03, 0x01);
+        install_im2_program(e, kHigh);
+        constexpr uint16_t kCtcIsr = 0xC300;
+        e.mmu().write(static_cast<uint16_t>((kHigh.i_reg << 8) + 6), kCtcIsr & 0xFF);
+        e.mmu().write(static_cast<uint16_t>((kHigh.i_reg << 8) + 7), kCtcIsr >> 8);
+        // PUSH AF; LD A,(var+2); INC A; LD (var+2),A; EI; HALT; POP AF; EI; RETI
+        poke(e, kCtcIsr, {0xF5, 0x3A, 0x02, 0xC2, 0x3C, 0x32, 0x02, 0xC2, 0xFB, 0x76, 0xF1, 0xFB, 0xED, 0x4D});
+        // LD A,I_REG; LD I,A; IM 2; EI; JR $
+        poke(e, kHigh.main, {0x3E, kHigh.i_reg, 0xED, 0x47, 0xED, 0x5E, 0xFB, 0x18, 0xFE});
+        nr(e, 0xC0, 0x01);
+        ctc0_slow(e);
+        nr(e, 0x23, 100);
+        nr(e, 0x22, 0x02);                       // line interrupt at line 100
+        start_at(e, kHigh.main, 0xBFF0);
+    };
+    s.alive = [](Emulator& e) { return e.mmu().peek(0xC202) > 20; };   // the CTC handler ran
+    return s;
+}
+
+// Hardware mode, DI; HALT, the ULA interrupt masked, CTC0 the only source: its request raises the
+// /INT line (the device sits in S_REQ) and, with IFF1 = 0, nothing ever takes it. `mark` receives the
+// batched-repeat counter at the start of frame 1, by which time the device is already waiting.
+Scenario hw_di_halt_req(std::shared_ptr<uint64_t> mark) {
+    Scenario s = di_halt("hw-di-halt-req", 0, 40);
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        poke(e, kHigh.main, {0xED, 0x5E, 0xF3, 0x76, 0x18, 0xFD});   // IM 2; DI; HALT; JR HALT (the /INT line needs IM 2)
+        nr(e, 0xC0, 0x01);
+        ctc0_slow(e);
+        e.port().out(0xFF, 0x40);                // ULA interrupt off (port 0xFF b6)
+    };
+    s.before_frame = [=](Emulator& e, int f) {
+        if (f == 1) *mark = e.halt_repeats_batched_for_test();
+    };
+    s.alive = [](Emulator& e) {
+        return e.cpu().is_halted() &&
+               e.im2().state(Im2Controller::DevIdx::CTC0) == Im2Controller::DevState::S_REQ;
+    };
+    return s;
+}
+
+// The DMA program every burst fixture uses: A -> B burst, source memory 0x9000 incrementing, port B
+// as given, `len` bytes, prescaler `presc`; LOAD, ENABLE (through port 0x6B, the ZXN mode port).
+void dma_program(Emulator& e, uint16_t len, uint8_t presc, bool b_is_dac, uint8_t mode_byte) {
+    for (int i = 0; i < 2048; ++i) e.mmu().write(static_cast<uint16_t>(0x9000 + i), static_cast<uint8_t>(i * 7 + 3));
+    std::vector<uint8_t> prog = {
+        0x7D, 0x00, 0x90, static_cast<uint8_t>(len & 0xFF), static_cast<uint8_t>(len >> 8),
+        0x14,                                           // R1: A is memory, increments
+        static_cast<uint8_t>(b_is_dac ? 0x68 : 0x50),   // R2: B is I/O fixed (DAC) or memory incrementing; timing follows
+        0x21, presc,                                    // timing byte (prescaler follows), prescaler
+        mode_byte, static_cast<uint8_t>(b_is_dac ? 0xDF : 0x00), static_cast<uint8_t>(b_is_dac ? 0x00 : 0x98),
+        0xCF, 0x87};                                    // LOAD, ENABLE
+    for (uint8_t b : prog) e.port().out(0x6B, b);
+}
+
+// EI; HALT at `speed` with a long burst DMA of memory to the DAC port 0xDF behind a prescaler that is
+// no multiple of a line, and an AY tone. `aux` receives, after the last frame, the repeats the batch
+// absorbed while the DMA waited. `mark1`/`mark4` the DMA state at frames 1 and 4 (still running).
+Scenario dma_burst_run(const char* name, uint8_t speed, uint16_t len, uint8_t presc, bool dac, uint8_t mode_byte,
+                       int frames, std::shared_ptr<uint64_t> aux) {
+    Scenario s = im2_halt(name, speed, 0xFF, frames);
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        dma_program(e, len, presc, dac, mode_byte);
+    };
+    s.after_frame = [=](Emulator& e, int f) {
+        if (f == frames - 1) *aux = e.halt_repeats_batched_dma_wait_for_test();
+    };
+    s.alive = [=](Emulator& e) {
+        return isr_ran(e, kHigh) && e.dma().state() == Dma::State::IDLE;
+    };
+    return s;
+}
 } // namespace
 
 int main() {
@@ -83,12 +180,6 @@ int main() {
     check_pair("HBQ-20", "DivMMC delayed automap entry in flight at the start of a halted stretch: identical per frame",
                "HBQ-21", "same: the HALT batch engaged once the automap state settled",
                {divmmc_delayed()});
-
-    // HBQ-26: a DMA burst with a prescaler about one frame long, the CPU on EI;HALT
-    // (dma.vhd:424, :451-464); engaged after the block ends.
-    check_pair("HBQ-26", "DMA burst with a prescaler, CPU on EI;HALT: identical per frame, the block completed",
-               "HBQ-27", "same: the HALT batch engaged (after the block)",
-               {dma_burst()});
 
     // HBQ-29: a Multiface state transition in flight at the start of a halted stretch
     // (multiface.vhd:169-186).
@@ -257,6 +348,57 @@ int main() {
              {halted_then_no_cpu("parked-while-halted", true)});
     check_ab("HBQ-54", "boot hold set at frame 20 while halted on DI;HALT: identical per frame (no batching of the held slots)",
              {halted_then_no_cpu("hold-while-halted", false)});
+
+    // HBQ-24/25 (halt_batch_equiv_test) cover hardware mode with the ULA and CTC through the fabric.
+    // HBQ-36 / HBQ-37: hardware mode, a HALT inside the CTC0 handler (CTC0 in S_ISR while it waits for
+    // the LINE interrupt): identical, and engaged (the only HALTs in this program are those).
+    check_pair("HBQ-36", "hardware mode, EI;HALT inside the CTC0 handler (CTC0 in S_ISR) woken by the LINE interrupt: identical per frame",
+               "HBQ-37", "same: the HALT batch engaged in hardware mode while CTC0 sat in S_ISR",
+               {hw_ctc_isr_halt()});
+
+    // HBQ-38 / HBQ-55: hardware mode, DI;HALT with CTC0 waiting in S_REQ: the /INT line is asserted and
+    // never taken, and the batch must not span it. The counter does not grow once the device waits.
+    {
+        auto mark = std::make_shared<uint64_t>(0);
+        std::vector<uint64_t> halt;
+        check_ab("HBQ-38", "hardware mode, DI;HALT with CTC0 waiting in S_REQ (the /INT line asserted, IFF1 = 0): identical per frame",
+                 {hw_di_halt_req(mark)}, false, &halt);
+        check("HBQ-55", "same: the HALT batch does not engage once the device waits (the counter at frame 1 is the counter at the end)",
+              !halt.empty() && halt[0] == *mark,
+              "mark=" + std::to_string(*mark) + " final=" + (halt.empty() ? std::string("none") : std::to_string(halt[0])));
+    }
+
+    // HBQ-26 / HBQ-27: a long burst of memory to the DAC (port 0xDF) behind a prescaler of 55 (a gate period
+    // of 1760 master cycles, no multiple of the line), the CPU on EI;HALT at 28 MHz with an AY tone: the
+    // audio hash covers the DAC level each byte sets; the batch engages WHILE the DMA waits.
+    {
+        auto aux = std::make_shared<uint64_t>(0);
+        check_ab("HBQ-26", "DMA burst of memory to the DAC behind prescaler 55, CPU on EI;HALT at 28 MHz with an AY tone: identical per frame (video, audio, state), the block completed",
+                 {dma_burst_run("dma-dac-28", 3, 1500, 55, true, 0xCD, 60, aux)});
+        check("HBQ-27", "same: the HALT batch engaged while the DMA sat in its burst prescaler wait", *aux > 0,
+              "repeats batched in the wait=" + std::to_string(*aux));
+    }
+
+    // HBQ-40 / HBQ-41: the same at 3.5 MHz with a short block: the HALT spans the wait after the last byte
+    // and the block's FINISH_DMA at the gate opening (dma.vhd:458-464).
+    {
+        auto aux = std::make_shared<uint64_t>(0);
+        check_ab("HBQ-40", "DMA burst memory to memory behind prescaler 200, a 3-byte block, CPU on EI;HALT at 3.5 MHz: identical per frame, the block completed",
+                 {dma_burst_run("dma-short-35", 0, 3, 200, false, 0xCD, 40, aux)});
+        check("HBQ-41", "same: the HALT batch engaged while the DMA sat in its prescaler wait (including after the last byte)", *aux > 0,
+              "repeats batched in the wait=" + std::to_string(*aux));
+    }
+
+    // HBQ-42: continuous mode with a prescaler holds the bus through the wait, so every slot of it is a DMA
+    // slot: identical per frame, and no HALT repeat is ever batched while the DMA waits (a stalled slot is
+    // not a repeat: G6's DMA term).
+    {
+        auto aux = std::make_shared<uint64_t>(0);
+        check_ab("HBQ-42", "DMA continuous mode behind prescaler 55 (the bus held through the wait), CPU on EI;HALT at 28 MHz: identical per frame",
+                 {dma_burst_run("dma-continuous-28", 3, 300, 55, true, 0xAD, 40, aux)});
+        check("HBQ-56", "same: the HALT batch never absorbs a repeat while the DMA holds the bus through its wait", *aux == 0,
+              "repeats batched in the wait=" + std::to_string(*aux));
+    }
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
