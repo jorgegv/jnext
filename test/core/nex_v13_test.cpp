@@ -24,7 +24,8 @@
 // Note that "loading screen flags 2" at 152 is an ENUMERATED value despite
 // its name: 1 / 2 / 3, not bit flags (nexload2.asm:74-76). Rows
 // NEXV13-REFUSE-02/03 and EXT2-11..14 pin what a V1.3 header with any other
-// value does: no EXT2 block, the loader carries on (nexload2.asm:630-632).
+// value does: no EXT2 block, the loader carries on (nexload2.asm:630-632);
+// REFUSE-04 and EXT2-15..20 pin V1.0-V1.2 with bit 6 (nexload.asm ignores it).
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -165,7 +166,7 @@ size_t expected_screen_data_bytes(const V13Opts& o) {
         if (o.screen_flags & 0x08) n += 12288;
         if (o.screen_flags & 0x10) n += 12288;
     }
-    if (o.screen_flags & 0x40) {
+    if (v13 && (o.screen_flags & 0x40)) {   // V1.0-V1.2 ignore bit 6 (nexload.asm:424-510)
         if (o.screen_flags2 == 1 || o.screen_flags2 == 2) n += 81920;
         // screen_flags2 == 3 (tilemode) contributes no data block at all
     }
@@ -879,6 +880,65 @@ void ext2_unknown_row(const char* id, const char* desc, uint8_t sf, uint8_t sf2,
               want_off, bank_ok, pages_ok, ula_ok, regs_ok, pal_ok, border, want_border));
 }
 
+// A V1.0-V1.2 header with bit 6 set, loaded as nexload.asm does: bit 6 ignored,
+// byte 152 never read. `want_pal` = NR 0x43 destination of the 512-byte palette
+// (-1: no palette block); `classic` 1 = Layer 2 block, 2 = ULA block was
+// ingested. Border is written whenever LOADSCR != 0 (:511), here header 5 over
+// a preset 6. No V1.3 register (NR 70/12/69/6B-6F) may move vs a no-bit-6 control.
+void v12_bit6_row(const char* id, const char* desc, uint8_t sf, uint8_t sf2,
+                  size_t want_off, int want_pal, int want_border, int classic) {
+    V13Opts o;
+    o.version = "V1.2";
+    o.screen_flags = sf; o.screen_flags2 = sf2;
+    o.border = static_cast<uint8_t>(want_border); o.preset_border = 6;
+    o.omit_banks_offset = true;
+    o.banks = {2, 0, 1, 3, 4};
+    V13Opts ctl = o;
+    ctl.screen_flags = 0x80; ctl.screen_flags2 = 0;
+    Fixture f(o, (std::string("v12") + id + "x").c_str());
+    Fixture c(ctl, (std::string("v12") + id + "c").c_str());
+    const bool loaded = f.load_ok && f.apply_ok && c.load_ok && c.apply_ok;
+    const bool off_ok = loaded && f.loader.bank_data_offset() == want_off &&
+                        f.loader.bank_data_offset() == expected_bank_offset(o);
+    const bool bank_ok = loaded && read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0);
+    bool scr_ok = loaded;
+    if (classic == 1)
+        scr_ok = scr_ok && read_page(f.emu.mmu(), 16, 0) == scr_byte(0) &&
+                 read_page(f.emu.mmu(), 21, 0x1FFF) == scr_byte(49151);
+    else if (classic == 2)
+        scr_ok = scr_ok && read_page(f.emu.mmu(), 10, 0) == scr_byte(0);
+    else
+        for (uint16_t pg = 10; pg <= 27 && scr_ok; ++pg)
+            scr_ok = read_page(f.emu.mmu(), pg, 0) == read_page(c.emu.mmu(), pg, 0);
+    auto& nr = f.emu.nextreg(); auto& cnr = c.emu.nextreg();
+    bool regs_ok = loaded;
+    // A classic Layer 2 / ULA block legitimately moves NR 0x12/0x69/0x70 via its
+    // display step; the tile config (6B-6F) belongs to V1.3 tilemode alone.
+    for (int r : {0x6B, 0x6C, 0x6E, 0x6F})
+        regs_ok = regs_ok && nr.read(r) == cnr.read(r);
+    if (classic == 0)
+        for (int r : {0x70, 0x12, 0x69})
+            regs_ok = regs_ok && nr.read(r) == cnr.read(r);
+    bool pal_ok = loaded;
+    for (int i = 0; i < 256 && pal_ok && want_pal >= 0; ++i)
+        pal_ok = read_pal_8(f.emu, static_cast<uint8_t>(want_pal), static_cast<uint8_t>(i)) ==
+                 pal_byte(static_cast<size_t>(i) * 2);
+    for (int sel : {0x00, 0x10, 0x30}) {
+        if (sel == want_pal) continue;
+        bool holds = loaded;
+        for (int i = 1; i <= 8 && holds; ++i)
+            holds = read_pal_8(f.emu, static_cast<uint8_t>(sel), static_cast<uint8_t>(i)) ==
+                    pal_byte(static_cast<size_t>(i) * 2);
+        if (holds) pal_ok = false;
+    }
+    const int border = f.emu.ula().get_border();
+    check(id, desc, off_ok && bank_ok && scr_ok && regs_ok && pal_ok && border == want_border,
+          fmt("load=%d apply=%d offset=%llu want %zu bank_ok=%d scr_ok=%d regs_ok=%d pal_ok=%d "
+              "border=%d want %d",
+              f.load_ok, f.apply_ok, static_cast<unsigned long long>(f.loader.bank_data_offset()),
+              want_off, bank_ok, scr_ok, regs_ok, pal_ok, border, want_border));
+}
+
 void test_refusal() {
     V13Opts a; a.screen_flags = 0x20;   // bit 5: the one unassigned bit
     refuse_row("NEXV13-REFUSE-01",
@@ -921,29 +981,38 @@ void test_refusal() {
                      "needs 1..3): banks at 1024, border kept (nexload2.asm:618-625,:630-632)",
                      0x42, 4, 1024, 6, false, "uula4", 16);
 
-    // A V1.2 file that sets bit 6: jnext refuses it by its own decision, for
-    // every byte 152 (see EXT2-15..17). nexload.asm never tests bit 6 (it would
-    // read the palette and load no screen); whether jnext should do the same is
-    // an open owner question.
-    V13Opts d; d.version = "V1.2"; d.screen_flags = 0x40;
-    refuse_row("NEXV13-REFUSE-04",
-               "a V1.2 header setting bit 6 has no flags-2 byte to describe the screen; "
-               "load() must refuse rather than assume a size", d, "rf4");
-
-    // nexload.asm has no field 152, so a V1.2 header's byte there never selects
-    // a block: bit 6 is refused for every value, never sized as a big screen.
-    V13Opts v1; v1.version = "V1.2"; v1.screen_flags = 0x40; v1.screen_flags2 = 1;
-    refuse_row("NEXV13-EXT2-15",
-               "a V1.2 header with bit 6 and byte 152 = 1 is refused, not sized as a 81920-byte "
-               "Layer 2 screen: field 152 does not exist for nexload.asm", v1, "rf5");
-    V13Opts v2 = v1; v2.screen_flags2 = 2;
-    refuse_row("NEXV13-EXT2-16",
-               "a V1.2 header with bit 6 and byte 152 = 2 is refused, not sized as a big "
-               "Layer 2 screen", v2, "rf6");
-    V13Opts v3 = v1; v3.screen_flags2 = 3;
-    refuse_row("NEXV13-EXT2-17",
-               "a V1.2 header with bit 6 and byte 152 = 3 is refused, not treated as tilemode",
-               v3, "rf7");
+    // A V1.0-V1.2 header with bit 6 loads as nexload.asm does (owner decision,
+    // 2026-11-08): it tests only bits 7 and 0-4 (:424-:510), ignores bit 6,
+    // reads the palette unless NOPAL or ULA/HiRes/HiCol (:426-:428), loads no
+    // screen for bit 6, and never reads byte 152. See v12_bit6_row().
+    v12_bit6_row("NEXV13-REFUSE-04",
+                 "a V1.2 header setting bit 6 loads as nexload.asm does: bit 6 is ignored, the "
+                 "512-byte palette is read (Layer 2 palette, :426-432), no screen is loaded and "
+                 "the border is written (:511); the banks follow the palette",
+                 0x40, 0, 1024, 0x10, 5, 0);
+    v12_bit6_row("NEXV13-EXT2-15",
+                 "a V1.2 header with bit 6 and byte 152 = 1 ignores byte 152: no 81920-byte "
+                 "block is consumed, banks at header + palette (nexload.asm never reads 152)",
+                 0x40, 1, 1024, 0x10, 5, 0);
+    v12_bit6_row("NEXV13-EXT2-16",
+                 "a V1.2 header with bit 6 and byte 152 = 2 ignores byte 152: nothing consumed "
+                 "after the palette", 0x40, 2, 1024, 0x10, 5, 0);
+    v12_bit6_row("NEXV13-EXT2-17",
+                 "a V1.2 header with bit 6 and byte 152 = 3 ignores byte 152: not tilemode, the "
+                 "palette goes to the Layer 2 palette (:432), no tile config written",
+                 0x40, 3, 1024, 0x10, 5, 0);
+    v12_bit6_row("NEXV13-EXT2-18",
+                 "a V1.2 header with LAYER2|bit 6 (byte 152 = 1) loads the classic Layer 2 block "
+                 "(:441-446) and ignores bit 6 and byte 152: banks at 512+512+49152",
+                 0x41, 1, 512 + 512 + 49152, 0x10, 5, 1);
+    v12_bit6_row("NEXV13-EXT2-19",
+                 "a V1.2 header with bit 6 + NOPAL reads no palette (:426) and loads no screen: "
+                 "banks at 512, border written",
+                 0x40 | 0x80, 0, 512, -1, 5, 0);
+    v12_bit6_row("NEXV13-EXT2-20",
+                 "a V1.2 header with ULA|bit 6 reads no palette (`and %11010`, :427), loads the "
+                 "ULA block and ignores bit 6: banks at 512+6912",
+                 0x42, 2, 512 + 6912, -1, 5, 2);
 }
 
 // ── First-bank file offset (field 144) ───────────────────────────────

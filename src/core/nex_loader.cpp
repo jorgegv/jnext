@@ -151,16 +151,11 @@ static bool nex_screen_bytes(const NexHeader& h, size_t& out, std::string& why) 
     if (blk & NexHeader::SCREEN_HIRES)    out += 12288;
     if (blk & NexHeader::SCREEN_HICOLOUR) out += 12288;
 
-    if (sf & NexHeader::SCREEN_EXT2) {
-        // Field 152 does not exist for a V1.0-V1.2 header (nexload.asm has no
-        // reference to it), so there its byte can never select a block.
-        // nexload.asm never tests bit 6 at all (it would read the palette and
-        // load no screen); jnext refuses the combination by its own decision
-        // (NEXV13-REFUSE-04, EXT2-15..17), for every byte 152.
-        if (!v13) {
-            why = "screen_flags bit 6 selects a V1.3 screen but this is not a V1.3 header";
-            return false;
-        }
+    // Bit 6 and field 152 belong to V1.3 alone. nexload.asm (V1.0-V1.2) tests
+    // only bits 7 and 0-4 (:424-:510): bit 6 is ignored, no block is read for
+    // it, and byte 152 is never read, so such a header declares no V1.3 screen
+    // (the palette rule above still applies, :426-:428).
+    if (v13 && (sf & NexHeader::SCREEN_EXT2)) {
         switch (h.screen_flags2) {
             case NexHeader::SCREEN2_L2_320x256:
             case NexHeader::SCREEN2_L2_640x256:
