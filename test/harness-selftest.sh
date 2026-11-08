@@ -3489,20 +3489,27 @@ check "HS-168b" "...and an appended byte (a write to the master) reads as change
 sigfix() {   # sigfix <size|mtime|inode> -- one field changes, the other two are kept exactly
     local f="$T/guardfix-$1"
     printf 'abcd' > "$f"; touch -d '@1700000000.123456789' "$f"; touch -r "$f" "$f.ref"
-    local s0; s0=$(master_sig "$f")
+    local s0 r0; s0=$(master_sig "$f"); r0=$(stat -c '%s %.9Y %i' "$f")
     case $1 in
         size)  truncate -s +1 "$f"; touch -r "$f.ref" "$f" ;;
-        mtime) touch -d '@1700000001.123456789' "$f" ;;
+        mtime) touch -d '@1700000000.987654321' "$f" ;;   # same second: only the fraction differs
         inode) cp -p "$f" "$f.new"; mv "$f.new" "$f" ;;
     esac
-    echo "same=$([[ "$(master_sig "$f")" == "$s0" ]] && echo yes || echo no) before=$s0 after=$(master_sig "$f")"
+    # An independent stat (not master_sig) names the fields that really changed, so a broken
+    # restore cannot pass for the single-field change the row claims.
+    local r1 a b ch=""; r1=$(stat -c '%s %.9Y %i' "$f")
+    read -r -a a <<<"$r0"; read -r -a b <<<"$r1"
+    [[ ${a[0]} == "${b[0]}" ]] || ch+="size,"
+    [[ ${a[1]} == "${b[1]}" ]] || ch+="mtime,"
+    [[ ${a[2]} == "${b[2]}" ]] || ch+="inode,"
+    echo "same=$([[ "$(master_sig "$f")" == "$s0" ]] && echo yes || echo no) changed=${ch%,}; before=$s0 after=$(master_sig "$f")"
 }
 res=$(sigfix size)
-check "HS-168d" "the master guard sees a SIZE-only change (mtime and inode kept)" 0 0 "$res" "same=no"
+check "HS-168d" "the master guard sees a SIZE-only change (mtime and inode kept)" 0 0 "$res" "same=no" "changed=size;"
 res=$(sigfix mtime)
-check "HS-168e" "the master guard sees an MTIME-only change (size and inode kept)" 0 0 "$res" "same=no"
+check "HS-168e" "the master guard sees an MTIME-only change (size and inode kept)" 0 0 "$res" "same=no" "changed=mtime;"
 res=$(sigfix inode)
-check "HS-168f" "the master guard sees an INODE-only change (replacement with the same size and mtime)" 0 0 "$res" "same=no"
+check "HS-168f" "the master guard sees an INODE-only change (replacement with the same size and mtime)" 0 0 "$res" "same=no" "changed=inode;"
 res="watch=$([[ "$REAL_MASTER" != "$T"/* && "$REAL_MASTER" == */.jnext/sdcard/cspect-next-1gb-fixed.img ]] && echo real || echo NOT-REAL)"
 res+=" same=$([[ "$(master_sig "$REAL_MASTER")" == "$REAL_MASTER_SIG" ]] && echo yes || echo no)"
 res+=" before=$REAL_MASTER_SIG after=$(master_sig "$REAL_MASTER") path=$REAL_MASTER"
