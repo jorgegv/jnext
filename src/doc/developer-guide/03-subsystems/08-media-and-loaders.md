@@ -400,16 +400,30 @@ recording and, on a miss, calls `record_warm_start_state()`, which
 
 1. constructs a **separate `Emulator`**,
 2. `init()`s it with `load_file` cleared (which arms the boot-ROM overlay),
-3. drives it like a user, in emulated time: boots to NextZXOS's welcome
-   program, presses SPACE ("Start NextZXOS") only when that program is still
-   resident, then cursor-DOWN and ENTER on the menu (*Command Line*), then
-   types `print;:pause 0` and ENTER, and captures about 760 frames in. The
+3. drives it like a user, on the machine's state: a key is sent only when the
+   machine has been idle (the same PC and SP at the frame boundary, no
+   auto-typed key queued) for 8 frames in the state that takes it. SPACE
+   ("Start NextZXOS") goes only while the welcome program is resident; cursor-DOWN
+   and then ENTER when the menu is idle (`ERR_NR` $2F, `PPC` 0, `TV_FLAG` $20);
+   `print;:pause 0` and ENTER when the Command Line is idle (`TV_FLAG` $21); the
+   recipe is done when the statement executes (`ERR_NR` $FF, `PPC` $FFFE). The
    keys go through `Keyboard::queue_auto_type()`, and the per-frame step is
-   `Emulator::warm_start_recipe_tick()`,
-4. checks `nextzxos_resident()` (at the first point, before any key) and
-   `warm_start_capture_ready()` (at the capture), and
+   `Emulator::warm_start_recipe_tick()`. A state that does not come within 400
+   frames ends the recipe, and the capture check then refuses,
+4. checks `nextzxos_resident()` (once, when the clock passes frame 400, before
+   any key) and `warm_start_capture_ready()` (when the recipe is done or gave
+   up; its message names what the recipe was waiting for), and
 5. serialises it with `save_state()` — the same `Saveable` stream the rewind
    buffer uses.
+
+Nothing is pressed at a fixed frame count. The first version pressed SPACE at
+frame 400, DOWN at 470, ENTER at 500, and was measured to work on the
+distribution card only: on the minimal card (a 40 MB card with the boot set) the
+welcome program is up about ten frames later and the menu was never reached. The
+idle signal is not a pinned address: any build's key-wait loop is a HALT or a
+keyscan loop that the frame boundary samples at the same instruction. The
+recording takes about 600 frames on the two cards measured, and is the same file
+on every run of one card (the clock is pinned, below).
 
 Two things keep the recording a pure function of the card, the machine and the
 recipe. The recorder runs on a **constant clock** (`warm_start_boot_config()` pins
@@ -426,8 +440,8 @@ frame counter to 500 (`kWarmStartProgramFrame`), because scripts recorded with
 `--record-script`, and the committed DAPR replays, key on `on frame N` and were
 recorded when the recording was 500 frames long.
 
-The schedule is in emulated time, not frames: a frame adds 6 units at 50 Hz and
-5 at 60 Hz, read each frame from the recorder's own refresh rate, because the
+The waits are bounded in emulated time, not frames: a frame adds 6 units at 50 Hz
+and 5 at 60 Hz, read each frame from the recorder's own refresh rate, because the
 firmware switches it from the card's `config.ini` during the boot (a 60 Hz card
 shows its welcome screen at frame 480, not 400).
 
@@ -568,8 +582,9 @@ escape hatch. The file magic is `JNEXTWS3` (layout generation).
 its four invalidation keys and the compressed payload; `WSR-*` for the
 residency criterion, the announced fallbacks and `WSR-DEF-01`, which proves the
 path is reached with no flag set; `WSR-ROM3-01/02` for the ROM 3 feeder and
-the RST $08 automap it gates; `WSR-CTX-*` and `WSR-RCP-*` for the capture
-criterion and the recipe) plus the `warm-start-func` regression row for the
+the RST $08 automap it gates; `WSR-CTX-*`, `WSR-RCP-*` and `WSR-RDY-*` for the
+capture criterion and the recipe, the last against a model of NextZXOS with a slow
+welcome, 60 Hz, a disabled welcome and a custom menu) plus the `warm-start-func` regression row for the
 end-to-end record → cache → restore round trip, which needs a real SD image
 and so cannot be a unit test, and `warm-start-chans-func`, which runs a
 program that prints through the ROM warm and through the real chain and
