@@ -11600,8 +11600,10 @@ int Emulator::try_halt_batch_(int tstates, uint16_t pc_pre_exec, uint64_t slot_s
     // the esxDOS shim at 0x0008, the boot probe trap) is ever batched.
     if (pc_pre_exec <= 0x0066 || divmmc_.automap_m1_may_react(pc_pre_exec)) return tstates;
 
-    // P4: the Multiface M1 hook is a no-op; P5: the IM2 opcode decoder stays in S_0.
-    if (!multiface_.m1_quiescent() || !im2_.decoder_idle()) return tstates;
+    // P4: the Multiface M1 hook is a no-op. (The IM2 opcode decoder needs no gate: after the
+    // real repeat's HALT M1 it is in S_0 whatever it was in, advance_decoder(0x76) of S_0 is
+    // S_0, and no RETI/RETN pulse can be live, im2_control.vhd:161-170.)
+    if (!multiface_.m1_quiescent()) return tstates;
 
     // Bounds: the batched window [slot_start, slot_start + n * p) must hold no action of
     // anything that acts at a time of its own; the action then happens in a later slot.

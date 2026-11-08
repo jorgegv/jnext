@@ -164,6 +164,28 @@ body. It picks exactly one of four things to do:
 - If a NEX boot hold is still counting down, likewise.
 - Otherwise, execute one Z80 instruction.
 
+**A HALT repeat is one slot too, and a run of them can be one slot.** FUSE's HALT
+leaves PC on the opcode, so a halted CPU re-fetches the `0x76` and burns one slot (4 T,
+5 T at 28 MHz from SRAM) in the whole body above, and in the device cluster below, for
+every repeat: most of the frame of a program that idles on `EI; HALT`. When
+`run_frame()` (and only `run_frame()`: a debugger Step is one repeat, always) executes a
+slot that was such a repeat, `try_halt_batch_()` asks whether each further repeat would do
+exactly what this one did. The first repeat is always real, so every M1 hook, the fetch and
+the T-states come from the real path and no contention or wait formula is restated. The
+answer is yes only if nothing observes the machine (no debugger, trace, rewind, RZX, tape),
+nothing is waiting for an instruction boundary (an `/INT`, an `/NMI`, a pending host NMI
+press, a CPU speed or contention commit), the DMA, UART, NMI source and IM2 fabric are idle
+in pulse mode, the HALT page is not contended and the DivMMC and Multiface M1 hooks are
+provable no-ops. Then the slot absorbs `n - 1` more repeats (`Z80Cpu::repeat_halt()`: the
+T-state counter, `R` and the `execute()` serial, which is all `n - 1` more `execute()` calls
+change), where `n` is bounded to end before the next scheduler event (a scanline, the CVC
+reload, the frame end), the next interrupt request, the next CTC event and the next Copper
+action (`Copper::idle_cycles()` from the Copper's own position, the same
+`copper_position_at_()` the Copper loop uses). The batched slot then runs the device cluster
+once; the PSG and the mixer are not split-invariant, so their part is replayed repeat by
+repeat in the same order. Every gate and bound is pinned by a row of
+`halt_batch_equiv_test` whose mutation turns it red.
+
 Around that choice it also records the trace entry, notes what the end-of-slot
 interrupt tick will need (the instruction's T-states, its first edge, its opcode
 fetches), counts RZX instructions, ticks real-time tape playback, and advances

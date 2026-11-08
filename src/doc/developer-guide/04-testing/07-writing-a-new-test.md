@@ -157,6 +157,27 @@ value once the facility does land. The assertion lint rejects it, along with
 `|| true` and `a == b || a != b`; it matches raw text, so those substrings must
 not appear in comments either.
 
+## Proving an optimisation bit-identical
+
+A change whose whole claim is "same result, faster" has no VHDL row to cite. Its oracle is
+the unoptimised path of the same binary, and the claim is held by an A/B harness
+(`test/core/batch_ab.h`, used by `halt_batch_equiv_test`, `halt_batch_boot_test` and
+`halt_batch_corpus_*_test`): build the same machine twice, one with the optimisation switched
+off through a `_for_test` hook, run the same scripted input, and compare the framebuffer, the
+drained audio and the whole `save_state()` stream after every frame. Four rules keep it honest:
+
+- **The OFF run is checked to be off.** Every row asserts the optimisation's counters are 0 in
+  it, or a switch ignored on both sides would pass everything.
+- **Every fixture has a liveness predicate and an engagement row.** A fixture that stops
+  doing its job, or an optimisation that stops engaging in it, is a named failure; a refusal
+  row asserts the counter stays 0.
+- **The rig has its own controls.** One that disturbs exactly one component (video, audio,
+  state) of one late frame and asserts the exact diff text, so a hash that goes blind turns a
+  control red.
+- **Mutate the gates.** Each gate and bound of the optimisation is dropped in turn, from a
+  `cp` backup, and a row must go red; one that none kills is either unnecessary or missing a
+  fixture.
+
 ## Registering and pinning it
 
 In `test/CMakeLists.txt`:

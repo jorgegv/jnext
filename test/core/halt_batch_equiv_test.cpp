@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <unistd.h>
 #include <ctime>
 #include <functional>
@@ -377,18 +378,27 @@ Scenario copper_moves(const char* name, uint8_t mode) {
 Scenario nmi_hotkey() {
     Scenario s = di_halt("nmi-hotkey", 0, 40);
     auto base = s.setup;
+    auto stops = std::make_shared<int>(0);
     s.setup = [=](Emulator& e) {
         base(e);
+        *stops = 0;
         e.nmi_source().set_mf_enable(true);
     };
-    s.before_frame = [](Emulator& e, int f) {
+    s.before_frame = [=](Emulator& e, int f) {
         if (f != 10 && f != 25) return;
+        // run-to-cycle only stops an ARMED machine (the stop test is in run_frame()'s armed
+        // block), so arm it with persistent breakpoints for the stop and disarm it again, as
+        // a detaching client does: the resumed frame is then unarmed and may batch.
+        e.debug_state().set_persistent_breakpoints(true);
         e.debug_state().run_to_cycle(e.clock().get() + 400000);
         e.run_frame();                       // stops mid-frame
+        if (e.debug_state().paused()) ++*stops;
         e.debug_state().resume();
+        e.debug_state().set_persistent_breakpoints(false);
         e.on_hotkey_f9_mf_nmi();
     };
-    s.alive = [](Emulator& e) { return e.cpu().registers().SP != 0xBFF0; };
+    // Both presses landed mid-frame (the frame really was stopped), and the NMI was taken.
+    s.alive = [=](Emulator& e) { return *stops == 2 && e.cpu().registers().SP != 0xBFF0; };
     return s;
 }
 
@@ -428,11 +438,29 @@ Scenario dma_burst() {
     return s;
 }
 
+// DI; HALT at 0x3000 in RAM mapped over the ROM slot (NR 0x51 -> page 0x10): below 0x4000 the
+// Multiface and the DivMMC overlay memory over the fetch, so a state change in either decides
+// what the NEXT repeat fetches. (Above 0x4000 their transitions are invisible to the CPU and
+// settle at the next real slot, which is why a HALT up there cannot tell the gates apart.)
+Scenario low_halt(const char* name, int frames) {
+    Scenario s;
+    s.name = name;
+    s.frames = frames;
+    s.setup = [](Emulator& e) {
+        nr(e, 0x03, 0x01);
+        nr(e, 0x51, 0x10);
+        poke(e, 0x3000, {0xF3, 0x76, 0x18, 0xFD});
+        start_at(e, 0x3000, 0xBFF0);
+    };
+    s.alive = [](Emulator& e) { return e.cpu().is_halted(); };
+    return s;
+}
+
 // A Multiface state transition in flight at the start of a halted stretch: the port-enable
-// pulse sets the Multiface FSM going and it needs MORE than one M1 edge to settle
-// (multiface.vhd:169-186), so the second HALT repeat's M1 is not the first's.
+// pulse sets the Multiface FSM going and it takes MORE than one M1 edge to show in the memory
+// it overlays (multiface.vhd:169-186), so the second repeat's fetch is not the first's.
 Scenario multiface_edge() {
-    Scenario s = di_halt("multiface-edge", 0, 40);
+    Scenario s = low_halt("multiface-edge", 40);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
         base(e);
@@ -441,14 +469,13 @@ Scenario multiface_edge() {
     s.before_frame = [](Emulator& e, int f) {
         if (f == 10) e.multiface().on_port_enable_rd(true);
     };
-    s.alive = [](Emulator& e) { return e.cpu().is_halted(); };
     return s;
 }
 
-// A DivMMC delayed automap in flight at the start of a halted stretch: the entry latches the hold,
-// the NEXT M1 promotes hold to held (divmmc.vhd:123-148), so repeats of one M1 differ.
+// A DivMMC delayed automap in flight at the start of a halted stretch: the entry latches the
+// hold, the NEXT M1 promotes hold to held (divmmc.vhd:123-148), so repeats of one M1 differ.
 Scenario divmmc_delayed() {
-    Scenario s = di_halt("divmmc-delayed", 0, 40);
+    Scenario s = low_halt("divmmc-delayed", 40);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
         base(e);
@@ -458,7 +485,74 @@ Scenario divmmc_delayed() {
     s.before_frame = [](Emulator& e, int f) {
         if (f == 10) e.divmmc().check_automap(0x3D00, true, true, true);   // the delayed entry's M1
     };
-    s.alive = [](Emulator& e) { return e.cpu().is_halted(); };
+    return s;
+}
+
+// The HALT byte overwritten while the CPU is halted: the halted flag stays set but the opcode at PC is
+// no longer 0x76 (here LDIR, which leaves PC where it is while BC counts down): a "HALT repeat" by PC
+// and flag alone, though every execution changes registers and memory.
+Scenario halt_byte_replaced() {
+    Scenario s = di_halt("halt-byte-replaced", 0, 40);
+    s.before_frame = [](Emulator& e, int f) {
+        if (f != 10) return;
+        auto r = e.cpu().get_registers();
+        r.BC = 0x0200; r.HL = 0x9000; r.DE = 0x9800;
+        e.cpu().set_registers(r);
+        e.mmu().write(kHigh.main + 1, 0xED);
+        e.mmu().write(kHigh.main + 2, 0xB0);
+    };
+    s.alive = [](Emulator& e) { return e.mmu().peek(0x9800) == e.mmu().peek(0x9000); };
+    return s;
+}
+
+// The EI-grace slot: ISR returns WITHOUT EI and the main loop is EI; HALT; JR, so every HALT is the
+// instruction right after an EI, where an interrupt is not accepted (t80n.vhd:1768) even if its request
+// is already pending. CTC channel 0 interrupts at 3200 master cycles (and the ULA's) land in that slot often.
+Scenario ctc_grace() {
+    Scenario s = ctc_phase();
+    s.name = "ctc-grace";
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        const uint8_t vlo = static_cast<uint8_t>(kHigh.var & 0xFF), vhi = static_cast<uint8_t>(kHigh.var >> 8);
+        const uint8_t clo = static_cast<uint8_t>(vlo + 1);
+        // ISR without the EI: PUSH AF; LD A,(var); XOR 10h; LD (var),A; OUT (FEh),A; LD A,(var+1); INC A;
+        // LD (var+1),A; POP AF; RETI
+        poke(e, kHigh.isr, {0xF5, 0x3A, vlo, vhi, 0xEE, 0x10, 0x32, vlo, vhi, 0xD3, 0xFE,
+                            0x3A, clo, vhi, 0x3C, 0x32, clo, vhi, 0xF1, 0xED, 0x4D});
+        // LD A,I_REG; LD I,A; IM 2; loop: EI; HALT; JR loop
+        poke(e, kHigh.main, {0x3E, kHigh.i_reg, 0xED, 0x47, 0xED, 0x5E, 0xFB, 0x76, 0x18, 0xFC});
+    };
+    return s;
+}
+
+// NR 0x07 written between two frames while the CPU sits on DI;HALT: the new speed is a pending
+// shadow that commits at the end of the next slot, so the first repeat of the frame runs at the old
+// one and the rest at the new (zxnext.vhd:5796-5828).
+Scenario speed_switch() {
+    Scenario s = di_halt("speed-switch", 0, 60);
+    s.before_frame = [](Emulator& e, int f) {
+        if (f == 10) nr(e, 0x07, 0x03);
+        if (f == 30) nr(e, 0x07, 0x00);
+        if (f == 45) nr(e, 0x07, 0x02);
+    };
+    return s;
+}
+
+// A UART TX byte in flight on EI;HALT with the TX / RX interrupts on and the ULA interrupt off: the
+// bit engine completes inside what would be a batch and its interrupt must end the HALT at once
+// (uart.vhd).
+Scenario uart_tx() {
+    Scenario s = im2_halt("uart-tx", 0, 0xFF);
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        nr(e, 0x22, 0x04);                       // ULA interrupt off
+        nr(e, 0xC6, 0x05);                       // UART 0: RX near-full and TX empty interrupts on
+    };
+    s.before_frame = [](Emulator& e, int f) {
+        if (f == 10 || f == 20 || f == 30) e.uart().write(3, 0x55);
+    };
     return s;
 }
 
@@ -684,8 +778,26 @@ int main() {
 
     // HBQ-29: a Multiface state transition in flight at the start of a halted stretch
     // (multiface.vhd:169-186).
-    check_ab("HBQ-29", "Multiface port-enable pulse in flight at the start of a halted stretch: identical per frame",
+    check_ab("HBQ-29", "Multiface port-enable pulse in flight at the start of a HALT below 0x4000: identical per frame",
              {multiface_edge()});
+
+    // HBQ-46: the HALT byte overwritten while halted (P1: the opcode must really be 0x76).
+    check_ab("HBQ-46", "the HALT opcode replaced by LDIR while the CPU is halted (halted flag set, PC unchanged per slot, registers and memory changing): identical per frame",
+             {halt_byte_replaced()});
+
+    // HBQ-47: every HALT is the instruction after an EI (the acceptance grace slot) with CTC and ULA
+    // interrupts arriving all the time (G7).
+    check_ab("HBQ-47", "EI; HALT with the acceptance grace slot, CTC and ULA interrupts pending around it: identical per frame, the batch engaged",
+             {ctc_grace()}, false, nullptr, Halt::Engaged);
+
+    // HBQ-48: NR 0x07 written between frames while halted (G11: a pending speed commits at the end of
+    // the next slot).
+    check_ab("HBQ-48", "NR 0x07 written between frames while halted on DI;HALT: identical per frame, the batch engaged",
+             {speed_switch()}, false, nullptr, Halt::Engaged);
+
+    // HBQ-49: a UART TX byte completing inside what would be a batch, with its interrupt on (G10).
+    check_ab("HBQ-49", "UART TX byte in flight on EI;HALT, TX/RX interrupts on, ULA interrupt off: identical per frame, the batch engaged",
+             {uart_tx()}, false, nullptr, Halt::Engaged);
 
     // HBQ-44: a CTC channel at a period the handler fits in, ULA interrupt on: the CTC lands at a
     // different phase of the HALT in every frame (bound B3).
@@ -755,8 +867,18 @@ int main() {
             e.start_rzx_recording(rzx_path);
         };
         rzx.alive = [](Emulator& e) { return e.cpu().is_halted() && e.rzx_recorder().is_recording(); };
-        check_ab("HBQ-32", "a persistent breakpoint elsewhere, the rewind buffer, an RZX recording: each refuses the HALT batch (the counter stays 0), identical per frame",
-                 {brk, rew, rzx}, false, nullptr, Halt::Refused);
+        // A breakpoint AT the HALT: every resume steps off it and the next test stops again, so one
+        // resume is exactly one repeat; a batch would carry it far past the breakpoint.
+        Scenario bph = di_halt("observer-breakpoint-at-halt", 0, 40);
+        auto h0 = bph.setup;
+        bph.setup = [=](Emulator& e) {
+            h0(e);
+            e.debug_state().set_persistent_breakpoints(true);
+            e.debug_state().breakpoints().add_pc(static_cast<uint16_t>(kHigh.main + 1));
+        };
+        bph.before_frame = [](Emulator& e, int) { e.debug_state().resume(); };
+        check_ab("HBQ-32", "a persistent breakpoint elsewhere and at the HALT, the rewind buffer, an RZX recording: each refuses the HALT batch (the counter stays 0), identical per frame",
+                 {brk, bph, rew, rzx}, false, nullptr, Halt::Refused);
         std::remove(rzx_path.c_str());
     }
 
