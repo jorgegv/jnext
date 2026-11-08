@@ -160,9 +160,10 @@ Scenario line_int() {
 
 // CTC channel 0 as a timer, period 59 x 16 = 944 master (28 MHz) cycles = 118 T at 3.5 MHz
 // (the CTC counts the 28 MHz clock), which is no multiple of the 1824-cycle line. The
-// handler (about 132 T with the acknowledge) outlasts one period, so the CPU halts only
-// between bursts of back-to-back interrupts (about half of the master cycles measured):
-// the fixture exercises CTC events landing at every phase of a HALT, not long idle spans.
+// handler (about 132 T with the acknowledge) outlasts one period, so the pattern, measured,
+// is three back-to-back interrupts and then one HALT of 632 master cycles, and the fixture
+// is halted only about 17% of the time. Because that pattern repeats, a CTC event lands
+// at a FIXED offset from the HALT; a second fixture with a varying CTC phase is stage 3's.
 // Pulse mode (NR 0xC0 b0 = 0): an enabled CTC request drives a /INT pulse there as well
 // (im2_peripheral.vhd:184-187, zxnext.vhd:2270-2305, :2326-2339, :2150). The ULA interrupt
 // is masked so the CTC is the only source.
@@ -210,6 +211,97 @@ Scenario di_halt(const char* name, uint8_t speed, int frames = 120) {
     return s;
 }
 
+// ── Copper-only fixtures (a busy CPU, no HALT) ───────────────────────
+
+void cu_nr(Emulator& e, uint8_t reg, uint8_t val) { nr(e, reg, val); }
+
+// Programs the Copper RAM from word 0 through NR 0x61 / 0x62 / 0x63, leaving it stopped.
+void cu_program(Emulator& e, const std::vector<uint16_t>& words) {
+    cu_nr(e, 0x62, 0x00);
+    cu_nr(e, 0x61, 0x00);
+    for (uint16_t w : words) {
+        cu_nr(e, 0x63, static_cast<uint8_t>(w >> 8));
+        cu_nr(e, 0x63, static_cast<uint8_t>(w & 0xFF));
+    }
+}
+constexpr uint16_t cu_move(uint8_t reg, uint8_t val) { return static_cast<uint16_t>((reg << 8) | val); }
+constexpr uint16_t cu_wait(uint8_t hpos, uint16_t vpos) {
+    return static_cast<uint16_t>(0x8000 | ((hpos & 0x3F) << 9) | (vpos & 0x1FF));
+}
+
+// A visible ULA screen (attribute 0x38 = black ink on white paper, paper colour = palette
+// index 23) for the Copper to recolour line by line with MOVEs to NR 0x40 / 0x41.
+void paint_paper(Emulator& e) {
+    for (uint16_t a = 0x5800; a < 0x5B00; ++a) e.mmu().write(a, 0x38);
+}
+
+// A busy CPU: DI; JR $. No HALT, so only the Copper walk is under test.
+void busy_cpu(Emulator& e) {
+    poke(e, kHigh.main, {0xF3, 0x18, 0xFE});
+    start_at(e, kHigh.main, 0xBFF0);
+}
+
+// Copper list: three palette changes of paper (index 23) at three lines, then HALT.
+const std::vector<uint16_t> kPaletteList = {
+    cu_wait(0, 60),  cu_move(0x40, 23), cu_move(0x41, 0xE0),
+    cu_wait(20, 120), cu_move(0x41, 0x1C),
+    cu_wait(40, 200), cu_move(0x41, 0x03),
+    cu_wait(0, 511),                                    // HALT
+};
+constexpr uint16_t kPaletteHaltPc = 7;
+
+// mode: NR 0x62 bits 7:6 started with (1 = start at 0, 3 = restart each frame);
+// mode_10_at >= 0 starts mode 1 and writes mode 10 (continue from the PC) at that frame.
+Scenario copper_busy(const char* name, uint8_t mode, int mode_10_at = -1) {
+    Scenario s;
+    s.name = name;
+    s.frames = 120;
+    s.setup = [=](Emulator& e) {
+        nr(e, 0x03, 0x01);
+        paint_paper(e);
+        busy_cpu(e);
+        cu_program(e, kPaletteList);
+        cu_nr(e, 0x62, static_cast<uint8_t>(mode << 6));
+    };
+    if (mode_10_at >= 0)
+        s.before_frame = [=](Emulator& e, int f) { if (f == mode_10_at) cu_nr(e, 0x62, 0x80); };
+    s.alive = [](Emulator& e) { return e.copper().pc() == kPaletteHaltPc; };
+    return s;
+}
+
+// NR 0x64 (the Copper line offset) rewritten by the CPU all the time, so it changes across
+// every CVC reload (GH #290): LD A,0; loop: NEXTREG 0x64,A; INC A; JR loop.
+Scenario copper_offset_stress() {
+    Scenario s = copper_busy("copper-offset-stress", 3);
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        poke(e, kHigh.main, {0x3E, 0x00, 0xED, 0x92, 0x64, 0x3C, 0x18, 0xFA});
+        start_at(e, kHigh.main, 0xBFF0);
+    };
+    s.alive = [](Emulator& e) { return e.copper().pc() > 0 || e.copper().is_running(); };
+    return s;
+}
+
+// A WAIT reachable only in the line that straddles two frames (cvc 246 = hc_ula line lpf-1 of
+// the 64-line display origin): hc_ula 332 is in the tail
+// that belongs to raw line 0 of the NEXT jnext frame (GH181-HCULA-04's case). Mode 11.
+Scenario copper_straddle() {
+    Scenario s;
+    s.name = "copper-straddle";
+    s.frames = 120;
+    s.setup = [](Emulator& e) {
+        nr(e, 0x03, 0x01);
+        paint_paper(e);
+        busy_cpu(e);
+        cu_program(e, {cu_wait(40, 246), cu_move(0x40, 23), cu_move(0x41, 0x77), cu_wait(0, 511)});
+        cu_nr(e, 0x62, 0xC0);
+    };
+    // The straddling WAIT was met and both MOVEs ran: the Copper stands at its HALT (word 3).
+    s.alive = [](Emulator& e) { return e.copper().pc() == 3; };
+    return s;
+}
+
 // A real 128K machine, the shared program in bank 5 (contended while the display is
 // drawn), 3.5 MHz: a HALT repeat there costs what the display position says.
 Scenario contended_bank5() {
@@ -234,13 +326,19 @@ Scratch g_scratch;
 
 // A row: every fixture in `list` is identical frame by frame (batching off vs on)
 // and alive in both runs.
-void check_ab(const char* id, const char* desc, const std::vector<Scenario>& list) {
+void check_ab(const char* id, const char* desc, const std::vector<Scenario>& list,
+              bool copper_engaged = false) {
     std::string detail;
     bool ok = true;
     for (const Scenario& sc : list) {
         const Run a = batch_ab::run(sc, false, false, g_scratch);
         const Run b = batch_ab::run(sc, true, true, g_scratch);
         const std::string d = batch_ab::first_diff(a, b);
+        if (copper_engaged && b.copper_skipped == 0) {
+            // A fixture that stops engaging the optimisation proves nothing: named failure.
+            ok = false;
+            detail += std::string(sc.name) + ": the Copper skip never engaged; ";
+        }
         if (!d.empty() || !a.alive || !b.alive) {
             ok = false;
             detail += std::string(sc.name) + ": " +
@@ -332,6 +430,19 @@ int main() {
               "; 28 sram: t=" + std::to_string(s28.t) + " mc=" + std::to_string(s28.dc) +
               "; 28 bram: t=" + std::to_string(s28b.t) + " mc=" + std::to_string(s28b.dc));
     }
+
+    // HBQ-34: the Copper walk alone, with a busy CPU: the same palette list started in mode
+    // 01 (once), mode 11 (every frame) and mode 10 (continue from the PC, written at frame
+    // 5), and a CPU rewriting NR 0x64 across every CVC reload (GH #290). WAIT is met at
+    // cvc == vpos && hc >= (hpos << 3) + 12 (copper.vhd:80, :94); the skip must engage.
+    check_ab("HBQ-34", "Copper WAIT/MOVE palette splits, modes 01, 10 and 11 and a rewritten NR 0x64, busy CPU: identical per frame, Copper skip engaged",
+             {copper_busy("copper-m01", 1), copper_busy("copper-m11", 3),
+              copper_busy("copper-m10", 1, 5), copper_offset_stress()}, true);
+
+    // HBQ-35: a WAIT reachable only in the tail of the line that straddles two frames
+    // (zxula_timing.vhd:455-472; GH181-HCULA-04 in copper_integration_test).
+    check_ab("HBQ-35", "Copper WAIT reachable only in the line that straddles two frames, mode 11, busy CPU: identical per frame, Copper skip engaged",
+             {copper_straddle()}, true);
 
     // The rig's own controls. An "identical" row proves nothing if the rig is blind to a
     // component or to a frame, so each control disturbs EXACTLY ONE component of EXACTLY ONE
