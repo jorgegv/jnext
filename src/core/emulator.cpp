@@ -7833,6 +7833,11 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
 
     // Rebase the frame counter (see kWarmStartProgramFrame).
     rec->frame_num_ = kWarmStartProgramFrame;
+    {
+        Z80Registers regs = rec->cpu().get_registers();
+        regs.R = kWarmStartProgramR;
+        rec->cpu().set_registers(regs);
+    }
 
     StateWriter measure;
     rec->save_state(measure);

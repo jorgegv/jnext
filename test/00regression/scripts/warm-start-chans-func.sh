@@ -30,6 +30,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #               the welcome), a warm load records and passes A's checks.
 #   D. 60 HZ    on a card whose config.ini says 50_60hz=1 (edited in place with
 #               mtools, never replaced by a foreign file), the same.
+#   E. CLOCK    the probe's first byte is R at entry. Two recordings with RTCs
+#               a few minutes apart give the same R (the recorder pins R: the
+#               NextZXOS menu's work depends on the RTC minute, which made
+#               R-seeded programs such as celeste differ run to run).
 if want warm-start-chans-func; then
     begin_func warm-start-chans-func
 
@@ -56,6 +60,7 @@ def e(*b):
 
 e(0xF3)                          # di
 e(0x01, 0xFE, 0xCA)              # ld bc,$cafe
+e(0xED, 0x5F, 0xED, 0x79)        # ld a,r : out (c),a  (first byte of the output)
 for m in (0xA5, 0x5A, 0xA5, 0x5A):
     e(0x3E, m, 0xED, 0x79)       # leading marker
 e(0x21, 0x00, 0x40)              # ld hl,$4000
@@ -241,6 +246,19 @@ PY
     else
         wc_faults+=("harness: no 50_60hz line in the card's CONFIG.INI")
     fi
+
+    # ---- E. R does not follow the wall clock ---------------------------------
+    wc_r=()
+    for wc_t in 2026-07-10T08:55:00 2026-07-10T09:07:00; do
+        rm -rf "$wc_w/e"; mkdir -p "$wc_w/e"
+        JNEXT_CONFIG_DIR="$wc_w/e" timeout --foreground --kill-after=5s 200s "$JNEXT" \
+            --headless --machine next --rtc "$wc_t" --magic-port 0xCAFE --magic-port-mode hex \
+            --sdcard "$wc_w/ab/sdcard/cspect-next-1gb-fixed.img" --load "$wc_w/probe.nex" \
+            --delayed-automatic-exit-frames 60 > "$wc_w/e.log" 2>&1 || true
+        wc_r+=("$(grep -m1 -E '^[0-9A-Fa-f]{2}$' "$wc_w/e.log" || echo none)")
+    done
+    [[ "${wc_r[0]}" != none && "${wc_r[0]}" == "${wc_r[1]}" ]] \
+        || wc_faults+=("E: R at entry is ${wc_r[0]} at 08:55 and ${wc_r[1]} at 09:07 (it follows the RTC)")
 
     rm -rf "$wc_w/ab" "$wc_w/ab-real" "$wc_w/c" "$wc_w/d"
     if [[ ${#wc_faults[@]} -eq 0 ]]; then

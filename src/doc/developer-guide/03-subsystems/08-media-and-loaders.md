@@ -411,6 +411,15 @@ recording and, on a miss, calls `record_warm_start_state()`, which
 5. serialises it with `save_state()` — the same `Saveable` stream the rewind
    buffer uses.
 
+Before the capture the recorder sets two values in the state it saves. The frame
+counter is rebased to 500 (`kWarmStartProgramFrame`), because scripts recorded
+with `--record-script`, and the committed DAPR replays, key on `on frame N` and
+were recorded when the recording was 500 frames long. The CPU's R register is set
+to 0 (`kWarmStartProgramR`): R counts instructions since power-on and the
+NextZXOS menu's work depends on the RTC minute (measured), so it moved with the
+wall clock, and a program that seeds its RNG from R (`celeste`) looked different
+on every run. Hardware has no defined R at a program's entry either.
+
 The schedule is in emulated time, not frames: a frame adds 6 units at 50 Hz and
 5 at 60 Hz, read each frame from the recorder's own refresh rate, because the
 firmware switches it from the card's `config.ini` during the boot (a 60 Hz card
