@@ -81,7 +81,7 @@ and no waits at the second.
 
 ## Frame start
 
-`run_frame()` (`src/core/emulator.cpp:9997`) opens with two steps that have to
+`run_frame()` (`src/core/emulator.cpp:10126`) opens with two steps that have to
 come before anything else. `service_esp_frame()` applies the replay gate and
 mirrors the ESP worker thread's state into the flag the hot path reads, and the
 rewind step modes get their chance to return early — if the debugger has asked
@@ -101,7 +101,7 @@ rather than start a fresh one. Calling `begin_new_frame()` in the middle of a
 frame would re-baseline the per-scanline change logs the compositor replays.
 The visible symptom is a frame that renders flat.
 
-`begin_new_frame()` (`src/core/emulator.cpp:9061`) does the following, in order:
+`begin_new_frame()` (`src/core/emulator.cpp:9190`) does the following, in order:
 
 1. Take a rewind snapshot, if rewind is enabled. Frame boundaries are chosen
    for this precisely because the scheduler queue is empty at that instant, so
@@ -154,7 +154,7 @@ A `.tzx` or `.wav` save also samples the tape-out level
 end of the frame; see
 [3.8](../03-subsystems/08-media-and-loaders.md).
 
-**Then `step_one_instruction()`** (`src/core/emulator.cpp:10567`), the one shared per-instruction
+**Then `step_one_instruction()`** (`src/core/emulator.cpp:10696`), the one shared per-instruction
 body. It picks exactly one of four things to do:
 
 - If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -175,7 +175,7 @@ stepping.
 
 **Then a data-breakpoint check**, which returns early if one fired.
 
-**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11253`), the
+**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11382`), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -220,7 +220,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:12960`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13089`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA
