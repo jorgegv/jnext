@@ -23,7 +23,9 @@
 //
 // Note that "loading screen flags 2" at 152 is an ENUMERATED value despite
 // its name: 1 / 2 / 3, not bit flags (nexload2.asm:74-76). Rows
-// NEXV13-REFUSE-02/03 pin the refusal of every other value.
+// NEXV13-REFUSE-02/03 and EXT2-11..14 pin what a V1.3 header with any other
+// value does: no EXT2 block, the loader carries on (nexload2.asm:630-632);
+// REFUSE-04 and EXT2-15..20 pin V1.0-V1.2 with bit 6 (nexload.asm ignores it).
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -152,12 +154,19 @@ size_t expected_palette_bytes(const V13Opts& o) {
 
 size_t expected_screen_data_bytes(const V13Opts& o) {
     size_t n = 0;
-    if (o.screen_flags & 0x01) n += 49152;
-    if (o.screen_flags & 0x02) n += 6912;
-    if (o.screen_flags & 0x04) n += 12288;
-    if (o.screen_flags & 0x08) n += 12288;
-    if (o.screen_flags & 0x10) n += 12288;
-    if (o.screen_flags & 0x40) {
+    // A V1.3 header with a non-zero field 152 carries NO classic block:
+    // LoadScreenBlock returns at `cp (hl) : ret nz` (nexload2.asm:630-632)
+    // because every classic definition's LOADSCR2 byte is 0 (:618-622), so the
+    // block is neither read nor seeked over (GH #454 / EXT2 follow-up).
+    const bool v13 = std::strncmp(o.version, "V1.3", 4) == 0;
+    if (!(v13 && o.screen_flags2 != 0)) {
+        if (o.screen_flags & 0x01) n += 49152;
+        if (o.screen_flags & 0x02) n += 6912;
+        if (o.screen_flags & 0x04) n += 12288;
+        if (o.screen_flags & 0x08) n += 12288;
+        if (o.screen_flags & 0x10) n += 12288;
+    }
+    if (v13 && (o.screen_flags & 0x40)) {   // V1.0-V1.2 ignore bit 6 (nexload.asm:424-510)
         if (o.screen_flags2 == 1 || o.screen_flags2 == 2) n += 81920;
         // screen_flags2 == 3 (tilemode) contributes no data block at all
     }
@@ -555,12 +564,11 @@ void test_mixed_screen_flags() {
 // ── The EXT2 gate: field 152 without screen_flags bit 6 (GH #185) ────
 //
 // Field 152 is DEFINED only when bit 6 is set — "LOADSCR2 db 0 ; when
-// LOADSCR |= 64" (nexload2.asm:129). A file that leaves bit 6 clear may carry
-// anything at all in that byte, so the SCREEN it declares must be sized and
-// ingested exactly as if the byte were zero.
+// LOADSCR |= 64" (nexload2.asm:129) — but the loader reads it whatever bit 6
+// says, and it does so in TWO places that must not be confused.
 //
-// That is what the reference loader does, and it does it with the block
-// dispatch loop rather than with a test on the byte (nexload2.asm:304-:311):
+// (1) The V1.3 screen blocks. The dispatch loop tests each definition's
+// TRIGGER_BIT, not the flags-2 byte (nexload2.asm:304-:311):
 //
 //   .screenBlocksLoop:
 //           add     hl,SCREEN_BLOCK_DEF
@@ -569,124 +577,232 @@ void test_mixed_screen_flags() {
 //           and     (hl)                    ; (hl) = TRIGGER_BIT
 //           call    nz,LoadScreenBlock
 //
-// All three V1.3 block definitions carry TRIGGER_BIT = NEXLOAD_LOADSCR_EXT2
-// (nexload2.asm:623-:625), so with bit 6 clear `and (hl)` is zero, the call
-// never happens, and LoadScreenBlock — the only place LOADSCR2 selects a
-// block — is never reached (:628-:631). No screen data block is read, and
-// none of the mode's NextREG writes (:679-:697) happen.
+// All three V1.3 definitions carry TRIGGER_BIT = NEXLOAD_LOADSCR_EXT2
+// (:623-:625), so with bit 6 clear none of them is ever entered: no big
+// block is read and none of the mode's NextREG writes (:679-:697) happen.
 //
-// jnext implements that as one gate, `nex_loader.cpp:843`:
+// (2) The CLASSIC blocks. LoadScreenBlock is entered for a classic block
+// whose trigger bit is set, and its first act is (:628-:632)
 //
-//   const uint8_t sf2 = (sf & SCREEN_EXT2) ? header_.screen_flags2
-//                                          : SCREEN2_NONE;
+//   ld      a,(nexHeader.LOADSCR2)
+//   inc     hl
+//   cp      (hl)                  ; (hl) = the definition's LOADSCR2 byte
+//   ret     nz
 //
-// with the sizing half in nex_screen_bytes() (:128). Deleting EITHER passed
-// all 196 NEX rows before these three existed (GH #185): no fixture anywhere
-// put a non-zero byte at 152 while bit 6 was clear.
+// All five classic definitions carry NEXLOAD_LOADSCR2_NONE = 0 (:618-:622),
+// so ANY non-zero byte at 152 makes the call return before it reads a byte,
+// seeks, or writes a register or the border. The screen is skipped, not
+// seeked over: its bytes are never consumed, and the caller's position (the
+// one BANKSOFFSET is checked against, :338-:349) does not move. The earlier
+// version of these rows asserted the opposite ("behaves as if field 152 were
+// 0"), which holds for the big blocks only.
 //
-// WHAT THESE ROWS DELIBERATELY DO NOT ASSERT: the palette destination.
-// nexload2's OTHER consumer of field 152 is LoadFilePalette, and that one
-// reads the byte with NO bit-6 test at all (nexload2.asm:732 `ld
-// a,(nexHeader.LOADSCR2)`, reached from :296-:300), while checkHeader
-// (:544-:570) never sanitises it. So on the palette selector the reference
-// loader and jnext's gate genuinely disagree for these headers. Asserting
-// jnext's answer here would cement that disagreement, and asserting the
-// oracle's would be a failing row; both are wrong for a coverage-gap fix.
-// Reported separately — see GH #185. Every assertion below is one the two
-// agree on, so these rows survive whichever way that is settled.
+// jnext implements (1) with `sf2 = (sf & SCREEN_EXT2) ? screen_flags2 : NONE`
+// and (2) with nex_classic_blocks(); the sizing half of both is in
+// nex_screen_bytes().
 //
-// Each row is a differential against a CONTROL fixture identical but for
-// field 152 = 0 — the literal statement of "behaves as if screen_flags2 were
-// 0" — and asserts the derived bank offset, not a truncation guard. The
-// fixture carries six banks precisely so the guard CANNOT be what fails: an
-// ungated loader ingests 81920 bytes for values 1 and 2, and the file is long
-// enough for that read to succeed, so the row fails on the OFFSET and on the
-// registers/pages the ingest touched (the trap disclosed in GH #169).
-void ext2_gate_row(const char* id, const char* desc, uint8_t sf2, const char* tag) {
-    V13Opts o;
-    o.screen_flags  = 0x01;      // LAYER2 — a real screen, and bit 6 CLEAR
-    o.screen_flags2 = sf2;       // junk as far as this header is concerned
+// WHAT THESE ROWS DELIBERATELY DO NOT ASSERT: the palette destination. The
+// palette block is read by LoadFilePalette from the LOADSCR bits alone
+// (:296-:300) and its destination reads field 152 with NO bit-6 test (:732);
+// NEXV13-PAL-11..15 own that. Each row below is a differential against a
+// CONTROL fixture that triggers no block at all (NOPAL alone, field 152 = 0),
+// and asserts the derived bank offset, the bank content, and that no screen
+// page or NextREG moved. The fixture carries banks that do not map to the
+// screen target pages, so the truncation guard cannot be what fails (the trap
+// disclosed in GH #169).
+struct Ext2Result {
+    bool loaded, offset_ok, content_ok, pages_ok, regs_ok;
+    std::string detail;
+};
+
+Ext2Result ext2_skip_probe(const V13Opts& o, const char* tag, size_t want_offset,
+                           bool with_bank5 = true) {
     // Distinctive tilemode config: value 3 would push these to NR 0x6B/0x6C/
-    // 0x6E/0x6F (nexload2.asm:688-:697) if the gate were gone.
-    o.tile_cfg[0] = 0x83; o.tile_cfg[1] = 0x11; o.tile_cfg[2] = 0xC0; o.tile_cfg[3] = 0xCA;
-    // 6 banks = 98304 bytes after the 50176-byte header+palette+screen region.
-    // An ungated ingest of 81920 bytes at 49664 (file 50176) therefore fits,
-    // and none of these banks map to pages 18-27 where it would land.
-    o.banks = {5, 2, 0, 1, 3, 4};
+    // 0x6E/0x6F (nexload2.asm:688-:697) if the block dispatch were ungated.
+    V13Opts t = o;
+    t.tile_cfg[0] = 0x83; t.tile_cfg[1] = 0x11; t.tile_cfg[2] = 0xC0; t.tile_cfg[3] = 0xCA;
+    t.banks = {5, 2, 0, 1, 3, 4};
+    // Without bank 5 the classic screens' own target (pages 10/11) stays visible.
+    if (!with_bank5) t.banks = {2, 0, 1, 3, 4};
     // Field 144 omitted so the DERIVED offset — nex_screen_bytes() itself —
     // is what is under test, for the same reason size_row() omits it.
-    o.omit_banks_offset = true;
+    t.omit_banks_offset = true;
 
-    V13Opts ctl = o;
+    V13Opts ctl = t;
+    ctl.screen_flags  = 0x80;      // NOPAL alone: no block triggers, no palette
     ctl.screen_flags2 = 0;
 
-    Fixture f(o, tag);
+    Fixture f(t, tag);
     Fixture c(ctl, (std::string(tag) + "c").c_str());
 
-    const size_t want = expected_bank_offset(o);   // ignores 152; bit 6 is clear
     auto& nr  = f.emu.nextreg();
     auto& cnr = c.emu.nextreg();
+    Ext2Result r;
+    r.loaded = f.load_ok && f.apply_ok && c.load_ok && c.apply_ok;
+    r.offset_ok = r.loaded && f.loader.bank_data_offset() == want_offset &&
+                  c.loader.bank_data_offset() == 512;
+    r.content_ok = r.loaded &&
+                   (!with_bank5 || read_page(f.emu.mmu(), 10, 0) == bank_byte(5, 0)) &&
+                   read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0) &&
+                   read_page(f.emu.mmu(), 4, 0x1FFF) == bank_byte(2, 0x1FFF);
+    // Pages 16-21 = the classic Layer 2 target (banks 8-10), 18-27 = the big
+    // one (banks 9-13); none of the banks above maps there. A classic ULA/
+    // LoRes/HiRes/HiColour screen targets bank 5 (pages 10-15 span 10/11):
+    // with bank 5 in the file it is overwritten, so those rows drop it and
+    // compare pages 10-27 instead.
+    bool pages_ok = r.loaded;
+    for (uint16_t pg = with_bank5 ? 16 : 10; pg <= 27 && pages_ok; ++pg)
+        pages_ok = read_page(f.emu.mmu(), pg, 0) == read_page(c.emu.mmu(), pg, 0) &&
+                   read_page(f.emu.mmu(), pg, 0x1FFF) == read_page(c.emu.mmu(), pg, 0x1FFF);
+    r.pages_ok = pages_ok;
+    // NR 0x15 (priority / LoRes enable) is written by every classic block's
+    // display step; 0x70/0x12/0x69 by the big Layer 2 ones; 6B-6F by tilemode.
+    r.regs_ok = r.loaded &&
+                nr.read(0x15) == cnr.read(0x15) &&
+                nr.read(0x70) == cnr.read(0x70) && nr.read(0x12) == cnr.read(0x12) &&
+                nr.read(0x69) == cnr.read(0x69) && nr.read(0x6B) == cnr.read(0x6B) &&
+                nr.read(0x6C) == cnr.read(0x6C) && nr.read(0x6E) == cnr.read(0x6E) &&
+                nr.read(0x6F) == cnr.read(0x6F);
+    r.detail = fmt("load=%d apply=%d bank_data_offset=%llu want %zu (control %llu); "
+                   "bank5[0]=%02x want %02x bank2[0]=%02x want %02x; pages16-27 same as control=%d; "
+                   "NR 15=%02x/%02x 70=%02x/%02x 12=%02x/%02x 69=%02x/%02x 6B=%02x/%02x "
+                   "6C=%02x/%02x 6E=%02x/%02x 6F=%02x/%02x (test/control)",
+                   f.load_ok, f.apply_ok,
+                   static_cast<unsigned long long>(f.loader.bank_data_offset()), want_offset,
+                   static_cast<unsigned long long>(c.loader.bank_data_offset()),
+                   r.loaded ? read_page(f.emu.mmu(), 10, 0) : 0, bank_byte(5, 0),
+                   r.loaded ? read_page(f.emu.mmu(), 4, 0) : 0, bank_byte(2, 0), r.pages_ok,
+                   nr.read(0x15), cnr.read(0x15), nr.read(0x70), cnr.read(0x70),
+                   nr.read(0x12), cnr.read(0x12), nr.read(0x69), cnr.read(0x69),
+                   nr.read(0x6B), cnr.read(0x6B), nr.read(0x6C), cnr.read(0x6C),
+                   nr.read(0x6E), cnr.read(0x6E), nr.read(0x6F), cnr.read(0x6F));
+    return r;
+}
 
-    const bool loaded = f.load_ok && f.apply_ok && c.load_ok && c.apply_ok;
-    const bool offset_ok = loaded && f.loader.bank_data_offset() == want &&
-                           c.loader.bank_data_offset() == want;
-    // Banks landed where the derived offset says they do.
-    const bool content_ok = loaded &&
-                            read_page(f.emu.mmu(), 10, 0) == bank_byte(5, 0) &&
-                            read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0) &&
-                            read_page(f.emu.mmu(), 4, 0x1FFF) == bank_byte(2, 0x1FFF);
-    // Pages 18/19 = the first two of the big-Layer-2 target banks 9-13
-    // (nexload2.asm:623-624 loads 10 pages from LAYER2_BANK*2 = 18).
-    const bool pages_ok = loaded &&
-                          read_page(f.emu.mmu(), 18, 0) == read_page(c.emu.mmu(), 18, 0) &&
-                          read_page(f.emu.mmu(), 19, 0) == read_page(c.emu.mmu(), 19, 0);
-    // Every NextREG either of the three V1.3 screen kinds would write.
-    const bool regs_ok = loaded &&
-                         nr.read(0x70) == cnr.read(0x70) && nr.read(0x12) == cnr.read(0x12) &&
-                         nr.read(0x69) == cnr.read(0x69) && nr.read(0x6B) == cnr.read(0x6B) &&
-                         nr.read(0x6C) == cnr.read(0x6C) && nr.read(0x6E) == cnr.read(0x6E) &&
-                         nr.read(0x6F) == cnr.read(0x6F);
-
-    check(id, desc, offset_ok && content_ok && pages_ok && regs_ok,
-          fmt("load=%d apply=%d bank_data_offset=%llu want %zu (control %llu); "
-              "bank5[0]=%02x want %02x bank2[0]=%02x want %02x; "
-              "page18[0]=%02x/%02x page19[0]=%02x/%02x (test/control); "
-              "NR 70=%02x/%02x 12=%02x/%02x 69=%02x/%02x 6B=%02x/%02x 6C=%02x/%02x "
-              "6E=%02x/%02x 6F=%02x/%02x",
-              f.load_ok, f.apply_ok,
-              static_cast<unsigned long long>(f.loader.bank_data_offset()), want,
-              static_cast<unsigned long long>(c.loader.bank_data_offset()),
-              loaded ? read_page(f.emu.mmu(), 10, 0) : 0, bank_byte(5, 0),
-              loaded ? read_page(f.emu.mmu(), 4, 0) : 0, bank_byte(2, 0),
-              loaded ? read_page(f.emu.mmu(), 18, 0) : 0,
-              loaded ? read_page(c.emu.mmu(), 18, 0) : 0,
-              loaded ? read_page(f.emu.mmu(), 19, 0) : 0,
-              loaded ? read_page(c.emu.mmu(), 19, 0) : 0,
-              nr.read(0x70), cnr.read(0x70), nr.read(0x12), cnr.read(0x12),
-              nr.read(0x69), cnr.read(0x69), nr.read(0x6B), cnr.read(0x6B),
-              nr.read(0x6C), cnr.read(0x6C), nr.read(0x6E), cnr.read(0x6E),
-              nr.read(0x6F), cnr.read(0x6F)));
+void ext2_gate_row(const char* id, const char* desc, uint8_t sf2, const char* tag) {
+    V13Opts o;
+    o.screen_flags  = 0x01;      // LAYER2 — classic block, bit 6 CLEAR
+    o.screen_flags2 = sf2;       // non-zero: the classic block is skipped
+    // header 512 + 512-byte palette (LAYER2 carries one, :296-:300); no screen
+    // data at all: neither the classic block nor a big one is consumed.
+    const Ext2Result r = ext2_skip_probe(o, tag, 1024);
+    check(id, desc, r.offset_ok && r.content_ok && r.pages_ok && r.regs_ok, r.detail);
 }
 
 void test_ext2_gate() {
     ext2_gate_row("NEXV13-EXT2-01",
-                  "screen_flags2 = 1 (L2 320x256) with screen_flags bit 6 CLEAR declares "
-                  "nothing: no 81920-byte block is sized or ingested, banks 9-13 stay "
-                  "untouched and no screen NextREG is written — the block's trigger bit is "
-                  "EXT2 (nexload2.asm:623,:307-311), so LoadScreenBlock never runs (GH #185)",
+                  "screen_flags2 = 1 with bit 6 CLEAR and a classic Layer 2 screen declares "
+                  "no data: the big 81920-byte block is not triggered (EXT2 bit clear, "
+                  "nexload2.asm:623,:307-311) and the classic 49152-byte block is SKIPPED "
+                  "(LOADSCR2 != 0, :630-632), so only header + palette precede the banks",
                   1, "e2g1");
 
     ext2_gate_row("NEXV13-EXT2-02",
-                  "screen_flags2 = 2 (L2 640x256) with bit 6 clear is likewise inert — the "
-                  "second of the two values that would otherwise add 81920 bytes and shift "
-                  "the start of every bank (nexload2.asm:624) (GH #185)",
+                  "screen_flags2 = 2 with bit 6 clear: likewise no big block (:624) and the "
+                  "classic Layer 2 block is skipped (:630-632) - nothing is sized, read or "
+                  "displayed",
                   2, "e2g2");
 
     ext2_gate_row("NEXV13-EXT2-03",
-                  "screen_flags2 = 3 (tilemode) with bit 6 clear is inert too: it adds no "
-                  "data block, so only its four config writes to NR 0x6B/0x6C/0x6E/0x6F "
-                  "would betray it (nexload2.asm:625,:688-697) (GH #185)",
+                  "screen_flags2 = 3 (tilemode) with bit 6 clear: no tile config write "
+                  "(:625,:688-697), and the classic Layer 2 block is skipped (:630-632)",
                   3, "e2g3");
+
+    // A classic block of each other kind, with a non-zero field 152 and bit 6
+    // clear: skipped, nothing read, position not advanced (:618-:622, :630-:632).
+    // Every row has a palette only when the kind carries one (LoRes does).
+    struct Skip { const char* id; uint8_t sf; uint8_t sf2; const char* tag; size_t off;
+                  const char* desc; };
+    static const Skip kSkip[] = {
+        {"NEXV13-EXT2-04", 0x02, 1, "e2s1", 512,
+         "a V1.3 ULA screen with field 152 = 1 is skipped: no 6912-byte block is consumed "
+         "(nexload2.asm:619 LOADSCR2_NONE vs :630-632), the banks start at 512"},
+        {"NEXV13-EXT2-05", 0x04, 2, "e2s2", 1024,
+         "a V1.3 LoRes screen with field 152 = 2 is skipped (:620, :630-632): the palette "
+         "block is still read (:296-300) but the 12288-byte screen is not, banks at 1024"},
+        {"NEXV13-EXT2-06", 0x08, 3, "e2s3", 512,
+         "a V1.3 HiRes screen with field 152 = 3 is skipped (:621, :630-632), banks at 512"},
+        {"NEXV13-EXT2-07", 0x10, 200, "e2s4", 512,
+         "a V1.3 HiColour screen with field 152 = 200 (junk, bit 6 clear) is skipped "
+         "(:622, :630-632: any non-zero byte), banks at 512"},
+    };
+    for (const Skip& k : kSkip) {
+        V13Opts o;
+        o.screen_flags  = k.sf;
+        o.screen_flags2 = k.sf2;
+        const Ext2Result r = ext2_skip_probe(o, k.tag, k.off, false);
+        check(k.id, k.desc, r.offset_ok && r.content_ok && r.pages_ok && r.regs_ok, r.detail);
+    }
+
+    // Bit 6 SET beside classic bits: only the EXT2 block is consumed. LOADSCR2
+    // is non-zero by construction (it selects the block), so every classic
+    // block of the same header is skipped (:630-632) while the big one runs.
+    {
+        V13Opts o;
+        o.screen_flags  = 0x02 | 0x04 | 0x40;    // ULA | LORES | EXT2
+        o.screen_flags2 = 1;                      // L2 320x256
+        o.banks = {2};
+        Fixture f(o, "e2m1");
+        const size_t want = 512 + 512 + 81920;    // palette + the big block only
+        bool pg_ok = f.load_ok && f.apply_ok;
+        for (uint16_t pg = 18; pg <= 27 && pg_ok; ++pg) {
+            const size_t base = static_cast<size_t>(pg - 18) * 0x2000;
+            pg_ok = read_page(f.emu.mmu(), pg, 0) == scr_byte(base) &&
+                    read_page(f.emu.mmu(), pg, 0x1FFF) == scr_byte(base + 0x1FFF);
+        }
+        check("NEXV13-EXT2-08",
+              "ULA|LORES|EXT2 with field 152 = 1: the classic ULA and LoRes blocks are "
+              "skipped (nexload2.asm:630-632) and only the 81920-byte big Layer 2 block is "
+              "consumed, from the first byte after the palette; banks follow it",
+              f.load_ok && f.apply_ok && f.loader.bank_data_offset() == want && pg_ok &&
+                  read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0),
+              fmt("load=%d apply=%d bank_data_offset=%llu want %zu big_pages_ok=%d",
+                  f.load_ok, f.apply_ok,
+                  static_cast<unsigned long long>(f.loader.bank_data_offset()), want, pg_ok));
+    }
+
+    // Control rows: the skip needs BOTH a V1.3 header and a non-zero byte.
+    {
+        // V1.2 is nexload.asm's, which has no field 152 (zero references in its
+        // 778 lines): the ULA block is consumed whatever sits at offset 152.
+        V13Opts o;
+        o.version = "V1.2";
+        o.screen_flags  = 0x02;
+        o.screen_flags2 = 1;
+        o.banks = {2};
+        Fixture f(o, "e2v12");
+        const size_t want = 512 + 6912;
+        check("NEXV13-EXT2-09",
+              "a V1.2 header with a non-zero byte at 152 still ingests its ULA block: "
+              "field 152 does not exist for nexload.asm, the skip is nexload2's alone",
+              f.load_ok && f.apply_ok && f.loader.bank_data_offset() == want &&
+                  read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0),
+              fmt("load=%d apply=%d bank_data_offset=%llu want %zu",
+                  f.load_ok, f.apply_ok,
+                  static_cast<unsigned long long>(f.loader.bank_data_offset()), want));
+    }
+    {
+        // Field 152 = 0, bit 6 clear: the classic Layer 2 block IS read (:630-632
+        // match on 0 == 0) and lands in banks 8-10 = pages 16-21.
+        V13Opts o;
+        o.screen_flags  = 0x01;
+        o.screen_flags2 = 0;
+        o.banks = {2};
+        Fixture f(o, "e2z");
+        const size_t want = 512 + 512 + 49152;
+        check("NEXV13-EXT2-10",
+              "a V1.3 Layer 2 screen with field 152 = 0 is ingested: LOADSCR2 equals the "
+              "definition's NONE byte (nexload2.asm:630-632), so the block loads into "
+              "banks 8-10 and the banks follow it",
+              f.load_ok && f.apply_ok && f.loader.bank_data_offset() == want &&
+                  read_page(f.emu.mmu(), 16, 0) == scr_byte(0) &&
+                  read_page(f.emu.mmu(), 21, 0x1FFF) == scr_byte(49151) &&
+                  read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0),
+              fmt("load=%d apply=%d bank_data_offset=%llu want %zu page16[0]=%02x want %02x",
+                  f.load_ok, f.apply_ok,
+                  static_cast<unsigned long long>(f.loader.bank_data_offset()), want,
+                  f.load_ok && f.apply_ok ? read_page(f.emu.mmu(), 16, 0) : 0, scr_byte(0)));
+    }
 }
 
 // ── Loud refusal of screens this loader cannot size ──────────────────
@@ -699,28 +815,204 @@ void refuse_row(const char* id, const char* desc, V13Opts o, const char* tag) {
           "read from the wrong file offset (issue #156)");
 }
 
+// A bit-6 header whose byte 152 selects no EXT2 block (0, 4, 255, ...), with
+// preserve=1, header border 5 and a preset border 6. nexload2 reads no block
+// for it (:630-632) and writes no border from it (:634-635), so the file's
+// bank offset is header + (palette) + whatever classic blocks survive
+// (`want_off`), the border stays 6 unless a surviving classic block writes
+// it (`want_border`), and no screen page or NextREG moves vs a control that
+// triggers no block. `expect_ula`: a classic ULA block survives and lands in
+// bank 5 (banks then exclude 5).
+uint8_t read_pal_8(Emulator& emu, uint8_t nr43_select, uint8_t index);   // defined with the palette rows
+
+void ext2_unknown_row(const char* id, const char* desc, uint8_t sf, uint8_t sf2,
+                      size_t want_off, int want_border, bool expect_ula, const char* tag,
+                      int want_pal) {
+    V13Opts o;
+    o.screen_flags = sf; o.screen_flags2 = sf2;
+    o.border = 5; o.preserve_regs = 1; o.preset_border = 6;
+    o.omit_banks_offset = true;
+    o.banks = {2, 0, 1, 3, 4};
+    V13Opts ctl = o;
+    ctl.screen_flags = 0x80; ctl.screen_flags2 = 0;
+
+    Fixture f(o, tag);
+    Fixture c(ctl, (std::string(tag) + "c").c_str());
+    const bool loaded = f.load_ok && f.apply_ok && c.load_ok && c.apply_ok;
+    const bool off_ok = loaded && f.loader.bank_data_offset() == want_off &&
+                        f.loader.bank_data_offset() == expected_bank_offset(o);
+    const bool bank_ok = loaded && read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0) &&
+                         read_page(f.emu.mmu(), 4, 0x1FFF) == bank_byte(2, 0x1FFF);
+    bool pages_ok = loaded;
+    for (uint16_t pg = 16; pg <= 27 && pages_ok; ++pg)
+        pages_ok = read_page(f.emu.mmu(), pg, 0) == read_page(c.emu.mmu(), pg, 0);
+    const bool ula_ok = !loaded ? false
+        : expect_ula ? read_page(f.emu.mmu(), 10, 0) == scr_byte(0)
+                     : read_page(f.emu.mmu(), 10, 0) == read_page(c.emu.mmu(), 10, 0);
+    auto& nr = f.emu.nextreg(); auto& cnr = c.emu.nextreg();
+    bool regs_ok = loaded;
+    for (int r : {0x70, 0x12, 0x6B, 0x6C, 0x6E, 0x6F})
+        regs_ok = regs_ok && nr.read(r) == cnr.read(r);
+    if (!expect_ula) regs_ok = regs_ok && nr.read(0x15) == cnr.read(0x15) &&
+                               nr.read(0x69) == cnr.read(0x69);
+    // Where the 512-byte palette block lands (nexload2.asm:731-741, driven by
+    // the raw byte 152): ULA-first 0x00 for 0 with no LAYER2 bit, Layer 2-first
+    // 0x10 for any other non-tilemode byte. `want_pal` < 0 = NOPAL, no block:
+    // it must be in NEITHER. The other destination must not hold the block.
+    bool pal_ok = loaded;
+    for (int i = 0; i < 256 && pal_ok && want_pal >= 0; ++i)
+        pal_ok = read_pal_8(f.emu, static_cast<uint8_t>(want_pal), static_cast<uint8_t>(i)) ==
+                 pal_byte(static_cast<size_t>(i) * 2);
+    for (int sel : {0x00, 0x10}) {
+        if (sel == want_pal) continue;
+        bool holds = loaded;
+        for (int i = 1; i <= 8 && holds; ++i)
+            holds = read_pal_8(f.emu, static_cast<uint8_t>(sel), static_cast<uint8_t>(i)) ==
+                    pal_byte(static_cast<size_t>(i) * 2);
+        if (holds) pal_ok = false;
+    }
+    const int border = f.emu.ula().get_border();
+    check(id, desc, off_ok && bank_ok && pages_ok && ula_ok && regs_ok && pal_ok &&
+                        border == want_border,
+          fmt("load=%d apply=%d offset=%llu want %zu bank_ok=%d pages_ok=%d ula_ok=%d "
+              "regs_ok=%d pal_ok=%d border=%d want %d",
+              f.load_ok, f.apply_ok, static_cast<unsigned long long>(f.loader.bank_data_offset()),
+              want_off, bank_ok, pages_ok, ula_ok, regs_ok, pal_ok, border, want_border));
+}
+
+// A V1.0-V1.2 header with bit 6 set, loaded as nexload.asm does: bit 6 ignored,
+// byte 152 never read. `want_pal` = NR 0x43 destination of the 512-byte palette
+// (-1: no palette block); `classic` 1 = Layer 2 block, 2 = ULA block was
+// ingested. Border is written whenever LOADSCR != 0 (:511), here header 5 over
+// a preset 6. No V1.3 register (NR 70/12/69/6B-6F) may move vs a no-bit-6 control.
+void v12_bit6_row(const char* id, const char* desc, uint8_t sf, uint8_t sf2,
+                  size_t want_off, int want_pal, int want_border, int classic) {
+    V13Opts o;
+    o.version = "V1.2";
+    o.screen_flags = sf; o.screen_flags2 = sf2;
+    o.border = static_cast<uint8_t>(want_border); o.preset_border = 6;
+    o.omit_banks_offset = true;
+    o.banks = {2, 0, 1, 3, 4};
+    V13Opts ctl = o;
+    ctl.screen_flags = 0x80; ctl.screen_flags2 = 0;
+    Fixture f(o, (std::string("v12") + id + "x").c_str());
+    Fixture c(ctl, (std::string("v12") + id + "c").c_str());
+    const bool loaded = f.load_ok && f.apply_ok && c.load_ok && c.apply_ok;
+    const bool off_ok = loaded && f.loader.bank_data_offset() == want_off &&
+                        f.loader.bank_data_offset() == expected_bank_offset(o);
+    const bool bank_ok = loaded && read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0);
+    bool scr_ok = loaded;
+    if (classic == 1)
+        scr_ok = scr_ok && read_page(f.emu.mmu(), 16, 0) == scr_byte(0) &&
+                 read_page(f.emu.mmu(), 21, 0x1FFF) == scr_byte(49151);
+    else if (classic == 2)
+        scr_ok = scr_ok && read_page(f.emu.mmu(), 10, 0) == scr_byte(0);
+    else
+        for (uint16_t pg = 10; pg <= 27 && scr_ok; ++pg)
+            scr_ok = read_page(f.emu.mmu(), pg, 0) == read_page(c.emu.mmu(), pg, 0);
+    auto& nr = f.emu.nextreg(); auto& cnr = c.emu.nextreg();
+    bool regs_ok = loaded;
+    // A classic Layer 2 / ULA block legitimately moves NR 0x12/0x69/0x70 via its
+    // display step; the tile config (6B-6F) belongs to V1.3 tilemode alone.
+    for (int r : {0x6B, 0x6C, 0x6E, 0x6F})
+        regs_ok = regs_ok && nr.read(r) == cnr.read(r);
+    if (classic == 0)
+        for (int r : {0x70, 0x12, 0x69})
+            regs_ok = regs_ok && nr.read(r) == cnr.read(r);
+    bool pal_ok = loaded;
+    for (int i = 0; i < 256 && pal_ok && want_pal >= 0; ++i)
+        pal_ok = read_pal_8(f.emu, static_cast<uint8_t>(want_pal), static_cast<uint8_t>(i)) ==
+                 pal_byte(static_cast<size_t>(i) * 2);
+    for (int sel : {0x00, 0x10, 0x30}) {
+        if (sel == want_pal) continue;
+        bool holds = loaded;
+        for (int i = 1; i <= 8 && holds; ++i)
+            holds = read_pal_8(f.emu, static_cast<uint8_t>(sel), static_cast<uint8_t>(i)) ==
+                    pal_byte(static_cast<size_t>(i) * 2);
+        if (holds) pal_ok = false;
+    }
+    const int border = f.emu.ula().get_border();
+    check(id, desc, off_ok && bank_ok && scr_ok && regs_ok && pal_ok && border == want_border,
+          fmt("load=%d apply=%d offset=%llu want %zu bank_ok=%d scr_ok=%d regs_ok=%d pal_ok=%d "
+              "border=%d want %d",
+              f.load_ok, f.apply_ok, static_cast<unsigned long long>(f.loader.bank_data_offset()),
+              want_off, bank_ok, scr_ok, regs_ok, pal_ok, border, want_border));
+}
+
 void test_refusal() {
     V13Opts a; a.screen_flags = 0x20;   // bit 5: the one unassigned bit
     refuse_row("NEXV13-REFUSE-01",
                "screen_flags bit 5 (0x20) is unassigned, so its block size is unknown "
                "and load() must refuse rather than mis-size the region", a, "rf1");
 
-    V13Opts b; b.screen_flags = 0x40; b.screen_flags2 = 0;
-    refuse_row("NEXV13-REFUSE-02",
-               "screen_flags bit 6 set with screen_flags2 == 0 declares a V1.3 screen "
-               "that does not exist; load() must refuse", b, "rf2");
+    // NEXV13-REFUSE-02/03 used to refuse bit 6 with byte 152 = 0 / 4. nexload2
+    // does not (owner-approved change, 2026-11-08): all three EXT2 definitions
+    // return at `cp (hl) : ret nz` (:630-632), no header check refuses, and the
+    // loader carries on. See ext2_unknown_row() below.
+    ext2_unknown_row("NEXV13-REFUSE-02",
+                     "screen_flags bit 6 set with screen_flags2 == 0 matches none of the three "
+                     "EXT2 definitions: load() accepts it, no block is sized or read, no border "
+                     "or NextREG is written (nexload2.asm:623-625,:630-632)",
+                     0x40, 0, 1024, 6, false, "rf2", 0);
 
-    V13Opts c; c.screen_flags = 0x40; c.screen_flags2 = 4;
-    refuse_row("NEXV13-REFUSE-03",
-               "screen_flags2 is enumerated 1..3, not a bit field — value 4 is not "
-               "'modes 1 and 3' and load() must refuse", c, "rf3");
+    ext2_unknown_row("NEXV13-REFUSE-03",
+                     "screen_flags2 == 4 with bit 6 set is likewise no EXT2 block (the byte is "
+                     "an enumeration, not a bit field): accepted, nothing sized, read or "
+                     "written (nexload2.asm:630-632)",
+                     0x40, 4, 1024, 6, false, "rf3", 16);
 
-    // A V1.2 file that sets bit 6 has no flags-2 byte (offset 152 is reserved
-    // and zero there), so it is unsizable in exactly the same way.
-    V13Opts d; d.version = "V1.2"; d.screen_flags = 0x40;
-    refuse_row("NEXV13-REFUSE-04",
-               "a V1.2 header setting bit 6 has no flags-2 byte to describe the screen; "
-               "load() must refuse rather than assume a size", d, "rf4");
+    ext2_unknown_row("NEXV13-EXT2-11",
+                     "screen_flags2 == 255 with bit 6 set: no EXT2 block, accepted, banks follow "
+                     "header + palette, border kept (nexload2.asm:630-635)",
+                     0x40, 255, 1024, 6, false, "u255", 16);
+
+    ext2_unknown_row("NEXV13-EXT2-12",
+                     "bit 6 + NOPAL with an unknown byte 152 (4): no palette block, no screen, "
+                     "banks start at 512 (nexload2.asm:296-300,:630-632)",
+                     0x40 | 0x80, 4, 512, 6, false, "u4np", -1);
+
+    ext2_unknown_row("NEXV13-EXT2-13",
+                     "ULA|EXT2 with byte 152 = 0: the ULA block (LOADSCR2 NONE matches) IS read "
+                     "and writes the border, the EXT2 block is skipped: banks at 512+512+6912",
+                     0x42, 0, 512 + 512 + 6912, 5, true, "uula0", 0);
+
+    ext2_unknown_row("NEXV13-EXT2-14",
+                     "ULA|EXT2 with byte 152 = 4: both blocks are skipped (ULA needs 0, EXT2 "
+                     "needs 1..3): banks at 1024, border kept (nexload2.asm:618-625,:630-632)",
+                     0x42, 4, 1024, 6, false, "uula4", 16);
+
+    // A V1.0-V1.2 header with bit 6 loads as nexload.asm does (owner decision,
+    // 2026-11-08): it tests only bits 7 and 0-4 (:424-:510), ignores bit 6,
+    // reads the palette unless NOPAL or ULA/HiRes/HiCol (:426-:428), loads no
+    // screen for bit 6, and never reads byte 152. See v12_bit6_row().
+    v12_bit6_row("NEXV13-REFUSE-04",
+                 "a V1.2 header setting bit 6 loads as nexload.asm does: bit 6 is ignored, the "
+                 "512-byte palette is read (Layer 2 palette, :426-432), no screen is loaded and "
+                 "the border is written (:511); the banks follow the palette",
+                 0x40, 0, 1024, 0x10, 5, 0);
+    v12_bit6_row("NEXV13-EXT2-15",
+                 "a V1.2 header with bit 6 and byte 152 = 1 ignores byte 152: no 81920-byte "
+                 "block is consumed, banks at header + palette (nexload.asm never reads 152)",
+                 0x40, 1, 1024, 0x10, 5, 0);
+    v12_bit6_row("NEXV13-EXT2-16",
+                 "a V1.2 header with bit 6 and byte 152 = 2 ignores byte 152: nothing consumed "
+                 "after the palette", 0x40, 2, 1024, 0x10, 5, 0);
+    v12_bit6_row("NEXV13-EXT2-17",
+                 "a V1.2 header with bit 6 and byte 152 = 3 ignores byte 152: not tilemode, the "
+                 "palette goes to the Layer 2 palette (:432), no tile config written",
+                 0x40, 3, 1024, 0x10, 5, 0);
+    v12_bit6_row("NEXV13-EXT2-18",
+                 "a V1.2 header with LAYER2|bit 6 (byte 152 = 1) loads the classic Layer 2 block "
+                 "(:441-446) and ignores bit 6 and byte 152: banks at 512+512+49152",
+                 0x41, 1, 512 + 512 + 49152, 0x10, 5, 1);
+    v12_bit6_row("NEXV13-EXT2-19",
+                 "a V1.2 header with bit 6 + NOPAL reads no palette (:426) and loads no screen: "
+                 "banks at 512, border written",
+                 0x40 | 0x80, 0, 512, -1, 5, 0);
+    v12_bit6_row("NEXV13-EXT2-20",
+                 "a V1.2 header with ULA|bit 6 reads no palette (`and %11010`, :427), loads the "
+                 "ULA block and ignores bit 6: banks at 512+6912",
+                 0x42, 2, 512 + 6912, -1, 5, 2);
 }
 
 // ── First-bank file offset (field 144) ───────────────────────────────
@@ -1908,6 +2200,30 @@ void test_bank5_clear() {
             Fixture f(o, tag);
             check(k.id, k.desc, f.apply_ok && f.emu.ula().get_border() == 5,
                   fmt("border=%d (want 5)", f.emu.ula().get_border()));
+        }
+    }
+    // The same blocks with a NON-ZERO byte 152 are skipped by `cp (hl) : ret nz`
+    // (:630-632), which comes before the BORDERCOL write (:634-635): the
+    // border stays at the preset 6. Control: a bit-6 header whose big block
+    // runs (ULA|EXT2, 152=1) does write 5.
+    {
+        struct Skip { const char* id; const char* desc; uint8_t sf; uint8_t sf2; int want; };
+        static const Skip skips[] = {
+            {"NEXB5-V13-16", "V1.3 preserve=1, Layer 2 256x192 block with byte 152 = 1: skipped before the border write, border kept at 6 (nexload2.asm:630-635)", 0x01, 1, 6},
+            {"NEXB5-V13-17", "V1.3 preserve=1, ULA block with byte 152 = 1: skipped, border kept at 6 (:630-635)", 0x02, 1, 6},
+            {"NEXB5-V13-18", "V1.3 preserve=1, LoRes block with byte 152 = 2: skipped, border kept at 6 (:630-635)", 0x04, 2, 6},
+            {"NEXB5-V13-19", "V1.3 preserve=1, HiRes block with byte 152 = 3: skipped, border kept at 6 (:630-635)", 0x08, 3, 6},
+            {"NEXB5-V13-20", "V1.3 preserve=1, HiColour block with byte 152 = 200 (junk): skipped, border kept at 6 (:630-635)", 0x10, 200, 6},
+            {"NEXB5-V13-21", "V1.3 preserve=1, ULA|EXT2 with byte 152 = 1: the ULA block is skipped but the big Layer 2 block loads and writes the border: 5 (:623,:634-635)", 0x42, 1, 5},
+        };
+        int n = 0;
+        for (const Skip& k : skips) {
+            V13Opts o; o.border = 5; o.preserve_regs = 1; o.preset_border = 6;
+            o.screen_flags = k.sf; o.screen_flags2 = k.sf2;
+            char tag[16]; std::snprintf(tag, sizeof(tag), "b5s%d", n++);
+            Fixture f(o, tag);
+            check(k.id, k.desc, f.apply_ok && f.emu.ula().get_border() == k.want,
+                  fmt("border=%d (want %d)", f.emu.ula().get_border(), k.want));
         }
     }
     {
