@@ -2024,6 +2024,30 @@ void test_bank5_clear() {
                   fmt("border=%d (want 5)", f.emu.ula().get_border()));
         }
     }
+    // The same blocks with a NON-ZERO byte 152 are skipped by `cp (hl) : ret nz`
+    // (:630-632), which comes before the BORDERCOL write (:634-635): the
+    // border stays at the preset 6. Control: a bit-6 header whose big block
+    // runs (ULA|EXT2, 152=1) does write 5.
+    {
+        struct Skip { const char* id; const char* desc; uint8_t sf; uint8_t sf2; int want; };
+        static const Skip skips[] = {
+            {"NEXB5-V13-16", "V1.3 preserve=1, Layer 2 256x192 block with byte 152 = 1: skipped before the border write, border kept at 6 (nexload2.asm:630-635)", 0x01, 1, 6},
+            {"NEXB5-V13-17", "V1.3 preserve=1, ULA block with byte 152 = 1: skipped, border kept at 6 (:630-635)", 0x02, 1, 6},
+            {"NEXB5-V13-18", "V1.3 preserve=1, LoRes block with byte 152 = 2: skipped, border kept at 6 (:630-635)", 0x04, 2, 6},
+            {"NEXB5-V13-19", "V1.3 preserve=1, HiRes block with byte 152 = 3: skipped, border kept at 6 (:630-635)", 0x08, 3, 6},
+            {"NEXB5-V13-20", "V1.3 preserve=1, HiColour block with byte 152 = 200 (junk): skipped, border kept at 6 (:630-635)", 0x10, 200, 6},
+            {"NEXB5-V13-21", "V1.3 preserve=1, ULA|EXT2 with byte 152 = 1: the ULA block is skipped but the big Layer 2 block loads and writes the border: 5 (:623,:634-635)", 0x42, 1, 5},
+        };
+        int n = 0;
+        for (const Skip& k : skips) {
+            V13Opts o; o.border = 5; o.preserve_regs = 1; o.preset_border = 6;
+            o.screen_flags = k.sf; o.screen_flags2 = k.sf2;
+            char tag[16]; std::snprintf(tag, sizeof(tag), "b5s%d", n++);
+            Fixture f(o, tag);
+            check(k.id, k.desc, f.apply_ok && f.emu.ula().get_border() == k.want,
+                  fmt("border=%d (want %d)", f.emu.ula().get_border(), k.want));
+        }
+    }
     {
         // Raw byte (nexload2.asm:1115-1116 out ($FE),a; :1123-1126 .3 add a,a):
         // header 0x15 gives attributes 0xA8, not the masked 0x28; OUT 0xFE bit 4

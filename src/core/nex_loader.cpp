@@ -97,11 +97,13 @@ static bool nex_has_palette_block(uint8_t sf, bool v13) {
 ///
 /// and all five classic definitions carry LOADSCR2_NONE = 0 (:618-:622). So
 /// with ANY non-zero byte at offset 152 -- bit 6 set or not -- the call
-/// returns at once: nothing is read, the file position does not move, no
-/// NextREG or port is written. The screen is skipped, not seeked over; the
-/// bytes it would have held are read as whatever block comes next. Only a
-/// V1.3 header reaches nexload2 (V1.0-V1.2 files are nexload.asm's, which has
-/// no field 152).
+/// returns at once: nothing is read, the file position does not move, and no
+/// NextREG, port or border write happens (those follow at :634-:635). The
+/// screen is skipped, not seeked over; the bytes it would have held are read
+/// as whatever block comes next. V1.0-V1.2 files are modelled on the distro
+/// nexload.asm, which has no field 152; nexload2 also accepts them
+/// (:566-:567) but it is not the loader jnext follows for them, so the skip
+/// applies to V1.3 headers only.
 static uint8_t nex_classic_blocks(uint8_t sf, uint8_t sf2, bool v13) {
     constexpr uint8_t kClassic =
         NexHeader::SCREEN_LAYER2 | NexHeader::SCREEN_ULA | NexHeader::SCREEN_LORES |
@@ -1633,10 +1635,12 @@ bool NexLoader::apply(Emulator& emu) const
     // `or a:jp z,.skpbmp` on LOADSCR (nexload.asm:424-425, :512), so a file
     // with no screen keeps the border 0 set at :319. V1.3: LoadScreenBlock
     // writes BORDERCOL once per block that loads (nexload2.asm:634-635); a
-    // block loads for a classic LOADSCR bit (second byte NONE) or for one of
-    // the three EXT2 kinds (:623-:625), the same decode the ingest above
-    // uses. The preserve=0 border was already written by the clear.
-    const bool v13_block = (sf & 0x1F) != 0 ||
+    // block loads for a classic LOADSCR bit that survives the LOADSCR2 test
+    // (`cp (hl) : ret nz`, :630-632, comes BEFORE the border write, so a
+    // skipped classic block writes no border either: `blk`, not `sf`) or for
+    // one of the three EXT2 kinds (:623-:625), the same decode the ingest
+    // above uses. The preserve=0 border was already written by the clear.
+    const bool v13_block = (blk & 0x1F) != 0 ||
         sf2 == NexHeader::SCREEN2_L2_320x256 ||
         sf2 == NexHeader::SCREEN2_L2_640x256 ||
         sf2 == NexHeader::SCREEN2_TILEMODE;
