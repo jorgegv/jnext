@@ -370,14 +370,71 @@ public:
     /// fills `why` with the first one that fails so a refusal is diagnosable.
     bool nextzxos_resident(std::string& why) const;
 
-    /// Frames of emulated boot a recording runs before it captures.
-    ///
-    /// The `boot-nextzxos-welcome` regression row pins the NextZXOS welcome
-    /// screen as fully rendered by frame 400 on the distro image; this adds
-    /// 100 frames of slack on top. It is a budget, not a deadline: what
-    /// decides whether the capture is taken is nextzxos_resident(), which
-    /// runs afterwards and refuses loudly.
-    static constexpr uint32_t kWarmStartBootFrames = 500;
+    /// The recording's schedule is in EMULATED TIME, not frames. A frame is 6
+    /// units at 50 Hz and 5 at 60 Hz (1/300 s), because NextZXOS reads
+    /// `50_60hz` from the card's own config.ini and the welcome screen then
+    /// appears at frame 480 instead of 400 (measured). Every point below is the
+    /// 50 Hz frame count times 6.
+    static constexpr uint32_t kWarmStartUnitsPer50HzFrame = 6;
+    static constexpr uint32_t kWarmStartUnitsPer60HzFrame = 5;
+    /// T0: frame 400. The `boot-nextzxos-welcome` regression row pins the
+    /// welcome as fully rendered by then. NextZXOS residency is checked, and a
+    /// BASIC program still resident (the welcome's own) gets SPACE
+    /// ("SPACE=Start NextZXOS").
+    static constexpr uint32_t kWarmStartT0Units = 400 * 6;
+    /// T1: frame 470, cursor DOWN on the menu (Browser -> Command Line).
+    static constexpr uint32_t kWarmStartT1Units = 470 * 6;
+    /// T2: frame 500, ENTER: the Command Line. T0-T2 are the points the
+    /// `boot-nextzxos-menu` and `boot-nextzxos-dotls` rows already prove.
+    static constexpr uint32_t kWarmStartT2Units = 500 * 6;
+    /// T3: frame 560, `print;:pause 0` + ENTER typed at the Command Line. The
+    /// queue drains at frame 691 (measured).
+    static constexpr uint32_t kWarmStartT3Units = 560 * 6;
+    /// T4: frame 760, the capture. NextZXOS sits inside PAUSE 0 with the
+    /// stream-2 channel opened by PRINT, which is the state a dot command's
+    /// program entry has; warm_start_capture_ready() then decides.
+    static constexpr uint32_t kWarmStartT4Units = 760 * 6;
+
+    /// The frame number a warm-started program starts at. The recording is
+    /// about 760 frames long, but scripts recorded with --record-script (and the
+    /// committed DAPR replays) key on "on frame N" and were recorded when the
+    /// recording was 500 frames long, so the recorder rebases the counter it
+    /// saves to this value. Nothing else reads it as a true boot-frame count.
+    static constexpr uint32_t kWarmStartProgramFrame = 500;
+
+    /// The recorder's RTC year; the full constant (2026-07-10 08:55:00) is set
+    /// in warm_start_boot_config(). Not part of the saved state.
+    static constexpr int kWarmStartRtcYear = 2026;
+
+    /// The fix-ups a recording needs after the capture check and before
+    /// save_state(): today the frame rebase. One helper, so the stepped recorder
+    /// of the web build calls it as well.
+    static void warm_start_finish_recording(Emulator& rec);
+
+    /// The per-frame step of the recording recipe. Call it once per
+    /// `run_frame()` of the recorder, with the emulated-time units BEFORE and
+    /// AFTER that frame (`warm_start_frame_units()` per frame). It queues, on
+    /// `rec`'s keyboard, what each point crossed in (before, after] asks for.
+    /// Returns true when T0 was crossed: the caller then checks
+    /// `nextzxos_resident()` (it is not done here, so the rows can drive the
+    /// recipe on a machine that never booted).
+    static bool warm_start_recipe_tick(Emulator& rec, uint32_t units_before,
+                                       uint32_t units_after);
+
+    /// Units one frame adds to the recipe's clock, from the machine's current
+    /// refresh rate (the firmware switches it from config.ini during boot).
+    static uint32_t warm_start_frame_units(bool refresh_60hz)
+    {
+        return refresh_60hz ? kWarmStartUnitsPer60HzFrame : kWarmStartUnitsPer50HzFrame;
+    }
+
+    /// The capture criterion for the recording's final state: NextZXOS is
+    /// executing a typed statement whose output channel is open, which is the
+    /// state a program started by `.nexload` meets. Six questions about 48K-ROM
+    /// system variables (no NextZXOS build can move them without breaking 48K
+    /// software), read from bank 5 and not through the CPU's mapping; `why`
+    /// names the first one that fails.
+    bool warm_start_capture_ready(std::string& why) const;
 
     /// G156 — NEX `loading_delay`/`start_delay` (tbblue nexload.asm:541,
     /// 575-577). NexLoader::apply() computes the total frame count via
@@ -2111,7 +2168,7 @@ private:
     ///
     /// Sticky per image, not per session: without it a card that cannot
     /// produce a NextZXOS — no firmware on it, a non-NextZXOS distro — would
-    /// pay a 500-frame boot on every single load and report the same failure
+    /// pay a boot on every single load and report the same failure
     /// each time. Keyed on the path rather than a plain bool so that mounting
     /// a DIFFERENT image (File > Insert SD Card Image) gets its own chance; the
     /// verdict belongs to the card, not to the run.

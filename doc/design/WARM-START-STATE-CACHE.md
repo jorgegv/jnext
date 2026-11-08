@@ -583,7 +583,7 @@ the synthetic path, where the SRAM ROM pages hold only the 48K image and the
 selection means something different.
 
 The synthetic machine got this right by having no alternative — the 48K image
-is the only ROM it has. The recording, taken at the NextZXOS menu, carries the
+is the only ROM it has. The recording, taken at the NextZXOS welcome program, carries the
 OS's four-ROM set with **ROM 0** selected, so the program read NextZXOS's code
 as font data.
 
@@ -660,3 +660,73 @@ committed and never packaged. Compression changes its size, not its contents:
 a 126 KB file holding NextZXOS and DivMMC ROM content is a file holding
 firmware exactly as a 2.2 MB one is.
 
+## 12. The recording point (2026-11-08)
+
+This section supersedes §10.8's "No keypress is injected ... what screen
+NextZXOS happened to be showing does not reach the program". §11 falsified it
+once (the ROM selection), the bank-5 change (NEX loading no longer zeroes it)
+again, and a program that printed through the ROM falsified it a third time:
+it hung.
+
+**What was recorded.** Frame 500 on the distro card is not the NextZXOS menu: it
+is the welcome tour, the BASIC program `autoexec.1st` in a key loop. Measured
+(`--delayed-snapshot` of the real NextZXOS at several states, and the 48K ROM's
+`CHANNEL-DATA` at `$15AF`):
+
+| state | K/S output | CURCHL | TV_FLAG | ERR_NR | PPC | PROG / VARS |
+|---|---|---|---|---|---|---|
+| warm start before (welcome) | `$5B4D` | K | 01 | | `$0078` | `$5DFA` / `$8688` |
+| menu | `$09F4` | S | 20 | `$2F` | 0 | `$5CCB` / `$5CCB` |
+| Command Line, idle | `$09F4` | S | 21 | `$2F` | 0 | `$5CCB` / `$5CCB` |
+| executing `PAUSE 0` | `$09F4` | K | 01 | `$FF` | `$FFFE` | `$5CCB` / `$5CCB` |
+| executing `PRINT ;: PAUSE 0` | `$09F4` | S | 00 | `$FF` | `$FFFE` | `$5CCB` / `$5CCB` |
+| real chain, program entry | `$09F4` | S | 00 | `$FF` | `$FFFE` | `$5CCB` / `$5CCB` |
+
+`$5B4D` is the RAM stub `nextreg $8E,0 : ret`; a program's `RST $10` reaches it
+through channel K, which pages ROM 0 and returns into ROM 0 at a ROM 3 address.
+The welcome's screen pixels and 10 KB BASIC program were also resident.
+
+**The statement.** `PRINT ;: PAUSE 0` typed at the Command Line: PRINT opens
+stream 2 through ROM 3's own CHAN-OPEN (the dot-command environment), PAUSE 0 holds
+the interpreter inside the statement at a frame boundary with interrupts on.
+`PAUSE 0` alone leaves K open; `BEEP` is a DI loop; a FOR loop creates a variable.
+
+**The recipe** is keystrokes in the recorder (`Keyboard::queue_auto_type()`): SPACE
+only while the welcome program is resident (PROG != VARS), cursor DOWN and ENTER
+on the menu, the statement and ENTER; capture at 760 frames. Rejected: patching
+CHANS/TV_FLAG/FLAGS2 in the handover (modelling closed-source OS state is the
+`--bypass-tbblue-fw` approach, §8), and recording the Command Line idle (a
+program's `RST $10` then prints in the lower screen). The schedule runs in emulated
+time (6 units per frame at 50 Hz, 5 at 60 Hz) because a `50_60hz=1` card shows
+the welcome at frame 480.
+
+**The criterion** (`Emulator::warm_start_capture_ready`) refuses, loudly and with
+the synthetic fallback, anything that is not that state: K and S are the ROM's
+records, CURCHL is stream 2, TV_FLAG bit 0 clear, ERR_NR `$FF`, PPC `$FFFE`, no
+key still queued. **The cache** gained a recording-procedure version at header
+offset 72, so a cache written before is re-recorded.
+
+**Against the real chain** (boot, Command Line, `.nexload` of the same probe) the
+recorded bank 5 differs in 35 bytes: E_LINE and its dependent pointers, SUBPPC,
+FLAGS bit 6, interpreter scratch and 5 NextZXOS-internal bytes in `$5B00-$5BFF`;
+the screenshots of a program that prints are identical.
+
+**Determinism and the frame number (added the same day).** Two decisions follow
+from measurement, and both extend plan §10.8.
+- *The recorder's clock is a constant.* The recording was a function of the RTC
+  minute: R at capture, the clock phase (`clock.cycle` and the counters derived
+  from it), one NextZXOS RAM byte and the DS1307 register cache all moved with it,
+  so the same card gave different machines at different times of day and an
+  R-seeded program (`celeste`) a different picture. Pinning R alone (tried first)
+  left 12 to 18 bytes of residue that reached the running program; pinning the
+  recorder's RTC in `warm_start_boot_config()` (2026-07-10 08:55:00) makes
+  recordings under four clock settings, host time included, byte-identical, and
+  fabricates no CPU state. The cache key never covered the clock, so a
+  clock-dependent recording contradicted it. The pin is not saved state: the live
+  machine keeps its `--rtc` or the host clock after the restore (a row reads the
+  DS1307 from a warm-loaded program to prove it).
+- *The frame counter is rebased to 500.* The recording is about 760 frames long;
+  `frame_num_` is saved state, and scripts recorded with `--record-script` key on
+  `on frame N` from the 500-frame recording (the committed DAPR replays, and any
+  user script). `warm_start_finish_recording()` sets it back to 500 before the
+  state is saved. The guest cannot see it (FRAMES, `$5C78`, is guest RAM).

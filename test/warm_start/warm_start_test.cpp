@@ -34,6 +34,7 @@
 //   WSC-RT-04     a second store() replaces in place — one file per machine
 //   WSC-HDR-01    file length is kHeaderBytes + the STORED (compressed) length
 //   WSC-HDR-02    the SD image's size and mtime sit at their documented offsets
+//   WSC-HDR-03    the recording-procedure version sits at offset 72 (GH #481)
 //   WSC-Z-01      the stored payload is DEFLATED, and its length is the header's
 //   WSC-Z-02      a corrupted compressed payload is REFUSED as an inflate failure
 //   WSC-Z-03      a payload that inflates SHORT of its declared length is REFUSED
@@ -49,8 +50,17 @@
 //   WSC-INV-07    a missing file is REFUSED
 //   WSC-INV-08    a file shorter than the header is REFUSED
 //   WSC-INV-09    a refused load leaves the caller's buffer untouched
-//   WSC-INV-10    all twelve refusal branches state a DISTINCT reason
+//   WSC-INV-10    all thirteen refusal branches state a DISTINCT reason
+//   WSC-INV-12    a different recording-procedure version is REFUSED (GH #481)
+//   WSC-INV-13    a pre-#481 file (version 0 at offset 72) is REFUSED, so an old
+//                 cache is re-recorded rather than served
 //   WSC-STORE-01  store() refuses a header that disagrees with its payload
+//   WSR-CTX-01..08  the capture criterion (GH #481): the real-chain statement
+//                 context is accepted, and each of its six questions refuses
+//                 alone, naming itself (C1 K and S, C2, C3, C4, C5, C6)
+//   WSR-RCP-01..04  the recording recipe tick (GH #481): SPACE only over a
+//                 resident welcome program, the schedule in emulated time, and
+//                 the exact key sequence typed
 //   WSR-RES-01    a non-Next machine is refused, naming the machine
 //   WSR-RES-02    a Next that never booted is refused although the two
 //                 FIRMWARE-LESS checks pass — the case with no symptom
@@ -62,6 +72,8 @@
 //                 directly, not inferred from the refusal message
 //   WSR-RES-07    a firmware-less CARD declines after a real boot,
 //                 named as such, and caches nothing
+//   WSR-RES-10    …and it is refused by the residency check at frame 400, not
+//                 after the whole recipe by the capture criterion (GH #481)
 //   WSR-RES-08    that verdict is latched per image — no second boot
 //   WSR-RES-09    …and the non-Next decline is at DEBUG severity, not warn
 //                 or error: it is not a refusal, and it is on every legacy
@@ -98,6 +110,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -301,6 +314,56 @@ void poke_u64(const std::string& p, size_t off, uint64_t v) {
     poke(p, off, b, 8);
 }
 
+
+// ── GH #481 fixtures: the NextZXOS statement context in a synthetic Next ──
+//
+// Oracle: the real chain executed inside jnext (boot NextZXOS, Command Line,
+// `.nexload` of a probe that dumps bank 5 at entry), and the 48K ROM's own
+// CHANNEL-DATA at $15AF. The values below are those measured values: CHANS
+// $5CB6, STRMS[2] 6, CURCHL $5CBB, TV_FLAG 0, ERR_NR $FF, PPC $FFFE.
+constexpr uint16_t kSvErrNr = 0x5C3A, kSvTvFlag = 0x5C3C, kSvStrms2 = 0x5C1A,
+                   kSvChans = 0x5C4F, kSvCurchl = 0x5C51, kSvPpc = 0x5C45,
+                   kSvProg = 0x5C53, kSvVars = 0x5C4B;
+constexpr uint8_t kChannelData[10] = {0xF4, 0x09, 0xA8, 0x10, 0x4B,
+                                      0xF4, 0x09, 0xC4, 0x15, 0x53};
+
+void sv_put16(Emulator& e, uint16_t a, uint16_t v) {
+    uint8_t* b5 = e.mmu().bank5_vram();
+    b5[a - 0x4000]     = static_cast<uint8_t>(v);
+    b5[a - 0x4000 + 1] = static_cast<uint8_t>(v >> 8);
+}
+
+void make_next(Emulator& e) {
+    EmulatorConfig c;
+    c.type = MachineType::ZXN_ISSUE2;
+    c.rewind_buffer_frames = 0;
+    e.init(c);
+}
+
+void set_statement_context(Emulator& e) {
+    uint8_t* b5 = e.mmu().bank5_vram();
+    std::memcpy(e.ram().page_ptr(6) + 0x15AF, kChannelData, 10);
+    sv_put16(e, kSvChans, 0x5CB6);
+    std::memcpy(b5 + (0x5CB6 - 0x4000), kChannelData, 10);
+    sv_put16(e, kSvStrms2, 6);
+    sv_put16(e, kSvCurchl, 0x5CBB);
+    b5[kSvTvFlag - 0x4000] = 0x00;
+    b5[kSvErrNr - 0x4000]  = 0xFF;
+    sv_put16(e, kSvPpc, 0xFFFE);
+}
+
+/// Keys held this frame, as a sorted list of row*8+col, read through the
+/// port-0xFE row scan the guest uses.
+std::vector<int> held_keys(Emulator& e) {
+    std::vector<int> k;
+    for (int r = 0; r < 8; ++r) {
+        const uint8_t v = e.keyboard().read_rows(static_cast<uint8_t>(~(1 << r)));
+        for (int c = 0; c < 5; ++c)
+            if (!(v & (1 << c))) k.push_back(r * 8 + c);
+    }
+    return k;
+}
+
 }  // namespace
 
 // The product joins path components with std::filesystem, i.e. with the host's
@@ -392,6 +455,11 @@ int main()
               "the header carries the image's size and mtime at offsets 24 and 32",
               raw.size() > 88 && le64(raw, 24) == id.sd_image_bytes &&
                   static_cast<int64_t>(le64(raw, 32)) == id.sd_image_mtime);
+        check("WSC-HDR-03",
+              "the header carries kRecordingVersion as u32 LE at offset 72",
+              raw.size() > 76 && warm_start::kRecordingVersion != 0 &&
+                  static_cast<uint32_t>(le64(raw, 72) & 0xFFFFFFFFu) ==
+                      warm_start::kRecordingVersion);
 
         // ── Compression (GH #234 by-default) ────────────────────────
         //
@@ -672,6 +740,26 @@ int main()
                   refused(id, "is shorter than its own header"), why);
         }
 
+        // GH #481: the recording-procedure version (offset 72) is the thirteenth
+        // refusal branch, so WSC-INV-12 records its reason in the ledger below.
+        {
+            const bool unused_by_ledger = std::none_of(
+                g_refusals.begin(), g_refusals.end(), [](const std::string& r) {
+                    return r.find("recording procedure") != std::string::npos;
+                });
+            warm_start::Identity other = id;
+            other.recording_version = warm_start::kRecordingVersion + 1;
+            warm_start::store(other, state, why);
+            const bool r12 = refused(id, "recorded by a different recording procedure");
+            check("WSC-INV-12",
+                  "a file recorded by a different recording-procedure version is "
+                  "refused, as such, with a reason no other branch uses",
+                  r12 && unused_by_ledger &&
+                      why.find("version " + std::to_string(other.recording_version)) !=
+                          std::string::npos,
+                  why);
+        }
+
         // Diagnosability, asserted rather than assumed. Every branch above
         // must produce a DISTINCT message: the cache's whole recovery story is
         // that a refusal tells the user which of the keys moved, and two
@@ -679,7 +767,9 @@ int main()
         // per-row `expect` fragments above prove each branch says the right
         // thing; this proves no two of them say the same thing.
         {
-            // TWELVE, not eight: four NEW branches (WSC-Z-02, -03, -05, -06)
+            // THIRTEEN, not twelve (owner, 2026-11-08, GH #481): the
+            // recording-procedure version (WSC-INV-12) is a new branch. Before
+            // that, TWELVE, not eight: four NEW branches (WSC-Z-02, -03, -05, -06)
             // came with the compressed payload, and they refuse EARLIER in
             // the file, so a ledger scoped to this block would have proved
             // distinctness over a subset while the suite grew a thirteenth
@@ -695,21 +785,35 @@ int main()
             const bool all_distinct =
                 std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end();
             check("WSC-INV-10",
-                  "all twelve refusal branches state a reason, and no two state "
+                  "all thirteen refusal branches state a reason, and no two state "
                   "the same one",
-                  g_refusals.size() == 12 && all_set && all_distinct,
+                  g_refusals.size() == 13 && all_set && all_distinct,
                   det("%zu refusals", g_refusals.size()));
         }
 
         // GH #396: the key is (size, mtime). WSC-INV-01 moves the mtime; this
         // moves only the SIZE. Run after WSC-INV-10 so its refusal is not
-        // counted among the twelve branches (it re-enters the same branch).
+        // counted among the thirteen branches (it re-enters the same branch).
         {
             warm_start::store(id, state, why);
             warm_start::Identity bigger = id;
             bigger.sd_image_bytes += 1;
             check("WSC-INV-11", "a different SD image size is refused, as such",
                   refused(bigger, "recorded from a different SD image"), why);
+        }
+
+        // GH #481: a pre-recipe file (version 0 at offset 72). Same branch as
+        // WSC-INV-12, reached with another value, so after the ledger check like
+        // WSC-INV-11.
+        {
+            warm_start::store(id, state, why);
+            const uint8_t zero[4] = {0, 0, 0, 0};
+            poke(warm_start::cache_path(0), 72, zero, 4);
+            check("WSC-INV-13",
+                  "a pre-recipe file (version 0 at offset 72, all else matching) is "
+                  "refused, so an existing cache is re-recorded rather than served",
+                  refused(id, "recorded by a different recording procedure (version 0"),
+                  why);
         }
     }
 
@@ -723,6 +827,155 @@ int main()
               !warm_start::store(bad_len, state, why) &&
                   why.find("disagrees with its own payload") != std::string::npos,
               why);
+    }
+
+    // ── GH #481: the recording recipe and its capture criterion ──────
+    {
+        std::string why;
+        {
+            Emulator e;
+            make_next(e);
+            set_statement_context(e);
+            const bool ok = e.warm_start_capture_ready(why);
+            check("WSR-CTX-01",
+                  "the real-chain statement context (K/S = ROM 3 records, CURCHL = "
+                  "CHANS+STRMS[2]-1, TV_FLAG 0, ERR_NR $FF, PPC $FFFE, no key "
+                  "queued) is accepted",
+                  ok, why);
+        }
+        // Each refusal: the good context with exactly ONE thing moved, and the
+        // reason naming that thing and no other.
+        auto refuse = [&](const char* id, const char* desc, const char* frag,
+                          const std::function<void(Emulator&)>& spoil) {
+            Emulator e;
+            make_next(e);
+            set_statement_context(e);
+            spoil(e);
+            std::string w;
+            const bool refused = !e.warm_start_capture_ready(w);
+            check(id, desc, refused && w.find(frag) != std::string::npos, w);
+        };
+        refuse("WSR-CTX-02",
+               "channel K output at $5B4D (the welcome recording, measured) is "
+               "refused, naming channel K",
+               "channel K", [](Emulator& e) {
+                   uint8_t* b5 = e.mmu().bank5_vram();
+                   b5[0x5CB6 - 0x4000] = 0x4D; b5[0x5CB7 - 0x4000] = 0x5B;
+               });
+        refuse("WSR-CTX-03",
+               "channel S output at $5B4D with K correct is refused, naming channel S",
+               "channel S", [](Emulator& e) {
+                   uint8_t* b5 = e.mmu().bank5_vram();
+                   b5[0x5CBB - 0x4000] = 0x4D; b5[0x5CBC - 0x4000] = 0x5B;
+               });
+        refuse("WSR-CTX-04",
+               "CURCHL at channel K ($5CB6, PAUSE 0 alone, measured) is refused, "
+               "naming stream 2",
+               "stream 2", [](Emulator& e) { sv_put16(e, kSvCurchl, 0x5CB6); });
+        refuse("WSR-CTX-05",
+               "TV_FLAG $21 (Command Line idle, measured) is refused, naming the "
+               "lower screen",
+               "lower screen", [](Emulator& e) {
+                   e.mmu().bank5_vram()[kSvTvFlag - 0x4000] = 0x21;
+               });
+        refuse("WSR-CTX-06",
+               "ERR_NR $2F (the menu, measured) is refused, naming ERR_NR",
+               "ERR_NR", [](Emulator& e) {
+                   e.mmu().bank5_vram()[kSvErrNr - 0x4000] = 0x2F;
+               });
+        refuse("WSR-CTX-07",
+               "PPC $0000 (menu or Command Line idle, measured) is refused, naming PPC",
+               "PPC", [](Emulator& e) { sv_put16(e, kSvPpc, 0x0000); });
+        refuse("WSR-CTX-08",
+               "an auto-typed key still queued is refused, naming the keyboard",
+               "keyboard", [](Emulator& e) {
+                   e.keyboard().queue_auto_type({{7, 0, -1, -1, 5}});
+               });
+
+        // The recipe tick. T0 is units 2400 (frame 400 at 50 Hz).
+        auto welcome = [&](Emulator& e, bool program) {
+            make_next(e);
+            sv_put16(e, kSvProg, program ? 0x5DFA : 0x5CCB);
+            sv_put16(e, kSvVars, program ? 0x8688 : 0x5CCB);
+        };
+        {
+            Emulator e;
+            welcome(e, true);
+            const bool before_idle = !e.keyboard().auto_typing();
+            const bool t0 = Emulator::warm_start_recipe_tick(e, 2394, 2400);
+            const bool queued = e.keyboard().auto_typing();
+            e.keyboard().tick_auto_type();
+            const std::vector<int> down = held_keys(e);
+            check("WSR-RCP-01",
+                  "over a resident welcome program (PROG $5DFA != VARS $8688, "
+                  "measured) the tick across T0 reports T0 and queues SPACE (7,0)",
+                  before_idle && t0 && queued && down == std::vector<int>{7 * 8 + 0});
+        }
+        {
+            Emulator e;
+            welcome(e, false);
+            const bool t0 = Emulator::warm_start_recipe_tick(e, 2394, 2400);
+            check("WSR-RCP-02",
+                  "with PROG == VARS ($5CCB, welcome disabled, measured) the tick "
+                  "across T0 still reports T0 but queues nothing",
+                  t0 && !e.keyboard().auto_typing());
+        }
+        {
+            // The first frame whose tick reports T0, per refresh rate.
+            auto first_t0 = [&](bool hz60) {
+                Emulator e;
+                welcome(e, false);
+                uint32_t units = 0, frames = 0;
+                while (frames < 2000) {
+                    const uint32_t before = units;
+                    units += Emulator::warm_start_frame_units(hz60);
+                    ++frames;
+                    if (Emulator::warm_start_recipe_tick(e, before, units)) return frames;
+                }
+                return 0u;
+            };
+            const uint32_t f50 = first_t0(false), f60 = first_t0(true);
+            check("WSR-RCP-03",
+                  "the schedule is emulated time: T0 is crossed at frame 400 at 50 Hz "
+                  "and at frame 480 at 60 Hz (the 60 Hz welcome measured up at 480)",
+                  f50 == 400 && f60 == 480, det("50Hz=%u 60Hz=%u", f50, f60));
+        }
+        {
+            // The whole sequence, as the guest's keyboard scan sees it: one
+            // entry per key-down, from frame 0 to the capture point.
+            Emulator e;
+            welcome(e, true);
+            std::vector<std::vector<int>> seq;
+            std::vector<int> prev;
+            uint32_t units = 0, frames = 0;
+            while (units < Emulator::kWarmStartT4Units) {
+                const uint32_t before = units;
+                e.keyboard().tick_auto_type();
+                const std::vector<int> now = held_keys(e);
+                if (!now.empty() && now != prev) seq.push_back(now);
+                prev = now;
+                units += Emulator::warm_start_frame_units(false);
+                ++frames;
+                Emulator::warm_start_recipe_tick(e, before, units);
+            }
+            auto K = [](int r, int c) { return r * 8 + c; };
+            const std::vector<std::vector<int>> want = {
+                {K(7, 0)},                   // SPACE (leave the welcome)
+                {K(0, 0), K(4, 4)},          // CAPS SHIFT + 6 = cursor down
+                {K(6, 0)},                   // ENTER (Command Line)
+                {K(5, 0)}, {K(2, 3)}, {K(5, 2)}, {K(7, 3)}, {K(2, 4)},   // p r i n t
+                {K(5, 1), K(7, 1)},          // SYMBOL SHIFT + O = ;
+                {K(0, 1), K(7, 1)},          // SYMBOL SHIFT + Z = :
+                {K(5, 0)}, {K(1, 0)}, {K(5, 3)}, {K(1, 1)}, {K(2, 2)},   // p a u s e
+                {K(7, 0)}, {K(4, 0)}, {K(6, 0)}};                        // space 0 ENTER
+            check("WSR-RCP-04",
+                  "the recipe types SPACE, cursor-down, ENTER, then `print;:pause 0` "
+                  "ENTER, in that order (48K keyboard matrix), and the queue is "
+                  "drained before the capture point",
+                  seq == want && !e.keyboard().auto_typing(),
+                  det("%zu key-downs, queue %s", seq.size(),
+                      e.keyboard().auto_typing() ? "not empty" : "empty"));
+        }
     }
 
     // ── Residency criterion ──────────────────────────────────────────
@@ -892,6 +1145,19 @@ int main()
               det("not-recorded=%d machine-type=%d no-sd=%d cached=%d",
                   tap.count(kWhyNotRecorded), tap.count(kWhyMachineType),
                   tap.count(kWhyNoSdImage), cached ? 1 : 0));
+
+        // GH #481: the refusal comes from the residency check at the recipe's
+        // first point (frame 400, plan D8), not from the capture criterion
+        // after the whole ~760-frame recipe. Both log "Not recording", so the
+        // row names the text only the first can produce.
+        check("WSR-RES-10",
+              "…and a card with no firmware is refused by the residency check at "
+              "frame 400 (\"after 400 frames of boot\"), not after the whole recipe "
+              "by the capture criterion",
+              tap.count("after 400 frames of boot") == 1 &&
+                  tap.count("could not be brought to its Command Line") == 0,
+              det("at-400=%d capture-criterion=%d", tap.count("after 400 frames of boot"),
+                  tap.count("could not be brought to its Command Line")));
 
         // The per-IMAGE failure latch, which is the opposite of WSR-RES-05's
         // claim and deliberately so: "no SD image" is not a verdict about a
