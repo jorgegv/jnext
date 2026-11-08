@@ -217,7 +217,7 @@ source "$(dirname "$0")/parallel-rows.inc"
 regression_lanes
 
 # The tools the HARNESS itself executes — this driver, its .inc files, the
-# row runner, the stamp script, the group scripts and the six lints — checked
+# row runner, the stamp script, the group scripts and the seven lints — checked
 # before anything runs, so a missing one is a named harness fault and never a
 # lint or a row that FAILs "exit 127" (GH #295 CI: procps was missing in CI and
 # a check read the failure as evidence). Rows check their own tools (python3,

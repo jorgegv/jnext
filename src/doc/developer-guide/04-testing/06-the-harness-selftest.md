@@ -160,7 +160,7 @@ long enough to rot into failing on 18 rows.
 
 ## The lint self-tests
 
-Six of the lints verify themselves on **every invocation**, before their
+Seven of the lints verify themselves on **every invocation**, before their
 verdict on the real tree is trusted at all:
 
 - `test/lint-assertions.sh` writes a fixture containing one instance of each
@@ -221,10 +221,13 @@ verdict on the real tree is trusted at all:
 - `test/lint-sed-inplace.sh` (row 7 of the preflight) refuses a `sed -i` with
   no attached suffix in the test scripts macOS runs, because BSD sed reads the
   next word as the suffix and fails with "-I or -i may not be used with stdin".
-  Its case table pins both ways: bare `-i`, `-ni`, `-i ''` and `--in-place` are
-  flagged; `-i.bak`, a temp file plus `mv`, and the text `sed -i` inside a
-  quote or comment are not. `test/packaging/` and `harness-selftest.sh` are
-  out of scope because only Linux runs them.
+  It carries **33 pinned cases: 20 that must flag, 10 that must not, and 3 that
+  pin its coverage check**. Bare `-i`, `-ni`, `-i ''`, a path-qualified `sed`
+  and every `--i…` long option (BSD sed has none) are flagged; `-i.bak`, a temp
+  file plus `mv`, and the text `sed -i` inside a quote or comment are not.
+  Cases for a `sed -i` hidden after `-i''`, `a#b`, `\'` or `\"` pin the quote
+  scanner, each added because deleting that branch of it left the table green. `test/packaging/` and
+  `harness-selftest.sh` are out of scope because only Linux runs them.
 
 The developer-guide cite check, `test/lint-devguide-cites.pl` (see
 [4.5](05-documentation-and-cli-gates.md#the-developer-guide-cite-rule)), is not self-checking

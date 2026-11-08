@@ -71,7 +71,7 @@ shell, inside the counter guard. A run has these phases:
 
 | Phase | Rows | Lanes |
 |---|---|---|
-| lints, SD provisioning | the 7 group rows | 1 |
+| lints, SD provisioning | the 8 group rows | 1 |
 | screenshots | `regression_tests.conf` | `JNEXT_TEST_JOBS`, default every CPU |
 | parallel | untagged functional rows | `JNEXT_TEST_JOBS`, default every CPU |
 | quiet | rows tagged `quiet` | `JNEXT_TEST_QUIET_JOBS`, default 1 |
@@ -808,7 +808,7 @@ Load-bearing rationale that used to live as long comments inside
   invalid bash, so a looser match would only claim reach the shell has not.
   Every other word in the set was checked and takes none. `harness-selftest`
   HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
-  its verdict still turns the row red; the `6 lint + 1 sdcard-provision + …`
+  its verdict still turns the row red; the `7 lint + 1 sdcard-provision + …`
   row-count witness is the second, independent check that the row exists at all.
 - **Why the published debug headers get an include-graph row** (GH #276 B0,
   `test/lint-debug-headers.sh`, row 5 of the preflight). Epic #276's defining
@@ -863,6 +863,17 @@ Load-bearing rationale that used to live as long comments inside
   `| grep -m`, run-time pipelines). harness-selftest HS-67a/HS-67b prove the
   call is reached from `00-preflight-lint.sh` and that its verdict turns the
   row red.
+- **Why a bare in-place sed is refused** (`test/lint-sed-inplace.sh`, row 7 of
+  the preflight). GNU sed takes an optional suffix attached to `-i`; BSD sed
+  (macOS) takes a mandatory suffix argument, so `sed -i 's/a/b/' f` reads the
+  script as the suffix and fails with "-I or -i may not be used with stdin".
+  `warm-start-chans-func` did exactly that on CI's `macos-regression` job and
+  passed on every Linux run, so only a static check sees it from here. The
+  lint flags a bare `-i` (any cluster ending in `i`, `-i ''`) and any `--i…`
+  long option (BSD sed has none), in the test scripts macOS runs (not
+  `test/packaging/`, not `harness-selftest.sh`). Edit through a temp file and
+  `mv` instead. harness-selftest HS-170a/HS-170b prove the call is reached and
+  that its verdict turns the row red.
 - **render-skip engagement upper bound (590).** An early throttle bug (an
   INT64_MIN sentinel overflow in the now-last subtraction) skipped every
   single frame — 601 skips in 601 frames, frozen display. The `<= 590` bound

@@ -13,8 +13,10 @@
 # to not edit in place: `sed ... f > f.new && mv f.new f`.
 #
 # FLAGGED: a `sed` command with an option cluster ending in `i` (-i, -ni, -Ei,
-# -i -e, `-i ''`), or the long form --in-place without `=SUFFIX`.
-# NOT FLAGGED: -i.bak (attached suffix), --in-place=.bak, no in-place at all.
+# -i -e, `-i ''`), or ANY long option starting `--i` (--in-place, --in-place=SUF,
+# --in-pl: BSD sed has no long options at all). The sed word may carry a path
+# (`/usr/bin/sed -i`).
+# NOT FLAGGED: -i.bak (attached suffix), no in-place at all.
 #
 # SCOPE — stated, not implied. Tracked `*.sh` and `*.inc` under test/, except:
 #   * test/packaging/ : run by `make package-test`, which is Linux only;
@@ -24,7 +26,10 @@
 # by macOS's `make regression-macos` or `make unit-test-sdl`. Each in-scope file
 # is scanned to its last line; the lint refuses (exit 2) if it was not.
 #
-# CANNOT CATCH (EXAMPLES, not exhaustive): a sed reached through a variable,
+# CANNOT CATCH (EXAMPLES, not exhaustive): a quoted string spanning physical
+# lines (quote state is reset at each line end, so the closing line of a
+# multi-line awk/python program is read with its quotes inverted, and a
+# `'; sed -i ...` there is missed); a sed reached through a variable,
 # eval or alias; an option spelled via a here-doc body (scanned like code, so
 # it flags the safe way: mark fixture text); a sed split after a backslash
 # continuation (lines are not joined; options sit on the sed line in practice).
@@ -92,9 +97,9 @@ scan_awk() {
                 k = toks[j]
                 if (k == "") continue
                 if (k == "SEP") { insed = 0; continue }
-                if (k == "sed") { insed = 1; continue }
+                if (k ~ /(^|\/)sed$/) { insed = 1; continue }
                 if (!insed) continue
-                if (k == "--in-place") return 1
+                if (k ~ /^--i/) return 1
                 if (k ~ /^--/) continue
                 if (k ~ /^-[A-Za-z0-9]*i$/) return 1
             }
@@ -166,7 +171,15 @@ selftest() {
         1 'option after the script'   "sed 's/a/b/' -i f"
         1 'the warm-start-chans line' "        sed -i 's/^50_60hz=.*/50_60hz=1/' \"\$wc_w/config.ini\""
         0 'attached suffix'           "sed -i.bak 's/a/b/' f"
-        0 'long with suffix'          "sed --in-place=.bak 's/a/b/' f"
+        1 'long with suffix'          "sed --in-place=.bak 's/a/b/' f"
+        1 'long, empty suffix'        "sed --in-place= 's/a/b/' f"
+        1 'long, abbreviated'         "sed --in-pl 's/a/b/' f"
+        1 'sed given by path'         "/usr/bin/sed -i 's/a/b/' f"
+        1 'empty quote after -i'      "sed -i'' 's/a/b/' f"
+        1 'hash inside a word'        "echo a#b; sed -i 's/a/b/' f"
+        1 'escaped apostrophe'        "echo it\\'s; sed -i 's/a/b/' f"
+        1 'escaped quote in dquotes'  'echo "a \" b"; sed -i "s/a/b/" f'
+        0 'separator ends the sed'    "sed -n 's/a/b/p' f; grep -i x f"
         0 'temp file and mv'          "sed 's/a/b/' f >f.new && mv f.new f"
         0 'sed -n print'              "sed -n 's/a/b/p' f"
         0 'sed -E no in-place'        "sed -E 's/a/b/' f"
@@ -195,6 +208,9 @@ selftest() {
     else fail=$((fail + 1)); echo "[lint-sed-i] SELFTEST FAIL: a 2-of-3-lines scan was accepted" >&2; fi
     if verify_coverage $'CHECKED\t'"$d/three.sh"$'\t3' "$d/three.sh"; then pass=$((pass + 1))
     else fail=$((fail + 1)); echo "[lint-sed-i] SELFTEST FAIL: a full scan was refused" >&2; fi
+    printf 'a\nb' > "$d/nonl.sh"
+    if [[ "$(file_lines "$d/nonl.sh")" == 2 ]] && verify_coverage $'CHECKED\t'"$d/nonl.sh"$'\t2' "$d/nonl.sh"; then pass=$((pass + 1))
+    else fail=$((fail + 1)); echo "[lint-sed-i] SELFTEST FAIL: a file with no final newline was not counted as 2 lines" >&2; fi
     rm -rf "$d"
     if (( fail > 0 )); then
         echo "[lint-sed-i] self-test: $pass passed, $fail FAILED" >&2
