@@ -9,7 +9,7 @@
 - Source debugger: z88dk code and data in a section placed in a named bank block (BANK_n_*, PAGE_n_*) now map to the right page
 
 ### Contributors in this release
-- @shrek128, @vmorilla
+- @shrek128, @vmorilla, @Luzie
 
 ## v1.2.0 (2026-11-06)
 
