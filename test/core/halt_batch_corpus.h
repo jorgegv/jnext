@@ -75,6 +75,7 @@ void script_keys(Emulator& e, int f) {
 struct Program {
     const char* id;       // a literal row ID
     const char* path;     // relative to the repository's test/ directory
+    bool copper = false;  // runs a Copper program: the Copper skip must engage (GH #452 stage 2)
 };
 
 
@@ -118,7 +119,11 @@ int run_corpus(const Program* programs, int count, const char* label) {
         std::printf("  %s %s: halt_batched=%llu copper_skipped=%llu (%.1f s)\n", p.id, p.path,
                     static_cast<unsigned long long>(b.halt_batched),
                     static_cast<unsigned long long>(b.copper_skipped), secs);
-        check(p.id, std::string(p.path) + ": identical per frame, batching off vs on",
+        // The row also names the programs the optimisation must engage in: one that stops
+        // engaging (an optimisation silently disabled) cannot pass the corpus.
+        if (diff.empty() && p.copper && b.copper_skipped == 0) diff = "the Copper skip never engaged";
+        check(p.id, std::string(p.path) + ": identical per frame, batching off vs on" +
+                    (p.copper ? ", Copper skip engaged" : ""),
               diff.empty(), diff);
     }
 

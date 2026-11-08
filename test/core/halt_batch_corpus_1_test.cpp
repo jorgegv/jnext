@@ -6,7 +6,7 @@
 namespace {
 const Program kPrograms[] = {
     {"HBC-01", "00regression/nex/beanbros.nex"},
-    {"HBC-02", "00regression/nex/beast.nex"},
+    {"HBC-02", "00regression/nex/beast.nex", true},
     {"HBC-03", "00regression/nex/blue.nex"},
     {"HBC-04", "00regression/nex/celeste.nex"},
     {"HBC-05", "00regression/nex/celeste2.nex"},

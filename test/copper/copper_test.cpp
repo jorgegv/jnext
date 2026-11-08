@@ -2165,7 +2165,27 @@ void group11_idle_skip() {
                 detail += fmt("off %d: got %u want %u; ", off, got, want);
             }
         }
-        check("CPSK-03", "mode 11: a stalled run ends exactly at cvc == 0, hc == 0, with offsets 0, 1 and 255",
+        // The restart compares hc, a 7 MHz pixel counter: it holds for master cycles 0..3 of
+        // the line, so a stalled Copper standing at PC != 0 on cvc 0 must not skip master
+        // cycle 1, 2 or 3 (execute() rewinds the PC there), and may skip from cycle 4.
+        {
+            Copper cu;
+            const int mcpl = 400, lpf = 50;
+            cu.set_c_max_vc(lpf - 1);
+            program_word(cu, 0, enc_move(0x14, 1));
+            program_word(cu, 1, enc_wait(0, 511));
+            set_mode(cu, 3);
+            NextReg nr;
+            for (int c = 0; c < 4; ++c) cu.execute(100 + c, 5, nr, 0);   // latch, MOVE, settle: PC 1
+            const uint32_t at1 = cu.idle_cycles(1, 0, 0, mcpl, lpf, 1000);
+            const uint32_t at3 = cu.idle_cycles(3, 0, 0, mcpl, lpf, 1000);
+            const uint32_t at4 = cu.idle_cycles(4, 0, 0, mcpl, lpf, 1000);
+            if (cu.pc() != 1 || at1 != 0 || at3 != 0 || at4 == 0) {
+                ok = false;
+                detail += fmt("pc %u, idle at cycle 1/3/4 of line 0 = %u/%u/%u; ", cu.pc(), at1, at3, at4);
+            }
+        }
+        check("CPSK-03", "mode 11: a stalled run ends exactly at cvc == 0, hc == 0 (master cycles 0..3 of the line), with offsets 0, 1 and 255",
               ok, detail);
     }
 

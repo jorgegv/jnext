@@ -6,11 +6,11 @@
 namespace {
 const Program kPrograms[] = {
     {"HBC-19", "00regression/nex/palette_demo.nex"},
-    {"HBC-20", "00regression/nex/parallax.nex"},
+    {"HBC-20", "00regression/nex/parallax.nex", true},
     {"HBC-21", "00regression/nex/red.nex"},
     {"HBC-22", "00regression/nex/santaspressie.nex"},
     {"HBC-23", "00regression/nex/shift.nex"},
-    {"HBC-24", "00regression/nex/show512.nex"},
+    {"HBC-24", "00regression/nex/show512.nex", true},
 };
 } // namespace
 
