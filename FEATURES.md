@@ -79,7 +79,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--esxdos-stub` gives the same esxDOS answers to programs loaded any other way
 - Host directory for a directly loaded program: `--esxdos-stub-root DIR` serves real host files through the esxDOS file and directory calls
 - `--esxdos-stub-writable` allows guest writes to that host directory (read-only by default)
-- The host directory is for NEX programs and dot commands only, not for a booted NextZXOS (user guide: Host files for a loaded program)
+- The host directory is for NEX programs and dot commands only, not for a booted NextZXOS (user guide: Host files for a directly loaded program)
 - Warm start (Next only, the default for `--load` of a `.nex`): the program runs on a cached recording of a real firmware boot
 - `--warm-start-regenerate` forces a fresh warm-start recording after the card's firmware changes
 - SNA: 48K and 128K snapshots with full register and paging restore
@@ -149,7 +149,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - I/O port breakpoints: IO Read on `IN`, IO Write on `OUT`, by low byte or exact 16-bit port
 - Breakpoint enable/disable per row, plus a master switch
 - Symbol table from Z88DK MAP files and sjasmplus `--sym` / `--exp` files (`--map` or the Map menu), with inline symbol names in disassembly
-- **Source-level debugging**: z88dk `-debug` maps, listings, sjasmplus SLD maps and NextBuild / Boriel `Memory.txt` symbols give C and assembly source lines (`--source-map FILE`) (user guide: Source debugger)
+- **Source-level debugging**: z88dk `-debug` maps, listings, sjasmplus SLD maps and NextBuild / Boriel `Memory.txt` symbols give C and assembly source lines (`--source-map FILE`) (user guide: The Source Debugger)
 - Banked code matched by page, with identity checks against the linker's section binaries
 - z88dk dot commands debugged from their map (`jnext --source-map prog.map`, also with RZX replay)
 - Source tab: current line, statement stepping (Into, Over, Out, Back, Reverse Continue), search path for sources (`--source-dir`)
@@ -202,7 +202,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--esp` / `--no-esp` and the repeatable `--esp-allow HOST` (emulated ESP-01 Wi-Fi; off by default)
 - `--joy-uart-rx FILE`: feed a serial byte source into the joystick-port UART (`--joy-uart-connector 1|2`, `--joy-uart-rx-delay-frames N`)
 - `--joy-uart-fifo PATH` / `--joy-uart-pty`: live bidirectional joystick-port UART cable for a host debugger such as DeZog (POSIX only)
-- `--nextpi`: a real NextPi under QEMU on UART 1, with `--no-nextpi` to override a saved enable (user guide: Raspberry Pi serial link)
+- `--nextpi`: a real NextPi under QEMU on UART 1, with `--no-nextpi` to override a saved enable (user guide: NextPi on the Raspberry Pi)
 - NextPi tuning: `--nextpi-dir`/`--nextpi-release`/`--nextpi-qemu`/`--nextpi-audio`/`--nextpi-qemu-args`, or Settings > Preferences > NextPi
 - `--delayed-screenshot-layers ula,layer2,sprites,tiles,all` composes only the named layers into the screenshot
 - `--log-level` per subsystem (cpu, video, audio, etc.)

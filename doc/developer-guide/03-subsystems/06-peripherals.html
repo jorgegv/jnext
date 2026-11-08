@@ -3477,6 +3477,11 @@ designed in and is checked, not one that happens to hold today.</p>
   mid-message for up to 382 018 emulated cycles, and NextSync's 20-poll window
   between <code>+IPD,&lt;n&gt;:</code> header bytes then abandoned the packet. A real ESP-01
   clocks a message out back to back; each message is pushed as one unit.</li>
+<li><strong><code>AT+PING</code> is an in-process ICMP echo, not a <code>ping(8)</code> child.</strong> <code>esp_ping.cpp</code>
+  opens an unprivileged ICMP datagram socket, so there is no output to parse
+  under another locale and no argv surface, and it works in the Flatpak, whose
+  runtime ships no <code>ping</code> binary. It obeys the same allowlist, address policy and
+  station rule as a connection; a blocked host and a dead host answer alike.</li>
 <li><strong>Detached workers go through <code>net::start_detached</code>.</strong> The DNS, <code>AT+PING</code> and
   <code>AT+CIPSNTPTIME?</code> workers are threads nobody joins, started by that one
   function in <code>esp_socket_platform.h</code>. On Windows it is a Win32 thread, not
