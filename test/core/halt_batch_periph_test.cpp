@@ -23,21 +23,21 @@ Scenario contention_shadow() {
     s.setup = [](Emulator& e) {
         install_im2_program(e, kBank5);
         const uint8_t vlo = static_cast<uint8_t>(kBank5.var & 0xFF), vhi = static_cast<uint8_t>(kBank5.var >> 8);
-        const uint8_t clo = static_cast<uint8_t>(vlo + 1);
-        // ISR: PUSH AF,BC; LD A,(var); XOR 40h; LD (var),A; LD BC,243Bh; LD B..: select NR 08h and write
-        // A through 253Bh; LD A,(var+1); INC A; LD (var+1),A; POP BC,AF; EI; RETI
-        poke(e, kBank5.isr, {0xF5, 0xC5, 0x3A, vlo, vhi, 0xEE, 0x40, 0x32, vlo, vhi,
-                             0x01, 0x3B, 0x24, 0x3E, 0x08, 0xED, 0x79,       // LD BC,243Bh; LD A,8; OUT (C),A
-                             0x01, 0x3B, 0x25, 0x3A, vlo, vhi, 0xED, 0x79,   // LD BC,253Bh; LD A,(var); OUT (C),A
-                             0x3A, clo, vhi, 0x3C, 0x32, clo, vhi,
-                             0xC1, 0xF1, 0xFB, 0xED, 0x4D});
+        // The handler must write NR 0x08 within the first ~100 T of the line: the commit of the
+        // shadow waits for hc(8) (the right half of the display, about T 128), and the HALT repeats
+        // between the write and that edge are the ones that see the shadow pending. So it is as short
+        // as it can be: EX AF,AF'; LD A,(var); XOR 40h; LD (var),A; NEXTREG 08h,A; EX AF,AF'; EI; RETI
+        poke(e, kBank5.isr, {0x08, 0x3A, vlo, vhi, 0xEE, 0x40, 0x32, vlo, vhi, 0xED, 0x92, 0x08,
+                             0x08, 0xFB, 0xED, 0x4D});
         e.mmu().write(kBank5.var, 0x40);          // the level the first handler run flips away from
         nr(e, 0x08, 0x40);                        // contention disabled at the start
         nr(e, 0x23, 100);
         nr(e, 0x22, 0x06);                        // ULA interrupt off, line interrupt at line 100
         start_at(e, kBank5.main, 0x8000);
     };
-    s.alive = [](Emulator& e) { return isr_ran(e, kBank5); };
+    // The handler ran every frame (it is the only thing that could have toggled the line-interrupt
+    // count into the dozens) and the CPU ended halted or in the handler.
+    s.alive = [](Emulator& e) { return e.line_int_fire_count() > 50; };
     return s;
 }
 } // namespace
