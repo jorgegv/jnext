@@ -7685,49 +7685,113 @@ std::string hex2(unsigned v) { char t[8]; std::snprintf(t, sizeof t, "%02X", v);
 bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t after)
 {
     using AutoKey = Keyboard::AutoKey;
-    // A point is crossed by the frame whose (before, after] contains it.
-    auto crossed = [&](uint32_t p) { return before < p && p <= after; };
     constexpr int kHold = 5;   // frames each typed key is held
+    WsRecipe& r = rec.ws_recipe_;
 
-    const bool t0 = crossed(kWarmStartT0Units);
-    if (t0) {
-        // The welcome program (autoexec.1st) is still a resident BASIC
-        // program: PROG != VARS. Its own "SPACE=Start NextZXOS" leaves it. A
-        // card whose welcome is disabled sits at the menu with PROG == VARS,
-        // where SPACE would open the menu's second page instead.
-        const uint8_t* b5 = rec.mmu_.bank5_vram();
-        const uint16_t prog = static_cast<uint16_t>(b5[0x5C53 - 0x4000] |
-                                                    (b5[0x5C54 - 0x4000] << 8));
-        const uint16_t vars = static_cast<uint16_t>(b5[0x5C4B - 0x4000] |
-                                                    (b5[0x5C4C - 0x4000] << 8));
-        if (prog != vars) rec.keyboard_.queue_auto_type({{7, 0, -1, -1, kHold}});
+    const bool t0 = before < kWarmStartT0Units && kWarmStartT0Units <= after;
+
+    // Idle = the same PC and SP at this frame boundary as at the last one, with
+    // no auto-typed key queued. NextZXOS waits for a key in a HALT loop (every
+    // wait on the measured cards is a HALT at one instruction) and the sample
+    // lands on the same instruction every frame. Not a pinned address. A poll
+    // loop without HALT would not read as idle; the recipe then gives up.
+    const uint16_t pc = rec.cpu_.pc();
+    const uint16_t sp = rec.cpu_.registers().SP;
+    const bool same = (pc == r.last_pc && sp == r.last_sp);
+    r.last_pc = pc;
+    r.last_sp = sp;
+    if (rec.keyboard_.auto_typing() || !same) r.calm = 0; else ++r.calm;
+
+    if (after < kWarmStartT0Units || r.phase == WsPhase::kDone || r.phase == WsPhase::kGaveUp)
+        return t0;
+    if (r.phase_start == 0) r.phase_start = after;   // the first look at the machine
+
+    const uint8_t* b5 = rec.mmu_.bank5_vram();
+    auto b = [&](uint16_t a) { return b5[a - 0x4000]; };
+    auto w = [&](uint16_t a) { return static_cast<uint16_t>(b(a) | (b(static_cast<uint16_t>(a + 1)) << 8)); };
+    const bool prog_resident = w(0x5C53) != w(0x5C4B);       // PROG != VARS: the welcome
+    const uint8_t err = b(0x5C3A), tv = b(0x5C3C);
+    const uint16_t ppc = w(0x5C45);
+    const bool menu_idle = !prog_resident && err == 0x2F && ppc == 0 && tv == 0x20;
+    const bool cmdline_idle = !prog_resident && err == 0x2F && ppc == 0 && tv == 0x21;
+    const bool statement = err == 0xFF && ppc == 0xFFFE;
+    const bool calm = r.calm >= kWarmStartCalmFrames;
+
+    auto next = [&](WsPhase p) { r.phase = p; r.phase_start = after; r.calm = 0; };
+
+    switch (r.phase) {
+    case WsPhase::kMenu:
+        if (calm && prog_resident &&
+            (r.space_units == 0 || after - r.space_units >= kWarmStartPhaseUnits / 8)) {
+            // The welcome program (autoexec.1st) is a resident BASIC program;
+            // its own "SPACE=Start NextZXOS" leaves it. Asked again if it is
+            // still there after a while (the first SPACE can land on a page
+            // that was not waiting yet). On a menu SPACE would open page 2, so
+            // it is only ever sent while the welcome is resident.
+            r.space_units = after;
+            rec.keyboard_.queue_auto_type({{7, 0, -1, -1, kHold}});
+        } else if (calm && menu_idle) {
+            // Cursor DOWN is CAPS SHIFT + 6: Browser -> Command Line.
+            rec.keyboard_.queue_auto_type({{4, 4, 0, 0, kHold}});
+            next(WsPhase::kDown);
+        }
+        break;
+    case WsPhase::kDown:
+        if (calm && menu_idle) {
+            rec.keyboard_.queue_auto_type({{6, 0, -1, -1, kHold}});   // ENTER
+            next(WsPhase::kEnter);
+        }
+        break;
+    case WsPhase::kEnter:
+        if (calm && cmdline_idle) {
+            // "print;:pause 0" ENTER. PRINT opens stream 2 through ROM 3's own
+            // CHAN-OPEN; PAUSE 0 then holds the interpreter inside the
+            // statement. ';' and ':' are SYMBOL SHIFT + O and + Z.
+            rec.keyboard_.queue_auto_type({
+                {5, 0, -1, -1, kHold},   // p
+                {2, 3, -1, -1, kHold},   // r
+                {5, 2, -1, -1, kHold},   // i
+                {7, 3, -1, -1, kHold},   // n
+                {2, 4, -1, -1, kHold},   // t
+                {5, 1, 7, 1, kHold},     // ;
+                {0, 1, 7, 1, kHold},     // :
+                {5, 0, -1, -1, kHold},   // p
+                {1, 0, -1, -1, kHold},   // a
+                {5, 3, -1, -1, kHold},   // u
+                {1, 1, -1, -1, kHold},   // s
+                {2, 2, -1, -1, kHold},   // e
+                {7, 0, -1, -1, kHold},   // SPACE
+                {4, 0, -1, -1, kHold},   // 0
+                {6, 0, -1, -1, kHold},   // ENTER
+            });
+            next(WsPhase::kStatement);
+        }
+        break;
+    case WsPhase::kStatement:
+        if (calm && statement) next(WsPhase::kDone);
+        break;
+    default:
+        break;
     }
-    // Cursor DOWN is CAPS SHIFT + 6: Browser -> Command Line.
-    if (crossed(kWarmStartT1Units)) rec.keyboard_.queue_auto_type({{4, 4, 0, 0, kHold}});
-    if (crossed(kWarmStartT2Units)) rec.keyboard_.queue_auto_type({{6, 0, -1, -1, kHold}});
-    if (crossed(kWarmStartT3Units)) {
-        // "print;:pause 0" ENTER. PRINT opens stream 2 through ROM 3's own
-        // CHAN-OPEN; PAUSE 0 then holds the interpreter inside the statement.
-        // ';' and ':' are SYMBOL SHIFT + O and + Z.
-        rec.keyboard_.queue_auto_type({
-            {5, 0, -1, -1, kHold},   // p
-            {2, 3, -1, -1, kHold},   // r
-            {5, 2, -1, -1, kHold},   // i
-            {7, 3, -1, -1, kHold},   // n
-            {2, 4, -1, -1, kHold},   // t
-            {5, 1, 7, 1, kHold},     // ;
-            {0, 1, 7, 1, kHold},     // :
-            {5, 0, -1, -1, kHold},   // p
-            {1, 0, -1, -1, kHold},   // a
-            {5, 3, -1, -1, kHold},   // u
-            {1, 1, -1, -1, kHold},   // s
-            {2, 2, -1, -1, kHold},   // e
-            {7, 0, -1, -1, kHold},   // SPACE
-            {4, 0, -1, -1, kHold},   // 0
-            {6, 0, -1, -1, kHold},   // ENTER
-        });
+    if (r.phase != WsPhase::kDone && after - r.phase_start > kWarmStartPhaseUnits) {
+        r.stuck = r.phase;
+        r.phase = WsPhase::kGaveUp;
     }
     return t0;
+}
+
+std::string Emulator::warm_start_recipe_waiting_for() const
+{
+    const WsPhase p = ws_recipe_.phase == WsPhase::kGaveUp ? ws_recipe_.stuck : ws_recipe_.phase;
+    switch (p) {
+    case WsPhase::kMenu:      return "the welcome program or the menu to be idle";
+    case WsPhase::kDown:      return "the menu to be idle after the cursor key";
+    case WsPhase::kEnter:     return "the Command Line to be idle";
+    case WsPhase::kStatement: return "the typed statement to execute";
+    case WsPhase::kDone:
+    case WsPhase::kGaveUp:    break;
+    }
+    return "nothing (the statement is executing)";
 }
 
 void Emulator::warm_start_finish_recording(Emulator& rec)
@@ -7866,15 +7930,20 @@ bool Emulator::finish_warm_start_recording(std::vector<uint8_t>& out, uint64_t w
     // The recorder is spent whatever the verdict: a failure latches the image
     // in the caller, and a success is serialised below.
     std::unique_ptr<Emulator> rec = std::move(warm_start_recorder_);
+    const uint32_t frames = warm_start_recorded_frames_;
     warm_start_recorded_frames_ = 0;
     warm_start_recorded_units_ = 0;
 
+    // The capture check decides, whether the recipe finished or gave up: a
+    // recipe that stopped waiting leaves a machine this refuses, and says what
+    // the state is.
     std::string why;
     if (!rec->warm_start_capture_ready(why)) {
         Log::emulator()->error(
-            "warm start: NextZXOS could not be brought to its Command Line ({}). "
-            "Not recording; this load falls back to the synthetic machine.",
-            why);
+            "warm start: NextZXOS could not be brought to its Command Line ({}; the "
+            "recipe was waiting for {} after {} frames). Not recording; this load "
+            "falls back to the synthetic machine.",
+            why, rec->warm_start_recipe_waiting_for(), frames);
         return false;
     }
 
@@ -7896,9 +7965,9 @@ bool Emulator::finish_warm_start_recording(std::vector<uint8_t>& out, uint64_t w
         return false;
     }
 
-    Log::emulator()->info("warm start: recorded a NextZXOS-resident machine ({} KB; "
-                          "the boot wrote {} sector(s) to the card)",
-                          (bytes + 512) / 1024, writes);
+    Log::emulator()->info("warm start: recorded a NextZXOS-resident machine ({} KB, {} frames); "
+                          "the boot wrote {} sector(s) to the card",
+                          (bytes + 512) / 1024, frames, writes);
     return true;
 }
 
@@ -8111,11 +8180,13 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
 
     // Step the recording in emulated time (see kWarmStartUnitsPer50HzFrame): the
     // firmware switches the refresh rate from config.ini during the boot, so the
-    // units one frame adds are read each frame. The rest runs once the recipe
-    // has all its units.
+    // units one frame adds are read each frame. The recipe is driven by the
+    // machine's state, so it ends when warm_start_recipe_done() (it always does,
+    // within about 2000 frames at 50 Hz); kWarmStartT4Units is only the nominal
+    // length behind the progress figure. The rest runs once the recipe is done.
     if (max_frames == 0) max_frames = 1;
     Emulator& rec = *warm_start_recorder_;
-    for (uint32_t f = 0; f < max_frames && warm_start_recorded_units_ < kWarmStartT4Units; ++f) {
+    for (uint32_t f = 0; f < max_frames && !rec.warm_start_recipe_done(); ++f) {
         const uint32_t before = warm_start_recorded_units_;
         rec.run_frame();
         ++warm_start_recorded_frames_;
@@ -8137,7 +8208,10 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
         }
     }
     prog.frames_done = warm_start_recorded_frames_;
-    if (warm_start_recorded_units_ < kWarmStartT4Units) {
+    if (!rec.warm_start_recipe_done()) {
+        // The nominal length is not a deadline: a slow card runs past it, and the
+        // figure stays at the total until the recipe is done.
+        if (prog.frames_done > prog.frames_total) prog.frames_done = prog.frames_total;
         prog.status = Status::Recording;
         return prog;
     }

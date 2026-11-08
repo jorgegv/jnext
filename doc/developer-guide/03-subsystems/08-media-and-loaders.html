@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.16</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.16</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3483,17 +3483,33 @@ recording and, on a miss, records one (<code>begin_warm_start_recording()</code>
 <ol>
 <li>constructs a <strong>separate <code>Emulator</code></strong>,</li>
 <li><code>init()</code>s it with <code>load_file</code> cleared (which arms the boot-ROM overlay),</li>
-<li>drives it like a user, in emulated time: boots to NextZXOS's welcome
-   program, presses SPACE ("Start NextZXOS") only when that program is still
-   resident, then cursor-DOWN and ENTER on the menu (<em>Command Line</em>), then
-   types <code>print;:pause 0</code> and ENTER, and captures about 760 frames in. The
+<li>drives it like a user, on the machine's state: a key is sent only when the
+   machine has been idle (the same PC and SP at the frame boundary, no
+   auto-typed key queued) for 8 frames in the state that takes it. SPACE
+   ("Start NextZXOS") goes only while the welcome program is resident; cursor-DOWN
+   and then ENTER when the menu is idle (<code>ERR_NR</code> $2F, <code>PPC</code> 0, <code>TV_FLAG</code> $20);
+   <code>print;:pause 0</code> and ENTER when the Command Line is idle (<code>TV_FLAG</code> $21); the
+   recipe is done when the statement executes (<code>ERR_NR</code> $FF, <code>PPC</code> $FFFE). The
    keys go through <code>Keyboard::queue_auto_type()</code>, and the per-frame step is
-   <code>Emulator::warm_start_recipe_tick()</code>,</li>
-<li>checks <code>nextzxos_resident()</code> (at the first point, before any key) and
-   <code>warm_start_capture_ready()</code> (at the capture), and</li>
+   <code>Emulator::warm_start_recipe_tick()</code>. A state that does not come within 400
+   frames ends the recipe (four waits, so at most about 2000 frames in all at 50 Hz and 2400 at 60 Hz), and the capture check then refuses,</li>
+<li>checks <code>nextzxos_resident()</code> (once, when the clock passes frame 400, before
+   any key) and <code>warm_start_capture_ready()</code> (when the recipe is done or gave
+   up; its message names what the recipe was waiting for), and</li>
 <li>serialises it with <code>save_state()</code> — the same <code>Saveable</code> stream the rewind
    buffer uses.</li>
 </ol>
+<p>Nothing is pressed at a fixed frame count. The first version pressed SPACE at
+frame 400, DOWN at 470, ENTER at 500, and was measured to work on the
+distribution card only: on the minimal card (a 40 MB card with the boot set) the
+welcome program is up about ten frames later and the menu was never reached. The
+idle signal is not a pinned address. It is what was measured: every key wait on
+both cards is a HALT at one instruction (with a different SP on each screen), and
+every busy phase moves the PC at each frame boundary. A wait loop that polls the
+keyboard without HALT would not be sampled at one instruction and would never read
+as idle, so the recipe would give up and the capture check refuse. The
+recording takes about 600 frames on the two cards measured, and is the same file
+on every run of one card (the clock is pinned, below).</p>
 <p>Two things keep the recording a pure function of the card, the machine and the
 recipe. The recorder runs on a <strong>constant clock</strong> (<code>warm_start_boot_config()</code> pins
 the RTC to 2026-07-10 08:55:00): the NextZXOS menu's work depends on the RTC
@@ -3508,8 +3524,8 @@ I2C transaction. And before saving, <code>warm_start_finish_recording()</code> r
 frame counter to 500 (<code>kWarmStartProgramFrame</code>), because scripts recorded with
 <code>--record-script</code>, and the committed DAPR replays, key on <code>on frame N</code> and were
 recorded when the recording was 500 frames long.</p>
-<p>The schedule is in emulated time, not frames: a frame adds 6 units at 50 Hz and
-5 at 60 Hz, read each frame from the recorder's own refresh rate, because the
+<p>The waits are bounded in emulated time, not frames: a frame adds 6 units at 50 Hz
+and 5 at 60 Hz, read each frame from the recorder's own refresh rate, because the
 firmware switches it from the card's <code>config.ini</code> during the boot (a 60 Hz card
 shows its welcome screen at frame 480, not 400).</p>
 <p><code>init_for_load_from_file()</code> then <code>init()</code>s the live machine normally and
@@ -3584,9 +3600,11 @@ neither restored from nor stored under that digest. The "recorded" line also
 reports how many sectors the boot itself wrote.</p>
 <p><strong>Stepped recording.</strong> <code>prepare_warm_start(max_frames)</code> is
 <code>ensure_warm_start_state()</code> made resumable: at most <code>max_frames</code> frames of the
-recording per call, returning <code>Recording</code> until the recipe's emulated time
-(<code>kWarmStartT4Units</code>, <code>WarmStartProgress::frames_total</code> frames at 50 Hz) has
-run, then <code>Ready</code> or <code>Unavailable</code>. Each stepped frame calls
+recording per call, returning <code>Recording</code> until <code>warm_start_recipe_done()</code>
+(the recipe waits for the machine's state, so its length is not fixed: about 605
+frames on the measured cards, at most about 2000 at 50 Hz; <code>kWarmStartT4Units</code>,
+<code>WarmStartProgress::frames_total</code>, is only the nominal 760 behind the progress
+figure, which stays at the total past it), then <code>Ready</code> or <code>Unavailable</code>. Each stepped frame calls
 <code>warm_start_recipe_tick()</code> with the units <code>warm_start_frame_units()</code> gives it,
 exactly as a native recording does, and the last step runs the capture check
 and <code>warm_start_finish_recording()</code> before the state is saved. A frontend that
@@ -3671,8 +3689,9 @@ escape hatch. The file magic is <code>JNEXTWS3</code> (layout generation).</p>
 its four invalidation keys and the compressed payload; <code>WSR-*</code> for the
 residency criterion, the announced fallbacks and <code>WSR-DEF-01</code>, which proves the
 path is reached with no flag set; <code>WSR-ROM3-01/02</code> for the ROM 3 feeder and
-the RST $08 automap it gates; <code>WSR-CTX-*</code> and <code>WSR-RCP-*</code> for the capture
-criterion and the recipe) plus the <code>warm-start-func</code> regression row for the
+the RST $08 automap it gates; <code>WSR-CTX-*</code>, <code>WSR-RCP-*</code> and <code>WSR-RDY-*</code> for the
+capture criterion and the recipe, the last against a model of NextZXOS with a slow
+welcome, 60 Hz, a disabled welcome and a custom menu) plus the <code>warm-start-func</code> regression row for the
 end-to-end record → cache → restore round trip, which needs a real SD image
 and so cannot be a unit test, and <code>warm-start-chans-func</code>, which runs a
 program that prints through the ROM warm and through the real chain and

@@ -58,6 +58,11 @@
 //   WSR-CTX-01..08  the capture criterion (GH #481): the real-chain statement
 //                 context is accepted, and each of its six questions refuses
 //                 alone, naming itself (C1 K and S, C2, C3, C4, C5, C6)
+//   WSR-RDY-06..16, 18..23  every clause of the recipe's tests pinned by a calm screen
+//                 that meets all the other clauses (SP, SPACE, re-send, menu,
+//                 Command Line, statement)
+//   WSR-RDY-01..05, 17  the recipe drives on the machine's state: a slow welcome, 60 Hz,
+//                 a disabled welcome, a machine that never arrives, a custom menu
 //   WSR-RCP-01..04  the recording recipe tick (GH #481): SPACE only over a
 //                 resident welcome program, the schedule in emulated time, and
 //                 the exact key sequence typed
@@ -367,6 +372,162 @@ std::vector<int> held_keys(Emulator& e) {
     }
     return k;
 }
+
+
+// ── GH #481 follow-up: a model of NextZXOS for the recipe's state machine ──
+//
+// The recipe (Emulator::warm_start_recipe_tick) presses a key only when the
+// machine has been idle in the state that takes it. This stands in for the
+// machine, from the measured states of the real one: while it is not idle the
+// PC moves and keys are ignored (and counted); idle, it sits at one PC and SP
+// with the sysvars of that screen. The values are the measured ones:
+// welcome PROG $5DFA / VARS $8688, ERR_NR $FF, PPC $0078; menu ERR_NR $2F,
+// PPC 0, TV_FLAG $20; Command Line TV_FLAG $21; executing PRINT ;: PAUSE 0
+// ERR_NR $FF, PPC $FFFE, TV_FLAG 0.
+struct FakeZxos {
+    int  welcome_ready = 400;   // frame at which the welcome is up and waiting; 0 = never
+    bool welcome_off   = false; // NextZXOS's own welcome disabled: boots to the menu
+    int  welcome_draw  = 0;     // frames the resident welcome is still drawing (PC moving)
+    int  menu_lag      = 30;    // frames to draw the menu after SPACE (or after boot)
+    bool calculator_second = false;   // DOWN+ENTER opens Calculator, not the Command Line
+    bool hz60          = false;
+    // observations
+    int  ignored = 0;           // key-downs the machine was too busy to take
+    int  spaces = 0;
+    int  typed = 0;
+    int  frame = 0;
+    // internal
+    enum S { BOOT, WELCOME, MENU_LOAD, MENU, CL_LOAD, CL, EXEC, CALC } st = BOOT;
+    int  t = 0, cursor = 0;
+    std::vector<int> prev;
+    std::vector<std::vector<int>> seq;   // every key-down the machine saw, in order
+};
+
+/// Run the recipe against the model for up to `frames` frames. Returns the
+/// state the model ended in.
+FakeZxos::S run_fake(Emulator& e, FakeZxos& z, int frames)
+{
+    make_next(e);
+    set_statement_context(e);   // K/S, ROM 3 records and CURCHL, as the real machine has them
+    uint32_t units = 0;
+    auto sv = [&](uint16_t prog, uint16_t vars, uint8_t err, uint16_t ppc, uint8_t tv) {
+        sv_put16(e, kSvProg, prog); sv_put16(e, kSvVars, vars); sv_put16(e, kSvPpc, ppc);
+        e.mmu().bank5_vram()[kSvErrNr - 0x4000]  = err;
+        e.mmu().bank5_vram()[kSvTvFlag - 0x4000] = tv;
+    };
+    auto cpu = [&](uint16_t pc, uint16_t sp) {
+        Z80Registers r = e.cpu().get_registers(); r.PC = pc; r.SP = sp; e.cpu().set_registers(r);
+    };
+    auto K = [](int r, int c) { return r * 8 + c; };
+    for (int f = 0; f < frames && !e.warm_start_recipe_done(); ++f) {
+        z.frame = f;
+        e.keyboard().tick_auto_type();
+        const std::vector<int> now = held_keys(e);
+        const bool down = !now.empty() && now != z.prev;   // a new key-down this frame
+        z.prev = now;
+        if (down) z.seq.push_back(now);
+        const bool space = down && now == std::vector<int>{K(7, 0)};
+        const bool dn    = down && now == std::vector<int>{K(0, 0), K(4, 4)};
+        const bool enter = down && now == std::vector<int>{K(6, 0)};
+        ++z.t;
+        switch (z.st) {
+        case FakeZxos::BOOT:
+            cpu(static_cast<uint16_t>(0x1000 + f), 0x5BE7); sv(0x5CCB, 0x5CCB, 0x00, 0, 0x01);
+            if (z.welcome_off && f >= z.welcome_ready && z.welcome_ready) { z.st = FakeZxos::MENU_LOAD; z.t = 0; }
+            else if (!z.welcome_off && z.welcome_ready && f >= z.welcome_ready) { z.st = FakeZxos::WELCOME; z.t = 0; }
+            if (down) ++z.ignored;
+            break;
+        case FakeZxos::WELCOME:
+            if (z.t <= z.welcome_draw) {   // resident, but still drawing: busy, keys are lost
+                cpu(static_cast<uint16_t>(0x4000 + f), 0xFF3F); sv(0x5DFA, 0x8688, 0xFF, 0x0078, 0x01);
+                if (down) ++z.ignored;
+                break;
+            }
+            cpu(0x0C8F, 0xFF3F); sv(0x5DFA, 0x8688, 0xFF, 0x0078, 0x01);
+            if (space) { ++z.spaces; z.st = FakeZxos::MENU_LOAD; z.t = 0; }
+            else if (down) ++z.ignored;
+            break;
+        case FakeZxos::MENU_LOAD:
+            cpu(static_cast<uint16_t>(0x2000 + f), 0x5BE7); sv(0x5CCB, 0x5CCB, 0x2F, 0, 0x20);
+            if (down) ++z.ignored;
+            if (z.t >= z.menu_lag) { z.st = FakeZxos::MENU; z.t = 0; }
+            break;
+        case FakeZxos::MENU:
+            cpu(0x0C8F, 0x5BF3); sv(0x5CCB, 0x5CCB, 0x2F, 0, 0x20);
+            if (space) ++z.spaces;   // would open page 2 on the real menu: counted as a fault below
+            if (dn) z.cursor = 1;
+            else if (enter) {
+                if (z.cursor == 1) { z.st = z.calculator_second ? FakeZxos::CALC : FakeZxos::CL_LOAD; z.t = 0; }
+            }
+            break;
+        case FakeZxos::CL_LOAD:
+            cpu(static_cast<uint16_t>(0x3000 + f), 0x5BF3); sv(0x5CCB, 0x5CCB, 0x2F, 0, 0x21);
+            if (down) ++z.ignored;
+            if (z.t >= 20) { z.st = FakeZxos::CL; z.t = 0; }
+            break;
+        case FakeZxos::CL:
+            cpu(0x0C8F, 0x5BF9); sv(0x5CCB, 0x5CCB, 0x2F, 0, 0x21);
+            if (down) ++z.typed;
+            if (z.typed >= 15) { z.st = FakeZxos::EXEC; z.t = 0; }
+            break;
+        case FakeZxos::CALC:
+            cpu(0x0C8F, 0x5BA1); sv(0x5CCB, 0x5CCB, 0x19, 0, 0x20);
+            break;
+        case FakeZxos::EXEC:
+            cpu(0x0C8F, 0xFF4D); sv(0x5CCB, 0x5CCB, 0xFF, 0xFFFE, 0x00);
+            break;
+        }
+        const uint32_t before = units;
+        units += Emulator::warm_start_frame_units(z.hz60);
+        Emulator::warm_start_recipe_tick(e, before, units);
+    }
+    return z.st;
+}
+
+
+// ── Calm-screen fixtures for the recipe's clauses (GH #481 follow-up) ──────
+//
+// Each fixture holds the machine on ONE screen (a fixed PC, SP and sysvars, as a
+// HALT-waiting NextZXOS shows) for some frames and records the key-downs the
+// recipe made. A clause of a state predicate is pinned by a screen that meets
+// every other clause and not that one: the recipe must leave it alone.
+struct Scr { uint16_t pc, sp, prog, vars; uint8_t err; uint16_t ppc; uint8_t tv; };
+constexpr Scr kScrWelcome = {0x0C8F, 0xFF3F, 0x5DFA, 0x8688, 0xFF, 0x0078, 0x01};
+constexpr Scr kScrMenu    = {0x0C8F, 0x5BF3, 0x5CCB, 0x5CCB, 0x2F, 0x0000, 0x20};
+constexpr Scr kScrCmdLine = {0x0C8F, 0x5BF9, 0x5CCB, 0x5CCB, 0x2F, 0x0000, 0x21};
+
+struct Hold {
+    Emulator e;
+    uint32_t units = 2400 - 6;   // the first frame crosses T0
+    std::vector<std::vector<int>> seq;
+    std::vector<int> prev;
+    Hold() { make_next(e); }
+    void on(const Scr& c, int frames) {
+        for (int f = 0; f < frames; ++f) {
+            e.keyboard().tick_auto_type();
+            const std::vector<int> now = held_keys(e);
+            if (!now.empty() && now != prev) seq.push_back(now);
+            prev = now;
+            Z80Registers r = e.cpu().get_registers(); r.PC = c.pc; r.SP = c.sp; e.cpu().set_registers(r);
+            sv_put16(e, kSvProg, c.prog); sv_put16(e, kSvVars, c.vars); sv_put16(e, kSvPpc, c.ppc);
+            e.mmu().bank5_vram()[kSvErrNr - 0x4000]  = c.err;
+            e.mmu().bank5_vram()[kSvTvFlag - 0x4000] = c.tv;
+            const uint32_t before = units;
+            units += 6;
+            Emulator::warm_start_recipe_tick(e, before, units);
+        }
+    }
+    /// Hold `c` until the recipe is done or `max` frames pass; returns the frames used.
+    int until_done(const Scr& c, int max) {
+        int n = 0;
+        while (n < max && !e.warm_start_recipe_done()) { on(c, 1); ++n; }
+        return n;
+    }
+    static std::vector<int> key(int r, int c) { return {r * 8 + c}; }
+    static std::vector<int> space() { return key(7, 0); }
+    static std::vector<int> down() { return {0 * 8 + 0, 4 * 8 + 4}; }
+    static std::vector<int> enter() { return key(6, 0); }
+};
 
 }  // namespace
 
@@ -1012,13 +1173,23 @@ int main()
             welcome(e, true);
             const bool before_idle = !e.keyboard().auto_typing();
             const bool t0 = Emulator::warm_start_recipe_tick(e, 2394, 2400);
+            // The machine does not move (no frame runs here), so it is idle from
+            // the second sample on. SPACE waits for kWarmStartCalmFrames idle
+            // frames and is not sent at T0 itself.
+            bool early = e.keyboard().auto_typing();
+            uint32_t u = 2400;
+            for (uint32_t i = 0; i < Emulator::kWarmStartCalmFrames; ++i, u += 6) {
+                Emulator::warm_start_recipe_tick(e, u, u + 6);
+                if (i + 1 < Emulator::kWarmStartCalmFrames && e.keyboard().auto_typing()) early = true;
+            }
             const bool queued = e.keyboard().auto_typing();
             e.keyboard().tick_auto_type();
             const std::vector<int> down = held_keys(e);
             check("WSR-RCP-01",
                   "over a resident welcome program (PROG $5DFA != VARS $8688, "
-                  "measured) the tick across T0 reports T0 and queues SPACE (7,0)",
-                  before_idle && t0 && queued && down == std::vector<int>{7 * 8 + 0});
+                  "measured) the tick reports T0, sends nothing before the machine "
+                  "has been idle for kWarmStartCalmFrames frames, then queues SPACE (7,0)",
+                  before_idle && t0 && !early && queued && down == std::vector<int>{7 * 8 + 0});
         }
         {
             Emulator e;
@@ -1051,22 +1222,10 @@ int main()
         }
         {
             // The whole sequence, as the guest's keyboard scan sees it: one
-            // entry per key-down, from frame 0 to the capture point.
+            // entry per key-down, against the model of the machine.
             Emulator e;
-            welcome(e, true);
-            std::vector<std::vector<int>> seq;
-            std::vector<int> prev;
-            uint32_t units = 0, frames = 0;
-            while (units < Emulator::kWarmStartT4Units) {
-                const uint32_t before = units;
-                e.keyboard().tick_auto_type();
-                const std::vector<int> now = held_keys(e);
-                if (!now.empty() && now != prev) seq.push_back(now);
-                prev = now;
-                units += Emulator::warm_start_frame_units(false);
-                ++frames;
-                Emulator::warm_start_recipe_tick(e, before, units);
-            }
+            FakeZxos z;
+            const FakeZxos::S end = run_fake(e, z, 1500);
             auto K = [](int r, int c) { return r * 8 + c; };
             const std::vector<std::vector<int>> want = {
                 {K(7, 0)},                   // SPACE (leave the welcome)
@@ -1079,11 +1238,235 @@ int main()
                 {K(7, 0)}, {K(4, 0)}, {K(6, 0)}};                        // space 0 ENTER
             check("WSR-RCP-04",
                   "the recipe types SPACE, cursor-down, ENTER, then `print;:pause 0` "
-                  "ENTER, in that order (48K keyboard matrix), and the queue is "
-                  "drained before the capture point",
-                  seq == want && !e.keyboard().auto_typing(),
-                  det("%zu key-downs, queue %s", seq.size(),
-                      e.keyboard().auto_typing() ? "not empty" : "empty"));
+                  "ENTER, in that order (48K keyboard matrix), the model ends executing "
+                  "it, and the queue is drained",
+                  z.seq == want && end == FakeZxos::EXEC && !e.keyboard().auto_typing() &&
+                      e.warm_start_recipe_done(),
+                  det("%zu key-downs, end state %d", z.seq.size(), static_cast<int>(end)));
+        }
+    }
+
+    // ── GH #481 follow-up: the recipe drives on the machine's state ──
+    {
+        auto K = [](int r, int c) { return r * 8 + c; };
+        (void)K;
+        {   // A welcome that draws slowly (the minimal card's is up ~70 frames
+            // later than the distro card's): nothing is pressed until it waits.
+            Emulator e; FakeZxos z; z.welcome_ready = 470;
+            const FakeZxos::S end = run_fake(e, z, 1500);
+            check("WSR-RDY-01",
+                  "a welcome that is up at frame 470, not 400, still reaches the "
+                  "Command Line and the executing statement: no key was pressed "
+                  "while the machine was busy, SPACE was sent once",
+                  end == FakeZxos::EXEC && e.warm_start_recipe_done() && z.ignored == 0 &&
+                      z.spaces == 1,
+                  det("end=%d ignored=%d spaces=%d", static_cast<int>(end), z.ignored, z.spaces));
+        }
+        {   // A welcome program that is resident but still drawing (the PC moves).
+            Emulator e; FakeZxos z; z.welcome_draw = 30;
+            const FakeZxos::S end = run_fake(e, z, 1500);
+            check("WSR-RDY-17",
+                  "a welcome that is resident (PROG != VARS) but still drawing gets no "
+                  "SPACE until it has been idle: the key is not lost to the drawing",
+                  end == FakeZxos::EXEC && z.ignored == 0 && z.spaces == 1,
+                  det("end=%d ignored=%d spaces=%d", static_cast<int>(end), z.ignored, z.spaces));
+        }
+        {   // 60 Hz: the same machine measured in frames of 5 units.
+            Emulator e; FakeZxos z; z.hz60 = true; z.welcome_ready = 480; z.menu_lag = 40;
+            const FakeZxos::S end = run_fake(e, z, 2000);
+            check("WSR-RDY-02",
+                  "at 60 Hz (welcome at frame 480, a slower menu) the recipe also reaches "
+                  "the executing statement with no key pressed while busy",
+                  end == FakeZxos::EXEC && e.warm_start_recipe_done() && z.ignored == 0,
+                  det("end=%d ignored=%d", static_cast<int>(end), z.ignored));
+        }
+        {   // NextZXOS's own welcome disabled: boots to the menu, SPACE would open page 2.
+            Emulator e; FakeZxos z; z.welcome_off = true; z.welcome_ready = 380;
+            const FakeZxos::S end = run_fake(e, z, 1500);
+            check("WSR-RDY-03",
+                  "with the welcome disabled (a card that boots to the menu) the recipe "
+                  "never sends SPACE and reaches the executing statement",
+                  end == FakeZxos::EXEC && e.warm_start_recipe_done() && z.spaces == 0 &&
+                      z.ignored == 0,
+                  det("end=%d spaces=%d ignored=%d", static_cast<int>(end), z.spaces, z.ignored));
+        }
+        {   // A machine that never gets there: the recipe gives up, pressing nothing.
+            Emulator e; FakeZxos z; z.welcome_ready = 0;
+            run_fake(e, z, 1500);
+            check("WSR-RDY-04",
+                  "a machine that never reaches the welcome or the menu makes the recipe "
+                  "give up after its budget, having pressed nothing, and name what it "
+                  "was waiting for",
+                  e.warm_start_recipe_done() && z.seq.empty() && z.frame < 1500 &&
+                      e.warm_start_recipe_waiting_for().find("welcome program or the menu") !=
+                          std::string::npos,
+                  det("frame=%d keys=%zu", z.frame, z.seq.size()));
+        }
+        {   // A custom menu whose second item is not the Command Line.
+            Emulator e; FakeZxos z; z.calculator_second = true;
+            const FakeZxos::S end = run_fake(e, z, 1500);
+            check("WSR-RDY-05",
+                  "a menu whose second item is not the Command Line makes the recipe give "
+                  "up waiting for the Command Line (the capture check then refuses)",
+                  end == FakeZxos::CALC && e.warm_start_recipe_done() &&
+                      e.warm_start_recipe_waiting_for().find("Command Line") !=
+                          std::string::npos,
+                  det("end=%d waiting=%s", static_cast<int>(end),
+                      e.warm_start_recipe_waiting_for().c_str()));
+        }
+    }
+
+    // ── GH #481 follow-up: every clause of the recipe's state tests is pinned ──
+    {
+        using H = Hold;
+        auto none = [](const Hold& h) { return h.seq.empty(); };
+        {   // The SP half of the idle test: a screen change at the SAME PC.
+            H h; h.on(kScrWelcome, 30);
+            const bool space_only = h.seq == std::vector<std::vector<int>>{H::space()};
+            h.on(kScrMenu, 8);   // the SP moved: eight idle frames must be counted afresh
+            const bool waited = h.seq == std::vector<std::vector<int>>{H::space()};
+            h.on(kScrMenu, 2);
+            check("WSR-RDY-06",
+                  "a screen change at the same PC where only SP moves (welcome FF3F to "
+                  "menu 5BF3, as on the real machine) restarts the idle count: DOWN waits "
+                  "eight more frames",
+                  space_only && waited && h.seq.size() == 2 && h.seq[1] == H::down(),
+                  det("keys=%zu", h.seq.size()));
+        }
+        {   // SPACE only while the welcome program is resident.
+            H h; h.on({0x0C8F, 0x5BE7, 0x5CCB, 0x5CCB, 0xFF, 0x0078, 0x01}, 60);
+            check("WSR-RDY-07",
+                  "a calm screen that is neither the welcome (PROG == VARS) nor the menu "
+                  "gets no SPACE (on the menu it would open page 2)",
+                  none(h), det("keys=%zu", h.seq.size()));
+        }
+        {   // A welcome that swallows the first SPACE gets a second one later.
+            H h; h.on(kScrWelcome, 80);
+            check("WSR-RDY-08",
+                  "a welcome that is still resident long after SPACE (the first one "
+                  "swallowed) is sent SPACE again, once, about 50 frames later",
+                  h.seq == std::vector<std::vector<int>>{H::space(), H::space()},
+                  det("keys=%zu", h.seq.size()));
+        }
+        {   // The four clauses of the menu test, one screen each.
+            H e1; e1.on({0x0C8F, 0x5BF3, 0x5CCB, 0x5CCB, 0xFF, 0x0000, 0x20}, 40);
+            check("WSR-RDY-09",
+                  "a calm screen like the menu but with ERR_NR $FF gets no cursor key",
+                  none(e1), det("keys=%zu", e1.seq.size()));
+            H e2; e2.on({0x0C8F, 0x5BF3, 0x5CCB, 0x5CCB, 0x2F, 0x0078, 0x20}, 40);
+            check("WSR-RDY-10",
+                  "a calm screen like the menu but with PPC $0078 gets no cursor key",
+                  none(e2), det("keys=%zu", e2.seq.size()));
+            H e3; e3.on({0x0C8F, 0x5BF3, 0x5CCB, 0x5CCB, 0x2F, 0x0000, 0x21}, 40);
+            check("WSR-RDY-11",
+                  "a calm screen like the menu but with TV_FLAG $21 (the Command Line, "
+                  "not the menu) gets no cursor key",
+                  none(e3), det("keys=%zu", e3.seq.size()));
+            H e4; e4.on({0x0C8F, 0x5BF3, 0x5DFA, 0x8688, 0x2F, 0x0000, 0x20}, 60);
+            bool no_down = true;
+            for (const auto& k : e4.seq) if (k == H::down()) no_down = false;
+            check("WSR-RDY-12",
+                  "a calm screen like the menu but with a BASIC program resident gets "
+                  "SPACE and never the cursor key",
+                  no_down && !e4.seq.empty() && e4.seq[0] == H::space(),
+                  det("keys=%zu", e4.seq.size()));
+        }
+        {   // The Command Line test: ENTER lost, so the menu is still up.
+            H h; h.on(kScrMenu, 130);
+            check("WSR-RDY-13",
+                  "when ENTER was lost and the menu is still idle (TV_FLAG $20) the "
+                  "statement is not typed into it",
+                  h.seq == std::vector<std::vector<int>>{H::down(), H::enter()},
+                  det("keys=%zu", h.seq.size()));
+            H g; g.on(kScrMenu, 60);
+            g.on({0x0C8F, 0x5BF9, 0x5CCB, 0x5CCB, 0xFF, 0x0000, 0x21}, 40);
+            check("WSR-RDY-14",
+                  "a Command-Line-like screen (TV_FLAG $21) with ERR_NR $FF is not the "
+                  "Command Line: nothing is typed",
+                  g.seq == std::vector<std::vector<int>>{H::down(), H::enter()},
+                  det("keys=%zu", g.seq.size()));
+        }
+        // Termination: with no overall cap, only each state's own budget ends a
+        // stuck recording. Each state is held stuck and must give up, bounded.
+        auto count = [](const Hold& h, const std::vector<int>& k) {
+            int n = 0; for (const auto& x : h.seq) if (x == k) ++n; return n; };
+        {
+            H h; const int n = h.until_done(kScrWelcome, 1500);
+            check("WSR-RDY-18",
+                  "a resident welcome that never takes SPACE ends the recipe within the "
+                  "budget (about 400 frames), done, waiting for the welcome or the menu, "
+                  "with a bounded number of SPACE re-sends",
+                  h.e.warm_start_recipe_done() && n <= 410 && count(h, H::space()) <= 9 &&
+                      h.e.warm_start_recipe_waiting_for().find("welcome program or the menu") !=
+                          std::string::npos,
+                  det("frames=%d spaces=%d", n, count(h, H::space())));
+        }
+        {
+            H h; h.on(kScrMenu, 12);   // DOWN is sent, then nothing the menu recognises comes back
+            const int n = h.until_done({0x0C8F, 0x5BE7, 0x5CCB, 0x5CCB, 0xFF, 0x0078, 0x01}, 1500);
+            check("WSR-RDY-19",
+                  "a machine that never returns to the idle menu after the cursor key ends "
+                  "the recipe within the budget, naming the menu",
+                  h.e.warm_start_recipe_done() && n <= 410 &&
+                      h.e.warm_start_recipe_waiting_for().find("cursor key") != std::string::npos &&
+                      h.seq == std::vector<std::vector<int>>{H::down()},
+                  det("frames=%d keys=%zu", n, h.seq.size()));
+        }
+        {
+            H h; h.on(kScrMenu, 60);   // DOWN and ENTER sent; the menu stays up
+            const int n = h.until_done(kScrMenu, 1500);
+            check("WSR-RDY-20",
+                  "a menu that stays up after ENTER ends the recipe within the budget, "
+                  "naming the Command Line, without typing the statement",
+                  h.e.warm_start_recipe_done() && n <= 410 &&
+                      h.e.warm_start_recipe_waiting_for().find("Command Line") != std::string::npos &&
+                      h.seq == std::vector<std::vector<int>>{H::down(), H::enter()},
+                  det("frames=%d keys=%zu", n, h.seq.size()));
+        }
+        {
+            H h; h.on(kScrMenu, 60); h.on(kScrCmdLine, 170);   // the statement is typed
+            const int n = h.until_done(kScrCmdLine, 1500);     // and never executes
+            check("WSR-RDY-21",
+                  "a statement that never executes ends the recipe within the budget, "
+                  "naming the statement",
+                  h.e.warm_start_recipe_done() && n <= 410 && h.seq.size() == 17 &&
+                      h.e.warm_start_recipe_waiting_for().find("typed statement") != std::string::npos,
+                  det("frames=%d keys=%zu", n, h.seq.size()));
+        }
+        {   // Command Line sysvars with a BASIC program resident: not the Command Line.
+            H h; h.on(kScrMenu, 60);
+            h.on({0x0C8F, 0x5BF9, 0x5DFA, 0x8688, 0x2F, 0x0000, 0x21}, 40);
+            check("WSR-RDY-22",
+                  "the Command Line sysvars with a BASIC program resident are not the "
+                  "Command Line: nothing is typed",
+                  h.seq == std::vector<std::vector<int>>{H::down(), H::enter()},
+                  det("keys=%zu", h.seq.size()));
+        }
+        {   // Command Line sysvars with PPC != 0.
+            H h; h.on(kScrMenu, 60);
+            h.on({0x0C8F, 0x5BF9, 0x5CCB, 0x5CCB, 0x2F, 0x0078, 0x21}, 40);
+            check("WSR-RDY-23",
+                  "the Command Line sysvars with PPC $0078 are not the Command Line: "
+                  "nothing is typed",
+                  h.seq == std::vector<std::vector<int>>{H::down(), H::enter()},
+                  det("keys=%zu", h.seq.size()));
+        }
+        {   // The statement test: executing means ERR_NR $FF AND PPC $FFFE.
+            auto typed = [](Hold& h) { h.on(kScrMenu, 60); h.on(kScrCmdLine, 170); };
+            Hold a; typed(a);
+            a.on({0x0C8F, 0xFF4D, 0x5CCB, 0x5CCB, 0xFF, 0x0078, 0x00}, 40);
+            check("WSR-RDY-15",
+                  "ERR_NR $FF with PPC a program line is not a typed statement "
+                  "executing: the recipe is not done",
+                  a.seq.size() == 17 && !a.e.warm_start_recipe_done(),
+                  det("keys=%zu done=%d", a.seq.size(), a.e.warm_start_recipe_done() ? 1 : 0));
+            Hold b; typed(b);
+            b.on({0x0C8F, 0xFF4D, 0x5CCB, 0x5CCB, 0x19, 0xFFFE, 0x00}, 40);
+            check("WSR-RDY-16",
+                  "PPC $FFFE with ERR_NR $19 (a report in the edit line) is not a "
+                  "statement executing: the recipe is not done",
+                  b.seq.size() == 17 && !b.e.warm_start_recipe_done(),
+                  det("keys=%zu done=%d", b.seq.size(), b.e.warm_start_recipe_done() ? 1 : 0));
         }
     }
 
