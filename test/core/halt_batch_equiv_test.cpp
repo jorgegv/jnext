@@ -250,9 +250,8 @@ const std::vector<uint16_t> kPaletteList = {
 };
 constexpr uint16_t kPaletteHaltPc = 7;
 
-// mode: NR 0x62 bits 7:6 started with (1 = start at 0, 3 = restart each frame);
-// mode_10_at >= 0 starts mode 1 and writes mode 10 (continue from the PC) at that frame.
-Scenario copper_busy(const char* name, uint8_t mode, int mode_10_at = -1) {
+// mode: NR 0x62 bits 7:6 started with (1 = start at 0, 3 = restart each frame).
+Scenario copper_busy(const char* name, uint8_t mode) {
     Scenario s;
     s.name = name;
     s.frames = 120;
@@ -263,9 +262,32 @@ Scenario copper_busy(const char* name, uint8_t mode, int mode_10_at = -1) {
         cu_program(e, kPaletteList);
         cu_nr(e, 0x62, static_cast<uint8_t>(mode << 6));
     };
-    if (mode_10_at >= 0)
-        s.before_frame = [=](Emulator& e, int f) { if (f == mode_10_at) cu_nr(e, 0x62, 0x80); };
     s.alive = [](Emulator& e) { return e.copper().pc() == kPaletteHaltPc; };
+    return s;
+}
+
+// Mode 10 (continue from the PC) entered with the Copper mid-list. The list's second WAIT
+// is for cvc 280, which is only reached after the frame boundary (cvc 247..310 lie in the
+// first 64 raw lines of the next frame), so at every frame boundary the PC stands on that
+// WAIT. Started in mode 01, stopped (00) at frame 1 with the PC there, set to mode 10 at
+// frame 3: the Copper resumes at the WAIT, meets it, runs the MOVE and reaches the HALT.
+Scenario copper_mode10() {
+    Scenario s;
+    s.name = "copper-m10";
+    s.frames = 120;
+    s.setup = [](Emulator& e) {
+        nr(e, 0x03, 0x01);
+        paint_paper(e);
+        busy_cpu(e);
+        cu_program(e, {cu_wait(0, 60), cu_move(0x40, 23), cu_move(0x41, 0xE0),
+                       cu_wait(0, 280), cu_move(0x41, 0x1C), cu_wait(0, 511)});
+        cu_nr(e, 0x62, 0x40);
+    };
+    s.before_frame = [](Emulator& e, int f) {
+        if (f == 1) cu_nr(e, 0x62, 0x00);
+        if (f == 3) cu_nr(e, 0x62, 0x80);
+    };
+    s.alive = [](Emulator& e) { return e.copper().pc() == 5; };
     return s;
 }
 
@@ -276,10 +298,12 @@ Scenario copper_offset_stress() {
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
         base(e);
-        poke(e, kHigh.main, {0x3E, 0x00, 0xED, 0x92, 0x64, 0x3C, 0x18, 0xFA});
+        // LD A,0; loop: NEXTREG 0x64,A; INC A; LD (var),A; JR loop
+        poke(e, kHigh.main, {0x3E, 0x00, 0xED, 0x92, 0x64, 0x3C, 0x32, 0x00, 0xC2, 0x18, 0xF7});
         start_at(e, kHigh.main, 0xBFF0);
     };
-    s.alive = [](Emulator& e) { return e.copper().pc() > 0 || e.copper().is_running(); };
+    // The CPU loop ran (it stores its counter) and the Copper list was walked.
+    s.alive = [](Emulator& e) { return e.mmu().peek(0xC200) != 0 && e.copper().is_running(); };
     return s;
 }
 
@@ -334,6 +358,14 @@ void check_ab(const char* id, const char* desc, const std::vector<Scenario>& lis
         const Run a = batch_ab::run(sc, false, false, g_scratch);
         const Run b = batch_ab::run(sc, true, true, g_scratch);
         const std::string d = batch_ab::first_diff(a, b);
+        // The "off" run must really be off: a switch ignored on both sides would make every
+        // identical row pass while comparing the optimisation with itself.
+        if (a.copper_skipped != 0 || a.halt_batched != 0) {
+            ok = false;
+            detail += std::string(sc.name) + ": the OFF run batched (copper_skipped=" +
+                      std::to_string(a.copper_skipped) + " halt_batched=" +
+                      std::to_string(a.halt_batched) + "); ";
+        }
         if (copper_engaged && b.copper_skipped == 0) {
             // A fixture that stops engaging the optimisation proves nothing: named failure.
             ok = false;
@@ -437,7 +469,7 @@ int main() {
     // cvc == vpos && hc >= (hpos << 3) + 12 (copper.vhd:80, :94); the skip must engage.
     check_ab("HBQ-34", "Copper WAIT/MOVE palette splits, modes 01, 10 and 11 and a rewritten NR 0x64, busy CPU: identical per frame, Copper skip engaged",
              {copper_busy("copper-m01", 1), copper_busy("copper-m11", 3),
-              copper_busy("copper-m10", 1, 5), copper_offset_stress()}, true);
+              copper_mode10(), copper_offset_stress()}, true);
 
     // HBQ-35: a WAIT reachable only in the tail of the line that straddles two frames
     // (zxula_timing.vhd:455-472; GH181-HCULA-04 in copper_integration_test).
