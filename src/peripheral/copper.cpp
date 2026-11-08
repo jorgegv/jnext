@@ -268,6 +268,43 @@ void Copper::execute(int hc, int vc, NextReg& nextreg, uint8_t cvc_offset) {
     }
 }
 
+uint32_t Copper::idle_cycles(int line_mc, int cvc, uint8_t cvc_offset, int mcpl, int lpf,
+                             uint32_t limit) const {
+    if (limit == 0 || mcpl <= 0) return 0;
+    if (last_mode_ != mode_ || mode_ == 0 || move_pending_) return 0;
+    if (events_armed()) return 0;
+    if (c_max_vc_ + 1 != lpf) return 0;
+    const uint16_t instr = instructions_[pc_ & 0x3FF];
+    if (!is_wait(instr)) return 0;
+
+    const int vpos = wait_vpos(instr);
+    const int hthresh = wait_hpos_threshold(instr);
+    // The first line-local master cycle at which `hc >= hthresh` holds, and whether
+    // the line has one at all (hc tops out at (mcpl - 1) >> 2).
+    const int match_lm = hthresh * 4;
+    const bool match_in_line = match_lm < mcpl;
+
+    uint32_t k = 0;
+    int lm = line_mc;
+    int c = cvc;
+    while (k < limit) {
+        // The same line counter execute() derives, restart test first, as there.
+        const int v = (c + static_cast<int>(cvc_offset)) % (c_max_vc_ + 1);
+        if (mode_ == 3 && v == 0 && (lm >> 2) == 0) break;           // mode-11 restart cycle
+        if (v == vpos && (lm >> 2) >= hthresh) break;                // the WAIT is met
+        // Nothing acts until the line's end, or the cycle the WAIT can first be met.
+        int end = mcpl;
+        if (v == vpos && match_in_line && match_lm > lm) end = match_lm;
+        const uint32_t room = static_cast<uint32_t>(end - lm);
+        const uint32_t take = room < limit - k ? room : limit - k;
+        k += take;
+        if (take < room) break;                                       // limit reached mid-run
+        if (end == mcpl) { lm = 0; c = (c + 1 == lpf) ? 0 : c + 1; }
+        else lm = end;
+    }
+    return k;
+}
+
 // ─── NextREG write handlers ────────────────────────────────────────
 //
 // The instruction RAM is addressed by write_addr_ (11-bit byte address).

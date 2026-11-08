@@ -12890,13 +12890,32 @@ void Emulator::tick_copper_for_master_cycles(uint64_t begin, uint64_t master_cyc
             ? cvc_offset_after_reload_()
             : video_timing_.cu_offset();
 
-    for (uint64_t c = 0; c < master_cycles; ++c) {
+    for (uint64_t c = 0; c < master_cycles; ) {
+        // GH #452 - an unmet WAIT changes nothing for however many cycles it takes to
+        // become met (or for the line's remainder): skip them in one step. The skipped
+        // cycles run no execute(), and so write no `copper_step_cycle_`, which only a
+        // MOVE reads (nr_write_lands_at_()).
+        if (batch_copper_enabled_) {
+            const uint64_t room = master_cycles - c;
+            const uint32_t k = copper_.idle_cycles(
+                line_mc, cvc, cvc_offset, mcpl_i, lpf,
+                room > 0xFFFFFFFFull ? 0xFFFFFFFFu : static_cast<uint32_t>(room));
+            if (k != 0) {
+                const uint64_t at = static_cast<uint64_t>(line_mc) + k;
+                line_mc = static_cast<int>(at % mcpl);
+                cvc = static_cast<int>((static_cast<uint64_t>(cvc) + at / mcpl) % static_cast<uint64_t>(lpf));
+                c += k;
+                copper_cycles_skipped_ += k;
+                continue;
+            }
+        }
         copper_step_cycle_ = pre_clock + c;   // GH #290 — nr_write_lands_at_()
         copper_.execute(line_mc >> 2, cvc, nextreg_, cvc_offset);
         if (++line_mc == mcpl_i) {
             line_mc = 0;
             if (++cvc == lpf) cvc = 0;
         }
+        ++c;
     }
 }
 

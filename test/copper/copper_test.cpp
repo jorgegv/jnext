@@ -25,6 +25,7 @@
 #include "peripheral/copper.h"
 #include "peripheral/nmi_source.h"
 #include "port/nextreg.h"
+#include "core/saveable.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -1949,6 +1950,273 @@ void group10_reset() {
 
 // ── Main ─────────────────────────────────────────────────────────────
 
+
+// ── Group 11: idle_cycles() against per-cycle execute() (GH #452) ─────────
+//
+// The Emulator skips a run of cycles when Copper::idle_cycles() says none of them
+// can act. The oracle is the per-cycle Copper::execute() itself, which is held to
+// copper.vhd by the groups above: a skipped run must be a run in which execute()
+// changes nothing, and a skip-then-execute loop must be indistinguishable from the
+// per-cycle loop. Copper cvc wraps at c_max_vc + 1 (copper.vhd:80; zxula_timing.vhd:
+// 455-472) and WAIT is met at cvc == vpos && hc >= (hpos << 3) + 12 mod 512
+// (copper.vhd:94).
+
+// A position in the Emulator's counters: master cycles since hc_ula == 0, and cvc.
+struct Pos {
+    int lm;      // 0 .. mcpl-1
+    int cvc;     // 0 .. lpf-1
+    int mcpl;
+    int lpf;
+    uint8_t off;
+    void step() { if (++lm == mcpl) { lm = 0; if (++cvc == lpf) cvc = 0; } }
+    void advance(uint64_t n) {
+        const uint64_t at = static_cast<uint64_t>(lm) + n;
+        lm = static_cast<int>(at % static_cast<uint64_t>(mcpl));
+        cvc = static_cast<int>((static_cast<uint64_t>(cvc) + at / static_cast<uint64_t>(mcpl)) %
+                               static_cast<uint64_t>(lpf));
+    }
+};
+
+std::vector<uint8_t> blob_of(const Copper& cu) {
+    StateWriter m;
+    cu.save_state(m);
+    std::vector<uint8_t> b(m.position());
+    StateWriter w(b.data(), b.size());
+    cu.save_state(w);
+    return b;
+}
+
+struct Rng {
+    uint64_t s;
+    uint32_t next() { s = s * 6364136223846793005ull + 1442695040888963407ull; return static_cast<uint32_t>(s >> 33); }
+    uint32_t below(uint32_t n) { return next() % n; }
+};
+
+// One write observed on the NextReg a Copper MOVE reaches.
+struct NrWrite { uint64_t cycle; uint8_t reg; uint8_t val; uint16_t pc; bool operator==(const NrWrite& o) const {
+    return cycle == o.cycle && reg == o.reg && val == o.val && pc == o.pc; } };
+
+void record_writes(NextReg& nr, const Copper& cu, const uint64_t& now, std::vector<NrWrite>& out) {
+    for (int r = 1; r < 0x60; ++r)
+        nr.set_write_handler(static_cast<uint8_t>(r), [&, r](uint8_t v) -> uint8_t {
+            out.push_back({now, static_cast<uint8_t>(r), v, cu.pc()});
+            return v;
+        });
+}
+
+// Build a reachable Copper state: a random program, run through a random number of
+// per-cycle execute() calls with random mode writes on the way (so a mode edge, a
+// MOVE settling, a stopped Copper and every PC occur), starting from a random position.
+struct Case {
+    Copper cu;
+    Pos pos{};
+    uint32_t limit = 0;
+};
+
+Case make_case(Rng& rng) {
+    Case k;
+    k.pos.mcpl = 40 + static_cast<int>(rng.below(900));
+    k.pos.lpf = 12 + static_cast<int>(rng.below(60));
+    k.pos.off = static_cast<uint8_t>(rng.below(4) == 0 ? rng.below(256) : rng.below(3));
+    k.pos.lm = static_cast<int>(rng.below(static_cast<uint32_t>(k.pos.mcpl)));
+    k.pos.cvc = static_cast<int>(rng.below(static_cast<uint32_t>(k.pos.lpf)));
+    k.cu.set_c_max_vc(k.pos.lpf - 1);
+    const int nw = 3 + static_cast<int>(rng.below(8));
+    for (int i = 0; i < nw; ++i) {
+        uint16_t w;
+        switch (rng.below(5)) {
+        case 0: w = enc_move(0, 0); break;                                   // NOP
+        case 1: case 2: w = enc_move(static_cast<uint8_t>(1 + rng.below(0x5E)), static_cast<uint8_t>(rng.next())); break;
+        case 3: w = enc_wait(static_cast<uint8_t>(rng.below(64)), static_cast<uint16_t>(511)); break;   // HALT
+        default: w = enc_wait(static_cast<uint8_t>(rng.below(64)),
+                              static_cast<uint16_t>(rng.below(static_cast<uint32_t>(k.pos.lpf) + 3))); break;
+        }
+        program_word(k.cu, static_cast<uint16_t>(i), w);
+    }
+    set_mode(k.cu, static_cast<uint8_t>(1 + rng.below(3)));
+    NextReg nr;
+    const int warm = static_cast<int>(rng.below(static_cast<uint32_t>(3 * k.pos.mcpl)));
+    const int wr = rng.below(3) == 0 ? static_cast<int>(rng.below(static_cast<uint32_t>(warm + 1))) : -1;
+    for (int c = 0; c < warm; ++c) {
+        if (c == wr) set_mode(k.cu, static_cast<uint8_t>(rng.below(4)));
+        k.cu.execute(k.pos.lm >> 2, k.pos.cvc, nr, k.pos.off);
+        k.pos.step();
+    }
+    if (rng.below(4) == 0) set_mode(k.cu, static_cast<uint8_t>(rng.below(4)));   // an unlatched edge
+    k.limit = 1 + rng.below(static_cast<uint32_t>(4 * k.pos.mcpl));
+    return k;
+}
+
+void group11_idle_skip() {
+    set_group("G11-IdleSkip");
+
+    // CPSK-01: property over 20000 seeded reachable states. k = idle_cycles() is SAFE:
+    // k per-cycle execute() calls on a copy change nothing (PC, mode, edge, the whole
+    // save_state, no NextREG write). And it is not short by accident: when 0 < k < limit
+    // the (k+1)-th cycle either changes the state or is a mode-11 restart cycle (which
+    // idle_cycles() leaves to execute(), conservatively, even if the PC is already 0).
+    {
+        Rng rng{0x452};
+        int cases = 0, nonzero = 0, bad = 0;
+        std::string first_bad;
+        for (int i = 0; i < 20000; ++i) {
+            Case k = make_case(rng);
+            const uint32_t n = k.cu.idle_cycles(k.pos.lm, k.pos.cvc, k.pos.off, k.pos.mcpl, k.pos.lpf, k.limit);
+            ++cases;
+            if (n > k.limit) { ++bad; if (first_bad.empty()) first_bad = fmt("case %d: k=%u > limit %u", i, n, k.limit); continue; }
+            if (n) ++nonzero;
+            Copper cu = k.cu;
+            Pos pos = k.pos;
+            NextReg nr;
+            uint64_t now = 0;
+            std::vector<NrWrite> w;
+            record_writes(nr, cu, now, w);
+            const std::vector<uint8_t> before = blob_of(cu);
+            bool ok = true;
+            const uint16_t pc0 = cu.pc();
+            const uint8_t mode0 = cu.mode();
+            for (uint32_t c = 0; c < n && ok; ++c) {
+                cu.execute(pos.lm >> 2, pos.cvc, nr, pos.off);
+                pos.step();
+                ok = w.empty() && cu.pc() == pc0 && cu.mode() == mode0 && !cu.mode_edge_pending();
+            }
+            ok = ok && (n == 0 || blob_of(cu) == before);
+            if (!ok && ++bad && first_bad.empty()) first_bad = fmt("case %d: skipped run of %u changed state/wrote NR", i, n);
+            if (ok && n > 0 && n < k.limit) {
+                const std::vector<uint8_t> pre = blob_of(cu);
+                const int v = (pos.cvc + pos.off) % (k.pos.lpf);
+                const bool restart = k.cu.mode() == 3 && v == 0 && (pos.lm >> 2) == 0;
+                cu.execute(pos.lm >> 2, pos.cvc, nr, pos.off);
+                if (!restart && w.empty() && blob_of(cu) == pre) {
+                    if (++bad && first_bad.empty()) first_bad = fmt("case %d: cycle %u after a run of %u changes nothing", i, n + 1, n);
+                }
+            }
+        }
+        check("CPSK-01", "idle_cycles(): over 20000 reachable states every skipped run changes nothing in per-cycle execute(), and ends where the next cycle acts",
+              bad == 0 && nonzero > 2000, fmt("%d bad, %d of %d cases skip; %s", bad, nonzero, cases, first_bad.c_str()));
+    }
+
+    // CPSK-02: skip-then-execute and per-cycle loops over the same window end in the same
+    // state with the same NextREG write stream (cycle, register, value, PC of the MOVE).
+    {
+        Rng rng{0x45202};
+        int bad = 0, with_writes = 0;
+        std::string first_bad;
+        for (int i = 0; i < 4000; ++i) {
+            Case k = make_case(rng);
+            const uint64_t window = 1 + rng.below(static_cast<uint32_t>(6 * k.pos.mcpl));
+            auto run = [&](bool skip, std::vector<NrWrite>& out, uint64_t& skipped) {
+                Copper cu = k.cu;
+                Pos pos = k.pos;
+                NextReg nr;
+                uint64_t now = 0;
+                record_writes(nr, cu, now, out);
+                for (uint64_t c = 0; c < window; ) {
+                    if (skip) {
+                        const uint64_t room = window - c;
+                        const uint32_t n = cu.idle_cycles(pos.lm, pos.cvc, pos.off, pos.mcpl, pos.lpf,
+                                                          static_cast<uint32_t>(room));
+                        if (n) { pos.advance(n); c += n; skipped += n; continue; }
+                    }
+                    now = c;
+                    cu.execute(pos.lm >> 2, pos.cvc, nr, pos.off);
+                    pos.step();
+                    ++c;
+                }
+                return blob_of(cu);
+            };
+            std::vector<NrWrite> wa, wb;
+            uint64_t sa = 0, sb = 0;
+            const auto ba = run(false, wa, sa);
+            const auto bb = run(true, wb, sb);
+            if (!wa.empty()) ++with_writes;
+            if (ba != bb || !(wa == wb)) {
+                if (++bad && first_bad.empty()) first_bad = fmt("case %d (window %llu): %s", i,
+                    static_cast<unsigned long long>(window), ba != bb ? "final state differs" : "NextREG writes differ");
+            }
+        }
+        check("CPSK-02", "skip-then-execute and per-cycle loops over 4000 windows give the same NextREG write stream and the same final Copper state",
+              bad == 0 && with_writes > 200, fmt("%d bad, %d windows with writes; %s", bad, with_writes, first_bad.c_str()));
+    }
+
+    // CPSK-03: mode 11 restarts at cvc == 0 && hc == 0 (copper.vhd:80), cvc counted from
+    // the NR 0x64 offset (zxula_timing.vhd:455-472): a stalled run ends exactly there, for
+    // offsets 0, 1 and 255.
+    {
+        bool ok = true;
+        std::string detail;
+        for (int off : {0, 1, 255}) {
+            Copper cu;
+            const int mcpl = 400, lpf = 50;
+            cu.set_c_max_vc(lpf - 1);
+            program_word(cu, 0, enc_wait(0, 511));         // HALT: never met
+            set_mode(cu, 3);
+            NextReg nr;
+            cu.execute(0, 0, nr, 0);                       // latch the mode edge
+            Pos p{17, 10, mcpl, lpf, static_cast<uint8_t>(off)};
+            const int v0 = (p.cvc + off) % lpf;
+            const int n = lpf - v0;                        // lines until cvc_eff == 0
+            const uint32_t want = static_cast<uint32_t>((mcpl - p.lm) + (n - 1) * mcpl);
+            const uint32_t got = cu.idle_cycles(p.lm, p.cvc, p.off, mcpl, lpf, 1000000);
+            Pos e = p; e.advance(got);
+            const bool at_restart = ((e.cvc + off) % lpf) == 0 && e.lm == 0;
+            if (got != want || !at_restart) {
+                ok = false;
+                detail += fmt("off %d: got %u want %u; ", off, got, want);
+            }
+        }
+        check("CPSK-03", "mode 11: a stalled run ends exactly at cvc == 0, hc == 0, with offsets 0, 1 and 255",
+              ok, detail);
+    }
+
+    // CPSK-04: the closed form assumes the Emulator's line wrap is the Copper's
+    // (c_max_vc + 1 == lines per frame); otherwise there is no skip.
+    {
+        Copper good, bad;
+        const int mcpl = 400, lpf = 50;
+        for (Copper* c : {&good, &bad}) {
+            program_word(*c, 0, enc_wait(0, 511));
+            set_mode(*c, 1);
+        }
+        good.set_c_max_vc(lpf - 1);
+        bad.set_c_max_vc(lpf);        // one line too many
+        NextReg nr;
+        good.execute(0, 0, nr, 0);
+        bad.execute(0, 0, nr, 0);
+        const uint32_t g = good.idle_cycles(17, 10, 0, mcpl, lpf, 1000);
+        const uint32_t b = bad.idle_cycles(17, 10, 0, mcpl, lpf, 1000);
+        check("CPSK-04", "idle_cycles() refuses (0) when c_max_vc + 1 differs from the Emulator's lines per frame; the same Copper with the matching wrap skips",
+              g == 1000 && b == 0, fmt("matching=%u mismatched=%u", g, b));
+    }
+
+    // CPSK-05: with a debugger event latch armed (Move, Wait or Halt) every cycle must
+    // run execute(), whose stall arm latches the HALT edge once (copper.cpp stall arm).
+    {
+        const int mcpl = 400, lpf = 50;
+        uint32_t armed[3];
+        for (int i = 0; i < 3; ++i) {
+            Copper c;
+            c.set_c_max_vc(lpf - 1);
+            program_word(c, 0, enc_wait(0, 511));
+            set_mode(c, 1);
+            NextReg nr;
+            c.execute(0, 0, nr, 0);
+            c.set_events_armed(i == 0, i == 1, i == 2);
+            armed[i] = c.idle_cycles(17, 10, 0, mcpl, lpf, 1000);
+        }
+        Copper c;
+        c.set_c_max_vc(lpf - 1);
+        program_word(c, 0, enc_wait(0, 511));
+        set_mode(c, 1);
+        NextReg nr;
+        c.execute(0, 0, nr, 0);
+        const uint32_t control = c.idle_cycles(17, 10, 0, mcpl, lpf, 1000);
+        check("CPSK-05", "idle_cycles() refuses (0) while any debugger event latch (move, wait, halt) is armed; unarmed it skips",
+              armed[0] == 0 && armed[1] == 0 && armed[2] == 0 && control == 1000,
+              fmt("move=%u wait=%u halt=%u control=%u", armed[0], armed[1], armed[2], control));
+    }
+}
+
 int main() {
     std::printf("Copper Coprocessor Compliance Tests (rewritten)\n");
     std::printf("================================================\n\n");
@@ -1963,6 +2231,7 @@ int main() {
     group8_self_modifying();std::printf("  Group G8 Self-mod       done\n");
     group9_edge();          std::printf("  Group G9 Edge           done\n");
     group10_reset();        std::printf("  Group G10 Reset         done\n");
+    group11_idle_skip();    std::printf("  Group G11 Idle skip     done\n");
 
     std::printf("\n================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
