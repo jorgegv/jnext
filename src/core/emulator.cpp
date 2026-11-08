@@ -7651,9 +7651,10 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
     const bool t0 = before < kWarmStartT0Units && kWarmStartT0Units <= after;
 
     // Idle = the same PC and SP at this frame boundary as at the last one, with
-    // no auto-typed key queued. A machine waiting for a key sits in a HALT or
-    // keyscan loop, and the sample lands on the same instruction every frame.
-    // Not a pinned address: any build's wait loop does it.
+    // no auto-typed key queued. NextZXOS waits for a key in a HALT loop (every
+    // wait on the measured cards is a HALT at one instruction) and the sample
+    // lands on the same instruction every frame. Not a pinned address. A poll
+    // loop without HALT would not read as idle; the recipe then gives up.
     const uint16_t pc = rec.cpu_.pc();
     const uint16_t sp = rec.cpu_.registers().SP;
     const bool same = (pc == r.last_pc && sp == r.last_sp);

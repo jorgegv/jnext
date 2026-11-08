@@ -58,7 +58,7 @@
 //   WSR-CTX-01..08  the capture criterion (GH #481): the real-chain statement
 //                 context is accepted, and each of its six questions refuses
 //                 alone, naming itself (C1 K and S, C2, C3, C4, C5, C6)
-//   WSR-RDY-06..16  every clause of the recipe's tests pinned by a calm screen
+//   WSR-RDY-06..16, 18..23  every clause of the recipe's tests pinned by a calm screen
 //                 that meets all the other clauses (SP, SPACE, re-send, menu,
 //                 Command Line, statement)
 //   WSR-RDY-01..05, 17  the recipe drives on the machine's state: a slow welcome, 60 Hz,
@@ -512,6 +512,12 @@ struct Hold {
             units += 6;
             Emulator::warm_start_recipe_tick(e, before, units);
         }
+    }
+    /// Hold `c` until the recipe is done or `max` frames pass; returns the frames used.
+    int until_done(const Scr& c, int max) {
+        int n = 0;
+        while (n < max && !e.warm_start_recipe_done()) { on(c, 1); ++n; }
+        return n;
     }
     static std::vector<int> key(int r, int c) { return {r * 8 + c}; }
     static std::vector<int> space() { return key(7, 0); }
@@ -1270,6 +1276,71 @@ int main()
                   "Command Line: nothing is typed",
                   g.seq == std::vector<std::vector<int>>{H::down(), H::enter()},
                   det("keys=%zu", g.seq.size()));
+        }
+        // Termination: with no overall cap, only each state's own budget ends a
+        // stuck recording. Each state is held stuck and must give up, bounded.
+        auto count = [](const Hold& h, const std::vector<int>& k) {
+            int n = 0; for (const auto& x : h.seq) if (x == k) ++n; return n; };
+        {
+            H h; const int n = h.until_done(kScrWelcome, 1500);
+            check("WSR-RDY-18",
+                  "a resident welcome that never takes SPACE ends the recipe within the "
+                  "budget (about 400 frames), done, waiting for the welcome or the menu, "
+                  "with a bounded number of SPACE re-sends",
+                  h.e.warm_start_recipe_done() && n <= 410 && count(h, H::space()) <= 9 &&
+                      h.e.warm_start_recipe_waiting_for().find("welcome program or the menu") !=
+                          std::string::npos,
+                  det("frames=%d spaces=%d", n, count(h, H::space())));
+        }
+        {
+            H h; h.on(kScrMenu, 12);   // DOWN is sent, then nothing the menu recognises comes back
+            const int n = h.until_done({0x0C8F, 0x5BE7, 0x5CCB, 0x5CCB, 0xFF, 0x0078, 0x01}, 1500);
+            check("WSR-RDY-19",
+                  "a machine that never returns to the idle menu after the cursor key ends "
+                  "the recipe within the budget, naming the menu",
+                  h.e.warm_start_recipe_done() && n <= 410 &&
+                      h.e.warm_start_recipe_waiting_for().find("cursor key") != std::string::npos &&
+                      h.seq == std::vector<std::vector<int>>{H::down()},
+                  det("frames=%d keys=%zu", n, h.seq.size()));
+        }
+        {
+            H h; h.on(kScrMenu, 60);   // DOWN and ENTER sent; the menu stays up
+            const int n = h.until_done(kScrMenu, 1500);
+            check("WSR-RDY-20",
+                  "a menu that stays up after ENTER ends the recipe within the budget, "
+                  "naming the Command Line, without typing the statement",
+                  h.e.warm_start_recipe_done() && n <= 410 &&
+                      h.e.warm_start_recipe_waiting_for().find("Command Line") != std::string::npos &&
+                      h.seq == std::vector<std::vector<int>>{H::down(), H::enter()},
+                  det("frames=%d keys=%zu", n, h.seq.size()));
+        }
+        {
+            H h; h.on(kScrMenu, 60); h.on(kScrCmdLine, 170);   // the statement is typed
+            const int n = h.until_done(kScrCmdLine, 1500);     // and never executes
+            check("WSR-RDY-21",
+                  "a statement that never executes ends the recipe within the budget, "
+                  "naming the statement",
+                  h.e.warm_start_recipe_done() && n <= 410 && h.seq.size() == 17 &&
+                      h.e.warm_start_recipe_waiting_for().find("typed statement") != std::string::npos,
+                  det("frames=%d keys=%zu", n, h.seq.size()));
+        }
+        {   // Command Line sysvars with a BASIC program resident: not the Command Line.
+            H h; h.on(kScrMenu, 60);
+            h.on({0x0C8F, 0x5BF9, 0x5DFA, 0x8688, 0x2F, 0x0000, 0x21}, 40);
+            check("WSR-RDY-22",
+                  "the Command Line sysvars with a BASIC program resident are not the "
+                  "Command Line: nothing is typed",
+                  h.seq == std::vector<std::vector<int>>{H::down(), H::enter()},
+                  det("keys=%zu", h.seq.size()));
+        }
+        {   // Command Line sysvars with PPC != 0.
+            H h; h.on(kScrMenu, 60);
+            h.on({0x0C8F, 0x5BF9, 0x5CCB, 0x5CCB, 0x2F, 0x0078, 0x21}, 40);
+            check("WSR-RDY-23",
+                  "the Command Line sysvars with PPC $0078 are not the Command Line: "
+                  "nothing is typed",
+                  h.seq == std::vector<std::vector<int>>{H::down(), H::enter()},
+                  det("keys=%zu", h.seq.size()));
         }
         {   // The statement test: executing means ERR_NR $FF AND PPC $FFFE.
             auto typed = [](Hold& h) { h.on(kScrMenu, 60); h.on(kScrCmdLine, 170); };

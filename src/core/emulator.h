@@ -391,7 +391,7 @@ public:
     /// condition gives up; the capture check then refuses loudly, naming it.
     static constexpr uint32_t kWarmStartPhaseUnits = 400 * 6;
     /// Frames the machine must sit at the same PC and SP, with no auto-typed key
-    /// queued, to count as idle (waiting for a key in a HALT or keyscan loop).
+    /// queued, to count as idle (NextZXOS waits for a key in a HALT loop; measured).
     static constexpr uint32_t kWarmStartCalmFrames = 8;
 
     /// The frame number a warm-started program starts at. The recording is
@@ -424,8 +424,9 @@ public:
     /// Returns true when T0 was crossed: the caller then checks
     /// `nextzxos_resident()` (not done here, so rows can drive the recipe on a
     /// machine that never booted). Keep calling until warm_start_recipe_done()
-    /// (it always comes: every state gives up after kWarmStartPhaseUnits, so
-    /// at most 5 budgets after T0), then run warm_start_capture_ready(), which is what
+    /// (it always comes: each of the four states gives up after
+    /// kWarmStartPhaseUnits, so at most 4 budgets after T0, about 2000 frames at
+    /// 50 Hz and 2400 at 60 Hz), then run warm_start_capture_ready(), which is what
     /// decides (and names what the recipe was waiting for when it gave up).
     static bool warm_start_recipe_tick(Emulator& rec, uint32_t units_before,
                                        uint32_t units_after);
