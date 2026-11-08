@@ -47,8 +47,8 @@ class Emulator;
 /// 1.5.0 source (szx.c `write_ram_pages()`/`write_ramp_chunk()`, the same
 /// convention `read_ramp_chunk()` enforces on load):
 ///
-///  * chMachineId: 1 = 48K, 2 = 128K, 4 = +2A, 5 = +3 (SZX_MACHINE_* enum,
-///    szx.c:42-48). jnext has no distinct +2A `MachineType` — `ZX_PLUS3`
+///  * chMachineId: 1 = 48K, 2 = 128K, 4 = +2A, 5 = +3, 7 = Pentagon 128
+///    (SZX_MACHINE_* enum, szx.c:42-49). jnext has no distinct +2A `MachineType` — `ZX_PLUS3`
 ///    covers both +2A and +3 (identical memory model: 4 ROMs, port 0x1FFD
 ///    paging) — so jnext always emits 5 for that machine, never 4.
 ///  * chPageNo is NOT jnext's currently-mapped MMU *slot* number, and
@@ -69,8 +69,9 @@ class Emulator;
 ///        machine has wired to 0x4000/0x8000/0xC000 — there is no
 ///        paging, so no other bank number is meaningful. Banks 1, 3, 4,
 ///        6, 7 must NOT be written for a 48K save.
-///      - 128K / +2A / +3: all banks {0..7} (szx.c:3337-3342, gated on
-///        `LIBSPECTRUM_MACHINE_CAPABILITY_128_MEMORY`, true for all three).
+///      - 128K / +2A / +3 / Pentagon 128: all banks {0..7} (szx.c:3337-3342,
+///        gated on `LIBSPECTRUM_MACHINE_CAPABILITY_128_MEMORY`, true for all
+///        four; libspectrum.c:312 for Pentagon).
 ///
 /// `build()` reads RAM in ascending bank order for readability; order
 /// within the file has no semantic meaning (each ZXSTRAMPAGE chunk is
