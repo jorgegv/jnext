@@ -1847,6 +1847,8 @@
       
         
       
+        
+      
     
     
     
@@ -2136,6 +2138,34 @@
     
   
     5.5 Performance and optimisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-the-browser-build.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.6 The browser build
   
 
     
@@ -3117,119 +3147,8 @@ destructors, <code>atexit</code> and a stdio flush at exit, as natively) and a l
 (the objects stay <code>-O3</code>; skipping the final wasm-opt pass turns a link of up to two
 minutes into one second with no measurable cost in run time), all in
 <code>test/CMakeLists.txt</code>; <code>jnext</code> keeps its own link options.</p>
-<p>The browser frontend is a second target of the same tree, <code>jnext_web</code>: the same
-<code>main.cpp</code>, compiled with <code>JNEXT_BROWSER</code>, plus <code>browser_frontend.cpp</code>, linked
-for the web only (<code>-sENVIRONMENT=web</code>, a modularised factory named
-<code>createJnextModule</code>, no automatic <code>main</code>, the runtime kept alive by the loop).
-The page creates the module, copies its files into the in-memory file system
-(<code>FS</code>), sets the SDL hints in <code>ENV</code> and calls <code>callMain</code> with the same argument
-vector the command line takes.</p>
-<p><em>The loop.</em> <code>main()</code> parses, provisions and configures, then hands the run to
-<code>browser_frontend::run</code>, which installs a <code>requestAnimationFrame</code> loop
-(<code>emscripten_set_main_loop_arg</code> with fps 0 and <code>simulate_infinite_loop</code> 0) and
-returns, so <code>main()</code> returns normally and the loop keeps the runtime alive. The
-<code>simulate_infinite_loop</code> form was measured and rejected: it unwinds <code>main()</code>
-with a JavaScript exception, C++ cleanup pads run <code>main()</code>'s destructors on it
-under wasm exceptions, and the page then crashes in the next frame. Everything
-that outlives <code>main()</code> is therefore not a local of it: the application is
-released to the loop, the two recorders are <code>static</code> (the emulator's callbacks
-hold references to them; they are never destroyed), logging is not shut down
-while the loop lives (<code>spdlog::shutdown()</code> drops every registered logger, and one
-first used inside the loop would be built afresh, without its <code>--log-level</code>
-and, for the peripheral loggers that fall back to <code>spdlog::stderr_color_mt</code>,
-without <code>--log-file</code>), and the post-run tail of a run (recorders, <code>shutdown()</code>,
-the exit status) is a function, <code>finish</code>, that the loop calls once a tick ends
-the run. Its result reaches the page through <code>Module.onExit</code>. A <code>callMain</code> that
-returns with no loop installed (a refused flag) has no <code>onExit</code>: its return
-value is the status.</p>
-<p><em>The JavaScript API.</em> <code>jnext.mount()</code> is <code>web/jnext_api.js.in</code>, configured with
-the version and linked into <code>jnext-&lt;version&gt;.js</code> as a second <code>--extern-post-js</code>,
-after <code>web/jnext-image.js</code> (which it calls). It makes one module instance per
-mount: the core keeps process-wide state, so one instance holds one emulator. It
-knows no flag spelling. The whole options object goes to <code>jnext_web_argv</code>, which
-runs <code>web_api::build_argv</code> over the <code>web_api::WEB_OPTIONS</code> table: each row names a
-<code>cli::OptId</code> or a <code>config_keys::KeyId</code>, so a renamed flag is a compile error, and
-the man page's browser section is diffed against the table and the refusal
-functions by <code>web_api_test</code> (run by <code>make cli-check</code>). The controller
-(<code>web_controller.cpp</code>, a source of <code>jnext_web</code> only) holds the exported calls
-(<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_set_volume</code>,
-<code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
-the page when the program is in the machine and a frame has followed (the <code>ready</code>
-event, <code>Module.jnextEvent</code>). <code>jnext_web_load_applied</code> and <code>jnext_web_gain_db</code> are
-test seams, not API. Pause is the browser loop's pause (<code>emscripten_pause_main_loop</code>),
-because the backend's pause needs an armed machine, which costs a check per
-instruction. Several players on a page share one IndexedDB database for the
-warm-start recording.</p>
-<p><em>Pacing.</em> <code>SdlApp::tick()</code> never sleeps; it reports the sleep it wants before the
-next tick. A <code>requestAnimationFrame</code> callback cannot sleep, so that sleep becomes
-the earliest moment the next tick may start, on an absolute grid
-(<code>browser_pacing.h</code>): the next due time is the previous one plus the tick's own
-cost plus its sleep, and a callback that arrives before it runs no tick. A grid
-rather than "now plus the sleep" keeps 50 ticks a second on 60, 120 and 144 Hz
-displays alike (the latter lands every tick on the second animation frame, 30 a
-second). A stall (a hidden tab) resyncs as <code>frame_deadline.h</code> describes: one
-tick at once, then the grid, never a burst. During a fast load a tick that asks
-for no sleep may repeat inside one callback, bounded by an 8 ms budget. A first
-NEX load on an empty file system records the warm-start state in one callback
-(about 14 s under load): the page is unresponsive until it ends.</p>
-<p><em>Video, input, sound.</em> The renderer is SDL's OpenGL ES 2 one, on WebGL, with the
-same letterbox (640x512 logical) and the renderer's default linear filter. The
-page sizes the canvas by CSS; the window is resizable and high-pixel-density, so
-the drawing buffer follows the CSS size times the device pixel ratio, and F2
-(window scale) does nothing. The window is created as an OpenGL window from the
-start: otherwise <code>SDL_CreateRenderer</code> destroys and recreates it, and on a HiDPI
-display the SDL port sets the canvas CSS size to 1x1 in between, so the new
-window ignores the page's CSS. It has no title, so the host page keeps its own
-<code>document.title</code>. Keys go to the canvas element (the keyboard element hint
-defaults to the canvas selector; the page's <code>ENV</code> wins), so a page that embeds
-the emulator keeps the rest of its keys, and the canvas needs a <code>tabindex</code>.
-SDL watches the window's blur, not the canvas's: a canvas that loses focus to
-another element of the page releases every held key through its own blur
-listener. Sound is SDL's Web Audio backend, which runs the audio callback on the
-main thread (so it cannot overlap a tick); before a user gesture the audio
-context is suspended and SDL drains the stream on a timer, so the pacing keeps
-working silently. Browsers will not resume it without a gesture on the page:
-start the module from a click. Mouse capture is the pointer lock; when the
-browser ends the lock itself (Escape) jnext's capture is released too. A pad
-appears after its first button press (browser policy).</p>
-<p><em>Refused and absent.</em> The build's own flag and <code>--set</code> key refusals apply, and
-the page also refuses <code>--headless</code> (it would block the tab for ever), the RZX
-flags, and any program that is not a <code>.nex</code>, <code>.tap</code> or <code>.tzx</code> (<code>browser_page.h</code>),
-each with a message that says "browser page". The browser reserves Ctrl+W, T and
-N (and Ctrl+Q in some browsers), so Symbol Shift plus those letters cannot be
-typed with Ctrl; the operating system keeps Alt+Tab and Alt+F4. Files the
-emulator writes (screenshots, WAV, quick snapshots) live in the in-memory file
-system for the session. <code>--rzx-play</code> is started by a pre-step at the top of
-<code>SdlApp::run()</code>, which the page does not call (<code>--rzx-record</code> starts from <code>tick()</code>);
-a later RZX implementation must move that pre-step into something the loop can call
-before it enables RZX. Two things
-the browser link carries but never runs: the ESP-01's worker thread and the
-NextPi audio thread sleep in their own thread bodies, and neither is reachable
-from <code>tick()</code>: the flags that start them are refused, and a thread cannot start
-without shared memory.</p>
-<p><em>The card and the warm start in the browser.</em> <code>web/jnext-image.js</code> gets the SD
-card into the page: it fetches the image cross-origin (<code>mode: 'cors'</code>, no
-credentials), checks its SHA-256 against the digest the page was given on every
-visit, and keeps the verified bytes in the Cache API (keyed by URL; an entry that
-no longer hashes right is dropped and fetched again). The card is a plain file in
-the in-memory filesystem, read one 512-byte block at a time through a stream, so
-the SD code needed no block-device seam. The page then passes
-<code>--sdcard FILE --sdcard-sha256 HEX</code>: the warm-start recording is keyed on that
-digest, because the page rewrites the card on every visit and its modification
-time would never match. A zipped image is extracted in <code>main()</code> with the
-program-archive reader (exactly one <code>.img</code> member; the zip's digest stands for
-it) and the extracted card is removed when the run ends. The recording is the
-one thing kept between visits: IndexedDB (IDBFS) is mounted on the warm-start
-directory only (<code>JNEXT_CONFIG_DIR=/jnext</code>, so <code>/jnext/warm-start</code>), and
-<code>warm_start::store()</code> calls a persist hook, installed by the browser frontend,
-that flushes it. Guest writes to the card live in memory and are gone at
-reload. A first NEX load records the NextZXOS machine in steps: <code>SdlApp::tick()</code>
-calls <code>Emulator::prepare_warm_start()</code> for a time budget per tick and reports
-<code>Module.jnextProgress(phase, fraction)</code> (<code>'warm-start'</code> while recording,
-<code>'restore'</code> for a cached recording; the page adds <code>'download'</code>), so the page can
-repaint and show progress instead of freezing for the length of the boot. With no
-image the provisioner declines the download without reading stdin (a stdin read
-is <code>window.prompt()</code> in a browser).</p>
+<p>The browser build as a whole, with its CMake arms, its tests and its image
+handling: <a href="06-the-browser-build.html">5.6</a>.</p>
 <h2 id="dev-build-versus-release-build">Dev build versus release build<a class="headerlink" href="#dev-build-versus-release-build" title="Permanent link">&para;</a></h2>
 <p>With no <code>-DCMAKE_BUILD_TYPE</code> given, CMake here defaults to <strong>RelWithDebInfo</strong>
 instead of to the empty build type. An unoptimised <code>build/jnext</code> measured 5.8×

@@ -34,6 +34,7 @@ and it will be changed.
 | [nexlib + tests](https://github.com/dcrespo3d) by David Crespo | GPLv3 | Next demo/test programs used as rendering and timing fixtures (vendored in `demo/dapr-nexlib+tests/`) |
 | zlib | zlib | Compressed snapshot (SZX) and RZX blocks |
 | libpng | libpng | PNG screenshots |
+| [Emscripten](https://emscripten.org/) | MIT / University of Illinois NCSA | WebAssembly toolchain; its runtime JavaScript is part of the browser build's `jnext-<version>.js` |
 
 ## References and acknowledgments
 
@@ -54,3 +55,5 @@ and it will be changed.
   for Next development.
 - **[zx_go](https://github.com/conorarmstrong/zx_go)**  — another Next-capable emulator,
   which played a fundamental oracle role in getting NextZXOS to boot on JNext.
+- **[@shrek128](https://github.com/shrek128)** — his WebAssembly port of JNEXT showed
+  the approach and gave the browser build several of its ideas.

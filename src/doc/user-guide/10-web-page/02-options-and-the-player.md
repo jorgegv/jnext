@@ -8,7 +8,7 @@
 | `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. `.nex`, `.tap` and `.tzx` only. Without it the machine boots to the NextZXOS menu. |
 | `machine` | string | `--machine`. |
 | `muted` | boolean | `--set startup.silent`: no audio device for the session. |
-| `set` | `{"section.key": value}` | One `--set` each, in key order. |
+| `set` | `{"section.key": value}` | One `--set` each, sorted by key. |
 | `args` | array of strings | More command-line arguments, last, so they win. |
 | `width`, `height` | number (CSS pixels) or CSS length | The box the player fills; the picture is letterboxed inside it. Default `100%`. |
 | `wasmUrl` | string | Where the `.wasm` is served from. Default: beside the script. |
@@ -35,7 +35,7 @@
 | `state` | `waiting` (before the click), `starting`, `running`, `paused`, `exited`, `destroyed`. |
 | `ready` | A promise for the first ready; it rejects if the machine does not start, or if the startup program does not load. |
 | `pause()`, `resume()` | Stop and restart the frame loop. |
-| `reset(kind)` | `'program'` (default): restart the program. `'hard'`: power on again. `'soft'`: reset. Returns a promise. |
+| `reset(kind)` | `'program'` (default): restart the program; with no program, the same as `'hard'`. `'hard'`: power on again. `'soft'`: reset. Returns a promise. |
 | `load(file)` | Load another program (same forms as `file`) while the machine runs. Resolves when it is in the machine. |
 | `setVolume(v)` | Master level, 0 (silent) to 1; anything else throws a `RangeError`. A player started `muted` has no audio device. |
 | `destroy()` | Stop the machine and remove the player. Afterwards every method throws. |

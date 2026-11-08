@@ -110,7 +110,8 @@ dependency set and checks out the repository with submodules; then
   the version and the pins, so a hit only skips the downloads;
 - **`browser`** runs `make wasm-browser-test`: the browser frontend in the pinned
   Chromium headless shell (rows BRW-01 to BRW-29, WBI-PW-01 to WBI-PW-08 for the image and
-  the warm start, and, as they join, the JavaScript API rows). Besides the emsdk cache it caches Playwright
+  the warm start, and WEBAPI-01 to WEBAPI-29 for the JavaScript API;
+  [5.6](06-the-browser-build.md)). Besides the emsdk cache it caches Playwright
   (`~/.cache/jnext/tools/playwright-1.65.0`, keyed by the version and the two pin
   prefixes) and uses the SD-image cache: the run turns the cached distribution
   image into a minimal card in a scratch directory that is deleted at the end,

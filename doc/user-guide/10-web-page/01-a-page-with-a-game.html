@@ -4114,6 +4114,8 @@
       
         
       
+        
+      
     
     
     
@@ -4179,6 +4181,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10.1 A page with a game
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="01-a-page-with-a-game.html" class="md-nav__link md-nav__link--active">
         
   
@@ -4195,6 +4215,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-example-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The example pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -4244,6 +4294,34 @@
     
   
     10.3 On itch.io, and what the browser build does not do
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-the-image-and-what-the-browser-keeps.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10.4 The SD-card image, and what the browser keeps
   
 
     
@@ -4309,22 +4387,33 @@
 <li>The program in <code>file</code> is fetched too, and the promise resolves with the player.
    The overlay says "Click to start".</li>
 <li>The visitor clicks. The machine starts (browsers allow sound only after a click).
-   The first time a machine boots NextZXOS in a browser it is recorded, so that the
-   next visit starts in a moment: <code>onProgress('warm-start', fraction)</code> reports it,
-   and <code>onProgress('restore', 1)</code> marks a visit that used the stored recording.</li>
+   When the program is a <code>.nex</code>, the first time the machine boots NextZXOS in a
+   browser it is recorded, so that the next visit starts in a moment:
+   <code>onProgress('warm-start', fraction)</code> reports it, and <code>onProgress('restore', 1)</code>
+   marks a visit that used the stored recording. A <code>.tap</code>, a <code>.tzx</code> or no program
+   records nothing (10.4).</li>
 <li><code>onReady()</code> is called when the program is in the machine and a frame has been
    shown.</li>
 </ol>
 <p>Requirements:</p>
 <ul>
 <li>The image's server must send <code>Access-Control-Allow-Origin</code> (the page reads the
-  card from another origin), and the <code>.wasm</code> file must be served as
-  <code>application/wasm</code>.</li>
+  card from another origin). So must the server of a program file on another site,
+  because the page fetches it too; <code>file: {data, name}</code> needs no request.</li>
+<li>Serve the <code>.wasm</code> file as <code>application/wasm</code>. No special headers are needed
+  otherwise.</li>
 <li>The page must be a secure context: <code>https://</code>, <code>http://localhost</code> or
   <code>http://127.0.0.1</code>. The cache and the SHA-256 check need it.</li>
 <li>The SD-card image is not part of JNEXT and is not shipped with it: you supply
-  its URL and digest.</li>
+  its URL and digest (10.4).</li>
 </ul>
+<h2 id="the-example-pages">The example pages<a class="headerlink" href="#the-example-pages" title="Permanent link">&para;</a></h2>
+<p><code>plain.html</code> reads its settings from the query string: <code>?image=</code> (the image URL),
+<code>&amp;sha256=</code> (its digest), <code>&amp;file=</code> (the program) and <code>&amp;other=</code> (the program the "Load
+other" button loads). Without them it uses the constants at the top of its script.
+<code>itch-game.html</code> takes <code>?image=</code>, <code>&amp;sha256=</code> and <code>&amp;file=</code>, and posts <code>jnext-ready</code>
+or <code>jnext-error: &lt;message&gt;</code> to the page that embeds it. <code>itch-host.html</code> embeds
+<code>itch-game.html</code>, or the page named by <code>?game=</code> (an <code>http://</code> or <code>https://</code> URL only).</p>
 
 
 

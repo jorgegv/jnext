@@ -176,6 +176,8 @@ video stay off), and is deleted when the run ends. The script takes more specs
 as `file:count` arguments, each printing PASS/FAIL rows and a `Total:` line whose
 count the script pins, so the JavaScript API rows run in the same target.
 
+The browser build as a whole, with its CMake arms and tests, is [5.6](06-the-browser-build.md).
+
 Chapter [4. Testing](../04-testing/index.md) covers what each of these actually
 proves.
 

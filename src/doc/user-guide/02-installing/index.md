@@ -5,6 +5,9 @@ your system from the latest release:
 
 **<https://github.com/jorgegv/jnext/releases/latest>**
 
+To put JNEXT in a web page there is nothing to install: see
+[chapter 10](../10-web-page/index.md).
+
 ## Trying a build before it is released
 
 Every change that reaches the `main` branch is built automatically, and the

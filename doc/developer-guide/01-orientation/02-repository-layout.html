@@ -1927,6 +1927,8 @@
       
         
       
+        
+      
     
     
     
@@ -2103,6 +2105,34 @@
     
   
     5.5 Performance and optimisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/06-the-browser-build.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.6 The browser build
   
 
     
@@ -2960,7 +2990,7 @@ that knowing the rule is usually faster than grepping.</p>
 </tr>
 <tr>
 <td><code>test/</code></td>
-<td>Every test: unit suites (one directory per subsystem), the regression suite under <code>test/00regression/</code>, the declared-suite manifests, the harness and its self-test, and the traceability tooling.</td>
+<td>Every test: unit suites (one directory per subsystem), the regression suite under <code>test/00regression/</code>, the declared-suite manifests, the harness and its self-test, the traceability tooling, and <code>test/browser/</code> (the Playwright specs of the browser build, with <code>test/node-run.sh</code> beside the harness that runs suites under node).</td>
 </tr>
 <tr>
 <td><code>doc/</code></td>
@@ -2973,6 +3003,10 @@ that knowing the rule is usually faster than grepping.</p>
 <tr>
 <td><code>packaging/</code></td>
 <td>Everything that turns a build into a package: <code>rpm/</code>, <code>debian/</code>, <code>flatpak/</code>, <code>macos/</code>, <code>windows/</code>, the AppStream metadata in <code>assets/</code>, <code>gen-debian-changelog.sh</code>, and <code>sync-version.sh</code>, which does the part of a version bump that must be committed.</td>
+</tr>
+<tr>
+<td><code>web/</code></td>
+<td>The browser build's JavaScript: <code>jnext_api.js.in</code> (the <code>jnext.mount()</code> API, configured with the version), <code>jnext-image.js</code> (the SD-card image download, cache and warm-start store) and <code>examples/</code> (the example pages). Linked into <code>jnext-&lt;version&gt;.js</code> (5.6).</td>
 </tr>
 <tr>
 <td><code>third_party/</code></td>
@@ -3065,7 +3099,7 @@ profiler — surround the emulation rather than being part of it.</p>
 </tr>
 <tr>
 <td><code>platform/</code></td>
-<td>The SDL frontend (<code>sdl_app</code>, <code>sdl_display</code>, <code>sdl_audio</code>, <code>sdl_input</code>), the headless frontend (<code>headless_app</code>), the cold-boot helper, the small header-only policies for frame pacing and render skipping, and the POK trainer engine (<code>pok_trainers</code>: the <code>.pok</code> parser, the session that applies and removes trainers through the debugger backend, and the <code>--delayed-pok-frames</code> request the two non-Qt loops run; see 3.8).</td>
+<td>The SDL frontend (<code>sdl_app</code>, <code>sdl_display</code>, <code>sdl_audio</code>, <code>sdl_input</code>), the headless frontend (<code>headless_app</code>), the browser frontend (<code>browser_frontend</code>, <code>browser_pacing</code>, <code>browser_page</code>, <code>web_api</code>, and <code>web/web_controller</code>; see 5.6), the cold-boot helper, the small header-only policies for frame pacing and render skipping, and the POK trainer engine (<code>pok_trainers</code>: the <code>.pok</code> parser, the session that applies and removes trainers through the debugger backend, and the <code>--delayed-pok-frames</code> request the two non-Qt loops run; see 3.8).</td>
 </tr>
 <tr>
 <td><code>gui/</code></td>

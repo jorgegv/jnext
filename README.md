@@ -11,7 +11,7 @@
     <img src="https://img.shields.io/badge/license-GPLv3-blue" alt="License: GPLv3">
   </a>
   <img src="https://img.shields.io/badge/C%2B%2B-17-blue" alt="C++17">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-white" alt="Platform: Linux, Windows and macOS">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS%20%7C%20Web-white" alt="Platform: Linux, Windows, macOS and the web">
 </p>
 
 **JNEXT is a real-time ZX Spectrum Next emulator, built for
@@ -50,6 +50,9 @@ under CI.
   (FPGA boot ROM → TBBLUE.FW → NextZXOS) off an SD-card image, like real
   hardware — all machine and peripheral ROMs come from the SD card, not from
   the emulator.
+- **In a web page, too.** The same emulator, built for WebAssembly: a script tag
+  and one call put a `.nex`, `.tap` or `.tzx` in your own page or an itch.io
+  upload ([user guide chapter 10](doc/user-guide/10-web-page/index.html)).
 - **The VHDL is the specification.** Where the hardware's behaviour is
   ambiguous, it is resolved against the official FPGA core sources and pinned
   there by a unit test — so the emulator's answer is the silicon's answer.
@@ -74,7 +77,8 @@ find at [GitHub issues](https://github.com/jorgegv/jnext/issues):
 - [SUBSYSTEM-TESTS-STATUS.md](test/SUBSYSTEM-TESTS-STATUS.md) — live
   per-subsystem unit-test dashboard: exactly what is verified against the VHDL
 
-Linux, Windows (x64 and 32-bit x86), and macOS are supported.
+Linux, Windows (x64 and 32-bit x86), and macOS are supported, and the emulator also
+runs in a web browser.
 
 ## Install
 
@@ -168,8 +172,9 @@ make read-userguide
 
 That prints a `http://localhost:8000/` URL; open it in your browser. (Or open
 `doc/user-guide/index.html` directly.) Chapters 1-5 cover running programs;
-6 and 7 are for developers — every debugger panel and function, and how to
-automate JNEXT the way its own test suite does.
+6, 7 and 10 are for developers — every debugger panel and function, how to
+automate JNEXT the way its own test suite does, and how to put your program in a
+web page.
 
 | Document                                                       | What's in it                                                                             |
 |----------------------------------------------------------------|------------------------------------------------------------------------------------------|
