@@ -1021,6 +1021,7 @@ int Z80Cpu::execute() {
 
     uint8_t  opcode = mem_.read_m1(pc);   // GH #339: the fetch records what supplied it
     slot_kind_ = SlotKind::Opcode;   // past every early return; the CPU read PC itself
+    last_opcode_ = opcode;
     s_fetch_base = pc;
     s_fetch_buf[0] = opcode;
     record_m1_wait28(0, pc);
@@ -1425,6 +1426,14 @@ int Z80Cpu::execute() {
         regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
     }
     return (cycles > 0) ? cycles : 4;
+}
+
+void Z80Cpu::repeat_halt(uint32_t count, uint32_t each) {
+    // The FUSE T-state counter and the R register (low 7 bits count; bit 7 is r7).
+    tstates += count * each;
+    z80.r = static_cast<libspectrum_word>(z80.r + count);   // a 16-bit counter in the FUSE state; only bits 6:0 are ever read
+    execute_serial_ += count;
+    sync_regs_from_fuse(regs_);
 }
 
 void Z80Cpu::request_interrupt(uint8_t vector) {

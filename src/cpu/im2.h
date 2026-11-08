@@ -261,6 +261,12 @@ public:
     //   - dma_delay  : im2_control.vhd:238  (state ∈ {S_ED_T4,S_ED4D_T4,
     //                                        S_ED45_T4,S_SRL_T1,S_SRL_T2})
     bool reti_seen_this_cycle() const { return reti_seen_pulse_; }
+    /// GH #452 - the M1 opcode decoder is in S_0 with no RETI/RETN pulse: advance_decoder()
+    /// of a HALT (0x76) leaves it there (im2_control.vhd:161-170), so repeated HALT M1s
+    /// change nothing.
+    bool decoder_idle() const {
+        return dec_state_ == DecState::S_0 && !reti_seen_pulse_ && !retn_seen_pulse_;
+    }
     bool retn_seen_this_cycle() const { return retn_seen_pulse_; }
     bool reti_decode_active()   const { return reti_decode_;    }
     bool dma_delay_control()    const { return dma_delay_ctrl_; }

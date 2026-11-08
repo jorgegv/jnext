@@ -2822,6 +2822,12 @@ private:
     /// advance_copper_across_row_boundaries().
     void tick_copper_for_master_cycles(uint64_t begin, uint64_t count);
 
+    /// GH #452 - the Copper's position at master cycle `cycle`: master cycles since
+    /// hc_ula == 0 (`hc = line_mc >> 2`), cvc (0 .. lines per frame - 1), and the offset
+    /// cvc counts from. The one rebase both the Copper step loop and the HALT batch use.
+    struct CopperPos { int line_mc; int cvc; uint8_t cvc_offset; };
+    CopperPos copper_position_at_(uint64_t cycle) const;
+
     /// GH #272 — advance the Copper across the master-cycle window this
     /// instruction consumed, stopping at every video-row boundary inside
     /// it so that the boundary's row work happens at the master cycle it
@@ -2862,7 +2868,26 @@ private:
     /// this cluster and had silently lost im2_.tick(), both /INT polls
     /// and md6_.tick() — stepping through interrupt-driven code never
     /// delivered CTC/UART/ULA-frame interrupts.
-    uint64_t step_one_instruction();
+    ///
+    /// GH #452 - `allow_halt_batch` is passed true ONLY by run_frame(): when the
+    /// instruction was a HALT repeat and every gate of try_halt_batch_() holds, the slot
+    /// covers the following repeats up to the next thing that can matter, as one slot.
+    /// step_frame_slot() and execute_single_instruction() leave it false, so a debugger
+    /// Step is exactly one repeat.
+    uint64_t step_one_instruction(bool allow_halt_batch = false);
+
+    /// GH #452 - called right after the real execute() of a slot. If that slot was a HALT
+    /// repeat and the machine is provably in a state where each further repeat does exactly
+    /// what this one did (gates G1-G12 and P1-P5 of the stage-3 plan), absorb as many as fit
+    /// before the next scheduler event, CTC event or Copper action, and return the T-states
+    /// of the WHOLE batched slot (otherwise `tstates` unchanged).
+    int try_halt_batch_(int tstates, uint16_t pc_pre_exec, uint64_t slot_start);
+
+    /// GH #452 - the PSG tick and the audio integration of one slot's `master_cycles`. A
+    /// batched slot (slot_repeat_mc_ != 0) replays them repeat by repeat in the same order:
+    /// the PSG ticks, then that repeat's cycles integrate at the post-tick level.
+    void tick_psg_and_audio_(uint64_t master_cycles);
+    uint64_t slot_repeat_mc_ = 0;   ///< master cycles of ONE repeat of a batched slot, else 0
 
     /// Task 60a — the shared post-instruction device-tick cluster:
     /// Copper (G117), deferred CPU NR-write drain (G65), contention /

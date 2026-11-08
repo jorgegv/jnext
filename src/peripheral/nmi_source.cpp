@@ -488,6 +488,16 @@ void NmiSource::recompute_()
     }
 }
 
+bool NmiSource::tick_is_noop() const
+{
+    return state_ == State::Idle && !is_activated() &&
+           !mf_button_strobe_ && !divmmc_button_strobe_ &&
+           !mf_button_ && !divmmc_button_ &&
+           !strobe_mf_button_pending_ && !strobe_divmmc_button_pending_ &&
+           !nmi_sw_gen_mf_ && !nmi_sw_gen_divmmc_ && !iotrap_strobe_pending_ &&
+           !nmi_assert_mf() && !nmi_assert_divmmc() && !nmi_assert_expbus();
+}
+
 void NmiSource::tick(uint32_t master_cycles)
 {
     // `master_cycles` is the 28 MHz sub-tick count since the last call.

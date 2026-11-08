@@ -132,6 +132,9 @@ public:
     // ── Accessors for debug / testing ─────────────────────────────────
 
     State       state() const { return state_; }
+    /// GH #452 - nothing to arbitrate and no prescaler wait: the burst prescaler timer
+    /// then only counts, linearly (tick_burst_wait()), so a HALT repeat batch may span it.
+    bool        idle_for_batch() const { return state_ == State::IDLE && !in_waiting_cycles_; }
     uint16_t    src_addr() const { return src_; }
     uint16_t    dst_addr() const { return dst_; }
     uint16_t    counter() const { return counter_; }

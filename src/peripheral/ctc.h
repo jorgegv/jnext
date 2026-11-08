@@ -186,6 +186,13 @@ public:
         time_ += master_cycles;
     }
 
+    /// GH #452 - the number of 28 MHz edges, counting from the next one, up to and including
+    /// the edge on which the next event of any channel happens: a running timer's ZC/TO, a
+    /// timer leaving S_TRIGGER, a chained trigger arriving. UINT32_MAX when the CTC is idle.
+    /// tick_events() jumps by this same distance, so both agree by construction. A HALT
+    /// repeat batch ends at least one edge before it.
+    uint32_t cycles_to_next_event() const;
+
     /// GH #265 — the CLK_28 edge the channels are at. tick() advances it by
     /// one for every edge it processes, so an on_interrupt / on_zc_to
     /// callback reads the edge whose ZC/TO it reports: the edge at which
