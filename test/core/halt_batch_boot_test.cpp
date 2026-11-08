@@ -54,7 +54,7 @@ int main() {
 
     batch_ab::Scenario sc;
     sc.name = "cold-boot";
-    sc.frames = 330;
+    sc.frames = 600;
     sc.state_every = 4;
     sc.config = [](EmulatorConfig& c) {
         c.sd_card_image = sd_image();
@@ -75,7 +75,7 @@ int main() {
 
     // HBB-01: the cold boot is identical per frame with the batching switches off and on.
     const std::string d = batch_ab::first_diff(a, b);
-    check("HBB-01", "NextZXOS cold boot, 330 frames, batching off vs on: identical video and audio per frame, identical state every 4th frame and at the end, and the OFF run really off",
+    check("HBB-01", "NextZXOS cold boot, 600 frames, batching off vs on: identical video and audio per frame, identical state every 4th frame and at the end, and the OFF run really off",
           d.empty() && a.copper_skipped == 0 && a.halt_batched == 0,
           "diff=" + d + " off: copper_skipped=" + std::to_string(a.copper_skipped) +
           " halt_batched=" + std::to_string(a.halt_batched));

@@ -3124,6 +3124,29 @@ body. It picks exactly one of four things to do:</p>
 <li>If a NEX boot hold is still counting down, likewise.</li>
 <li>Otherwise, execute one Z80 instruction.</li>
 </ul>
+<p><strong>A HALT repeat is one slot too, and a run of them can be one slot.</strong> FUSE's HALT
+leaves PC on the opcode, so a halted CPU re-fetches the <code>0x76</code> and burns one slot (4 T,
+5 T at 28 MHz from SRAM) in the whole body above, and in the device cluster below, for
+every repeat: most of the frame of a program that idles on <code>EI; HALT</code>. When
+<code>run_frame()</code> (and only <code>run_frame()</code>: a debugger Step is one repeat, always) executes a
+slot that was such a repeat, <code>try_halt_batch_()</code> asks whether each further repeat would do
+exactly what this one did. The first repeat is always real, so every M1 hook, the fetch and
+the T-states come from the real path and no contention or wait formula is restated. The
+answer is yes only if nothing observes the machine (no debugger, trace, rewind, RZX, tape),
+nothing is waiting for an instruction boundary (an <code>/INT</code>, an <code>/NMI</code>, a pending host NMI
+press, a CPU speed or contention commit), the DMA, UART, NMI source and IM2 fabric are idle
+in pulse mode, the HALT page is not contended and the DivMMC and Multiface M1 hooks are
+provable no-ops. Then the slot absorbs <code>n - 1</code> more repeats (<code>Z80Cpu::repeat_halt()</code>: the
+T-state counter, <code>R</code> and the <code>execute()</code> serial, which is all <code>n - 1</code> more <code>execute()</code> calls
+change), where <code>n</code> is bounded to end before the next scheduler event (a scanline, the CVC
+reload, the frame end), the next interrupt request, the next CTC event and the next Copper
+action (<code>Copper::idle_cycles()</code> from the Copper's own position, the same
+<code>copper_position_at_()</code> the Copper loop uses). The batched slot then runs the device cluster
+once; the PSG and the mixer are not split-invariant, so their part is replayed repeat by
+repeat in the same order. Every bound, and every gate whose absence changes what the machine does, is pinned by a row of
+<code>halt_batch_equiv_test</code> whose mutation turns it red; the few gates that are redundant with
+another (an <code>/INT</code> pending implies a non-quiescent IM2 fabric; an armed debugger implies the
+memory gate) stay as explicit statements of the contract.</p>
 <p>Around that choice it also records the trace entry, notes what the end-of-slot
 interrupt tick will need (the instruction's T-states, its first edge, its opcode
 fetches), counts RZX instructions, ticks real-time tape playback, and advances
@@ -3133,7 +3156,7 @@ single-step once kept its own copy of this cluster, silently lost the IM2 tick
 and both /INT polls, and so delivered no interrupts at all while you were
 stepping.</p>
 <p><strong>Then a data-breakpoint check</strong>, which returns early if one fired.</p>
-<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:11253</code>), the
+<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:11259</code>), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -3174,7 +3197,7 @@ the interrupt-status NextREGs, the tape EAR bit — first brings them up to the
 edge its bus cycle latches or commits on (<code>Emulator::sync_io_devices_to()</code>),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.</p>
-<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:12979</code>) renders nothing at all. What it does is
+<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:13156</code>) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 <code>snapshot_row_render_state()</code> — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

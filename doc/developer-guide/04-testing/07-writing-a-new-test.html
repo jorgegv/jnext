@@ -1911,6 +1911,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#proving-an-optimisation-bit-identical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proving an optimisation bit-identical
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#registering-and-pinning-it" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3145,6 +3156,26 @@ outright, because it pollutes the pass count and can end up pinning a wrong
 value once the facility does land. The assertion lint rejects it, along with
 <code>|| true</code> and <code>a == b || a != b</code>; it matches raw text, so those substrings must
 not appear in comments either.</p>
+<h2 id="proving-an-optimisation-bit-identical">Proving an optimisation bit-identical<a class="headerlink" href="#proving-an-optimisation-bit-identical" title="Permanent link">&para;</a></h2>
+<p>A change whose whole claim is "same result, faster" has no VHDL row to cite. Its oracle is
+the unoptimised path of the same binary, and the claim is held by an A/B harness
+(<code>test/core/batch_ab.h</code>, used by <code>halt_batch_equiv_test</code>, <code>halt_batch_boot_test</code> and
+<code>halt_batch_corpus_*_test</code>): build the same machine twice, one with the optimisation switched
+off through a <code>_for_test</code> hook, run the same scripted input, and compare the framebuffer, the
+drained audio and the whole <code>save_state()</code> stream after every frame. Four rules keep it honest:</p>
+<ul>
+<li><strong>The OFF run is checked to be off.</strong> Every row asserts the optimisation's counters are 0 in
+  it, or a switch ignored on both sides would pass everything.</li>
+<li><strong>Every fixture has a liveness predicate and an engagement row.</strong> A fixture that stops
+  doing its job, or an optimisation that stops engaging in it, is a named failure; a refusal
+  row asserts the counter stays 0.</li>
+<li><strong>The rig has its own controls.</strong> One that disturbs exactly one component (video, audio,
+  state) of one late frame and asserts the exact diff text, so a hash that goes blind turns a
+  control red.</li>
+<li><strong>Mutate the gates.</strong> Each gate and bound of the optimisation is dropped in turn, from a
+  <code>cp</code> backup, and a row must go red; one that none kills is either unnecessary or missing a
+  fixture.</li>
+</ul>
 <h2 id="registering-and-pinning-it">Registering and pinning it<a class="headerlink" href="#registering-and-pinning-it" title="Permanent link">&para;</a></h2>
 <p>In <code>test/CMakeLists.txt</code>:</p>
 <pre><code class="language-cmake">add_executable(mysub_test mysub/mysub_test.cpp)

@@ -183,8 +183,10 @@ reload, the frame end), the next interrupt request, the next CTC event and the n
 action (`Copper::idle_cycles()` from the Copper's own position, the same
 `copper_position_at_()` the Copper loop uses). The batched slot then runs the device cluster
 once; the PSG and the mixer are not split-invariant, so their part is replayed repeat by
-repeat in the same order. Every gate and bound is pinned by a row of
-`halt_batch_equiv_test` whose mutation turns it red.
+repeat in the same order. Every bound, and every gate whose absence changes what the machine does, is pinned by a row of
+`halt_batch_equiv_test` whose mutation turns it red; the few gates that are redundant with
+another (an `/INT` pending implies a non-quiescent IM2 fabric; an armed debugger implies the
+memory gate) stay as explicit statements of the contract.
 
 Around that choice it also records the trace entry, notes what the end-of-slot
 interrupt tick will need (the instruction's T-states, its first edge, its opcode
@@ -197,7 +199,7 @@ stepping.
 
 **Then a data-breakpoint check**, which returns early if one fired.
 
-**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11253`), the
+**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11259`), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -242,7 +244,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:12979`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13156`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA
