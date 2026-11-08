@@ -1479,11 +1479,11 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 | COP-GH293-07 | mode 01 runs on across the raw frame start: no frame restart (copper.vhd:80-85) | copper.vhd:80-85 | pass | test/copper/copper_integration_test.cpp:2020 |
 | COP-GH293-08 | the same for mode 10 (copper.vhd:80-85) | copper.vhd:80-85 | pass | test/copper/copper_integration_test.cpp:2034 |
 | COP-GH293-09 | with NR 0x64 = 32 the mode-11 restart is at cvc 0 = raw line 32: 311 writes per frame, and at raw line 40 (cvc 8) the PC is at WAIT(9) (copper.vhd:80; zxula_timing.vhd:457-466) | copper.vhd:80, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:2054 |
-| CPSK-01 | idle_cycles(): over 20000 reachable states every skipped run changes nothing in per-cycle execute(), and ends where the next cycle acts | copper.vhd:80,94 | pass | test/copper/copper_test.cpp:2095 |
-| CPSK-02 | skip-then-execute and per-cycle loops over 4000 windows give the same NextREG write stream and the same final Copper state | — | pass | test/copper/copper_test.cpp:2138 |
-| CPSK-03 | mode 11: a stalled run ends exactly at cvc == 0, hc == 0 (master cycles 0..3 of the line), with offsets 0, 1 and 255 | copper.vhd:80, zxula_timing.vhd:455-472 | pass | test/copper/copper_test.cpp:2188 |
-| CPSK-04 | idle_cycles() refuses (0) when c_max_vc + 1 differs from the Emulator's lines per frame; the same Copper with the matching wrap skips | — | pass | test/copper/copper_test.cpp:2208 |
-| CPSK-05 | idle_cycles() refuses (0) while any debugger event latch (move, wait, halt) is armed; unarmed it skips | — | pass | test/copper/copper_test.cpp:2234 |
+| CPSK-01 | idle_cycles(): over 20000 reachable states every skipped run changes nothing in per-cycle execute(), and ends where the next cycle acts | copper.vhd:80,94 | pass | test/copper/copper_test.cpp:2136 |
+| CPSK-02 | skip-then-execute and per-cycle loops over 4000 windows give the same NextREG write stream and the same final Copper state | — | pass | test/copper/copper_test.cpp:2157 |
+| CPSK-03 | mode 11: a stalled run ends exactly at cvc == 0, hc == 0 (master cycles 0..3 of the line), with offsets 0, 1 and 255 | copper.vhd:80, zxula_timing.vhd:455-472 | pass | test/copper/copper_test.cpp:2207 |
+| CPSK-04 | with the Copper wrap (c_max_vc + 1) different from the Emulator's lines per frame, skip-then-execute still equals the per-cycle loop over 2500 windows | zxula_timing.vhd:455-472 | pass | test/copper/copper_test.cpp:2232 |
+| CPSK-05 | idle_cycles() refuses (0) while any debugger event latch (move, wait, halt) is armed; unarmed it skips | — | pass | test/copper/copper_test.cpp:2259 |
 
 ## Compositor — `test/compositor/compositor_test.cpp`
 
