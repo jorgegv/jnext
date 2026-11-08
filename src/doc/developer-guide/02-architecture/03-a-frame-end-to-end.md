@@ -172,7 +172,7 @@ every repeat: most of the frame of a program that idles on `EI; HALT`. When
 slot that was such a repeat, `halt_batch_after_slot_()` asks whether each further repeat would do
 exactly what this one did. The first repeat is always real, so every M1 hook, the fetch and
 the T-states come from the real path and no contention or wait formula is restated. The
-answer is yes only if nothing observes the machine (no debugger, trace, rewind, RZX, tape),
+answer is yes only if the CPU actually ran the slot (not a DMA slot, a parked CPU or a boot hold), nothing observes the machine (no debugger, trace, rewind, RZX, tape),
 nothing is waiting for an instruction boundary (an `/INT`, an `/NMI`, a pending host NMI
 press, a CPU speed or contention commit), the DMA, UART, NMI source and IM2 fabric are idle
 in pulse mode, the HALT page is not contended (with the NR 0x08 bit-6 contention shadow
@@ -248,7 +248,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13262`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13236`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

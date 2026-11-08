@@ -11588,6 +11588,10 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // G1: the A/B switch (default on).
     if (!batch_halt_enabled_) return master_cycles;
 
+    // G6: the CPU ran this slot. A DMA slot, a parked CPU and a boot hold run no CPU, so the
+    // slot kind and opcode P1 reads below are stale (the last execute()'s, not this slot's).
+    if (slot_ran_dma_ || cpu_parked_ || boot_hold_frames_remaining_ > 0) return master_cycles;
+
     // P1: the slot WAS a HALT repeat: halted, an opcode was fetched at PC and it was 0x76 (HALT
     // leaves PC on the opcode, so PC is where it was).
     if (cpu_.last_slot_kind() != Z80Cpu::SlotKind::Opcode || cpu_.last_opcode() != 0x76)
@@ -11909,96 +11913,66 @@ int Emulator::debugger_step()
     return static_cast<int>(master_cycles / clock_.cpu_divisor());
 }
 
+// GH #452: ONE body for advance_audio() and advance_audio_batched_(): Cold selects the mixer's
+// accumulate/emit_sample or their out-of-line-twin copies (see Mixer), so the batched HALT replay has its own
+// callers of the audio chain (the normal path keeps a single one, which is what lets the compiler
+// inline it) and the two cannot drift: every line below, the Pi feed included, is shared.
+template <bool Cold>
+[[gnu::always_inline]] inline void Emulator::advance_audio_impl_(uint64_t master_cycles)
+{
+    // Sample generation: 28 MHz / 44100 Hz ≈ 634.92 master cycles per sample.
+    // Bresenham-style accumulator: a sample completes each time accum >= MASTER_CLOCK_HZ.
+    static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
+
+    // Walk the slice in chunks that stop at each output-sample boundary, so the
+    // mixer integrates the source levels ACROSS each sample interval instead of
+    // point-sampling them at its end.
+    //
+    // Point-sampling was the source of the beeper "whistle": output samples are
+    // ~635 master cycles (~79 T-states) apart, and a 1-bit beeper engine toggles
+    // the speaker far faster than that, so most toggles were never observed at
+    // all. The energy they carry does not vanish — it folds down into the
+    // audible band as an inharmonic tone over the music. Averaging over the
+    // interval is a box filter, and it cut jnext's energy above 6 kHz on the
+    // Cesare intro from 6.2% of total to 1.8% (FUSE, which does the same, 0.5%).
+    //
+    // The source levels are constant between accumulate() calls (we observe the
+    // machine at instruction boundaries), so weighting each level by the cycles
+    // it held is exact at that granularity.
+    uint64_t remaining = master_cycles;
+    while (remaining > 0) {
+        // Master cycles still owed before the current output sample completes.
+        const uint64_t need =
+            (SAMPLE_THRESHOLD - sample_accum_ + Mixer::SAMPLE_RATE - 1) / Mixer::SAMPLE_RATE;
+        const uint64_t take = std::min(remaining, need);
+
+        if constexpr (Cold) mixer_.accumulate_cold(beeper_, turbosound_, dac_, static_cast<uint32_t>(take));
+        else                mixer_.accumulate(beeper_, turbosound_, dac_, static_cast<uint32_t>(take));
+        sample_accum_ += take * Mixer::SAMPLE_RATE;
+        remaining -= take;
+
+        if (sample_accum_ >= SAMPLE_THRESHOLD) {
+            sample_accum_ -= SAMPLE_THRESHOLD;
+            if constexpr (Cold) mixer_.emit_sample_cold();
+            else                mixer_.emit_sample();
+            // The Pi's next sample is latched at each output-sample boundary,
+            // so each one holds for exactly one output sample: QEMU is asked
+            // for the mixer's own 44.1 kHz. Before or after emit_sample() is
+            // the same: it only averages what was already accumulated.
+            if (config_.pi_audio) feed_pi_audio();
+        }
+    }
+}
+
 void Emulator::advance_audio(uint64_t master_cycles)
 {
-    // Sample generation: 28 MHz / 44100 Hz ≈ 634.92 master cycles per sample.
-    // Bresenham-style accumulator: a sample completes each time accum >= MASTER_CLOCK_HZ.
-    static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
-
-    // Walk the slice in chunks that stop at each output-sample boundary, so the
-    // mixer integrates the source levels ACROSS each sample interval instead of
-    // point-sampling them at its end.
-    //
-    // Point-sampling was the source of the beeper "whistle": output samples are
-    // ~635 master cycles (~79 T-states) apart, and a 1-bit beeper engine toggles
-    // the speaker far faster than that, so most toggles were never observed at
-    // all. The energy they carry does not vanish — it folds down into the
-    // audible band as an inharmonic tone over the music. Averaging over the
-    // interval is a box filter, and it cut jnext's energy above 6 kHz on the
-    // Cesare intro from 6.2% of total to 1.8% (FUSE, which does the same, 0.5%).
-    //
-    // The source levels are constant between accumulate() calls (we observe the
-    // machine at instruction boundaries), so weighting each level by the cycles
-    // it held is exact at that granularity.
-    uint64_t remaining = master_cycles;
-    while (remaining > 0) {
-        // Master cycles still owed before the current output sample completes.
-        const uint64_t need =
-            (SAMPLE_THRESHOLD - sample_accum_ + Mixer::SAMPLE_RATE - 1) / Mixer::SAMPLE_RATE;
-        const uint64_t take = std::min(remaining, need);
-
-        mixer_.accumulate(beeper_, turbosound_, dac_, static_cast<uint32_t>(take));
-        sample_accum_ += take * Mixer::SAMPLE_RATE;
-        remaining -= take;
-
-        if (sample_accum_ >= SAMPLE_THRESHOLD) {
-            sample_accum_ -= SAMPLE_THRESHOLD;
-            mixer_.emit_sample();
-            // The Pi's next sample is latched at each output-sample boundary,
-            // so each one holds for exactly one output sample: QEMU is asked
-            // for the mixer's own 44.1 kHz. Before or after emit_sample() is
-            // the same: it only averages what was already accumulated.
-            if (config_.pi_audio) feed_pi_audio();
-        }
-    }
+    advance_audio_impl_<false>(master_cycles);
 }
 
-// GH #452: a verbatim second copy of advance_audio() for the batched HALT replay (see
-// tick_devices_after_batched_halt_), calling the mixer's own cold copies.
 [[gnu::noinline]] void Emulator::advance_audio_batched_(uint64_t master_cycles)
 {
-    // Sample generation: 28 MHz / 44100 Hz ≈ 634.92 master cycles per sample.
-    // Bresenham-style accumulator: a sample completes each time accum >= MASTER_CLOCK_HZ.
-    static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
-
-    // Walk the slice in chunks that stop at each output-sample boundary, so the
-    // mixer integrates the source levels ACROSS each sample interval instead of
-    // point-sampling them at its end.
-    //
-    // Point-sampling was the source of the beeper "whistle": output samples are
-    // ~635 master cycles (~79 T-states) apart, and a 1-bit beeper engine toggles
-    // the speaker far faster than that, so most toggles were never observed at
-    // all. The energy they carry does not vanish — it folds down into the
-    // audible band as an inharmonic tone over the music. Averaging over the
-    // interval is a box filter, and it cut jnext's energy above 6 kHz on the
-    // Cesare intro from 6.2% of total to 1.8% (FUSE, which does the same, 0.5%).
-    //
-    // The source levels are constant between accumulate() calls (we observe the
-    // machine at instruction boundaries), so weighting each level by the cycles
-    // it held is exact at that granularity.
-    uint64_t remaining = master_cycles;
-    while (remaining > 0) {
-        // Master cycles still owed before the current output sample completes.
-        const uint64_t need =
-            (SAMPLE_THRESHOLD - sample_accum_ + Mixer::SAMPLE_RATE - 1) / Mixer::SAMPLE_RATE;
-        const uint64_t take = std::min(remaining, need);
-
-        mixer_.accumulate_cold(beeper_, turbosound_, dac_, static_cast<uint32_t>(take));
-        sample_accum_ += take * Mixer::SAMPLE_RATE;
-        remaining -= take;
-
-        if (sample_accum_ >= SAMPLE_THRESHOLD) {
-            sample_accum_ -= SAMPLE_THRESHOLD;
-            mixer_.emit_sample_cold();
-            // The Pi's next sample is latched at each output-sample boundary,
-            // so each one holds for exactly one output sample: QEMU is asked
-            // for the mixer's own 44.1 kHz. Before or after emit_sample() is
-            // the same: it only averages what was already accumulated.
-            if (config_.pi_audio) feed_pi_audio();
-        }
-    }
+    advance_audio_impl_<true>(master_cycles);
 }
-
 
 // ---------------------------------------------------------------------------
 // Task 79 — per-connector host input source coordination.

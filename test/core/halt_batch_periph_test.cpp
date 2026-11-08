@@ -40,6 +40,26 @@ Scenario contention_shadow() {
     s.alive = [](Emulator& e) { return e.line_int_fire_count() > 50; };
     return s;
 }
+
+// --silent (EmulatorConfig::silent): the batched replay takes its early cluster-only branch and
+// must leave the machine silent. An IM 2 EI;HALT program at the given speed.
+Scenario silent_halt(const char* name, uint8_t speed) {
+    Scenario s = im2_halt(name, speed, 0xFF, 60);
+    s.config = [](EmulatorConfig& c) { c.silent = true; };
+    return s;
+}
+
+// DI;HALT, then the slot stops running the CPU at frame 20 while the CPU is halted (plan gate
+// G6): a parked CPU (a load-only NEX, GH #164) or a boot hold (G156). The slot is a 4 T stand-in,
+// not a HALT repeat, so it must not be batched.
+Scenario halted_then_no_cpu(const char* name, bool park) {
+    Scenario s = di_halt(name, 0, 40);
+    s.before_frame = [=](Emulator& e, int f) {
+        if (f != 20) return;
+        if (park) e.set_cpu_parked(true); else e.set_boot_hold_frames(10);
+    };
+    return s;
+}
 } // namespace
 
 int main() {
@@ -225,6 +245,18 @@ int main() {
     // the pending re-enable commits.
     check_ab("HBQ-50", "contention disable toggled by a line-interrupt handler on a contended page (the shadow commit pending while halted): identical per frame, the batch engaged",
              {contention_shadow()}, false, nullptr, Halt::Engaged);
+
+    // HBQ-51 / HBQ-52: the --silent branch of the batched replay, at 3.5 and 28 MHz.
+    check_ab("HBQ-51", "EI;HALT at 3.5 MHz with --silent: identical per frame, the batch engaged",
+             {silent_halt("silent-3.5", 0)}, false, nullptr, Halt::Engaged);
+    check_ab("HBQ-52", "EI;HALT at 28 MHz with --silent: identical per frame, the batch engaged",
+             {silent_halt("silent-28", 3)}, false, nullptr, Halt::Engaged);
+
+    // HBQ-53 / HBQ-54: the CPU stops running (parked / boot hold) at frame 20 while halted (G6).
+    check_ab("HBQ-53", "CPU parked at frame 20 while halted on DI;HALT: identical per frame (no batching of the parked slots)",
+             {halted_then_no_cpu("parked-while-halted", true)});
+    check_ab("HBQ-54", "boot hold set at frame 20 while halted on DI;HALT: identical per frame (no batching of the held slots)",
+             {halted_then_no_cpu("hold-while-halted", false)});
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

@@ -2878,12 +2878,13 @@ private:
     /// exactly what the real one did (every gate and bound listed there), has absorbed them (CPU
     /// counters, master clock, DMA prescaler) and returned the master cycles of the WHOLE slot, and
     /// tick_devices_after_batched_halt_() has run the device cluster over that window, the PSG and the
-    /// mixer replayed repeat by repeat first (advance_audio_batched_() is its own copy of
-    /// advance_audio(), see the comment at its definition).
+    /// mixer replayed repeat by repeat first (advance_audio_batched_() is the same body as
+    /// advance_audio(), instantiated with the mixer's cold twins, see advance_audio_impl_()).
     bool halted_slot_(uint64_t master_cycles);
     uint64_t halt_batch_after_slot_(uint64_t master_cycles, bool& batched);
     void tick_devices_after_batched_halt_(uint64_t master_cycles);
     void advance_audio_batched_(uint64_t master_cycles);
+    template <bool Cold> void advance_audio_impl_(uint64_t master_cycles);
 
     /// GH #452 - master cycles of ONE repeat of a batched HALT slot while one is in flight, else 0.
     uint64_t slot_repeat_mc_ = 0;
