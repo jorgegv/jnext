@@ -129,6 +129,16 @@ public:
     /// INT_s is set: E_1 and E_N. Valid once a timed pulse has started.
     uint64_t pulse_first_edge() const { return pulse_e1_; }
     uint64_t pulse_last_edge() const  { return pulse_en_; }
+    /// GH #452 - the part of slot_idle() that holds in BOTH IM2 modes: the fabric is quiescent (nothing
+    /// pending, the pulse high, nothing for the device state machines) and no RETI pulse is being seen.
+    /// A HALT-repeat batch tests this inline, first and without a call (run_frame()'s pre-filter).
+    bool span_quiescent() const { return quiescent_ && !reti_seen_pulse_; }
+    /// GH #452 - span_quiescent() with the NMI-activated sample the fabric last saw: what one
+    /// finish_slot_interrupts_full() stands for across a batch of HALT repeats, in either mode
+    /// (see Emulator::halt_batch_after_slot_(): the /INT line, which needs a device in S_REQ, is G7's).
+    bool span_idle(bool nmi_activated) const {
+        return span_quiescent() && nmi_activated == nmi_activated_;
+    }
     /// GH #265 — true when the end-of-instruction work has nothing to do: in
     /// pulse mode (no IM2-mode /INT line can be asserted), tick() would take
     /// its quiescent early-out (Task 27 C-IM2) even after
@@ -139,8 +149,7 @@ public:
     /// per-instruction fast path; the tick it skips only stores intra-tick
     /// scratch (pulse_count_advance_, read solely by step_pulse() in tick()).
     bool slot_idle(bool nmi_activated) const {
-        return quiescent_ && !reti_seen_pulse_ && !im2_mode_
-            && nmi_activated == nmi_activated_;
+        return span_idle(nmi_activated) && !im2_mode_;
     }
     /// True once per pulse started since the last call.
     bool take_pulse_started() {

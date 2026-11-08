@@ -802,6 +802,27 @@ before it, the extra one being the first MOVE pair replayed by the spurious
 restart); with that WAIT moved to the next line, 176 of 220 before the fix
 and 220 of 220 after it.
 
+## GH #452 append (2026-11-08) - the unmet-WAIT skip, `Copper::idle_cycles()`
+
+`Copper::idle_cycles()` lets the Emulator skip a run of cycles in which a WAIT stays
+unmet. Its oracle is the per-cycle `Copper::execute()`, held to copper.vhd by every
+group above; the rows (group G11 of `copper_test`) check the skip against it.
+
+| ID | row | oracle |
+|----|-----|--------|
+| CPSK-01 | property over 20000 seeded reachable states (random program, warm-up, mode writes, offset, position, limit): every skipped run changes nothing in per-cycle `execute()` (PC, mode, edge, the whole `save_state`, no NextREG write), and a run that stops short ends at a cycle that acts or is a mode-11 restart | per-cycle `Copper::execute()`; copper.vhd:80, :94 |
+| CPSK-02 | skip-then-execute and per-cycle loops over 4000 windows give the same NextREG write stream `(cycle, reg, value, PC)` and the same final state | as above |
+| CPSK-03 | mode 11: a stalled run ends at `cvc == 0 && hc == 0` with offsets 0, 1 and 255; a Copper at PC != 0 on `cvc` 0 is not skipped over master cycles 1 to 3 | copper.vhd:80; zxula_timing.vhd:455-472 |
+| CPSK-04 | the Copper's `c_max_vc + 1` one more or one less than the Emulator's lines per frame: the skip loop still agrees with the per-cycle loop (NextREG write stream and final state) over several frames; CPSK-01/02 also draw mismatched wraps | per-cycle `Copper::execute()`; zxula_timing.vhd:455-472 |
+| CPSK-05 | any armed debugger event latch (move, wait, halt): no skip | `copper.cpp` stall arm |
+
+Mutation record (each from a backup of `copper.cpp`): dropping the mode-edge,
+mode-00, MOVE-settling, MOVE-at-PC or events-armed refusal, the restart test, the
+offset in the line counter, the Copper's line modulus replaced by the Emulator's `lpf` (CPSK-01/02/04), `>=` turned into `>` in the WAIT test, or the in-line guard on
+the WAIT threshold turns a row red; restart tested at master cycle 0 only is caught by
+CPSK-03. `match_lm < mcpl` written `<=` is an equivalent mutant (the end of the run is
+clamped to the line length either way).
+
 ## Coverage notes (moved from the traceability matrix, GH #196)
 
 The matrix is a generated artifact now and carries no prose of its own; it

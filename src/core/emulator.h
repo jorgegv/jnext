@@ -1384,6 +1384,25 @@ public:
     bool prev_pulse_int_n_for_test() const { return prev_pulse_int_n_; }
     void set_prev_pulse_int_n_for_test(bool v) { prev_pulse_int_n_ = v; }
 
+    /// GH #452 - A/B switches for the cycle-batching optimisations (the HALT
+    /// repeat batch and the Copper unmet-WAIT skip). Both default ON; a test
+    /// turns one off to run the unbatched path, the oracle the equivalence
+    /// suites (`halt_batch_equiv_test`, `halt_batch_corpus_1..8_test`) compare
+    /// against, frame by frame. Not a user setting (no CLI flag, no config
+    /// key), not machine state (never saved). The counters say how much each
+    /// optimisation engaged: HALT repeats absorbed into a batched slot, and
+    /// Copper master cycles skipped, since the Emulator was built.
+    void set_cycle_batching_for_test(bool halt, bool copper) {
+        batch_halt_enabled_ = halt;
+        batch_copper_enabled_ = copper;
+    }
+    uint64_t halt_repeats_batched_for_test() const { return halt_repeats_batched_; }
+    /// GH #452 stage 4 - of those, the repeats absorbed while the DMA sat in its burst prescaler wait,
+    /// and while the IM2 fabric was in hardware mode: what a row reads to know a batch engaged THERE.
+    uint64_t halt_repeats_batched_dma_wait_for_test() const { return halt_repeats_batched_dma_wait_; }
+    uint64_t halt_repeats_batched_hw_mode_for_test() const { return halt_repeats_batched_hw_mode_; }
+    uint64_t copper_cycles_skipped_for_test() const { return copper_cycles_skipped_; }
+
     // ══════════════════════════════════════════════════════════════════════
     // Host hotkey dispatchers — VHDL `hotkey_m1` / `hotkey_drive` /
     // `hotkey_soft_reset` / `hotkey_hard_reset` (zxnext.vhd:6340-6371,
@@ -2253,6 +2272,15 @@ private:
     /// `line_int_fire_count()` is used by VT-G163-* rows.
     uint64_t line_int_fire_count_ = 0;
 
+    // GH #452: the cycle-batching switches and their engagement counters (test
+    // hooks; see set_cycle_batching_for_test). Not saved, not machine state.
+    bool     batch_halt_enabled_   = true;
+    bool     batch_copper_enabled_ = true;
+    uint64_t halt_repeats_batched_ = 0;
+    uint64_t halt_repeats_batched_dma_wait_ = 0;
+    uint64_t halt_repeats_batched_hw_mode_ = 0;
+    uint64_t copper_cycles_skipped_ = 0;
+
     /// GH #290 — the compare positions (master cycles) of the live line-int
     /// events of the current generation, so a reschedule can keep the ones a
     /// change landed too late to reach (see reschedule_line_interrupt()).
@@ -2888,6 +2916,12 @@ private:
     /// advance_copper_across_row_boundaries().
     void tick_copper_for_master_cycles(uint64_t begin, uint64_t count);
 
+    /// GH #452 - the Copper's position at master cycle `cycle`: master cycles since
+    /// hc_ula == 0 (`hc = line_mc >> 2`), cvc (0 .. lines per frame - 1), and the offset
+    /// cvc counts from. The one rebase both the Copper step loop and the HALT batch use.
+    struct CopperPos { int line_mc; int cvc; uint8_t cvc_offset; };
+    [[gnu::always_inline]] inline CopperPos copper_position_at_(uint64_t cycle) const;
+
     /// GH #272 — advance the Copper across the master-cycle window this
     /// instruction consumed, stopping at every video-row boundary inside
     /// it so that the boundary's row work happens at the master cycle it
@@ -2928,7 +2962,32 @@ private:
     /// this cluster and had silently lost im2_.tick(), both /INT polls
     /// and md6_.tick() — stepping through interrupt-driven code never
     /// delivered CTC/UART/ULA-frame interrupts.
+    ///
     uint64_t step_one_instruction();
+
+    /// GH #452 - the HALT batch. run_frame() calls halted_slot_() after a slot that left the CPU
+    /// halted (and only then: the whole of it is out of line, because inline code in that loop cost
+    /// every program, halting or not, instructions). It returns the master cycles of the whole window
+    /// when the slot was a HALT repeat that stands for several, else 0: halt_batch_after_slot_() has
+    /// proved that each further repeat would do exactly what the real one did (every gate and bound
+    /// listed there) and absorbed them (CPU counters, master clock, DMA prescaler), and
+    /// halt_batch_replay_() has replayed the PSG and the mixer repeat by repeat
+    /// (TurboSound::tick_n() and Mixer::integrate_span(), entry points shaped like the replay so that
+    /// nothing folds them into the per-slot functions) and switched the cluster's PSG / audio block
+    /// off through `audio_off_`; config_ is never written.
+    /// run_frame() then runs the ONE device cluster over the window (a second caller of it cost every
+    /// slot of every program 1.2-1.6 % under the WebAssembly build), whose silent branch calls
+    /// halt_batch_end_() to switch the PSG / audio block back on.
+    uint64_t halted_slot_(uint64_t master_cycles);
+    uint64_t halt_batch_after_slot_(uint64_t master_cycles, bool& batched);
+    void halt_batch_replay_(uint64_t master_cycles);
+    void halt_batch_end_();
+    static void pi_sample_thunk_(void* self);
+
+    /// GH #452 - master cycles of ONE repeat of a batched HALT slot while one is in flight, else 0.
+    uint64_t slot_repeat_mc_ = 0;
+    bool     batch_silenced_ = false;   // a HALT batch's window is running with the cluster's PSG / audio block off
+    bool     audio_off_ = false;        // what the device cluster tests: config_.silent, or batch_silenced_
 
     /// Task 60a — the shared post-instruction device-tick cluster:
     /// Copper (G117), deferred CPU NR-write drain (G65), contention /

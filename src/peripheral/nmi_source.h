@@ -236,6 +236,10 @@ public:
     /// True when any of the three request latches is set. Feeds the
     /// `nmi_activated` term in VHDL:2007 (`im2_dma_delay` OR chain).
     bool is_activated() const;
+    /// GH #452 - tick() would change nothing: the FSM is idle with no latch set, no assert
+    /// can fire (button levels, software strobes, I/O trap, expansion bus) and no strobe is
+    /// waiting to be consumed or cleared. A HALT repeat batch may skip its calls.
+    bool tick_is_noop() const;
 
     State state() const { return state_; }
     Src   latched() const;
