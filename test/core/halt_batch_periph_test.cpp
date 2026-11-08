@@ -160,8 +160,9 @@ Scenario dma_burst_run(const char* name, uint8_t speed, uint16_t len, uint8_t pr
 }
 
 // The Pi audio input (EmulatorConfig::pi_audio), a PiAudio that was never opened (its pop() yields silence
-// deterministically), with or without --silent: the batch parks the input for the window of a batched
-// HALT and must give it back (and must leave --silent as it found it). Liveness: the config is as set.
+// deterministically), with or without --silent: the batch never writes the config (the cluster's PSG / audio
+// block is switched off through a private flag of the emulator), so the input must still be attached, and
+// --silent as set, at the end. Liveness: the config is as set.
 Scenario pi_audio_halt(const char* name, bool silent, PiAudio* pa) {
     Scenario s = im2_halt(name, 0, 0xFF, 60);
     s.config = [=](EmulatorConfig& c) {
@@ -170,6 +171,28 @@ Scenario pi_audio_halt(const char* name, bool silent, PiAudio* pa) {
     };
     s.alive = [=](Emulator& e) {
         return isr_ran(e, kHigh) && e.config().pi_audio == pa && e.config().silent == silent;
+    };
+    return s;
+}
+
+// A live Pi stream: every run (the unbatched one and the batched one) gets a PiAudio of its own, filled
+// before the run with the same 12000-frame ramp through push_for_test(), so the stream is deterministic on
+// every OS. The mixer latches one Pi frame at each output-sample boundary, the batch replays those
+// boundaries in its own entry point, and a replay that dropped the latch would leave the ring unconsumed
+// and the I2S latch (part of the saved state) behind. Liveness: the run consumed the whole ramp.
+Scenario pi_audio_stream(const char* name, std::vector<std::unique_ptr<PiAudio>>& rings) {
+    Scenario s = im2_halt(name, 0, 0xFF, 60);
+    s.config = [&rings](EmulatorConfig& c) {
+        rings.push_back(std::make_unique<PiAudio>());
+        PiAudio& pa = *rings.back();
+        for (int i = 0; i < 12000; ++i) {
+            const int16_t v = static_cast<int16_t>(i * 3 - 18000);
+            pa.push_for_test(v, static_cast<int16_t>(-v));
+        }
+        c.pi_audio = &pa;
+    };
+    s.alive = [](Emulator& e) {
+        return isr_ran(e, kHigh) && e.config().pi_audio && e.config().pi_audio->available() == 0;
     };
     return s;
 }
@@ -425,6 +448,15 @@ int main() {
                  {pi_audio_halt("pi-audio", false, &pa)}, false, nullptr, Halt::Engaged);
         check_ab("HBQ-58", "EI;HALT with a Pi audio input attached and --silent: identical per frame, the batch engaged, both still as set at the end",
                  {pi_audio_halt("pi-audio-silent", true, &pa)}, false, nullptr, Halt::Engaged);
+    }
+
+    // HBQ-59: a live Pi stream (a 12000-frame ramp per run) across batched HALTs: identical per frame, the
+    // batch engaged, and every run consumed its whole ramp (the replay latches the Pi's sample at each
+    // output-sample boundary).
+    {
+        std::vector<std::unique_ptr<PiAudio>> rings;
+        check_ab("HBQ-59", "EI;HALT with a live Pi audio stream (12000-frame ramp per run): identical per frame, the batch engaged, the whole ramp consumed in both runs",
+                 {pi_audio_stream("pi-audio-stream", rings)}, false, nullptr, Halt::Engaged);
     }
 
     std::printf("\n===============================================\n");
