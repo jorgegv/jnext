@@ -2152,7 +2152,7 @@ private:
     ///
     /// Sticky per image, not per session: without it a card that cannot
     /// produce a NextZXOS — no firmware on it, a non-NextZXOS distro — would
-    /// pay a 500-frame boot on every single load and report the same failure
+    /// pay a boot on every single load and report the same failure
     /// each time. Keyed on the path rather than a plain bool so that mounting
     /// a DIFFERENT image (File > Insert SD Card Image) gets its own chance; the
     /// verdict belongs to the card, not to the run.

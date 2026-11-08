@@ -7775,7 +7775,7 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
     //   load_file      the gate that disarms the boot-ROM overlay in init().
     //                  Clearing it is the whole point: this run must boot.
     //   inject_file    a raw binary would be written over the firmware's RAM.
-    //   rewind/trace   500 frames x ~2.3 MB of snapshots nobody will rewind to.
+    //   rewind/trace   the recording's frames x ~2.3 MB of snapshots nobody will rewind to.
     //   esp            a second module would open a second socket, and no part
     //                  of a NextZXOS boot sends an AT command.
     //   profile        the recorder is not the run the user is measuring.
@@ -7907,7 +7907,7 @@ bool Emulator::ensure_warm_start_state()
         // machine is a load whose result the user cannot explain, and with the
         // warm start now the behaviour rather than an option there is no flag
         // on the command line to remind them it was even attempted. So the
-        // latch short-circuits the 500-frame boot, not the sentence.
+        // latch short-circuits the recording boot, not the sentence.
         Log::emulator()->error(
             "warm start: this SD image was already refused earlier in this session - "
             "this load falls back to the synthetic machine");
