@@ -72,6 +72,22 @@ page 0 or loses its stack. **Over** and **Out** step across `banked_call` and
 the `-debug` helpers; **Out** lands on the calling line at the return address
 (mid-statement), as gdb's `finish` does.
 
+A section of your own memory map is in the bank of the block it is placed in, as appmake builds
+it: with
+
+```
+SECTION BANK_8_CODE
+    ORG 0x100000
+section game_code
+section game_const
+```
+
+`game_const` is in bank 8 (pages 16 and 17), and a `PAGE_95_CONST` block is page 95 and the pages
+it runs on into. The block name only has to contain `BANK_<n>`, `PAGE_<n>` or `DIV_<n>`; what
+follows the number is free (`BANK_<n>_L` and `_H` are the lower and upper 8K of the bank). The map
+says which block each section is in from z88dk nightly 2026-10-21 on; with an older z88dk such a
+section is refused when its addresses have 24 bits ("names no bank or page").
+
 Code in a section that names no page (`CODE`, `code_compiler`, the program
 itself) is tied to the RAM page the MMU maps at that address when the program
 is in memory (page 4 at `$8000` for a NEX).
