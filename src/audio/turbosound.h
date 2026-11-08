@@ -92,6 +92,10 @@ public:
     /// tick() keeps its ONE caller (the device cluster, which GCC inlines) and neither copy makes the
     /// other's callee (compute_stereo_mix, inlined into each) a shared out-of-line function.
     void tick_cold();
+    /// Not machine state: counts tick_cold() calls. Its only job is to keep that copy from being
+    /// byte-identical to tick(), which the WebAssembly build's wasm-opt would fold into one function
+    /// with two callers and stop inlining into the device cluster (measured: 1 % of every program).
+    uint32_t cold_hits() const { return cold_hits_; }
 
     /// Debugger-only per-chip mute (AudioMute::AY0/AY1/AY2; bit i = chip i).
     /// Gates ONLY this chip's contribution to the 3-PSG sum in
@@ -151,6 +155,7 @@ private:
     // Debugger-only; NOT machine state (not reset, not serialised).
     uint8_t chip_mute_mask_ = AudioMute::NONE;
 
+    uint32_t cold_hits_ = 0;
     int active_ay_index() const;
     void compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) const;
     [[gnu::always_inline]] inline void compute_stereo_mix();

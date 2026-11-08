@@ -91,6 +91,9 @@ public:
     void accumulate_cold(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
                          uint32_t master_cycles);
     void emit_sample_cold();
+    /// Not machine state: counts the two cold copies' calls, so that they are not byte-identical to
+    /// accumulate() / emit_sample() (see TurboSound::cold_hits()).
+    uint32_t cold_hits() const { return cold_hits_; }
 private:
     [[gnu::always_inline]] inline void accumulate_impl_(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
                                                         uint32_t master_cycles);
@@ -161,6 +164,7 @@ private:
     int64_t acc_l_ = 0;
     int64_t acc_r_ = 0;
     uint64_t acc_cycles_ = 0;
+    uint32_t cold_hits_ = 0;   // not machine state: see cold_hits()
 
     // Ring buffer: stereo int16_t pairs
     std::vector<int16_t> buffer_;

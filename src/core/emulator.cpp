@@ -10366,14 +10366,19 @@ void Emulator::run_frame()
         // device cluster stay byte-for-byte what they were: any batch test inside either of them cost
         // every slot of every program 1-2 % in instructions (measured; the compiler's inlining of the
         // cluster's callees shifted). A program that is not halted pays one test of the CPU's halted
-        // flag per slot, in this function.
-        const uint64_t master_cycles = step_one_instruction();
-        // The whole of it out of line: this loop pays a load, a test and a never-taken branch per slot,
-        // and nothing else (inline code here made the loop's register allocation worse for every
-        // program: 0.3 % of all instructions on a non-halting one).
-        if (__builtin_expect(cpu_.is_halted(), 0) && batch_halt_enabled_ &&
-            im2_.span_quiescent() && halted_slot_(master_cycles))
-            continue;
+        // flag per slot, in this function, and one test of a local after the cluster.
+        //
+        // The cluster has ONE caller here, batched or not: a batch only widens `master_cycles` to the
+        // whole window (halted_slot_() has replayed the PSG and the mixer, repeat by repeat, and has
+        // switched the cluster's own PSG / audio block off; the cluster's silent branch switches it
+        // back on, so the loop carries no state of its own for it). A second caller of the cluster (an
+        // obvious way to run it for a batch) cost every slot of every program 1.2-1.6 % under the
+        // WebAssembly build's clang, whatever else was done to it, and so did any per-slot flag here.
+        uint64_t master_cycles = step_one_instruction();
+        if (__builtin_expect(cpu_.is_halted(), 0) && batch_halt_enabled_ && im2_.span_quiescent()) {
+            const uint64_t window = halted_slot_(master_cycles);   // 0: not batched
+            if (window != 0) master_cycles = window;
+        }
 
         // GH #276 B2 §4.3 — THE BOUNDARY DRAIN. Everything latched at a site
         // during this instruction is delivered here, with the machine stopped:
@@ -11619,7 +11624,7 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // skipped. See EmulatorConfig::silent doc comment.
     if (!config_.silent) {
         // Tick PSG (TurboSound) at 1.75 MHz rate. (A batched HALT slot arrives here with its PSG and
-        // audio switched off through this very test: tick_devices_after_batched_halt_() has replayed
+        // audio switched off through this very test: halt_batch_replay_() has replayed
         // them repeat by repeat already.)
         psg_accum_ += master_cycles;
         while (psg_accum_ >= PSG_DIVISOR) {
@@ -11633,6 +11638,10 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
         if (!replay_mode_) {
             advance_audio(master_cycles);
         }
+    } else if (__builtin_expect(batch_silenced_, 0)) {
+        // GH #452 - the window of a batched HALT: halt_batch_replay_() has run the PSG and the mixer
+        // for it, repeat by repeat, and switched this block off for the one cluster call; switch it back.
+        halt_batch_end_();
     } else if (config_.pi_audio && !replay_mode_) {
         // --silent skips the mixer, but the Pi's samples still have to be
         // latched: NR 0xA2 bit 0 turns them into the EAR input, and --silent
@@ -11652,7 +11661,7 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     finish_slot_interrupts();
 }
 
-[[gnu::noinline]] void Emulator::tick_devices_after_batched_halt_(uint64_t master_cycles)
+[[gnu::noinline]] void Emulator::halt_batch_replay_(uint64_t master_cycles)
 {
     // GH #452 - the device cluster of a batched HALT slot of n repeats of `slot_repeat_mc_`. All of it
     // is linear in the window (the batch's gates and bounds see to that) EXCEPT the PSG and the mixer,
@@ -11670,10 +11679,7 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     static constexpr uint64_t PSG_DIVISOR = 16;
     const uint64_t each = slot_repeat_mc_;
     slot_repeat_mc_ = 0;
-    if (config_.silent) {
-        tick_devices_after_instruction(master_cycles);
-        return;
-    }
+    if (config_.silent) return;     // the cluster skips its PSG / audio block itself
     const uint64_t n = master_cycles / each;
     for (uint64_t i = 0; i < n; ) {
         psg_accum_ += each;
@@ -11690,26 +11696,37 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
         }
         if (!replay_mode_) advance_audio_batched_(span);
     }
-    PiAudio* const pi = config_.pi_audio;
+    // The cluster, run by run_frame() next over the whole window, must not do it again: switch its
+    // PSG / audio block off through the two flags it already tests per slot (--silent, and the Pi
+    // audio input it feeds when silent); halt_batch_end_() puts them back.
+    batch_saved_pi_ = config_.pi_audio;
     config_.silent = true;
     config_.pi_audio = nullptr;
-    tick_devices_after_instruction(master_cycles);
-    config_.silent = false;
-    config_.pi_audio = pi;
+    batch_silenced_ = true;
 }
 
-[[gnu::noinline]] bool Emulator::halted_slot_(uint64_t master_cycles)
+[[gnu::noinline]] void Emulator::halt_batch_end_()
 {
-    // GH #452 - run_frame() calls this for every slot the CPU is halted after. True when the slot was
-    // batched and its device cluster has been run (the caller then skips its own: batching requires the
-    // debugger idle, G2, so the boundary drain and the data-breakpoint test it would skip are empty).
-    // The caller has already tested the two cheapest refusals inline (the switch, and hardware IM2 mode
-    // or an interrupt in flight): a halted program that cannot batch pays a few loads per slot and no call.
+    if (!batch_silenced_) return;
+    batch_silenced_ = false;
+    config_.silent = false;
+    config_.pi_audio = batch_saved_pi_;
+}
+
+[[gnu::noinline]] uint64_t Emulator::halted_slot_(uint64_t master_cycles)
+{
+    // GH #452 - run_frame() calls this for every slot the CPU is halted after (and the IM2 fabric is
+    // quiescent, and the switch is on: the cheapest refusals, made inline). Returns the master cycles of
+    // the whole window when the slot was a HALT repeat that stands for several (halt_batch_after_slot_()
+    // has absorbed the rest and halt_batch_replay_() has replayed the PSG and the mixer), 0 when not.
+    // run_frame() then runs the device cluster over the window and calls halt_batch_end_(). Batching
+    // requires the debugger idle (G2), so the boundary drain and the data-breakpoint test between this
+    // call and the cluster are empty.
     bool batched = false;
     const uint64_t total = halt_batch_after_slot_(master_cycles, batched);
-    if (!batched) return false;
-    tick_devices_after_batched_halt_(total);
-    return true;
+    if (!batched) return 0;
+    halt_batch_replay_(total);
+    return total;
 }
 
 [[gnu::noinline]] uint64_t Emulator::halt_batch_after_slot_(uint64_t master_cycles, bool& batched)

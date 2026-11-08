@@ -174,7 +174,7 @@ uint8_t TurboSound::reg_read(bool reg_mode) const
 }
 
 void TurboSound::tick() { tick_impl_(); }
-[[gnu::noinline]] void TurboSound::tick_cold() { tick_impl_(); }
+[[gnu::noinline]] void TurboSound::tick_cold() { tick_impl_(); ++cold_hits_; }
 
 inline void TurboSound::compute_stereo_mix()
 {

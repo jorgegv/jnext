@@ -2936,21 +2936,27 @@ private:
 
     /// GH #452 - the HALT batch. run_frame() calls halted_slot_() after a slot that left the CPU
     /// halted (and only then: the whole of it is out of line, because inline code in that loop cost
-    /// every program, halting or not, instructions). It returns true when the slot was a HALT repeat
-    /// that stands for several: halt_batch_after_slot_() has proved that each further repeat would do
-    /// exactly what the real one did (every gate and bound listed there), has absorbed them (CPU
-    /// counters, master clock, DMA prescaler) and returned the master cycles of the WHOLE slot, and
-    /// tick_devices_after_batched_halt_() has run the device cluster over that window, the PSG and the
-    /// mixer replayed repeat by repeat first (advance_audio_batched_() is the same body as
-    /// advance_audio(), instantiated with the mixer's cold twins, see advance_audio_impl_()).
-    bool halted_slot_(uint64_t master_cycles);
+    /// every program, halting or not, instructions). It returns the master cycles of the whole window
+    /// when the slot was a HALT repeat that stands for several, else 0: halt_batch_after_slot_() has
+    /// proved that each further repeat would do exactly what the real one did (every gate and bound
+    /// listed there) and absorbed them (CPU counters, master clock, DMA prescaler), and
+    /// halt_batch_replay_() has replayed the PSG and the mixer repeat by repeat
+    /// (advance_audio_batched_() is the same body as advance_audio(), instantiated with the mixer's
+    /// cold twins, see advance_audio_impl_()) and switched the cluster's PSG / audio block off.
+    /// run_frame() then runs the ONE device cluster over the window (a second caller of it cost every
+    /// slot of every program 1.2-1.6 % under the WebAssembly build), whose silent branch calls
+    /// halt_batch_end_() to switch the PSG / audio block back on.
+    uint64_t halted_slot_(uint64_t master_cycles);
     uint64_t halt_batch_after_slot_(uint64_t master_cycles, bool& batched);
-    void tick_devices_after_batched_halt_(uint64_t master_cycles);
+    void halt_batch_replay_(uint64_t master_cycles);
+    void halt_batch_end_();
     void advance_audio_batched_(uint64_t master_cycles);
     template <bool Cold> void advance_audio_impl_(uint64_t master_cycles);
 
     /// GH #452 - master cycles of ONE repeat of a batched HALT slot while one is in flight, else 0.
     uint64_t slot_repeat_mc_ = 0;
+    class PiAudio* batch_saved_pi_ = nullptr;   // the Pi audio input, parked while a batch's window runs silent
+    bool     batch_silenced_ = false;
 
     /// Task 60a — the shared post-instruction device-tick cluster:
     /// Copper (G117), deferred CPU NR-write drain (G65), contention /

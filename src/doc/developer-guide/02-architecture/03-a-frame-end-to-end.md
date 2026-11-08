@@ -154,7 +154,7 @@ A `.tzx` or `.wav` save also samples the tape-out level
 end of the frame; see
 [3.8](../03-subsystems/08-media-and-loaders.md).
 
-**Then `step_one_instruction()`** (`src/core/emulator.cpp:10724`), the one shared per-instruction
+**Then `step_one_instruction()`** (`src/core/emulator.cpp:10729`), the one shared per-instruction
 body. It picks exactly one of four things to do:
 
 - If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -183,8 +183,13 @@ change), where `n` is bounded to end before the next scheduler event (a scanline
 reload, the frame end), the next interrupt request, the next CTC event, the opening of the DMA prescaler gate (`Dma::cycles_to_prescaler_gate()`) and the next Copper
 action (`Copper::idle_cycles()` from the Copper's own position, the same
 `copper_position_at_()` the Copper loop uses). The batched slot then runs the device cluster
-once; the PSG and the mixer are not split-invariant, so their part is replayed repeat by
-repeat in the same order. Every bound, and every gate whose absence changes what the machine
+once, from the same call as every other slot, over the whole window; the PSG and the mixer are not
+split-invariant, so their part is replayed repeat by repeat in the same order first, and the cluster's
+own PSG and audio block is switched off for that one call. Nothing else about a batch is allowed into the
+loop or the cluster: a second caller of the cluster, or a flag the loop carries per slot, cost every slot of
+every program a percent in instructions under the WebAssembly build's clang, and the replay's own copies of the
+audio chain are kept byte-different from the originals (a counter) so that the link-time optimiser does not fold
+them back into one function with two callers. Every bound, and every gate whose absence changes what the machine
 does, is pinned by a row of `halt_batch_equiv_test` or `halt_batch_periph_test` whose mutation
 turns it red. A few gates are redundant with another and stay as explicit statements of the
 contract (an `/INT` pending implies a non-quiescent IM2 fabric; an armed debugger implies the
@@ -203,7 +208,7 @@ stepping.
 
 **Then a data-breakpoint check**, which returns early if one fired.
 
-**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11410`), the
+**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11415`), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -248,7 +253,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13394`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13411`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

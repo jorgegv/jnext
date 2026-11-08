@@ -186,7 +186,7 @@ void Mixer::reset()
 void Mixer::accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint32_t master_cycles)
 { accumulate_impl_(beeper, ts, dac, master_cycles); }
 [[gnu::noinline]] void Mixer::accumulate_cold(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint32_t master_cycles)
-{ accumulate_impl_(beeper, ts, dac, master_cycles); }
+{ accumulate_impl_(beeper, ts, dac, master_cycles); ++cold_hits_; }
 
 void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Dac& dac)
 {
@@ -254,7 +254,7 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
 }
 
 void Mixer::emit_sample() { emit_sample_impl_(); }
-[[gnu::noinline]] void Mixer::emit_sample_cold() { emit_sample_impl_(); }
+[[gnu::noinline]] void Mixer::emit_sample_cold() { emit_sample_impl_(); ++cold_hits_; }
 
 int Mixer::available() const { return count_; }
 
