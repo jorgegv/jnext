@@ -798,6 +798,14 @@ add_test(NAME halt_batch_equiv_tests COMMAND halt_batch_equiv_test)
 
 # The corpus is split over eight executables (one process over all 46 programs exceeds
 # the suite time bound); each shard source owns its programs and row IDs.
+add_executable(halt_batch_boot_test core/halt_batch_boot_test.cpp)
+target_link_libraries(halt_batch_boot_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(halt_batch_boot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME halt_batch_boot_tests COMMAND halt_batch_boot_test)
+
 add_executable(halt_batch_corpus_1_test core/halt_batch_corpus_1_test.cpp)
 add_executable(halt_batch_corpus_2_test core/halt_batch_corpus_2_test.cpp)
 add_executable(halt_batch_corpus_3_test core/halt_batch_corpus_3_test.cpp)

@@ -68,7 +68,9 @@ struct Scratch {
     std::vector<uint8_t> state;
 };
 
-inline FrameHash capture(Emulator& emu, Scratch& s) {
+// `with_state`: also hash the whole save_state() stream (every frame by default; a long
+// scenario such as the cold boot hashes it every few frames).
+inline FrameHash capture(Emulator& emu, Scratch& s, bool with_state = true) {
     FrameHash h;
     const size_t fb_bytes = sizeof(uint32_t) *
         static_cast<size_t>(emu.get_framebuffer_width()) *
@@ -84,6 +86,7 @@ inline FrameHash capture(Emulator& emu, Scratch& s) {
     }
     h.audio = hash_bytes(&h.samples, sizeof h.samples, a);
 
+    if (!with_state) return h;
     StateWriter measure;
     emu.save_state(measure);
     if (s.state.size() < measure.position()) s.state.resize(measure.position());
@@ -98,6 +101,7 @@ inline FrameHash capture(Emulator& emu, Scratch& s) {
 struct Scenario {
     const char* name = "";
     int         frames = 300;
+    int         state_every = 1;   // hash save_state() on every Nth frame and the last
     // Fills the EmulatorConfig; default = a bare Next, no SD image.
     std::function<void(EmulatorConfig&)>   config;
     // Runs once after init(), before the first frame.
@@ -128,7 +132,8 @@ inline Run run(const Scenario& sc, bool halt_batch, bool copper_skip, Scratch& s
         if (sc.before_frame) sc.before_frame(*emu, f);
         emu->run_frame();
         if (sc.after_frame) sc.after_frame(*emu, f);
-        r.frames.push_back(capture(*emu, scratch));
+        const bool with_state = (f % sc.state_every == 0) || f + 1 == sc.frames;
+        r.frames.push_back(capture(*emu, scratch, with_state));
         r.audio_pairs += static_cast<uint64_t>(r.frames.back().samples);
     }
     r.alive = sc.alive ? sc.alive(*emu) : true;

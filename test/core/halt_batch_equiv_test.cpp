@@ -24,6 +24,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <unistd.h>
+#include <ctime>
 #include <functional>
 #include <string>
 #include <vector>
@@ -326,6 +328,140 @@ Scenario copper_straddle() {
     return s;
 }
 
+// CTC channel 0, period 200 x 16 = 3200 master cycles (400 T at 3.5 MHz), with the ULA frame
+// interrupt left ON: the handler (~132 T) now fits between two CTC interrupts, so the CPU
+// halts for stretches, and because 568k / 3200 is not an integer the CTC lands at a different
+// offset from the frame interrupt, the HALT and the line grid in every frame. A CTC event
+// then falls in the middle of a would-be batch at every phase (bound B3).
+Scenario ctc_phase() {
+    Scenario s = im2_halt("ctc-phase", 0, 0xFF);
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        nr(e, 0xC5, 0x01);                       // CTC channel 0 may interrupt
+        e.port().out(0x183B, 0x87);              // int enable, timer, /16, auto trigger, TC follows, reset
+        e.port().out(0x183B, 200);
+    };
+    return s;
+}
+
+// The Copper changes what the next HALT repeat fetches and costs: WAIT then MOVE NR 0x07 (28 MHz,
+// then 3.5 again), then MOVE NR 0x56 / 0x57 to remap the page holding the HALT onto a copy of the
+// program in pages 0x0E / 0x0F, and back (copper.vhd:80, :94). `mode`: 1 = once, 3 = every frame.
+Scenario copper_moves(const char* name, uint8_t mode) {
+    Scenario s = im2_halt(name, 0, 0xFF);
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        // A copy of the program in pages 0x0E / 0x0F, mapped in only for the copy.
+        nr(e, 0x56, 0x0E); nr(e, 0x57, 0x0F);
+        install_im2_program(e, kHigh);
+        nr(e, 0x56, 0x00); nr(e, 0x57, 0x01);
+        cu_program(e, {
+            cu_wait(0, 80),   cu_move(0x07, 0x03),                       // 28 MHz
+            cu_wait(0, 120),  cu_move(0x07, 0x00),                       // back to 3.5 MHz
+            cu_wait(0, 160),  cu_move(0x56, 0x0E), cu_move(0x57, 0x0F),  // HALT page -> the copy
+            cu_wait(0, 200),  cu_move(0x56, 0x00), cu_move(0x57, 0x01),  // and back
+            cu_wait(0, 511)});
+        cu_nr(e, 0x62, static_cast<uint8_t>(mode << 6));
+    };
+    s.alive = [](Emulator& e) { return isr_ran(e, kHigh); };
+    return s;
+}
+
+// A host NMI press (F9, Multiface) while the CPU sits on DI;HALT and a frame is in flight: the
+// debugger's run-to-cycle stops the frame half-way (it needs no client), the machine is
+// resumed, the press lands, and the next run_frame() finishes that frame. The press is pending
+// at the first slot start of the resumed frame: it must not be spanned (zxnext.vhd:2090,
+// :2164-2170). Between frames the first slot is never a batch, so only this shape shows it.
+Scenario nmi_hotkey() {
+    Scenario s = di_halt("nmi-hotkey", 0, 40);
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        e.nmi_source().set_mf_enable(true);
+    };
+    s.before_frame = [](Emulator& e, int f) {
+        if (f != 10 && f != 25) return;
+        e.debug_state().run_to_cycle(e.clock().get() + 400000);
+        e.run_frame();                       // stops mid-frame
+        e.debug_state().resume();
+        e.on_hotkey_f9_mf_nmi();
+    };
+    s.alive = [](Emulator& e) { return e.cpu().registers().SP != 0xBFF0; };
+    return s;
+}
+
+// NR 0x02 software NMI (bit 3 = Multiface) written by a Copper MOVE while the CPU halts on DI;HALT
+// (zxnext.vhd:3830-3872): the Copper acts mid-batch otherwise (bound B4).
+Scenario copper_nmi() {
+    Scenario s = di_halt("copper-nmi", 0, 60);
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        e.nmi_source().set_mf_enable(true);
+        cu_program(e, {cu_wait(0, 100), cu_move(0x02, 0x08), cu_wait(0, 511)});
+        cu_nr(e, 0x62, 0x40);
+    };
+    s.alive = [](Emulator& e) { return e.cpu().registers().SP != 0xBFF0; };
+    return s;
+}
+
+// A DMA burst with a prescaler (about one frame long), the CPU on EI;HALT: the bus and the
+// prescaler gate (dma.vhd:424, :451-464) re-arbitrate on their own clock. Engaged only after
+// the block ends.
+Scenario dma_burst() {
+    Scenario s = im2_halt("dma-burst", 0, 0xFF);
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        for (int i = 0; i < 128; ++i) e.mmu().write(static_cast<uint16_t>(0x9000 + i), static_cast<uint8_t>(i));
+        const uint8_t prog[] = {
+            0x7D, 0x00, 0x90, 100, 0x00,       // R0: A->B, source 0x9000, length 100
+            0x14,                              // R1: A is memory, increments
+            0x50, 0x21, 200,                   // R2: B is memory, increments; timing + prescaler 200
+            0xCD, 0x00, 0x98,                  // R4: burst, destination 0x9800
+            0xCF, 0x87};                       // LOAD, ENABLE
+        for (uint8_t b : prog) e.port().out(0x6B, b);
+    };
+    s.alive = [](Emulator& e) { return isr_ran(e, kHigh) && e.mmu().peek(0x9800 + 99) == 99; };
+    return s;
+}
+
+// A Multiface state transition in flight at the start of a halted stretch: the port-enable
+// pulse sets the Multiface FSM going and it needs MORE than one M1 edge to settle
+// (multiface.vhd:169-186), so the second HALT repeat's M1 is not the first's.
+Scenario multiface_edge() {
+    Scenario s = di_halt("multiface-edge", 0, 40);
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        e.multiface().set_enabled(true);
+    };
+    s.before_frame = [](Emulator& e, int f) {
+        if (f == 10) e.multiface().on_port_enable_rd(true);
+    };
+    s.alive = [](Emulator& e) { return e.cpu().is_halted(); };
+    return s;
+}
+
+// A DivMMC delayed automap in flight at the start of a halted stretch: the entry latches the hold,
+// the NEXT M1 promotes hold to held (divmmc.vhd:123-148), so repeats of one M1 differ.
+Scenario divmmc_delayed() {
+    Scenario s = di_halt("divmmc-delayed", 0, 40);
+    auto base = s.setup;
+    s.setup = [=](Emulator& e) {
+        base(e);
+        e.divmmc().set_enabled(true);
+        e.divmmc().set_port_io_enable(true);
+    };
+    s.before_frame = [](Emulator& e, int f) {
+        if (f == 10) e.divmmc().check_automap(0x3D00, true, true, true);   // the delayed entry's M1
+    };
+    s.alive = [](Emulator& e) { return e.cpu().is_halted(); };
+    return s;
+}
+
 // A real 128K machine, the shared program in bank 5 (contended while the display is
 // drawn), 3.5 MHz: a HALT repeat there costs what the display position says.
 Scenario contended_bank5() {
@@ -350,13 +486,17 @@ Scratch g_scratch;
 
 // A row: every fixture in `list` is identical frame by frame (batching off vs on)
 // and alive in both runs.
+enum class Halt { Any, Engaged, Refused };
+
 void check_ab(const char* id, const char* desc, const std::vector<Scenario>& list,
-              bool copper_engaged = false) {
+              bool copper_engaged = false, std::vector<uint64_t>* halt_out = nullptr,
+              Halt expect_halt = Halt::Any) {
     std::string detail;
     bool ok = true;
     for (const Scenario& sc : list) {
         const Run a = batch_ab::run(sc, false, false, g_scratch);
         const Run b = batch_ab::run(sc, true, true, g_scratch);
+        if (halt_out) halt_out->push_back(b.halt_batched);
         const std::string d = batch_ab::first_diff(a, b);
         // The "off" run must really be off: a switch ignored on both sides would make every
         // identical row pass while comparing the optimisation with itself.
@@ -365,6 +505,12 @@ void check_ab(const char* id, const char* desc, const std::vector<Scenario>& lis
             detail += std::string(sc.name) + ": the OFF run batched (copper_skipped=" +
                       std::to_string(a.copper_skipped) + " halt_batched=" +
                       std::to_string(a.halt_batched) + "); ";
+        }
+        if ((expect_halt == Halt::Refused && b.halt_batched != 0) ||
+            (expect_halt == Halt::Engaged && b.halt_batched == 0)) {
+            ok = false;
+            detail += std::string(sc.name) + ": halt_batched=" + std::to_string(b.halt_batched) +
+                      (expect_halt == Halt::Refused ? " (a refusal row)" : " (never engaged)") + "; ";
         }
         if (copper_engaged && b.copper_skipped == 0) {
             // A fixture that stops engaging the optimisation proves nothing: named failure.
@@ -382,6 +528,26 @@ void check_ab(const char* id, const char* desc, const std::vector<Scenario>& lis
     check(id, desc, ok, detail);
 }
 
+// A pair of rows from ONE A/B run per fixture: `id` = identical per frame (and alive, the OFF
+// run really off); `id2` = the HALT batch ENGAGED in the "on" run of every fixture
+// (`expect_engaged`), or REFUSED in every one of them (a refusal row: the counter stays 0).
+void check_pair(const char* id, const char* desc, const char* id2, const char* desc2,
+                const std::vector<Scenario>& list, bool expect_engaged = true,
+                bool copper_engaged = false) {
+    std::vector<uint64_t> halt;
+    check_ab(id, desc, list, copper_engaged, &halt);
+    bool ok = !halt.empty();
+    std::string detail;
+    for (size_t i = 0; i < halt.size(); ++i) {
+        const bool engaged = halt[i] != 0;
+        if (engaged != expect_engaged) {
+            ok = false;
+            detail += std::string(list[i].name) + ": halt_batched=" + std::to_string(halt[i]) + "; ";
+        }
+    }
+    check(id2, desc2, ok, detail);
+}
+
 } // namespace
 
 int main() {
@@ -390,44 +556,52 @@ int main() {
 
     // HBQ-01: the ULA frame interrupt (zxula_timing.vhd:551-552, pin zxnext.vhd:1840) ends
     // a HALT: a span that runs past it, or past the pulse window, changes the frame.
-    check_ab("HBQ-01", "IM 2 pulse mode, EI;HALT, ULA frame interrupt, 3.5 MHz: identical per frame",
-             {im2_halt("im2-3.5", 0, 0xFF)});
+    check_pair("HBQ-01", "IM 2 pulse mode, EI;HALT, ULA frame interrupt, 3.5 MHz: identical per frame",
+               "HBQ-02", "same: the HALT batch engaged in the 'on' run (a fixture that stops engaging is a named failure)",
+               {im2_halt("im2-3.5", 0, 0xFF)});
 
     // HBQ-03: at 28 MHz an opcode fetch from external SRAM takes one wait state
     // (zxnext.vhd:3171-3181), so a HALT repeat is 5 T there: a fixed 4 T per repeat drifts.
-    check_ab("HBQ-03", "same at 28 MHz, HALT in external SRAM (one wait per fetch): identical per frame",
-             {im2_halt("im2-28-sram", 3, 0xFF)});
+    check_pair("HBQ-03", "same at 28 MHz, HALT in external SRAM (one wait per fetch): identical per frame",
+               "HBQ-04", "same: the HALT batch engaged",
+               {im2_halt("im2-28-sram", 3, 0xFF)});
 
     // HBQ-05: the same HALT in bank 7 (BRAM, no wait): 4 T per repeat. A fixed 5 T drifts.
-    check_ab("HBQ-05", "same at 28 MHz, HALT in bank-7 BRAM (no wait): identical per frame",
-             {im2_halt("im2-28-bram", 3, 0x0E)});
+    check_pair("HBQ-05", "same at 28 MHz, HALT in bank-7 BRAM (no wait): identical per frame",
+               "HBQ-06", "same: the HALT batch engaged",
+               {im2_halt("im2-28-bram", 3, 0x0E)});
 
     // HBQ-07: the line interrupt (zxula_timing.vhd:574-583) lands mid-frame.
-    check_ab("HBQ-07", "line interrupt at line 100 (NR 0x22 / 0x23) while halted: identical per frame",
-             {line_int()});
+    check_pair("HBQ-07", "line interrupt at line 100 (NR 0x22 / 0x23) while halted: identical per frame",
+               "HBQ-08", "same: the HALT batch engaged",
+               {line_int()});
 
     // HBQ-09: CTC channel timer interrupts (ctc_chan.vhd:143-170), pulse mode, at a period
     // that is no multiple of a line.
-    check_ab("HBQ-09", "CTC channel 0 timer interrupts, period off the line grid: identical per frame",
-             {ctc_int()});
+    check_pair("HBQ-09", "CTC channel 0 timer interrupts, period off the line grid: identical per frame",
+               "HBQ-10", "same: the HALT batch engaged (between the bursts of interrupts)",
+               {ctc_int()});
 
     // HBQ-11: with interrupts disabled the CPU stays halted while the ULA interrupt request
     // window opens and expires (t80n.vhd:1742-1772).
-    check_ab("HBQ-11", "DI;HALT with the ULA interrupt window expiring unaccepted, 3.5 and 28 MHz: identical per frame",
-             {di_halt("di-halt-3.5", 0), di_halt("di-halt-28", 3)});
+    check_pair("HBQ-11", "DI;HALT with the ULA interrupt window expiring unaccepted, 3.5 and 28 MHz: identical per frame",
+               "HBQ-12", "same: the HALT batch engaged in both",
+               {di_halt("di-halt-3.5", 0), di_halt("di-halt-28", 3)});
 
     // HBQ-22: a contended page is not a fixed cost (zxula.vhd:579-600, zxnext.vhd:4489-4493).
-    check_ab("HBQ-22", "128K, 3.5 MHz, HALT in bank 5 while the display is drawn: identical per frame",
-             {contended_bank5()});
+    check_pair("HBQ-22", "128K, 3.5 MHz, HALT in bank 5 while the display is drawn: identical per frame",
+               "HBQ-23", "same: the HALT batch REFUSED on a contended page (the counter stays 0)",
+               {contended_bank5()}, /*expect_engaged=*/false);
 
     // HBQ-24: IM 2 hardware mode (im2_device.vhd:111-150) takes CTC and ULA through the fabric.
-    check_ab("HBQ-24", "IM 2 hardware mode (NR 0xC0 b0) with CTC and ULA through the fabric: identical per frame",
-             {im2_hardware()});
+    check_pair("HBQ-24", "IM 2 hardware mode (NR 0xC0 b0) with CTC and ULA through the fabric: identical per frame",
+               "HBQ-25", "same: the HALT batch REFUSED in hardware mode (the counter stays 0; stage 4 changes this)",
+               {im2_hardware()}, /*expect_engaged=*/false);
 
     // HBQ-28: an idle DI;HALT across 60 frames reaches every frame's last line and the
     // frame end (run_frame's loop, emulator.cpp).
-    check_ab("HBQ-28", "DI;HALT idle across 60 frames, every frame end reached: identical per frame",
-             {di_halt("idle-frames", 3, 60)});
+    check_ab("HBQ-28", "DI;HALT idle across 60 frames, every frame end reached: identical per frame, the batch engaged",
+             {di_halt("idle-frames", 3, 60)}, false, nullptr, Halt::Engaged);
 
     // HBQ-30: execute_single_instruction() is exactly one slot. A HALT repeat is the real
     // opcode fetch (t80n.vhd:496-503): 4 T (32 master cycles) at 3.5 MHz, 5 T (5 master
@@ -475,6 +649,141 @@ int main() {
     // (zxula_timing.vhd:455-472; GH181-HCULA-04 in copper_integration_test).
     check_ab("HBQ-35", "Copper WAIT reachable only in the line that straddles two frames, mode 11, busy CPU: identical per frame, Copper skip engaged",
              {copper_straddle()}, true);
+
+    // HBQ-13: the Copper changes what the next HALT repeat fetches and costs: NR 0x07 (the CPU
+    // speed) and NR 0x56 / 0x57 (the page holding the HALT), in modes 01 and 11 (copper.vhd:80,
+    // :94). Bound B4: the Copper acts in the middle of a would-be batch otherwise.
+    check_pair("HBQ-13", "Copper MOVEs to NR 0x07 and to NR 0x56/0x57 (the HALT's page) while halted, modes 01 and 11: identical per frame",
+               "HBQ-14", "same: the HALT batch engaged around the Copper actions",
+               {copper_moves("copper-moves-m01", 1), copper_moves("copper-moves-m11", 3)});
+
+    // HBQ-15: a host NMI press (F9, Multiface) lands while a frame is in flight and the CPU is
+    // halted: not spanned (zxnext.vhd:2090, :2164-2170). The frame is stopped half-way by the
+    // debugger's run-to-cycle and resumed; no client is needed, so no new command either.
+    check_pair("HBQ-15", "Multiface NMI hotkey pressed mid-frame while halted on DI;HALT (frame stopped by run-to-cycle, resumed): identical per frame",
+               "HBQ-16", "same: the NMI was taken (SP moved) and the HALT batch engaged around it",
+               {nmi_hotkey()});
+
+    // HBQ-17: NR 0x02 bit 3, a software Multiface NMI, written by a Copper MOVE while halted
+    // (zxnext.vhd:3830-3872).
+    check_pair("HBQ-17", "NR 0x02 software NMI written by a Copper MOVE while halted: identical per frame",
+               "HBQ-18", "same: the NMI was taken and the HALT batch engaged around it",
+               {copper_nmi()});
+
+    // HBQ-20: a DivMMC delayed automap in flight when a halted stretch starts: the hold is
+    // promoted to held by the NEXT M1 (divmmc.vhd:123-148).
+    check_pair("HBQ-20", "DivMMC delayed automap entry in flight at the start of a halted stretch: identical per frame",
+               "HBQ-21", "same: the HALT batch engaged once the automap state settled",
+               {divmmc_delayed()});
+
+    // HBQ-26: a DMA burst with a prescaler about one frame long, the CPU on EI;HALT
+    // (dma.vhd:424, :451-464); engaged after the block ends.
+    check_pair("HBQ-26", "DMA burst with a prescaler, CPU on EI;HALT: identical per frame, the block completed",
+               "HBQ-27", "same: the HALT batch engaged (after the block)",
+               {dma_burst()});
+
+    // HBQ-29: a Multiface state transition in flight at the start of a halted stretch
+    // (multiface.vhd:169-186).
+    check_ab("HBQ-29", "Multiface port-enable pulse in flight at the start of a halted stretch: identical per frame",
+             {multiface_edge()});
+
+    // HBQ-44: a CTC channel at a period the handler fits in, ULA interrupt on: the CTC lands at a
+    // different phase of the HALT in every frame (bound B3).
+    check_pair("HBQ-44", "CTC channel 0 at 3200 master cycles with the ULA interrupt on (a varying CTC phase): identical per frame",
+               "HBQ-45", "same: the HALT batch engaged",
+               {ctc_phase()});
+
+    // HBQ-31: a debugger Step is exactly one slot even on a HALT: debugger_step() on DI;HALT and
+    // on EI;HALT gives the same T-states, PC and clock with the batching on as off, and batches
+    // nothing (GH #207 contract).
+    {
+        auto run = [](bool batch, bool ei, std::vector<int>& ts, uint64_t& clk, uint16_t& pc, uint64_t& batched) {
+            Emulator e;
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZXN_ISSUE2;
+            cfg.rewind_buffer_frames = 0;
+            if (!e.init(cfg)) return false;
+            e.set_cycle_batching_for_test(batch, batch);
+            nr(e, 0x03, 0x01);
+            if (ei) install_im2_program(e, kHigh); else install_di_halt(e, kHigh.main);
+            start_at(e, kHigh.main, 0xBFF0);
+            for (int i = 0; i < 400; ++i) ts.push_back(e.debugger_step());
+            clk = e.clock().get();
+            pc = e.cpu().pc();
+            batched = e.halt_repeats_batched_for_test();
+            return true;
+        };
+        bool ok = true;
+        std::string detail;
+        for (bool ei : {false, true}) {
+            std::vector<int> ta, tb;
+            uint64_t ca = 0, cb = 0, ba = 0, bb = 0;
+            uint16_t pa = 0, pb = 0;
+            const bool built = run(false, ei, ta, ca, pa, ba) && run(true, ei, tb, cb, pb, bb);
+            if (!built || ta != tb || ca != cb || pa != pb || bb != 0) {
+                ok = false;
+                detail += std::string(ei ? "EI;HALT" : "DI;HALT") + ": clock " + std::to_string(ca) + "/" +
+                          std::to_string(cb) + " batched " + std::to_string(bb) + "; ";
+            }
+        }
+        check("HBQ-31", "debugger_step() on DI;HALT and EI;HALT: the same T-states, PC and clock with batching on as off, and nothing batched",
+              ok, detail);
+    }
+
+    // HBQ-32: every debugger observer refuses the batch (G2) and RZX recording does (G3): a
+    // persistent breakpoint set elsewhere, the rewind buffer (it turns the trace on), an RZX
+    // recording. Identical per frame, the counter stays 0.
+    {
+        Scenario brk = di_halt("observer-breakpoint", 0, 40);
+        auto b0 = brk.setup;
+        brk.setup = [=](Emulator& e) { b0(e); e.debug_state().set_persistent_breakpoints(true); };
+        Scenario rew = di_halt("observer-rewind", 0, 40);
+        rew.config = [](EmulatorConfig& c) { c.rewind_buffer_frames = 4; };
+        // RZX recording is refused on the Next (rzx_refused_by_machine()): a real 48K machine.
+        Scenario rzx;
+        rzx.name = "observer-rzx";
+        rzx.frames = 40;
+        const std::string rzx_path = std::string("/tmp/hbq32-") + std::to_string(static_cast<long>(::getpid())) + ".rzx";
+        rzx.config = [](EmulatorConfig& c) {
+            c.type = MachineType::ZX48K;
+            c.sd_card_image = sd_image();
+            c.sd_card_readonly = true;
+        };
+        rzx.setup = [=](Emulator& e) {
+            install_di_halt(e, kHigh.main);
+            start_at(e, kHigh.main, 0xBFF0);
+            e.start_rzx_recording(rzx_path);
+        };
+        rzx.alive = [](Emulator& e) { return e.cpu().is_halted() && e.rzx_recorder().is_recording(); };
+        check_ab("HBQ-32", "a persistent breakpoint elsewhere, the rewind buffer, an RZX recording: each refuses the HALT batch (the counter stays 0), identical per frame",
+                 {brk, rew, rzx}, false, nullptr, Halt::Refused);
+        std::remove(rzx_path.c_str());
+    }
+
+    // HBQ-33: a tape playing in real time ticks per instruction and refuses the batch (G4).
+    {
+        const std::string path = std::string("/tmp/hbq33-") + std::to_string(static_cast<long>(::getpid())) + ".tap";
+        {
+            // One header block and one data block, 19 + 4 bytes: a pilot alone is seconds long.
+            Bytes tap = {19, 0, 0x00, 3, 'h', 'b', 'q', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 4, 0, 0x00, 0x80, 0x00, 0x80, 0};
+            uint8_t sum = 0;
+            for (size_t i = 2; i + 1 < tap.size(); ++i) sum ^= tap[i];
+            tap.back() = sum;
+            std::FILE* f = std::fopen(path.c_str(), "wb");
+            if (f) { std::fwrite(tap.data(), 1, tap.size(), f); std::fclose(f); }
+        }
+        Scenario tp = di_halt("tape-playing", 0, 40);
+        auto t0 = tp.setup;
+        tp.setup = [=](Emulator& e) {
+            t0(e);
+            e.load_tap(path, /*fast_load=*/false);
+            e.tape().start_realtime_playback();
+        };
+        tp.alive = [](Emulator& e) { return e.cpu().is_halted() && e.tape().is_playing(); };
+        check_ab("HBQ-33", "a TAP playing in real time while halted: the HALT batch REFUSED (the counter stays 0), identical per frame",
+                 {tp}, false, nullptr, Halt::Refused);
+        std::remove(path.c_str());
+    }
 
     // The rig's own controls. An "identical" row proves nothing if the rig is blind to a
     // component or to a frame, so each control disturbs EXACTLY ONE component of EXACTLY ONE
