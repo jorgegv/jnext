@@ -2941,8 +2941,9 @@ private:
     /// proved that each further repeat would do exactly what the real one did (every gate and bound
     /// listed there) and absorbed them (CPU counters, master clock, DMA prescaler), and
     /// halt_batch_replay_() has replayed the PSG and the mixer repeat by repeat
-    /// (advance_audio_batched_() is the same body as advance_audio(), instantiated with the mixer's
-    /// cold twins, see advance_audio_impl_()) and switched the cluster's PSG / audio block off.
+    /// (TurboSound::tick_n() and Mixer::integrate_span(), entry points shaped like the replay so that
+    /// nothing folds them into the per-slot functions) and switched the cluster's PSG / audio block
+    /// off through `audio_off_`; config_ is never written.
     /// run_frame() then runs the ONE device cluster over the window (a second caller of it cost every
     /// slot of every program 1.2-1.6 % under the WebAssembly build), whose silent branch calls
     /// halt_batch_end_() to switch the PSG / audio block back on.
@@ -2950,13 +2951,12 @@ private:
     uint64_t halt_batch_after_slot_(uint64_t master_cycles, bool& batched);
     void halt_batch_replay_(uint64_t master_cycles);
     void halt_batch_end_();
-    void advance_audio_batched_(uint64_t master_cycles);
-    template <bool Cold> void advance_audio_impl_(uint64_t master_cycles);
+    static void pi_sample_thunk_(void* self);
 
     /// GH #452 - master cycles of ONE repeat of a batched HALT slot while one is in flight, else 0.
     uint64_t slot_repeat_mc_ = 0;
-    class PiAudio* batch_saved_pi_ = nullptr;   // the Pi audio input, parked while a batch's window runs silent
-    bool     batch_silenced_ = false;
+    bool     batch_silenced_ = false;   // a HALT batch's window is running with the cluster's PSG / audio block off
+    bool     audio_off_ = false;        // what the device cluster tests: config_.silent, or batch_silenced_
 
     /// Task 60a — the shared post-instruction device-tick cluster:
     /// Copper (G117), deferred CPU NR-write drain (G65), contention /

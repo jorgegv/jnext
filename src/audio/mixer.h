@@ -85,15 +85,14 @@ public:
     /// levels are constant between accumulate() calls, so a sample straddling an
     /// instruction boundary gets each level weighted by how long it actually held.
     void emit_sample();
-    /// The same two, for the HALT batch's audio replay (GH #452): separate copies of the bodies, so
-    /// that accumulate() / emit_sample() keep their one caller each (advance_audio(), inlined into
-    /// the device cluster) and mix() stays inlined in each copy. See Emulator::advance_audio_batched_.
-    void accumulate_cold(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
-                         uint32_t master_cycles);
-    void emit_sample_cold();
-    /// Not machine state: counts the two cold copies' calls, so that they are not byte-identical to
-    /// accumulate() / emit_sample() (see TurboSound::cold_hits()).
-    uint32_t cold_hits() const { return cold_hits_; }
+    /// GH #452 - Emulator::advance_audio() for a whole span, for the HALT batch's audio replay: walks
+    /// `cycles` in chunks that stop at each output-sample boundary (`sample_accum` is the caller's
+    /// Bresenham accumulator, `threshold` its limit), accumulating and emitting as advance_audio() does,
+    /// and calls `on_sample(ctx)` after each emitted sample (the Pi's input is latched there).
+    /// Its own inlined copies of the two entry points above keep accumulate() / emit_sample() with
+    /// their one caller each (advance_audio(), inlined into the device cluster).
+    void integrate_span(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint64_t cycles,
+                        uint64_t& sample_accum, uint64_t threshold, void (*on_sample)(void*), void* ctx);
 private:
     [[gnu::always_inline]] inline void accumulate_impl_(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
                                                         uint32_t master_cycles);
@@ -164,7 +163,6 @@ private:
     int64_t acc_l_ = 0;
     int64_t acc_r_ = 0;
     uint64_t acc_cycles_ = 0;
-    uint32_t cold_hits_ = 0;   // not machine state: see cold_hits()
 
     // Ring buffer: stereo int16_t pairs
     std::vector<int16_t> buffer_;

@@ -185,8 +185,6 @@ void Mixer::reset()
 
 void Mixer::accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint32_t master_cycles)
 { accumulate_impl_(beeper, ts, dac, master_cycles); }
-[[gnu::noinline]] void Mixer::accumulate_cold(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint32_t master_cycles)
-{ accumulate_impl_(beeper, ts, dac, master_cycles); ++cold_hits_; }
 
 void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Dac& dac)
 {
@@ -254,7 +252,29 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
 }
 
 void Mixer::emit_sample() { emit_sample_impl_(); }
-[[gnu::noinline]] void Mixer::emit_sample_cold() { emit_sample_impl_(); ++cold_hits_; }
+
+void Mixer::integrate_span(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint64_t cycles,
+                           uint64_t& sample_accum, uint64_t threshold, void (*on_sample)(void*), void* ctx)
+{
+    // GH #452 - the HALT batch's replay of Emulator::advance_audio(): the same walk, in chunks that stop
+    // at each output-sample boundary, but for a whole span at once, and with the work of a boundary
+    // that is not the mixer's (the Pi's sample) handed back through `on_sample`. It has its own inlined
+    // copies of accumulate() and emit_sample(), so the device cluster's single caller of each keeps
+    // being the one the compiler inlines.
+    uint64_t remaining = cycles;
+    while (remaining > 0) {
+        const uint64_t need = (threshold - sample_accum + SAMPLE_RATE - 1) / SAMPLE_RATE;
+        const uint64_t take = std::min(remaining, need);
+        accumulate_impl_(beeper, ts, dac, static_cast<uint32_t>(take));
+        sample_accum += take * SAMPLE_RATE;
+        remaining -= take;
+        if (sample_accum >= threshold) {
+            sample_accum -= threshold;
+            emit_sample_impl_();
+            on_sample(ctx);
+        }
+    }
+}
 
 int Mixer::available() const { return count_; }
 

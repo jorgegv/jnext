@@ -5,6 +5,7 @@
 // unchanged. The shared method, fixtures and row helpers are in halt_batch_fixtures.h.
 #include "halt_batch_fixtures.h"
 #include <memory>
+#include "audio/pi_audio.h"
 
 namespace {
 // NR 0x08 bit 6 (contention disable) toggled by a line-interrupt handler on a real 128K machine at
@@ -154,6 +155,21 @@ Scenario dma_burst_run(const char* name, uint8_t speed, uint16_t len, uint8_t pr
     };
     s.alive = [=](Emulator& e) {
         return isr_ran(e, kHigh) && e.dma().state() == Dma::State::IDLE;
+    };
+    return s;
+}
+
+// The Pi audio input (EmulatorConfig::pi_audio), a PiAudio that was never opened (its pop() yields silence
+// deterministically), with or without --silent: the batch parks the input for the window of a batched
+// HALT and must give it back (and must leave --silent as it found it). Liveness: the config is as set.
+Scenario pi_audio_halt(const char* name, bool silent, PiAudio* pa) {
+    Scenario s = im2_halt(name, 0, 0xFF, 60);
+    s.config = [=](EmulatorConfig& c) {
+        c.pi_audio = pa;
+        c.silent = silent;
+    };
+    s.alive = [=](Emulator& e) {
+        return isr_ran(e, kHigh) && e.config().pi_audio == pa && e.config().silent == silent;
     };
     return s;
 }
@@ -398,6 +414,17 @@ int main() {
                  {dma_burst_run("dma-continuous-28", 3, 300, 55, true, 0xAD, 40, aux)});
         check("HBQ-56", "same: the HALT batch never absorbs a repeat while the DMA holds the bus through its wait", *aux == 0,
               "repeats batched in the wait=" + std::to_string(*aux));
+    }
+
+    // HBQ-57 / HBQ-58: the Pi audio input across a batched HALT, without and with --silent. The batch
+    // replays the audio (the Pi's sample is latched at each output-sample boundary inside the replay)
+    // and the config is as it was set at the end.
+    {
+        PiAudio pa;
+        check_ab("HBQ-57", "EI;HALT with a Pi audio input attached: identical per frame, the batch engaged, the input still attached at the end",
+                 {pi_audio_halt("pi-audio", false, &pa)}, false, nullptr, Halt::Engaged);
+        check_ab("HBQ-58", "EI;HALT with a Pi audio input attached and --silent: identical per frame, the batch engaged, both still as set at the end",
+                 {pi_audio_halt("pi-audio-silent", true, &pa)}, false, nullptr, Halt::Engaged);
     }
 
     std::printf("\n===============================================\n");

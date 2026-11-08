@@ -119,6 +119,7 @@ void Emulator::render_framebuffer_now()
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
+    audio_off_ = config_.silent;   // GH #452: the device cluster tests this copy, which a HALT batch may raise for one call
     // GH #395 - automatic tape play/stop is a host deck setting; a polling run
     // never outlives the machine it was counted on.
     tape_auto_play_ = cfg.tape_auto_play;
@@ -11622,10 +11623,10 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // Register writes to the AY/DAC/beeper ports above are unaffected;
     // only the oscillator/mixer work that turns them into samples is
     // skipped. See EmulatorConfig::silent doc comment.
-    if (!config_.silent) {
+    if (!audio_off_) {
         // Tick PSG (TurboSound) at 1.75 MHz rate. (A batched HALT slot arrives here with its PSG and
-        // audio switched off through this very test: halt_batch_replay_() has replayed
-        // them repeat by repeat already.)
+        // audio switched off through this very test, `audio_off_` being `config_.silent` or a batch's
+        // window: halt_batch_replay_() has replayed them repeat by repeat already.)
         psg_accum_ += master_cycles;
         while (psg_accum_ >= PSG_DIVISOR) {
             psg_accum_ -= PSG_DIVISOR;
@@ -11670,22 +11671,22 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // (consecutive repeats with no PSG tick between them integrate at one level and the mixer is
     // additive, so a segment is [ticks of its first repeat][one audio span over its repeats]); the
     // cluster then runs once for the whole window with its PSG / audio block switched off through
-    // the two flags it already tests per slot (--silent, and the Pi audio input it feeds when silent).
-    // This path uses its OWN copies of the PSG tick, the audio integration and the mixer's two entry
-    // points (tick_cold(), advance_audio_batched_(), accumulate_cold(), emit_sample_cold()), each an
-    // always-inline body behind its own wrapper: the cluster's single direct caller of each original is
-    // what GCC inlines, and a second caller of the same function made it stop (measured: 1-2 % of all
-    // instructions of every program).
+    // `audio_off_`, the copy of --silent it tests per slot (config_ itself is never touched: another
+    // thread may read it). The replay goes through entry points of its own, shaped like the replay
+    // (TurboSound::tick_n(), Mixer::integrate_span()): the cluster's single direct caller of each
+    // per-slot function is what the compiler inlines, and a second caller of the same function (or
+    // a twin the link-time optimiser folds back into it) made it stop, natively and in WebAssembly
+    // (measured: 1-2 % of all instructions of every program).
     static constexpr uint64_t PSG_DIVISOR = 16;
     const uint64_t each = slot_repeat_mc_;
     slot_repeat_mc_ = 0;
-    if (config_.silent) return;     // the cluster skips its PSG / audio block itself
+    if (audio_off_) return;     // --silent: the cluster skips its PSG / audio block itself
     const uint64_t n = master_cycles / each;
     for (uint64_t i = 0; i < n; ) {
         psg_accum_ += each;
-        while (psg_accum_ >= PSG_DIVISOR) {
-            psg_accum_ -= PSG_DIVISOR;
-            turbosound_.tick_cold();
+        if (psg_accum_ >= PSG_DIVISOR) {
+            turbosound_.tick_n(static_cast<uint32_t>(psg_accum_ / PSG_DIVISOR));
+            psg_accum_ %= PSG_DIVISOR;
         }
         uint64_t span = each;
         ++i;
@@ -11694,23 +11695,25 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
             span += each;
             ++i;
         }
-        if (!replay_mode_) advance_audio_batched_(span);
+        if (!replay_mode_)
+            mixer_.integrate_span(beeper_, turbosound_, dac_, span, sample_accum_, MASTER_CLOCK_HZ,
+                                  &Emulator::pi_sample_thunk_, this);
     }
-    // The cluster, run by run_frame() next over the whole window, must not do it again: switch its
-    // PSG / audio block off through the two flags it already tests per slot (--silent, and the Pi
-    // audio input it feeds when silent); halt_batch_end_() puts them back.
-    batch_saved_pi_ = config_.pi_audio;
-    config_.silent = true;
-    config_.pi_audio = nullptr;
+    audio_off_ = true;
     batch_silenced_ = true;
+}
+
+void Emulator::pi_sample_thunk_(void* self)
+{
+    // The Pi's next sample is latched at each output-sample boundary (see advance_audio()).
+    Emulator* const e = static_cast<Emulator*>(self);
+    if (e->config_.pi_audio) e->feed_pi_audio();
 }
 
 [[gnu::noinline]] void Emulator::halt_batch_end_()
 {
-    if (!batch_silenced_) return;
     batch_silenced_ = false;
-    config_.silent = false;
-    config_.pi_audio = batch_saved_pi_;
+    audio_off_ = config_.silent;
 }
 
 [[gnu::noinline]] uint64_t Emulator::halted_slot_(uint64_t master_cycles)
@@ -12088,14 +12091,8 @@ int Emulator::debugger_step()
     return static_cast<int>(master_cycles / clock_.cpu_divisor());
 }
 
-// GH #452: ONE body for advance_audio() and advance_audio_batched_(): Cold selects the mixer's
-// accumulate/emit_sample or their out-of-line-twin copies (see Mixer), so the batched HALT replay has its own
-// callers of the audio chain (the normal path keeps a single one, which is what lets the compiler
-// inline it) and the two cannot drift: every line below, the Pi feed included, is shared.
-template <bool Cold>
-[[gnu::always_inline]] inline void Emulator::advance_audio_impl_(uint64_t master_cycles)
-{
-    // Sample generation: 28 MHz / 44100 Hz ≈ 634.92 master cycles per sample.
+void Emulator::advance_audio(uint64_t master_cycles)
+{    // Sample generation: 28 MHz / 44100 Hz ≈ 634.92 master cycles per sample.
     // Bresenham-style accumulator: a sample completes each time accum >= MASTER_CLOCK_HZ.
     static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
 
@@ -12121,15 +12118,13 @@ template <bool Cold>
             (SAMPLE_THRESHOLD - sample_accum_ + Mixer::SAMPLE_RATE - 1) / Mixer::SAMPLE_RATE;
         const uint64_t take = std::min(remaining, need);
 
-        if constexpr (Cold) mixer_.accumulate_cold(beeper_, turbosound_, dac_, static_cast<uint32_t>(take));
-        else                mixer_.accumulate(beeper_, turbosound_, dac_, static_cast<uint32_t>(take));
+        mixer_.accumulate(beeper_, turbosound_, dac_, static_cast<uint32_t>(take));
         sample_accum_ += take * Mixer::SAMPLE_RATE;
         remaining -= take;
 
         if (sample_accum_ >= SAMPLE_THRESHOLD) {
             sample_accum_ -= SAMPLE_THRESHOLD;
-            if constexpr (Cold) mixer_.emit_sample_cold();
-            else                mixer_.emit_sample();
+            mixer_.emit_sample();
             // The Pi's next sample is latched at each output-sample boundary,
             // so each one holds for exactly one output sample: QEMU is asked
             // for the mixer's own 44.1 kHz. Before or after emit_sample() is
@@ -12138,17 +12133,6 @@ template <bool Cold>
         }
     }
 }
-
-void Emulator::advance_audio(uint64_t master_cycles)
-{
-    advance_audio_impl_<false>(master_cycles);
-}
-
-[[gnu::noinline]] void Emulator::advance_audio_batched_(uint64_t master_cycles)
-{
-    advance_audio_impl_<true>(master_cycles);
-}
-
 // ---------------------------------------------------------------------------
 // Task 79 — per-connector host input source coordination.
 // ---------------------------------------------------------------------------

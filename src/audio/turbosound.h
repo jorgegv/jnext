@@ -88,14 +88,10 @@ public:
     /// Advance all three AY chips by one PSG clock-enable tick; every ym2149 runs on
     /// clock_en_i (turbosound.vhd:162/217/272).
     void tick();
-    /// The same, for the HALT batch's PSG replay (GH #452): a separate copy of the body, so that
-    /// tick() keeps its ONE caller (the device cluster, which GCC inlines) and neither copy makes the
-    /// other's callee (compute_stereo_mix, inlined into each) a shared out-of-line function.
-    void tick_cold();
-    /// Not machine state: counts tick_cold() calls. Its only job is to keep that copy from being
-    /// byte-identical to tick(), which the WebAssembly build's wasm-opt would fold into one function
-    /// with two callers and stop inlining into the device cluster (measured: 1 % of every program).
-    uint32_t cold_hits() const { return cold_hits_; }
+    /// `count` ticks in a row, for the HALT batch's PSG replay (GH #452): a loop of its own around the
+    /// same inlined body, so that tick() keeps its ONE caller (the device cluster, which the compiler
+    /// inlines) and the two cannot be folded into one function with two callers.
+    void tick_n(uint32_t count);
 
     /// Debugger-only per-chip mute (AudioMute::AY0/AY1/AY2; bit i = chip i).
     /// Gates ONLY this chip's contribution to the 3-PSG sum in
@@ -155,7 +151,6 @@ private:
     // Debugger-only; NOT machine state (not reset, not serialised).
     uint8_t chip_mute_mask_ = AudioMute::NONE;
 
-    uint32_t cold_hits_ = 0;
     int active_ay_index() const;
     void compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) const;
     [[gnu::always_inline]] inline void compute_stereo_mix();
