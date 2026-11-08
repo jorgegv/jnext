@@ -50,7 +50,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Warm start (GH #234)  |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Warm start (GH #234)  |       86 |       86 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot SD identity (.jns, GH #27 S7) |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot/warm start: no whole-card read (GH #396) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -187,6 +187,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      271 |      271 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **15884**| **15884**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **15890**| **15890**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
