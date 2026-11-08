@@ -253,7 +253,9 @@ A **--load** of a `.nex` on the ZX Spectrum Next runs the program on a
 RECORDING of a real firmware boot, not on the machine **jnext**
 assembles. This is the behaviour, not an option: on the first load with
 a given SD image **jnext** cold-boots it (`nextboot.rom` -\> `TBBLUE.FW`
--\> NextZXOS, a few seconds), stores the resulting machine state under
+-\> NextZXOS, a few seconds) and drives NextZXOS to its Command Line,
+where it is executing a typed statement, as it is when `.nexload` starts
+a program; it stores the resulting machine state under
 `~/.jnext/warm-start/`, and applies the program on top of it — which is
 what `.nexload` does on real hardware. Later loads restore that state
 instead of booting. If no recording can be made or used — no SD image, a
@@ -262,15 +264,16 @@ card with no firmware on it, a recording that will not load back —
 always assembled.
 
 The recording is keyed by the SD image’s size and modification time, the
-machine type and the state format, and it is also dropped when **jnext**
-itself writes to the image, so it invalidates itself whenever any of
-those change. The image’s contents are not read: an image replaced or
-edited from outside with the same size and the same modification time
-(`cp -p`, `touch -r`) is served the old recording. Use this option to
-force the issue in that case, and after replacing `TBBLUE.FW` or
-NextZXOS on the card. It applies to `.nex` files on the Next only: the
-other machine types run no firmware, and snapshots and tapes are loaded
-by mechanisms a firmware-resident machine does not have.
+machine type, the state format and the recording procedure, and it is
+also dropped when **jnext** itself writes to the image, so it
+invalidates itself whenever any of those change. The image’s contents
+are not read: an image replaced or edited from outside with the same
+size and the same modification time (`cp -p`, `touch -r`) is served the
+old recording. Use this option to force the issue in that case, and
+after replacing `TBBLUE.FW` or NextZXOS on the card. It applies to
+`.nex` files on the Next only: the other machine types run no firmware,
+and snapshots and tapes are loaded by mechanisms a firmware-resident
+machine does not have.
 
 The recording is made on your machine from the image you mounted, and is
 never shipped with **jnext**: it contains NextZXOS and DivMMC ROM
@@ -3105,7 +3108,7 @@ The recorded NextZXOS-resident machine a **--load** of a `.nex` starts
 from, one file per machine type, around 100 KB each. Written on the
 first such load with a given SD image and re-recorded whenever the
 image’s size or modification time changes, or JNEXT writes to it, or the
-machine type or the state format changes - see
+machine type, the state format or the recording procedure changes - see
 **--warm-start-regenerate**. Deleting it costs one cold boot, nothing
 else.
 

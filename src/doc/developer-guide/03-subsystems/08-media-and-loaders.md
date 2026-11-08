@@ -400,10 +400,21 @@ recording and, on a miss, calls `record_warm_start_state()`, which
 
 1. constructs a **separate `Emulator`**,
 2. `init()`s it with `load_file` cleared (which arms the boot-ROM overlay),
-3. runs `kWarmStartBootFrames` (500) frames,
-4. checks `nextzxos_resident()`, and
+3. drives it like a user, in emulated time: boots to NextZXOS's welcome
+   program, presses SPACE ("Start NextZXOS") only when that program is still
+   resident, then cursor-DOWN and ENTER on the menu (*Command Line*), then
+   types `print;:pause 0` and ENTER, and captures about 760 frames in. The
+   keys go through `Keyboard::queue_auto_type()`, and the per-frame step is
+   `Emulator::warm_start_recipe_tick()`,
+4. checks `nextzxos_resident()` (at the first point, before any key) and
+   `warm_start_capture_ready()` (at the capture), and
 5. serialises it with `save_state()` — the same `Saveable` stream the rewind
    buffer uses.
+
+The schedule is in emulated time, not frames: a frame adds 6 units at 50 Hz and
+5 at 60 Hz, read each frame from the recorder's own refresh rate, because the
+firmware switches it from the card's `config.ini` during the boot (a 60 Hz card
+shows its welcome screen at frame 480, not 400).
 
 `init_for_load_from_file()` then `init()`s the live machine normally and
 `load_state()`s the recording on top, because the stream carries the emulated
@@ -422,17 +433,42 @@ pages changed in 500 frames, none of them the screen. Hence the separate
 `Emulator`, which is at power-on state by construction, the same way
 `emulator_cold_boot()` is for F1.
 
-**The capture criterion** is `Emulator::nextzxos_resident()`, deliberately not
-a pinned PC (a NextZXOS update would then break capture silently). It asks
-three questions: the boot-ROM overlay is off, `nr_03_config_mode` is clear,
-and a NextZXOS marker string is present in SRAM ROM pages 0-7. The third is
+**The capture criterion** is two checks, neither a pinned PC (a NextZXOS update
+would then break capture silently). `Emulator::nextzxos_resident()` asks three
+questions: the boot-ROM overlay is off, `nr_03_config_mode` is clear, and a
+NextZXOS marker string is present in SRAM ROM pages 0-7. The third is
 load-bearing — a firmware-less machine answers the first two exactly as a
-booted one does.
+booted one does. `Emulator::warm_start_capture_ready()` then asks six questions
+about 48K-ROM system variables, which no NextZXOS build can move without
+breaking 48K software, read from bank 5 and not through the CPU's mapping:
+channels K and S are the ROM's own records (ROM 3's CHANNEL-DATA at `$15AF`),
+the current channel is stream 2, `TV_FLAG` bit 0 is clear (upper screen),
+`ERR_NR` is `$FF` (a statement is executing), `PPC` is `$FFFE` (the line is the
+edit line, a typed command), and no auto-typed key is still queued (the queue is
+saved state and would replay into the program). Any failure is logged at error,
+names the check, and falls back to the synthetic machine.
+
+**Why that statement.** The state a warm-started program meets must be the one
+a dot command's program entry has: NextZXOS's *Command Line* executing a typed
+statement whose output channel is open, so that `RST $10` prints in the upper
+screen with no `CHAN_OPEN` (NextZXOS and esxDOS API, "Simple dot commands can
+just use the standard RST $10 call"). `PRINT ;:` opens stream 2 through ROM 3's
+own CHAN-OPEN and `PAUSE 0` holds the interpreter inside the statement at a frame
+boundary. Recording at the welcome program instead leaves channels K and S at
+the RAM stub `$5B4D` (`nextreg $8E,0 : ret`), which pages ROM 0 and hangs the
+program's first `RST $10`, and leaves the welcome's screen pixels and 10 KB
+BASIC program resident. Measured against the real chain (boot, *Command Line*,
+`.nexload` of a probe that dumps bank 5), the recorded state differs in 35
+bytes, all edit-line and interpreter scratch, and the screenshots of a program
+that prints are identical.
 
 **The cache** is `src/core/warm_start_cache.{h,cpp}`: one file per machine
 type under `<config-dir>/warm-start`, with a 96-byte header carrying the
 identity that invalidates it — the SD image's size and mtime, the machine
-type, a state-format version, and the exact *uncompressed* stream length. Any mismatch
+type, a state-format version, a recording-procedure version (header offset 72,
+`warm_start::kRecordingVersion`: what the recorder does to reach the state it
+captures, so a cache written by an older procedure is re-recorded instead of
+served), and the exact *uncompressed* stream length. Any mismatch
 discards the file and re-boots. The length is not a convenience:
 `Ram::load_state` reads a count-prefixed blob straight into the live RAM
 buffer, so refusing a stream whose length is not exactly what this build
@@ -473,7 +509,8 @@ Line*, `.nexload` — the machine sits at `sram_rom = 0` (NextZXOS's own ROM)
 for the whole menu and command line and is at `7FFD=0x10, 1FFD=0x06,
 sram_rom = 3` from the program's first instruction. The synthetic machine gets
 this right by having only the 48K image in its SRAM ROM pages; the recording,
-taken at the NextZXOS menu, does not, so `init_for_load_from_file()` sets the
+taken at the Command Line executing a statement (`PAUSE` runs with ROM 0 paged),
+does not, so `init_for_load_from_file()` sets the
 two ROM-bank bits after the restore. Those are direct MMU calls, so they skip
 what the 0x7FFD / 0x1FFD port handlers push after paging, and of that the
 DivMMC's ROM 3 feeder (`DivMmc::rom3_active_`, VHDL `sram_rom3` into
@@ -501,7 +538,7 @@ which on a warm start erased the NextZXOS system variables (`$5B00`–`$5CBF`:
 the paging stubs, `CHANS`, `STRMS`, `CHARS`); they now survive the load, as
 they do under the real `nexload`.
 
-**The cost.** A miss costs a 500-frame boot, ~3.5 s headless. A hit costs one
+**The cost.** A miss costs a boot of about 760 frames. A hit costs one
 `stat` of the SD image plus inflating the ~100 KB cache. The key is the image's
 (size, mtime) read after the recording, plus a process-wide write generation
 (`SdCardDevice::host_write_generation()`, bumped by every CMD24 jnext commits):
@@ -516,9 +553,12 @@ escape hatch. The file magic is `JNEXTWS3` (layout generation).
 its four invalidation keys and the compressed payload; `WSR-*` for the
 residency criterion, the announced fallbacks and `WSR-DEF-01`, which proves the
 path is reached with no flag set; `WSR-ROM3-01/02` for the ROM 3 feeder and
-the RST $08 automap it gates) plus the `warm-start-func` regression row for
-the end-to-end record → cache → restore round trip, which needs a real SD image
-and so cannot be a unit test.
+the RST $08 automap it gates; `WSR-CTX-*` and `WSR-RCP-*` for the capture
+criterion and the recipe) plus the `warm-start-func` regression row for the
+end-to-end record → cache → restore round trip, which needs a real SD image
+and so cannot be a unit test, and `warm-start-chans-func`, which runs a
+program that prints through the ROM warm and through the real chain and
+compares the two (also on a welcome-disabled card and a 60 Hz card).
 
 ## The esxDOS stand-in for directly loaded programs
 

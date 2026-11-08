@@ -172,7 +172,9 @@ naming the option and the value, and exits with status 1.
     RECORDING of a real firmware boot, not on the machine **jnext** assembles.
     This is the behaviour, not an option: on the first load with a given SD
     image **jnext** cold-boots it (`nextboot.rom` -> `TBBLUE.FW` -> NextZXOS,
-    a few seconds), stores the resulting machine state under
+    a few seconds) and drives NextZXOS to its Command Line, where it is
+    executing a typed statement, as it is when `.nexload` starts a program;
+    it stores the resulting machine state under
     `~/.jnext/warm-start/`, and applies the program on top of it — which is
     what `.nexload` does on real hardware. Later loads restore that state
     instead of booting. If no recording can be made or used — no SD image, a
@@ -181,7 +183,7 @@ naming the option and the value, and exits with status 1.
     always assembled.
 
     The recording is keyed by the SD image's size and modification time, the
-    machine type and the state format, and it is also dropped when **jnext**
+    machine type, the state format and the recording procedure, and it is also dropped when **jnext**
     itself writes to the image, so it invalidates itself whenever any of those
     change. The image's contents are not read: an image replaced or edited from
     outside with the same size and the same modification time (`cp -p`,
@@ -2893,8 +2895,8 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 :   The recorded NextZXOS-resident machine a **\--load** of a `.nex` starts
     from, one file per machine type, around 100 KB each. Written on the first
     such load with a given SD image and re-recorded whenever the image's size or
-    modification time changes, or JNEXT writes to it, or the machine type or
-    the state format changes - see
+    modification time changes, or JNEXT writes to it, or the machine type, the
+    state format or the recording procedure changes - see
     **\--warm-start-regenerate**. Deleting it costs one cold boot, nothing
     else.
 

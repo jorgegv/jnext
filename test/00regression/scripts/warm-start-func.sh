@@ -51,9 +51,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #               launched by NextZXOS does. `nexload.asm` never writes 0x7FFD
 #               or 0x1FFD; its last instruction is `rst $20` (:587), and it is
 #               that NextZXOS handover which selects ROM 3. The recording is
-#               taken at the NextZXOS menu, where the OS has its OWN ROM 0
-#               paged, so without the selection in init_for_load_from_file()
-#               every program that reads the character set out of ROM renders
+#               taken at the Command Line executing a statement, where the OS
+#               has its OWN ROM 0 paged (PAUSE runs with 7FFD=0, 1FFD=0), so
+#               without the selection in init_for_load_from_file() every program that reads the character set out of ROM renders
 #               NOISE. magic-bp-demo is the canary because it does exactly
 #               that (`ROM_CHARSET 0x3C00`, demo/magic_bp_demo.c); the D row's
 #               tilemap-demo does not, and passed throughout. Measured against

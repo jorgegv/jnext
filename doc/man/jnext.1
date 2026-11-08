@@ -202,9 +202,11 @@ the program on a RECORDING of a real firmware boot, not on the machine
 \f[B]jnext\f[R] assembles.
 This is the behaviour, not an option: on the first load with a given SD
 image \f[B]jnext\f[R] cold\-boots it (\f[CR]nextboot.rom\f[R] \->
-\f[CR]TBBLUE.FW\f[R] \-> NextZXOS, a few seconds), stores the resulting
-machine state under \f[CR]\(ti/.jnext/warm\-start/\f[R], and applies the
-program on top of it \(em which is what \f[CR].nexload\f[R] does on real
+\f[CR]TBBLUE.FW\f[R] \-> NextZXOS, a few seconds) and drives NextZXOS to
+its Command Line, where it is executing a typed statement, as it is when
+\f[CR].nexload\f[R] starts a program; it stores the resulting machine
+state under \f[CR]\(ti/.jnext/warm\-start/\f[R], and applies the program
+on top of it \(em which is what \f[CR].nexload\f[R] does on real
 hardware.
 Later loads restore that state instead of booting.
 If no recording can be made or used \(em no SD image, a card with no
@@ -213,9 +215,9 @@ says so on standard error and falls back to the machine it has always
 assembled.
 .PP
 The recording is keyed by the SD image\(cqs size and modification time,
-the machine type and the state format, and it is also dropped when
-\f[B]jnext\f[R] itself writes to the image, so it invalidates itself
-whenever any of those change.
+the machine type, the state format and the recording procedure, and it
+is also dropped when \f[B]jnext\f[R] itself writes to the image, so it
+invalidates itself whenever any of those change.
 The image\(cqs contents are not read: an image replaced or edited from
 outside with the same size and the same modification time
 (\f[CR]cp \-p\f[R], \f[CR]touch \-r\f[R]) is served the old recording.
@@ -3859,8 +3861,8 @@ The recorded NextZXOS\-resident machine a \f[B]\-\-load\f[R] of a
 each.
 Written on the first such load with a given SD image and re\-recorded
 whenever the image\(cqs size or modification time changes, or JNEXT
-writes to it, or the machine type or the state format changes \- see
-\f[B]\-\-warm\-start\-regenerate\f[R].
+writes to it, or the machine type, the state format or the recording
+procedure changes \- see \f[B]\-\-warm\-start\-regenerate\f[R].
 Deleting it costs one cold boot, nothing else.
 .TP
 \f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img\f[R]
