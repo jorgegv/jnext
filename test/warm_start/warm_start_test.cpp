@@ -61,7 +61,7 @@
 //   WSR-RDY-06..16  every clause of the recipe's tests pinned by a calm screen
 //                 that meets all the other clauses (SP, SPACE, re-send, menu,
 //                 Command Line, statement)
-//   WSR-RDY-01..05  the recipe drives on the machine's state: a slow welcome, 60 Hz,
+//   WSR-RDY-01..05, 17  the recipe drives on the machine's state: a slow welcome, 60 Hz,
 //                 a disabled welcome, a machine that never arrives, a custom menu
 //   WSR-RCP-01..04  the recording recipe tick (GH #481): SPACE only over a
 //                 resident welcome program, the schedule in emulated time, and
@@ -383,6 +383,7 @@ std::vector<int> held_keys(Emulator& e) {
 struct FakeZxos {
     int  welcome_ready = 400;   // frame at which the welcome is up and waiting; 0 = never
     bool welcome_off   = false; // NextZXOS's own welcome disabled: boots to the menu
+    int  welcome_draw  = 0;     // frames the resident welcome is still drawing (PC moving)
     int  menu_lag      = 30;    // frames to draw the menu after SPACE (or after boot)
     bool calculator_second = false;   // DOWN+ENTER opens Calculator, not the Command Line
     bool hz60          = false;
@@ -433,6 +434,11 @@ FakeZxos::S run_fake(Emulator& e, FakeZxos& z, int frames)
             if (down) ++z.ignored;
             break;
         case FakeZxos::WELCOME:
+            if (z.t <= z.welcome_draw) {   // resident, but still drawing: busy, keys are lost
+                cpu(static_cast<uint16_t>(0x4000 + f), 0xFF3F); sv(0x5DFA, 0x8688, 0xFF, 0x0078, 0x01);
+                if (down) ++z.ignored;
+                break;
+            }
             cpu(0x0C8F, 0xFF3F); sv(0x5DFA, 0x8688, 0xFF, 0x0078, 0x01);
             if (space) { ++z.spaces; z.st = FakeZxos::MENU_LOAD; z.t = 0; }
             else if (down) ++z.ignored;
@@ -1139,6 +1145,15 @@ int main()
                   "while the machine was busy, SPACE was sent once",
                   end == FakeZxos::EXEC && e.warm_start_recipe_done() && z.ignored == 0 &&
                       z.spaces == 1,
+                  det("end=%d ignored=%d spaces=%d", static_cast<int>(end), z.ignored, z.spaces));
+        }
+        {   // A welcome program that is resident but still drawing (the PC moves).
+            Emulator e; FakeZxos z; z.welcome_draw = 30;
+            const FakeZxos::S end = run_fake(e, z, 1500);
+            check("WSR-RDY-17",
+                  "a welcome that is resident (PROG != VARS) but still drawing gets no "
+                  "SPACE until it has been idle: the key is not lost to the drawing",
+                  end == FakeZxos::EXEC && z.ignored == 0 && z.spaces == 1,
                   det("end=%d ignored=%d spaces=%d", static_cast<int>(end), z.ignored, z.spaces));
         }
         {   // 60 Hz: the same machine measured in frames of 5 units.
