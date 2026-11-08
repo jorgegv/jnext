@@ -613,12 +613,15 @@ struct Ext2Result {
     std::string detail;
 };
 
-Ext2Result ext2_skip_probe(const V13Opts& o, const char* tag, size_t want_offset) {
+Ext2Result ext2_skip_probe(const V13Opts& o, const char* tag, size_t want_offset,
+                           bool with_bank5 = true) {
     // Distinctive tilemode config: value 3 would push these to NR 0x6B/0x6C/
     // 0x6E/0x6F (nexload2.asm:688-:697) if the block dispatch were ungated.
     V13Opts t = o;
     t.tile_cfg[0] = 0x83; t.tile_cfg[1] = 0x11; t.tile_cfg[2] = 0xC0; t.tile_cfg[3] = 0xCA;
     t.banks = {5, 2, 0, 1, 3, 4};
+    // Without bank 5 the classic screens' own target (pages 10/11) stays visible.
+    if (!with_bank5) t.banks = {2, 0, 1, 3, 4};
     // Field 144 omitted so the DERIVED offset — nex_screen_bytes() itself —
     // is what is under test, for the same reason size_row() omits it.
     t.omit_banks_offset = true;
@@ -637,15 +640,16 @@ Ext2Result ext2_skip_probe(const V13Opts& o, const char* tag, size_t want_offset
     r.offset_ok = r.loaded && f.loader.bank_data_offset() == want_offset &&
                   c.loader.bank_data_offset() == 512;
     r.content_ok = r.loaded &&
-                   read_page(f.emu.mmu(), 10, 0) == bank_byte(5, 0) &&
+                   (!with_bank5 || read_page(f.emu.mmu(), 10, 0) == bank_byte(5, 0)) &&
                    read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0) &&
                    read_page(f.emu.mmu(), 4, 0x1FFF) == bank_byte(2, 0x1FFF);
     // Pages 16-21 = the classic Layer 2 target (banks 8-10), 18-27 = the big
-    // one (banks 9-13); none of the banks above maps there. Bank 5 (pages
-    // 10/11) holds the loaded bank, so a classic ULA/LoRes/HiRes/HiColour
-    // ingest shows in the NextREGs below and in the bank offset.
+    // one (banks 9-13); none of the banks above maps there. A classic ULA/
+    // LoRes/HiRes/HiColour screen targets bank 5 (pages 10-15 span 10/11):
+    // with bank 5 in the file it is overwritten, so those rows drop it and
+    // compare pages 10-27 instead.
     bool pages_ok = r.loaded;
-    for (uint16_t pg = 16; pg <= 27 && pages_ok; ++pg)
+    for (uint16_t pg = with_bank5 ? 16 : 10; pg <= 27 && pages_ok; ++pg)
         pages_ok = read_page(f.emu.mmu(), pg, 0) == read_page(c.emu.mmu(), pg, 0) &&
                    read_page(f.emu.mmu(), pg, 0x1FFF) == read_page(c.emu.mmu(), pg, 0x1FFF);
     r.pages_ok = pages_ok;
@@ -724,7 +728,7 @@ void test_ext2_gate() {
         V13Opts o;
         o.screen_flags  = k.sf;
         o.screen_flags2 = k.sf2;
-        const Ext2Result r = ext2_skip_probe(o, k.tag, k.off);
+        const Ext2Result r = ext2_skip_probe(o, k.tag, k.off, false);
         check(k.id, k.desc, r.offset_ok && r.content_ok && r.pages_ok && r.regs_ok, r.detail);
     }
 
