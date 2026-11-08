@@ -111,6 +111,10 @@ public:
     /// Access individual AY chip (for debugging).
     const AyChip& ay(int idx) const { return ay_[idx]; }
 
+    /// The chip a classic AY program reaches through ports 0xFFFD/0xBFFD:
+    /// the one ay_select_ names (AY#0 unless TurboSound moved it).
+    const AyChip& active_ay() const { return ay_[active_ay_index()]; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 

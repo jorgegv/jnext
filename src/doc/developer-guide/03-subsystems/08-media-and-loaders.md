@@ -21,7 +21,7 @@ the guest's own driver talks to. Both are called out below.
 |---|---|---|---|---|
 | `.nex` | yes | yes | `nex_loader.*`, `nex_saver.*` | Next-native. V1.0–V1.3 (V1.3 gated, see below) |
 | `.sna` | yes | yes | `sna_loader.*`, `sna_saver.*` | Reads and writes both forms; the form follows the machine; refuses a Next, a +3 the format cannot describe, and any machine whose 0x4000-0xFFFF window it cannot name (extended paging) |
-| `.szx` | yes | yes | `szx_loader.*`, `szx_saver.*` | Writes only 48K/128K/+3; refuses Next |
+| `.szx` | yes | yes | `szx_loader.*`, `szx_saver.*` | Writes only 48K/128K/Pentagon/+3, with the `AY` chunk (selected register + 16 registers) on all but the 48K; refuses Next |
 | `.z80` | yes | — | `z80_loader.*` | v1/v2/v3, 48K and 128K |
 | `.tap` | yes | yes | `tap_loader.*`, `tap_saver.*` | Save is a ROM `SA-BYTES` trap |
 | `.tzx` | yes | yes | `tzx_loader.*`, `tape_recorder.*` | Read: wraps ZOT (`third_party/zot`). Write: tape-out capture decoded into 0x10/0x11/0x13/0x20 |
