@@ -132,6 +132,21 @@ public:
     // ── Accessors for debug / testing ─────────────────────────────────
 
     State       state() const { return state_; }
+    /// GH #452 - nothing to arbitrate and no prescaler wait: the burst prescaler timer
+    /// then only counts, linearly (tick_burst_wait()), so a HALT repeat batch may span it.
+    bool        idle_for_batch() const { return state_ == State::IDLE && !in_waiting_cycles_; }
+    /// GH #452 stage 4 - waiting out the burst prescaler after a byte with the gate still closed: every
+    /// execute_burst() returns 0 untouched (it zeroes a scratch field) and tick_burst_wait() only adds, so a HALT
+    /// repeat batch may span it up to cycles_to_prescaler_gate() - 1. No mode_ test: in the other modes the
+    /// wait keeps the bus, so no CPU repeat runs and no batch can start.
+    bool        burst_wait_quiescent() const {
+        return state_ == State::TRANSFERRING && in_waiting_cycles_ && prescaler_wait_active();
+    }
+    /// Master cycles until the gate opens (dma_timer_hi9() reaching the prescaler, dma.vhd:424, :451):
+    /// the timer counts one per master cycle at every speed. At least 1 while burst_wait_quiescent().
+    uint32_t    cycles_to_prescaler_gate() const {
+        return 32u * port_b_prescaler_ - dma_timer_s_;
+    }
     uint16_t    src_addr() const { return src_; }
     uint16_t    dst_addr() const { return dst_; }
     uint16_t    counter() const { return counter_; }

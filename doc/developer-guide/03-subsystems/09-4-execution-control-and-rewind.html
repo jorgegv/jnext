@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3069,6 +3069,12 @@ on a breakpoint.</p>
 <p>The hot path pays nothing for any of this: <code>Mmu::read</code> and <code>Mmu::write</code> compile
 to the same instructions they did without it, every difference being a
 structure offset.</p>
+<p><strong>The HALT batch stands aside for all of it.</strong> <code>Emulator::halt_batch_after_slot_()</code> refuses while a
+client is attached, breakpoints or watchpoints are live, the raster walk, the coverage sets,
+the trace log, the call stack or the profiler is on, or a rewind replay runs: rewind turns the
+trace on, so a machine with rewind never batches. Stepping is untouched by construction:
+<code>step_frame_slot()</code> and <code>execute_single_instruction()</code> call the shared slot body without
+asking for a batch, so a Step over a <code>HALT</code> is one repeat.</p>
 <h2 id="the-step-modes">The step modes<a class="headerlink" href="#the-step-modes" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

@@ -99,6 +99,25 @@ public:
     ///            the Emulator passes it in.
     void execute(int hc, int vc, NextReg& nextreg, uint8_t cvc_offset);
 
+    /// GH #452 - how many consecutive execute() calls, one master cycle apart from
+    /// the position (`line_mc`, `cvc`), provably change NOTHING (no PC move, no MOVE,
+    /// no mode-11 restart, no field written), at most `limit`. The Emulator skips
+    /// them in one step. `line_mc` counts master cycles since hc_ula == 0 (so
+    /// `hc = line_mc >> 2`), `cvc` is execute()'s own `vc` argument, `cvc_offset` the
+    /// offset it passes, `mcpl` the master cycles per line and `lpf` the lines per
+    /// frame (the Emulator's wrap of `cvc`).
+    ///
+    /// Returns 0 (execute() must run) when the next cycle can act or its outcome is
+    /// not a pure stall: a mode write not yet latched, mode 00, a MOVE settling, the
+    /// instruction at the PC is a MOVE, or a debugger event latch is armed. The two
+    /// line wraps need no guard: the position advances at the Emulator's `lpf`, and
+    /// the Copper's own line counter is derived from it with execute()'s own modulus
+    /// (`c_max_vc_ + 1`), so the answer is exact whether or not the two are equal.
+    /// It mirrors execute() and is checked against it cycle by cycle (copper_test
+    /// CPSK-01..05, the mismatched-wrap cases included).
+    uint32_t idle_cycles(int line_mc, int cvc, uint8_t cvc_offset, int mcpl, int lpf,
+                         uint32_t limit) const;
+
     /// The stand-alone form, for a caller with no timing model: `cvc` counts
     /// from the NR 0x64 register as it is now, i.e. the reload is taken to
     /// have happened before the first line the caller steps. The Emulator

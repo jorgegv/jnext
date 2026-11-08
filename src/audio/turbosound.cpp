@@ -156,7 +156,7 @@ uint8_t TurboSound::reg_read(bool reg_mode) const
     return ay_[active_ay_index()].read_data(reg_mode);
 }
 
-void TurboSound::tick()
+[[gnu::always_inline]] inline void TurboSound::tick_impl_()
 {
     // VHDL turbosound.vhd:162/217/272: all three ym2149 instances run on the
     // ungated clock_en_i (zxnext.vhd:6385, i_CLK_PSG_EN). TurboSound enable and
@@ -173,7 +173,10 @@ void TurboSound::tick()
     }
 }
 
-void TurboSound::compute_stereo_mix()
+void TurboSound::tick() { tick_impl_(); }
+void TurboSound::tick_n(uint32_t count) { for (uint32_t i = 0; i < count; ++i) tick_impl_(); }
+
+inline void TurboSound::compute_stereo_mix()
 {
     // Per-chip stereo mixing (matches VHDL turbosound.vhd exactly)
     // For each PSG:
