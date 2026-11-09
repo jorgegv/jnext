@@ -19,6 +19,7 @@ const E = process.env;
 const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, VERSION = E.SMOKE_BUILD_VERSION;
 const SHA = E.SMOKE_CARD_SHA256;
 const SHOTS = E.WIDGET_SHOT_DIR || '';   // development aid: where to leave screenshots (unset in the suite)
+const ONLY = (E.WIDGET_ROWS || '').split(' ').filter(Boolean);   // development aid: run only these rows (unset in the suite)
 
 const h = new Harness({});
 const MIMES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm' };
@@ -45,7 +46,7 @@ const QUERY = new URLSearchParams({ image: BURL + '/card.img', sha256: SHA, file
 
 await h.launch();
 const rows = [];
-const row = (id, text, fn) => rows.push({ id, text, fn });
+const row = (id, text, fn) => { if (!ONLY.length || ONLY.includes(id)) rows.push({ id, text, fn }); };
 const must = (cond, detail) => { if (!cond) throw new Error(detail || 'condition failed'); };
 
 async function open(url, ctxOpts = {}) {
