@@ -49,6 +49,25 @@ nothing to the Copper: only a mode change resets its PC. A stopped Copper is
 not stepped, except to latch a pending mode write, so that a stop and a
 restart (`00` then `01`/`11`) is still seen as a mode change.
 
+A WAIT that is not yet met changes nothing, and most of a frame is spent in one,
+so the Emulator does not step it cycle by cycle. `Copper::idle_cycles()` returns
+how many of the next master cycles are guaranteed to be such stalls, and the
+Copper step loop (`Emulator::tick_copper_for_master_cycles`) advances its
+`hc_ula` / `cvc` position by that many in one step. The answer is a closed form
+of the same comparison `execute()` makes: within a line, the stall lasts to the
+first cycle at which `hc_ula >= threshold` holds (master cycle `4 x threshold`)
+if the line is the WAIT's, else to the line's end, where a mode-11 restart
+(`cvc` 0, master cycles 0 to 3 of the line) is tested again. It returns 0, and
+`execute()` runs, whenever the next cycle can act or is not a plain stall: a
+mode write not yet latched, a stopped Copper, a MOVE settling, a MOVE at the PC,
+or an armed debugger event latch. The position advances at the Emulator's lines per
+frame while the Copper derives its own line counter with `c_max_vc + 1`, as `execute()`
+does, so the answer is exact even if the two wraps differ.
+The per-cycle `execute()` stays the oracle: `copper_test` checks the skip
+against it over 20000 reachable states, and
+`halt_batch_equiv_test` / `halt_batch_corpus_*_test` run whole machines with the
+skip off and on and compare video, audio and the full state after every frame.
+
 ## DMA
 
 A DMA controller copies blocks of bytes — memory to memory, or memory to and

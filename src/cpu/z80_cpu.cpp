@@ -1427,6 +1427,22 @@ int Z80Cpu::execute() {
     return (cycles > 0) ? cycles : 4;
 }
 
+uint8_t Z80Cpu::last_opcode() const {
+    // The first M1 byte of the last execute() that fetched an opcode (execute() stores it in the
+    // fetch buffer; no per-slot bookkeeping of its own, which would be paid by every instruction).
+    return s_fetch_buf[0];
+}
+
+void Z80Cpu::repeat_halt(uint32_t count, uint32_t each) {
+    // The FUSE T-state counter and the R register (low 7 bits count; bit 7 is r7).
+    tstates += count * each;
+    z80.r = static_cast<libspectrum_word>(z80.r + count);   // a 16-bit counter in the FUSE state; only bits 6:0 are ever read
+    execute_serial_ += count;
+    // Only R moved: no call into sync_regs_from_fuse(), whose extra caller changed GCC's inlining
+    // of it into execute() and cost every instruction of every program (GH #452 round 3).
+    regs_.R = static_cast<uint8_t>((z80.r7 & 0x80) | (z80.r & 0x7f));
+}
+
 void Z80Cpu::request_interrupt(uint8_t vector) {
     const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
     request_interrupt(vector, now_ts,

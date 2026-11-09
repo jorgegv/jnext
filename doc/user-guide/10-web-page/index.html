@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4310,6 +4310,12 @@ by a page you write (or by an itch.io upload). A page needs one script file,
 <code>jnext-VERSION.js</code>, with <code>jnext-VERSION.wasm</code> beside it. The script defines one
 global, <code>jnext</code>, and <code>jnext.mount(container, options)</code> puts a player in a DOM
 element.</p>
+<p>Every public release carries <code>jnext-VERSION-web.zip</code>: the two files, the three
+example pages (<code>plain.html</code>, <code>itch-game.html</code>, <code>itch-host.html</code>), a <code>README.txt</code>
+with the link to the source of that build, <code>LICENSE</code>, <code>CREDITS.md</code> and a
+<code>licenses/</code> directory. Host <code>jnext-VERSION.js</code> and <code>jnext-VERSION.wasm</code> together,
+and keep the licence files beside them. There is no NextZXOS in the zip: the
+page fetches the system image from the address you give it.</p>
 <p>Everything the player is told is a command-line flag or a <code>--set</code> key of the
 desktop emulator; the reference list is in the man page section "THE BROWSER
 BUILD". The player's <code>argv</code> property shows the command line your options became.</p>

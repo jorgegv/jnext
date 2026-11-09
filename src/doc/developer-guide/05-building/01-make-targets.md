@@ -174,7 +174,9 @@ copyrighted content: it is handed to the page only by the harness's request
 handler, is never committed, uploaded or traced (Playwright tracing, HAR and
 video stay off), and is deleted when the run ends. The script takes more specs
 as `file:count` arguments, each printing PASS/FAIL rows and a `Total:` line whose
-count the script pins, so the JavaScript API rows run in the same target.
+count the script pins, so the JavaScript API rows run in the same target. `make package-web` is
+also a prerequisite: the run ends by serving the extracted `jnext-<version>-web.zip` alone and
+booting the example page from it ([5.3](03-packaging-and-release.md#the-browser-package)).
 
 The browser build as a whole, with its CMake arms and tests, is [5.6](06-the-browser-build.md).
 
@@ -209,10 +211,10 @@ covers, what it does not, and why the gate was declined.
 
 ## Packaging and version
 
-`package-src`, `package-rpm`, `package-deb`, `package-flatpak`, `package-macos`
-and the five `package-win*` variants each build one distributable.
-`package-test` builds them all except macOS and Flatpak (the `flatpak` CI job builds
-that) and then asserts their contents,
+`package-src`, `package-rpm`, `package-deb`, `package-flatpak`, `package-macos`,
+`package-web` and the five `package-win*` variants each build one distributable.
+`package-test` builds them all except macOS, Flatpak (the `flatpak` CI job builds
+that) and the browser zip (the `browser` leg builds and boots it) and then asserts their contents,
 while `package-contract-test` runs only the hermetic script contract suites.
 `version` prints the current version, and `bump-patch` / `bump-minor` /
 `bump-major` bump it, commit, and tag. [5.3](03-packaging-and-release.md) covers

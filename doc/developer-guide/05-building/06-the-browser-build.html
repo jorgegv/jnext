@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3273,7 +3273,7 @@ is <code>window.prompt()</code> in a browser).</p>
 <td><code>make wasm-browser-test</code></td>
 <td><code>build/wasm-core</code></td>
 <td>the browser frontend in the pinned Chromium headless shell</td>
-<td>BRW-01 to BRW-29, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29 (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
+<td>BRW-01 to BRW-29, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
 <td><code>browser</code></td>
 </tr>
 </tbody>
@@ -3292,6 +3292,7 @@ is <code>window.prompt()</code> in a browser).</p>
   table, the argv and the man page's browser section; <code>make cli-check</code> runs it),
   <code>browser_policy_test</code> (the frame-callback gate and the page's refusals),
   <code>warm_start_card_test</code> and <code>sha256_test</code>.</li>
+<li><code>make package-web</code> builds the browser zip and <code>make web-package-test</code> is the hermetic contract suite of its script (WEBPKG-01 to WEBPKG-46, run by <code>make unit-test</code>); both are described in <a href="03-packaging-and-release.html">5.3</a>.</li>
 <li>All four wasm targets are in the batch gate (<a href="../04-testing/01-the-test-triplet.html">4.1</a>).</li>
 <li>The SDK and Playwright are provisioned by <code>make emsdk</code> and <code>make playwright</code>, pinned by
   sha256, into <code>~/.cache/jnext/tools</code>.</li>

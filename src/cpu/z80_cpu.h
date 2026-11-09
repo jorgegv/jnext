@@ -196,6 +196,7 @@ public:
         int_last_ts_  = last_ts;
     }
     bool int_pending() const { return int_pending_; }
+    bool nmi_pending() const { return nmi_pending_; }
     /// Withdraw a pending /INT request: the line it stood for went high
     /// without being acknowledged.
     void cancel_interrupt() { int_pending_ = false; }
@@ -334,6 +335,20 @@ public:
     /// whether state it recorded during an execute() belongs to the call
     /// still running. Transient; deliberately not serialised.
     uint64_t execute_serial() const { return execute_serial_; }
+
+    /// GH #452 - the first opcode byte the last execute() fetched at PC (valid when
+    /// last_slot_kind() == Opcode). A HALT repeat is a slot whose opcode was 0x76.
+    uint8_t last_opcode() const;
+
+    /// GH #452 - account `count` MORE HALT repeats after one the caller has just run for
+    /// real, each costing `each` T-states, without executing them. What `count` further
+    /// execute() calls on opcode 0x76 do to the CPU is exactly this: FUSE's HALT leaves
+    /// PC on the opcode (`halted = 1; PC--`, opcodes_base.c), so every repeat re-fetches
+    /// it and does `PC++; R++; Q = 0; halted = 1; PC--` (fuse_z80_core.c:269-273), plus its
+    /// T-states and one execute() serial. PC, flags, IFFs and MEMPTR are untouched, and Q and
+    /// iff2_read are already 0 after the real repeat. Precondition (checked by the caller):
+    /// halted, last_slot_kind() == Opcode with last_opcode() == 0x76, no INT or NMI pending.
+    void repeat_halt(uint32_t count, uint32_t each);
     bool executing() const { return executing_; }
 
     /// GH #265 follow-up — where clock @p io_clock (0..3: T1, the automatic

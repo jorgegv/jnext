@@ -96,6 +96,7 @@ for your system from the
 | **Windows 7/8 (x64)**    | Download `jnext-*-windows-x64-legacy.zip`, unzip, run `jnext.exe`     |
 | **Windows 32-bit (x86)** | Download `jnext-*-windows-x86-legacy.zip`, unzip, run `jnext.exe`     |
 | **macOS**                | Download `jnext-*-Darwin.dmg`, open it, drag **jnext** to Applications |
+| **Web page**             | Download `jnext-*-web.zip`, host its files: [user guide chapter 10](doc/user-guide/10-web-page/index.html) |
 
 The Linux packages put a `jnext` command on your `PATH`.
 

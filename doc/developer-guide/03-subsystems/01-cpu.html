@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3054,6 +3054,14 @@ one global <code>z80</code> struct and one global <code>tstates</code> counter â
 JNEXT's one-CPU design. <code>Z80Cpu</code> re-points the file-static <code>s_mem</code> / <code>s_io</code>
 pointers on every <code>reset()</code> and <code>execute()</code>, and copies the register file in and
 out around each instruction.</p>
+<p><strong>HALT.</strong> FUSE executes <code>HALT</code> as <code>halted = 1; PC--</code>, so the CPU stays on the opcode and
+every later <code>execute()</code> re-fetches it (the VHDL does the same, <code>t80n.vhd:496-503</code>): <code>PC++; R++;
+Q = 0; halted = 1; PC--</code> and the T-states of one M1. <code>Z80Cpu::repeat_halt(count, each)</code>
+accounts <code>count</code> further repeats of a repeat the caller just ran for real, by adding exactly
+what they would have added (the T-state counter, <code>R</code>, the <code>execute()</code> serial). It changes
+nothing else, and its caller (<code>Emulator::halt_batch_after_slot_()</code>) is the one that proves that no
+other component could have told the repeats apart; <code>last_opcode()</code> lets it check that the
+opcode really was <code>0x76</code>.</p>
 <p><code>Z80Registers</code> carries the architectural registers plus MEMPTR, FUSE's <code>Q</code> latch
 and <code>IncDecZ</code>. That last one is a one-bit shadow that exists only in the VHDL
 (<code>t80n.vhd:1358-1367</code>), where it becomes observable through the Z80N <code>LDWS</code>

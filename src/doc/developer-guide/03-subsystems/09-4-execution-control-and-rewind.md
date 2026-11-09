@@ -63,6 +63,13 @@ The hot path pays nothing for any of this: `Mmu::read` and `Mmu::write` compile
 to the same instructions they did without it, every difference being a
 structure offset.
 
+**The HALT batch stands aside for all of it.** `Emulator::halt_batch_after_slot_()` refuses while a
+client is attached, breakpoints or watchpoints are live, the raster walk, the coverage sets,
+the trace log, the call stack or the profiler is on, or a rewind replay runs: rewind turns the
+trace on, so a machine with rewind never batches. Stepping is untouched by construction:
+`step_frame_slot()` and `execute_single_instruction()` call the shared slot body without
+asking for a batch, so a Step over a `HALT` is one repeat.
+
 ## The step modes
 
 | Mode | Set by | Ends |

@@ -2,7 +2,7 @@
 
 ## An itch.io upload
 
-Zip a page like `itch-game.html` (the release ships it) with `jnext-VERSION.js` and
+Zip a page like `itch-game.html` (it is in `jnext-VERSION-web.zip`) with `jnext-VERSION.js` and
 `jnext-VERSION.wasm`, upload it as an HTML game, and set the frame size on the
 itch.io page. itch.io embeds your page in an `iframe` of its own site, so:
 

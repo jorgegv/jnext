@@ -200,7 +200,7 @@ is `window.prompt()` in a browser).
 | `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..15 | with `regression-wasm` |
 | `make unit-test-wasm` | `build/wasm-unit-test` | the SDL-only unit suites under node, through `test/node-run.sh`; suites marked `# os: native` are absent by name | the manifest | `unit-wasm` |
 | `make regression-wasm` | `build/wasm-core` | the regression suite's screenshot rows, each pixel-equal to the native reference, plus the functional rows whose `os=` names `emscripten` | `regression_tests.conf` | `regression-wasm` |
-| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-29, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29 (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
+| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-29, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
 
 - `make wasm-core` proves the module starts, imports no shared memory, catches an exception,
   refuses what the browser cannot do, and hashes correctly on the portable SHA-256.
@@ -215,6 +215,7 @@ is `window.prompt()` in a browser).
   table, the argv and the man page's browser section; `make cli-check` runs it),
   `browser_policy_test` (the frame-callback gate and the page's refusals),
   `warm_start_card_test` and `sha256_test`.
+- `make package-web` builds the browser zip and `make web-package-test` is the hermetic contract suite of its script (WEBPKG-01 to WEBPKG-46, run by `make unit-test`); both are described in [5.3](03-packaging-and-release.md).
 - All four wasm targets are in the batch gate ([4.1](../04-testing/01-the-test-triplet.md)).
 - The SDK and Playwright are provisioned by `make emsdk` and `make playwright`, pinned by
   sha256, into `~/.cache/jnext/tools`.

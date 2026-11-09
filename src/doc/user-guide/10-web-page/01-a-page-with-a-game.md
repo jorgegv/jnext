@@ -1,6 +1,6 @@
 # 10.1 A page with a game
 
-The release ships `plain.html`, a whole page in one file. Its core is this:
+The release's `jnext-VERSION-web.zip` holds `plain.html`, a whole page in one file. Its core is this:
 
 ```html
 <div id="player"></div>

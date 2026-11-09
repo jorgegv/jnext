@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3147,7 +3147,9 @@ copyrighted content: it is handed to the page only by the harness's request
 handler, is never committed, uploaded or traced (Playwright tracing, HAR and
 video stay off), and is deleted when the run ends. The script takes more specs
 as <code>file:count</code> arguments, each printing PASS/FAIL rows and a <code>Total:</code> line whose
-count the script pins, so the JavaScript API rows run in the same target.</p>
+count the script pins, so the JavaScript API rows run in the same target. <code>make package-web</code> is
+also a prerequisite: the run ends by serving the extracted <code>jnext-&lt;version&gt;-web.zip</code> alone and
+booting the example page from it (<a href="03-packaging-and-release.html#the-browser-package">5.3</a>).</p>
 <p>The browser build as a whole, with its CMake arms and tests, is <a href="06-the-browser-build.html">5.6</a>.</p>
 <p>Chapter <a href="../04-testing/index.html">4. Testing</a> covers what each of these actually
 proves.</p>
@@ -3206,10 +3208,10 @@ update rather than on a stale image.
 <a href="../01-orientation/03-the-rules-that-shape-the-code.html">1.3</a> explains what it
 covers, what it does not, and why the gate was declined.</p>
 <h2 id="packaging-and-version">Packaging and version<a class="headerlink" href="#packaging-and-version" title="Permanent link">&para;</a></h2>
-<p><code>package-src</code>, <code>package-rpm</code>, <code>package-deb</code>, <code>package-flatpak</code>, <code>package-macos</code>
-and the five <code>package-win*</code> variants each build one distributable.
-<code>package-test</code> builds them all except macOS and Flatpak (the <code>flatpak</code> CI job builds
-that) and then asserts their contents,
+<p><code>package-src</code>, <code>package-rpm</code>, <code>package-deb</code>, <code>package-flatpak</code>, <code>package-macos</code>,
+<code>package-web</code> and the five <code>package-win*</code> variants each build one distributable.
+<code>package-test</code> builds them all except macOS, Flatpak (the <code>flatpak</code> CI job builds
+that) and the browser zip (the <code>browser</code> leg builds and boots it) and then asserts their contents,
 while <code>package-contract-test</code> runs only the hermetic script contract suites.
 <code>version</code> prints the current version, and <code>bump-patch</code> / <code>bump-minor</code> /
 <code>bump-major</code> bump it, commit, and tag. <a href="03-packaging-and-release.html">5.3</a> covers

@@ -1,0 +1,27 @@
+JNEXT @VERSION@ for web pages
+=============================
+
+JNEXT is a ZX Spectrum Next emulator. This is its browser build: a page loads
+jnext-@VERSION@.js with a <script> tag and starts a player with jnext.mount().
+Keep jnext-@VERSION@.wasm in the same directory as the .js file.
+
+plain.html, itch-game.html and itch-host.html are example pages, explained in
+the user guide's chapter "JNEXT in a web page". Serve them from a web server
+over https (or http://localhost): a page opened as a local file cannot load
+the .wasm, and the player needs a secure context.
+
+This package contains no part of NextZXOS and no ROM. A page gives the player
+the address and SHA-256 of the NextZXOS system image, which SpecNext hosts;
+the example pages take them from their query string
+(?image=URL&sha256=HEX&file=PROGRAM) or from the constants at the top of
+plain.html. The visitor's browser downloads the image once and keeps it.
+
+License: GNU General Public License, version 3 (LICENSE). Authors and
+libraries: CREDITS.md. Licences of the libraries compiled into
+jnext-@VERSION@.js and jnext-@VERSION@.wasm: licenses/. Keep these files
+next to the .js and .wasm wherever you host them.
+
+Source code of this build:
+  https://github.com/jorgegv/jnext/tree/v@VERSION@
+Every public release also carries it as jnext-@VERSION@-src.zip:
+  https://github.com/jorgegv/jnext/releases
