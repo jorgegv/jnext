@@ -137,6 +137,13 @@ public:
     /// The frame period the loop paces on, in microseconds and NOT rounded to whole
     /// milliseconds: the machine's video period scaled by --speed (the sleep in tick()
     /// rounds the same quantity to whole ms). The browser frame loop advances its grid by it.
+    /// Test seam for the pacing (GH #468): the clock the frame deadline reads, in microseconds, and the sleep run()
+    /// performs. Defaults: SDL_GetTicksNS() / 1000 and SDL_Delay(). tick() only READS the clock and never sleeps, so a
+    /// suite that drives both sees the pacing grid without depending on how fast the host runs a tick.
+    void set_pacing_time_for_test(std::function<int64_t()> now_us, std::function<void(uint32_t)> sleep_ms) {
+        pacing_now_us_ = std::move(now_us);
+        pacing_sleep_ms_ = std::move(sleep_ms);
+    }
     int64_t effective_frame_period_us() const {
         return static_cast<int64_t>(1000.0 * emulator_.frame_period_ms() / speed_multiplier_ + 0.5);
     }
@@ -267,6 +274,10 @@ private:
     // The exact, fractional frame deadline (GH #9 / #468): the sleep to the next tick is whole ms, the grid is not.
     frame_deadline::Scheduler frame_sched_;
     bool        frame_sched_anchored_ = false;
+    std::function<int64_t()>        pacing_now_us_;     // empty: the SDL clock
+    std::function<void(uint32_t)>   pacing_sleep_ms_;   // empty: SDL_Delay
+    int64_t pacing_now_us() const;
+    void    pacing_sleep(uint32_t ms) const;
 
     // --tape-realtime (see set_tape_realtime()).
     bool        tape_realtime_ = false;
