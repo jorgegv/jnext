@@ -2,6 +2,7 @@
 #include "platform/quick_snapshot_chord.h"
 #include "platform/cli_delay.h"
 #include "platform/pointer_capture.h"
+#include "platform/frame_deadline.h"
 #include <SDL3/SDL.h>
 #include <functional>
 #include <memory>
@@ -133,6 +134,16 @@ public:
     /// a vsynced present cannot cap the speed at the display's refresh.
     void set_speed_percent(int percent);
     double speed_multiplier() const { return speed_multiplier_; }
+    /// The frame period the loop paces on, in microseconds and NOT rounded to whole
+    /// milliseconds: the machine's video period scaled by --speed (the sleep in tick()
+    /// rounds the same quantity to whole ms). The browser frame loop advances its grid by it.
+    int64_t effective_frame_period_us() const {
+        return static_cast<int64_t>(1000.0 * emulator_.frame_period_ms() / speed_multiplier_ + 0.5);
+    }
+#ifdef __EMSCRIPTEN__
+    /// Browser bench diagnostics: the device-boundary fill window since the last call.
+    audio_fill::StatsWindow take_audio_fill_stats() { return audio_.take_fill_stats(); }
+#endif
     /// --rzx-play / --rzx-record. Acted on at the start of run(), so they may
     /// be called before or after init() (see emulator_start_rzx()).
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
@@ -253,6 +264,9 @@ private:
 
     // Last frame-pacing period logged (ms); logs only on a 50/60 Hz change.
     uint32_t    last_frame_ms_ = 0;
+    // The exact, fractional frame deadline (GH #9 / #468): the sleep to the next tick is whole ms, the grid is not.
+    frame_deadline::Scheduler frame_sched_;
+    bool        frame_sched_anchored_ = false;
 
     // --tape-realtime (see set_tape_realtime()).
     bool        tape_realtime_ = false;

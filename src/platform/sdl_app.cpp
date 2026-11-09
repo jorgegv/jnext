@@ -510,11 +510,6 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
         Log::platform()->info("{} received: quitting", quit_signal::name(sig));
         return false;
     }
-    // SDL3's SDL_GetTicks() returns Uint64 (SDL2: Uint32). Only
-    // differences are ever taken, so the width is carried through
-    // deliberately rather than truncated back.
-    uint64_t frame_start = SDL_GetTicks();
-
     if (!input_.poll()) return false;
 
     // Apply pending inject when countdown reaches zero.
@@ -870,8 +865,17 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
                 "frame pacing: {:.2f} Hz video refresh at {}x -> {} ms/frame",
                 1000.0 / emulator_.frame_period_ms(), speed_multiplier_, frame_ms);
         }
-        uint64_t elapsed = SDL_GetTicks() - frame_start;
-        if (elapsed < frame_ms) sleep_ms = static_cast<uint32_t>(frame_ms - elapsed);
+        // The deadline advances by the EXACT fractional period (frame_deadline.h, the Qt window's scheme): a whole
+        // number of ms per tick ran 1.3% fast at 49.36 Hz and the audio pacer paid for it with a held picture every
+        // ~1.6 s. The scheduler measures from now, at the end of the tick's work.
+        const int64_t now_us = static_cast<int64_t>(SDL_GetTicksNS() / 1000);
+        const int64_t period_us = effective_frame_period_us();
+        const int ms = frame_sched_anchored_ ? frame_sched_.next_interval_ms(now_us, period_us)
+                                             : frame_sched_.rebase(now_us, period_us);
+        frame_sched_anchored_ = true;
+        sleep_ms = static_cast<uint32_t>(ms);
+    } else {
+        frame_sched_anchored_ = false;      // fastload or a catch-up tick: the grid restarts at the next paced tick
     }
     return running_;
 }

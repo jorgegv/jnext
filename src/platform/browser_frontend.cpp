@@ -18,6 +18,7 @@ struct Context {
     SdlApp*               app = nullptr;
     std::function<int()>  finish;
     browser_pacing::Gate  gate;
+    uint64_t              fill_events = 0;    // running total of the audio fill events (the bench's counter 8)
     bool                  active = false;
 };
 Context g_ctx;
@@ -40,11 +41,14 @@ void frame_cb(void*)
         g_ctx.gate,
         [] { return static_cast<int64_t>(now_us()); },
         [&app](uint32_t& s) {
+            const uint32_t f0 = app.emulator().frame_num();
             const bool more = app.tick(s);
+            g_ctx.gate.stats.on_tick(app.emulator().frame_num() - f0);
             web_controller::after_tick(app, more);
             return more;
         },
-        [&app] { return app.emulator().fastload_active(); });
+        [&app] { return app.emulator().fastload_active(); },
+        [&app] { return app.effective_frame_period_us(); });
     if (r == browser_pacing::Result::End) end_run();
 }
 
@@ -95,6 +99,32 @@ extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_frame()
     return g_ctx.app ? static_cast<double>(g_ctx.app->emulator().frame_num()) : 0.0;
 }
 
+// Test seams for the browser bench and its rows: the video frame period in ms (floating point,
+// 28 MHz master cycles per frame / 28000) and the effective CPU speed in MHz (28 / divisor, not
+// the pending one). 0 before the run starts.
+extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_frame_period_ms()
+{
+    return g_ctx.app ? g_ctx.app->emulator().frame_period_ms() : 0.0;
+}
+
+// Pacing diagnostics for the browser bench (a test seam, not API): i = 0..3 the callbacks that ran
+// 0, 1, 2, 3+ ticks; 4..7 the ticks that ran 0, 1, 2, 3+ frames; 8 the audio fill events (the device
+// callback manufactured samples). Running totals since the run started.
+extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_pacing_counter(int i)
+{
+    if (!g_ctx.app || i < 0 || i > 8) return 0.0;
+    const auto& st = g_ctx.gate.stats;
+    if (i < 4) return static_cast<double>(st.callbacks_by_ticks[i]);
+    if (i < 8) return static_cast<double>(st.ticks_by_frames[i - 4]);
+    g_ctx.fill_events += g_ctx.app->take_audio_fill_stats().fill_events;
+    return static_cast<double>(g_ctx.fill_events);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_cpu_mhz()
+{
+    return g_ctx.app ? 28.0 / static_cast<double>(g_ctx.app->emulator().clock().cpu_divisor()) : 0.0;
+}
+
 // Make a warm-start recording durable: the page mounts IndexedDB (IDBFS) on the
 // warm-start directory only, and store() calls this once after writing a file.
 // With no IDBFS mounted (node, a page that did not ask) syncfs has nothing to
@@ -116,6 +146,12 @@ void prepare()
     // page. Follow the canvas selector instead (a page ENV value wins).
     const char* sel = SDL_GetHint(SDL_HINT_EMSCRIPTEN_CANVAS_SELECTOR);
     SDL_SetHint(SDL_HINT_EMSCRIPTEN_KEYBOARD_ELEMENT, sel ? sel : "#canvas");
+    // SDL's Web Audio device doubles its buffer ("some browsers need more"): 2 x 1024 frames = 42.7 ms at 48 kHz,
+    // against the ~23 ms chunk audio_pacing's guards were calibrated for, so the pacer's own sawtooth reached
+    // them and doubled or held frames (GH #468). Ask for 512, which SDL doubles to 1024 (21.3 ms). A page's own
+    // value (ENV SDL_AUDIO_DEVICE_SAMPLE_FRAMES) wins.
+    if (!SDL_GetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES))
+        SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "512");
 }
 
 void run(SdlApp& app, std::function<int()> finish)
