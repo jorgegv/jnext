@@ -128,8 +128,13 @@ function splitProfile(prof) {
     else if (/^(\(idle\)|\(program\)|\(garbage collector\)|\(root\))/.test(nm)) cls.idle_gc_other += us;
     else cls.js_glue += us;
   }
-  const top = [...fn].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([n, us]) => ({ fn: n, pct: 100 * us / total }));
-  return { total_ms: total / 1000, classes: Object.fromEntries(Object.entries(cls).map(([k, v]) => [k, 100 * v / total])), top };
+  // Percentages are of the BUSY time: the window includes the idle between callbacks, reported apart.
+  const idle = fn.get('(idle)') || 0;
+  const busy = total - idle;
+  cls.idle_gc_other -= idle;
+  const top = [...fn].filter(([n]) => n !== '(idle)').sort((a, b) => b[1] - a[1]).slice(0, 20).map(([n, us]) => ({ fn: n, pct: 100 * us / busy }));
+  return { total_ms: total / 1000, idle_pct_of_window: 100 * idle / total,
+           classes: Object.fromEntries(Object.entries(cls).map(([k, v]) => [k, 100 * v / busy])), top };
 }
 
 async function chromePass(config, cells, onResult) {
@@ -141,12 +146,17 @@ async function chromePass(config, cells, onResult) {
     const page = await ctx.newPage();
     let raw;
     const prof = PROFILE.includes(cell.program);
-    let cdp = null, profile = null;
+    let cdp = null, profile = null, chain = Promise.resolve();
     try {
-      await page.exposeFunction('benchMark', async (what) => {
-        if (!prof || !cdp) return;
-        if (what === 'start') { await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 250 }); await cdp.send('Profiler.start'); }
-        else if (what === 'stop') { profile = (await cdp.send('Profiler.stop')).profile; }
+      await page.exposeFunction('benchMark', (what) => {
+        if (!prof) return;
+        // start and stop in order, and the driver awaits the chain before it reads the profile
+        chain = chain.then(async () => {
+          try {
+            if (what === 'start') { await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 250 }); await cdp.send('Profiler.start'); }
+            else if (what === 'stop') { profile = (await cdp.send('Profiler.stop')).profile; }
+          } catch (e) { log('profiler ' + what + ' failed: ' + e.message); }
+        });
       });
       await page.goto(`${ORIGIN}/bench.html?mode=driver&module=${encodeURIComponent(MODULE)}`);
       cdp = await ctx.newCDPSession(page);
@@ -158,6 +168,7 @@ async function chromePass(config, cells, onResult) {
     } catch (e) {
       raw = { program: cell.program, config, error: String(e.message || e).slice(0, 200), gl: false, costs: [], deltas: [] };
     }
+    await chain;
     if (profile) {
       const f = path.join(SCRATCH, `${cell.program}.${config}.cpuprofile`);
       fs.writeFileSync(f, JSON.stringify(profile));
@@ -344,7 +355,7 @@ if (passInfo.some((i) => i.loaded)) lines.push('# NOTE: at least one pass ran LO
 fs.writeFileSync(E.BENCH_OUT, lines.join('\n') + '\n');
 fs.writeFileSync(path.join(SCRATCH, 'raw.json'), JSON.stringify(rawAll.map((r) => ({ ...r, costs: undefined, deltas: undefined, audio: undefined, stamps: undefined, n: r.deltas && r.deltas.length })), null, 1));
 for (const r of rawAll) if (r.profile) {
-  console.log(`PROFILE ${r.config} ${r.program}: ` + Object.entries(r.profile.classes).map(([k, v]) => `${k}=${v.toFixed(1)}%`).join(' '));
+  console.log(`PROFILE ${r.config} ${r.program}: idle ${r.profile.idle_pct_of_window.toFixed(0)}% of the window; of the busy time: ` + Object.entries(r.profile.classes).map(([k, v]) => `${k}=${v.toFixed(1)}%`).join(' '));
   for (const t of r.profile.top) console.log(`  ${t.pct.toFixed(1).padStart(5)}%  ${t.fn}`);
 }
 console.log(lines.join('\n'));
