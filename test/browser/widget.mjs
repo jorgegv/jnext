@@ -206,7 +206,7 @@ div,span{display:inline;width:3px;padding:30px;margin:11px;border:5px dotted #f0
 button{display:block;width:100%;height:80px;padding:20px;margin:9px;background:#f00;color:#0f0;font:italic 40px serif}
 body div,body button{text-transform:uppercase;line-height:90px}`;
   const side = `<div id="o1">outside div</div><button id="o2">outside button</button>`;
-  pages['hostile.html'] = `<!doctype html><style>${hostile}</style><body>${side}<div class="jnext-widget" data-title="Hostile"></div><script src="jnext-widget.js"></script></body>`;
+  pages['hostile.html'] = `<!doctype html><style>${hostile}</style><body>${side}<div class="jnext-widget" data-title="Hostile" data-image="${BURL}/card.img" data-sha256="${SHA}" data-file="${BURL}/red.nex"></div><script src="jnext-widget.js"></script></body>`;
   pages['bare.html'] = `<!doctype html><style>${hostile}</style><body>${side}</body>`;
   const probe = (page) => page.evaluate(() => ['o1', 'o2'].map((id) => {
     const cs = getComputedStyle(document.getElementById(id)), r = document.getElementById(id).getBoundingClientRect();
@@ -216,16 +216,17 @@ body div,body button{text-transform:uppercase;line-height:90px}`;
   const outsideBare = await probe(bare);
   await bare.context().close();
   const page = await open(`${AURL}/hostile.html`);
-  await waitFor(page, () => document.querySelector('.jw-frame') && document.querySelectorAll('.jw-btn').length === 4, null, 60000);
+  await waitClickable(page);
   const info = await page.evaluate(() => {
     const e = document.querySelector('.jnext-widget'), f = e.querySelector('.jw-frame');
     const bs = [...e.querySelectorAll('.jw-btn')].map((b) => b.getBoundingClientRect());
     const tr = e.querySelector('.jw-title').getBoundingClientRect(), st = e.querySelector('.jw-stage').getBoundingClientRect();
+    const pb = e.querySelector('.jnext-player').getBoundingClientRect(), ob = e.querySelector('.jnext-overlay').getBoundingClientRect();
     const sheet = document.getElementById('jnext-widget-css').sheet;
     const sel = [];
     (function walk(rules) { for (const r of rules) { if (r.selectorText) sel.push(r.selectorText); else if (r.cssRules) walk(r.cssRules); } })(sheet.cssRules);
     return { frameW: f.getBoundingClientRect().width, tops: bs.map((b) => Math.round(b.top)), widths: bs.map((b) => Math.round(b.width)),
-             titleH: tr.height, stageW: st.width, sel, sheets: document.querySelectorAll('style').length };
+             titleH: tr.height, player: [pb.width, pb.height], overlay: [ob.width, ob.height], stageTop: st.top, playerTop: pb.top, stageW: st.width, sel, sheets: document.querySelectorAll('style').length };
   });
   const outsideWith = await probe(page);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'hostile.png') });
@@ -234,6 +235,8 @@ body div,body button{text-transform:uppercase;line-height:90px}`;
   must(info.stageW === 640, 'stage width ' + info.stageW);
   must(new Set(info.tops).size === 1, 'toolbar buttons not in one row: tops ' + info.tops);
   must(info.widths.every((w) => w > 20 && w < 130), 'button widths ' + info.widths);
+  must(info.player.join() === '640,512' && info.overlay.join() === '640,512' && info.playerTop === info.stageTop,
+       'player box ' + info.player + ' overlay ' + info.overlay + ' top ' + info.playerTop + ' vs stage ' + info.stageTop);
   must(info.titleH < 40, 'title bar height ' + info.titleH);
   must(info.sel.length > 10 && info.sel.every((s) => s.split(',').every((p) => p.trim().startsWith('.jnext-widget'))),
        'rules outside .jnext-widget: ' + info.sel.filter((s) => s.split(',').some((p) => !p.trim().startsWith('.jnext-widget'))));

@@ -34,7 +34,7 @@
     '--jw-overlay:rgba(20,22,28,0.82);--jw-err:#ff8a80;';
   var W = '.jnext-widget ';
   var CSS =
-    '.jnext-widget{display:block;max-width:100%;margin:1em 0;' + LIGHT + '}' +
+    '.jnext-widget{all:initial;display:block;max-width:100%;margin:1em 0;' + LIGHT + '}' +
     '.jnext-widget[data-theme="dark"]{' + DARK + '}' +
     '@media (prefers-color-scheme:dark){.jnext-widget:not([data-theme="light"]):not([data-theme="dark"]){' + DARK + '}}' +
     W + '.jw-frame{all:initial;display:block;box-sizing:border-box;overflow:hidden;' +
@@ -57,6 +57,9 @@
     W + '.jw-status{all:initial;display:block;flex:1;min-width:0;overflow:hidden;white-space:nowrap;' +
       'text-overflow:ellipsis;text-align:right;color:var(--jw-fg);font:12px/1.3 ui-monospace,monospace}' +
     W + '.jw-status.jw-error{color:var(--jw-err)}' +
+    // The elements the player itself creates, made proof against a page's rules for div and canvas.
+    W + '.jnext-player,' + W + '.jnext-overlay,' + W + 'canvas{padding:0;margin:0;border:0;float:none;max-width:none}' +
+    W + '.jnext-overlay{box-sizing:border-box;text-transform:none;letter-spacing:normal;line-height:normal}' +
     W + '.jw-frame:fullscreen{border-radius:0}';
 
   function injectCss() {
