@@ -3241,11 +3241,13 @@ the script for the rest), and the script takes exact names, never a glob, becaus
 a build directory keeps the previous versions' <code>jnext-&lt;old&gt;.js</code>. It refuses a
 non-Release tree, a missing or ambiguous licence source, a malformed
 <code>version.yaml</code> and a missing date source.</p>
-<p>The zip is reproducible: the entry time is <code>SOURCE_DATE_EPOCH</code>, else the commit
+<p>The packaging is deterministic: the entry time is <code>SOURCE_DATE_EPOCH</code>, else the commit
 time of <code>HEAD</code>, never the current time; the script forces <code>TZ=UTC</code> (Info-ZIP
 stores local DOS time), file mode 0644, names sorted under <code>LC_ALL=C</code>, and
-<code>zip -X -D</code> (no uid/gid, no directory entries). The same sources give the same
-bytes whatever the caller's time zone, umask, locale or file times.</p>
+<code>zip -X -D</code> (no uid/gid, no directory entries). The same build output gives the same
+zip bytes whatever the caller's time zone, umask, locale or file times. The
+compiled <code>.wasm</code> can differ between build machines, and so can the zip;
+identical WebAssembly across machines is not a goal.</p>
 <p><strong>No NextZXOS image is ever in the package.</strong> It is copyrighted; the page fetches
 it from the host the page author names. After writing the zip the script reads it
 back with CPython's <code>zipfile</code> (<code>--verify</code>, which also runs on its own) and deletes

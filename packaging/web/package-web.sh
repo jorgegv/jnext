@@ -24,10 +24,12 @@
 # SCOPE: it does not try to catch an image deliberately compressed and embedded
 # into the module, nor a crafted zip whose central directory lies.
 #
-# REPRODUCIBLE: the same sources give a byte-identical zip whatever the caller's
-# TZ, umask, locale or file mtimes. Entry time = SOURCE_DATE_EPOCH, else the
-# commit time of HEAD (never "now"); TZ=UTC (zip stores local DOS time); mode
-# 0644; names sorted under LC_ALL=C; `zip -X -D` (no uid/gid, no directory entries).
+# DETERMINISTIC: the same build output (same .js, .wasm and other inputs) gives a
+# byte-identical zip whatever the caller's TZ, umask, locale or file mtimes.
+# Entry time = SOURCE_DATE_EPOCH, else the commit time of HEAD (never "now");
+# TZ=UTC (zip stores local DOS time); mode 0644; names sorted under LC_ALL=C;
+# `zip -X -D` (no uid/gid, no directory entries). The compiled .wasm can differ
+# between build machines, and so can the zip; that is not a goal.
 #
 # LINK SET of jnext_web, measured 2026-11-08 (verbose wasm-ld line of the
 # `jnext_web` relink; emcc -v): jnext's own libraries; libspdlog, libzot_tzx,

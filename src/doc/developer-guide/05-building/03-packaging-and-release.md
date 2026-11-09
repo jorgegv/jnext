@@ -220,11 +220,13 @@ a build directory keeps the previous versions' `jnext-<old>.js`. It refuses a
 non-Release tree, a missing or ambiguous licence source, a malformed
 `version.yaml` and a missing date source.
 
-The zip is reproducible: the entry time is `SOURCE_DATE_EPOCH`, else the commit
+The packaging is deterministic: the entry time is `SOURCE_DATE_EPOCH`, else the commit
 time of `HEAD`, never the current time; the script forces `TZ=UTC` (Info-ZIP
 stores local DOS time), file mode 0644, names sorted under `LC_ALL=C`, and
-`zip -X -D` (no uid/gid, no directory entries). The same sources give the same
-bytes whatever the caller's time zone, umask, locale or file times.
+`zip -X -D` (no uid/gid, no directory entries). The same build output gives the same
+zip bytes whatever the caller's time zone, umask, locale or file times. The
+compiled `.wasm` can differ between build machines, and so can the zip;
+identical WebAssembly across machines is not a goal.
 
 **No NextZXOS image is ever in the package.** It is copyrighted; the page fetches
 it from the host the page author names. After writing the zip the script reads it
