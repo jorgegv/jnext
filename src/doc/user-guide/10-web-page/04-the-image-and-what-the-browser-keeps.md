@@ -53,7 +53,7 @@ time, and a copy that no longer matches the digest is deleted and fetched again.
 
 For a `.nex` program the recorded machine is brought back (`restore`) instead of booting
 NextZXOS again. A corrupted recording is made again. A `.tap` or a `.tzx` starts directly in 48K
-BASIC, without NextZXOS, so there is nothing to record. A page with no program boots
+BASIC, without NextZXOS, so there is nothing to record. A Next page with no program boots
 NextZXOS on every visit and records nothing.
 
 ## What the browser keeps, and where
