@@ -175,10 +175,11 @@ The boot set (`TBBLUE.FW`, `MACHINES`, `NEXTZXOS`, `SYS`, `LICENSE.md`,
 source's own spelling of each name. The script applies jnext's own two
 patches itself, the `config.ini` and the doubled `zx81.rom`. They are copies of
 the ones in `tools/fix-sdcard-image.sh` and in jnext's SD-card provisioner, and
-the test suite fails if the copies differ. The script calls no other script. The script refuses to overwrite its destination,
-reads the source image only (it places the card with a hard link, so the
-destination filesystem must support them: not FAT or exFAT), and refuses a card with too few clusters for
-FatFs to take it as FAT32 (more than 65525).
+the test suite fails if the copies differ. The script calls no other script.
+It refuses to overwrite its destination, reads the source image only (it places
+the card with a hard link, so the destination filesystem must support them: not
+FAT or exFAT), and refuses a card with too few clusters for FatFs to take it as
+FAT32 (more than 65525).
 
 The output is reproducible: a fixed volume serial, `SOURCE_DATE_EPOCH` and
 `TZ=UTC` pinned inside the script, and a DOS-to-DOS copy, so the directory

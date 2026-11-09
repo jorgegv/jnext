@@ -12,11 +12,13 @@
 # if the copies differ. This script calls no other script.
 #
 # Linux only. Needs mtools, sfdisk (util-linux), coreutils, grep and sed: all are
-# checked before anything is done. No root, no loop mount. The source is only read. The destination filesystem must support hard links (not
-# FAT/exFAT): the card is placed with ln, which never replaces an entry. The output is
-# reproducible for one mtools version (mformat writes its version into the boot sector): fixed volume serial,
-# SOURCE_DATE_EPOCH and TZ pinned, and a DOS-to-DOS copy so the directory order
-# comes from the source card and not from the builder's host filesystem.
+# checked before anything is done. No root, no loop mount. The source is only
+# read. The destination filesystem must support hard links (not FAT/exFAT): the
+# card is placed with ln, which never replaces an entry. The output is
+# reproducible for one mtools version (mformat writes its version into the boot
+# sector): fixed volume serial, SOURCE_DATE_EPOCH and TZ pinned, and a
+# DOS-to-DOS copy so the directory order comes from the source card and not from
+# the builder's host filesystem.
 #
 # The OUTPUT is copyrighted NextZXOS content: never commit, attach or upload it.
 set -euo pipefail

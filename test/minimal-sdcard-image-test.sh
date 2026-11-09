@@ -258,20 +258,21 @@ row MINIMG-16 "$ok" "a destination filesystem without hard links is reported as 
 # carry the config.ini text and the 24.11 zx81.rom hash; no suite compared them all.
 PROV="$ROOT/src/core/sdcard_provisioner.cpp"
 cfg_of() { sed -n "/<<'CONFIGEOF'/,/^CONFIGEOF\$/p" "$1" | sed '1d;$d'; }
-cfg_min=$(cfg_of "$SCRIPT"); cfg_fix=$(cfg_of "$FIXSH")
+# Files, not $(...): command substitution drops trailing newlines, and a lost or extra final one changes the card's file.
+cfg_of "$SCRIPT" > "$T/cfg.min"; cfg_of "$FIXSH" > "$T/cfg.fix"
 cfg_raw=$(sed -n '/static const char\* kIni =/,/;$/p' "$PROV" | grep -o '"[^"]*"' | sed 's/^"//;s/"$//' | tr -d '\n')
-cfg_cpp=$(printf '%b' "$cfg_raw")
+printf '%b' "$cfg_raw" > "$T/cfg.cpp"
 sha_of() { grep -oE '^ZX81_16K_SHA256=[0-9a-f]{64}$' "$1" | cut -d= -f2 || true; }
 sha_min=$(sha_of "$SCRIPT"); sha_fix=$(sha_of "$FIXSH")
 sha_cpp=$(tr -d '\n' < "$PROV" | grep -oE 'kZx81Rom16kSha256 =[[:space:]]*"[0-9a-f]{64}"' | grep -oE '[0-9a-f]{64}' || true)
 ok=1
-[[ -n "$cfg_min" && "$(wc -l <<<"$cfg_min")" == 28 && "$cfg_min" == "$cfg_fix" && "$cfg_min" == "$cfg_cpp" ]] || ok=0
+[[ -s "$T/cfg.min" && "$(wc -l < "$T/cfg.min")" == 28 ]] && cmp -s "$T/cfg.min" "$T/cfg.fix" && cmp -s "$T/cfg.min" "$T/cfg.cpp" || ok=0
 [[ ${#sha_min} == 64 && "$sha_min" == "$sha_fix" && "$sha_min" == "$sha_cpp" ]] || ok=0
 row MINIMG-17 "$ok" "config.ini and ZX81_16K_SHA256 are the same in make-minimal-sdcard-image.sh, fix-sdcard-image.sh and sdcard_provisioner.cpp"
 
 # ---- MINIMG-18: the tool preflight ----
 # (a) only the commands in the script's TOOLS line on PATH: the build succeeds with
-# the same sha256, so it needs nothing else. (b) without mformat and sfdisk it
+# the same sha256, so it needs nothing else. (b) without mformat, mcopy and sfdisk it
 # refuses first, naming both and the packages, creating nothing.
 tools_line=$(grep -E '^TOOLS=\(.*\)$' "$SCRIPT" || true)
 tools_line=${tools_line#TOOLS=(}; tools_line=${tools_line%)}
@@ -280,14 +281,16 @@ for t in $tools_line; do ln -s "$(command -v "$t")" "$T/pf/bin/$t"; done
 ok=1
 rc=0; PATH="$T/pf/bin" "$BASH" "$SCRIPT" "$SRC" "$T/pf/ok/out.img" >/dev/null 2>"$T/pf/ok.err" || rc=$?
 [[ $rc == 0 && -n "$tools_line" && "$(sha256sum "$T/pf/ok/out.img" 2>/dev/null | cut -d' ' -f1 || true)" == "$sha_a" ]] || ok=0
-rm -f "$T/pf/bin/mformat" "$T/pf/bin/sfdisk"
+rm -f "$T/pf/bin/mformat" "$T/pf/bin/mcopy" "$T/pf/bin/sfdisk"
 rc=0; PATH="$T/pf/bin" "$BASH" "$SCRIPT" "$SRC" "$T/pf/no/out.img" >/dev/null 2>"$T/pf/no.err" || rc=$?
 first=$(head -n1 "$T/pf/no.err")
-[[ $rc == 1 && "$first" == "ERROR: missing tools: mformat sfdisk" ]] || ok=0
-grep -qF 'sudo dnf install mtools util-linux' "$T/pf/no.err" || ok=0
-grep -qF 'sudo apt install mtools fdisk' "$T/pf/no.err" || ok=0
+[[ $rc == 1 && "$first" == "ERROR: missing tools: mformat mcopy sfdisk" ]] || ok=0
+# mformat and mcopy are one package: it must appear once, and the hint lines are matched whole.
+errtxt=$(cat "$T/pf/no.err")
+grep -qxF '  Fedora:        sudo dnf install mtools util-linux' <<<"$errtxt" || ok=0
+grep -qxF '  Debian/Ubuntu: sudo apt install mtools fdisk' <<<"$errtxt" || ok=0
 [[ -z "$(ls -A "$T/pf/no")" ]] || ok=0
-row MINIMG-18 "$ok" "a build with only TOOLS on PATH succeeds with the same sha256; with mformat and sfdisk removed it refuses first, naming both and the dnf/apt packages, creating nothing"
+row MINIMG-18 "$ok" "a build with only TOOLS on PATH succeeds with the same sha256; with mformat, mcopy and sfdisk removed it refuses first, naming all three and the dnf/apt packages, creating nothing"
 
 # ---- MINIMG-08: the source was only read ----
 src_sha1=$(sha256sum "$SRC" | cut -d' ' -f1)

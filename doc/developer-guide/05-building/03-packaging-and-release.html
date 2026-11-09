@@ -3202,10 +3202,11 @@ made from the distribution image by <code>tools/make-minimal-sdcard-image.sh</co
 source's own spelling of each name. The script applies jnext's own two
 patches itself, the <code>config.ini</code> and the doubled <code>zx81.rom</code>. They are copies of
 the ones in <code>tools/fix-sdcard-image.sh</code> and in jnext's SD-card provisioner, and
-the test suite fails if the copies differ. The script calls no other script. The script refuses to overwrite its destination,
-reads the source image only (it places the card with a hard link, so the
-destination filesystem must support them: not FAT or exFAT), and refuses a card with too few clusters for
-FatFs to take it as FAT32 (more than 65525).</p>
+the test suite fails if the copies differ. The script calls no other script.
+It refuses to overwrite its destination, reads the source image only (it places
+the card with a hard link, so the destination filesystem must support them: not
+FAT or exFAT), and refuses a card with too few clusters for FatFs to take it as
+FAT32 (more than 65525).</p>
 <p>The output is reproducible: a fixed volume serial, <code>SOURCE_DATE_EPOCH</code> and
 <code>TZ=UTC</code> pinned inside the script, and a DOS-to-DOS copy, so the directory
 order comes from the source card and not from the builder's filesystem. The
