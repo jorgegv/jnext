@@ -17,7 +17,7 @@ you read it; it is not a replacement for it.
 | `make package-flatpak` | Flatpak bundle, in `build/flatpak-release/` |
 | `make package-macos` | macOS `.dmg` — Darwin only; prints a SKIP and exits cleanly elsewhere |
 | `make package-web` | the browser build as `jnext-<ver>-web.zip` in `build/wasm-core/`: the `.js` and `.wasm`, the example pages, the licence texts. Needs the Emscripten SDK (built by `make wasm-web`) |
-| `make package-test` | builds every package except macOS and Flatpak and **asserts its contents** (a missing tool fails) |
+| `make package-test` | builds every package except macOS, Flatpak and the browser zip and **asserts its contents** (a missing tool fails) |
 | `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain; it also runs `make web-package-test` |
 | `make web-package-test` | the contract suite of `packaging/web/package-web.sh` (WEBPKG-01 to WEBPKG-36), on fake trees, hermetic |
 

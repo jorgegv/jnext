@@ -13,12 +13,12 @@
 # reads it (date_time, external_attr, extra); GitHub Actions workflow syntax as
 # PyYAML parses the real release.yml and ci.yml. There is no VHDL: this is packaging.
 #
-# Rows WEBPKG-01 .. WEBPKG-36. A missing tool FAILS WEBPKG-01 and every other row
+# Rows WEBPKG-01 .. WEBPKG-46. A missing tool FAILS WEBPKG-01 and every other row
 # then reports FAIL "not run": there is no SKIP path.
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-EXPECTED_ROWS=36
+EXPECTED_ROWS=46
 EPOCH_FIX=1762600000
 
 total=0; passed=0; failed=0
@@ -163,6 +163,10 @@ for op in sys.argv[3:]:
         find(a[0])[1] = find(a[0])[1][:int(a[1])]
     elif k == "sym":
         e = find(a[0]); e[1] = a[1].encode(); e[3] = 0o120777 << 16
+    elif k == "pad":
+        find(a[0])[1] = find(a[0])[1] + bytes(int(a[1]) - len(find(a[0])[1]))
+    elif k == "dup":
+        e = find(a[0]); ents.append([e[0], b"other", e[2], e[3]])
     elif k == "flip":
         e = find(a[0]); e[1] = bytes([e[1][0] ^ 1]) + e[1][1:]
     elif k == "nopre":
@@ -352,7 +356,7 @@ ok=0; [[ $RC -eq 0 && "$r" == True ]] && ok=1
 row WEBPKG-15 "$ok" "no SOURCE_DATE_EPOCH, git checkout: every entry carries the HEAD commit time in UTC"
 
 # ---- WEBPKG-16..21, 29, 31..33: --verify on the good zip and on crafted ones ----
-mz() { python3 -I "$T/mkzip.py" "$ZIP1" "$@"; }
+mz() { python3 -W ignore -I "$T/mkzip.py" "$ZIP1" "$@"; }
 run_verify "$GOOD" "$ZIP1"
 ok=0; [[ $RC -eq 0 ]] && ok=1
 row WEBPKG-16 "$ok" "--verify on the good zip exits 0 (positive control)"
@@ -459,6 +463,73 @@ mz "$T/c33.zip" sym:jnext-9.9.9-web/CREDITS.md:/etc/passwd
 run_verify "$GOOD" "$T/c33.zip"
 ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "CREDITS.md is a symlink" && ok=1
 row WEBPKG-33 "$ok" "CREDITS.md as a symlink entry refused"
+
+# ---- WEBPKG-37..40: the remaining caps and the third js literal ----
+mz "$T/c37.zip" pad:jnext-9.9.9-web/jnext-9.9.9.js:4194305
+run_verify "$GOOD" "$T/c37.zip"
+ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "jnext-9.9.9.js is 4194305 bytes" && ok=1
+row WEBPKG-37 "$ok" "a js of 4 MiB + 1 byte with all literals refused on size (the ceiling)"
+
+mz "$T/c38.zip" pad:jnext-9.9.9-web/README.txt:16385
+run_verify "$GOOD" "$T/c38.zip"
+ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "README.txt is 16385 bytes" && ok=1
+row WEBPKG-38 "$ok" "a README.txt of 16 KiB + 1 byte refused on size"
+
+mz "$T/c39.zip" pad:jnext-9.9.9-web/licenses/zlib.txt:1048577
+run_verify "$GOOD" "$T/c39.zip"
+ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "licenses/zlib.txt is 1048577 bytes" && ok=1
+mz "$T/c39b.zip" pad:jnext-9.9.9-web/LICENSE:1048577
+run_verify "$GOOD" "$T/c39b.zip"
+[[ $RC -ne 0 ]] && errhas "$GOOD" "web/LICENSE is 1048577 bytes" || ok=0
+row WEBPKG-39 "$ok" "a licenses/ entry and LICENSE of 1 MiB + 1 byte refused on size (the cap on every other file)"
+
+scen nocm
+{ echo "// jnext-9.9.9.wasm"; echo "var VERSION = '9.9.9';"; } >"$D/build/jnext-9.9.9.js"
+head -c 20000 /dev/zero | tr '\0' 'x' >>"$D/build/jnext-9.9.9.js"
+run_pkg "$D"
+ok=0; [[ $RC -ne 0 ]] && errhas "$D" "does not contain createJnextModule" && nozip "$D" && ok=1
+row WEBPKG-40 "$ok" "a js without the createJnextModule export name refused"
+
+# ---- WEBPKG-41..43: the other content checks ----
+scen gamenojs
+grep -v 'jnext-9.9.9.js' "$D/build/itch-game.html" >"$D/p"; mv "$D/p" "$D/build/itch-game.html"
+run_pkg "$D"
+ok=0; [[ $RC -ne 0 ]] && errhas "$D" "itch-game.html does not load jnext-9.9.9.js" && nozip "$D" && ok=1
+row WEBPKG-41 "$ok" "itch-game.html with no jnext-9.9.9.js refused"
+
+scen hostnogame
+sed 's/itch-game\.html/x.html/g' "$D/build/itch-host.html" >"$D/p"; mv "$D/p" "$D/build/itch-host.html"
+run_pkg "$D"
+ok=0; [[ $RC -ne 0 ]] && errhas "$D" "itch-host.html does not embed itch-game.html" && nozip "$D" && ok=1
+row WEBPKG-42 "$ok" "itch-host.html not embedding itch-game.html refused"
+
+scen readmeat
+echo "Built on @DATE@." >>"$D/root/packaging/web/README.txt.in"
+run_pkg "$D"
+ok=0; [[ $RC -ne 0 ]] && errhas "$D" "README.txt still holds an @" && nozip "$D" && ok=1
+row WEBPKG-43 "$ok" "a README template with an extra @DATE@ placeholder: build refused, no zip"
+
+# ---- WEBPKG-44: a non-ASCII path ----
+scen "jos$(printf '\303\251')"
+run_pkg "$D"
+ok=0; [[ $RC -eq 0 && -f "$D/build/jnext-9.9.9-web.zip" ]] && ok=1
+row WEBPKG-44 "$ok" "a build inside a directory with a non-ASCII name succeeds"
+[[ $ok == 1 ]] || tail -n 3 "$D/stderr"
+
+# ---- WEBPKG-45: a refusal leaves no earlier zip ----
+scen rerun
+run_pkg "$D"
+good=$RC
+echo "CMAKE_BUILD_TYPE:STRING=RelWithDebInfo" >"$D/build/CMakeCache.txt"
+run_pkg "$D"
+ok=0; [[ $good -eq 0 && $RC -ne 0 ]] && nozip "$D" && ok=1
+row WEBPKG-45 "$ok" "a good build, then a refusal on the same build dir: no zip is left"
+
+# ---- WEBPKG-46: duplicate entry names ----
+mz "$T/c46.zip" dup:jnext-9.9.9-web/LICENSE
+run_verify "$GOOD" "$T/c46.zip"
+ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "duplicate entry names" && ok=1
+row WEBPKG-46 "$ok" "a zip with two entries of one name refused"
 
 # ---- WEBPKG-34..36: the workflows ----
 r=$(python3 -I -c 'import sys, yaml

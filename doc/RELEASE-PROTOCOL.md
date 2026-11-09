@@ -201,7 +201,7 @@ metainfo excepted). **Do not add a hard-coded copy of the version; read
 | `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + `org.kde.Sdk//6.10`); ends by running `make verify-flatpak-permissions` on it |
 | `make package-macos` | macOS `.dmg` (Darwin only) |
 | `make package-web` | the browser build, `jnext-<ver>-web.zip` (js + wasm, example pages, licence texts), in `build/wasm-core/`; needs the Emscripten SDK; verifies its own zip and never holds a NextZXOS image |
-| `make package-test` | build every package (except macOS) and assert each artifact |
+| `make package-test` | build every package (except macOS, Flatpak and the browser zip) and assert each artifact |
 | `make package-contract-test` | the packaging-**script** contract suites only — hermetic, ~4 s, no toolchain |
 
 CI runs these same targets — one build path, with **exactly one declared
@@ -227,8 +227,8 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 
 **Packaging correctness is gated automatically** (issue #61):
 
-- `make package-contract-test` is a prerequisite of `make unit-test`, so the eight
-  packaging contract suites — including `verify-bundle`, the GH #46 gate
+- `make package-contract-test` is a prerequisite of `make unit-test`, so the nine
+  packaging contract suites (and `web-package-test`) — including `verify-bundle`, the GH #46 gate
   — run on every local test run and every CI push.
 - The browser zip is not a `package-test` row (it needs the Emscripten SDK, as the Flatpak
   needs its own SDK). `package-web.sh` verifies its own zip and deletes it on any

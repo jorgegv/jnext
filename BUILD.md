@@ -165,7 +165,7 @@ targets: build variants, per-variant `-run`/`-clean`, tests, packaging, versioni
 | `make package-win` | Windows `.zip` (exe + bundled Qt6/SDL3 DLLs + plugins) |
 | `make package-flatpak` / `package-src` | Flatpak bundle / source tarball |
 | `make package-web` | Browser build zip, `jnext-<ver>-web.zip` (js + wasm, example pages, licences) |
-| `make package-test` | Build every package (except macOS) and check each artifact |
+| `make package-test` | Build every package (except macOS, Flatpak and the browser zip) and check each artifact |
 
 **Clean / housekeeping**
 
@@ -312,7 +312,7 @@ Packages are the recommended way for end users to install JNEXT (see the main
 | `make package-win` | Windows `.zip` (cross-compiled with Fedora MinGW — see below) |
 | `make package-src` | source tarball |
 | `make package-web` | browser build zip `jnext-<ver>-web.zip` (needs the Emscripten SDK, provisioned automatically) |
-| `make package-test` | build every package above (except macOS) and check each artifact |
+| `make package-test` | build every package above (except macOS, Flatpak and the browser zip) and check each artifact |
 
 Every packaged binary is a **PGO build**, like `gui-release`: each package
 target runs `tools/pgo-build.sh`, which instruments, trains and rebuilds in

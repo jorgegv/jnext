@@ -109,7 +109,7 @@ zpath, ver, mfile = sys.argv[1:4]
 top = "jnext-%s-web/" % ver
 MiB = 1 << 20
 src = {}
-for line in open(mfile, encoding="ascii"):
+for line in open(mfile, encoding="utf-8", errors="surrogateescape"):
     n, p = line.rstrip("\n").split("\t")
     src[top + n] = p
 errs = []
@@ -121,6 +121,8 @@ try:
 except Exception as e:
     print("package-web: cannot read %s: %s" % (zpath, e), file=sys.stderr); sys.exit(1)
 infos = {i.filename: i for i in z.infolist()}
+if len(infos) != len(z.infolist()):
+    bad("duplicate entry names")
 for n in infos:
     if re.search(r"\.(img|mmc)$", n, re.I):
         bad("entry %s has a NextZXOS image name" % n)
@@ -209,6 +211,7 @@ EMSDK=$2
 VER=$(read_version)
 NAME="jnext-$VER-web"
 ZIP="$BUILD/$NAME.zip"
+rm -f "$ZIP"   # first, so that no refusal below leaves an earlier zip behind
 
 [[ -f "$BUILD/CMakeCache.txt" ]] || die "$BUILD/CMakeCache.txt is missing"
 grep -q '^CMAKE_BUILD_TYPE:STRING=Release$' "$BUILD/CMakeCache.txt" \
@@ -220,7 +223,6 @@ if [[ -z "$EPOCH" && -e "$ROOT/.git" ]]; then
 fi
 [[ "$EPOCH" =~ ^[0-9]+$ ]] || die "no date source: set SOURCE_DATE_EPOCH (not a git checkout, or no commit)"
 
-rm -f "$ZIP"
 WORK=$(mktemp -d)
 sed "s/@VERSION@/$VER/g" "$ROOT/packaging/web/README.txt.in" >"$WORK/README.txt"
 manifest "$VER" "$BUILD" "$EMSDK" "$WORK/README.txt" >"$WORK/manifest" || die "a source is missing, no zip written"
