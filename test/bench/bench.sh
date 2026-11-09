@@ -42,7 +42,6 @@ CACHE="$PROJECT_DIR/build/$BENCH_BUILD/CMakeCache.txt"
 # embedded boot ROM now — no SD image lives there (GH #75/#77), so a fixture
 # path under the repo is no longer a thing to point at.
 SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}"
-LOCK_FILE="$SCRIPT_DIR/.lock"
 REPEATS=5
 SPREAD_LIMIT_PCT=5.0
 
@@ -124,14 +123,13 @@ else die "cannot clone the SD master $SD_MASTER to $SD_IMAGE"
 fi
 echo "bench: SD image: private $sd_mode clone of $SD_MASTER"
 
-# --- Serialise: one benchmark at a time, machine-wide for this repo ---
+# --- Serialise: one benchmark at a time, host-wide (bench-lock.sh: a lock in the user's cache,
+# shared by every worktree, not one beside the scripts) ---
 # A real blocking flock, not a process scan: several agents may run overnight
 # and a poisoned benchmark is the exact failure mode that corrupted TASK27A.
-exec 200>"$LOCK_FILE"
-if ! flock -n 200; then
-    echo "bench: another benchmark holds $LOCK_FILE — waiting for it to finish..."
-    flock 200
-fi
+# shellcheck source=bench-lock.sh
+source "$SCRIPT_DIR/bench-lock.sh"
+bench_take_lock || die "cannot take the benchmark lock"
 
 # --- Core selection: fastest class, lowest-numbered core, DERIVED ---
 # Pass 1: find the fastest core class. Pass 2: lowest-numbered core in it.

@@ -431,12 +431,19 @@ Each runs in a fresh page, in one wasm instance, through `jnext.mount()` and the
 build's own `jnext-<version>.js`, so the path measured is the embedder's: the
 image cache, the warm start, the pacing grid.
 
-**Three configurations.** `chrome` is the host's Google Chrome (headless, muted),
-driven through the pinned `playwright-core`; `chrome-x2` is the same with the CDP
-CPU throttle at 2x, re-sent after every navigation; `firefox` is the host's
-Firefox, headless, with a profile of its own, driven by the page itself (the page
-asks the driver's server for its next program, posts the result and navigates to
-itself). The whole bench, node, servers and browsers, runs under `taskset` on the
+**Three configurations.** `chrome` is the host's Google Chrome (headless, muted,
+`--use-angle=gl-egl` so that WebGL runs on the GPU as a visitor's does; headless
+Chrome's own default is SwiftShader, software WebGL), driven through the pinned
+`playwright-core`; `chrome-x2` is the same with the CDP CPU throttle at 2x, re-sent
+after every navigation; `firefox` is the host's Firefox with a profile of its own,
+driven by the page itself (the page asks the driver's server for its next program,
+posts the result and navigates to itself). Firefox runs HEADED on a private Xvfb
+display (`xvfb-run -d`, `-noreset`), because a headless Firefox 159 with no display
+server gives no canvas a WebGL context of any version or attributes (measured with
+a static page), so jnext's page falls back to SDL's 2D canvas and every cell would
+be INVALID; the same Firefox has WebGL when it has an X display, headless or not.
+`FIREFOX_MODE=headless` selects the display-less route anyway, and the results
+header records which ran (`# firefox mode:`). The whole bench, node, servers and browsers, runs under `taskset` on the
 fastest physical cores, derived as `bench.sh` derives its core. The page is
 served from `127.0.0.1` by an allow-list: the build's two files, the page, the NEX
 directories and the run's minimal card. The card is built at run time into a
@@ -455,7 +462,7 @@ handler SDL installs. Two read-only exports give the frame period in
 milliseconds and the effective CPU speed in MHz (`jnext_web_frame_period_ms`,
 `jnext_web_cpu_mhz`, test seams like `jnext_web_frame`). The arithmetic is in
 `test/bench/web/bench-stats.mjs`, which has its own rows (WBENCH-01 to
-WBENCH-10, run by `make wasm-browser-test` on synthetic data).
+WBENCH-12, run by `make wasm-browser-test` on synthetic data).
 
 **Verdict.** Full speed is the program's own refresh, `1000 / frame period`:
 50.08 Hz for 48K timing, 49.36 Hz for 128K and +3 timing, 58.15 Hz for a 60 Hz
@@ -469,7 +476,8 @@ running, the calibration says the throttle was not in effect (the x2 calibration
 must be 1.8 to 2.2 times the unthrottled one) or the host got busier (a cell's
 calibration above 1.10 times the pass median; on a laptop whose clock steps
 between two states this also catches a slow state, and such a cell is run again,
-up to three rounds, until one run is valid). A FAIL within 5% of the refresh,
+up to three rounds, until one run is valid; the reference is a median, so a pass
+whose majority sits in the slow state flags nothing). A FAIL within 5% of the refresh,
 or a PASS with less than 10% headroom (frame period over the 95th percentile of
 the callback cost), is run twice more and the majority counts.
 
@@ -481,15 +489,33 @@ from overlapping.
 **Running it.** `make bench-web` runs the three passes and writes
 `test/bench/web-baseline-<sha>.txt`: a header (date, host, commit, browser
 versions, WebGL renderers, core set, window, the load at each pass start and
-end), one `WEBBENCH` line per cell and the table as comments. Variables:
+end), one `WEBBENCH` line per cell, a `WEBPACE` line per cell (the pacing
+counters, below) and the table as comments. Variables:
 `CONFIGS=chrome,chrome-x2,firefox`, `SET=<program,...>`, `W=` and `M=` (warm-up and
-window frames), `PROFILE=<program,...>` and `WEB_BUILD=<dir>`. With `PROFILE=` the
+window frames), `PROFILE=<program,...>`, `WEB_BUILD=<dir>`, `RESULTS=<file>` (write
+there instead of into the tree: use it for every trial run), `RAW_DIR=<dir>` (each
+cell's raw callbacks as JSON), `NO_REPEAT=1`, `QUIET_WAIT=0` (do not wait for a quiet
+host; the pass is marked LOADED and counts for nothing), `FIREFOX_MODE=xvfb|headless`,
+`JNEXT_BENCH_CHROME=<binary>` and `BENCH_CHROME_ARGS=<flags>`. One bench runs at a
+time on the host: both bench scripts take the lock `~/.cache/jnext/bench.lock`, shared
+by every worktree, and wait for it. Ctrl-C or TERM stops the whole run (the driver
+kills its browsers; the scratch directory, the browser profile included, is removed).
+With `PROFILE=` the
 Chrome cells named run under the CPU profiler around the window and the run
 prints each one's self-time top 20 and a split into core, render, audio, upload
 and present, and JavaScript glue; the profile files are copied to `PROFILE_DIR`.
 For function names use a profiling build in a scratch directory: configure
 `make wasm-core`'s tree with `-DCMAKE_EXE_LINKER_FLAGS=--profiling-funcs`, build
 `jnext_web` and pass it as `WEB_BUILD`. It is never committed or shipped.
+
+**Pacing counters.** The module exports `jnext_web_pacing_counter(i)` (a test seam):
+the callbacks that ran 0, 1, 2 and 3 or more ticks, the ticks that ran 0, 1, 2 and 3
+or more frames, and the audio fill events (the device callback had to manufacture
+samples). The page reads them at the start and the end of the window and the driver
+writes a `WEBPACE` line per cell: multi-tick callbacks per second, two-frame ticks per
+second, zero-frame ticks per second, fill events. They say WHY a cell fails the shown
+rate: a callback with two ticks and a tick with two frames both present two frames and
+show one picture, a tick with no frame holds one.
 
 **What it cannot tell you.** Headless Chrome and Firefox composite and play audio
 as the host's drivers do, which is not a visitor's machine: the results file
@@ -506,12 +532,13 @@ detail lives in the documents named.
 - **The browser build (2026-11-09).** Host: Ryzen AI 5 340, the three fastest
   physical cores, quiet (1-minute load at most 1.5 at each pass start); Chrome
   156.0.8078.79 on the GPU (ANGLE over OpenGL ES, `--use-angle=gl-egl`: headless
-  Chrome's own default is SwiftShader, software WebGL), Firefox 159.0 headed on
-  a private Xvfb (headless Firefox gives the canvas no WebGL context), emsdk
+  Chrome's own default is SwiftShader, software WebGL), Firefox 159.0 (this first
+  table: `MOZ_HEADLESS=1` on a private Xvfb display, which the results file did not
+  yet record; later tables run it headed), emsdk
   6.0.13, node 24.19.0. Core against native: the same core under node ran a
   median 1.97 times slower than native (2026-11-07, 46 NEX programs, range 1.86
   to 2.14). In the browser, every one of the 39 acceptance programs emulates at
-  its own full speed (emulated rate at least 0.999 of the refresh) in Chrome,
+  its own full speed (emulated rate at least 0.998 of the refresh) in Chrome,
   Chrome at 2x CPU throttle and Firefox; the heaviest costs 8.3 ms per frame in
   Chrome and 14.3 ms at 2x, against a 20.26 ms frame. The shown rate does not
   keep up: the main loop runs on `requestAnimationFrame`, 60 Hz here, so some

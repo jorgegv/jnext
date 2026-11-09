@@ -9,12 +9,14 @@
 # test/bench/web-baseline-<sha>.txt. No gate depends on it and CI never runs it: a speed bound
 # measures the host, so the numbers live in that committed file and on the issue.
 #
-# Variables (all optional): CONFIGS=chrome,chrome-x2,firefox  SET=<program,...> (default: the whole
-# set)  W=250 M=600 (warm-up and window frames)  PROFILE=<program,...> (Chrome CPU profile of those
-# cells, with a profiling build in WEB_BUILD)  WEB_BUILD=<dir> (default: the argument)
-# PROFILE_DIR=<dir> (where .cpuprofile files are copied)  RESULTS=<file> (instead of the
-# committed test/bench file)  FIREFOX_MODE=headless (default xvfb: headed Firefox on a
-# private Xvfb; headless Firefox 159 gives the canvas no WebGL context)  RAW_DIR=<dir> (every cell's raw JSON, for analysis)  NO_REPEAT=1 (no repeat runs)  QUIET_WAIT=0 (do not wait for a quiet host: the pass is marked LOADED)  JNEXT_BENCH_CHROME=<chrome binary>.
+# Variables (all optional): CONFIGS=chrome,chrome-x2,firefox  SET=<program,...> (default: the whole set)
+# W=250 M=600 (warm-up and window frames)  PROFILE=<program,...> (Chrome CPU profile of those cells, with a
+# profiling build in WEB_BUILD)  WEB_BUILD=<dir> (default: the argument)  PROFILE_DIR=<dir> (where
+# .cpuprofile files are copied)  RESULTS=<file> (instead of the committed test/bench file)
+# FIREFOX_MODE=xvfb|headless (default xvfb: HEADED Firefox on a private Xvfb display; headless: `firefox
+# --headless` with no display server, which gives the page no WebGL context at all)  RAW_DIR=<dir> (every
+# cell's raw JSON)  NO_REPEAT=1 (no repeat runs)  QUIET_WAIT=0 (do not wait for a quiet host: the pass is
+# marked LOADED)  JNEXT_BENCH_CHROME=<chrome binary>  BENCH_CHROME_ARGS=<extra Chrome flags>.
 #
 # Standalone script, run with bash (not sourced by a row runner), so it owns its trap.
 #
@@ -50,13 +52,21 @@ VERSION=$(sed -n 's/^version: *//p' "$ROOT/version.yaml")
 [[ -n "$BUILD_VERSION" && "$BUILD_VERSION" == "$VERSION" ]] || die "build version [$BUILD_VERSION] != version.yaml [$VERSION]: rebuild"
 for f in "jnext-$VERSION.js" "jnext-$VERSION.wasm"; do [[ -f "$BUILD/$f" ]] || die "$BUILD/$f is not built (make wasm-web)"; done
 
-# One bench at a time, machine-wide for this repo (the same lock as bench.sh).
-exec 200>"$ROOT/test/bench/.lock"
-flock -n 200 || { echo "browser-bench: another benchmark holds the lock, waiting..."; flock 200; }
+# One bench at a time on this host, across worktrees (the same lock as bench.sh).
+source "$ROOT/test/bench/bench-lock.sh"
+bench_take_lock || die "cannot take the benchmark lock"
 
 mkdir -p "$HOME/tmp"
 SCRATCH=$(mktemp -d "$HOME/tmp/jnext-browser-bench.XXXXXX")
+RUN_PID=""
 bench_cleanup() {
+    # The driver runs in the background (run-bounded.sh): a signal to this script must reach it, or its browsers
+    # outlive the run and recreate files in the scratch directory after it is removed.
+    if [[ -n "$RUN_PID" ]]; then
+        kill -TERM "$RUN_PID" 2>/dev/null
+        wait "$RUN_PID" 2>/dev/null
+        RUN_PID=""
+    fi
     [[ -n "${SCRATCH:-}" ]] && rm -rf "$SCRATCH"
     return 0
 }
@@ -102,13 +112,17 @@ OUT="$ROOT/test/bench/web-baseline-$SHA.txt"
 export BENCH_ROOT="$ROOT" BENCH_BUILD="$BUILD" BENCH_VERSION="$VERSION" BENCH_SCRATCH="$SCRATCH" \
        BENCH_SHA256="$CARD_SHA256" BENCH_OUT="$OUT" BENCH_CONFIGS="$CONFIGS" BENCH_SET="${SET:-}" \
        BENCH_W="${W:-250}" BENCH_M="${M:-600}" BENCH_PROFILE="${PROFILE:-}" BENCH_CORES="$CORES" \
-       BENCH_EMSDK=6.0.13 BENCH_FIREFOX="${FIREFOX_MODE:-xvfb}" BENCH_RAW_DIR="${RAW_DIR:-}" BENCH_NO_REPEAT="${NO_REPEAT:-0}" BENCH_QUIET_WAIT="${QUIET_WAIT:-1}" JNEXT_PLAYWRIGHT_DIR="$PW" JNEXT_BENCH_CHROME="$CHROME"
+       BENCH_EMSDK="${EMSDK##*/emsdk-}" BENCH_FIREFOX="${FIREFOX_MODE:-xvfb}" BENCH_RAW_DIR="${RAW_DIR:-}" BENCH_NO_REPEAT="${NO_REPEAT:-0}" BENCH_QUIET_WAIT="${QUIET_WAIT:-1}" JNEXT_PLAYWRIGHT_DIR="$PW" JNEXT_BENCH_CHROME="$CHROME"
 
 pin=()
 [[ -n "$CORES" ]] && pin=(taskset -c "$CORES")
 rc=0
-# Not under ulimit -v: V8 and wasm reserve far more address space than 4 GiB.
-timeout --kill-after=30s 21600s "${pin[@]}" "$NODE" "$HERE/browser-bench.mjs" || rc=$?
+# Not under ulimit -v: V8 and wasm reserve far more address space than 4 GiB. Background + wait, so INT and TERM
+# are delivered (run-bounded.sh forwards them to the driver, which kills its browsers).
+bash "$HERE/run-bounded.sh" 21600 "${pin[@]}" "$NODE" "$HERE/browser-bench.mjs" &
+RUN_PID=$!
+wait "$RUN_PID" || rc=$?
+RUN_PID=""
 if [[ -n "${PROFILE:-}" && -n "${PROFILE_DIR:-}" ]]; then
     mkdir -p "$PROFILE_DIR" && cp "$SCRATCH"/*.cpuprofile "$PROFILE_DIR"/ 2>/dev/null
     cp "$OUT" "$PROFILE_DIR"/ 2>/dev/null

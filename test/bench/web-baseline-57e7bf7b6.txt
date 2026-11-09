@@ -6,6 +6,7 @@
 # core set: 0,1,3 (fastest class, one logical CPU per physical core)
 # chrome:  156.0.8078.79 (/usr/bin/google-chrome), args: --mute-audio --autoplay-policy=no-user-gesture-required --use-angle=gl-egl
 # firefox: Mozilla Firefox 159.0
+# firefox mode: headless (MOZ_HEADLESS=1) on a private Xvfb display (xvfb-run -d); added after the run from the driver source of that commit, the header did not record it
 # webgl renderer chrome: ANGLE (AMD, AMD Radeon 840M Graphics (radeonsi krackan1 ACO), OpenGL ES 3.2)
 # webgl renderer chrome-x2: ANGLE (AMD, AMD Radeon 840M Graphics (radeonsi krackan1 ACO), OpenGL ES 3.2)
 # webgl renderer firefox: Radeon R9 200 Series, or similar

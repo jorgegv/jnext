@@ -92,9 +92,6 @@
   });
 
   function glInfo(canvas) {
-    const c = canvas || {};
-    const dbg = [!!canvas, canvas && canvas.width, document.querySelectorAll('canvas').length, (() => { try { return String(canvas.getContext('webgl2')); } catch (e) { return 'E' + e; } })(), (() => { try { return String(canvas.getContext('webgl')); } catch (e) { return 'E' + e; } })(), (() => { try { return String(canvas.getContext('2d')); } catch (e) { return 'E' + e; } })()].join(',');
-    window.__gldbg = dbg;
     const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');   // whichever SDL created
     if (!gl) return { gl: false, renderer: '' };
     const ext = gl.getExtension('WEBGL_debug_renderer_info');
@@ -154,7 +151,7 @@
       raw.capped = S.capped;
       raw.audio_state = S.ctxs[0] ? S.ctxs[0].state : 'none';
       const g = glInfo(document.querySelector('#box canvas'));
-      raw.gl = g.gl; raw.renderer = g.renderer; raw.gl_dbg = window.__gldbg;
+      raw.gl = g.gl; raw.renderer = g.renderer;
       say(`${cell.config} ${cell.program}: ${S.frames} frames in ${(raw.wall_ms / 1000).toFixed(2)} s`);
     } catch (e) {
       raw.error = String(e && e.message || e);

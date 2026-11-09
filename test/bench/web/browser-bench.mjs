@@ -21,6 +21,10 @@ const W = Number(E.BENCH_W || 250), M = Number(E.BENCH_M || 600), CAP_MS = 60000
 const CONFIGS = (E.BENCH_CONFIGS || 'chrome,chrome-x2,firefox').split(',');
 const PROFILE = E.BENCH_PROFILE ? E.BENCH_PROFILE.split(',') : [];
 const LOAD_MAX = 1.5, QUIET_WAIT_MS = 30 * 60 * 1000;
+// Playwright puts the browser's profile (which caches the page's SD card) and its artifacts in os.tmpdir():
+// aim that at the scratch directory, so a killed run leaves nothing in /tmp and the wrapper's rm removes all.
+fs.mkdirSync(path.join(SCRATCH, 'tmp'), { recursive: true });
+process.env.TMPDIR = path.join(SCRATCH, 'tmp');
 const require = createRequire(E.JNEXT_PLAYWRIGHT_DIR + '/');
 const { chromium } = require('playwright-core');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -106,6 +110,27 @@ async function waitQuiet(label) {
 // ---- Chrome ------------------------------------------------------------------------------------
 const chromePath = E.JNEXT_BENCH_CHROME || '/usr/bin/google-chrome';
 let chromeVersion = '', firefoxVersion = '';
+const FIREFOX_MODE = E.BENCH_FIREFOX === 'headless' ? 'headless' : 'xvfb';
+let ffProc = null, chromeBrowser = null;
+
+// INT and TERM: kill the Firefox process group (timeout, xvfb-run, Xvfb, Firefox: it was spawned detached, so a
+// signal to this process never reaches it) and close Chrome, then leave. browser-bench.sh removes the scratch
+// directory afterwards, so nothing may still be running to recreate files in it.
+let dying = false;
+async function die(code) {
+  if (dying) return;
+  dying = true;
+  try {
+    if (ffProc) {
+      try { process.kill(-ffProc.pid, 'SIGTERM'); } catch (e) { /* gone */ }
+      await sleep(1500);
+      try { process.kill(-ffProc.pid, 'SIGKILL'); } catch (e) { /* gone */ }
+    }
+    if (chromeBrowser) await Promise.race([chromeBrowser.close().catch(() => {}), sleep(3000)]);
+  } finally { process.exit(code); }
+}
+process.on('SIGINT', () => { die(130); });
+process.on('SIGTERM', () => { die(143); });
 // --use-angle=gl-egl: headless Chrome's default is SwiftShader (software WebGL); a visitor's Chrome
 // draws on the GPU (the results file records the renderer used).
 const CHROME_ARGS = ['--mute-audio', '--autoplay-policy=no-user-gesture-required', '--use-angle=gl-egl', ...(E.BENCH_CHROME_ARGS ? E.BENCH_CHROME_ARGS.split(' ') : [])];
@@ -139,6 +164,7 @@ function splitProfile(prof) {
 
 async function chromePass(config, cells, onResult) {
   const browser = await chromium.launch({ executablePath: chromePath, headless: true, args: CHROME_ARGS });
+  chromeBrowser = browser;
   chromeVersion = browser.version();
   const ctx = await browser.newContext({ viewport: { width: 1000, height: 800 }, deviceScaleFactor: 1 });
   const x2 = config === 'chrome-x2';
@@ -179,6 +205,7 @@ async function chromePass(config, cells, onResult) {
     onResult(raw);
   }
   await browser.close();
+  chromeBrowser = null;
 }
 
 // ---- Firefox -----------------------------------------------------------------------------------
@@ -201,14 +228,17 @@ async function firefoxPass(config, cells, onResult) {
   const set = E.BENCH_CORES ? ['taskset', '-c', E.BENCH_CORES] : [];
   let proc = null;
   const launch = () => {
-    // BENCH_FIREFOX=xvfb (the default): headed Firefox on a private Xvfb. Headless Firefox 159 gives jnext's
-    // canvas no WebGL context (SDL falls back to a 2D canvas), so every cell would be INVALID.
+    // BENCH_FIREFOX=xvfb (the default): HEADED Firefox (no --headless, no MOZ_HEADLESS) on a private Xvfb display.
+    // headless: `firefox --headless` with no display server. A headless Firefox 159 without a display server gives
+    // no canvas any WebGL context (version 1 or 2, any attributes: measured with a static page), so the page falls
+    // back to SDL's 2D canvas and every cell would be INVALID; under Xvfb the same Firefox has WebGL.
     // -d lets Xvfb pick its display, -noreset keeps it up between Firefox's clients (never -a / -n).
-    const head = E.BENCH_FIREFOX !== 'headless'
+    const head = FIREFOX_MODE === 'xvfb'
       ? ['xvfb-run', '-d', '--server-args=-screen 0 1280x1024x24 -noreset', 'firefox']
       : ['firefox', '--headless'];
     proc = spawn('timeout', ['--kill-after=10s', '14400s', ...set, ...head, '--no-remote', '--profile', prof, url],
-                 { detached: true, stdio: 'ignore', env: { ...childEnv, MOZ_DISABLE_CONTENT_SANDBOX: '', MOZ_HEADLESS: '1' } });
+                 { detached: true, stdio: 'ignore', env: childEnv });
+    ffProc = proc;
   };
   const kill = async () => {
     if (!proc) return;
@@ -216,6 +246,7 @@ async function firefoxPass(config, cells, onResult) {
     await sleep(3000);
     try { process.kill(-proc.pid, 'SIGKILL'); } catch (e) { /* gone */ }
     proc = null;
+    ffProc = null;
   };
   lastActivity = Date.now();
   launch();
@@ -253,7 +284,6 @@ async function pass(config) {
     if (E.BENCH_RAW_DIR) fs.writeFileSync(path.join(E.BENCH_RAW_DIR, `${config}.${raw.program}.${raw.run}.json`), JSON.stringify(raw));
     if (!runs.has(k)) runs.set(k, []);
     runs.get(k).push(raw);
-    if (raw.gl_dbg && !raw.gl) log('gl_dbg ' + raw.gl_dbg);
     if (!raw.error && raw.costs.length > 1) {   // stability of the window: p50 over its two halves (IC5)
       const h = raw.costs.length >> 1;
       raw.half_p50 = [percentile(raw.costs.slice(0, h), 50), percentile(raw.costs.slice(h), 50)];
@@ -300,7 +330,7 @@ async function pass(config) {
   for (const p of programs) {
     const rs = runs.get(p.name).map((r) => {
       const j = judge(r, ctx);
-      return { config, program: p.name, verdict: j.verdict, reason: j.reason, m: j.m, speed: speedLabel(r), calib_ms: r.calib_ms || NaN, raw: r };
+      return { config, program: p.name, verdict: j.verdict, reason: j.reason, would: j.would, m: j.m, speed: speedLabel(r), calib_ms: r.calib_ms || NaN, raw: r };
     });
     const s = settle(rs);
     results.push({ ...s, acceptance: p.acceptance });
@@ -334,6 +364,7 @@ lines.push(`# build:  ${BUILD} (jnext-${VERSION}), emsdk ${E.BENCH_EMSDK || '6.0
 lines.push(`# core set: ${E.BENCH_CORES || 'unpinned'} (fastest class, one logical CPU per physical core)`);
 lines.push(`# chrome:  ${chromeVersion || 'n/a'} (${chromePath}), args: ${CHROME_ARGS.join(' ')}`);
 lines.push(`# firefox: ${firefoxVersion}`);
+lines.push(`# firefox mode: ${FIREFOX_MODE === 'xvfb' ? 'headed (no --headless, no MOZ_HEADLESS) on a private Xvfb display (xvfb-run -d)' : 'headless (--headless, no display server)'}`);
 for (const [c, s] of Object.entries(renderers)) lines.push(`# webgl renderer ${c}: ${[...s].join(' | ')}`);
 for (const [c, s] of Object.entries(uas)) lines.push(`# user agent ${c}: ${[...s].join(' | ')}`);
 lines.push(`# window: W=${W} warm-up frames, M=${M} frames or ${CAP_MS / 1000} s; box 640x512; machine next; one wasm instance per cell`);

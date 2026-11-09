@@ -1,6 +1,6 @@
 // Pure functions of the browser bench (make bench-web): per-cell metrics, the verdict, the
 // INVALID reasons, the repeat rule, completeness, the WEBBENCH line and the markdown table.
-// No I/O, no clock, no browser: the rows WBENCH-01..10 (bench-stats-test.mjs) run on synthetic data.
+// No I/O, no clock, no browser: the rows WBENCH-01..12 (bench-stats-test.mjs) run on synthetic data.
 //
 // A raw cell is what the page measured over the window (bench.js):
 //   costs[]   each requestAnimationFrame callback's cost in ms
