@@ -36,10 +36,11 @@ project's test set (the NEX programs of its regression suite and a 3.5 MHz one),
 each started on its own and left to run for 600 frames:
 
 - In Chrome 156, in Firefox 159 and in Chrome with its CPU throttled to half speed (a
-  rough stand-in for a slow machine) every program ran at full speed and showed every
-  frame: the pictures per second reached the program's own refresh (49.36 Hz, or
-  58.15 Hz for programs that switch to 60 Hz), with no audio underrun. The lowest figure
-  of any program was 99.5% of the pictures.
+  rough stand-in for a slow machine) every program kept full emulation speed, with no
+  audio underrun. On an otherwise idle machine every program also showed every picture
+  (the lowest figure was 99.5% of the pictures). With some other load on the machine the
+  three heaviest programs at half speed (`shift`, `blue` and `menu`) showed 95% to 98% of
+  the pictures.
 
 This is what one machine did, not a promise for another: a slower computer, a busy
 one or another browser will differ.

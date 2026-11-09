@@ -561,15 +561,22 @@ detail lives in the documents named.
   |---|---|---|---|
   | before (first table) | 0.877, 0 | 0.879, 0 | 0.938, 1 |
   | one grid tick per callback | 0.984, 4 | 0.979, 2 | 0.983, 1 |
-  | + audio device buffer 1024 frames | 1.000, 38 | 0.999, 18 (20 out of the band, see below) | 0.999, 38 |
+  | + audio device buffer 1024 frames | 1.000, 38 (1 busy) | 0.999, 18 (20 out of the band, see below) | 0.999, 38 |
   | + exact fractional grid | 1.000, 39 | 0.999, 29 | 1.000, 39 |
-  | + the desktop frontend's deadline (final tree) | 1.000, 39 | 1.000, 39 | 1.000, 39 |
+  | + the desktop frontend's deadline (final tree) | 1.000, 39 | 1.000, 39 (one session) | 1.000, 39 |
 
   In the last row the three Chrome cells flagged by the busy witness and the sixteen
   Firefox cells that overlapped another browser session on the host were measured
-  again on the quiet host (`web-baseline-<sha>-rerun-*.txt`): all PASS. The
-  smallest shown/refresh in the final table is 0.995 (Firefox), 0.999 (Chrome and
-  Chrome at 2x). Audio underruns: 0 in the last three rows.
+  again on the quiet host (`web-baseline-<sha>-rerun-*.txt`): all PASS. The smallest
+  shown/refresh in that table is 0.995 (Firefox), 0.999 (Chrome and Chrome at 2x).
+  Audio underruns: 0 in the last three rows. A second session on the same tree
+  (`web-baseline-<sha>-x2-subset.txt`, four programs, quiet by the bench's rule but with
+  some background load: 1-minute load 1.3 to 2.0) did not reproduce the 2x column: blue
+  showed 98.2%, menu 97.8% and shift 94.7% of the pictures, and Firefox's beast 99.2%.
+  The emulation itself stayed at full speed and there were no underruns, so the spread
+  at 2x is the margin the three heaviest programs have, and it moves with background load.
+  The owner accepted that edge (the Chrome-at-2x cells at the margin, about three programs
+  under load) as the target achieved.
 
   The pacing counters show why. Before: about 11% of the callbacks ran two ticks.
   One grid tick per callback removed those; what was left (0.8 to 1.1 two-frame
