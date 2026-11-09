@@ -134,9 +134,6 @@ public:
     /// a vsynced present cannot cap the speed at the display's refresh.
     void set_speed_percent(int percent);
     double speed_multiplier() const { return speed_multiplier_; }
-    /// The frame period the loop paces on, in microseconds and NOT rounded to whole
-    /// milliseconds: the machine's video period scaled by --speed (the sleep in tick()
-    /// rounds the same quantity to whole ms). The browser frame loop advances its grid by it.
     /// Test seam for the pacing (GH #468): the clock the frame deadline reads, in microseconds, and the sleep run()
     /// performs. Defaults: SDL_GetTicksNS() / 1000 and SDL_Delay(). tick() only READS the clock and never sleeps, so a
     /// suite that drives both sees the pacing grid without depending on how fast the host runs a tick.
@@ -144,6 +141,9 @@ public:
         pacing_now_us_ = std::move(now_us);
         pacing_sleep_ms_ = std::move(sleep_ms);
     }
+    /// The frame period the loop paces on, in microseconds and NOT rounded to whole
+    /// milliseconds: the machine's video period scaled by --speed (the sleep in tick()
+    /// rounds the same quantity to whole ms). The browser frame loop advances its grid by it.
     int64_t effective_frame_period_us() const {
         return static_cast<int64_t>(1000.0 * emulator_.frame_period_ms() / speed_multiplier_ + 0.5);
     }

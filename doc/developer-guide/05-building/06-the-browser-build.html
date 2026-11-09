@@ -3005,8 +3005,8 @@ by a pinned Emscripten SDK. One tree, <code>build/wasm-core</code>, links two mo
   (WCORE-01 to WCORE-09) and <code>make regression-wasm</code> run it under node. The unit suites
   are separate modules, built in <code>build/wasm-unit-test</code>.</li>
 <li><code>jnext_web</code> (<code>jnext-&lt;version&gt;.js</code> and <code>.wasm</code>): the build a page loads, with the
-  example pages (<code>plain.html</code>, <code>itch-host.html</code>, <code>itch-game.html</code>) configured beside
-  it.</li>
+  example pages (<code>plain.html</code>, <code>itch-host.html</code>, <code>itch-game.html</code>, <code>widget.html</code>) and
+  the ready-made widget (<code>jnext-widget.js</code>) configured beside it.</li>
 </ul>
 <p>Two preprocessor symbols mark browser-only code. <code>__EMSCRIPTEN__</code> is defined in
 both modules. <code>JNEXT_BROWSER</code> is a compile definition of <code>jnext_web</code> alone: it marks
@@ -3106,7 +3106,8 @@ the output of <code>git grep -n EMSCRIPTEN</code> over the CMake files.</p>
   and keeping the application and the logging alive after <code>main()</code> returns.</li>
 <li><code>src/platform/sdl_app.cpp</code> and <code>sdl_app.h</code>: no script host; the stepped warm-start
   recording in <code>SdlApp::tick()</code> with its progress report; <code>release_mouse_capture()</code>, for
-  when the browser ends the pointer lock itself.</li>
+  when the browser ends the pointer lock itself; <code>take_audio_fill_stats()</code>, the bench's
+  audio fill-events seam.</li>
 <li><code>src/platform/headless_app.cpp</code> and <code>headless_app.h</code>: no script host.</li>
 <li><code>src/platform/sdl_display.cpp</code>: the canvas is created as an OpenGL window and the
   page owns its size (window scale does nothing).</li>
