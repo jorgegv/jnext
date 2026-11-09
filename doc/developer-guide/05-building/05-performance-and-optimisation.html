@@ -3748,7 +3748,12 @@ detail lives in the documents named.</p>
   display frame) still show 0.81 to 0.99: the main thread is nearly saturated, the
   audio callbacks (served on it) arrive late, and the pacer asks for two frames. They
   emulate at full speed (emulated rate 1.000); <code>--when-slow-prefer video</code> on them gave
-  4 of 5 PASS at the price of 1 to 4 audio fill events per window. In the second row
+  4 of 5 PASS at the price of 1 to 4 audio fill events per window. The target was
+  accepted on that basis (2026-11-09): every program of the set runs at full speed
+  in Chrome and in Firefox, in Chrome at 2x 29 of 39 do and the other ten (blue, menu,
+  red, shift, trainyard-express, beanbros, celeste, joy_uart_demo, test04tilemap and
+  parallax, which show 0.81 to 0.99 of the refresh) were judged close enough, with
+  no further work on the emulation cost. In the second row
   the 20 "out of the band" cells were the bench's own error (its unthrottled
   calibration reference was skewed by the laptop's slow CPU state), fixed for the
   third.
