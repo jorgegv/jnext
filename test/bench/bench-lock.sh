@@ -13,3 +13,11 @@ bench_take_lock() {
         flock 200
     fi
 }
+
+# Start a background child WITHOUT the lock descriptor. The lock is held for exactly as long as the calling shell
+# lives: a child that inherited fd 200 and outlives it (a detached browser, an Xvfb) would hold the lock for every
+# later bench on the host. Sets BENCH_CHILD_PID.
+bench_spawn() {
+    ( exec 200>&-; exec "$@" ) &
+    BENCH_CHILD_PID=$!
+}

@@ -120,8 +120,8 @@ pin=()
 rc=0
 # Not under ulimit -v: V8 and wasm reserve far more address space than 4 GiB. Background + wait, so INT and TERM
 # are delivered (run-bounded.sh forwards them to the driver, which kills its browsers).
-bash "$HERE/run-bounded.sh" 21600 "${pin[@]}" "$NODE" "$HERE/browser-bench.mjs" &
-RUN_PID=$!
+bench_spawn bash "$HERE/run-bounded.sh" 21600 "${pin[@]}" "$NODE" "$HERE/browser-bench.mjs"
+RUN_PID=$BENCH_CHILD_PID
 wait "$RUN_PID" || rc=$?
 RUN_PID=""
 if [[ -n "${PROFILE:-}" && -n "${PROFILE_DIR:-}" ]]; then

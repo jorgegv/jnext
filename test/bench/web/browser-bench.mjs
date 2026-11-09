@@ -132,6 +132,8 @@ async function die(code) {
     if (chromeBrowser) await Promise.race([chromeBrowser.close().catch(() => {}), sleep(3000)]);
   } finally { process.exit(code); }
 }
+// Once dying, start nothing more: a pass, a cell or a Firefox launched after die() has looked would outlive it.
+const parkIfDying = async () => { if (dying) await new Promise(() => {}); };
 process.on('SIGINT', () => { die(130); });
 process.on('SIGTERM', () => { die(143); });
 // --use-angle=gl-egl: headless Chrome's default is SwiftShader (software WebGL); a visitor's Chrome
@@ -166,12 +168,14 @@ function splitProfile(prof) {
 }
 
 async function chromePass(config, cells, onResult) {
+  await parkIfDying();
   const browser = await chromium.launch({ executablePath: chromePath, headless: true, args: CHROME_ARGS });
   chromeBrowser = browser;
   chromeVersion = browser.version();
   const ctx = await browser.newContext({ viewport: { width: 1000, height: 800 }, deviceScaleFactor: 1 });
   const x2 = config === 'chrome-x2';
   for (const cell of cells) {
+    await parkIfDying();
     const page = await ctx.newPage();
     let raw;
     const prof = PROFILE.includes(cell.program);
@@ -213,6 +217,7 @@ async function chromePass(config, cells, onResult) {
 
 // ---- Firefox -----------------------------------------------------------------------------------
 async function firefoxPass(config, cells, onResult) {
+  await parkIfDying();
   const prof = fs.mkdtempSync(path.join(SCRATCH, 'ffprofile-'));
   fs.writeFileSync(path.join(prof, 'user.js'), [
     'user_pref("media.autoplay.default", 0);', 'user_pref("media.autoplay.blocking_policy", 0);',
@@ -231,6 +236,7 @@ async function firefoxPass(config, cells, onResult) {
   const set = E.BENCH_CORES ? ['taskset', '-c', E.BENCH_CORES] : [];
   let proc = null;
   const launch = () => {
+    if (dying) return;                          // die() has looked for a Firefox group already
     // Measured with a static page (Firefox 159): with no display connection a headless Firefox gives no canvas
     // any WebGL context, version 1 or 2, any attributes; with the Xvfb display it does. Which renderer it gets
     // depends on the route: MOZ_HEADLESS=1 on Xvfb draws on the GPU (EGL), a headed Firefox draws through the X
@@ -257,6 +263,7 @@ async function firefoxPass(config, cells, onResult) {
   launch();
   while (got.length < want) {
     await sleep(2000);
+    await parkIfDying();
     if (Date.now() - lastActivity > 420000) {          // a hung cell: record it, restart the browser
       const c = inflight || queue[0];
       log(`firefox: no activity for 420 s; cell ${c && c.program} recorded as hung`);
@@ -278,6 +285,7 @@ const passInfo = [];
 let baseCalib = 0;
 
 async function pass(config) {
+  await parkIfDying();
   const q = await waitQuiet(config);
   const info = { config, load_start: q.load, loaded: q.loaded, load_end: 0 };
   log(`pass ${config} start, load ${q.load.toFixed(2)}${q.loaded ? ' LOADED' : ''}`);

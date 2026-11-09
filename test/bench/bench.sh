@@ -211,7 +211,7 @@ for spec in "${WORKLOADS[@]}"; do
 done
 [[ -n "$prime_load" && -f "$PROJECT_DIR/$prime_load" ]] || die "no NEX workload to prime the warm start with"
 taskset -c "$CORE" "$BIN" --headless --machine next --sdcard "$SD_IMAGE" \
-    --load "$PROJECT_DIR/$prime_load" --delayed-automatic-exit-frames 1 >/dev/null 2>&1 \
+    --load "$PROJECT_DIR/$prime_load" --delayed-automatic-exit-frames 1 >/dev/null 2>&1 200>&- \
     || die "the warm-start priming run failed"
 emit "# warm start: primed (private config dir)"
 emit ""
@@ -234,7 +234,7 @@ for spec in "${WORKLOADS[@]}"; do
     bench_lines=()
     fps_list=()
     for (( run=1; run<=REPEATS; run++ )); do
-        line=$(taskset -c "$CORE" "$BIN" "${args[@]}" 2>/dev/null | grep '^BENCH ' || true)
+        line=$(taskset -c "$CORE" "$BIN" "${args[@]}" 2>/dev/null 200>&- | grep '^BENCH ' || true)
         if [[ -z "$line" ]]; then
             die "workload $name run $run produced no BENCH line — aborting (harness fault)"
         fi
