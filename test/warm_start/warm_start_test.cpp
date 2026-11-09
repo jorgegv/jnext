@@ -1603,9 +1603,9 @@ int main()
     //
     // The one path of the three that actually boots. A readable file that is
     // not a NextZXOS card gets past the machine-type and no-SD guards and past
-    // the digest, so `record_warm_start_state()` really runs: a fresh Emulator,
-    // 500 frames of firmware that finds nothing, and `nextzxos_resident()`
-    // refusing. That is the case GH #234 must never cache — a machine that
+    // the digest, so the recording (begin_warm_start_recording(), stepped by
+    // prepare_warm_start()) really runs: a fresh Emulator, 400 frames of firmware
+    // that finds nothing, and `nextzxos_resident()` refusing at T0. That is the case GH #234 must never cache — a machine that
     // looks booted and is not — so it is worth the ~seconds it costs here.
     {
         const std::string fake_sd = g_dir + "/not-a-nextzxos-card.img";

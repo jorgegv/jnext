@@ -1,7 +1,7 @@
 // GH #452 - the NextZXOS COLD boot, batching off vs on, per frame.
 //
 // halt_batch_corpus_*_test load every program through the warm start, which a separate machine
-// RECORDS (Emulator::record_warm_start_state(), default switches) and every corpus run then
+// RECORDS (Emulator::begin_warm_start_recording(), stepped by prepare_warm_start(), default switches) and every corpus run then
 // restores; so no corpus run ever executes the boot itself with the switches under test. This
 // suite does: nextboot.rom through to NextZXOS on the SD image (the unit harness's per-run clone,
 // $JNEXT_TEST_SD_IMAGE; standalone, the master under ~/.jnext/sdcard, opened read-only), the RTC

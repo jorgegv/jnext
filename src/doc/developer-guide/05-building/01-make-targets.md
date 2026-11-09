@@ -178,6 +178,8 @@ count the script pins, so the JavaScript API rows run in the same target. `make 
 also a prerequisite: the run ends by serving the extracted `jnext-<version>-web.zip` alone and
 booting the example page from it ([5.3](03-packaging-and-release.md#the-browser-package)).
 
+The browser build as a whole, with its CMake arms and tests, is [5.6](06-the-browser-build.md).
+
 Chapter [4. Testing](../04-testing/index.md) covers what each of these actually
 proves.
 

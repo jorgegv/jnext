@@ -1,0 +1,97 @@
+# 10.4 The SD-card image, and what the browser keeps
+
+## The image
+
+JNEXT runs NextZXOS from an SD card in the browser too. The page names one by
+`image: {url, sha256}`. JNEXT does not ship, host or serve the image. The browser
+build is made and tested for the small NextZXOS boot card (40 MiB), not for the 1 GB
+distribution image.
+
+The image may also be a `.zip` holding exactly one `.img` file. The page recognises it
+by its content, and the `sha256` you give is the digest of the zip, not of the card
+inside it.
+
+To try a page on your own computer, make the small card from the distribution image
+JNEXT downloaded for the desktop emulator (chapter 3), with
+`tools/make-minimal-sdcard-image.sh` from a JNEXT source checkout. The script needs
+`mtools` and `sfdisk` (from util-linux), and a destination directory on a file system
+that supports hard links. Then serve it next to the page:
+
+```console
+$ tools/make-minimal-sdcard-image.sh ~/.jnext/sdcard/cspect-next-1gb.img card.img
+$ sha256sum card.img
+$ python3 -m http.server 8000
+```
+
+The directory you serve holds `jnext-VERSION.js`, `jnext-VERSION.wasm`, `plain.html`,
+`card.img` and the program (`game.nex` here). Open
+`http://localhost:8000/plain.html?image=card.img&sha256=<the digest>&file=game.nex`
+and click the player. A page opened from disk (`file://`) does not work: the browser
+refuses to load the `.wasm` file from a `file://` address and the page's status line
+reads `error: Aborted(both async and sync fetching of the wasm failed ...)`.
+
+## The first visit
+
+The visitor sees these steps, in this order:
+
+1. `download`: the image is fetched and its SHA-256 is checked. An image that does not
+   match the digest is refused.
+2. "Click to start".
+3. For a `.nex` program only, `warm-start`: NextZXOS boots once and the machine is
+   recorded.
+4. `onReady`.
+
+The download is a cross-origin read made without credentials, so the image's server
+must send `Access-Control-Allow-Origin`. The page can report the progress of the
+download only when the server sends `Content-Length` and does not compress the file;
+otherwise `onProgress` reports only 0 and 1.
+
+## Later visits
+
+A later visit makes no request for the image. The cached copy is hashed again every
+time, and a copy that no longer matches the digest is deleted and fetched again.
+
+For a `.nex` program the recorded machine is brought back (`restore`) instead of booting
+NextZXOS again. A corrupted recording is made again. A `.tap` or a `.tzx` starts directly in 48K
+BASIC, without NextZXOS, so there is nothing to record. A Next page with no program boots
+NextZXOS on every visit and records nothing.
+
+## What the browser keeps, and where
+
+- The image is kept in the browser's Cache Storage, under its URL.
+- The warm-start recording is kept in IndexedDB.
+- Nothing else is kept: no settings, and none of the writes the program makes to the
+  card, nor screenshots or snapshots (10.3).
+- Several players on one page share the recording.
+- If the browser's storage is full, the session still runs and the next visit downloads
+  the image again.
+
+Browsers keep the storage of each origin (scheme, host and port) apart. Two pages of one
+origin share the image and the recording. A game inside an `iframe` of another site may
+or may not see the storage its own origin has: that depends on the browser, its version
+and its privacy settings (in the Chromium used to test JNEXT it did), so do not rely on
+either. Clearing the site's data in the browser makes the next visit a first visit.
+
+## If it does not start
+
+The page reports these messages through `onError`, and the example pages show them in
+their status line.
+
+| message | what it means |
+|---|---|
+| `unknown option '<name>'`, `image is required` or `option '<name>' must be ...` | A `mount()` option is misspelt, missing or of the wrong type. Nothing has been downloaded yet. |
+| `no image url` | `image.url` is empty. |
+| `image: no URL configured` | `plain.html` was opened with no `?image=` and no URL in its constants. |
+| `the image sha256 is not 64 hex digits` | The digest is a string, but not 64 hex digits: it is mistyped. |
+| `option 'image' must be an object {path, sha256}` | The digest is missing or is not a string. |
+| `option 'image': the sha256 is all zeros` | The digest is 64 zeros, which never names a real image. |
+| `cannot fetch <url>: a network error, or the server does not allow cross-origin reads (no Access-Control-Allow-Origin header)` | The server is unreachable, or it does not send `Access-Control-Allow-Origin`. Make it send the header. |
+| `cannot fetch <url>: HTTP <status>` | The server answered with an error, for the image or for the program file: check the URL. |
+| `Failed to fetch` | The browser's own text (Chromium's is shown; Firefox words it differently) for a program file it could not read: the program is on another site whose server does not send `Access-Control-Allow-Origin` (make it send the header, or give `{data, name}` to avoid the network), or its server cannot be reached. |
+| `SHA-256 mismatch for <url>: got ..., expected ...` | The file served is not the one the digest names. Recompute the digest with `sha256sum`. |
+| `the SD-card image needs a secure context (https, or http://localhost): ...` | The page is not served over `https://`, `http://localhost` or `http://127.0.0.1`. |
+| `--load <file>: a browser page loads only .nex, .tap, .tzx programs` | The program has another extension. |
+| `--rzx-play: RZX is not available in a browser page` | RZX files cannot be played in a page (`--rzx-record` is refused the same way). |
+| `<flag>: not available in the browser build (...)` or `<flag>: not available in a browser page (...)` | An option that needs a process, a socket or a terminal was given. The reason is in the brackets, and the list is in the man page ("Not available in the browser"). |
+| `jnext exited with code N` | The machine stopped with an error after it had started. |
+| the lines the machine printed, or `jnext: the machine did not start` | The machine stopped before its first frame. The lines say why. |

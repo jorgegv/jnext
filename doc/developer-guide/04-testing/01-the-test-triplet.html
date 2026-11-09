@@ -1949,6 +1949,8 @@
       
         
       
+        
+      
     
     
     
@@ -2125,6 +2127,34 @@
     
   
     5.5 Performance and optimisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/06-the-browser-build.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.6 The browser build
   
 
     
@@ -2972,7 +3002,9 @@ $ ./build/test/fuse_z80_test build/test/fuse
 $ make regression
 </code></pre>
 <p>The triplet is the core of the <strong>batch gate</strong>, which adds <code>make unit-test-sdl</code>,
-<code>make unit-test-win</code>, <code>make unit-test-wasm</code> and <code>make regression-win</code>.</p>
+<code>make unit-test-win</code>, <code>make regression-win</code> and the four WebAssembly targets,
+<code>make wasm-core</code>, <code>make wasm-browser-test</code>, <code>make unit-test-wasm</code> and
+<code>make regression-wasm</code> (<a href="../05-building/06-the-browser-build.html">5.6</a>).</p>
 <ul>
 <li><strong>When it runs:</strong> on <code>main</code>'s tip, once, after all of a work session's landings
   and before any push.</li>

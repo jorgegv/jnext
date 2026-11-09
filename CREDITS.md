@@ -55,3 +55,5 @@ and it will be changed.
   for Next development.
 - **[zx_go](https://github.com/conorarmstrong/zx_go)**  — another Next-capable emulator,
   which played a fundamental oracle role in getting NextZXOS to boot on JNext.
+- **[@shrek128](https://github.com/shrek128)** — his WebAssembly port of JNEXT showed
+  the approach and gave the browser build several of its ideas.

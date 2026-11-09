@@ -1938,6 +1938,8 @@
       
         
       
+        
+      
     
     
     
@@ -2114,6 +2116,34 @@
     
   
     5.5 Performance and optimisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/06-the-browser-build.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.6 The browser build
   
 
     
@@ -3083,7 +3113,9 @@ looking at when they hit a breakpoint mid-screen.</p>
   kept only for audio output. The debugger (<code>src/debugger/</code>) hangs off this
   frontend.</li>
 <li><strong>SDL-only</strong> — <code>src/platform/sdl_app.*</code>, the fallback when <code>ENABLE_QT_UI=OFF</code>.
-  Window, input and audio all go through SDL3.</li>
+  Window, input and audio all go through SDL3. It is also the frontend of the
+  browser build, driven by the page one frame at a time
+  (<a href="../05-building/06-the-browser-build.html">5.6</a>).</li>
 <li><strong>Headless</strong> — <code>src/platform/headless_app.cpp</code>, selected at run time by
   <code>--headless</code> in either build. It opens no window, no audio device and no host
   input, runs uncapped instead of paced to real time, and schedules everything

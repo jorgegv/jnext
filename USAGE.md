@@ -3022,7 +3022,7 @@ the machine boots to the NextZXOS menu.
 `startup.silent`: no audio device for the session.
 
 `set` *{“section.key”: value}*  
-One **--set** *section.key=value* per entry, in key order.
+One **--set** *section.key=value* per entry, sorted by key.
 
 `args` *array of strings*  
 Further command-line arguments, appended last, so they win over
@@ -3045,10 +3045,11 @@ a message on every failure.
 `state` is `waiting`, `starting`, `running`, `paused`, `exited` or
 `destroyed`; `ready` is a promise for the first ready. `pause()` and
 `resume()` stop and restart the frame loop. `reset(kind)` restarts the
-program (`'program'`, the default), powers the machine on again
-(`'hard'`) or resets it (`'soft'`). `load(file)` loads another program
-while the machine runs. `setVolume(v)` sets the master output level, `0`
-to `1`. `destroy()` stops the machine and removes the player.
+program (`'program'`, the default; with no program it powers on again),
+powers the machine on again (`'hard'`) or resets it (`'soft'`).
+`load(file)` loads another program while the machine runs.
+`setVolume(v)` sets the master output level, `0` to `1`. `destroy()`
+stops the machine and removes the player.
 
 ### Not available in the browser
 
