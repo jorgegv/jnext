@@ -552,6 +552,32 @@ detail lives in the documents named.
   `Emulator::run_frame`), and of `beast` 33% in the renderer and 27% in clock
   reads.
 
+- **Browser frame pacing (2026-11-09).** The same host, the same 39 acceptance
+  programs and the same verdict (emulated AND shown rate at least 0.99 x the
+  program's own refresh), one change at a time. Median of shown/refresh, and the
+  cells that PASS (of 39):
+
+  | step | Chrome | Chrome at 2x | Firefox |
+  |---|---|---|---|
+  | before (first table) | 0.877, 0 | 0.879, 0 | 0.938, 1 |
+  | one grid tick per callback | 0.984, 4 | 0.979, 2 | 0.983, 1 |
+  | + audio device buffer 1024 frames | 1.000, 38 (1 busy) | 0.999, 18 (20 out of the band, see below) | 0.999, 38 |
+  | + exact fractional grid | 1.000, 39 | 0.999, 29 | 1.000, 39 |
+
+  The pacing counters show why. Before: about 11% of the callbacks ran two ticks.
+  One grid tick per callback removed those; what was left (0.8 to 1.1 two-frame
+  ticks and 1.4 to 1.7 zero-frame ticks per second) came from the audio pacer: the
+  42.7 ms device buffer made its sawtooth reach its guards, and the whole-millisecond
+  grid ran 1.3% fast. With the 21.3 ms buffer the two-frame ticks went to 0 (audio
+  fill events stayed 0), and with the exact grid the zero-frame ticks went to 0
+  too. At 2x the ten heaviest programs (a tick of 14 to 16 ms against a 16.7 ms
+  display frame) still show 0.81 to 0.99: the main thread is nearly saturated, the
+  audio callbacks (served on it) arrive late, and the pacer asks for two frames. They
+  emulate at full speed (emulated rate 1.000); `--when-slow-prefer video` on them gave
+  4 of 5 PASS at the price of 1 to 4 audio fill events per window. In the second row
+  the 20 "out of the band" cells were the bench's own error (its unthrottled
+  calibration reference was skewed by the laptop's slow CPU state), fixed for the
+  third.
 - **Task 27 (2026-07): LTO.** Turning LTO on for Release — a 17-line CMake
   change — gave **+34.5%** on boot-nextzxos and +17.4% on bifrost, more than
   all the hand-tuned hot spots of that task together; the task as a whole took

@@ -122,16 +122,32 @@ warm-start recording.
 *Pacing.* `SdlApp::tick()` never sleeps; it reports the sleep it wants before the
 next tick. A `requestAnimationFrame` callback cannot sleep, so that sleep becomes
 the earliest moment the next tick may start, on an absolute grid
-(`browser_pacing.h`): the next due time is the previous one plus the tick's own
-cost plus its sleep, and a callback that arrives before it runs no tick. A grid
-rather than "now plus the sleep" keeps 50 ticks a second on 60, 120 and 144 Hz
-displays alike (the latter lands every tick on the second animation frame, 30 a
-second). A stall (a hidden tab) resyncs as `frame_deadline.h` describes: one
-tick at once, then the grid, never a burst. During a fast load a tick that asks
-for no sleep may repeat inside one callback, bounded by an 8 ms budget. A first
+(`browser_pacing.h`). The grid advances by the EXACT frame period
+(`SdlApp::effective_frame_period_us()`: 20259 us at 49.36 Hz, not the 20 ms the
+whole-millisecond sleep adds up to, which ran 1.3% fast and cost the audio pacer a
+held picture every second or two), and a callback that arrives before the next due
+time runs no tick. A grid rather than "now plus the sleep" keeps 50 ticks a second
+on 60, 120 and 144 Hz displays alike (the latter lands every tick on the second
+animation frame, 30 a second). A callback runs ONE grid tick, and a second only if a
+whole slot was already overdue when the callback started: the browser composites
+once per callback, so a second tick in it presents two frames and shows one.
+Content slower than the display (49.36 or 58.15 Hz on 60 Hz) never has a whole slot
+overdue at a callback's start in steady state; content faster than the display (a
+30 Hz display, `--speed 200`) always does and runs its slots, so the rate is
+unchanged. A stall (a hidden tab) resyncs as `frame_deadline.h` describes: one tick
+at once, then the grid, never a burst. During a fast load a tick that asks for no
+sleep may repeat inside one callback, bounded by an 8 ms budget. The audio device
+asks SDL for 512 sample frames, which SDL doubles to 1024 (21.3 ms at 48 kHz): SDL's
+own default for a Web Audio device is 2 x 1024 (42.7 ms), against the roughly 23 ms
+chunk the pacer's guards were calibrated for, so with the default the pacer's own
+sawtooth reached them and doubled or held frames; a page's ENV
+`SDL_AUDIO_DEVICE_SAMPLE_FRAMES` wins. `jnext_web_pacing_counter` exports the
+counters that tell these apart (callbacks by ticks, ticks by frames, fill events;
+a test seam, read by the bench). A first
 NEX load records the warm-start state in steps of one frame, until 25 ms have
 passed in the tick, reporting `Module.jnextProgress` (see the last paragraph below), so
-the page keeps repainting.
+the page keeps repainting. The SDL-only desktop frontend uses the same exact
+deadline (`frame_deadline.h`, as the Qt window does).
 
 *Video, input, sound.* The renderer is SDL's OpenGL ES 2 one, on WebGL, with the
 same letterbox (640x512 logical) and the renderer's default linear filter. The
