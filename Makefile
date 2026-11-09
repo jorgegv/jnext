@@ -660,7 +660,7 @@ package-web: wasm-web
 	@E=$$(bash test/provision-emsdk.sh --print-path) && \
 	bash packaging/web/package-web.sh build/wasm-core "$$E"
 
-# Contract-test packaging/web/package-web.sh (36 rows) on fake trees - hermetic, no emsdk
+# Contract-test packaging/web/package-web.sh (46 rows) on fake trees - hermetic, no emsdk
 web-package-test:
 	@bash test/packaging/web-package-test.sh
 
