@@ -4405,7 +4405,7 @@
 <p>There are two ways to put a player on a page. Pick <code>jnext.mount()</code> (10.1, 10.2) when
 you want full control of the layout, the controls and the messages. Pick the widget
 when you want a good-looking player with a title bar, a progress bar and a toolbar
-from three lines of HTML. Both are in the release's <code>jnext-VERSION-web.zip</code>, and
+from one <code>div</code> and one script tag. Both are in the release's <code>jnext-VERSION-web.zip</code>, and
 both need the same things: the SD-card image's URL and SHA-256 (10.4) and a page
 served over <code>https://</code> or <code>http://localhost</code> (10.1).</p>
 <h2 id="your-own-page-jnextmount">Your own page: <code>jnext.mount()</code><a class="headerlink" href="#your-own-page-jnextmount" title="Permanent link">&para;</a></h2>
@@ -4424,7 +4424,7 @@ served over <code>https://</code> or <code>http://localhost</code> (10.1).</p>
 <p>The visitor clicks the player to start it. Everything else (events, <code>pause()</code>,
 <code>reset()</code>, <code>setVolume()</code>, loading another program) is yours to add: see 10.2.</p>
 <h2 id="the-ready-made-widget">The ready-made widget<a class="headerlink" href="#the-ready-made-widget" title="Permanent link">&para;</a></h2>
-<p>The same player, framed, in three lines. <code>jnext-widget.js</code> and <code>jnext-VERSION.js</code>
+<p>The same player, framed, from one <code>div</code> and one script tag. <code>jnext-widget.js</code> and <code>jnext-VERSION.js</code>
 (with its <code>.wasm</code>) sit beside the page; the widget loads <code>jnext-VERSION.js</code> itself
 unless the page has loaded it already:</p>
 <pre><code class="language-html">&lt;!doctype html&gt;
@@ -4438,7 +4438,11 @@ unless the page has loaded it already:</p>
 The widget draws a rounded frame with a title bar, a progress bar while the image
 downloads and the machine starts, the usual "click to start" overlay, a toolbar
 (Pause or Resume, Reset, Mute or Unmute, Fullscreen) and a status line that also
-shows errors. The player behind it is the element's <code>jnextPlayer</code> property, with the
+shows errors: a refused option, a bad digest or an image that cannot be fetched, a
+missing <code>data-image</code>, or a <code>jnext-VERSION.js</code> that cannot be loaded. The buttons stay
+disabled then. Fullscreen enlarges the screen to fill the display, between the title bar
+and the toolbar. The labels and the status line follow the player, so they stay right when
+the page itself calls <code>pause()</code> or <code>setVolume()</code>. The player behind it is the element's <code>jnextPlayer</code> property, with the
 members of 10.2.</p>
 <table>
 <thead>
@@ -4456,7 +4460,7 @@ members of 10.2.</p>
 </tr>
 <tr>
 <td><code>data-sha256</code></td>
-<td>its SHA-256 (<code>image.sha256</code>)</td>
+<td>its SHA-256 (<code>image.sha256</code>), 64 hex digits; required</td>
 <td></td>
 </tr>
 <tr>
@@ -4484,8 +4488,10 @@ members of 10.2.</p>
 <p>The widget has a light and a dark theme. Without <code>data-theme</code> it follows the visitor's
 <code>prefers-color-scheme</code>; <code>data-theme="light"</code> or <code>"dark"</code> fixes it. All of its styles
 start with <code>.jnext-widget</code> and are added to the page once, and each part resets its own
-properties, so the page's own rules for <code>div</code> or <code>button</code> do not change the widget and
-the widget changes nothing else on the page. <code>widget.html</code> in the zip is the snippet
+properties, so the page's own rules for <code>div</code>, <code>button</code> or <code>canvas</code> do not change the
+widget and the widget changes nothing else on the page. The limit: a page rule that is
+more specific than a class (one with an <code>id</code> selector, such as <code>#content div</code>) or marked
+<code>!important</code> still reaches the widget's parts, and the widget does not try to beat it. <code>widget.html</code> in the zip is the snippet
 with the image, digest and program also readable from the query string, like <code>plain.html</code>.</p>
 
 
