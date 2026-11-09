@@ -46,6 +46,9 @@ struct Sim {
     browser_pacing::Gate gate;
     std::function<int64_t()> cost = [] { return 2000; };       // tick cost, us
     std::function<uint32_t()> sleep = [] { return 18u; };      // reported sleep, ms
+    // The exact frame period the loop is given. Default: what the fake tick's own cost + sleep add up
+    // to, the period the loop used before it took one (cost + sleep); a row sets it to pin a period.
+    std::function<int64_t()> period = [this] { return cost() + static_cast<int64_t>(sleep()) * 1000; };
     bool fast = false;
     int ticks = 0;
     int max_per_callback = 0;
@@ -70,7 +73,8 @@ struct Sim {
                 if (end_on) { ended = true; return false; }
                 return true;
             },
-            [this] { return fast; });
+            [this] { return fast; },
+            [this] { return period(); });
         last_callback_ticks = n;
         if (n > max_per_callback) max_per_callback = n;
         return r;
@@ -178,6 +182,7 @@ int main()
     {
         Sim s; int phase = 0, k = 0;
         s.sleep = [&] { if (phase == 0) return 18u; static const uint32_t p[3] = {14, 15, 15}; return p[k++ % 3]; };
+        s.period = [&] { return phase == 0 ? int64_t{20000} : int64_t{16667}; };
         const int64_t raf = 8333;
         int before = 0, after = 0;
         int64_t at = 0;
@@ -271,6 +276,29 @@ int main()
         check("BRP-18", "callbacks at 0 and 40000 us run 2 ticks (due == start is overdue), 0 and 39999 us run 1",
               a.last_callback_ticks == 2 && b.last_callback_ticks == 1,
               "a=" + num(a.last_callback_ticks) + " b=" + num(b.last_callback_ticks));
+    }
+    // BRP-19: the grid advances by the exact period handed in, not by cost + whole-ms sleep.
+    {
+        Sim s; s.period = [] { return int64_t{20259}; }; s.run(16667, TEN_S);   // tick 2 ms + sleep 18 ms = 20 ms
+        const int n = s.ticks_before(TEN_S);
+        check("BRP-19", "period_us() 20259 while the tick reports 2 ms + 18 ms, rAF 16667 us, 10 s: 494 +-1 ticks (10 s / 20.259 ms), not 500; resyncs()==0",
+              n >= 493 && n <= 495 && s.gate.resyncs() == 0,
+              "ticks=" + num(n) + " resyncs=" + num(s.gate.resyncs()));
+    }
+    // BRP-20: a 50 -> 60 Hz switch glides: the new period is read at the next tick, no dropped or doubled tick.
+    {
+        Sim s; int phase = 0;
+        s.period = [&] { return phase == 0 ? int64_t{20259} : int64_t{17198}; };
+        int64_t at = 0;
+        for (; at < 5'000'000; at += 16667) s.callback(at);
+        const int before = s.ticks_before(5'000'000);
+        phase = 1;
+        const size_t base = s.tick_starts.size();
+        for (; at < 10'000'000; at += 16667) s.callback(at);
+        const int after = static_cast<int>(s.tick_starts.size() - base);
+        check("BRP-20", "period_us() 20259 for 5 s then 17198 for 5 s at rAF 16667 us: 247 +-1 then 291 +-1 ticks, no callback runs 2, resyncs()==0",
+              before >= 246 && before <= 248 && after >= 290 && after <= 292 && s.max_per_callback == 1 && s.gate.resyncs() == 0,
+              "before=" + num(before) + " after=" + num(after) + " max/cb=" + num(s.max_per_callback));
     }
     // BRP-21: PacingStats buckets: 3 and more share the last one.
     {

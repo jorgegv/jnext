@@ -7,8 +7,9 @@
 //
 // SdlApp::tick() never sleeps; it reports the sleep it wants before the next
 // tick. A rAF callback cannot sleep either, so that sleep becomes the earliest
-// moment the next tick may start, kept on an absolute GRID: due += (the tick's
-// own cost + the sleep), the tick's own period. A rAF callback that arrives
+// moment the next tick may start, kept on an absolute GRID: due += the EXACT
+// frame period (not cost + the whole-millisecond sleep, which rounds 20.259 ms to
+// 20 and runs 1.3% fast: the surplus ticks become held pictures). A rAF callback that arrives
 // before `due` runs no tick (the canvas keeps the last frame). Why a grid and
 // not due = t_after + sleep: at 60 Hz rAF and a 20 ms period that lands just
 // after one rAF, so ticks fall on every second rAF (30/s); the grid gives 5
@@ -60,9 +61,11 @@ enum class Result { Continue, End };
 /// One rAF callback. `now` returns the monotonic time in microseconds,
 /// `tick(sleep_ms)` runs one SdlApp::tick and returns false when the loop must
 /// end, `fastload()` tells whether a sleep of 0 may keep ticking in this
-/// callback. Returns End as soon as a tick says so.
-template <class Now, class Tick, class Fast>
-Result run_callback(Gate& g, Now now, Tick tick, Fast fastload)
+/// callback. `period_us()` is the exact frame period in microseconds (the speed
+/// multiplier included), read after each tick that slept so a 50/60 Hz switch glides.
+/// Returns End as soon as a tick says so.
+template <class Now, class Tick, class Fast, class Period>
+Result run_callback(Gate& g, Now now, Tick tick, Fast fastload, Period period_us)
 {
     const int64_t start = now();
     if (!g.anchored_) { g.anchored_ = true; g.due_us_ = start; }
@@ -76,9 +79,11 @@ Result run_callback(Gate& g, Now now, Tick tick, Fast fastload)
         ++ticks;
         const int64_t after = now();
         if (!more) return done(Result::End);
-        const int64_t cost = after - before;
         if (s > 0) {
-            const int64_t period = cost + static_cast<int64_t>(s) * 1000;
+            // The grid advances by the EXACT frame period (49.36 Hz is 20259 us, not the 20 ms the
+            // whole-millisecond sleep adds up to), so the long-run rate is the machine's own; `s`
+            // only says that the tick had time to spare.
+            const int64_t period = period_us();
             if (after - g.due_us_ > frame_deadline::STALL_PERIODS * period) {
                 g.due_us_ = after;
                 ++g.resyncs_;

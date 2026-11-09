@@ -47,7 +47,8 @@ void frame_cb(void*)
             web_controller::after_tick(app, more);
             return more;
         },
-        [&app] { return app.emulator().fastload_active(); });
+        [&app] { return app.emulator().fastload_active(); },
+        [&app] { return app.effective_frame_period_us(); });
     if (r == browser_pacing::Result::End) end_run();
 }
 
