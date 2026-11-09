@@ -135,9 +135,8 @@
         box.style.width = on ? '100%' : width + 'px';
         box.style.height = on ? '100%' : height + 'px';
         // SDL resizes the canvas buffer to its CSS size on a window `resize`. The browser's own one
-        // may come before or after this event, so send one for the new size, now and after layout.
+        // may come before or after this event, so send one for the new size.
         window.dispatchEvent(new Event('resize'));
-        requestAnimationFrame(function () { window.dispatchEvent(new Event('resize')); });
       });
     }
     ui.status = div('jw-status', tools, 'Loading...');
