@@ -171,4 +171,4 @@ and links to the ZX Spectrum Next hardware documentation.
 JNEXT built for WebAssembly, run in a browser tab from a page you write or from an
 itch.io upload. 10.1 a page with a game, 10.2 the options and the player's controls,
 10.3 itch.io and what the browser build does not do, 10.4 the SD-card image, what the
-browser keeps (per site) and what to do when a page does not start. Added 2026-11-08.
+browser keeps (per origin) and what to do when a page does not start. Added 2026-11-08.

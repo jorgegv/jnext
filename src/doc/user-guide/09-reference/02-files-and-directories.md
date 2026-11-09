@@ -12,7 +12,7 @@ Everything JNEXT keeps for you lives under `~/.jnext`.
 | `~/.jnext/screenshots/`                    | Where **File ▸ Quick Screenshot** writes, unless Preferences says otherwise ([5.3 Display](../05-running-programs/03-display.md)). Created on the first capture. |
 
 In a web page JNEXT keeps only the SD-card image and the warm-start recording, in the
-browser's storage for that site ([10.4](../10-web-page/04-the-image-and-what-the-browser-keeps.md)).
+browser's storage for the page's origin ([10.4](../10-web-page/04-the-image-and-what-the-browser-keeps.md)).
 
 Beside a program you load, JNEXT also reads the debugger's files when they are
 there: `NAME.sld` or `NAME.sld.txt` (a source map) and, for a `.nex`,

@@ -10,8 +10,9 @@ emulator.
 The browser build is the SDL-only configuration (no Qt, no debugger GUI) compiled
 by a pinned Emscripten SDK. One tree, `build/wasm-core`, links two modules:
 
-- `jnext` (`jnext.js` and `jnext.wasm`): the node build. The unit suites and the
-  screenshot regression run it under node.
+- `jnext` (`jnext.js` and `jnext.wasm`): the node build. `test/wasm-core-check.sh`
+  (WCORE-01 to WCORE-09) and `make regression-wasm` run it under node. The unit suites
+  are separate modules, built in `build/wasm-unit-test`.
 - `jnext_web` (`jnext-<version>.js` and `.wasm`): the build a page loads, with the
   example pages (`plain.html`, `itch-host.html`, `itch-game.html`) configured beside
   it.
@@ -127,8 +128,8 @@ displays alike (the latter lands every tick on the second animation frame, 30 a
 second). A stall (a hidden tab) resyncs as `frame_deadline.h` describes: one
 tick at once, then the grid, never a burst. During a fast load a tick that asks
 for no sleep may repeat inside one callback, bounded by an 8 ms budget. A first
-NEX load records the warm-start state in steps of one frame, at most 25 ms of
-them per tick, reporting `Module.jnextProgress` (see the last paragraph below), so
+NEX load records the warm-start state in steps of one frame, until 25 ms have
+passed in the tick, reporting `Module.jnextProgress` (see the last paragraph below), so
 the page keeps repainting.
 
 *Video, input, sound.* The renderer is SDL's OpenGL ES 2 one, on WebGL, with the

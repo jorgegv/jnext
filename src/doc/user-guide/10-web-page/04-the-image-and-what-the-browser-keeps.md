@@ -13,8 +13,9 @@ inside it.
 
 To try a page on your own computer, make the small card from the distribution image
 JNEXT downloaded for the desktop emulator (chapter 3), with
-`tools/make-minimal-sdcard-image.sh` from a JNEXT source checkout. Then serve it
-next to the page:
+`tools/make-minimal-sdcard-image.sh` from a JNEXT source checkout. The script needs
+`mtools` and `sfdisk` (from util-linux), and a destination directory on a file system
+that supports hard links. Then serve it next to the page:
 
 ```console
 $ tools/make-minimal-sdcard-image.sh ~/.jnext/sdcard/cspect-next-1gb.img card.img
@@ -51,8 +52,9 @@ A later visit makes no request for the image. The cached copy is hashed again ev
 time, and a copy that no longer matches the digest is deleted and fetched again.
 
 For a `.nex` program the recorded machine is brought back (`restore`) instead of booting
-NextZXOS again. A corrupted recording is made again. A `.tap`, a `.tzx`, or a page with
-no program records nothing: NextZXOS boots on every visit.
+NextZXOS again. A corrupted recording is made again. A `.tap` or a `.tzx` starts directly in 48K
+BASIC, without NextZXOS, so there is nothing to record. A page with no program boots
+NextZXOS on every visit and records nothing.
 
 ## What the browser keeps, and where
 
@@ -80,13 +82,16 @@ their status line.
 | `unknown option '<name>'`, `image is required` or `option '<name>' must be ...` | A `mount()` option is misspelt, missing or of the wrong type. Nothing has been downloaded yet. |
 | `no image url` | `image.url` is empty. |
 | `image: no URL configured` | `plain.html` was opened with no `?image=` and no URL in its constants. |
-| `the image sha256 is not 64 hex digits` | The digest is missing or mistyped. |
+| `the image sha256 is not 64 hex digits` | The digest is a string, but not 64 hex digits: it is mistyped. |
+| `option 'image' must be an object {path, sha256}` | The digest is missing or is not a string. |
+| `option 'image': the sha256 is all zeros` | The digest is 64 zeros, which never names a real image. |
 | `cannot fetch <url>: a network error, or the server does not allow cross-origin reads (no Access-Control-Allow-Origin header)` | The server is unreachable, or it does not send `Access-Control-Allow-Origin`. Make it send the header. |
-| `cannot fetch <url>: HTTP <status>` | The server answered with an error. Check the URL. The program file is fetched by the page too, so a program on another site needs `Access-Control-Allow-Origin` as well: give `{data, name}` to avoid the network. |
-| `Failed to fetch` | The program file is on another site whose server does not send `Access-Control-Allow-Origin`: the browser gives no other reason. |
+| `cannot fetch <url>: HTTP <status>` | The server answered with an error, for the image or for the program file: check the URL. |
+| `Failed to fetch` | The browser's own text (Chromium's is shown; Firefox words it differently) for a program file it could not read: the program is on another site whose server does not send `Access-Control-Allow-Origin` (make it send the header, or give `{data, name}` to avoid the network), or its server cannot be reached. |
 | `SHA-256 mismatch for <url>: got ..., expected ...` | The file served is not the one the digest names. Recompute the digest with `sha256sum`. |
 | `the SD-card image needs a secure context (https, or http://localhost): ...` | The page is not served over `https://`, `http://localhost` or `http://127.0.0.1`. |
 | `--load <file>: a browser page loads only .nex, .tap, .tzx programs` | The program has another extension. |
+| `--rzx-play: RZX is not available in a browser page` | RZX files cannot be played in a page (`--rzx-record` is refused the same way). |
 | `<flag>: not available in the browser build (...)` or `<flag>: not available in a browser page (...)` | An option that needs a process, a socket or a terminal was given. The reason is in the brackets, and the list is in the man page ("Not available in the browser"). |
 | `jnext exited with code N` | The machine stopped with an error after it had started. |
 | the lines the machine printed, or `jnext: the machine did not start` | The machine stopped before its first frame. The lines say why. |
