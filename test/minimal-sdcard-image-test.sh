@@ -9,14 +9,14 @@
 # cluster rule (third_party/fatfs/ff.c MAX_FAT16 0xFFF5: FAT32 needs MORE than
 # 65525 clusters).
 #
-# Rows MINIMG-01 .. MINIMG-13. A missing tool or source image FAILS MINIMG-01;
+# Rows MINIMG-01 .. MINIMG-18. A missing tool or source image FAILS MINIMG-01;
 # there is no SKIP path.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SCRIPT="$ROOT/tools/make-minimal-sdcard-image.sh"
 SRC="$HOME/.jnext/sdcard/cspect-next-1gb.img"   # one variable to rename for another release
-EXPECTED_ROWS=16
+EXPECTED_ROWS=18
 export MTOOLS_SKIP_CHECK=1
 
 total=0; passed=0; failed=0
@@ -57,7 +57,7 @@ if [[ ${#missing[@]} -gt 0 || ! -f "$SRC" ]]; then
     [[ ${#missing[@]} -eq 0 ]] || echo "  missing tools: ${missing[*]} (dnf install mtools util-linux coreutils)"
     [[ -f "$SRC" ]] || echo "  missing source image $SRC (make sdcard-image, or --sdcard-download-force)"
     row MINIMG-01 0 "tools and the distribution image are present"
-    for i in 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16; do
+    for i in 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18; do
         total=$((total + 1)); failed=$((failed + 1)); echo "  FAIL MINIMG-$i not run: MINIMG-01 failed"
     done
     finish
@@ -196,7 +196,7 @@ row MINIMG-10 "$ok" "a source without SYS (partition at sector 2048) is refused 
 
 # ---- MINIMG-11: too few clusters refused ----
 mkdir -p "$T/tools" "$T/f"
-cp "$SCRIPT" "$T/tools/make-minimal-sdcard-image.sh"; cp "$FIXSH" "$T/tools/fix-sdcard-image.sh"
+cp "$SCRIPT" "$T/tools/make-minimal-sdcard-image.sh"
 sed 's/^CARD_MB=40$/CARD_MB=32/' "$T/tools/make-minimal-sdcard-image.sh" > "$T/tools/make-minimal-sdcard-image.sh.new" \
     && mv "$T/tools/make-minimal-sdcard-image.sh.new" "$T/tools/make-minimal-sdcard-image.sh"
 changed=$(diff "$SCRIPT" "$T/tools/make-minimal-sdcard-image.sh" | grep -c '^>' || true)
@@ -229,12 +229,13 @@ ok=0; [[ $rc == 0 && -s "$T/i/out.img" && "$err" != *"no partition table"* ]] &&
 row MINIMG-14 "$ok" "a source path containing a colon is read (partition table found, card built)"
 
 # ---- MINIMG-15: a destination that appears during the build is not replaced ----
-# A stub fix-sdcard-image.sh (beside a copy of the script) creates the destination
-# while the build is in flight, then does the card copy the real one would.
-mkdir -p "$T/race/tools" "$T/race/out"
-cp "$SCRIPT" "$T/race/tools/make-minimal-sdcard-image.sh"
-printf '#!/usr/bin/env bash\ncp "$1" "$2"\necho late > "%s"\n' "$T/race/out/out.img" > "$T/race/tools/fix-sdcard-image.sh"
-rc=0; err=$(bash "$T/race/tools/make-minimal-sdcard-image.sh" "$SRC" "$T/race/out/out.img" 2>&1 >/dev/null) || rc=$?
+# A PATH stub mcopy creates the destination while the build is in flight (the first
+# mcopy runs after the early destination check), then runs the real mcopy.
+mkdir -p "$T/race/bin" "$T/race/out"
+real_mcopy=$(command -v mcopy)
+printf '#!/usr/bin/env bash\necho late > "%s"\nexec "%s" "$@"\n' "$T/race/out/out.img" "$real_mcopy" > "$T/race/bin/mcopy"
+chmod +x "$T/race/bin/mcopy"
+rc=0; err=$(PATH="$T/race/bin:$PATH" bash "$SCRIPT" "$SRC" "$T/race/out/out.img" 2>&1 >/dev/null) || rc=$?
 ok=0
 if [[ $rc == 1 && "$err" == *"destination appeared"* && "$(cat "$T/race/out/out.img")" == late ]] \
    && ! compgen -G "$T/race/out/.minimal-sdcard.*" >/dev/null; then ok=1; fi
@@ -251,6 +252,42 @@ ok=0
 if [[ $rc == 1 && "$err" == *"Operation not permitted"* && "$err" == *"hard links"* && "$err" != *appeared* \
       && ! -e "$T/nl/out/out.img" ]] && ! compgen -G "$T/nl/out/.minimal-sdcard.*" >/dev/null; then ok=1; fi
 row MINIMG-16 "$ok" "a destination filesystem without hard links is reported as such, not as a race"
+
+# ---- MINIMG-17: the copies of jnext's two patches agree ----
+# make-minimal-sdcard-image.sh, fix-sdcard-image.sh and sdcard_provisioner.cpp each
+# carry the config.ini text and the 24.11 zx81.rom hash; no suite compared them all.
+PROV="$ROOT/src/core/sdcard_provisioner.cpp"
+cfg_of() { sed -n "/<<'CONFIGEOF'/,/^CONFIGEOF\$/p" "$1" | sed '1d;$d'; }
+cfg_min=$(cfg_of "$SCRIPT"); cfg_fix=$(cfg_of "$FIXSH")
+cfg_raw=$(sed -n '/static const char\* kIni =/,/;$/p' "$PROV" | grep -o '"[^"]*"' | sed 's/^"//;s/"$//' | tr -d '\n')
+cfg_cpp=$(printf '%b' "$cfg_raw")
+sha_of() { grep -oE '^ZX81_16K_SHA256=[0-9a-f]{64}$' "$1" | cut -d= -f2 || true; }
+sha_min=$(sha_of "$SCRIPT"); sha_fix=$(sha_of "$FIXSH")
+sha_cpp=$(tr -d '\n' < "$PROV" | grep -oE 'kZx81Rom16kSha256 =[[:space:]]*"[0-9a-f]{64}"' | grep -oE '[0-9a-f]{64}' || true)
+ok=1
+[[ -n "$cfg_min" && "$(wc -l <<<"$cfg_min")" == 28 && "$cfg_min" == "$cfg_fix" && "$cfg_min" == "$cfg_cpp" ]] || ok=0
+[[ ${#sha_min} == 64 && "$sha_min" == "$sha_fix" && "$sha_min" == "$sha_cpp" ]] || ok=0
+row MINIMG-17 "$ok" "config.ini and ZX81_16K_SHA256 are the same in make-minimal-sdcard-image.sh, fix-sdcard-image.sh and sdcard_provisioner.cpp"
+
+# ---- MINIMG-18: the tool preflight ----
+# (a) only the commands in the script's TOOLS line on PATH: the build succeeds with
+# the same sha256, so it needs nothing else. (b) without mformat and sfdisk it
+# refuses first, naming both and the packages, creating nothing.
+tools_line=$(grep -E '^TOOLS=\(.*\)$' "$SCRIPT" || true)
+tools_line=${tools_line#TOOLS=(}; tools_line=${tools_line%)}
+mkdir -p "$T/pf/bin" "$T/pf/ok" "$T/pf/no"
+for t in $tools_line; do ln -s "$(command -v "$t")" "$T/pf/bin/$t"; done
+ok=1
+rc=0; PATH="$T/pf/bin" "$BASH" "$SCRIPT" "$SRC" "$T/pf/ok/out.img" >/dev/null 2>"$T/pf/ok.err" || rc=$?
+[[ $rc == 0 && -n "$tools_line" && "$(sha256sum "$T/pf/ok/out.img" 2>/dev/null | cut -d' ' -f1 || true)" == "$sha_a" ]] || ok=0
+rm -f "$T/pf/bin/mformat" "$T/pf/bin/sfdisk"
+rc=0; PATH="$T/pf/bin" "$BASH" "$SCRIPT" "$SRC" "$T/pf/no/out.img" >/dev/null 2>"$T/pf/no.err" || rc=$?
+first=$(head -n1 "$T/pf/no.err")
+[[ $rc == 1 && "$first" == "ERROR: missing tools: mformat sfdisk" ]] || ok=0
+grep -qF 'sudo dnf install mtools util-linux' "$T/pf/no.err" || ok=0
+grep -qF 'sudo apt install mtools fdisk' "$T/pf/no.err" || ok=0
+[[ -z "$(ls -A "$T/pf/no")" ]] || ok=0
+row MINIMG-18 "$ok" "a build with only TOOLS on PATH succeeds with the same sha256; with mformat and sfdisk removed it refuses first, naming both and the dnf/apt packages, creating nothing"
 
 # ---- MINIMG-08: the source was only read ----
 src_sha1=$(sha256sum "$SRC" | cut -d' ' -f1)
