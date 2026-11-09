@@ -346,14 +346,15 @@ int main()
     // --- SDLT-11: the reported sleeps follow the fractional grid ----------------------------------------
     // The sleep is the distance from the end of the tick to an absolute deadline that advances by the exact period.
     // Nobody sleeps in this row, so the deadline of tick n is the first tick's end + (n+1) x period, whatever the tick
-    // costs: s_n + t_n = (n+1) x 28.526 ms (t_n: time since the first tick's end), to within the whole-ms rounding of
-    // the sleep and of the clock (2 ms). At --speed 70 % the period is 28.526 ms; the old whole-ms rule reported
-    // frame_ms - elapsed (at most 29 ms) on every tick, so s_n + t_n stayed near the work done, not near (n+1) x 28.5.
-    // Nothing here depends on how fast the host (or the WebAssembly build) runs a tick.
+    // costs: s_n + t_n = (n+1) x 99.84 ms (t_n: time since the first tick's end), to within the whole-ms rounding of
+    // the sleep and of the clock (2 ms). At --speed 20 % the period is 99.84 ms; the old whole-ms rule reported
+    // frame_ms - elapsed (at most 100 ms) on every tick, so s_n + t_n stayed near the work done, not near (n+1) x 99.8.
+    // Nothing here depends on how fast the host (or the WebAssembly build) runs a tick, as long as one tick takes
+    // less than 2 periods (200 ms: past that the scheduler declares a stall and resyncs, by design).
     {
         bool ok = false;
         auto app = make_app(ok);
-        app->set_speed_percent(70);
+        app->set_speed_percent(20);
         uint32_t s = 0;
         app->tick(s);
         const auto t0 = SteadyClock::now();
@@ -362,12 +363,12 @@ int main()
         for (int n = 1; n <= 20; ++n) {
             app->tick(s);
             const double t = ms_since(t0);
-            const double err = static_cast<double>(s) + t - (n + 1) * 28.526;
+            const double err = static_cast<double>(s) + t - (n + 1) * 99.84;
             if (n == 5 || n == 10 || n == 20) detail += " n=" + std::to_string(n) + " s+t-(n+1)*period=" + std::to_string(err);
             if (err < -2.0 || err > 2.0) on_grid = false;
         }
         app->shutdown();
-        check("SDLT-11", "speed 70%, no sleep performed: after tick n the reported sleep plus the elapsed time is (n+1) x 28.526 ms within 2 ms (an absolute fractional deadline)",
+        check("SDLT-11", "speed 20%, no sleep performed: after tick n the reported sleep plus the elapsed time is (n+1) x 99.84 ms within 2 ms (an absolute fractional deadline)",
               ok && on_grid, detail);
     }
 
