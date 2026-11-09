@@ -624,9 +624,11 @@ if(EMSCRIPTEN)
     set_property(TARGET jnext_web APPEND PROPERTY LINK_DEPENDS
         "${CMAKE_SOURCE_DIR}/web/jnext-image.js" "${CMAKE_BINARY_DIR}/web/jnext_api.js")
     # The example pages, beside the .js/.wasm they load.
-    foreach(page plain itch-host itch-game)
+    foreach(page plain itch-host itch-game widget)
         configure_file(web/examples/${page}.html.in "${CMAKE_BINARY_DIR}/${page}.html" @ONLY)
     endforeach()
+    # The ready-made widget, which loads jnext-<ver>.js from beside itself.
+    configure_file(web/jnext-widget.js.in "${CMAKE_BINARY_DIR}/jnext-widget.js" @ONLY)
     if(JNEXT_FRAME_GATE)
         target_compile_options(jnext_web PRIVATE ${JNEXT_FRAME_GATE})
         target_link_options(jnext_web PRIVATE ${JNEXT_FRAME_GATE})
