@@ -561,28 +561,33 @@ detail lives in the documents named.
   |---|---|---|---|
   | before (first table) | 0.877, 0 | 0.879, 0 | 0.938, 1 |
   | one grid tick per callback | 0.984, 4 | 0.979, 2 | 0.983, 1 |
-  | + audio device buffer 1024 frames | 1.000, 38 (1 busy) | 0.999, 18 (20 out of the band, see below) | 0.999, 38 |
+  | + audio device buffer 1024 frames | 1.000, 38 | 0.999, 18 (20 out of the band, see below) | 0.999, 38 |
   | + exact fractional grid | 1.000, 39 | 0.999, 29 | 1.000, 39 |
+  | + the desktop frontend's deadline (final tree) | 1.000, 39 | 1.000, 39 | 1.000, 39 |
+
+  In the last row the three Chrome cells flagged by the busy witness and the sixteen
+  Firefox cells that overlapped another browser session on the host were measured
+  again on the quiet host (`web-baseline-<sha>-rerun-*.txt`): all PASS. The
+  smallest shown/refresh in the final table is 0.995 (Firefox), 0.999 (Chrome and
+  Chrome at 2x). Audio underruns: 0 in the last three rows.
 
   The pacing counters show why. Before: about 11% of the callbacks ran two ticks.
   One grid tick per callback removed those; what was left (0.8 to 1.1 two-frame
   ticks and 1.4 to 1.7 zero-frame ticks per second) came from the audio pacer: the
   42.7 ms device buffer made its sawtooth reach its guards, and the whole-millisecond
   grid ran 1.3% fast. With the 21.3 ms buffer the two-frame ticks went to 0 (audio
-  fill events stayed 0), and with the exact grid the zero-frame ticks went to 0
-  too. At 2x the ten heaviest programs (a tick of 14 to 16 ms against a 16.7 ms
-  display frame) still show 0.81 to 0.99: the main thread is nearly saturated, the
-  audio callbacks (served on it) arrive late, and the pacer asks for two frames. They
-  emulate at full speed (emulated rate 1.000); `--when-slow-prefer video` on them gave
-  4 of 5 PASS at the price of 1 to 4 audio fill events per window. The target was
-  accepted on that basis (2026-11-09): every program of the set runs at full speed
-  in Chrome and in Firefox, in Chrome at 2x 29 of 39 do and the other ten (blue, menu,
-  red, shift, trainyard-express, beanbros, celeste, joy_uart_demo, test04tilemap and
-  parallax, which show 0.81 to 0.99 of the refresh) were judged close enough, with
-  no further work on the emulation cost. In the second row
-  the 20 "out of the band" cells were the bench's own error (its unthrottled
-  calibration reference was skewed by the laptop's slow CPU state), fixed for the
-  third.
+  fill events went from 9 in the first of these tables to 0), and with the exact grid
+  the zero-frame ticks went to 0 too. At 2x the ten heaviest programs (a tick of 14 to
+  16 ms against a 16.7 ms display frame) still showed 0.81 to 0.99 after that: the
+  main thread is nearly saturated, and a tick that overran its period reported a sleep
+  of 0, which restarted the browser loop's grid at the end of that tick, so the grid
+  kept losing its place and the audio pacer doubled ticks. The last row's change (the
+  desktop frontend's tick now reports the distance to an absolute deadline, 1 ms at
+  least, as the Qt window's scheduler does; it is the same `SdlApp::tick()` the
+  browser loop calls) keeps the grid across an overrun, and those ten cells pass.
+  In the second row the 20 "out of the band" cells were the bench's own error (its
+  unthrottled calibration reference was skewed by the laptop's slow CPU state), fixed
+  for the third.
 - **Task 27 (2026-07): LTO.** Turning LTO on for Release — a 17-line CMake
   change — gave **+34.5%** on boot-nextzxos and +17.4% on bifrost, more than
   all the hand-tuned hot spots of that task together; the task as a whole took
