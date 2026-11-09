@@ -25,8 +25,9 @@ $ python3 -m http.server 8000
 The directory you serve holds `jnext-VERSION.js`, `jnext-VERSION.wasm`, `plain.html`,
 `card.img` and the program (`game.nex` here). Open
 `http://localhost:8000/plain.html?image=card.img&sha256=<the digest>&file=game.nex`
-and click the player. A page opened from disk (`file://`) does not work: see
-"If it does not start" below.
+and click the player. A page opened from disk (`file://`) does not work: the browser
+refuses to load the `.wasm` file from a `file://` address and the page's status line
+reads `error: Aborted(both async and sync fetching of the wasm failed ...)`.
 
 ## The first visit
 
@@ -63,10 +64,11 @@ no program records nothing: NextZXOS boots on every visit.
 - If the browser's storage is full, the session still runs and the next visit downloads
   the image again.
 
-Browsers keep each site's storage apart. Two pages of one site share the image and the
-recording. The same game embedded on another site, or inside another site's `iframe`,
-downloads the image and records the machine again. Clearing the site's data in the
-browser makes the next visit a first visit.
+Browsers keep the storage of each origin (scheme, host and port) apart. Two pages of one
+origin share the image and the recording. A game inside an `iframe` of another site may
+or may not see the storage its own origin has: that depends on the browser, its version
+and its privacy settings (in the Chromium used to test JNEXT it did), so do not rely on
+either. Clearing the site's data in the browser makes the next visit a first visit.
 
 ## If it does not start
 
@@ -81,6 +83,7 @@ their status line.
 | `the image sha256 is not 64 hex digits` | The digest is missing or mistyped. |
 | `cannot fetch <url>: a network error, or the server does not allow cross-origin reads (no Access-Control-Allow-Origin header)` | The server is unreachable, or it does not send `Access-Control-Allow-Origin`. Make it send the header. |
 | `cannot fetch <url>: HTTP <status>` | The server answered with an error. Check the URL. The program file is fetched by the page too, so a program on another site needs `Access-Control-Allow-Origin` as well: give `{data, name}` to avoid the network. |
+| `Failed to fetch` | The program file is on another site whose server does not send `Access-Control-Allow-Origin`: the browser gives no other reason. |
 | `SHA-256 mismatch for <url>: got ..., expected ...` | The file served is not the one the digest names. Recompute the digest with `sha256sum`. |
 | `the SD-card image needs a secure context (https, or http://localhost): ...` | The page is not served over `https://`, `http://localhost` or `http://127.0.0.1`. |
 | `--load <file>: a browser page loads only .nex, .tap, .tzx programs` | The program has another extension. |

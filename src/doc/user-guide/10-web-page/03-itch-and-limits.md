@@ -7,8 +7,9 @@ Zip a page like `itch-game.html` (the release ships it) with `jnext-VERSION.js` 
 itch.io page. itch.io embeds your page in an `iframe` of its own site, so:
 
 - Game controllers need `allow="gamepad"` on that `iframe`; `itch-host.html` shows the markup.
-- Browsers keep storage per embedding site, so the image downloads again on each
-  site (see 10.4, "What the browser keeps, and where").
+- Browsers keep storage per origin and may give an embedded page storage of its own, so
+  the image may download again on the embedding site (see 10.4, "What the browser
+  keeps, and where").
 - The image's server must allow cross-origin reads, as for any page.
 - `itch-game.html` tells the page that embeds it when the game is running
   (`jnext-ready`) or has failed (`jnext-error: <message>`), as `postMessage` text.

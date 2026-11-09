@@ -4391,8 +4391,9 @@
 itch.io page. itch.io embeds your page in an <code>iframe</code> of its own site, so:</p>
 <ul>
 <li>Game controllers need <code>allow="gamepad"</code> on that <code>iframe</code>; <code>itch-host.html</code> shows the markup.</li>
-<li>Browsers keep storage per embedding site, so the image downloads again on each
-  site (see 10.4, "What the browser keeps, and where").</li>
+<li>Browsers keep storage per origin and may give an embedded page storage of its own, so
+  the image may download again on the embedding site (see 10.4, "What the browser
+  keeps, and where").</li>
 <li>The image's server must allow cross-origin reads, as for any page.</li>
 <li><code>itch-game.html</code> tells the page that embeds it when the game is running
   (<code>jnext-ready</code>) or has failed (<code>jnext-error: &lt;message&gt;</code>), as <code>postMessage</code> text.</li>

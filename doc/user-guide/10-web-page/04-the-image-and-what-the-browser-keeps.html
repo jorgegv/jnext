@@ -4424,8 +4424,9 @@ $ python3 -m http.server 8000
 <p>The directory you serve holds <code>jnext-VERSION.js</code>, <code>jnext-VERSION.wasm</code>, <code>plain.html</code>,
 <code>card.img</code> and the program (<code>game.nex</code> here). Open
 <code>http://localhost:8000/plain.html?image=card.img&amp;sha256=&lt;the digest&gt;&amp;file=game.nex</code>
-and click the player. A page opened from disk (<code>file://</code>) does not work: see
-"If it does not start" below.</p>
+and click the player. A page opened from disk (<code>file://</code>) does not work: the browser
+refuses to load the <code>.wasm</code> file from a <code>file://</code> address and the page's status line
+reads <code>error: Aborted(both async and sync fetching of the wasm failed ...)</code>.</p>
 <h2 id="the-first-visit">The first visit<a class="headerlink" href="#the-first-visit" title="Permanent link">&para;</a></h2>
 <p>The visitor sees these steps, in this order:</p>
 <ol>
@@ -4456,10 +4457,11 @@ no program records nothing: NextZXOS boots on every visit.</p>
 <li>If the browser's storage is full, the session still runs and the next visit downloads
   the image again.</li>
 </ul>
-<p>Browsers keep each site's storage apart. Two pages of one site share the image and the
-recording. The same game embedded on another site, or inside another site's <code>iframe</code>,
-downloads the image and records the machine again. Clearing the site's data in the
-browser makes the next visit a first visit.</p>
+<p>Browsers keep the storage of each origin (scheme, host and port) apart. Two pages of one
+origin share the image and the recording. A game inside an <code>iframe</code> of another site may
+or may not see the storage its own origin has: that depends on the browser, its version
+and its privacy settings (in the Chromium used to test JNEXT it did), so do not rely on
+either. Clearing the site's data in the browser makes the next visit a first visit.</p>
 <h2 id="if-it-does-not-start">If it does not start<a class="headerlink" href="#if-it-does-not-start" title="Permanent link">&para;</a></h2>
 <p>The page reports these messages through <code>onError</code>, and the example pages show them in
 their status line.</p>
@@ -4494,6 +4496,10 @@ their status line.</p>
 <tr>
 <td><code>cannot fetch &lt;url&gt;: HTTP &lt;status&gt;</code></td>
 <td>The server answered with an error. Check the URL. The program file is fetched by the page too, so a program on another site needs <code>Access-Control-Allow-Origin</code> as well: give <code>{data, name}</code> to avoid the network.</td>
+</tr>
+<tr>
+<td><code>Failed to fetch</code></td>
+<td>The program file is on another site whose server does not send <code>Access-Control-Allow-Origin</code>: the browser gives no other reason.</td>
 </tr>
 <tr>
 <td><code>SHA-256 mismatch for &lt;url&gt;: got ..., expected ...</code></td>

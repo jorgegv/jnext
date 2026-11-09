@@ -4400,7 +4400,8 @@
 <li>The image's server must send <code>Access-Control-Allow-Origin</code> (the page reads the
   card from another origin). So must the server of a program file on another site,
   because the page fetches it too; <code>file: {data, name}</code> needs no request.</li>
-<li>Serve the <code>.wasm</code> file as <code>application/wasm</code>. No special headers are needed
+<li>Serve the <code>.wasm</code> file as <code>application/wasm</code>. With another type the page still
+  starts, after a warning in the browser's console. No special headers are needed
   otherwise.</li>
 <li>The page must be a secure context: <code>https://</code>, <code>http://localhost</code> or
   <code>http://127.0.0.1</code>. The cache and the SHA-256 check need it.</li>
