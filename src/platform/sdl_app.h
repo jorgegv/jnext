@@ -2,6 +2,7 @@
 #include "platform/quick_snapshot_chord.h"
 #include "platform/cli_delay.h"
 #include "platform/pointer_capture.h"
+#include "platform/frame_deadline.h"
 #include <SDL3/SDL.h>
 #include <functional>
 #include <memory>
@@ -263,6 +264,9 @@ private:
 
     // Last frame-pacing period logged (ms); logs only on a 50/60 Hz change.
     uint32_t    last_frame_ms_ = 0;
+    // The exact, fractional frame deadline (GH #9 / #468): the sleep to the next tick is whole ms, the grid is not.
+    frame_deadline::Scheduler frame_sched_;
+    bool        frame_sched_anchored_ = false;
 
     // --tape-realtime (see set_tape_realtime()).
     bool        tape_realtime_ = false;

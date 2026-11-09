@@ -101,6 +101,9 @@ int main()
     }
 
     // --- SDLT-02: tick() reports the sleep, it does not PERFORM it ------------
+    // (GH #468: the row now performs each reported sleep after the tick, as SdlApp::run() does, because the
+    // sleep is the distance to an absolute fractional deadline. Before, with no sleep performed, every tick
+    // reported "the rest of the period"; now the unperformed ones accumulate. Same checks, same thresholds.)
     // Run at --speed 10 % (frame period 200 ms, the lowest speed there is) so a
     // tick that sleeps inside is told apart by its wall time w: with e the
     // tick's own work, a tick that only reports has w = e and s = 200 - e; one
@@ -129,6 +132,10 @@ int main()
             const double w = ms_since(t0);
             ++ticks;
             if (!more || s > static_cast<uint32_t>(frame_ms)) bounded = false;
+            // The loop performs the sleep (SdlApp::run: SDL_Delay), and so does this row, after the timing: the
+            // sleep is the distance to an ABSOLUTE frame deadline (frame_deadline.h), so sleeps that nobody
+            // performs pile up (200, 383, 566 ms ...) instead of each being "the rest of this period".
+            if (more && s > 0) SDL_Delay(s);
             if (s >= 50 && w < static_cast<double>(frame_ms) - 25.0 &&
                 w + s <= static_cast<double>(frame_ms) + 5.0) ++good;
             if (ticks <= 8)
@@ -317,6 +324,43 @@ int main()
               "pushed=" + std::to_string(pushed) + " snapshots=" + std::to_string(snapshots) +
               " t=" + std::to_string(t1) + std::to_string(t2) + std::to_string(t3) +
               " s1=" + std::to_string(s1) + " fn1=" + std::to_string(fn1));
+    }
+
+    // --- SDLT-10: the frame period the loop paces on is exact, not whole milliseconds ---------------------
+    // Oracle: the 48K machine's frame is 448 x 312 x 4 master cycles at 28 MHz = 19.968 ms (zxula_timing.vhd:262,270),
+    // scaled by --speed. The loop used lround() of it: 20 ms, 0.16% off at 48K and 1.3% at Next 50 Hz.
+    {
+        bool ok = false;
+        auto app = make_app(ok);
+        const int64_t p100 = app->effective_frame_period_us();
+        app->set_speed_percent(200);
+        const int64_t p200 = app->effective_frame_period_us();
+        app->set_speed_percent(10);
+        const int64_t p10 = app->effective_frame_period_us();
+        app->shutdown();
+        check("SDLT-10", "effective_frame_period_us: 19968 us at 100%, 9984 at 200%, 199680 at 10% (the exact period, not 20/10/200 ms)",
+              ok && p100 == 19968 && p200 == 9984 && p10 == 199680,
+              "p100=" + std::to_string(p100) + " p200=" + std::to_string(p200) + " p10=" + std::to_string(p10));
+    }
+
+    // --- SDLT-11: performed sleeps follow the fractional grid -------------------------------------------
+    // At --speed 70 % the period is 28.526 ms; the old whole-ms sleep was 29 ms plus the truncated work (3%+ slow).
+    // With the sleeps performed as SdlApp::run() does, 40 ticks take 40 x 28.526 ms = 1141 ms: the row asks for within 1.5%.
+    // (A lateness inside the stall limit is walked off, so host jitter does not move the average; a 1.5% bound over
+    // 0.8 s is a pacing-arithmetic check, not a speed claim.)
+    {
+        bool ok = false;
+        auto app = make_app(ok);
+        app->set_speed_percent(70);
+        uint32_t s = 0;
+        app->tick(s);                                   // anchors the grid
+        if (s > 0) SDL_Delay(s);
+        const auto t0 = SteadyClock::now();
+        for (int i = 0; i < 40; ++i) { app->tick(s); if (s > 0) SDL_Delay(s); }
+        const double per = ms_since(t0) / 40.0;
+        app->shutdown();
+        check("SDLT-11", "speed 70%, 40 ticks with their sleeps performed: 28.526 ms per tick within 1.5% (the old whole-ms grid sleeps 29 ms and more)",
+              ok && per > 28.526 * 0.985 && per < 28.526 * 1.015, "per tick " + std::to_string(per) + " ms");
     }
 
     std::printf("\n====================================================\n");
