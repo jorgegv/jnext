@@ -320,7 +320,7 @@ row('WIDGET-08', 'real fullscreen: the screen fills the space between title bar 
   const on = await geo();
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fullscreen.png') });
   await page.evaluate(() => document.exitFullscreen());
-  await waitFor(page, () => !document.fullscreenElement && document.querySelector('.jnext-widget .jnext-player').getBoundingClientRect().width === 640, null, 60000);
+  await waitFor(page, () => !document.fullscreenElement && document.querySelector('.jnext-widget .jnext-player').style.height === '512px', null, 60000);
   const off = await geo();
   await page.context().close();
   must(before.canvas[2] === 640 && before.canvas[3] === 512, 'before: canvas ' + before.canvas);
