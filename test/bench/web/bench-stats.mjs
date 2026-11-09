@@ -65,6 +65,8 @@ export function judge(raw, ctx = {}) {
   const bad = (reason) => ({ verdict: 'INVALID', reason, m: null });
   if (raw.error) return bad('load_error');
   if (!raw.gl) return bad('no_webgl');
+  // WebGL in software (llvmpipe, SwiftShader, softpipe) is not what a visitor's browser does: not counted
+  if (/llvmpipe|swiftshader|softpipe/i.test(raw.renderer || '')) return bad('software_renderer');
   if (raw.period_ms !== raw.period_end_ms) return bad('frame_period_changed');
   const frames = sum(raw.deltas);
   if (raw.capped && frames < want) return bad('cap_before_window');

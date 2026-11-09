@@ -64,6 +64,8 @@ row('WBENCH-06', 'emu at refresh, shown 30: FAIL', () => {
                 deltas: [...new Array(100).fill(0), ...new Array(120).fill(1), ...new Array(240).fill(2)] };   // 600 frames, 360 showing + 100 idle callbacks, 12 s
   const j = judge(raw);
   must(j.verdict === 'FAIL' && near(j.m.emu_fps, 50) && near(j.m.shown_fps, 30), JSON.stringify(j));
+  // ms per FRAME: 460 callbacks x 5 ms = 2300 ms over 600 frames (not 5 ms per callback)
+  must(near(j.m.ms_per_frame, 2300 / 600), 'ms_per_frame ' + j.m.ms_per_frame);
 });
 
 row('WBENCH-07', 'period changed, AudioContext suspended, x2 ratio 1.5, 60 s cap with 400 frames, calibration 1.1x over the reference: each INVALID with its own reason', () => {
@@ -82,10 +84,13 @@ row('WBENCH-07', 'period changed, AudioContext suspended, x2 ratio 1.5, 60 s cap
   const extra = [
     ['load_error', judge({ ...GOOD(), error: 'timeout' })],
     ['no_webgl', judge({ ...GOOD(), gl: false })],
+    ['software_renderer', judge({ ...GOOD(), renderer: 'llvmpipe, or similar' })],
+    ['software_renderer', judge({ ...GOOD(), renderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)' })],
     ['throttle_not_in_effect', judge({ ...GOOD(), calib_ms: 125 }, { x2: true, base_calib_ms: 50 })],   // ratio 2.5
   ];
   for (const [want, g] of extra) must(g.verdict === 'INVALID' && g.reason === want && g.m === null, want + ': ' + JSON.stringify(g));
   must(judge({ ...GOOD(), calib_ms: 110 }, { x2: true, base_calib_ms: 50 }).verdict === 'PASS', 'ratio 2.2 is in band');
+  must(judge({ ...GOOD(), renderer: 'ANGLE (AMD, AMD Radeon 840M Graphics (radeonsi krackan1 ACO), OpenGL ES 3.2)' }).verdict === 'PASS', 'a GPU renderer is counted');
   // a cell whose calibration is above 1.10 x the pass reference is INVALID but keeps its numbers
   const busy = judge({ ...GOOD(), calib_ms: 55.1 }, { pass_ref_calib_ms: 50 });
   const edge = judge({ ...GOOD(), calib_ms: 55 }, { pass_ref_calib_ms: 50 });

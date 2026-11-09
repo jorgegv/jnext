@@ -110,7 +110,10 @@ async function waitQuiet(label) {
 // ---- Chrome ------------------------------------------------------------------------------------
 const chromePath = E.JNEXT_BENCH_CHROME || '/usr/bin/google-chrome';
 let chromeVersion = '', firefoxVersion = '';
-const FIREFOX_MODE = E.BENCH_FIREFOX === 'headless' ? 'headless' : 'xvfb';
+// Firefox routes (BENCH_FIREFOX): `xvfb` (default) = MOZ_HEADLESS=1 on a private Xvfb display: WebGL on the GPU;
+// `headed` = a headed Firefox on that display: WebGL in SOFTWARE (Xvfb has no DRI: llvmpipe), so its cells are
+// INVALID (software_renderer); `headless` = `firefox --headless` with no Xvfb and no DISPLAY: no WebGL at all.
+const FIREFOX_MODE = ['headed', 'headless'].includes(E.BENCH_FIREFOX) ? E.BENCH_FIREFOX : 'xvfb';
 let ffProc = null, chromeBrowser = null;
 
 // INT and TERM: kill the Firefox process group (timeout, xvfb-run, Xvfb, Firefox: it was spawned detached, so a
@@ -228,16 +231,18 @@ async function firefoxPass(config, cells, onResult) {
   const set = E.BENCH_CORES ? ['taskset', '-c', E.BENCH_CORES] : [];
   let proc = null;
   const launch = () => {
-    // BENCH_FIREFOX=xvfb (the default): HEADED Firefox (no --headless, no MOZ_HEADLESS) on a private Xvfb display.
-    // headless: `firefox --headless` with no display server. A headless Firefox 159 without a display server gives
-    // no canvas any WebGL context (version 1 or 2, any attributes: measured with a static page), so the page falls
-    // back to SDL's 2D canvas and every cell would be INVALID; under Xvfb the same Firefox has WebGL.
+    // Measured with a static page (Firefox 159): with no display connection a headless Firefox gives no canvas
+    // any WebGL context, version 1 or 2, any attributes; with the Xvfb display it does. Which renderer it gets
+    // depends on the route: MOZ_HEADLESS=1 on Xvfb draws on the GPU (EGL), a headed Firefox draws through the X
+    // display, which is Mesa software.
     // -d lets Xvfb pick its display, -noreset keeps it up between Firefox's clients (never -a / -n).
-    const head = FIREFOX_MODE === 'xvfb'
-      ? ['xvfb-run', '-d', '--server-args=-screen 0 1280x1024x24 -noreset', 'firefox']
-      : ['firefox', '--headless'];
+    const xvfb = ['xvfb-run', '-d', '--server-args=-screen 0 1280x1024x24 -noreset', 'firefox'];
+    const head = FIREFOX_MODE === 'headless' ? ['firefox', '--headless'] : xvfb;
+    const env = { ...childEnv, TMPDIR: path.join(SCRATCH, 'tmp') };      // xvfb-run's directory, Firefox's .xpi files
+    if (FIREFOX_MODE === 'headless') { delete env.DISPLAY; delete env.WAYLAND_DISPLAY; }
+    if (FIREFOX_MODE === 'xvfb') env.MOZ_HEADLESS = '1';
     proc = spawn('timeout', ['--kill-after=10s', '14400s', ...set, ...head, '--no-remote', '--profile', prof, url],
-                 { detached: true, stdio: 'ignore', env: childEnv });
+                 { detached: true, stdio: 'ignore', env });
     ffProc = proc;
   };
   const kill = async () => {
@@ -349,6 +354,7 @@ for (const c of CONFIGS) {
 server.close();
 
 // ---- output ------------------------------------------------------------------------------------
+if (dying) await new Promise(() => {});   // an interrupted run writes no results file: die() is exiting
 try { firefoxVersion = execFileSync('firefox', ['--version'], { env: childEnv, timeout: 20000 }).toString().trim(); } catch (e) { firefoxVersion = 'n/a'; }
 const sha = execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { env: childEnv }).toString().trim();
 const renderers = {};
@@ -364,7 +370,7 @@ lines.push(`# build:  ${BUILD} (jnext-${VERSION}), emsdk ${E.BENCH_EMSDK || '6.0
 lines.push(`# core set: ${E.BENCH_CORES || 'unpinned'} (fastest class, one logical CPU per physical core)`);
 lines.push(`# chrome:  ${chromeVersion || 'n/a'} (${chromePath}), args: ${CHROME_ARGS.join(' ')}`);
 lines.push(`# firefox: ${firefoxVersion}`);
-lines.push(`# firefox mode: ${FIREFOX_MODE === 'xvfb' ? 'headed (no --headless, no MOZ_HEADLESS) on a private Xvfb display (xvfb-run -d)' : 'headless (--headless, no display server)'}`);
+lines.push(`# firefox mode: ${{ xvfb: 'MOZ_HEADLESS=1 on a private Xvfb display (xvfb-run -d): WebGL on the GPU', headed: 'headed on a private Xvfb display (xvfb-run -d): WebGL in software (llvmpipe)', headless: '--headless with no Xvfb and no DISPLAY: no WebGL' }[FIREFOX_MODE]}`);
 for (const [c, s] of Object.entries(renderers)) lines.push(`# webgl renderer ${c}: ${[...s].join(' | ')}`);
 for (const [c, s] of Object.entries(uas)) lines.push(`# user agent ${c}: ${[...s].join(' | ')}`);
 lines.push(`# window: W=${W} warm-up frames, M=${M} frames or ${CAP_MS / 1000} s; box 640x512; machine next; one wasm instance per cell`);

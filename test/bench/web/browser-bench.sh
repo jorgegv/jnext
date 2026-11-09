@@ -13,8 +13,9 @@
 # W=250 M=600 (warm-up and window frames)  PROFILE=<program,...> (Chrome CPU profile of those cells, with a
 # profiling build in WEB_BUILD)  WEB_BUILD=<dir> (default: the argument)  PROFILE_DIR=<dir> (where
 # .cpuprofile files are copied)  RESULTS=<file> (instead of the committed test/bench file)
-# FIREFOX_MODE=xvfb|headless (default xvfb: HEADED Firefox on a private Xvfb display; headless: `firefox
-# --headless` with no display server, which gives the page no WebGL context at all)  RAW_DIR=<dir> (every
+# FIREFOX_MODE=xvfb|headed|headless (default xvfb: MOZ_HEADLESS=1 on a private Xvfb display, WebGL on the GPU;
+# headed: a headed Firefox on that display, WebGL in software, so its cells are INVALID; headless: `firefox
+# --headless`, no Xvfb, no DISPLAY, no WebGL at all)  RAW_DIR=<dir> (every
 # cell's raw JSON)  NO_REPEAT=1 (no repeat runs)  QUIET_WAIT=0 (do not wait for a quiet host: the pass is
 # marked LOADED)  JNEXT_BENCH_CHROME=<chrome binary>  BENCH_CHROME_ARGS=<extra Chrome flags>.
 #

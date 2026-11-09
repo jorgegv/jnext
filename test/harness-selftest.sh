@@ -1483,13 +1483,17 @@ check "HS-171b" "the first invocation is the one unmeasured priming run (--load,
 # was ignored until a multi-hour run finished, and a TERM left Firefox and Xvfb running with the scratch
 # directory they keep writing into. run-bounded.sh runs the command in the background and forwards the
 # signal. Fixture: a stub driver that starts a detached grandchild (its own process group, as Firefox is)
-# and kills it on INT/TERM, as the real driver does.
+# and kills it on INT/TERM, as the real driver does. NOTE: run-bounded.sh is probed here under
+# `env --default-signal`, so both signals arrive; in the real chain bash ignores SIGINT in a command it starts with
+# `&`, so a terminal's Ctrl-C reaches the driver through browser-bench.sh's own cleanup (it forwards TERM to the
+# background run-bounded.sh): that chain is what the live checks of the review exercised.
 RB_FIX="$T/runbounded"; rm -rf "$RB_FIX"; mkdir -p "$RB_FIX"
 cat > "$RB_FIX/stub.sh" <<'STUB'
 #!/usr/bin/env bash
 setsid sleep 300 &
 gc=$!
 echo "$gc" > "$RB_PIDFILE"
+echo "$$" > "$RB_PIDFILE.stub"
 trap 'kill -TERM "$gc" 2>/dev/null; exit 143' TERM INT
 wait
 STUB
@@ -1503,10 +1507,13 @@ rb_probe() {   # rb_probe <INT|TERM> -> "exit=<n> prompt=<y|n> grandchild=<gone|
     kill -"$sig" "$rbpid" 2>/dev/null
     for i in $(seq 1 60); do kill -0 "$rbpid" 2>/dev/null || break; sleep 0.1; done
     local alive=n; kill -0 "$rbpid" 2>/dev/null && alive=y
+    # a wrapper that ignored the signal is KILLED before the wait: a missing forward must fail this row by name,
+    # not hang the whole suite until its bound
+    [[ $alive == y ]] && kill -KILL "$rbpid" 2>/dev/null
     wait "$rbpid" 2>/dev/null; rc=$?
     local gc; gc=$(cat "$pidf" 2>/dev/null || echo 0)
     local gcs=gone; kill -0 "$gc" 2>/dev/null && { gcs=ALIVE; kill -KILL "$gc" 2>/dev/null; }
-    [[ $alive == y ]] && kill -KILL "$rbpid" 2>/dev/null
+    [[ $alive == y ]] && kill -KILL "$(cat "$pidf.stub" 2>/dev/null || echo 0)" 2>/dev/null
     echo "exit=$rc prompt=$([[ $alive == n && $((SECONDS - t0)) -le 6 ]] && echo y || echo n) grandchild=$gcs"
 }
 res=$(rb_probe INT)

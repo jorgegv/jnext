@@ -437,13 +437,16 @@ Chrome's own default is SwiftShader, software WebGL), driven through the pinned
 `playwright-core`; `chrome-x2` is the same with the CDP CPU throttle at 2x, re-sent
 after every navigation; `firefox` is the host's Firefox with a profile of its own,
 driven by the page itself (the page asks the driver's server for its next program,
-posts the result and navigates to itself). Firefox runs HEADED on a private Xvfb
-display (`xvfb-run -d`, `-noreset`), because a headless Firefox 159 with no display
-server gives no canvas a WebGL context of any version or attributes (measured with
-a static page), so jnext's page falls back to SDL's 2D canvas and every cell would
-be INVALID; the same Firefox has WebGL when it has an X display, headless or not.
-`FIREFOX_MODE=headless` selects the display-less route anyway, and the results
-header records which ran (`# firefox mode:`). The whole bench, node, servers and browsers, runs under `taskset` on the
+posts the result and navigates to itself). Firefox runs with `MOZ_HEADLESS=1` on a private
+Xvfb display (`xvfb-run -d`, `-noreset`): a headless Firefox 159 with no display connection gives
+no canvas a WebGL context of any version or attributes (measured with a static page), so
+jnext's page falls back to SDL's 2D canvas, while the same Firefox given the Xvfb display has
+WebGL. The renderer depends on the route, and the results header records both the route
+(`# firefox mode:`) and the renderer: the default route draws WebGL on the GPU; `FIREFOX_MODE=headed`
+(a headed Firefox on that display) draws through the X display, which is Mesa software
+(llvmpipe), and `FIREFOX_MODE=headless` (`--headless`, no Xvfb, no DISPLAY) has no WebGL at all.
+A cell whose WebGL renderer is software (llvmpipe, SwiftShader, softpipe) is INVALID
+(`software_renderer`): a visitor's browser draws on a GPU. The whole bench, node, servers and browsers, runs under `taskset` on the
 fastest physical cores, derived as `bench.sh` derives its core. The page is
 served from `127.0.0.1` by an allow-list: the build's two files, the page, the NEX
 directories and the run's minimal card. The card is built at run time into a
@@ -483,8 +486,8 @@ the callback cost), is run twice more and the majority counts.
 
 **Quiet host.** Each pass waits, bounded at 30 minutes, for a 1-minute load of at
 most 1.5, and records the load at its start and end; a pass that never got quiet
-is marked `LOADED` and counts for nothing. `test/bench/.lock` keeps two benches
-from overlapping.
+is marked `LOADED` and counts for nothing. One host-wide lock (`~/.cache/jnext/bench.lock`,
+shared by every worktree) keeps two benches from overlapping.
 
 **Running it.** `make bench-web` runs the three passes and writes
 `test/bench/web-baseline-<sha>.txt`: a header (date, host, commit, browser
@@ -495,7 +498,7 @@ counters, below) and the table as comments. Variables:
 window frames), `PROFILE=<program,...>`, `WEB_BUILD=<dir>`, `RESULTS=<file>` (write
 there instead of into the tree: use it for every trial run), `RAW_DIR=<dir>` (each
 cell's raw callbacks as JSON), `NO_REPEAT=1`, `QUIET_WAIT=0` (do not wait for a quiet
-host; the pass is marked LOADED and counts for nothing), `FIREFOX_MODE=xvfb|headless`,
+host; the pass is marked LOADED and counts for nothing), `FIREFOX_MODE=xvfb|headed|headless`,
 `JNEXT_BENCH_CHROME=<binary>` and `BENCH_CHROME_ARGS=<flags>`. One bench runs at a
 time on the host: both bench scripts take the lock `~/.cache/jnext/bench.lock`, shared
 by every worktree, and wait for it. Ctrl-C or TERM stops the whole run (the driver
@@ -532,9 +535,8 @@ detail lives in the documents named.
 - **The browser build (2026-11-09).** Host: Ryzen AI 5 340, the three fastest
   physical cores, quiet (1-minute load at most 1.5 at each pass start); Chrome
   156.0.8078.79 on the GPU (ANGLE over OpenGL ES, `--use-angle=gl-egl`: headless
-  Chrome's own default is SwiftShader, software WebGL), Firefox 159.0 (this first
-  table: `MOZ_HEADLESS=1` on a private Xvfb display, which the results file did not
-  yet record; later tables run it headed), emsdk
+  Chrome's own default is SwiftShader, software WebGL), Firefox 159.0 (`MOZ_HEADLESS=1` on a
+  private Xvfb display, GPU WebGL; this first results file did not yet record the route), emsdk
   6.0.13, node 24.19.0. Core against native: the same core under node ran a
   median 1.97 times slower than native (2026-11-07, 46 NEX programs, range 1.86
   to 2.14). In the browser, every one of the 39 acceptance programs emulates at

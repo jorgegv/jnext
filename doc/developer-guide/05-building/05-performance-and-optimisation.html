@@ -3587,13 +3587,16 @@ Chrome's own default is SwiftShader, software WebGL), driven through the pinned
 <code>playwright-core</code>; <code>chrome-x2</code> is the same with the CDP CPU throttle at 2x, re-sent
 after every navigation; <code>firefox</code> is the host's Firefox with a profile of its own,
 driven by the page itself (the page asks the driver's server for its next program,
-posts the result and navigates to itself). Firefox runs HEADED on a private Xvfb
-display (<code>xvfb-run -d</code>, <code>-noreset</code>), because a headless Firefox 159 with no display
-server gives no canvas a WebGL context of any version or attributes (measured with
-a static page), so jnext's page falls back to SDL's 2D canvas and every cell would
-be INVALID; the same Firefox has WebGL when it has an X display, headless or not.
-<code>FIREFOX_MODE=headless</code> selects the display-less route anyway, and the results
-header records which ran (<code># firefox mode:</code>). The whole bench, node, servers and browsers, runs under <code>taskset</code> on the
+posts the result and navigates to itself). Firefox runs with <code>MOZ_HEADLESS=1</code> on a private
+Xvfb display (<code>xvfb-run -d</code>, <code>-noreset</code>): a headless Firefox 159 with no display connection gives
+no canvas a WebGL context of any version or attributes (measured with a static page), so
+jnext's page falls back to SDL's 2D canvas, while the same Firefox given the Xvfb display has
+WebGL. The renderer depends on the route, and the results header records both the route
+(<code># firefox mode:</code>) and the renderer: the default route draws WebGL on the GPU; <code>FIREFOX_MODE=headed</code>
+(a headed Firefox on that display) draws through the X display, which is Mesa software
+(llvmpipe), and <code>FIREFOX_MODE=headless</code> (<code>--headless</code>, no Xvfb, no DISPLAY) has no WebGL at all.
+A cell whose WebGL renderer is software (llvmpipe, SwiftShader, softpipe) is INVALID
+(<code>software_renderer</code>): a visitor's browser draws on a GPU. The whole bench, node, servers and browsers, runs under <code>taskset</code> on the
 fastest physical cores, derived as <code>bench.sh</code> derives its core. The page is
 served from <code>127.0.0.1</code> by an allow-list: the build's two files, the page, the NEX
 directories and the run's minimal card. The card is built at run time into a
@@ -3630,8 +3633,8 @@ or a PASS with less than 10% headroom (frame period over the 95th percentile of
 the callback cost), is run twice more and the majority counts.</p>
 <p><strong>Quiet host.</strong> Each pass waits, bounded at 30 minutes, for a 1-minute load of at
 most 1.5, and records the load at its start and end; a pass that never got quiet
-is marked <code>LOADED</code> and counts for nothing. <code>test/bench/.lock</code> keeps two benches
-from overlapping.</p>
+is marked <code>LOADED</code> and counts for nothing. One host-wide lock (<code>~/.cache/jnext/bench.lock</code>,
+shared by every worktree) keeps two benches from overlapping.</p>
 <p><strong>Running it.</strong> <code>make bench-web</code> runs the three passes and writes
 <code>test/bench/web-baseline-&lt;sha&gt;.txt</code>: a header (date, host, commit, browser
 versions, WebGL renderers, core set, window, the load at each pass start and
@@ -3641,7 +3644,7 @@ counters, below) and the table as comments. Variables:
 window frames), <code>PROFILE=&lt;program,...&gt;</code>, <code>WEB_BUILD=&lt;dir&gt;</code>, <code>RESULTS=&lt;file&gt;</code> (write
 there instead of into the tree: use it for every trial run), <code>RAW_DIR=&lt;dir&gt;</code> (each
 cell's raw callbacks as JSON), <code>NO_REPEAT=1</code>, <code>QUIET_WAIT=0</code> (do not wait for a quiet
-host; the pass is marked LOADED and counts for nothing), <code>FIREFOX_MODE=xvfb|headless</code>,
+host; the pass is marked LOADED and counts for nothing), <code>FIREFOX_MODE=xvfb|headed|headless</code>,
 <code>JNEXT_BENCH_CHROME=&lt;binary&gt;</code> and <code>BENCH_CHROME_ARGS=&lt;flags&gt;</code>. One bench runs at a
 time on the host: both bench scripts take the lock <code>~/.cache/jnext/bench.lock</code>, shared
 by every worktree, and wait for it. Ctrl-C or TERM stops the whole run (the driver
@@ -3675,9 +3678,8 @@ detail lives in the documents named.</p>
 <p><strong>The browser build (2026-11-09).</strong> Host: Ryzen AI 5 340, the three fastest
   physical cores, quiet (1-minute load at most 1.5 at each pass start); Chrome
   156.0.8078.79 on the GPU (ANGLE over OpenGL ES, <code>--use-angle=gl-egl</code>: headless
-  Chrome's own default is SwiftShader, software WebGL), Firefox 159.0 (this first
-  table: <code>MOZ_HEADLESS=1</code> on a private Xvfb display, which the results file did not
-  yet record; later tables run it headed), emsdk
+  Chrome's own default is SwiftShader, software WebGL), Firefox 159.0 (<code>MOZ_HEADLESS=1</code> on a
+  private Xvfb display, GPU WebGL; this first results file did not yet record the route), emsdk
   6.0.13, node 24.19.0. Core against native: the same core under node ran a
   median 1.97 times slower than native (2026-11-07, 46 NEX programs, range 1.86
   to 2.14). In the browser, every one of the 39 acceptance programs emulates at
