@@ -6,11 +6,13 @@ Zip a page like `itch-game.html` (it is in `jnext-VERSION-web.zip`) with `jnext-
 `jnext-VERSION.wasm`, upload it as an HTML game, and set the frame size on the
 itch.io page. itch.io embeds your page in an `iframe` of its own site, so:
 
-- Game controllers need `allow="gamepad"` on that `iframe` (itch.io sets it);
-  `itch-host.html` shows the markup.
-- Browsers keep storage per embedding site: the first visit on each site downloads
-  the image again, and the stored boot recording does not carry over.
+- Game controllers need `allow="gamepad"` on that `iframe`; `itch-host.html` shows the markup.
+- Browsers keep storage per origin and may give an embedded page storage of its own, so
+  the image may download again on the embedding site (see 10.4, "What the browser
+  keeps, and where").
 - The image's server must allow cross-origin reads, as for any page.
+- `itch-game.html` tells the page that embeds it when the game is running
+  (`jnext-ready`) or has failed (`jnext-error: <message>`), as `postMessage` text.
 
 ## Several players on a page
 

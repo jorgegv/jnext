@@ -15,7 +15,7 @@ from a single source; the Reference chapter links there rather than restating
 options, so the manual can never drift from the binary.
 
 **Audience.** Chapters 1-5 are for someone who just wants to **run programs**,
-and assume no development background. Chapters 6-7 are **developer oriented** —
+and assume no development background. Chapters 6, 7 and 10 are **developer oriented** —
 JNEXT is a developer's emulator and its users want to know how the debugger
 and the automation work. Keep the two registers distinct.
 
@@ -165,3 +165,10 @@ catch-up; issue #9), the DAC buzzing (#38), and the debugger window positioning
 The full option reference, generated from the `jnext(1)` man page source so it
 cannot drift; then pointers, not restatements: file and directory locations,
 and links to the ZX Spectrum Next hardware documentation.
+
+## 10. JNEXT in a web page
+
+JNEXT built for WebAssembly, run in a browser tab from a page you write or from an
+itch.io upload. 10.1 a page with a game, 10.2 the options and the player's controls,
+10.3 itch.io and what the browser build does not do, 10.4 the SD-card image, what the
+browser keeps (per origin) and what to do when a page does not start. Added 2026-11-08.

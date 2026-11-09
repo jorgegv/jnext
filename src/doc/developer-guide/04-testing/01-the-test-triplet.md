@@ -12,7 +12,9 @@ $ make regression
 ```
 
 The triplet is the core of the **batch gate**, which adds `make unit-test-sdl`,
-`make unit-test-win`, `make unit-test-wasm` and `make regression-win`.
+`make unit-test-win`, `make regression-win` and the four WebAssembly targets,
+`make wasm-core`, `make wasm-browser-test`, `make unit-test-wasm` and
+`make regression-wasm` ([5.6](../05-building/06-the-browser-build.md)).
 
 - **When it runs:** on `main`'s tip, once, after all of a work session's landings
   and before any push.

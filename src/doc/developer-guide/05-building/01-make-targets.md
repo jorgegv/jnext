@@ -183,6 +183,8 @@ the host's Chrome, Chrome at 2x CPU throttle and Firefox, written to
 `test/bench/web-baseline-<sha>.txt` ([5.5](05-performance-and-optimisation.md#the-browser-build)).
 No gate or CI step runs it.
 
+The browser build as a whole, with its CMake arms and tests, is [5.6](06-the-browser-build.md).
+
 Chapter [4. Testing](../04-testing/index.md) covers what each of these actually
 proves.
 

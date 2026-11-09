@@ -14,6 +14,8 @@
         <link rel="prev" href="02-options-and-the-player.html">
       
       
+        <link rel="next" href="04-the-image-and-what-the-browser-keeps.html">
+      
       
         
       
@@ -4112,6 +4114,8 @@
       
         
       
+        
+      
     
     
     
@@ -4325,6 +4329,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-the-image-and-what-the-browser-keeps.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10.4 The SD-card image, and what the browser keeps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -4358,11 +4390,13 @@
 <code>jnext-VERSION.wasm</code>, upload it as an HTML game, and set the frame size on the
 itch.io page. itch.io embeds your page in an <code>iframe</code> of its own site, so:</p>
 <ul>
-<li>Game controllers need <code>allow="gamepad"</code> on that <code>iframe</code> (itch.io sets it);
-  <code>itch-host.html</code> shows the markup.</li>
-<li>Browsers keep storage per embedding site: the first visit on each site downloads
-  the image again, and the stored boot recording does not carry over.</li>
+<li>Game controllers need <code>allow="gamepad"</code> on that <code>iframe</code>; <code>itch-host.html</code> shows the markup.</li>
+<li>Browsers keep storage per origin and may give an embedded page storage of its own, so
+  the image may download again on the embedding site (see 10.4, "What the browser
+  keeps, and where").</li>
 <li>The image's server must allow cross-origin reads, as for any page.</li>
+<li><code>itch-game.html</code> tells the page that embeds it when the game is running
+  (<code>jnext-ready</code>) or has failed (<code>jnext-error: &lt;message&gt;</code>), as <code>postMessage</code> text.</li>
 </ul>
 <h2 id="several-players-on-a-page">Several players on a page<a class="headerlink" href="#several-players-on-a-page" title="Permanent link">&para;</a></h2>
 <p>Each <code>mount()</code> makes its own emulator, with its own canvas and keyboard focus.

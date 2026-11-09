@@ -4114,6 +4114,8 @@
       
         
       
+        
+      
     
     
     
@@ -4338,6 +4340,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-the-image-and-what-the-browser-keeps.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10.4 The SD-card image, and what the browser keeps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -4399,7 +4429,7 @@
 <tr>
 <td><code>set</code></td>
 <td><code>{"section.key": value}</code></td>
-<td>One <code>--set</code> each, in key order.</td>
+<td>One <code>--set</code> each, sorted by key.</td>
 </tr>
 <tr>
 <td><code>args</code></td>
@@ -4459,7 +4489,7 @@
 </tr>
 <tr>
 <td><code>reset(kind)</code></td>
-<td><code>'program'</code> (default): restart the program. <code>'hard'</code>: power on again. <code>'soft'</code>: reset. Returns a promise.</td>
+<td><code>'program'</code> (default): restart the program; with no program, the same as <code>'hard'</code>. <code>'hard'</code>: power on again. <code>'soft'</code>: reset. Returns a promise.</td>
 </tr>
 <tr>
 <td><code>load(file)</code></td>
