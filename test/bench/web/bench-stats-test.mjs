@@ -136,16 +136,23 @@ row('WBENCH-10', 'pacing counters over a window: 8 s, callbacks {+10,+590,+40,+1
   must(got === want, got);
 });
 
-row('WBENCH-11', 'settle: majority of the valid runs (a tie is FAIL), the representative is the median-emu_fps valid run, an all-INVALID cell keeps its first reason, runs counts every run', () => {
-  const run = (verdict, emu, reason = '-') => ({ verdict, reason, m: verdict === 'INVALID' ? null : { emu_fps: emu } });
+row('WBENCH-11', 'settle: majority of the valid runs (a tie is FAIL), the representative is the median by min(emulated, shown)/refresh, an all-INVALID cell keeps its first reason, runs counts every run', () => {
+  // emu_fps is flat at full speed in real tables, the shown rate is what differs: the margin is their minimum over the refresh
+  const run = (verdict, shown, reason = '-', emu = 100) => ({ verdict, reason, m: verdict === 'INVALID' ? null : { emu_fps: emu, shown_fps: shown, refresh: 50 } });
   const a = settle([run('FAIL', 40), run('PASS', 60), run('PASS', 50)]);
-  must(a.verdict === 'PASS' && a.m.emu_fps === 50 && a.runs === 3, 'majority: ' + JSON.stringify(a));
+  must(a.verdict === 'PASS' && a.m.shown_fps === 50 && a.runs === 3, 'majority: ' + JSON.stringify(a));
   const b = settle([run('PASS', 50), run('FAIL', 40), run('INVALID', 0, 'host_got_busier')]);
   must(b.verdict === 'FAIL' && b.runs === 3, 'tie among 2 valid: ' + JSON.stringify(b));
   const c = settle([run('INVALID', 0, 'load_error'), run('INVALID', 0, 'no_webgl')]);
   must(c.verdict === 'INVALID' && c.reason === 'load_error' && c.runs === 2, 'all invalid: ' + JSON.stringify(c));
   const d = settle([run('FAIL', 30), run('PASS', 70)]);
-  must(d.verdict === 'FAIL' && d.m.emu_fps === 30, 'two valid, one each: FAIL, lower median: ' + JSON.stringify(d));
+  must(d.verdict === 'FAIL' && d.m.shown_fps === 30, 'two valid, one each: FAIL, lower median: ' + JSON.stringify(d));
+  // equal emulated rates, different shown rates: the middle one by margin, not the first by emulated rate
+  const e = settle([run('FAIL', 45, '-', 49.9), run('FAIL', 30, '-', 49.9), run('FAIL', 40, '-', 49.9)]);
+  must(e.m.shown_fps === 40, 'representative by margin: ' + JSON.stringify(e));
+  // the margin is the MINIMUM of the two rates: an emulated rate below the shown one decides it
+  const f = settle([run('FAIL', 48, '-', 41), run('FAIL', 44, '-', 49), run('FAIL', 46, '-', 49)]);
+  must(f.m.emu_fps === 49 && f.m.shown_fps === 44, 'margin = min(emu, shown): ' + JSON.stringify(f));
 });
 
 row('WBENCH-12', 'needsRepeat: a FAIL within 5 % of the refresh (inclusive), a PASS with less than 10 % headroom (exclusive); INVALID never', () => {

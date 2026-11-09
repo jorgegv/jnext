@@ -51,6 +51,7 @@ struct Sim {
     std::function<int64_t()> period = [this] { return cost() + static_cast<int64_t>(sleep()) * 1000; };
     bool fast = false;
     int ticks = 0;
+    int callbacks = 0;                               // callbacks issued
     int max_per_callback = 0;
     int last_callback_ticks = 0;
     bool ended = false;
@@ -60,6 +61,7 @@ struct Sim {
     browser_pacing::Result callback(int64_t at)
     {
         t = at;
+        ++callbacks;
         int n = 0;
         const auto r = browser_pacing::run_callback(
             gate,
@@ -99,6 +101,14 @@ struct Sim {
 constexpr int64_t TEN_S = 10'000'000;
 
 std::string num(int a) { return std::to_string(a); }
+
+// every callback, whatever path ended it (the stall resync, the End), is counted in exactly one bucket
+uint64_t stats_total(const Sim& s)
+{
+    uint64_t n = 0;
+    for (uint64_t c : s.gate.stats.callbacks_by_ticks) n += c;
+    return n;
+}
 
 }  // namespace
 
@@ -166,7 +176,8 @@ int main()
         for (int64_t at = 2'033'334; at < 12'000'000; at += 16667) s.callback(at);
         const int rate = static_cast<int>(s.tick_starts.size() - from);
         check("BRP-07", "callbacks stop for 1 s: the first resumed callback runs 1 tick, resyncs()==1, the next callback ticks at once, then 50/s",
-              after_stall == 1 && resyncs == 1 && next_cb == 1 && rate >= 496 && rate <= 500,
+              after_stall == 1 && resyncs == 1 && next_cb == 1 && rate >= 496 && rate <= 500 &&
+              stats_total(s) == static_cast<uint64_t>(s.callbacks) && s.gate.stats.callbacks_by_ticks[1] > 0,
               "stall ticks=" + num(after_stall) + " resyncs=" + num(resyncs) + " next=" + num(next_cb) + " 10s ticks=" + num(rate));
     }
     // BRP-08: one callback 30 ms late (< 2 periods): no resync, the rate is unchanged.
@@ -209,7 +220,8 @@ int main()
         s.end_on = true;
         const auto r = s.callback(0);
         check("BRP-11", "tick returns false: run_callback reports End after exactly that tick",
-              r == browser_pacing::Result::End && s.ticks == 1 && s.ended,
+              r == browser_pacing::Result::End && s.ticks == 1 && s.ended &&
+              s.gate.stats.callbacks_by_ticks[1] == 1 && stats_total(s) == 1,
               "ticks=" + num(s.ticks));
     }
     // BRP-12: tick 5 ms + sleep 15 ms, due D: the next due is D + 20000 us (the grid).

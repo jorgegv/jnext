@@ -90,14 +90,17 @@ export function needsRepeat(c) {
 }
 
 // Runs of one cell -> the counted result: majority verdict among the valid runs (a tie is FAIL), the
-// representative run being the valid one with the median emu_fps.
+// representative run being the valid one with the median min(emulated, shown)/refresh.
 export function settle(runs) {
   const valid = runs.filter((r) => r.verdict !== 'INVALID');
   if (valid.length === 0) return { ...runs[0], runs: runs.length };
   const pass = valid.filter((r) => r.verdict === 'PASS').length;
   const verdict = pass * 2 > valid.length ? 'PASS' : 'FAIL';
-  const byFps = valid.slice().sort((a, b) => a.m.emu_fps - b.m.emu_fps);
-  const rep = byFps[Math.floor((byFps.length - 1) / 2)];
+  // The representative is the median by the DECIDING margin, min(emulated, shown) / refresh: the emulated rate is
+  // flat at full speed, so ordering by it picks an arbitrary run and the printed shown rate with it.
+  const margin = (r) => Math.min(r.m.emu_fps, r.m.shown_fps) / r.m.refresh;
+  const byMargin = valid.slice().sort((a, b) => margin(a) - margin(b));
+  const rep = byMargin[Math.floor((byMargin.length - 1) / 2)];
   return { ...rep, verdict, runs: runs.length };
 }
 

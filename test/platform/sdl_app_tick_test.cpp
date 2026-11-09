@@ -378,6 +378,29 @@ int main()
               ok_all && on_grid, detail);
     }
 
+    // --- SDLT-12: a fastload tick re-anchors the grid --------------------------------------------------
+    // A fastload tick reports no sleep and forgets the deadline; the next paced tick starts a new grid (about one
+    // period) instead of continuing the old one (whose next slot is two periods away) or sleeping the 1 ms minimum.
+    // --speed 20 %: period 99.84 ms. Nobody sleeps, so a tick that kept the old deadline would report about 200 ms.
+    {
+        bool ok = false;
+        auto app = make_app(ok);
+        app->set_speed_percent(20);
+        uint32_t s1 = 0, s2 = 12345, s3 = 0;
+        app->tick(s1);                                              // paced: anchors, about 100 ms
+        app->emulator().phantom_typist().arm(MachineType::ZX48K);   // wants_fastload(): the next tick is unpaced
+        const bool fast = app->emulator().fastload_active();
+        app->tick(s2);                                              // fastload: sleep 0
+        app->emulator().phantom_typist().reset();
+        const bool paced_again = !app->emulator().fastload_active();
+        app->tick(s3);                                              // paced again: a fresh grid
+        app->shutdown();
+        check("SDLT-12", "a fastload tick reports no sleep; the paced tick after it starts a new grid: about one period (80-110 ms at 20%), not 1 ms and not the old grid's two periods",
+              ok && fast && paced_again && s1 >= 80 && s1 <= 110 && s2 == 0 && s3 >= 80 && s3 <= 110,
+              "s1=" + std::to_string(s1) + " s2=" + std::to_string(s2) + " s3=" + std::to_string(s3) +
+              " fast=" + std::to_string(fast) + " paced_again=" + std::to_string(paced_again));
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);
