@@ -273,7 +273,7 @@ row MINIMG-17 "$ok" "config.ini and ZX81_16K_SHA256 are the same in make-minimal
 # ---- MINIMG-18: the tool preflight ----
 # (a) only the commands in the script's TOOLS line on PATH: the build succeeds with
 # the same sha256, so it needs nothing else. (b) without mformat, mcopy and sfdisk it
-# refuses first, naming both and the packages, creating nothing.
+# refuses first, naming all three and the packages, creating nothing.
 tools_line=$(grep -E '^TOOLS=\(.*\)$' "$SCRIPT" || true)
 tools_line=${tools_line#TOOLS=(}; tools_line=${tools_line%)}
 mkdir -p "$T/pf/bin" "$T/pf/ok" "$T/pf/no"
