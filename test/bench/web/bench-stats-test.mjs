@@ -18,10 +18,14 @@ const GOOD = () => ({
 // 300 callbacks, 200 x 1 frame + 100 x 2 frames = 400 frames, total cost 4000 ms, wall 8 s
 const MIX = () => ({ ...GOOD(), costs: new Array(300).fill(4000 / 300), deltas: [...new Array(200).fill(1), ...new Array(100).fill(2)], wall_ms: 8000 });
 
-row('WBENCH-01', 'costs 1..100 ms: p50 50, p95 95, max 100 (nearest rank)', () => {
+row('WBENCH-01', 'costs 1..100 ms: p50 50, p95 95, max 100; 10 values: p95 is the 10th (nearest rank, a fractional rank rounds up)', () => {
   const c = Array.from({ length: 100 }, (_, i) => i + 1).reverse();
   must(percentile(c, 50) === 50 && percentile(c, 95) === 95 && percentile(c, 100) === 100,
        `${percentile(c, 50)} ${percentile(c, 95)} ${percentile(c, 100)}`);
+  // a fractional rank rounds UP: 10 values, p95 -> rank 9.5 -> the 10th
+  const t = [3, 1, 2, 10, 9, 8, 7, 6, 5, 4];
+  must(percentile(t, 95) === 10 && percentile(t, 50) === 5 && percentile(t, 10) === 1,
+       `${percentile(t, 95)} ${percentile(t, 50)} ${percentile(t, 10)}`);
 });
 
 row('WBENCH-02', '200 x 1 + 100 x 2 frames, cost 4000 ms, wall 8 s: 400 frames, 50.0 emu fps, 10.0 ms per frame', () => {

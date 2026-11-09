@@ -146,8 +146,9 @@ functions by `web_api_test` (run by `make cli-check`). The controller
 (`jnext_web_pause`, `jnext_web_reset`, `jnext_web_load`, `jnext_web_set_volume`,
 `jnext_web_quit`) and, through `SdlApp::set_on_load_applied` and `after_tick`, tells
 the page when the program is in the machine and a frame has followed (the `ready`
-event, `Module.jnextEvent`). `jnext_web_load_applied` and `jnext_web_gain_db` are
-test seams, not API. Pause is the browser loop's pause (`emscripten_pause_main_loop`),
+event, `Module.jnextEvent`). `jnext_web_load_applied`, `jnext_web_gain_db`,
+`jnext_web_frame_period_ms` and `jnext_web_cpu_mhz` (the frame period and the
+effective CPU speed, read by the browser bench) are test seams, not API. Pause is the browser loop's pause (`emscripten_pause_main_loop`),
 because the backend's pause needs an armed machine, which costs a check per
 instruction. Several players on a page share one IndexedDB database for the
 warm-start recording.

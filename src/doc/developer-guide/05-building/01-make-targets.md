@@ -178,6 +178,11 @@ count the script pins, so the JavaScript API rows run in the same target. `make 
 also a prerequisite: the run ends by serving the extracted `jnext-<version>-web.zip` alone and
 booting the example page from it ([5.3](03-packaging-and-release.md#the-browser-package)).
 
+`make bench-web` is the browser counterpart of `make bench`: the regression NEX set in
+the host's Chrome, Chrome at 2x CPU throttle and Firefox, written to
+`test/bench/web-baseline-<sha>.txt` ([5.5](05-performance-and-optimisation.md#the-browser-build)).
+No gate or CI step runs it.
+
 Chapter [4. Testing](../04-testing/index.md) covers what each of these actually
 proves.
 

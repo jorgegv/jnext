@@ -381,7 +381,13 @@ binaries. To compare binaries, run them **interleaved**:
   core (`taskset -c N`);
 - rotate the order of the variants each round, so none is always first;
 - give every run its own reflinked clone of the SD master, so no run sees
-  another's writes;
+  another's writes, **and its own `JNEXT_CONFIG_DIR`**, primed by one unmeasured
+  run of the first NEX workload. The warm-start cache is keyed on the image's
+  size and modification time, and a fresh clone has a new time: without a private
+  config directory the first NEX run misses the cache and times a NextZXOS cold
+  boot inside its window (copper-demo: 4.67 s against 2.81 to 2.90 s on a hit),
+  and it replaces your own cache with one keyed to a clone that is deleted at
+  the end. `bench.sh` does both;
 - wrap each run in `perf stat -e instructions:u,cycles:u`. Cycles are less
   sensitive to frequency changes than wall time, and instructions say whether
   the code or only its speed changed;
@@ -406,6 +412,89 @@ move a ratio by several points.
 **Profiling.** `perf record -g` needs frame pointers, which only the
 RelWithDebInfo build keeps (they cost 5.8% in Release, so Release does not);
 on a Release binary use `perf record --call-graph dwarf`.
+
+## The browser build
+
+The browser build (`jnext-<version>.js`, 5.2) has its own bench, `make bench-web`.
+It answers a different question from `make bench`: not how fast the core is, but
+whether the page a visitor loads keeps up. Nothing here is a gate. No test and no
+CI step asserts a speed, because a bound on a speed measures the host; the
+numbers live in a committed results file and on the issue that asked.
+
+**What runs.** Every program of `test/00regression/nex` plus
+`test/bench/nex/halt_idle_35.nex` is the acceptance set, 39 programs, read from
+the directories at run time and never pinned. The eight NEX of
+`test/nex-nonworking` and the other two bench NEX are measured and reported but
+do not count. Each program is started as `--machine next --load <nex>`, with no
+keys, at the speed it sets itself, as the native and node tables measured it.
+Each runs in a fresh page, in one wasm instance, through `jnext.mount()` and the
+build's own `jnext-<version>.js`, so the path measured is the embedder's: the
+image cache, the warm start, the pacing grid.
+
+**Three configurations.** `chrome` is the host's Google Chrome (headless, muted),
+driven through the pinned `playwright-core`; `chrome-x2` is the same with the CDP
+CPU throttle at 2x, re-sent after every navigation; `firefox` is the host's
+Firefox, headless, with a profile of its own, driven by the page itself (the page
+asks the driver's server for its next program, posts the result and navigates to
+itself). The whole bench, node, servers and browsers, runs under `taskset` on the
+fastest physical cores, derived as `bench.sh` derives its core. The page is
+served from `127.0.0.1` by an allow-list: the build's two files, the page, the NEX
+directories and the run's minimal card. The card is built at run time into a
+scratch directory under `~/tmp` and deleted at the end; it is never committed or
+served from the repository.
+
+**One cell.** A cell is one program in one configuration. The page calibrates
+(a fixed integer loop of about 50 ms, three times, the median), mounts, waits for
+the `ready` event, runs 250 warm-up frames and then measures a window of 600
+frames or 60 s. The measurement is made from outside the module by two wrappers
+installed before it loads: `requestAnimationFrame` (Emscripten schedules every
+main-loop iteration through the global one, so each callback is one run of the
+frontend's tick; its cost is timed and the emulator frames it ran are read from
+the module's frame counter before and after) and the Web Audio script processor
+handler SDL installs. Two read-only exports give the frame period in
+milliseconds and the effective CPU speed in MHz (`jnext_web_frame_period_ms`,
+`jnext_web_cpu_mhz`, test seams like `jnext_web_frame`). The arithmetic is in
+`test/bench/web/bench-stats.mjs`, which has its own rows (WBENCH-01 to
+WBENCH-09, run by `make wasm-browser-test` on synthetic data).
+
+**Verdict.** Full speed is the program's own refresh, `1000 / frame period`:
+50.08 Hz for 48K timing, 49.36 Hz for 128K and +3 timing, 58.15 Hz for a 60 Hz
+program. A literal 50 fps is above full speed for most of the set. A cell is
+PASS when both the emulated rate (`frames / wall time`) and the shown rate
+(callbacks that ran at least one frame, per second: the browser composites once
+per callback) reach 0.99 x refresh. A cell is INVALID, with the reason in the
+results file, when the load failed, there is no WebGL context, the frame period
+changed in the window, the 60 s cap ended it early, the audio context was not
+running, the calibration says the throttle was not in effect (the x2 calibration
+must be 1.8 to 2.2 times the unthrottled one) or the host got busier (a cell's
+calibration above 1.10 times the pass minimum). A FAIL within 5% of the refresh,
+or a PASS with less than 10% headroom (frame period over the 95th percentile of
+the callback cost), is run twice more and the majority counts.
+
+**Quiet host.** Each pass waits, bounded at 30 minutes, for a 1-minute load of at
+most 1.5, and records the load at its start and end; a pass that never got quiet
+is marked `LOADED` and counts for nothing. `test/bench/.lock` keeps two benches
+from overlapping.
+
+**Running it.** `make bench-web` runs the three passes and writes
+`test/bench/web-baseline-<sha>.txt`: a header (date, host, commit, browser
+versions, WebGL renderers, core set, window, the load at each pass start and
+end), one `WEBBENCH` line per cell and the table as comments. Variables:
+`CONFIGS=chrome,chrome-x2,firefox`, `SET=<program,...>`, `W=` and `M=` (warm-up and
+window frames), `PROFILE=<program,...>` and `WEB_BUILD=<dir>`. With `PROFILE=` the
+Chrome cells named run under the CPU profiler around the window and the run
+prints each one's self-time top 20 and a split into core, render, audio, upload
+and present, and JavaScript glue; the profile files are copied to `PROFILE_DIR`.
+For function names use a profiling build in a scratch directory: configure
+`make wasm-core`'s tree with `-DCMAKE_EXE_LINKER_FLAGS=--profiling-funcs`, build
+`jnext_web` and pass it as `WEB_BUILD`. It is never committed or shipped.
+
+**What it cannot tell you.** Headless Chrome and Firefox composite and play audio
+as the host's drivers do, which is not a visitor's machine: the results file
+records the WebGL renderer each browser used. Firefox clamps `performance.now()`
+(the file records the resolution observed), so its per-callback costs are
+quantised and only their sum is exact; its verdict rests on the frame counts and
+the wall clock.
 
 ## What has been measured
 
