@@ -13,7 +13,7 @@ import http from 'http';
 import path from 'path';
 import os from 'os';
 import { spawn, execFileSync } from 'child_process';
-import { judge, needsRepeat, settle, checkComplete, formatLine, markdownTable, speedLabel, metrics, percentile } from './bench-stats.mjs';
+import { judge, needsRepeat, settle, checkComplete, formatLine, paceMetrics, formatPaceLine, markdownTable, speedLabel, metrics, percentile } from './bench-stats.mjs';
 
 const E = process.env;
 const ROOT = E.BENCH_ROOT, BUILD = E.BENCH_BUILD, VERSION = E.BENCH_VERSION, SCRATCH = E.BENCH_SCRATCH;
@@ -343,6 +343,8 @@ if (timer.length) lines.push(`# performance.now() resolution observed (median ov
 lines.push(`# programs: ${programs.length} (acceptance: ${programs.filter((p) => p.acceptance).map((p) => p.name).join(' ')})`);
 lines.push('');
 for (const r of results) lines.push(formatLine(r) + (r.acceptance ? '' : ' informative=1'));
+lines.push('');
+for (const r of results) { const p = r.raw && r.verdict !== 'INVALID' ? paceMetrics(r.raw) : null; if (p) lines.push(formatPaceLine(r, p)); }
 lines.push('');
 let table = '';
 try { checkComplete(results, programs.map((p) => p.name), CONFIGS); table = markdownTable(results, programs.map((p) => p.name), CONFIGS); }

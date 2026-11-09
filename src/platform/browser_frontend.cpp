@@ -18,6 +18,7 @@ struct Context {
     SdlApp*               app = nullptr;
     std::function<int()>  finish;
     browser_pacing::Gate  gate;
+    uint64_t              fill_events = 0;    // running total of the audio fill events (the bench's counter 8)
     bool                  active = false;
 };
 Context g_ctx;
@@ -40,7 +41,9 @@ void frame_cb(void*)
         g_ctx.gate,
         [] { return static_cast<int64_t>(now_us()); },
         [&app](uint32_t& s) {
+            const uint32_t f0 = app.emulator().frame_num();
             const bool more = app.tick(s);
+            g_ctx.gate.stats.on_tick(app.emulator().frame_num() - f0);
             web_controller::after_tick(app, more);
             return more;
         },
@@ -101,6 +104,19 @@ extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_frame()
 extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_frame_period_ms()
 {
     return g_ctx.app ? g_ctx.app->emulator().frame_period_ms() : 0.0;
+}
+
+// Pacing diagnostics for the browser bench (a test seam, not API): i = 0..3 the callbacks that ran
+// 0, 1, 2, 3+ ticks; 4..7 the ticks that ran 0, 1, 2, 3+ frames; 8 the audio fill events (the device
+// callback manufactured samples). Running totals since the run started.
+extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_pacing_counter(int i)
+{
+    if (!g_ctx.app || i < 0 || i > 8) return 0.0;
+    const auto& st = g_ctx.gate.stats;
+    if (i < 4) return static_cast<double>(st.callbacks_by_ticks[i]);
+    if (i < 8) return static_cast<double>(st.ticks_by_frames[i - 4]);
+    g_ctx.fill_events += g_ctx.app->take_audio_fill_stats().fill_events;
+    return static_cast<double>(g_ctx.fill_events);
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_cpu_mhz()

@@ -1,6 +1,6 @@
 // Pure functions of the browser bench (make bench-web): per-cell metrics, the verdict, the
 // INVALID reasons, the repeat rule, completeness, the WEBBENCH line and the markdown table.
-// No I/O, no clock, no browser: the rows WBENCH-01..09 (bench-stats-test.mjs) run on synthetic data.
+// No I/O, no clock, no browser: the rows WBENCH-01..10 (bench-stats-test.mjs) run on synthetic data.
 //
 // A raw cell is what the page measured over the window (bench.js):
 //   costs[]   each requestAnimationFrame callback's cost in ms
@@ -145,4 +145,24 @@ export function markdownTable(results, programs, configs) {
   const out = ['| program | ' + configs.join(' | ') + ' |', '|---|' + configs.map(() => '---|').join('')];
   for (const p of programs) out.push(`| ${p} | ` + configs.map((c) => cell(by.get(c + '/' + p))).join(' | ') + ' |');
   return out.join('\n');
+}
+
+// Pacing counters (the module's jnext_web_pacing_counter) over the window: pace0 and pace1 are the 9
+// running totals at its start and end: 0..3 callbacks that ran 0,1,2,3+ ticks, 4..7 ticks that ran
+// 0,1,2,3+ frames, 8 the audio fill events. Rates are per second of the window's wall time.
+export function paceMetrics(raw) {
+  if (!raw.pace0 || !raw.pace1) return null;
+  const d = raw.pace1.map((v, i) => v - raw.pace0[i]);
+  const s = raw.wall_ms / 1000;
+  return {
+    multi_tick_cb_s: (d[2] + d[3]) / s,
+    two_frame_ticks_s: (d[6] + d[7]) / s,
+    zero_frame_ticks_s: d[4] / s,
+    fill_events: d[8],
+  };
+}
+
+export function formatPaceLine(c, p) {
+  return `WEBPACE config=${c.config} program=${c.program} multi_tick_cb_s=${f(p.multi_tick_cb_s, 2)} ` +
+         `two_frame_ticks_s=${f(p.two_frame_ticks_s, 2)} zero_frame_ticks_s=${f(p.zero_frame_ticks_s, 2)} fill_events=${p.fill_events}`;
 }

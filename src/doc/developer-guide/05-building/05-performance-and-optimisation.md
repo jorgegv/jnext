@@ -455,7 +455,7 @@ handler SDL installs. Two read-only exports give the frame period in
 milliseconds and the effective CPU speed in MHz (`jnext_web_frame_period_ms`,
 `jnext_web_cpu_mhz`, test seams like `jnext_web_frame`). The arithmetic is in
 `test/bench/web/bench-stats.mjs`, which has its own rows (WBENCH-01 to
-WBENCH-09, run by `make wasm-browser-test` on synthetic data).
+WBENCH-10, run by `make wasm-browser-test` on synthetic data).
 
 **Verdict.** Full speed is the program's own refresh, `1000 / frame period`:
 50.08 Hz for 48K timing, 49.36 Hz for 128K and +3 timing, 58.15 Hz for a 60 Hz

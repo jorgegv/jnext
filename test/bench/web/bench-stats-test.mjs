@@ -3,7 +3,7 @@
 // a wrong verdict would make a wrong table, so it is what these pin. Expected values are derived
 // by hand from the definitions in bench-stats.mjs's header (nearest-rank percentile; full speed =
 // the program's own refresh 1000 / frame period; shown = callbacks that ran a frame).
-import { percentile, metrics, rateVerdict, judge, checkComplete, formatLine, parseLine } from './bench-stats.mjs';
+import { percentile, metrics, rateVerdict, judge, checkComplete, formatLine, parseLine, paceMetrics, formatPaceLine } from './bench-stats.mjs';
 
 const rows = [];
 const row = (id, text, fn) => rows.push({ id, text, fn });
@@ -98,6 +98,16 @@ row('WBENCH-09', 'a fixed cell formats to a pinned WEBBENCH line (field order, n
   must(got === want, got);
   const p = parseLine(got);
   must(p.config === 'chrome' && p.program === 'beast' && p.emu_fps === '48.00' && p.runs === '1', JSON.stringify(p));
+});
+
+row('WBENCH-10', 'pacing counters over a window: 8 s, callbacks {+10,+590,+40,+10}, ticks by frames {+5,+600,+40,+5}, 3 fill events: 6.25 multi-tick callbacks/s, 5.62 two-frame+ ticks/s, 0.62 zero-frame ticks/s; pinned WEBPACE line', () => {
+  const raw = { wall_ms: 8000, pace0: [100, 200, 10, 1, 7, 300, 20, 0, 2], pace1: [110, 790, 50, 11, 12, 900, 60, 5, 5] };
+  const p = paceMetrics(raw);
+  must(near(p.multi_tick_cb_s, 6.25) && near(p.two_frame_ticks_s, 5.625) && near(p.zero_frame_ticks_s, 0.625) && p.fill_events === 3, JSON.stringify(p));
+  must(paceMetrics({ wall_ms: 1000 }) === null, 'no counters: null');
+  const want = 'WEBPACE config=chrome program=beast multi_tick_cb_s=6.25 two_frame_ticks_s=5.63 zero_frame_ticks_s=0.63 fill_events=3';
+  const got = formatPaceLine({ config: 'chrome', program: 'beast' }, p);
+  must(got === want, got);
 });
 
 let pass = 0, fail = 0;

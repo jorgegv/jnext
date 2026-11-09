@@ -134,6 +134,8 @@
       raw.period_ms = S.mod._jnext_web_frame_period_ms();
       raw.cpu_mhz = S.mod._jnext_web_cpu_mhz();
       raw.mem_start = memSize(S.mod);
+      const pace = () => (S.mod._jnext_web_pacing_counter ? [0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => S.mod._jnext_web_pacing_counter(i)) : null);
+      raw.pace0 = pace();
       let ticks = 0, stop = false;
       (function count() { if (!stop) { ticks++; origRAF(count); } })();
       const wall0 = performance.now();
@@ -144,6 +146,7 @@
       raw.wall_ms = S.endT - S.anchorT;
       raw.window_real_ms = performance.now() - wall0;
       raw.raf_count = ticks;
+      raw.pace1 = pace();
       raw.period_end_ms = S.mod._jnext_web_frame_period_ms();
       raw.cpu_mhz_end = S.mod._jnext_web_cpu_mhz();
       raw.mem_end = memSize(S.mod);

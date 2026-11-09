@@ -133,6 +133,10 @@ public:
     /// a vsynced present cannot cap the speed at the display's refresh.
     void set_speed_percent(int percent);
     double speed_multiplier() const { return speed_multiplier_; }
+#ifdef __EMSCRIPTEN__
+    /// Browser bench diagnostics: the device-boundary fill window since the last call.
+    audio_fill::StatsWindow take_audio_fill_stats() { return audio_.take_fill_stats(); }
+#endif
     /// --rzx-play / --rzx-record. Acted on at the start of run(), so they may
     /// be called before or after init() (see emulator_start_rzx()).
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }

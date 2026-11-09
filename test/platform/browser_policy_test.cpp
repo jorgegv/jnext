@@ -225,6 +225,70 @@ int main()
               n >= 998 && n <= 1002, "ticks=" + num(n));
     }
 
+    // BRP-14..18, 21: one grid tick per callback unless a whole slot was already overdue when the
+    // callback started (GH #468: a second tick in a callback presents two frames, the browser shows one).
+    // BRP-14: 60 Hz rAF, tick 7 ms (near the 8 ms budget) + sleep 13 ms: 50/s, one per callback.
+    {
+        Sim s; s.cost = [] { return 7000; }; s.sleep = [] { return 13u; }; s.run(16667, TEN_S);
+        const int n = s.ticks_before(TEN_S);
+        const uint64_t zero = s.gate.stats.callbacks_by_ticks[0];
+        check("BRP-14", "rAF 16667 us, tick 7 ms + sleep 13 ms (period 20 ms), 10 s: 500 +-1 ticks, no callback runs 2, 100 +-1 callbacks run none",
+              n >= 499 && n <= 501 && s.max_per_callback == 1 && zero >= 99 && zero <= 101,
+              "ticks=" + num(n) + " max/cb=" + num(s.max_per_callback) + " zero=" + std::to_string(zero));
+    }
+    // BRP-15: 58.8 Hz content (period 17 ms) on 60 Hz.
+    {
+        Sim s; s.cost = [] { return 3000; }; s.sleep = [] { return 14u; }; s.run(16667, TEN_S);
+        const int n = s.ticks_before(TEN_S);
+        check("BRP-15", "rAF 16667 us, tick 3 ms + sleep 14 ms (period 17 ms), 10 s: 588 +-1 ticks, no callback runs 2",
+              n >= 587 && n <= 589 && s.max_per_callback == 1,
+              "ticks=" + num(n) + " max/cb=" + num(s.max_per_callback));
+    }
+    // BRP-16: one rAF missed: the late callback is 13.3 ms past its slot, not a whole slot.
+    {
+        Sim s; s.cost = [] { return 7000; }; s.sleep = [] { return 13u; };
+        s.callback(0);
+        s.callback(33334);
+        check("BRP-16", "callbacks at 0 and 33334 us (one rAF missed), tick 7 ms + 13 ms: the second runs exactly 1 tick",
+              s.ticks == 2 && s.last_callback_ticks == 1, "second=" + num(s.last_callback_ticks));
+    }
+    // BRP-17: a whole slot overdue at the callback's start, lag below 2 periods: it runs, no resync.
+    {
+        Sim s;
+        s.callback(0); s.callback(16667); s.callback(50001);
+        // The test is against the callback's START: at 58000 two slots (20000, 40000) are overdue, the
+        // second tick ends at 62000, and the next slot (60000) is past the start but before that moment.
+        Sim l;
+        l.callback(0); l.callback(58000);
+        check("BRP-17", "callbacks at 0, 16667, 50001 us (a whole 20 ms slot overdue at the start, lag < 2 periods): the third runs exactly 2 ticks, resyncs()==0; at 0, 58000 us: 2 ticks, not 3",
+              s.last_callback_ticks == 2 && s.gate.resyncs() == 0 && l.last_callback_ticks == 2 && l.gate.resyncs() == 0,
+              "third=" + num(s.last_callback_ticks) + " resyncs=" + num(s.gate.resyncs()) + " late=" + num(l.last_callback_ticks));
+    }
+    // BRP-18: the overdue test is inclusive: due == start counts as overdue.
+    {
+        Sim a; a.callback(0); a.callback(40000);
+        Sim b; b.callback(0); b.callback(39999);
+        check("BRP-18", "callbacks at 0 and 40000 us run 2 ticks (due == start is overdue), 0 and 39999 us run 1",
+              a.last_callback_ticks == 2 && b.last_callback_ticks == 1,
+              "a=" + num(a.last_callback_ticks) + " b=" + num(b.last_callback_ticks));
+    }
+    // BRP-21: PacingStats buckets: 3 and more share the last one.
+    {
+        Sim s; s.fast = true; s.sleep = [] { return 0u; };
+        s.cost = [] { return 9000; }; s.callback(0);        // 1 tick (over the budget)
+        s.cost = [] { return 4000; }; s.callback(20000);    // 2
+        s.cost = [] { return 2700; }; s.callback(40000);    // 3
+        s.cost = [] { return 1600; }; s.callback(60000);    // 5
+        s.callback(61000);                                  // before due: 0
+        browser_pacing::PacingStats f;
+        f.on_tick(0); f.on_tick(1); f.on_tick(2); f.on_tick(4);
+        const auto& c = s.gate.stats.callbacks_by_ticks;
+        check("BRP-21", "PacingStats: callbacks of 0,1,2,3,5 ticks -> {1,1,1,2}; ticks of 0,1,2,4 frames -> {1,1,1,1} (3+ is the last bucket)",
+              c[0] == 1 && c[1] == 1 && c[2] == 1 && c[3] == 2 &&
+              f.ticks_by_frames[0] == 1 && f.ticks_by_frames[1] == 1 && f.ticks_by_frames[2] == 1 && f.ticks_by_frames[3] == 1,
+              "callbacks " + std::to_string(c[0]) + "," + std::to_string(c[1]) + "," + std::to_string(c[2]) + "," + std::to_string(c[3]));
+    }
+
     // BRR-01: option_refusal over every cli::OPTIONS entry.
     {
         int refused = 0; bool exact = true;
