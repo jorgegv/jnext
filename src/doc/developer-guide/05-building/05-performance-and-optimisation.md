@@ -467,7 +467,9 @@ results file, when the load failed, there is no WebGL context, the frame period
 changed in the window, the 60 s cap ended it early, the audio context was not
 running, the calibration says the throttle was not in effect (the x2 calibration
 must be 1.8 to 2.2 times the unthrottled one) or the host got busier (a cell's
-calibration above 1.10 times the pass minimum). A FAIL within 5% of the refresh,
+calibration above 1.10 times the pass median; on a laptop whose clock steps
+between two states this also catches a slow state, and such a cell is run again,
+up to three rounds, until one run is valid). A FAIL within 5% of the refresh,
 or a PASS with less than 10% headroom (frame period over the 95th percentile of
 the callback cost), is run twice more and the majority counts.
 
@@ -500,6 +502,26 @@ the wall clock.
 
 The numbers below are each from their own issue, on the development host; the
 detail lives in the documents named.
+
+- **The browser build (2026-11-09).** Host: Ryzen AI 5 340, the three fastest
+  physical cores, quiet (1-minute load at most 1.5 at each pass start); Chrome
+  156.0.8078.79 on the GPU (ANGLE over OpenGL ES, `--use-angle=gl-egl`: headless
+  Chrome's own default is SwiftShader, software WebGL), Firefox 159.0 headed on
+  a private Xvfb (headless Firefox gives the canvas no WebGL context), emsdk
+  6.0.13, node 24.19.0. Core against native: the same core under node ran a
+  median 1.97 times slower than native (2026-11-07, 46 NEX programs, range 1.86
+  to 2.14). In the browser, every one of the 39 acceptance programs emulates at
+  its own full speed (emulated rate at least 0.999 of the refresh) in Chrome,
+  Chrome at 2x CPU throttle and Firefox; the heaviest costs 8.3 ms per frame in
+  Chrome and 14.3 ms at 2x, against a 20.26 ms frame. The shown rate does not
+  keep up: the main loop runs on `requestAnimationFrame`, 60 Hz here, so some
+  callbacks run two frames and show one picture; shown/refresh has a median of
+  0.88 in Chrome and at 2x and 0.94 in Firefox, and 1 of 117 cells reaches 0.99.
+  The cost per frame is not what limits it; the callback pacing is. The results
+  file is `test/bench/web-baseline-<sha>.txt`; a Chrome profile of the heavy
+  programs puts 71 to 78% of the busy time in the emulator core (the Z80 and
+  `Emulator::run_frame`), and of `beast` 33% in the renderer and 27% in clock
+  reads.
 
 - **Task 27 (2026-07): LTO.** Turning LTO on for Release — a 17-line CMake
   change — gave **+34.5%** on boot-nextzxos and +17.4% on bifrost, more than

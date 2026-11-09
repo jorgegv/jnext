@@ -3160,8 +3160,9 @@ functions by <code>web_api_test</code> (run by <code>make cli-check</code>). The
 (<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_set_volume</code>,
 <code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
 the page when the program is in the machine and a frame has followed (the <code>ready</code>
-event, <code>Module.jnextEvent</code>). <code>jnext_web_load_applied</code> and <code>jnext_web_gain_db</code> are
-test seams, not API. Pause is the browser loop's pause (<code>emscripten_pause_main_loop</code>),
+event, <code>Module.jnextEvent</code>). <code>jnext_web_load_applied</code>, <code>jnext_web_gain_db</code>,
+<code>jnext_web_frame_period_ms</code> and <code>jnext_web_cpu_mhz</code> (the frame period and the
+effective CPU speed, read by the browser bench) are test seams, not API. Pause is the browser loop's pause (<code>emscripten_pause_main_loop</code>),
 because the backend's pause needs an armed machine, which costs a check per
 instruction. Several players on a page share one IndexedDB database for the
 warm-start recording.</p>
@@ -3273,7 +3274,7 @@ is <code>window.prompt()</code> in a browser).</p>
 <td><code>make wasm-browser-test</code></td>
 <td><code>build/wasm-core</code></td>
 <td>the browser frontend in the pinned Chromium headless shell</td>
-<td>BRW-01 to BRW-29, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
+<td>BRW-01 to BRW-31, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WBENCH-01 to WBENCH-09 (the browser bench's arithmetic, <code>test/bench/web/bench-stats-test.mjs</code>), and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
 <td><code>browser</code></td>
 </tr>
 </tbody>

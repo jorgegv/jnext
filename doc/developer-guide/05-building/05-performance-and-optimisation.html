@@ -2226,6 +2226,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-browser-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The browser build
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-has-been-measured" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3526,7 +3537,13 @@ binaries. To compare binaries, run them <strong>interleaved</strong>:</p>
   core (<code>taskset -c N</code>);</li>
 <li>rotate the order of the variants each round, so none is always first;</li>
 <li>give every run its own reflinked clone of the SD master, so no run sees
-  another's writes;</li>
+  another's writes, <strong>and its own <code>JNEXT_CONFIG_DIR</code></strong>, primed by one unmeasured
+  run of the first NEX workload. The warm-start cache is keyed on the image's
+  size and modification time, and a fresh clone has a new time: without a private
+  config directory the first NEX run misses the cache and times a NextZXOS cold
+  boot inside its window (copper-demo: 4.67 s against 2.81 to 2.90 s on a hit),
+  and it replaces your own cache with one keyed to a clone that is deleted at
+  the end. <code>bench.sh</code> does both;</li>
 <li>wrap each run in <code>perf stat -e instructions:u,cycles:u</code>. Cycles are less
   sensitive to frequency changes than wall time, and instructions say whether
   the code or only its speed changed;</li>
@@ -3549,15 +3566,114 @@ move a ratio by several points.</p>
 <p><strong>Profiling.</strong> <code>perf record -g</code> needs frame pointers, which only the
 RelWithDebInfo build keeps (they cost 5.8% in Release, so Release does not);
 on a Release binary use <code>perf record --call-graph dwarf</code>.</p>
+<h2 id="the-browser-build">The browser build<a class="headerlink" href="#the-browser-build" title="Permanent link">&para;</a></h2>
+<p>The browser build (<code>jnext-&lt;version&gt;.js</code>, 5.2) has its own bench, <code>make bench-web</code>.
+It answers a different question from <code>make bench</code>: not how fast the core is, but
+whether the page a visitor loads keeps up. Nothing here is a gate. No test and no
+CI step asserts a speed, because a bound on a speed measures the host; the
+numbers live in a committed results file and on the issue that asked.</p>
+<p><strong>What runs.</strong> Every program of <code>test/00regression/nex</code> plus
+<code>test/bench/nex/halt_idle_35.nex</code> is the acceptance set, 39 programs, read from
+the directories at run time and never pinned. The eight NEX of
+<code>test/nex-nonworking</code> and the other two bench NEX are measured and reported but
+do not count. Each program is started as <code>--machine next --load &lt;nex&gt;</code>, with no
+keys, at the speed it sets itself, as the native and node tables measured it.
+Each runs in a fresh page, in one wasm instance, through <code>jnext.mount()</code> and the
+build's own <code>jnext-&lt;version&gt;.js</code>, so the path measured is the embedder's: the
+image cache, the warm start, the pacing grid.</p>
+<p><strong>Three configurations.</strong> <code>chrome</code> is the host's Google Chrome (headless, muted),
+driven through the pinned <code>playwright-core</code>; <code>chrome-x2</code> is the same with the CDP
+CPU throttle at 2x, re-sent after every navigation; <code>firefox</code> is the host's
+Firefox, headless, with a profile of its own, driven by the page itself (the page
+asks the driver's server for its next program, posts the result and navigates to
+itself). The whole bench, node, servers and browsers, runs under <code>taskset</code> on the
+fastest physical cores, derived as <code>bench.sh</code> derives its core. The page is
+served from <code>127.0.0.1</code> by an allow-list: the build's two files, the page, the NEX
+directories and the run's minimal card. The card is built at run time into a
+scratch directory under <code>~/tmp</code> and deleted at the end; it is never committed or
+served from the repository.</p>
+<p><strong>One cell.</strong> A cell is one program in one configuration. The page calibrates
+(a fixed integer loop of about 50 ms, three times, the median), mounts, waits for
+the <code>ready</code> event, runs 250 warm-up frames and then measures a window of 600
+frames or 60 s. The measurement is made from outside the module by two wrappers
+installed before it loads: <code>requestAnimationFrame</code> (Emscripten schedules every
+main-loop iteration through the global one, so each callback is one run of the
+frontend's tick; its cost is timed and the emulator frames it ran are read from
+the module's frame counter before and after) and the Web Audio script processor
+handler SDL installs. Two read-only exports give the frame period in
+milliseconds and the effective CPU speed in MHz (<code>jnext_web_frame_period_ms</code>,
+<code>jnext_web_cpu_mhz</code>, test seams like <code>jnext_web_frame</code>). The arithmetic is in
+<code>test/bench/web/bench-stats.mjs</code>, which has its own rows (WBENCH-01 to
+WBENCH-09, run by <code>make wasm-browser-test</code> on synthetic data).</p>
+<p><strong>Verdict.</strong> Full speed is the program's own refresh, <code>1000 / frame period</code>:
+50.08 Hz for 48K timing, 49.36 Hz for 128K and +3 timing, 58.15 Hz for a 60 Hz
+program. A literal 50 fps is above full speed for most of the set. A cell is
+PASS when both the emulated rate (<code>frames / wall time</code>) and the shown rate
+(callbacks that ran at least one frame, per second: the browser composites once
+per callback) reach 0.99 x refresh. A cell is INVALID, with the reason in the
+results file, when the load failed, there is no WebGL context, the frame period
+changed in the window, the 60 s cap ended it early, the audio context was not
+running, the calibration says the throttle was not in effect (the x2 calibration
+must be 1.8 to 2.2 times the unthrottled one) or the host got busier (a cell's
+calibration above 1.10 times the pass median; on a laptop whose clock steps
+between two states this also catches a slow state, and such a cell is run again,
+up to three rounds, until one run is valid). A FAIL within 5% of the refresh,
+or a PASS with less than 10% headroom (frame period over the 95th percentile of
+the callback cost), is run twice more and the majority counts.</p>
+<p><strong>Quiet host.</strong> Each pass waits, bounded at 30 minutes, for a 1-minute load of at
+most 1.5, and records the load at its start and end; a pass that never got quiet
+is marked <code>LOADED</code> and counts for nothing. <code>test/bench/.lock</code> keeps two benches
+from overlapping.</p>
+<p><strong>Running it.</strong> <code>make bench-web</code> runs the three passes and writes
+<code>test/bench/web-baseline-&lt;sha&gt;.txt</code>: a header (date, host, commit, browser
+versions, WebGL renderers, core set, window, the load at each pass start and
+end), one <code>WEBBENCH</code> line per cell and the table as comments. Variables:
+<code>CONFIGS=chrome,chrome-x2,firefox</code>, <code>SET=&lt;program,...&gt;</code>, <code>W=</code> and <code>M=</code> (warm-up and
+window frames), <code>PROFILE=&lt;program,...&gt;</code> and <code>WEB_BUILD=&lt;dir&gt;</code>. With <code>PROFILE=</code> the
+Chrome cells named run under the CPU profiler around the window and the run
+prints each one's self-time top 20 and a split into core, render, audio, upload
+and present, and JavaScript glue; the profile files are copied to <code>PROFILE_DIR</code>.
+For function names use a profiling build in a scratch directory: configure
+<code>make wasm-core</code>'s tree with <code>-DCMAKE_EXE_LINKER_FLAGS=--profiling-funcs</code>, build
+<code>jnext_web</code> and pass it as <code>WEB_BUILD</code>. It is never committed or shipped.</p>
+<p><strong>What it cannot tell you.</strong> Headless Chrome and Firefox composite and play audio
+as the host's drivers do, which is not a visitor's machine: the results file
+records the WebGL renderer each browser used. Firefox clamps <code>performance.now()</code>
+(the file records the resolution observed), so its per-callback costs are
+quantised and only their sum is exact; its verdict rests on the frame counts and
+the wall clock.</p>
 <h2 id="what-has-been-measured">What has been measured<a class="headerlink" href="#what-has-been-measured" title="Permanent link">&para;</a></h2>
 <p>The numbers below are each from their own issue, on the development host; the
 detail lives in the documents named.</p>
 <ul>
-<li><strong>Task 27 (2026-07): LTO.</strong> Turning LTO on for Release — a 17-line CMake
+<li>
+<p><strong>The browser build (2026-11-09).</strong> Host: Ryzen AI 5 340, the three fastest
+  physical cores, quiet (1-minute load at most 1.5 at each pass start); Chrome
+  156.0.8078.79 on the GPU (ANGLE over OpenGL ES, <code>--use-angle=gl-egl</code>: headless
+  Chrome's own default is SwiftShader, software WebGL), Firefox 159.0 headed on
+  a private Xvfb (headless Firefox gives the canvas no WebGL context), emsdk
+  6.0.13, node 24.19.0. Core against native: the same core under node ran a
+  median 1.97 times slower than native (2026-11-07, 46 NEX programs, range 1.86
+  to 2.14). In the browser, every one of the 39 acceptance programs emulates at
+  its own full speed (emulated rate at least 0.999 of the refresh) in Chrome,
+  Chrome at 2x CPU throttle and Firefox; the heaviest costs 8.3 ms per frame in
+  Chrome and 14.3 ms at 2x, against a 20.26 ms frame. The shown rate does not
+  keep up: the main loop runs on <code>requestAnimationFrame</code>, 60 Hz here, so some
+  callbacks run two frames and show one picture; shown/refresh has a median of
+  0.88 in Chrome and at 2x and 0.94 in Firefox, and 1 of 117 cells reaches 0.99.
+  The cost per frame is not what limits it; the callback pacing is. The results
+  file is <code>test/bench/web-baseline-&lt;sha&gt;.txt</code>; a Chrome profile of the heavy
+  programs puts 71 to 78% of the busy time in the emulator core (the Z80 and
+  <code>Emulator::run_frame</code>), and of <code>beast</code> 33% in the renderer and 27% in clock
+  reads.</p>
+</li>
+<li>
+<p><strong>Task 27 (2026-07): LTO.</strong> Turning LTO on for Release — a 17-line CMake
   change — gave <strong>+34.5%</strong> on boot-nextzxos and +17.4% on bifrost, more than
   all the hand-tuned hot spots of that task together; the task as a whole took
   boot-nextzxos from 57 to 161 million T-states per second, about 2.8×
-  (<code>doc/design/TASK27-FINAL-OPTIMIZATION-REPORT.md</code>).</li>
+  (<code>doc/design/TASK27-FINAL-OPTIMIZATION-REPORT.md</code>).</p>
+</li>
 <li><strong>clang versus gcc (2026-10) — stay on gcc.</strong> With LTO on both
   sides, clang 22 was slower than gcc 16 on every workload, by 5–16% in fps;
   clang with PGO beat plain gcc with LTO, but gcc with PGO beat clang with PGO
