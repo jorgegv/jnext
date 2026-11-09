@@ -3150,6 +3150,10 @@ as <code>file:count</code> arguments, each printing PASS/FAIL rows and a <code>T
 count the script pins, so the JavaScript API rows run in the same target. <code>make package-web</code> is
 also a prerequisite: the run ends by serving the extracted <code>jnext-&lt;version&gt;-web.zip</code> alone and
 booting the example page from it (<a href="03-packaging-and-release.html#the-browser-package">5.3</a>).</p>
+<p><code>make bench-web</code> is the browser counterpart of <code>make bench</code>: the regression NEX set in
+the host's Chrome, Chrome at 2x CPU throttle and Firefox, written to
+<code>test/bench/web-baseline-&lt;sha&gt;.txt</code> (<a href="05-performance-and-optimisation.html#the-browser-build">5.5</a>).
+No gate or CI step runs it.</p>
 <p>The browser build as a whole, with its CMake arms and tests, is <a href="06-the-browser-build.html">5.6</a>.</p>
 <p>Chapter <a href="../04-testing/index.html">4. Testing</a> covers what each of these actually
 proves.</p>

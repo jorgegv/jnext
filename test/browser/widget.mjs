@@ -1,4 +1,4 @@
-// Browser rows WIDGET-01..15: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
+// Browser rows WIDGET-01..16: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
 // (make wasm-browser-test, spec widget.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Server A is the page host (http://localhost:<port>, a secure context): it serves the files of the
@@ -104,7 +104,7 @@ row('WIDGET-01', 'widget.html (the snippet): a framed player with title, toolbar
     return { title: e.querySelector('.jw-title').textContent, buttons: [...e.querySelectorAll('.jw-btn')].map((b) => b.textContent),
              overlay: e.querySelector('.jnext-overlay').textContent, state: e.jnextPlayer.state,
              ovStyle: [getComputedStyle(e.querySelector('.jnext-overlay')).backgroundColor, getComputedStyle(e.querySelector('.jnext-overlay')).color],
-             canvas: e.querySelector('canvas').width > 0 };
+             canvas: e.querySelector('canvas').width > 0, pressed: e.querySelector('[data-jw=mute]').getAttribute('aria-pressed') };
   });
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'widget-before.png') });
   await clickStart(page);
@@ -116,6 +116,7 @@ row('WIDGET-01', 'widget.html (the snippet): a framed player with title, toolbar
   must(JSON.stringify(before.buttons) === JSON.stringify(['Pause', 'Reset', 'Mute', 'Fullscreen']), 'buttons ' + before.buttons);
   must(before.overlay === 'Click to start' && before.state === 'waiting', 'before the click: ' + JSON.stringify(before));
   must(st === 'running', 'state after the click ' + st);
+  must(before.pressed === 'false', 'Mute aria-pressed before the first click: ' + before.pressed);
   must(before.ovStyle.join() === 'rgba(244, 245, 247, 0.82),rgb(29, 35, 48)', 'overlay colours ' + before.ovStyle);
   must(page.msgs.length === 0, page.msgs.join('; '));
 });
@@ -306,22 +307,28 @@ const buttonsDisabled = (page) => page.evaluate(() => [...document.querySelector
 const statusOf = (page) => page.evaluate(() => { const s = document.querySelector('.jnext-widget .jw-status'); return { text: s.textContent, cls: s.className, role: s.getAttribute('role'), color: getComputedStyle(s).color }; });
 const ERR_LIGHT = 'rgb(179, 38, 30)';
 
-row('WIDGET-08', 'real fullscreen: the screen fills the space between title bar and toolbar, and returns to its size on exit', async () => {
+row('WIDGET-08', 'real fullscreen with the game running: the screen fills the space between title bar and toolbar, its pixel buffer follows (not stretched), and both return to 640x512 on exit', async () => {
   const page = await open(`${AURL}/widget.html?` + QUERY);
   await waitClickable(page);
+  await clickStart(page);
+  await waitRunning(page);
   const geo = () => page.evaluate(() => {
     const e = document.querySelector('.jnext-widget'), r = (q) => { const b = e.querySelector(q).getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; };
     return { fs: document.fullscreenElement === e.querySelector('.jw-frame'), frame: r('.jw-frame'), title: r('.jw-title'), stage: r('.jw-stage'),
-             tools: r('.jw-tools'), player: r('.jnext-player'), canvas: r('canvas'), boxW: e.querySelector('.jnext-player').style.width,
+             tools: r('.jw-tools'), player: r('.jnext-player'), canvas: r('canvas'), buf: [e.querySelector('canvas').width, e.querySelector('canvas').height], boxW: e.querySelector('.jnext-player').style.width,
              vw: innerWidth, vh: innerHeight };
   });
   const before = await geo();
   await page.locator('.jnext-widget [data-jw=fullscreen]').click();
   await waitFor(page, () => document.fullscreenElement && document.querySelector('.jnext-widget .jnext-player').getBoundingClientRect().width > 700, null, 60000);
+  // SDL follows the canvas's CSS size on a window resize: give it its time, then judge
+  const settled = () => { const c = document.querySelector('.jnext-widget canvas'), b = c.getBoundingClientRect(); return c.width === Math.round(b.width) && c.height === Math.round(b.height); };
+  await waitFor(page, settled, null, 15000).catch(() => {});
   const on = await geo();
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fullscreen.png') });
   await page.evaluate(() => document.exitFullscreen());
   await waitFor(page, () => !document.fullscreenElement && document.querySelector('.jnext-widget .jnext-player').style.height === '512px', null, 60000);
+  await waitFor(page, settled, null, 15000).catch(() => {});
   const off = await geo();
   await page.context().close();
   must(before.canvas[2] === 640 && before.canvas[3] === 512, 'before: canvas ' + before.canvas);
@@ -329,6 +336,8 @@ row('WIDGET-08', 'real fullscreen: the screen fills the space between title bar 
   must(Math.abs(on.canvas[2] - on.stage[2]) < 1 && Math.abs(on.canvas[3] - on.stage[3]) < 1, 'canvas ' + on.canvas + ' is not the stage ' + on.stage);
   must(Math.abs(on.stage[1] - (on.title[1] + on.title[3])) < 2 && Math.abs((on.stage[1] + on.stage[3]) - on.tools[1]) < 2, 'stage ' + on.stage + ' not between title ' + on.title + ' and toolbar ' + on.tools);
   must(on.tools[1] + on.tools[3] <= on.vh + 1 && on.frame[2] >= on.vw - 1, 'frame ' + on.frame + ' viewport ' + on.vw + 'x' + on.vh);
+  must(on.buf[0] === Math.round(on.canvas[2]) && on.buf[1] === Math.round(on.canvas[3]), 'fullscreen: pixel buffer ' + on.buf + ' vs canvas ' + on.canvas + ' (stretched)');
+  must(off.buf[0] === 640 && off.buf[1] === 512, 'after exit: pixel buffer ' + off.buf + ' (squashed)');
   must(!off.fs && off.canvas[2] === 640 && off.canvas[3] === 512 && off.boxW === '640px', 'after exit: canvas ' + off.canvas + ' width ' + off.boxW);
 });
 
@@ -432,6 +441,21 @@ row('WIDGET-15', 'after a toolbar click while running, the keyboard focus is bac
   const b = await page.evaluate(() => document.activeElement && document.activeElement.tagName + ':' + document.activeElement.id);
   await page.context().close();
   must(/^CANVAS:jnext-canvas-/.test(a) && /^CANVAS:jnext-canvas-/.test(b), 'focus after Mute: ' + a + ', after Reset: ' + b);
+});
+
+row('WIDGET-16', 'a page-side destroy(): the toolbar is disabled, the status says stopped, clicking raises no page error', async () => {
+  const page = await open(`${AURL}/widget.html?` + QUERY);
+  await waitClickable(page);
+  await clickStart(page);
+  await waitRunning(page);
+  await page.evaluate(() => document.querySelector('.jnext-widget').jnextPlayer.destroy());
+  const st = await statusOf(page), dis = await buttonsDisabled(page);
+  await page.evaluate(() => document.querySelectorAll('.jnext-widget .jw-btn').forEach((b) => b.click()));
+  await sleep(200);
+  await page.context().close();
+  must(st.text === 'stopped', 'status ' + JSON.stringify(st));
+  must(dis, 'a button is still enabled after destroy()');
+  must(page.msgs.length === 0, page.msgs.join('; '));
 });
 
 let pass = 0, fail = 0;

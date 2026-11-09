@@ -134,6 +134,10 @@
         var on = document.fullscreenElement === frame;
         box.style.width = on ? '100%' : width + 'px';
         box.style.height = on ? '100%' : height + 'px';
+        // SDL resizes the canvas buffer to its CSS size on a window `resize`. The browser's own one
+        // may come before or after this event, so send one for the new size, now and after layout.
+        window.dispatchEvent(new Event('resize'));
+        requestAnimationFrame(function () { window.dispatchEvent(new Event('resize')); });
       });
     }
     ui.status = div('jw-status', tools, 'Loading...');
@@ -144,10 +148,14 @@
       ui.status.textContent = text;
       ui.status.className = 'jw-status' + (isError ? ' jw-error' : '');
     };
+    ui.disable = function () {
+      for (var i = 0; i < tools.children.length; i++) if (tools.children[i].tagName === 'BUTTON') tools.children[i].disabled = true;
+    };
     // Labels and status follow the player's own state and last volume, whoever changed them.
     ui.sync = function () {
       var pl = ui.player;
       if (!pl) return;
+      if (pl.state === 'destroyed') { ui.disable(); ui.say('stopped'); return; }
       ui.pauseBtn.textContent = pl.state === 'paused' ? 'Resume' : 'Pause';
       ui.muteBtn.textContent = ui.volume === 0 ? 'Unmute' : 'Mute';
       ui.muteBtn.setAttribute('aria-pressed', ui.volume === 0 ? 'true' : 'false');
@@ -183,11 +191,12 @@
       ov.style.font = '600 18px system-ui,sans-serif';
     }
     p.then(function (pl) {
-      ['pause', 'resume', 'reset', 'setVolume'].forEach(function (name) {
+      ['pause', 'resume', 'reset', 'setVolume', 'destroy'].forEach(function (name) {
         var orig = pl[name];
         pl[name] = function (v) {
           var r = orig.apply(pl, arguments);
           if (name === 'setVolume') ui.volume = v;
+          if (name === 'destroy') { ui.disable(); ui.say('stopped'); return r; }
           ui.sync();
           return r;
         };

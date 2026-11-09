@@ -101,6 +101,9 @@ int main()
     }
 
     // --- SDLT-02: tick() reports the sleep, it does not PERFORM it ------------
+    // (GH #468: the row now performs each reported sleep after the tick, as SdlApp::run() does, because the
+    // sleep is the distance to an absolute fractional deadline. Before, with no sleep performed, every tick
+    // reported "the rest of the period"; now the unperformed ones accumulate. Same checks, same thresholds.)
     // Run at --speed 10 % (frame period 200 ms, the lowest speed there is) so a
     // tick that sleeps inside is told apart by its wall time w: with e the
     // tick's own work, a tick that only reports has w = e and s = 200 - e; one
@@ -129,6 +132,10 @@ int main()
             const double w = ms_since(t0);
             ++ticks;
             if (!more || s > static_cast<uint32_t>(frame_ms)) bounded = false;
+            // The loop performs the sleep (SdlApp::run: SDL_Delay), and so does this row, after the timing: the
+            // sleep is the distance to an ABSOLUTE frame deadline (frame_deadline.h), so sleeps that nobody
+            // performs pile up (200, 383, 566 ms ...) instead of each being "the rest of this period".
+            if (more && s > 0) SDL_Delay(s);
             if (s >= 50 && w < static_cast<double>(frame_ms) - 25.0 &&
                 w + s <= static_cast<double>(frame_ms) + 5.0) ++good;
             if (ticks <= 8)
@@ -317,6 +324,81 @@ int main()
               "pushed=" + std::to_string(pushed) + " snapshots=" + std::to_string(snapshots) +
               " t=" + std::to_string(t1) + std::to_string(t2) + std::to_string(t3) +
               " s1=" + std::to_string(s1) + " fn1=" + std::to_string(fn1));
+    }
+
+    // --- SDLT-10: the frame period the loop paces on is exact, not whole milliseconds ---------------------
+    // Oracle: the 48K machine's frame is 448 x 312 x 4 master cycles at 28 MHz = 19.968 ms (zxula_timing.vhd:262,270),
+    // scaled by --speed. The loop used lround() of it: 20 ms, 0.16% off at 48K and 1.3% at Next 50 Hz.
+    {
+        bool ok = false;
+        auto app = make_app(ok);
+        const int64_t p100 = app->effective_frame_period_us();
+        app->set_speed_percent(200);
+        const int64_t p200 = app->effective_frame_period_us();
+        app->set_speed_percent(10);
+        const int64_t p10 = app->effective_frame_period_us();
+        app->shutdown();
+        check("SDLT-10", "effective_frame_period_us: 19968 us at 100%, 9984 at 200%, 199680 at 10% (the exact period, not 20/10/200 ms)",
+              ok && p100 == 19968 && p200 == 9984 && p10 == 199680,
+              "p100=" + std::to_string(p100) + " p200=" + std::to_string(p200) + " p10=" + std::to_string(p10));
+    }
+
+    // --- SDLT-11: the reported sleeps follow the fractional grid ----------------------------------------
+    // The sleep is the distance from the end of the tick to an absolute deadline that advances by the exact period.
+    // Nobody sleeps in this row, so the deadline of tick n is the first tick's end + (n+1) x period, whatever the tick
+    // costs: s_n + t_n = (n+1) x 99.84 ms (t_n: time since the first tick's end), to within the whole-ms rounding of
+    // the sleep and of the clock (2 ms). At --speed 20 % the period is 99.84 ms; the old whole-ms rule reported
+    // frame_ms - elapsed (at most 100 ms) on every tick, so s_n + t_n stayed near the work done, not near (n+1) x 99.8.
+    // Nothing here depends on how fast the host (or the WebAssembly build) runs a tick, as long as one tick takes
+    // less than 2 periods (200 ms: past that the scheduler declares a stall and resyncs, by design).
+    {
+        // A host starved for more than 2 periods inside one tick makes the scheduler resync (by design) and moves
+        // the whole measurement: the row passes on the first of 3 fresh attempts. The old rule fails every attempt.
+        bool ok_all = true, on_grid = false;
+        std::string detail;
+        for (int attempt = 0; attempt < 3 && !on_grid; ++attempt) {
+            bool ok = false;
+            auto app = make_app(ok);
+            if (!ok) ok_all = false;
+            app->set_speed_percent(20);
+            uint32_t s = 0;
+            app->tick(s);
+            const auto t0 = SteadyClock::now();
+            on_grid = true;
+            for (int n = 1; n <= 20; ++n) {
+                app->tick(s);
+                const double t = ms_since(t0);
+                const double err = static_cast<double>(s) + t - (n + 1) * 99.84;
+                if (n == 5 || n == 20) detail += " [" + std::to_string(attempt) + "] n=" + std::to_string(n) + " s+t-(n+1)*period=" + std::to_string(err);
+                if (err < -2.0 || err > 2.0) on_grid = false;
+            }
+            app->shutdown();
+        }
+        check("SDLT-11", "speed 20%, no sleep performed: after tick n the reported sleep plus the elapsed time is (n+1) x 99.84 ms within 2 ms (an absolute fractional deadline); first of 3 attempts",
+              ok_all && on_grid, detail);
+    }
+
+    // --- SDLT-12: a fastload tick re-anchors the grid --------------------------------------------------
+    // A fastload tick reports no sleep and forgets the deadline; the next paced tick starts a new grid (about one
+    // period) instead of continuing the old one (whose next slot is two periods away) or sleeping the 1 ms minimum.
+    // --speed 20 %: period 99.84 ms. Nobody sleeps, so a tick that kept the old deadline would report about 200 ms.
+    {
+        bool ok = false;
+        auto app = make_app(ok);
+        app->set_speed_percent(20);
+        uint32_t s1 = 0, s2 = 12345, s3 = 0;
+        app->tick(s1);                                              // paced: anchors, about 100 ms
+        app->emulator().phantom_typist().arm(MachineType::ZX48K);   // wants_fastload(): the next tick is unpaced
+        const bool fast = app->emulator().fastload_active();
+        app->tick(s2);                                              // fastload: sleep 0
+        app->emulator().phantom_typist().reset();
+        const bool paced_again = !app->emulator().fastload_active();
+        app->tick(s3);                                              // paced again: a fresh grid
+        app->shutdown();
+        check("SDLT-12", "a fastload tick reports no sleep; the paced tick after it starts a new grid: about one period (80-110 ms at 20%), not 1 ms and not the old grid's two periods",
+              ok && fast && paced_again && s1 >= 80 && s1 <= 110 && s2 == 0 && s3 >= 80 && s3 <= 110,
+              "s1=" + std::to_string(s1) + " s2=" + std::to_string(s2) + " s3=" + std::to_string(s3) +
+              " fast=" + std::to_string(fast) + " paced_again=" + std::to_string(paced_again));
     }
 
     std::printf("\n====================================================\n");

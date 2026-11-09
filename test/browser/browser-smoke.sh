@@ -4,12 +4,13 @@
 #
 #   bash test/browser/browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]
 #
-# Specs default to `smoke.mjs:29` (rows BRW-01..29, this directory) and `image.mjs:8`
+# Specs default to `smoke.mjs:33` (rows BRW-01..33, this directory) and `image.mjs:8`
 # (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:29`
 # (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
-# boots the example page) and `widget.mjs:15` (rows WIDGET-01..15: the ready-made widget and the
-# guide's two embedding snippets, run verbatim). Further specs
+# boots the example page), `widget.mjs:16` (rows WIDGET-01..16: the ready-made widget and the
+# guide's two embedding snippets, run verbatim) and `../bench/web/bench-stats-test.mjs:12` (rows
+# WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,
 # and its row count is pinned here, so a spec that loses rows fails the run.
@@ -34,7 +35,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:29" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:15" "$@")
+SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:16" "../bench/web/bench-stats-test.mjs:12" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -110,6 +111,14 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/copper.cfg" \
     --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/copper_demo.nex" --log-level copper=debug \
     --delayed-automatic-exit-frames 300 >"$O/copper.log" 2>&1 || die "oracle copper failed"
 rm -rf "$O/copper.card" "$O/copper.cfg"
+
+# The frame period / CPU speed oracle (BRW-31): the BENCH line of the same arguments natively.
+cp --reflink=auto "$SCRATCH/card.img" "$O/beast.card"
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/beast.cfg" \
+    timeout --foreground --kill-after=5s 300s "$NATIVE" --headless --sdcard "$O/beast.card" --silent --machine next \
+    --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/beast.nex" --benchmark 450 >"$O/beast.bench" 2>"$O/beast.err" \
+    || die "oracle beast failed"
+rm -rf "$O/beast.card" "$O/beast.cfg"
 
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
        SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg"

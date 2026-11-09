@@ -112,8 +112,9 @@ functions by `web_api_test` (run by `make cli-check`). The controller
 (`jnext_web_pause`, `jnext_web_reset`, `jnext_web_load`, `jnext_web_set_volume`,
 `jnext_web_quit`) and, through `SdlApp::set_on_load_applied` and `after_tick`, tells
 the page when the program is in the machine and a frame has followed (the `ready`
-event, `Module.jnextEvent`). `jnext_web_load_applied` and `jnext_web_gain_db` are
-test seams, not API. Pause is the browser loop's pause (`emscripten_pause_main_loop`),
+event, `Module.jnextEvent`). `jnext_web_load_applied`, `jnext_web_gain_db`,
+`jnext_web_frame_period_ms` and `jnext_web_cpu_mhz` (the frame period and the
+effective CPU speed, read by the browser bench) are test seams, not API. Pause is the browser loop's pause (`emscripten_pause_main_loop`),
 because the backend's pause needs an armed machine, which costs a check per
 instruction. Several players on a page share one IndexedDB database for the
 warm-start recording.
@@ -121,16 +122,32 @@ warm-start recording.
 *Pacing.* `SdlApp::tick()` never sleeps; it reports the sleep it wants before the
 next tick. A `requestAnimationFrame` callback cannot sleep, so that sleep becomes
 the earliest moment the next tick may start, on an absolute grid
-(`browser_pacing.h`): the next due time is the previous one plus the tick's own
-cost plus its sleep, and a callback that arrives before it runs no tick. A grid
-rather than "now plus the sleep" keeps 50 ticks a second on 60, 120 and 144 Hz
-displays alike (the latter lands every tick on the second animation frame, 30 a
-second). A stall (a hidden tab) resyncs as `frame_deadline.h` describes: one
-tick at once, then the grid, never a burst. During a fast load a tick that asks
-for no sleep may repeat inside one callback, bounded by an 8 ms budget. A first
+(`browser_pacing.h`). The grid advances by the EXACT frame period
+(`SdlApp::effective_frame_period_us()`: 20259 us at 49.36 Hz, not the 20 ms the
+whole-millisecond sleep adds up to, which ran 1.3% fast and cost the audio pacer a
+held picture every second or two), and a callback that arrives before the next due
+time runs no tick. A grid rather than "now plus the sleep" keeps 50 ticks a second
+on 60, 120 and 144 Hz displays alike (the latter lands every tick on the second
+animation frame, 30 a second). A callback runs ONE grid tick, and a second only if a
+whole slot was already overdue when the callback started: the browser composites
+once per callback, so a second tick in it presents two frames and shows one.
+Content slower than the display (49.36 or 58.15 Hz on 60 Hz) never has a whole slot
+overdue at a callback's start in steady state; content faster than the display (a
+30 Hz display, `--speed 200`) always does and runs its slots, so the rate is
+unchanged. A stall (a hidden tab) resyncs as `frame_deadline.h` describes: one tick
+at once, then the grid, never a burst. During a fast load a tick that asks for no
+sleep may repeat inside one callback, bounded by an 8 ms budget. The audio device
+asks SDL for 512 sample frames, which SDL doubles to 1024 (21.3 ms at 48 kHz): SDL's
+own default for a Web Audio device is 2 x 1024 (42.7 ms), against the roughly 23 ms
+chunk the pacer's guards were calibrated for, so with the default the pacer's own
+sawtooth reached them and doubled or held frames; a page's ENV
+`SDL_AUDIO_DEVICE_SAMPLE_FRAMES` wins. `jnext_web_pacing_counter` exports the
+counters that tell these apart (callbacks by ticks, ticks by frames, fill events;
+a test seam, read by the bench). A first
 NEX load records the warm-start state in steps of one frame, until 25 ms have
 passed in the tick, reporting `Module.jnextProgress` (see the last paragraph below), so
-the page keeps repainting.
+the page keeps repainting. The SDL-only desktop frontend uses the same exact
+deadline (`frame_deadline.h`, as the Qt window does).
 
 *Video, input, sound.* The renderer is SDL's OpenGL ES 2 one, on WebGL, with the
 same letterbox (640x512 logical) and the renderer's default linear filter. The
@@ -200,7 +217,7 @@ is `window.prompt()` in a browser).
 | `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..15 | with `regression-wasm` |
 | `make unit-test-wasm` | `build/wasm-unit-test` | the SDL-only unit suites under node, through `test/node-run.sh`; suites marked `# os: native` are absent by name | the manifest | `unit-wasm` |
 | `make regression-wasm` | `build/wasm-core` | the regression suite's screenshot rows, each pixel-equal to the native reference, plus the functional rows whose `os=` names `emscripten` | `regression_tests.conf` | `regression-wasm` |
-| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-29, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-15, and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
+| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-16, WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
 
 - `make wasm-core` proves the module starts, imports no shared memory, catches an exception,
   refuses what the browser cannot do, and hashes correctly on the portable SHA-256.

@@ -195,7 +195,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count kloc-count-detailed regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
+       kloc-count kloc-count-detailed regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
@@ -666,7 +666,7 @@ web-package-test:
 
 # Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
 wasm-browser-test: wasm-web package-web playwright sdl-release sdcard-image
-	@# BRW-01..29, WBI-PW-01..08, WEBAPI-01..29, WEBPKG-BR-01 and WIDGET-01..15 on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# BRW-01..33, WBI-PW-01..08, WEBAPI-01..29, WEBPKG-BR-01, WIDGET-01..16 and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core
@@ -1215,6 +1215,15 @@ cmake-guard-selftest:
 # Benchmark the 5 canonical workloads (non-PGO build; BENCH_BUILD=gui-release benches the shipped PGO one)
 bench:
 	@JNEXT_BENCH_BUILD=$(BENCH_BUILD) bash test/bench/bench.sh
+
+# Run the browser bench over the regression NEX set in the host's Chrome (also at 2x CPU throttle) and Firefox
+bench-web: wasm-web playwright sdcard-image
+	@# The shipped jnext.mount() page, one wasm instance per program, pinned to the fastest
+	@# physical cores. Writes test/bench/web-baseline-<sha>.txt. Needs a quiet host (it waits
+	@# for load <= 1.5 at each pass start). Optional: CONFIGS=chrome,chrome-x2,firefox
+	@# SET=<program,...> W= M= PROFILE=<program,...> WEB_BUILD=<dir>. No gate or CI step
+	@# depends on it: a speed bound would measure the host.
+	@WEB_BUILD="$(WEB_BUILD)" bash test/bench/web/browser-bench.sh build/wasm-core
 
 # Run the GH #276 hot-latch interleaved A/B (needs a baseline binary)
 bench-hotlatch:
