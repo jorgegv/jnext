@@ -20,6 +20,7 @@ const BUILD = E.SMOKE_BUILD, ROOT = E.SMOKE_ROOT, SCRATCH = E.SMOKE_SCRATCH, VER
 const SHA = E.SMOKE_CARD_SHA256;
 const SHOTS = E.WIDGET_SHOT_DIR || '';   // development aid: where to leave screenshots (unset in the suite)
 const ONLY = (E.WIDGET_ROWS || '').split(' ').filter(Boolean);   // development aid: run only these rows (unset in the suite)
+// WIDGET_SCHEME: development aid, light or dark for every page of a run (unset in the suite; the colour rows set their own)
 
 const h = new Harness({});
 const MIMES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm' };
@@ -61,7 +62,7 @@ const row = (id, text, fn) => { if (!ONLY.length || ONLY.includes(id)) rows.push
 const must = (cond, detail) => { if (!cond) throw new Error(detail || 'condition failed'); };
 
 async function open(url, ctxOpts = {}) {
-  const ctx = await h.browser.newContext({ viewport: { width: 1000, height: 900 }, deviceScaleFactor: 1, ...ctxOpts });
+  const ctx = await h.browser.newContext({ viewport: { width: 1000, height: 900 }, deviceScaleFactor: 1, ...(E.WIDGET_SCHEME ? { colorScheme: E.WIDGET_SCHEME } : {}), ...ctxOpts });
   const page = await ctx.newPage();
   page.msgs = [];
   page.on('pageerror', (e) => page.msgs.push('PAGEERROR ' + e.message));
@@ -366,6 +367,7 @@ row('WIDGET-10', 'the toolbar and status follow the player when the page itself 
   const call = (f) => page.evaluate(f);
   await call(() => document.querySelector('.jnext-widget').jnextPlayer.pause());
   const paused = await view();
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'paused.png') });
   await page.locator('.jnext-widget [data-jw=pause]').click();       // the button now resumes
   await waitState(page, 'running');
   const resumed = await view();
