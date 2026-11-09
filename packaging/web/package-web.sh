@@ -8,9 +8,9 @@
 #   package-web.sh --verify <zip> <build-dir> <emsdk-dir>
 #       Check a zip against its sources; exit non-zero on any failure.
 #
-# WHAT IT HOLDS (one list, manifest() below): jnext-<ver>.js and .wasm, the three
-# example pages, README.txt (with the source link), LICENSE, CREDITS.md and
-# licenses/, the licence texts of the libraries linked into jnext_web. The
+# WHAT IT HOLDS (one list, manifest() below): jnext-<ver>.js and .wasm, the four
+# example pages, jnext-widget.js, README.txt (with the source link), LICENSE,
+# CREDITS.md and licenses/, the licence texts of the libraries linked into jnext_web. The
 # <ver> comes from version.yaml and nowhere else.
 #
 # NEVER A NextZXOS IMAGE (copyrighted: owner rule, CLAUDE.md). The page fetches
@@ -45,7 +45,7 @@ set -euo pipefail
 export LC_ALL=C TZ=UTC
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-PAGES=(plain.html itch-host.html itch-game.html)
+PAGES=(plain.html itch-host.html itch-game.html widget.html)
 
 die() { echo "package-web: $*" >&2; exit 1; }
 
@@ -83,6 +83,7 @@ manifest() {
     ent "jnext-$ver.wasm" "$build/jnext-$ver.wasm"
     local p
     for p in "${PAGES[@]}"; do ent "$p" "$build/$p"; done
+    ent jnext-widget.js "$build/jnext-widget.js"
     ent README.txt "$readme"
     ent LICENSE "$ROOT/LICENSE"
     ent CREDITS.md "$ROOT/CREDITS.md"
@@ -140,6 +141,7 @@ rel = lambda n: n[len(top):]
 def cap(n):
     r = rel(n)
     if r.endswith(".wasm"): return (1 * MiB, 16 * MiB)
+    if r == "jnext-widget.js": return (0, 1 * MiB)
     if r.endswith(".js"): return (16 * 1024, 4 * MiB)
     if r.endswith(".html"): return (0, 256 * 1024)
     if r == "README.txt": return (0, 16 * 1024)
@@ -171,16 +173,24 @@ if j in ok:
     for lit in ("jnext-%s.wasm" % ver, "\x27%s\x27" % ver, "createJnextModule"):
         if lit.encode() not in ok[j]:
             bad("%s does not contain %s" % (j, lit))
-for pg in ("plain.html", "itch-host.html", "itch-game.html"):
+for pg in ("plain.html", "itch-host.html", "itch-game.html", "widget.html"):
     n = top + pg
     if n not in ok: continue
     t = ok[n].decode("utf-8", "replace")
     for v in sorted(set(re.findall(r"jnext-([0-9]+\.[0-9]+\.[0-9]+)", t))):
         if v != ver: bad("%s refers to jnext-%s, not %s" % (pg, v, ver))
-    if pg != "itch-host.html" and ("jnext-%s.js" % ver) not in t:
+    if pg == "widget.html":
+        if "jnext-widget.js" not in t: bad("%s does not load jnext-widget.js" % pg)
+    elif pg != "itch-host.html" and ("jnext-%s.js" % ver) not in t:
         bad("%s does not load jnext-%s.js" % (pg, ver))
     if pg == "itch-host.html" and "itch-game.html" not in t:
         bad("%s does not embed itch-game.html" % pg)
+wj = top + "jnext-widget.js"
+if wj in ok:
+    t = ok[wj].decode("utf-8", "replace")
+    for v in sorted(set(re.findall(r"jnext-([0-9]+\.[0-9]+\.[0-9]+)", t))):
+        if v != ver: bad("jnext-widget.js refers to jnext-%s, not %s" % (v, ver))
+    if ("jnext-%s.js" % ver) not in t: bad("jnext-widget.js does not load jnext-%s.js" % ver)
 r = top + "README.txt"
 if r in ok:
     t = ok[r].decode("utf-8", "replace")

@@ -163,6 +163,7 @@ nav:
       - 10.2 Options and the player: 10-web-page/02-options-and-the-player.md
       - 10.3 On itch.io, and what the browser build does not do: 10-web-page/03-itch-and-limits.md
       - 10.4 The SD-card image, and what the browser keeps: 10-web-page/04-the-image-and-what-the-browser-keeps.md
+      - 10.5 Two ways to embed JNEXT, your own page or the widget: 10-web-page/05-two-ways-to-embed.md
 
 # Make `mkdocs build --strict` fail on the two classes of breakage this guide
 # is most exposed to now that it is split across 70 files: a page missing from

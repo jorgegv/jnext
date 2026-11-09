@@ -5,7 +5,7 @@
 # trees under a scratch directory, no emcc, no browser, no SD-card image. The
 # scratch directory is removed on exit.
 #
-# Oracles: the package contract of this suite's own literal 21-name list (the
+# Oracles: the package contract of this suite's own literal 23-name list (the
 # issue's scope: js + wasm, example pages, README.txt with the source link,
 # LICENSE, CREDITS.md, licences of the linked libraries; and NEVER a NextZXOS
 # image, owner rule); version.yaml as the only source of the version; the
@@ -13,12 +13,12 @@
 # reads it (date_time, external_attr, extra); GitHub Actions workflow syntax as
 # PyYAML parses the real release.yml and ci.yml. There is no VHDL: this is packaging.
 #
-# Rows WEBPKG-01 .. WEBPKG-46. A missing tool FAILS WEBPKG-01 and every other row
+# Rows WEBPKG-01 .. WEBPKG-50. A missing tool FAILS WEBPKG-01 and every other row
 # then reports FAIL "not run": there is no SKIP path.
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-EXPECTED_ROWS=46
+EXPECTED_ROWS=50
 EPOCH_FIX=1762600000
 
 total=0; passed=0; failed=0
@@ -106,9 +106,10 @@ mktree() {
     echo "CMAKE_BUILD_TYPE:STRING=Release" >"$d/CMakeCache.txt"
     mkjs "$d/jnext-$v.js" 20480 "jnext-$v.wasm" "$v"
     mkwasm "$d/jnext-$v.wasm" $((2 * 1024 * 1024))
-    for p in plain itch-host itch-game; do
+    for p in plain itch-host itch-game widget; do
         sed "s/@PROJECT_VERSION@/$v/g" "$ROOT/web/examples/$p.html.in" >"$d/$p.html"
     done
+    sed "s/@PROJECT_VERSION@/$v/g" "$ROOT/web/jnext-widget.js.in" >"$d/jnext-widget.js"
     mkjs "$d/jnext-9.9.8.js" 20480 "jnext-9.9.8.wasm" "9.9.8"
     mkwasm "$d/jnext-9.9.8.wasm" $((2 * 1024 * 1024))
     echo "<html>stray</html>" >"$d/stray.html"
@@ -203,7 +204,7 @@ row WEBPKG-01 "$ok" "tools present; build exits 0, one jnext-9.9.9-web.zip in th
 [[ -f "$ZIP1" ]] || not_run 2
 sha1=$(sha "$ZIP1")
 
-# ---- WEBPKG-02: exactly the 21 names ----
+# ---- WEBPKG-02: exactly the 23 names ----
 cat >"$T/want-names" <<'NAMES'
 jnext-9.9.9-web/CREDITS.md
 jnext-9.9.9-web/LICENSE
@@ -212,6 +213,7 @@ jnext-9.9.9-web/itch-game.html
 jnext-9.9.9-web/itch-host.html
 jnext-9.9.9-web/jnext-9.9.9.js
 jnext-9.9.9-web/jnext-9.9.9.wasm
+jnext-9.9.9-web/jnext-widget.js
 jnext-9.9.9-web/licenses/compiler-rt.txt
 jnext-9.9.9-web/licenses/emscripten.txt
 jnext-9.9.9-web/licenses/fatfs.txt
@@ -226,12 +228,13 @@ jnext-9.9.9-web/licenses/spdlog.txt
 jnext-9.9.9-web/licenses/zlib.txt
 jnext-9.9.9-web/licenses/zot.txt
 jnext-9.9.9-web/plain.html
+jnext-9.9.9-web/widget.html
 NAMES
 python3 -I -c 'import sys, zipfile
 print("\n".join(sorted(zipfile.ZipFile(sys.argv[1]).namelist())))' "$ZIP1" >"$T/got-names"
 ok=0
-[[ $(wc -l <"$T/want-names") -eq 21 ]] && cmp -s "$T/want-names" "$T/got-names" && ok=1
-row WEBPKG-02 "$ok" "the zip holds exactly the literal 21 names, no directory entry, no stale jnext-9.9.8.*, no stray.html"
+[[ $(wc -l <"$T/want-names") -eq 23 ]] && cmp -s "$T/want-names" "$T/got-names" && ok=1
+row WEBPKG-02 "$ok" "the zip holds exactly the literal 23 names, no directory entry, no stale jnext-9.9.8.*, no stray.html"
 
 # ---- WEBPKG-03: every entry equals its fixture source ----
 mkdir "$T/x1"
@@ -242,6 +245,7 @@ sed 's/@VERSION@/9.9.9/g' "$R/packaging/web/README.txt.in" >"$T/readme-want"
 ok=1
 chk() { cmp -s "$X/$1" "$2" || { echo "    differs: $1"; ok=0; }; }
 chk jnext-9.9.9.js "$B/jnext-9.9.9.js"; chk jnext-9.9.9.wasm "$B/jnext-9.9.9.wasm"
+chk widget.html "$B/widget.html"; chk jnext-widget.js "$B/jnext-widget.js"
 chk plain.html "$B/plain.html"; chk itch-host.html "$B/itch-host.html"; chk itch-game.html "$B/itch-game.html"
 chk README.txt "$T/readme-want"; chk LICENSE "$R/LICENSE"; chk CREDITS.md "$R/CREDITS.md"
 chk licenses/emscripten.txt "$E/LICENSE"; chk licenses/musl.txt "$E/system/lib/libc/musl/COPYRIGHT"
@@ -262,7 +266,7 @@ ok=0
 if [[ $RC -eq 0 && -f "$D/build/jnext-9.9.10-web.zip" ]]; then
     n=$(python3 -I -c 'import sys, zipfile
 n = zipfile.ZipFile(sys.argv[1]).namelist()
-print(all(x.startswith("jnext-9.9.10-web/") for x in n) and "jnext-9.9.10-web/jnext-9.9.10.js" in n and "jnext-9.9.10-web/jnext-9.9.10.wasm" in n and len(n) == 21)' "$D/build/jnext-9.9.10-web.zip")
+print(all(x.startswith("jnext-9.9.10-web/") for x in n) and "jnext-9.9.10-web/jnext-9.9.10.js" in n and "jnext-9.9.10-web/jnext-9.9.10.wasm" in n and len(n) == 23)' "$D/build/jnext-9.9.10-web.zip")
     [[ "$n" == True ]] && ok=1
 fi
 row WEBPKG-04 "$ok" "version.yaml 9.9.10: output jnext-9.9.10-web.zip with 9.9.10 names"
@@ -530,6 +534,30 @@ mz "$T/c46.zip" dup:jnext-9.9.9-web/LICENSE
 run_verify "$GOOD" "$T/c46.zip"
 ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "duplicate entry names" && ok=1
 row WEBPKG-46 "$ok" "a zip with two entries of one name refused"
+
+# ---- WEBPKG-47..50: the widget file and its page ----
+scen wnoload
+sed 's/jnext-widget\.js/x.js/g' "$D/build/widget.html" >"$D/p"; mv "$D/p" "$D/build/widget.html"
+run_pkg "$D"
+ok=0; [[ $RC -ne 0 ]] && errhas "$D" "widget.html does not load jnext-widget.js" && nozip "$D" && ok=1
+row WEBPKG-47 "$ok" "widget.html not loading jnext-widget.js refused"
+
+scen wstale
+sed 's/jnext-9.9.9.js/jnext-9.9.8.js/g' "$D/build/jnext-widget.js" >"$D/p"; mv "$D/p" "$D/build/jnext-widget.js"
+run_pkg "$D"
+ok=0; [[ $RC -ne 0 ]] && errhas "$D" "jnext-widget.js refers to jnext-9.9.8" && nozip "$D" && ok=1
+row WEBPKG-48 "$ok" "jnext-widget.js naming jnext-9.9.8.js refused, naming the file and 9.9.8"
+
+scen wnocore
+sed 's/jnext-9.9.9.js/core.js/g' "$D/build/jnext-widget.js" >"$D/p"; mv "$D/p" "$D/build/jnext-widget.js"
+run_pkg "$D"
+ok=0; [[ $RC -ne 0 ]] && errhas "$D" "jnext-widget.js does not load jnext-9.9.9.js" && nozip "$D" && ok=1
+row WEBPKG-49 "$ok" "jnext-widget.js with no jnext-9.9.9.js refused"
+
+mz "$T/c50.zip" zeros:jnext-9.9.9-web/jnext-widget.js:1048577
+run_verify "$GOOD" "$T/c50.zip"
+ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "jnext-widget.js is 1048577 bytes" && ok=1
+row WEBPKG-50 "$ok" "a jnext-widget.js entry of 1 MiB + 1 refused on size, the message naming it"
 
 # ---- WEBPKG-34..36: the workflows ----
 r=$(python3 -I -c 'import sys, yaml

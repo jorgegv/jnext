@@ -217,7 +217,7 @@ is `window.prompt()` in a browser).
 | `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..15 | with `regression-wasm` |
 | `make unit-test-wasm` | `build/wasm-unit-test` | the SDL-only unit suites under node, through `test/node-run.sh`; suites marked `# os: native` are absent by name | the manifest | `unit-wasm` |
 | `make regression-wasm` | `build/wasm-core` | the regression suite's screenshot rows, each pixel-equal to the native reference, plus the functional rows whose `os=` names `emscripten` | `regression_tests.conf` | `regression-wasm` |
-| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
+| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-16, WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
 
 - `make wasm-core` proves the module starts, imports no shared memory, catches an exception,
   refuses what the browser cannot do, and hashes correctly on the portable SHA-256.
@@ -228,11 +228,18 @@ is `window.prompt()` in a browser).
   example pages. Details: [5.1](01-make-targets.md), [5.4](04-continuous-integration.md),
   [4.2](../04-testing/02-declared-suites-and-pinned-counts.md) and
   [4.3](../04-testing/03-the-regression-suite.md).
+- The widget (`web/jnext-widget.js.in`) is a plain script on top of `jnext.mount()`:
+  every `.jnext-widget` element gets a frame, a progress bar, a toolbar and a status
+  line, with all CSS injected once under `.jnext-widget` (each part resets its own
+  properties with `all: initial`; the API's own overlay keeps its text and click, and
+  only its colours are set from the theme variables). The WIDGET rows (`widget.mjs`)
+  include the two code blocks of the user guide's section 10.5, extracted from its
+  source and run verbatim, so the guide's snippets cannot drift from what is tested.
 - Native suites test the browser's policy without a browser: `web_api_test` (the option
   table, the argv and the man page's browser section; `make cli-check` runs it),
   `browser_policy_test` (the frame-callback gate and the page's refusals),
   `warm_start_card_test` and `sha256_test`.
-- `make package-web` builds the browser zip and `make web-package-test` is the hermetic contract suite of its script (WEBPKG-01 to WEBPKG-46, run by `make unit-test`); both are described in [5.3](03-packaging-and-release.md).
+- `make package-web` builds the browser zip and `make web-package-test` is the hermetic contract suite of its script (WEBPKG-01 to WEBPKG-50, run by `make unit-test`); both are described in [5.3](03-packaging-and-release.md).
 - All four wasm targets are in the batch gate ([4.1](../04-testing/01-the-test-triplet.md)).
 - The SDK and Playwright are provisioned by `make emsdk` and `make playwright`, pinned by
   sha256, into `~/.cache/jnext/tools`.

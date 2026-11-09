@@ -1,0 +1,233 @@
+// JNEXT widget: a ready-made player for a web page. Plain script, no
+// dependencies, ASCII. Every element with class "jnext-widget" becomes a
+// framed player (title bar, progress bar, toolbar, status line) built on
+// jnext.mount(). If `jnext` is not loaded yet, the script loads
+// jnext-@PROJECT_VERSION@.js from the directory it was loaded from.
+//
+//   <div class="jnext-widget" data-image="https://.../card.img"
+//        data-sha256="64 hex digits" data-file="game.nex"></div>
+//   <script src="jnext-widget.js"></script>
+//
+// data-image, data-sha256, data-file  the mount() options image.url, image.sha256, file
+// data-width, data-height             the screen size in CSS pixels (640 x 512)
+// data-title                          the title bar text (JNEXT)
+// data-theme                          light | dark (default: the visitor's setting)
+//
+// All styles are injected once and start with `.jnext-widget`; each element of
+// the widget resets its own properties first, so a host page's rules for
+// `div` or `button` do not reach it. The player is el.jnextPlayer.
+(function () {
+  'use strict';
+
+  if (window.jnextWidgetLoaded) return;
+  window.jnextWidgetLoaded = true;
+
+  var SCRIPT = document.currentScript;
+  var BASE = SCRIPT && SCRIPT.src ? SCRIPT.src : document.baseURI;
+  var CORE = new URL('jnext-@PROJECT_VERSION@.js', BASE).href;
+
+  var LIGHT = '--jw-bg:#f4f5f7;--jw-fg:#1d2330;--jw-bar:#e3e6ec;--jw-line:#c5cad4;' +
+    '--jw-accent:#2b6fe0;--jw-btn:#ffffff;--jw-btn-hover:#e8eefc;--jw-shadow:rgba(20,30,60,0.18);' +
+    '--jw-overlay:rgba(244,245,247,0.82);--jw-err:#b3261e;';
+  var DARK = '--jw-bg:#1b1e26;--jw-fg:#e6e9f0;--jw-bar:#262a35;--jw-line:#3a404f;' +
+    '--jw-accent:#6ea0ff;--jw-btn:#2d3240;--jw-btn-hover:#3a4156;--jw-shadow:rgba(0,0,0,0.55);' +
+    '--jw-overlay:rgba(20,22,28,0.82);--jw-err:#ff8a80;';
+  var W = '.jnext-widget ';
+  var CSS =
+    '.jnext-widget{all:initial;display:block;max-width:100%;margin:1em 0;' + LIGHT + '}' +
+    '.jnext-widget[data-theme="dark"]{' + DARK + '}' +
+    '@media (prefers-color-scheme:dark){.jnext-widget:not([data-theme="light"]):not([data-theme="dark"]){' + DARK + '}}' +
+    W + '.jw-frame{all:initial;display:block;box-sizing:border-box;overflow:hidden;' +
+      'background:var(--jw-bg);color:var(--jw-fg);border:1px solid var(--jw-line);border-radius:10px;' +
+      'box-shadow:0 4px 16px var(--jw-shadow);font:13px/1.3 system-ui,sans-serif}' +
+    W + '.jw-title{all:initial;display:block;box-sizing:border-box;padding:6px 12px;background:var(--jw-bar);' +
+      'border-bottom:1px solid var(--jw-line);color:var(--jw-fg);font:600 13px/1.3 system-ui,sans-serif}' +
+    W + '.jw-stage{all:initial;display:block;position:relative;box-sizing:border-box;background:#000}' +
+    W + '.jw-progress{all:initial;display:block;position:absolute;z-index:2;left:0;bottom:0;height:4px;width:0;' +
+      'background:var(--jw-accent);transition:width .15s}' +
+    W + '.jw-tools{all:initial;display:flex;box-sizing:border-box;align-items:center;gap:6px;padding:6px 8px;' +
+      'background:var(--jw-bar);border-top:1px solid var(--jw-line)}' +
+    W + '.jw-btn{all:initial;display:inline-block;box-sizing:border-box;padding:4px 10px;cursor:pointer;' +
+      'background:var(--jw-btn);color:var(--jw-fg);border:1px solid var(--jw-line);border-radius:6px;' +
+      'font:13px/1.3 system-ui,sans-serif}' +
+    W + '.jw-btn:hover{background:var(--jw-btn-hover)}' +
+    W + '.jw-btn:focus-visible{outline:2px solid var(--jw-accent)}' +
+    W + '.jw-btn[disabled]{opacity:.45;cursor:default}' +
+    W + '.jw-btn[aria-pressed="true"]{border-color:var(--jw-accent)}' +
+    W + '.jw-status{all:initial;display:block;flex:1;min-width:0;overflow:hidden;white-space:nowrap;' +
+      'text-overflow:ellipsis;text-align:right;color:var(--jw-fg);font:12px/1.3 ui-monospace,monospace}' +
+    W + '.jw-status.jw-error{color:var(--jw-err)}' +
+    // The elements the player itself creates: its inline styles stay, a page's rules for div and
+    // canvas (any property) go.
+    W + '.jnext-player{all:initial;display:block;box-sizing:content-box}' +
+    W + '.jnext-overlay{all:initial;box-sizing:border-box}' +
+    W + 'canvas{all:initial;display:block}' +
+    W + '.jw-frame:fullscreen{display:flex;flex-direction:column;border-radius:0}' +
+    W + '.jw-frame:fullscreen .jw-stage{flex:1 1 0;min-height:0}';
+
+  function injectCss() {
+    if (document.getElementById('jnext-widget-css')) return;
+    var s = document.createElement('style');
+    s.id = 'jnext-widget-css';
+    s.textContent = CSS;
+    (document.head || document.documentElement).appendChild(s);
+  }
+
+  function div(cls, parent, text) {
+    var e = document.createElement('div');
+    e.className = cls;
+    if (text) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  // Builds the frame of one widget; the player comes later (run). Returns the handle.
+  function build(el) {
+    if (el.jnextUi) return el.jnextUi;
+    el.jnextPlayer = null;
+    var num = function (name, dflt) {
+      var v = parseInt(el.getAttribute('data-' + name), 10);
+      return v > 0 ? v : dflt;
+    };
+    var width = num('width', 640), height = num('height', 512);
+
+    var frame = div('jw-frame', el);
+    frame.style.width = (width + 2) + 'px';   // the 1px border on each side
+    div('jw-title', frame, el.getAttribute('data-title') || 'JNEXT');
+    var stage = div('jw-stage', frame);
+    var bar = div('jw-progress', stage);
+    var tools = div('jw-tools', frame);
+    var ui = { el: el, width: width, height: height, stage: stage, bar: bar, player: null, errored: false,
+               started: false, volume: 1 };
+    el.jnextUi = ui;
+
+    function button(label, name, onclick) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'jw-btn';
+      b.setAttribute('data-jw', name);
+      b.textContent = label;
+      b.disabled = true;
+      b.addEventListener('click', function () {
+        onclick(b);
+        var c = stage.querySelector('canvas');
+        if (c && ui.player && ui.player.state === 'running') c.focus();
+      });
+      tools.appendChild(b);
+      return b;
+    }
+    ui.pauseBtn = button('Pause', 'pause', function () {
+      var pl = ui.player;
+      if (pl.state === 'paused') pl.resume();
+      else if (pl.state === 'running') pl.pause();
+    });
+    button('Reset', 'reset', function () { ui.player.reset().catch(function () {}); });
+    ui.muteBtn = button('Mute', 'mute', function () { ui.player.setVolume(ui.volume === 0 ? 1 : 0); });
+    ui.muteBtn.setAttribute('aria-pressed', 'false');
+    if (frame.requestFullscreen) {
+      button('Fullscreen', 'fullscreen', function () { frame.requestFullscreen(); });
+      // Fullscreen: the stage takes the space between the title bar and the toolbar and the
+      // player box follows it; the size comes back on exit.
+      document.addEventListener('fullscreenchange', function () {
+        var box = stage.querySelector('.jnext-player');
+        if (!box) return;
+        var on = document.fullscreenElement === frame;
+        box.style.width = on ? '100%' : width + 'px';
+        box.style.height = on ? '100%' : height + 'px';
+        // SDL resizes the canvas buffer to its CSS size on a window `resize`. The browser's own one
+        // may come before or after this event, so send one for the new size.
+        window.dispatchEvent(new Event('resize'));
+      });
+    }
+    ui.status = div('jw-status', tools, 'Loading...');
+    ui.status.setAttribute('role', 'status');
+    ui.tools = tools;
+    ui.say = function (text, isError) {
+      if (isError) ui.errored = true;
+      ui.status.textContent = text;
+      ui.status.className = 'jw-status' + (isError ? ' jw-error' : '');
+    };
+    ui.disable = function () {
+      for (var i = 0; i < tools.children.length; i++) if (tools.children[i].tagName === 'BUTTON') tools.children[i].disabled = true;
+    };
+    // Labels and status follow the player's own state and last volume, whoever changed them.
+    ui.sync = function () {
+      var pl = ui.player;
+      if (!pl) return;
+      if (pl.state === 'destroyed') { ui.disable(); ui.say('stopped'); return; }
+      ui.pauseBtn.textContent = pl.state === 'paused' ? 'Resume' : 'Pause';
+      ui.muteBtn.textContent = ui.volume === 0 ? 'Unmute' : 'Mute';
+      ui.muteBtn.setAttribute('aria-pressed', ui.volume === 0 ? 'true' : 'false');
+      if (!ui.errored && ui.started) ui.say(pl.state === 'paused' ? 'paused' : 'running');
+    };
+    return ui;
+  }
+
+  // Mounts the player of one built widget.
+  function run(ui) {
+    var el = ui.el;
+    var image = el.getAttribute('data-image');
+    if (!image) { ui.say('error: data-image is missing', true); return; }
+    var options = {
+      image: { url: image, sha256: el.getAttribute('data-sha256') || '' },
+      width: ui.width,
+      height: ui.height,
+      onProgress: function (phase, fraction) {
+        ui.bar.style.width = Math.round(fraction * 100) + '%';
+        ui.say(phase + ' ' + Math.round(fraction * 100) + '%');
+      },
+      onReady: function () { ui.bar.style.width = '0'; ui.started = true; ui.sync(); },
+      onError: function (message) { ui.say('error: ' + message, true); }
+    };
+    if (el.getAttribute('data-file')) options.file = el.getAttribute('data-file');
+
+    var p = jnext.mount(ui.stage, options);
+    // The API's own overlay (its text and its click are the API's): only its looks are set here.
+    var ov = ui.stage.querySelector('.jnext-overlay');
+    if (ov) {
+      ov.style.background = 'var(--jw-overlay)';
+      ov.style.color = 'var(--jw-fg)';
+      ov.style.font = '600 18px system-ui,sans-serif';
+    }
+    p.then(function (pl) {
+      ['pause', 'resume', 'reset', 'setVolume', 'destroy'].forEach(function (name) {
+        var orig = pl[name];
+        pl[name] = function (v) {
+          var r = orig.apply(pl, arguments);
+          if (name === 'setVolume') ui.volume = v;
+          if (name === 'destroy') { ui.disable(); ui.say('stopped'); return r; }
+          ui.sync();
+          return r;
+        };
+      });
+      ui.player = pl;
+      el.jnextPlayer = pl;
+      ui.bar.style.width = '0';
+      for (var i = 0; i < ui.tools.children.length; i++) ui.tools.children[i].disabled = false;
+      ui.say('click the screen to start');
+    }, function () { /* onError has shown it */ });
+  }
+
+  function widgets() {
+    var list = document.querySelectorAll('.jnext-widget'), out = [];
+    for (var i = 0; i < list.length; i++) out.push(build(list[i]));
+    return out;
+  }
+
+  function start() {
+    injectCss();
+    var all = widgets();
+    var go = function () { all.forEach(run); };
+    if (typeof jnext !== 'undefined') { go(); return; }
+    var s = document.createElement('script');
+    s.src = CORE;
+    s.onload = go;
+    s.onerror = function () {
+      all.forEach(function (ui) { ui.say('error: cannot load ' + CORE, true); });
+    };
+    document.head.appendChild(s);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();

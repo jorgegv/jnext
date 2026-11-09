@@ -8,8 +8,9 @@
 # (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:29`
 # (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
-# boots the example page) and `../bench/web/bench-stats-test.mjs:12` (rows WBENCH-01..12: the
-# arithmetic of the browser bench, synthetic data, no browser). Further specs
+# boots the example page), `widget.mjs:16` (rows WIDGET-01..16: the ready-made widget and the
+# guide's two embedding snippets, run verbatim) and `../bench/web/bench-stats-test.mjs:12` (rows
+# WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,
 # and its row count is pinned here, so a spec that loses rows fails the run.
@@ -34,7 +35,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "../bench/web/bench-stats-test.mjs:12" "$@")
+SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:16" "../bench/web/bench-stats-test.mjs:12" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)

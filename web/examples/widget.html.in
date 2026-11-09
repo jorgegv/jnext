@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>JNEXT widget</title>
+</head>
+<body>
+<div class="jnext-widget"
+     data-image="https://example.com/card.img"
+     data-sha256="0000000000000000000000000000000000000000000000000000000000000000"
+     data-file=""></div>
+<script>
+  // Test and demo helper, not part of the snippet: the image, its SHA-256 and the program
+  // may come from the query string (?image=URL&sha256=HEX&file=URL).
+  (function () {
+    var q = new URLSearchParams(location.search), el = document.querySelector('.jnext-widget');
+    ['image', 'sha256', 'file'].forEach(function (k) { if (q.get(k)) el.setAttribute('data-' + k, q.get(k)); });
+  })();
+</script>
+<script src="jnext-widget.js"></script>
+</body>
+</html>

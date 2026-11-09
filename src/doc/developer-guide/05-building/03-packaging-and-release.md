@@ -19,7 +19,7 @@ you read it; it is not a replacement for it.
 | `make package-web` | the browser build as `jnext-<ver>-web.zip` in `build/wasm-core/`: the `.js` and `.wasm`, the example pages, the licence texts. Needs the Emscripten SDK (built by `make wasm-web`) |
 | `make package-test` | builds every package except macOS, Flatpak and the browser zip and **asserts its contents** (a missing tool fails) |
 | `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain; it also runs `make web-package-test` |
-| `make web-package-test` | the contract suite of `packaging/web/package-web.sh` (WEBPKG-01 to WEBPKG-46), on fake trees, hermetic |
+| `make web-package-test` | the contract suite of `packaging/web/package-web.sh` (WEBPKG-01 to WEBPKG-50), on fake trees, hermetic |
 
 The source tarball is deliberately not a `git archive`. That would produce an
 *empty* `third_party/spdlog` directory, which fails CMake configure the moment
@@ -203,13 +203,15 @@ references.
 
 `make package-web` zips the output of `make wasm-web` as
 `build/wasm-core/jnext-<ver>-web.zip`, through `packaging/web/package-web.sh`. The
-zip has one top directory, `jnext-<ver>-web/`, and 21 files:
+zip has one top directory, `jnext-<ver>-web/`, and 23 files:
 
 - `jnext-<ver>.js` and `jnext-<ver>.wasm`: two files, not one, because a page
   author hosts them and GitHub serves a release asset as `octet-stream`, so the
   asset is the zip; the build does not use `SINGLE_FILE`;
-- the three example pages `plain.html`, `itch-host.html` and `itch-game.html`,
-  which load nothing but `jnext-<ver>.js`;
+- the four example pages `plain.html`, `itch-host.html`, `itch-game.html` and
+  `widget.html`; the first three load nothing but `jnext-<ver>.js`, `widget.html`
+  loads `jnext-widget.js`, the ready-made widget (`web/jnext-widget.js.in`, configured
+  with the version like the pages, so that it can load `jnext-<ver>.js` from beside itself);
 - `README.txt` (from `packaging/web/README.txt.in`, with the link to the source
   of exactly that version), `LICENSE` and `CREDITS.md`;
 - `licenses/`: the licence texts of the libraries linked into `jnext_web`

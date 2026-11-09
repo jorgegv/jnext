@@ -3062,7 +3062,7 @@ you read it; it is not a replacement for it.</p>
 </tr>
 <tr>
 <td><code>make web-package-test</code></td>
-<td>the contract suite of <code>packaging/web/package-web.sh</code> (WEBPKG-01 to WEBPKG-46), on fake trees, hermetic</td>
+<td>the contract suite of <code>packaging/web/package-web.sh</code> (WEBPKG-01 to WEBPKG-50), on fake trees, hermetic</td>
 </tr>
 </tbody>
 </table>
@@ -3225,13 +3225,15 @@ references.</p>
 <h2 id="the-browser-package">The browser package<a class="headerlink" href="#the-browser-package" title="Permanent link">&para;</a></h2>
 <p><code>make package-web</code> zips the output of <code>make wasm-web</code> as
 <code>build/wasm-core/jnext-&lt;ver&gt;-web.zip</code>, through <code>packaging/web/package-web.sh</code>. The
-zip has one top directory, <code>jnext-&lt;ver&gt;-web/</code>, and 21 files:</p>
+zip has one top directory, <code>jnext-&lt;ver&gt;-web/</code>, and 23 files:</p>
 <ul>
 <li><code>jnext-&lt;ver&gt;.js</code> and <code>jnext-&lt;ver&gt;.wasm</code>: two files, not one, because a page
   author hosts them and GitHub serves a release asset as <code>octet-stream</code>, so the
   asset is the zip; the build does not use <code>SINGLE_FILE</code>;</li>
-<li>the three example pages <code>plain.html</code>, <code>itch-host.html</code> and <code>itch-game.html</code>,
-  which load nothing but <code>jnext-&lt;ver&gt;.js</code>;</li>
+<li>the four example pages <code>plain.html</code>, <code>itch-host.html</code>, <code>itch-game.html</code> and
+  <code>widget.html</code>; the first three load nothing but <code>jnext-&lt;ver&gt;.js</code>, <code>widget.html</code>
+  loads <code>jnext-widget.js</code>, the ready-made widget (<code>web/jnext-widget.js.in</code>, configured
+  with the version like the pages, so that it can load <code>jnext-&lt;ver&gt;.js</code> from beside itself);</li>
 <li><code>README.txt</code> (from <code>packaging/web/README.txt.in</code>, with the link to the source
   of exactly that version), <code>LICENSE</code> and <code>CREDITS.md</code>;</li>
 <li><code>licenses/</code>: the licence texts of the libraries linked into <code>jnext_web</code>
