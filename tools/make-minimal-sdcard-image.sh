@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Build the minimal NextZXOS boot card from the distribution SD image.
+# Build the minimal NextZXOS boot card from the distribution SD image. Linux only.
 #
 #   tools/make-minimal-sdcard-image.sh <distribution.img> <minimal.img>
 #
 # The browser build fetches a small (40 MiB, 512-byte clusters) card that holds
-# only the boot set below, instead of the 1 GB distribution image. jnext's own
-# two patches (config.ini, doubled zx81.rom) are applied by
-# tools/fix-sdcard-image.sh, unchanged.
+# only the boot set below, instead of the 1 GB distribution image. The card is
+# formatted as a FAT32 volume FatFs accepts from the start, and gets jnext's two
+# patches here: the default /MACHINES/NEXT/config.ini and, for the 24.11 16 KB
+# zx81.rom, that file twice. Both are copies of tools/fix-sdcard-image.sh's (and
+# of src/core/sdcard_provisioner.cpp's); test/minimal-sdcard-image-test.sh fails
+# if the copies differ. This script calls no other script.
 #
-# Needs mtools, sfdisk (util-linux) and coreutils. No root, no loop mount. The
-# source is only read. The destination filesystem must support hard links (not
+# Linux only. Needs mtools, sfdisk (util-linux), coreutils, grep and sed: all are
+# checked before anything is done. No root, no loop mount. The source is only read. The destination filesystem must support hard links (not
 # FAT/exFAT): the card is placed with ln, which never replaces an entry. The output is
 # reproducible for one mtools version (mformat writes its version into the boot sector): fixed volume serial,
 # SOURCE_DATE_EPOCH and TZ pinned, and a DOS-to-DOS copy so the directory order
@@ -21,14 +24,38 @@ set -euo pipefail
 BOOT_SET=(TBBLUE.FW MACHINES NEXTZXOS SYS LICENSE.md README.md)
 CARD_MB=40
 SERIAL=4A4E5854
+# The 24.11 distribution's one-page zx81.rom (full SHA-256): doubled on the card.
+ZX81_16K_SHA256=c294e4b60a0eba85c02a3d8b37f77de6c4516d873682dcf333813bd392d82aac
+# Every external command this script runs. Checked first; nothing is done if one is missing.
+TOOLS=(mformat minfo mdir mcopy mmd sfdisk realpath dirname mktemp ln rm truncate cat stat sha256sum cut head grep sed)
 export SOURCE_DATE_EPOCH=315532800 TZ=UTC LC_ALL=C.UTF-8 MTOOLS_SKIP_CHECK=1
 
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+missing=() dnf="" apt=""
+for t in "${TOOLS[@]}"; do
+    command -v "$t" >/dev/null 2>&1 && continue
+    missing+=("$t")
+    case $t in
+        mformat|minfo|mdir|mcopy|mmd) d=mtools apt_p=mtools ;;
+        sfdisk) d=util-linux apt_p=fdisk ;;
+        grep|sed) d=$t apt_p=$t ;;
+        *) d=coreutils apt_p=coreutils ;;
+    esac
+    case " $dnf " in *" $d "*) ;; *) dnf+=" $d" ;; esac
+    case " $apt " in *" $apt_p "*) ;; *) apt+=" $apt_p" ;; esac
+done
+if [ ${#missing[@]} -gt 0 ]; then
+    echo "ERROR: missing tools: ${missing[*]}" >&2
+    echo "  Fedora:        sudo dnf install$dnf" >&2
+    echo "  Debian/Ubuntu: sudo apt install$apt" >&2
+    exit 1
+fi
+
 [ $# -eq 2 ] || { echo "Usage: $0 <distribution.img> <minimal.img>" >&2; exit 2; }
 SRC=$(realpath -e -- "$1") || die "no source image: $1"
 [ ! -e "$2" ] && [ ! -L "$2" ] || die "destination exists, not overwritten: $2"
 DST=$(realpath -m -s -- "$2")
-FIX="$(dirname "$(realpath "$0")")/fix-sdcard-image.sh"
 
 start=$(sfdisk --dump "$SRC" 2>/dev/null | sed -n 's/^.* : start= *\([0-9]*\),.*/\1/p' | head -n1) || true
 [ -n "$start" ] || die "no partition table in $SRC"
@@ -56,12 +83,53 @@ for p in "${BOOT_SET[@]}"; do
     n=${n#?:/}; names+=("s:/${n%/}")   # the source's own spelling of the name
 done
 mcopy -s -m -p -Q "${names[@]}" d:/
+
+# jnext's two patches, written the way tools/fix-sdcard-image.sh writes them (same
+# commands, order and names), so the card is the one that script made from it.
+mmd -Ds d:/machines      </dev/null 2>/dev/null || true
+mmd -Ds d:/machines/next </dev/null 2>/dev/null || true
+cat > config.ini <<'CONFIGEOF'
+scandoubler=1
+50_60hz=0
+timex=1
+psgmode=0
+stereomode=1
+intsnd=1
+turbosound=1
+dac=1
+divmmc=0
+divports=1
+mf=0
+joystick1=2
+joystick2=0
+ps2=0
+scanlines=0
+turbokey=1
+timing=0
+default=0
+dma=0
+keyb_issue=0
+ay48=0
+uart_i2c=1
+kmouse=1
+ulaplus=1
+hdmisound=1
+beepmode=0
+buttonswap=0
+mousedpi=1
+CONFIGEOF
+mcopy -o config.ini d:/machines/next/config.ini </dev/null
+if mcopy -n d:/machines/next/zx81.rom zx81.rom </dev/null 2>/dev/null \
+   && [ "$(stat -c %s zx81.rom)" -eq 16384 ] \
+   && [ "$(sha256sum zx81.rom | cut -d' ' -f1)" = "$ZX81_16K_SHA256" ]; then
+    cat zx81.rom zx81.rom > zx81-32k.rom
+    mcopy -o zx81-32k.rom d:/machines/next/zx81.rom </dev/null
+fi
 unset MTOOLSRC
-bash "$FIX" "$W/card.img" "$W/fixed.img" >&2
 # ln fails on ANY existing entry (a dangling symlink too): a destination that
 # appeared during the build is never replaced, unlike mv. It needs a filesystem
 # with hard links (not FAT/exFAT), so the two failures get different messages.
-if ! ln "$W/fixed.img" "$DST" 2>"$W/ln.err"; then
+if ! ln "$W/card.img" "$DST" 2>"$W/ln.err"; then
     { [ -e "$DST" ] || [ -L "$DST" ]; } && die "destination appeared during the build, not overwritten: $2"
     die "cannot create $2: $(cat "$W/ln.err") (the destination filesystem must support hard links)"
 fi
