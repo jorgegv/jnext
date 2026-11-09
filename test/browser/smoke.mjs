@@ -1,4 +1,4 @@
-// Browser smoke rows BRW-01..31 (make wasm-browser-test), run by browser-smoke.sh
+// Browser smoke rows BRW-01..33 (make wasm-browser-test), run by browser-smoke.sh
 // on the SDK's node. Each row prints PASS|FAIL <ID> <text>; the run ends with the
 // suite's `Total:` line and exits non-zero on any FAIL. Oracles are NATIVE runs
 // of the same arguments, made by browser-smoke.sh into $SMOKE_ORACLE (build/
@@ -471,6 +471,25 @@ row('BRW-31', 'a Next NEX: the period and CPU speed exports equal a native headl
   await start(page); await waitFrame(page, 450, 400000);
   const r = await page.evaluate(() => [window.jnextModule._jnext_web_frame_period_ms(), window.jnextModule._jnext_web_cpu_mhz()]);
   must(r[0] === wantPeriod && r[1] === mhz, `page ${JSON.stringify(r)} native ${wantPeriod} ${mhz}`);
+});
+
+row('BRW-32', 'the audio device buffer is 1024 sample frames (SDL doubles the 512 the page asks for): the pacer\'s calibrated chunk, not SDL\'s doubled 2048', async () => {
+  const page = await open({ args: ['--machine', '48k', '--sdcard', '/media/card.img'], files: [CARD], canvas: '640x512' });
+  await start(page);
+  await waitLog(page, /Audio device buffer: \d+ sample frames/, 60000);
+  const line = (await stderr(page)).find((l) => /Audio device buffer: \d+ sample frames/.test(l));
+  const n = Number(/Audio device buffer: (\d+) sample frames/.exec(line)[1]);
+  must(n === 1024, line);
+});
+
+row('BRW-33', 'a page\'s ENV SDL_AUDIO_DEVICE_SAMPLE_FRAMES wins over the default: 1024 requested gives a 2048-frame device buffer', async () => {
+  const page = await open({ args: ['--machine', '48k', '--sdcard', '/media/card.img'], files: [CARD], canvas: '640x512',
+                            env: { SDL_AUDIO_DEVICE_SAMPLE_FRAMES: '1024' } });
+  await start(page);
+  await waitLog(page, /Audio device buffer: \d+ sample frames/, 60000);
+  const line = (await stderr(page)).find((l) => /Audio device buffer: \d+ sample frames/.test(l));
+  const n = Number(/Audio device buffer: (\d+) sample frames/.exec(line)[1]);
+  must(n === 2048, line);
 });
 
 row('BRW-26', 'every request the page made is in the allow-list; no image or ROM except the run\'s own card was fetched', async () => {

@@ -126,12 +126,12 @@ row('WBENCH-09', 'a fixed cell formats to a pinned WEBBENCH line (field order, n
   must(parseLine(inv).would === 'FAIL' && parseLine(got).would === undefined, 'would parses back, and only INVALID lines carry it');
 });
 
-row('WBENCH-10', 'pacing counters over a window: 8 s, callbacks {+10,+590,+40,+10}, ticks by frames {+5,+600,+40,+5}, 3 fill events: 6.25 multi-tick callbacks/s, 5.62 two-frame+ ticks/s, 0.62 zero-frame ticks/s; pinned WEBPACE line', () => {
-  const raw = { wall_ms: 8000, pace0: [100, 200, 10, 1, 7, 300, 20, 0, 2], pace1: [110, 790, 50, 11, 12, 900, 60, 5, 5] };
+row('WBENCH-10', 'pacing counters over a window: 8 s, callbacks {+10,+590,+40,+10}, ticks by frames {+5,+600,+40,+5}, 3 fill events, 4 audio gaps: 6.25 multi-tick callbacks/s, 5.62 two-frame+ ticks/s, 0.62 zero-frame ticks/s; pinned WEBPACE line', () => {
+  const raw = { wall_ms: 8000, audio_gaps: 4, pace0: [100, 200, 10, 1, 7, 300, 20, 0, 2], pace1: [110, 790, 50, 11, 12, 900, 60, 5, 5] };
   const p = paceMetrics(raw);
-  must(near(p.multi_tick_cb_s, 6.25) && near(p.two_frame_ticks_s, 5.625) && near(p.zero_frame_ticks_s, 0.625) && p.fill_events === 3, JSON.stringify(p));
+  must(near(p.multi_tick_cb_s, 6.25) && near(p.two_frame_ticks_s, 5.625) && near(p.zero_frame_ticks_s, 0.625) && p.fill_events === 3 && p.audio_gaps === 4, JSON.stringify(p));
   must(paceMetrics({ wall_ms: 1000 }) === null, 'no counters: null');
-  const want = 'WEBPACE config=chrome program=beast multi_tick_cb_s=6.25 two_frame_ticks_s=5.63 zero_frame_ticks_s=0.63 fill_events=3';
+  const want = 'WEBPACE config=chrome program=beast multi_tick_cb_s=6.25 two_frame_ticks_s=5.63 zero_frame_ticks_s=0.63 fill_events=3 audio_gaps=4';
   const got = formatPaceLine({ config: 'chrome', program: 'beast' }, p);
   must(got === want, got);
 });

@@ -20,7 +20,7 @@
   'use strict';
   const q = new URLSearchParams(location.search);
   const origRAF = window.requestAnimationFrame.bind(window);
-  const S = { rec: false, mod: null, costs: [], deltas: [], stamps: [], audio: [], ctxs: [], audioCalls: 0, done: false,
+  const S = { rec: false, mod: null, costs: [], deltas: [], stamps: [], audio: [], audioStamps: [], chunkMs: 0, ctxs: [], audioCalls: 0, done: false,
               anchorT: 0, anchorF: 0, anchored: false, frames: 0, endT: 0, cell: null, capped: false };
   const live = document.getElementById('live');
   const say = (t) => { live.textContent = t; };
@@ -49,6 +49,7 @@
   AudioContext.prototype.createScriptProcessor = function (...a) {
     S.ctxs.push(this);
     const node = origCSP.apply(this, a);
+    S.chunkMs = 1000 * node.bufferSize / this.sampleRate;
     let h = null;
     Object.defineProperty(node, 'onaudioprocess', {
       set(f) {
@@ -58,7 +59,7 @@
           if (!S.rec) return f.call(node, e);
           const t = performance.now();
           f.call(node, e);
-          S.audio.push(performance.now() - t);
+          S.audio.push(performance.now() - t); S.audioStamps.push(t);
         });
       },
       get() { return h; },
@@ -149,6 +150,10 @@
       raw.mem_end = memSize(S.mod);
       raw.costs = S.costs; raw.deltas = S.deltas; raw.stamps = S.stamps; raw.audio = S.audio; raw.audio_calls = S.audioCalls;
       raw.capped = S.capped;
+      // gaps between the script processor's callbacks over the window: an interval above 1.5 chunks is a callback
+      // the main thread served late (a tick ran across its slot): what a smaller device buffer risks
+      raw.audio_chunk_ms = S.chunkMs;
+      raw.audio_gaps = S.audioStamps.slice(1).filter((t, i) => t - S.audioStamps[i] > 1.5 * S.chunkMs).length;
       raw.audio_state = S.ctxs[0] ? S.ctxs[0].state : 'none';
       const g = glInfo(document.querySelector('#box canvas'));
       raw.gl = g.gl; raw.renderer = g.renderer;

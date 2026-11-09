@@ -4,7 +4,7 @@
 #
 #   bash test/browser/browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]
 #
-# Specs default to `smoke.mjs:31` (rows BRW-01..31, this directory) and `image.mjs:8`
+# Specs default to `smoke.mjs:33` (rows BRW-01..33, this directory) and `image.mjs:8`
 # (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:29`
 # (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
@@ -34,7 +34,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:31" "image.mjs:8" "api.mjs:29" "package.mjs:1" "../bench/web/bench-stats-test.mjs:12" "$@")
+SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "../bench/web/bench-stats-test.mjs:12" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)

@@ -145,6 +145,12 @@ void prepare()
     // page. Follow the canvas selector instead (a page ENV value wins).
     const char* sel = SDL_GetHint(SDL_HINT_EMSCRIPTEN_CANVAS_SELECTOR);
     SDL_SetHint(SDL_HINT_EMSCRIPTEN_KEYBOARD_ELEMENT, sel ? sel : "#canvas");
+    // SDL's Web Audio device doubles its buffer ("some browsers need more"): 2 x 1024 frames = 42.7 ms at 48 kHz,
+    // against the ~23 ms chunk audio_pacing's guards were calibrated for, so the pacer's own sawtooth reached
+    // them and doubled or held frames (GH #468). Ask for 512, which SDL doubles to 1024 (21.3 ms). A page's own
+    // value (ENV SDL_AUDIO_DEVICE_SAMPLE_FRAMES) wins.
+    if (!SDL_GetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES))
+        SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "512");
 }
 
 void run(SdlApp& app, std::function<int()> finish)

@@ -201,7 +201,7 @@ is `window.prompt()` in a browser).
 | `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..15 | with `regression-wasm` |
 | `make unit-test-wasm` | `build/wasm-unit-test` | the SDL-only unit suites under node, through `test/node-run.sh`; suites marked `# os: native` are absent by name | the manifest | `unit-wasm` |
 | `make regression-wasm` | `build/wasm-core` | the regression suite's screenshot rows, each pixel-equal to the native reference, plus the functional rows whose `os=` names `emscripten` | `regression_tests.conf` | `regression-wasm` |
-| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-31, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
+| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
 
 - `make wasm-core` proves the module starts, imports no shared memory, catches an exception,
   refuses what the browser cannot do, and hashes correctly on the portable SHA-256.

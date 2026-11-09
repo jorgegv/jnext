@@ -161,10 +161,11 @@ export function paceMetrics(raw) {
     two_frame_ticks_s: (d[6] + d[7]) / s,
     zero_frame_ticks_s: d[4] / s,
     fill_events: d[8],
+    audio_gaps: raw.audio_gaps === undefined ? 0 : raw.audio_gaps,
   };
 }
 
 export function formatPaceLine(c, p) {
   return `WEBPACE config=${c.config} program=${c.program} multi_tick_cb_s=${f(p.multi_tick_cb_s, 2)} ` +
-         `two_frame_ticks_s=${f(p.two_frame_ticks_s, 2)} zero_frame_ticks_s=${f(p.zero_frame_ticks_s, 2)} fill_events=${p.fill_events}`;
+         `two_frame_ticks_s=${f(p.two_frame_ticks_s, 2)} zero_frame_ticks_s=${f(p.zero_frame_ticks_s, 2)} fill_events=${p.fill_events} audio_gaps=${p.audio_gaps}`;
 }
