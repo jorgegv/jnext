@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=360  # 358 -> 360: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI), merged from main onto the epic's 358 (recounted: base 314, main 324 = +10, epic 350 = +36).  # 350 -> 358: the main side, merged onto the epic's 350 (recounted from the file): 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 344 -> 350: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07). 343 -> 344: HS-166n (screenshots.sh calls shot_wall_bound). 339 -> 343: HS-166j..m (the wasm run settings: SHOT_WALL_FACTOR and JNEXT_NATIVE plumbing, the wall-bound formula). 330 -> 339: HS-166a..i (GH #461: the emscripten platform run, its opt-in os= grammar and pin, the .js + .wasm binary check, node-run.sh --jnext). 315 -> 330: HS-162a..j (GH #460: the emscripten target OS, `# os: native`, the emulator-led add_test() and NAME.js + NAME.wasm) and HS-163a..e (test/node-run.sh) added. 312 -> 315: HS-160a..b, HS-161 added (GH #463: the Playwright provisioner refuses a wrong sha256 on each of its two pins and re-resolves under its lock). 311 -> 312: HS-159 added (GH #459 review: the emsdk provisioner re-resolves under its lock). 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=362  # 360 -> 362: HS-171a..b (bench.sh runs under a private JNEXT_CONFIG_DIR after one unmeasured priming run; GH #468).  # 358 -> 360: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI), merged from main onto the epic's 358 (recounted: base 314, main 324 = +10, epic 350 = +36).  # 350 -> 358: the main side, merged onto the epic's 350 (recounted from the file): 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 344 -> 350: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07). 343 -> 344: HS-166n (screenshots.sh calls shot_wall_bound). 339 -> 343: HS-166j..m (the wasm run settings: SHOT_WALL_FACTOR and JNEXT_NATIVE plumbing, the wall-bound formula). 330 -> 339: HS-166a..i (GH #461: the emscripten platform run, its opt-in os= grammar and pin, the .js + .wasm binary check, node-run.sh --jnext). 315 -> 330: HS-162a..j (GH #460: the emscripten target OS, `# os: native`, the emulator-led add_test() and NAME.js + NAME.wasm) and HS-163a..e (test/node-run.sh) added. 312 -> 315: HS-160a..b, HS-161 added (GH #463: the Playwright provisioner refuses a wrong sha256 on each of its two pins and re-resolves under its lock). 311 -> 312: HS-159 added (GH #459 review: the emsdk provisioner re-resolves under its lock). 308 -> 311: HS-158a..c added (GH #459: the emsdk provisioner refuses a wrong sha256 on each of its three pins). 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1441,6 +1441,42 @@ out=$(run_preflight_sed_i dirty); rc=$?
 check "HS-170b" "a bare sed -i FAILS the preflight, not just the lint (BSD sed rejects it)" 1 $rc \
     "$out" "a test script runs a bare in-place sed" "Fail: 1"
 
+# ---- bench.sh: a private config dir and one priming run (HS-171a/b) ----
+# Oracle: the warm-start cache is keyed on the SD image's size and mtime (warm_start_cache.cpp), and
+# the bench's reflinked clone has a new mtime, so with the user's own JNEXT_CONFIG_DIR the first NEX
+# workload timed a cold boot inside its window and replaced the user's cache (baseline-2d2e86c7e.txt,
+# copper-demo run 1 4.667 s against 2.81-2.90 s). Fixture: a copy of bench.sh in a scratch repo with a
+# stub jnext that logs the config dir and argv of every invocation.
+BH_FIX="$T/bench171"; BH_LOG="$BH_FIX/calls.log"
+rm -rf "$BH_FIX"; mkdir -p "$BH_FIX/test/bench/nex" "$BH_FIX/test/00regression/nex" "$BH_FIX/test/00regression/tap" "$BH_FIX/build/gui-release-non-pgo"
+cp "$PROJECT_DIR/test/bench/bench.sh" "$BH_FIX/test/bench/bench.sh"
+for f in test/00regression/nex/copper_demo.nex test/00regression/nex/beast.nex test/00regression/tap/bifrost.tap \
+         test/bench/nex/halt_idle_35.nex test/bench/nex/halt_idle_28.nex test/bench/nex/ctc_dac_28.nex; do : > "$BH_FIX/$f"; done
+printf 'CMAKE_BUILD_TYPE:STRING=Release\n' > "$BH_FIX/build/gui-release-non-pgo/CMakeCache.txt"
+cat > "$BH_FIX/build/gui-release-non-pgo/jnext" <<'STUB'
+#!/usr/bin/env bash
+printf 'cfg=%s args=%s\n' "${JNEXT_CONFIG_DIR:-UNSET}" "$*" >> "$BH_LOG"
+if [[ " $* " == *" --benchmark "* ]]; then
+    echo "BENCH workload=x frames=1 wall=1.000 fps=100.0 tstates_per_sec=1 tstates_per_frame=1 cpu=3.5MHz core=0@1kHz build=Release"
+fi
+STUB
+chmod +x "$BH_FIX/build/gui-release-non-pgo/jnext"
+printf 'sd' > "$BH_FIX/sd.img"
+git -C "$BH_FIX" init -q && git -C "$BH_FIX" add -A && git -C "$BH_FIX" -c user.name=t -c user.email=t@t commit -qm fixture
+out=$(BH_LOG="$BH_LOG" JNEXT_TEST_SD_IMAGE="$BH_FIX/sd.img" timeout --kill-after=5s 120s bash "$BH_FIX/test/bench/bench.sh" 2>&1); rc=$?
+calls=$(wc -l < "$BH_LOG")
+bad_cfg=$(grep -vc "^cfg=$HOME/.jnext/runs/bench-[^ /]*/config args=" "$BH_LOG" || true)
+cfg_dir=$(sed -n 's/^cfg=\([^ ]*\) args=.*/\1/p' "$BH_LOG" | sort -u)
+res="rc=$rc calls=$calls bad_cfg=$bad_cfg dirs=$(wc -l <<<"$cfg_dir") gone=$([[ -n "$cfg_dir" && ! -e "$cfg_dir" ]] && echo yes || echo NO)"
+check "HS-171a" "every jnext the bench starts sees ONE private JNEXT_CONFIG_DIR under its run dir (never the user's), gone afterwards" 0 0 "$res" \
+    "rc=0" "calls=41" "bad_cfg=0" "dirs=1" "gone=yes"
+first=$(head -1 "$BH_LOG"); second=$(sed -n 2p "$BH_LOG")
+res="first_load=$([[ "$first" == *" --load "*copper_demo.nex* ]] && echo yes || echo NO) first_benchmark=$([[ "$first" == *" --benchmark "* ]] && echo YES || echo no)"
+res+=" second_benchmark=$([[ "$second" == *" --benchmark "* ]] && echo yes || echo NO) unmeasured=$(grep -vc -e '--benchmark' "$BH_LOG" || true)"
+res+=" header=$(grep -c '^# warm start: primed' "$BH_FIX/test/bench/baseline-"*.txt || true)"
+check "HS-171b" "the first invocation is the one unmeasured priming run (--load, no --benchmark) and the only one; the header says so" 0 0 "$res" \
+    "first_load=yes" "first_benchmark=no" "second_benchmark=yes" "unmeasured=1" "header=1"
+
 # Where the run LIVES must not decide the verdict. The lint's patterns once saw
 # absolute paths, so its own `mktemp -d` translation unit, or a source root under a
 # directory ending in `qt`, matched the Qt pattern: HS-49a failed once on
@@ -1655,6 +1691,7 @@ CLEANUP_SCRIPTS=("$HARNESS"
                  "$PROJECT_DIR/test/bench/bench.sh"
                  "$PROJECT_DIR/test/bench/ab-hotlatch.sh"
                  "$PROJECT_DIR/test/bench/perf-attach.sh"
+                 "$PROJECT_DIR/test/bench/web/browser-bench.sh"
                  "$PROJECT_DIR/test/00regression/test-functions.inc")
 
 # (a) each script handles INT and TERM at all.
