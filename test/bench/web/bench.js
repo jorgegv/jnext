@@ -20,7 +20,7 @@
   'use strict';
   const q = new URLSearchParams(location.search);
   const origRAF = window.requestAnimationFrame.bind(window);
-  const S = { rec: false, mod: null, costs: [], deltas: [], audio: [], ctxs: [], audioCalls: 0, done: false,
+  const S = { rec: false, mod: null, costs: [], deltas: [], stamps: [], audio: [], ctxs: [], audioCalls: 0, done: false,
               anchorT: 0, anchorF: 0, anchored: false, frames: 0, endT: 0, cell: null, capped: false };
   const live = document.getElementById('live');
   const say = (t) => { live.textContent = t; };
@@ -36,7 +36,7 @@
       if (!S.anchored) {          // the window starts where the first recorded callback ends
         S.anchored = true; S.anchorT = t1; S.anchorF = f1; return;
       }
-      S.costs.push(t1 - t0); S.deltas.push(f1 - f0); S.frames += f1 - f0;
+      S.costs.push(t1 - t0); S.deltas.push(f1 - f0); S.stamps.push(ts); S.frames += f1 - f0;
       if (S.frames >= S.cell.M || t1 - S.anchorT >= S.cell.capMs) {
         S.capped = S.frames < S.cell.M;
         S.rec = false; S.done = true; S.endT = t1;
@@ -147,7 +147,7 @@
       raw.period_end_ms = S.mod._jnext_web_frame_period_ms();
       raw.cpu_mhz_end = S.mod._jnext_web_cpu_mhz();
       raw.mem_end = memSize(S.mod);
-      raw.costs = S.costs; raw.deltas = S.deltas; raw.audio = S.audio; raw.audio_calls = S.audioCalls;
+      raw.costs = S.costs; raw.deltas = S.deltas; raw.stamps = S.stamps; raw.audio = S.audio; raw.audio_calls = S.audioCalls;
       raw.capped = S.capped;
       raw.audio_state = S.ctxs[0] ? S.ctxs[0].state : 'none';
       const g = glInfo(document.querySelector('#box canvas'));

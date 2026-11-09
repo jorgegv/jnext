@@ -239,9 +239,15 @@ async function pass(config) {
     const k = raw.program;
     raw.config = config;
     rawAll.push(raw);
+    if (E.BENCH_RAW_DIR) fs.writeFileSync(path.join(E.BENCH_RAW_DIR, `${config}.${raw.program}.${raw.run}.json`), JSON.stringify(raw));
     if (!runs.has(k)) runs.set(k, []);
     runs.get(k).push(raw);
     if (raw.gl_dbg && !raw.gl) log('gl_dbg ' + raw.gl_dbg);
+    if (!raw.error && raw.costs.length > 1) {   // stability of the window: p50 over its two halves (IC5)
+      const h = raw.costs.length >> 1;
+      raw.half_p50 = [percentile(raw.costs.slice(0, h), 50), percentile(raw.costs.slice(h), 50)];
+      log(`  halves p50 ${raw.half_p50.map((x) => x.toFixed(2)).join(' / ')} ms, ms_per_frame ${(raw.costs.reduce((a, b) => a + b, 0) / raw.deltas.reduce((a, b) => a + b, 0)).toFixed(3)}`);
+    }
     log(`  ${config} ${raw.program} run ${raw.run}: ${raw.error ? 'ERROR ' + raw.error : 'frames ' + raw.deltas.reduce((a, b) => a + b, 0) + ' calib ' + raw.calib_ms.toFixed(1)}`);
   };
   const exec = config === 'firefox' ? firefoxPass : chromePass;
@@ -325,7 +331,7 @@ const fails = acc.filter((r) => r.verdict !== 'PASS');
 lines.push(`# acceptance: ${acc.length - fails.length}/${acc.length} cells PASS; not PASS: ${fails.map((r) => `${r.config}/${r.program}=${r.verdict}`).join(' ') || 'none'}`);
 if (passInfo.some((i) => i.loaded)) lines.push('# NOTE: at least one pass ran LOADED; it never counts for the acceptance');
 fs.writeFileSync(E.BENCH_OUT, lines.join('\n') + '\n');
-fs.writeFileSync(path.join(SCRATCH, 'raw.json'), JSON.stringify(rawAll.map((r) => ({ ...r, costs: undefined, deltas: undefined, audio: undefined, n: r.deltas && r.deltas.length })), null, 1));
+fs.writeFileSync(path.join(SCRATCH, 'raw.json'), JSON.stringify(rawAll.map((r) => ({ ...r, costs: undefined, deltas: undefined, audio: undefined, stamps: undefined, n: r.deltas && r.deltas.length })), null, 1));
 for (const r of rawAll) if (r.profile) {
   console.log(`PROFILE ${r.config} ${r.program}: ` + Object.entries(r.profile.classes).map(([k, v]) => `${k}=${v.toFixed(1)}%`).join(' '));
   for (const t of r.profile.top) console.log(`  ${t.pct.toFixed(1).padStart(5)}%  ${t.fn}`);
