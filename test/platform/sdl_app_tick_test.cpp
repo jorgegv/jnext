@@ -345,7 +345,7 @@ int main()
 
     // --- SDLT-11: performed sleeps follow the fractional grid -------------------------------------------
     // At --speed 70 % the period is 28.526 ms; the old whole-ms sleep was 29 ms plus the truncated work (3%+ slow).
-    // With the sleeps performed as SdlApp::run() does, 40 ticks take 40 x 28.526 ms = 1141 ms: the row asks for within 1.5%.
+    // With the sleeps performed as SdlApp::run() does, 40 ticks take 40 x 28.526 ms = 1141 ms: the row asks for within 1.2%.
     // (A lateness inside the stall limit is walked off, so host jitter does not move the average; a 1.5% bound over
     // 0.8 s is a pacing-arithmetic check, not a speed claim.)
     {
@@ -355,12 +355,21 @@ int main()
         uint32_t s = 0;
         app->tick(s);                                   // anchors the grid
         if (s > 0) SDL_Delay(s);
-        const auto t0 = SteadyClock::now();
-        for (int i = 0; i < 40; ++i) { app->tick(s); if (s > 0) SDL_Delay(s); }
-        const double per = ms_since(t0) / 40.0;
+        // A loaded host oversleeps its SDL_Delay()s and moves one measurement; the row passes on the first of up
+        // to 3 attempts inside the bound. The old whole-ms grid is 3% slow EVERY attempt, so it never passes.
+        double per = 0.0;
+        std::string detail;
+        bool within = false;
+        for (int attempt = 0; attempt < 3 && !within; ++attempt) {
+            const auto t0 = SteadyClock::now();
+            for (int i = 0; i < 40; ++i) { app->tick(s); if (s > 0) SDL_Delay(s); }
+            per = ms_since(t0) / 40.0;
+            detail += (attempt ? ", " : "per tick ") + std::to_string(per) + " ms";
+            within = per > 28.526 * 0.988 && per < 28.526 * 1.012;
+        }
         app->shutdown();
-        check("SDLT-11", "speed 70%, 40 ticks with their sleeps performed: 28.526 ms per tick within 1.5% (the old whole-ms grid sleeps 29 ms and more)",
-              ok && per > 28.526 * 0.985 && per < 28.526 * 1.015, "per tick " + std::to_string(per) + " ms");
+        check("SDLT-11", "speed 70%, 40 ticks with their sleeps performed: 28.526 ms per tick within 1.2% (the old whole-ms grid sleeps 29 ms and more); first of 3 attempts",
+              ok && within, detail);
     }
 
     std::printf("\n====================================================\n");
