@@ -172,24 +172,28 @@ tools/make-minimal-sdcard-image.sh ~/.jnext/sdcard/cspect-next-1gb.img ~/tmp/nex
 
 The boot set (`TBBLUE.FW`, `MACHINES`, `NEXTZXOS`, `SYS`, `LICENSE.md`,
 `README.md`) is the `BOOT_SET` list at the top of the script, copied with the
-source's own spelling of each name. jnext's own two patches, the `config.ini`
-and the doubled `zx81.rom`, are applied by `tools/fix-sdcard-image.sh`, which
-the script calls unchanged. The script refuses to overwrite its destination,
-reads the source image only (it places the card with a hard link, so the
-destination filesystem must support them: not FAT or exFAT), and refuses a card with too few clusters for
-FatFs to take it as FAT32 (more than 65525).
+source's own spelling of each name. The script applies jnext's own two
+patches itself, the `config.ini` and the doubled `zx81.rom`. They are copies of
+the ones in `tools/fix-sdcard-image.sh` and in jnext's SD-card provisioner, and
+the test suite fails if the copies differ. The script calls no other script.
+It refuses to overwrite its destination, reads the source image only (it places
+the card with a hard link, so the destination filesystem must support them: not
+FAT or exFAT), and refuses a card with too few clusters for FatFs to take it as
+FAT32 (more than 65525).
 
 The output is reproducible: a fixed volume serial, `SOURCE_DATE_EPOCH` and
 `TZ=UTC` pinned inside the script, and a DOS-to-DOS copy, so the directory
 order comes from the source card and not from the builder's filesystem. The
 hash is the same only for the same mtools version, because `mformat` writes its
-version into the boot sector. The script needs mtools, `sfdisk` (util-linux)
-and coreutils; it needs no root and no loop mount.
+version into the boot sector. The script runs on Linux only. It needs
+mtools, `sfdisk` (util-linux), coreutils, grep and sed, and checks for all of
+them before it does anything, naming any that is missing and the package to
+install. It needs no root and no loop mount.
 
 The output is copyrighted NextZXOS content. It is never committed, attached to
 an issue or a package, or uploaded; it is hosted only where the owner decides.
 
-Two tests cover it: `make minimal-image-test` (16 rows, part of `make
+Two tests cover it: `make minimal-image-test` (18 rows, part of `make
 unit-test`, run against the cached distribution image) and the
 `minimal-sdcard-image-func` regression row, which boots the card to the
 NextZXOS menu and warm-starts a NEX, both compared with the full card's
@@ -220,11 +224,13 @@ a build directory keeps the previous versions' `jnext-<old>.js`. It refuses a
 non-Release tree, a missing or ambiguous licence source, a malformed
 `version.yaml` and a missing date source.
 
-The zip is reproducible: the entry time is `SOURCE_DATE_EPOCH`, else the commit
+The packaging is deterministic: the entry time is `SOURCE_DATE_EPOCH`, else the commit
 time of `HEAD`, never the current time; the script forces `TZ=UTC` (Info-ZIP
 stores local DOS time), file mode 0644, names sorted under `LC_ALL=C`, and
-`zip -X -D` (no uid/gid, no directory entries). The same sources give the same
-bytes whatever the caller's time zone, umask, locale or file times.
+`zip -X -D` (no uid/gid, no directory entries). The same build output gives the same
+zip bytes whatever the caller's time zone, umask, locale or file times. The
+compiled `.wasm` can differ between build machines, and so can the zip;
+identical WebAssembly across machines is not a goal.
 
 **No NextZXOS image is ever in the package.** It is copyrighted; the page fetches
 it from the host the page author names. After writing the zip the script reads it

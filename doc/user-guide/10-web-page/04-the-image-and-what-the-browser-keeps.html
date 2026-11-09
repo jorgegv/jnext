@@ -4415,9 +4415,10 @@ by its content, and the <code>sha256</code> you give is the digest of the zip, n
 inside it.</p>
 <p>To try a page on your own computer, make the small card from the distribution image
 JNEXT downloaded for the desktop emulator (chapter 3), with
-<code>tools/make-minimal-sdcard-image.sh</code> from a JNEXT source checkout. The script needs
-<code>mtools</code> and <code>sfdisk</code> (from util-linux), and a destination directory on a file system
-that supports hard links. Then serve it next to the page:</p>
+<code>tools/make-minimal-sdcard-image.sh</code> from a JNEXT source checkout. The script runs on Linux
+only and needs <code>mtools</code>, <code>sfdisk</code> (util-linux; the <code>fdisk</code> package on Debian and
+Ubuntu), coreutils, grep and sed; it says which are missing before it starts. It also
+needs a destination directory on a file system that supports hard links. Then serve it next to the page:</p>
 <pre><code class="language-console">$ tools/make-minimal-sdcard-image.sh ~/.jnext/sdcard/cspect-next-1gb.img card.img
 $ sha256sum card.img
 $ python3 -m http.server 8000

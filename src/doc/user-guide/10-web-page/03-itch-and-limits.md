@@ -28,3 +28,19 @@ Game controllers are page-wide: give the other players
 - Writes the guest makes to the SD card are not kept: the card lives in memory for the
   session. Files JNEXT writes (screenshots, snapshots) live in memory too.
 - Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q and the operating system's own keys never reach the page.
+
+## How fast it runs
+
+Measured on one 2026 laptop (a Ryzen AI 5 340), with the 39 programs of the
+project's test set (the NEX programs of its regression suite and a 3.5 MHz one),
+each started on its own and left to run for 600 frames:
+
+- In Chrome 156 and in Firefox 159 every program ran at full speed and showed every
+  frame: the pictures per second reached the program's own refresh (49.36 Hz, or 58.15 Hz
+  for programs that switch to 60 Hz), with no audio underrun.
+- With Chrome's CPU throttled to half speed (a rough stand-in for a slow machine), 29
+  of the 39 still did. The other ten kept the emulation at full speed but showed
+  between 81% and 99% of the pictures (the heaviest, `blue`, 81%).
+
+This is what one machine did, not a promise for another: a slower computer, a busy
+one or another browser will differ.

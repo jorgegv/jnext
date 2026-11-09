@@ -13,9 +13,10 @@ inside it.
 
 To try a page on your own computer, make the small card from the distribution image
 JNEXT downloaded for the desktop emulator (chapter 3), with
-`tools/make-minimal-sdcard-image.sh` from a JNEXT source checkout. The script needs
-`mtools` and `sfdisk` (from util-linux), and a destination directory on a file system
-that supports hard links. Then serve it next to the page:
+`tools/make-minimal-sdcard-image.sh` from a JNEXT source checkout. The script runs on Linux
+only and needs `mtools`, `sfdisk` (util-linux; the `fdisk` package on Debian and
+Ubuntu), coreutils, grep and sed; it says which are missing before it starts. It also
+needs a destination directory on a file system that supports hard links. Then serve it next to the page:
 
 ```console
 $ tools/make-minimal-sdcard-image.sh ~/.jnext/sdcard/cspect-next-1gb.img card.img

@@ -2139,7 +2139,7 @@ packaging-selftest:
 package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
 
-# Test tools/make-minimal-sdcard-image.sh (16 rows) against the cached distribution image - needs mtools + sfdisk
+# Test tools/make-minimal-sdcard-image.sh (18 rows) against the cached distribution image - Linux only; needs mtools + sfdisk
 minimal-image-test:
 	@bash test/minimal-sdcard-image-test.sh
 

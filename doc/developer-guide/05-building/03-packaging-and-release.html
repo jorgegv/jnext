@@ -3199,21 +3199,25 @@ made from the distribution image by <code>tools/make-minimal-sdcard-image.sh</co
 </code></pre>
 <p>The boot set (<code>TBBLUE.FW</code>, <code>MACHINES</code>, <code>NEXTZXOS</code>, <code>SYS</code>, <code>LICENSE.md</code>,
 <code>README.md</code>) is the <code>BOOT_SET</code> list at the top of the script, copied with the
-source's own spelling of each name. jnext's own two patches, the <code>config.ini</code>
-and the doubled <code>zx81.rom</code>, are applied by <code>tools/fix-sdcard-image.sh</code>, which
-the script calls unchanged. The script refuses to overwrite its destination,
-reads the source image only (it places the card with a hard link, so the
-destination filesystem must support them: not FAT or exFAT), and refuses a card with too few clusters for
-FatFs to take it as FAT32 (more than 65525).</p>
+source's own spelling of each name. The script applies jnext's own two
+patches itself, the <code>config.ini</code> and the doubled <code>zx81.rom</code>. They are copies of
+the ones in <code>tools/fix-sdcard-image.sh</code> and in jnext's SD-card provisioner, and
+the test suite fails if the copies differ. The script calls no other script.
+It refuses to overwrite its destination, reads the source image only (it places
+the card with a hard link, so the destination filesystem must support them: not
+FAT or exFAT), and refuses a card with too few clusters for FatFs to take it as
+FAT32 (more than 65525).</p>
 <p>The output is reproducible: a fixed volume serial, <code>SOURCE_DATE_EPOCH</code> and
 <code>TZ=UTC</code> pinned inside the script, and a DOS-to-DOS copy, so the directory
 order comes from the source card and not from the builder's filesystem. The
 hash is the same only for the same mtools version, because <code>mformat</code> writes its
-version into the boot sector. The script needs mtools, <code>sfdisk</code> (util-linux)
-and coreutils; it needs no root and no loop mount.</p>
+version into the boot sector. The script runs on Linux only. It needs
+mtools, <code>sfdisk</code> (util-linux), coreutils, grep and sed, and checks for all of
+them before it does anything, naming any that is missing and the package to
+install. It needs no root and no loop mount.</p>
 <p>The output is copyrighted NextZXOS content. It is never committed, attached to
 an issue or a package, or uploaded; it is hosted only where the owner decides.</p>
-<p>Two tests cover it: <code>make minimal-image-test</code> (16 rows, part of <code>make
+<p>Two tests cover it: <code>make minimal-image-test</code> (18 rows, part of <code>make
 unit-test</code>, run against the cached distribution image) and the
 <code>minimal-sdcard-image-func</code> regression row, which boots the card to the
 NextZXOS menu and warm-starts a NEX, both compared with the full card's
@@ -3241,11 +3245,13 @@ the script for the rest), and the script takes exact names, never a glob, becaus
 a build directory keeps the previous versions' <code>jnext-&lt;old&gt;.js</code>. It refuses a
 non-Release tree, a missing or ambiguous licence source, a malformed
 <code>version.yaml</code> and a missing date source.</p>
-<p>The zip is reproducible: the entry time is <code>SOURCE_DATE_EPOCH</code>, else the commit
+<p>The packaging is deterministic: the entry time is <code>SOURCE_DATE_EPOCH</code>, else the commit
 time of <code>HEAD</code>, never the current time; the script forces <code>TZ=UTC</code> (Info-ZIP
 stores local DOS time), file mode 0644, names sorted under <code>LC_ALL=C</code>, and
-<code>zip -X -D</code> (no uid/gid, no directory entries). The same sources give the same
-bytes whatever the caller's time zone, umask, locale or file times.</p>
+<code>zip -X -D</code> (no uid/gid, no directory entries). The same build output gives the same
+zip bytes whatever the caller's time zone, umask, locale or file times. The
+compiled <code>.wasm</code> can differ between build machines, and so can the zip;
+identical WebAssembly across machines is not a goal.</p>
 <p><strong>No NextZXOS image is ever in the package.</strong> It is copyrighted; the page fetches
 it from the host the page author names. After writing the zip the script reads it
 back with CPython's <code>zipfile</code> (<code>--verify</code>, which also runs on its own) and deletes
