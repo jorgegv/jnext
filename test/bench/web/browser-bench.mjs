@@ -1,0 +1,326 @@
+// Driver of `make bench-web` (run by browser-bench.sh on the SDK's node, under taskset):
+// the regression NEX set in the host's Chrome, Chrome at 2x CPU throttle and the host's Firefox.
+// See the developer guide, "The browser build". It serves an allow-list on 127.0.0.1 only, queues
+// the cells, collects each program's raw measurement from bench.js and does all the arithmetic in
+// bench-stats.mjs. Nothing here asserts a speed: the numbers go to a results file and the issue.
+//
+// Environment (set by browser-bench.sh): BENCH_ROOT BENCH_BUILD BENCH_VERSION BENCH_SCRATCH
+// BENCH_SHA256 (the run-time card's digest) BENCH_OUT BENCH_CONFIGS BENCH_SET BENCH_PROGRAMS
+// BENCH_W BENCH_M BENCH_PROFILE BENCH_CORES JNEXT_PLAYWRIGHT_DIR [JNEXT_BENCH_CHROME].
+import { createRequire } from 'module';
+import fs from 'fs';
+import http from 'http';
+import path from 'path';
+import os from 'os';
+import { spawn, execFileSync } from 'child_process';
+import { judge, needsRepeat, settle, checkComplete, formatLine, markdownTable, speedLabel, metrics, percentile } from './bench-stats.mjs';
+
+const E = process.env;
+const ROOT = E.BENCH_ROOT, BUILD = E.BENCH_BUILD, VERSION = E.BENCH_VERSION, SCRATCH = E.BENCH_SCRATCH;
+const W = Number(E.BENCH_W || 250), M = Number(E.BENCH_M || 600), CAP_MS = 60000;
+const CONFIGS = (E.BENCH_CONFIGS || 'chrome,chrome-x2,firefox').split(',');
+const PROFILE = E.BENCH_PROFILE ? E.BENCH_PROFILE.split(',') : [];
+const LOAD_MAX = 1.5, QUIET_WAIT_MS = 30 * 60 * 1000;
+const require = createRequire(E.JNEXT_PLAYWRIGHT_DIR + '/');
+const { chromium } = require('playwright-core');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const log = (...a) => console.log('bench-web:', ...a);
+const childEnv = { PATH: E.PATH, HOME: E.HOME, LANG: "C", LC_ALL: "C", ...(E.DISPLAY ? { DISPLAY: E.DISPLAY } : {}), ...(E.XDG_RUNTIME_DIR ? { XDG_RUNTIME_DIR: E.XDG_RUNTIME_DIR } : {}) };
+
+// ---- the program set ---------------------------------------------------------------------------
+const nexIn = (dir) => fs.readdirSync(path.join(ROOT, dir)).filter((f) => f.endsWith('.nex')).sort().map((f) => ({ name: f.slice(0, -4), dir, file: f }));
+const ACCEPT = [...nexIn('test/00regression/nex'), ...nexIn('test/bench/nex').filter((p) => p.name === 'halt_idle_35')];
+const INFORM = [...nexIn('test/nex-nonworking'), ...nexIn('test/bench/nex').filter((p) => p.name !== 'halt_idle_35')];
+const URLDIR = { 'test/00regression/nex': 'regression', 'test/bench/nex': 'bench', 'test/nex-nonworking': 'nonworking' };
+let programs = [...ACCEPT.map((p) => ({ ...p, acceptance: true })), ...INFORM.map((p) => ({ ...p, acceptance: false }))];
+if (new Set(programs.map((p) => p.name)).size !== programs.length) throw new Error('duplicate program names across the NEX directories');
+const sel = E.BENCH_SET ? E.BENCH_SET.split(',') : (PROFILE.length ? PROFILE : null);
+if (sel) {
+  const have = new Set(programs.map((p) => p.name));
+  for (const s of sel) if (!have.has(s)) throw new Error('unknown program ' + s);
+  programs = programs.filter((p) => sel.includes(p.name));
+}
+const byName = new Map(programs.map((p) => [p.name, p]));
+log(`${programs.length} programs (${programs.filter((p) => p.acceptance).length} acceptance), configs ${CONFIGS.join(',')}, W=${W} M=${M}`);
+
+// ---- the allow-list server -----------------------------------------------------------------------
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.nex': 'application/octet-stream', '.img': 'application/octet-stream' };
+const refused = [];
+let queue = [], sink = null;       // Firefox: the cells still to hand out, and where results go
+let inflight = null, lastActivity = Date.now();
+function fileFor(p) {
+  let m;
+  if (p === '/bench.html' || p === '/bench.js') return path.join(ROOT, 'test/bench/web', p.slice(1));
+  if (p === `/build/jnext-${VERSION}.js` || p === `/build/jnext-${VERSION}.wasm`) return path.join(BUILD, p.slice(7));
+  if (p === '/scratch/card.img') return path.join(SCRATCH, 'card.img');
+  if ((m = /^\/nex\/(regression|bench|nonworking)\/([A-Za-z0-9_.-]+\.nex)$/.exec(p))) {
+    const dir = Object.keys(URLDIR).find((d) => URLDIR[d] === m[1]);
+    return path.join(ROOT, dir, m[2]);
+  }
+  return null;
+}
+const server = http.createServer((req, res) => {
+  const u = new URL(req.url, 'http://x');
+  lastActivity = Date.now();
+  if (req.method === 'GET' && u.pathname === '/next') {
+    const c = queue.shift();
+    inflight = c || null;
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(c || { done: true }));
+    return;
+  }
+  if (req.method === 'POST' && u.pathname === '/result') {
+    const chunks = [];
+    req.on('data', (d) => chunks.push(d));
+    req.on('end', () => { inflight = null; if (sink) sink(JSON.parse(Buffer.concat(chunks).toString())); res.writeHead(204); res.end(); });
+    return;
+  }
+  const f = req.method === 'GET' ? fileFor(u.pathname) : null;
+  if (!f || !fs.existsSync(f)) { refused.push(u.pathname); res.writeHead(404); res.end('not in the allow-list'); return; }
+  const body = fs.readFileSync(f);
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream', 'Content-Length': body.length, 'Cache-Control': 'no-store' });
+  res.end(body);
+});
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const ORIGIN = `http://127.0.0.1:${server.address().port}`;
+const MODULE = `/build/jnext-${VERSION}.js`;
+
+const cellFor = (config, p, run) => ({
+  program: p.name, config, run, W, M, capMs: CAP_MS, readyMs: 240000, module: MODULE,
+  file: `/nex/${URLDIR[p.dir]}/${p.file}`, image: { url: '/scratch/card.img', sha256: E.BENCH_SHA256 },
+});
+
+// ---- quiet host --------------------------------------------------------------------------------
+const load1 = () => Number(fs.readFileSync('/proc/loadavg', 'utf8').split(' ')[0]);
+async function waitQuiet(label) {
+  const t0 = Date.now();
+  let l = load1();
+  while (l > LOAD_MAX && Date.now() - t0 < QUIET_WAIT_MS) {
+    log(`${label}: load ${l.toFixed(2)} > ${LOAD_MAX}, waiting`);
+    await sleep(30000);
+    l = load1();
+  }
+  return { load: l, loaded: l > LOAD_MAX };
+}
+
+// ---- Chrome ------------------------------------------------------------------------------------
+const chromePath = E.JNEXT_BENCH_CHROME || '/usr/bin/google-chrome';
+let chromeVersion = '', firefoxVersion = '';
+const CHROME_ARGS = ['--mute-audio', '--autoplay-policy=no-user-gesture-required', ...(E.BENCH_CHROME_ARGS ? E.BENCH_CHROME_ARGS.split(' ') : [])];
+
+// Group `Profiler` nodes into the report's classes by function name (self time).
+function splitProfile(prof) {
+  const byId = new Map(prof.nodes.map((n) => [n.id, n]));
+  const self = new Map();
+  const dt = prof.timeDeltas;
+  prof.samples.forEach((id, i) => { self.set(id, (self.get(id) || 0) + (dt[i] || 0)); });
+  const fn = new Map();
+  let total = 0;
+  for (const [id, us] of self) { const nm = byId.get(id).callFrame.functionName || '(anonymous)'; fn.set(nm, (fn.get(nm) || 0) + us); total += us; }
+  const cls = { core: 0, render: 0, audio: 0, upload_present: 0, js_glue: 0, idle_gc_other: 0 };
+  for (const [nm, us] of fn) {
+    if (/\b(Renderer|render_row|compose|Compositor|ULA|Ula|Layer2|Tilemap|Sprites|Lores|ScanlineRenderer|render_)/.test(nm)) cls.render += us;
+    else if (/(Mixer|mixer|Audio|audio|SDL_.*Audio|Ay|AY|Turbosound|Dac|Beeper|onaudioprocess|ScriptProcessor)/.test(nm)) cls.audio += us;
+    else if (/(texImage|texSubImage|SDL_RenderPresent|SDL_UpdateTexture|GLES2|glTex|glDraw|webgl|WebGL|GL_|emscripten_webgl|renderPresent)/i.test(nm)) cls.upload_present += us;
+    else if (/(Emulator|Z80|Cpu|cpu|z80|Copper|DMA|Dma|Ctc|Memory|Mmu|Port|tick|run_frame|execute|Nextreg|Sd|Spi|Layer|Device)/.test(nm)) cls.core += us;
+    else if (/^(\(idle\)|\(program\)|\(garbage collector\)|\(root\))/.test(nm)) cls.idle_gc_other += us;
+    else cls.js_glue += us;
+  }
+  const top = [...fn].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([n, us]) => ({ fn: n, pct: 100 * us / total }));
+  return { total_ms: total / 1000, classes: Object.fromEntries(Object.entries(cls).map(([k, v]) => [k, 100 * v / total])), top };
+}
+
+async function chromePass(config, cells, onResult) {
+  const browser = await chromium.launch({ executablePath: chromePath, headless: true, args: CHROME_ARGS });
+  chromeVersion = browser.version();
+  const ctx = await browser.newContext({ viewport: { width: 1000, height: 800 }, deviceScaleFactor: 1 });
+  const x2 = config === 'chrome-x2';
+  for (const cell of cells) {
+    const page = await ctx.newPage();
+    let raw;
+    const prof = PROFILE.includes(cell.program);
+    let cdp = null, profile = null;
+    try {
+      await page.exposeFunction('benchMark', async (what) => {
+        if (!prof || !cdp) return;
+        if (what === 'start') { await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 250 }); await cdp.send('Profiler.start'); }
+        else if (what === 'stop') { profile = (await cdp.send('Profiler.stop')).profile; }
+      });
+      await page.goto(`${ORIGIN}/bench.html?mode=driver&module=${encodeURIComponent(MODULE)}`);
+      cdp = await ctx.newCDPSession(page);
+      if (x2) await cdp.send('Emulation.setCPUThrottlingRate', { rate: 2 });
+      raw = await Promise.race([
+        page.evaluate((c) => window.benchGo(c), cell),
+        sleep(cell.readyMs + CAP_MS + 120000).then(() => ({ program: cell.program, config, error: 'cell_timeout', gl: false, costs: [], deltas: [] })),
+      ]);
+    } catch (e) {
+      raw = { program: cell.program, config, error: String(e.message || e).slice(0, 200), gl: false, costs: [], deltas: [] };
+    }
+    if (profile) {
+      const f = path.join(SCRATCH, `${cell.program}.${config}.cpuprofile`);
+      fs.writeFileSync(f, JSON.stringify(profile));
+      raw.profile = splitProfile(profile);
+    }
+    await page.close().catch(() => {});
+    raw.run = cell.run;
+    onResult(raw);
+  }
+  await browser.close();
+}
+
+// ---- Firefox -----------------------------------------------------------------------------------
+async function firefoxPass(config, cells, onResult) {
+  const prof = fs.mkdtempSync(path.join(SCRATCH, 'ffprofile-'));
+  fs.writeFileSync(path.join(prof, 'user.js'), [
+    'user_pref("media.autoplay.default", 0);', 'user_pref("media.autoplay.blocking_policy", 0);',
+    'user_pref("media.volume_scale", "0.0");', 'user_pref("dom.max_script_run_time", 0);',
+    'user_pref("dom.max_chrome_script_run_time", 0);', 'user_pref("browser.shell.checkDefaultBrowser", false);',
+    'user_pref("browser.startup.homepage_override.mstone", "ignore");', 'user_pref("datareporting.policy.dataSubmissionEnabled", false);',
+    'user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);', 'user_pref("browser.aboutwelcome.enabled", false);',
+    'user_pref("app.update.enabled", false);', 'user_pref("startup.homepage_welcome_url", "");',
+    'user_pref("browser.tabs.warnOnClose", false);', 'user_pref("dom.disable_beforeunload", true);',
+  ].join('\n') + '\n');
+  queue = cells.slice();
+  const want = cells.length;
+  const got = [];
+  sink = (raw) => { got.push(raw); onResult(raw); };
+  const url = `${ORIGIN}/bench.html?mode=auto&module=${encodeURIComponent(MODULE)}`;
+  const set = E.BENCH_CORES ? ['taskset', '-c', E.BENCH_CORES] : [];
+  let proc = null;
+  const launch = () => {
+    proc = spawn('timeout', ['--kill-after=10s', '14400s', ...set, 'firefox', '--headless', '--no-remote', '--profile', prof, url],
+                 { detached: true, stdio: 'ignore', env: { ...childEnv, MOZ_DISABLE_CONTENT_SANDBOX: '', MOZ_HEADLESS: '1' } });
+  };
+  const kill = async () => {
+    if (!proc) return;
+    try { process.kill(-proc.pid, 'SIGTERM'); } catch (e) { /* gone */ }
+    await sleep(3000);
+    try { process.kill(-proc.pid, 'SIGKILL'); } catch (e) { /* gone */ }
+    proc = null;
+  };
+  lastActivity = Date.now();
+  launch();
+  while (got.length < want) {
+    await sleep(2000);
+    if (Date.now() - lastActivity > 420000) {          // a hung cell: record it, restart the browser
+      const c = inflight || queue[0];
+      log(`firefox: no activity for 420 s; cell ${c && c.program} recorded as hung`);
+      if (inflight) { sink({ program: inflight.program, config, run: inflight.run, error: 'cell_hung', gl: false, costs: [], deltas: [] }); inflight = null; }
+      else if (queue.length) { const x = queue.shift(); sink({ program: x.program, config, run: x.run, error: 'cell_hung', gl: false, costs: [], deltas: [] }); }
+      await kill();
+      if (got.length < want) { lastActivity = Date.now(); launch(); }
+    }
+  }
+  sink = null;
+  await kill();
+}
+
+// ---- passes ------------------------------------------------------------------------------------
+const header = [];
+const results = [];          // settled cells
+const rawAll = [];           // every run, for the scratch JSON
+const passInfo = [];
+let baseCalib = 0;
+
+async function pass(config) {
+  const q = await waitQuiet(config);
+  const info = { config, load_start: q.load, loaded: q.loaded, load_end: 0 };
+  log(`pass ${config} start, load ${q.load.toFixed(2)}${q.loaded ? ' LOADED' : ''}`);
+  const runs = new Map();
+  const collect = (raw) => {
+    const k = raw.program;
+    raw.config = config;
+    rawAll.push(raw);
+    if (!runs.has(k)) runs.set(k, []);
+    runs.get(k).push(raw);
+    log(`  ${config} ${raw.program} run ${raw.run}: ${raw.error ? 'ERROR ' + raw.error : 'frames ' + raw.deltas.reduce((a, b) => a + b, 0) + ' calib ' + raw.calib_ms.toFixed(1)}`);
+  };
+  const exec = config === 'firefox' ? firefoxPass : chromePass;
+  const set1 = programs.map((p) => cellFor(config, p, 1));
+  await exec(config, set1, collect);
+  // judge, find repeats
+  const ctxFor = () => {
+    const all = [...runs.values()].flat().filter((r) => !r.error && r.calib_ms);
+    const min = all.length ? Math.min(...all.map((r) => r.calib_ms)) : 0;
+    return { x2: config === 'chrome-x2', base_calib_ms: baseCalib, pass_min_calib_ms: min, window_frames: M };
+  };
+  const judged = (r) => ({ ...judge(r, ctxFor()), raw: r });
+  const rep = [];
+  for (const p of programs) {
+    const r = runs.get(p.name)[0];
+    const j = judged(r);
+    if (j.verdict !== 'INVALID' && needsRepeat({ verdict: j.verdict, m: j.m })) rep.push(p);
+  }
+  if (rep.length && !PROFILE.length) {
+    log(`pass ${config}: repeating ${rep.map((p) => p.name).join(',')} twice`);
+    await exec(config, rep.flatMap((p) => [cellFor(config, p, 2), cellFor(config, p, 3)]), collect);
+  }
+  if (config === 'chrome') {
+    const cs = [...runs.values()].map((a) => a[0].calib_ms).filter((x) => x).sort((a, b) => a - b);
+    baseCalib = cs.length ? cs[Math.floor((cs.length - 1) / 2)] : 0;
+  }
+  const ctx = ctxFor();
+  for (const p of programs) {
+    const rs = runs.get(p.name).map((r) => {
+      const j = judge(r, ctx);
+      return { config, program: p.name, verdict: j.verdict, reason: j.reason, m: j.m, speed: speedLabel(r), calib_ms: r.calib_ms || NaN, raw: r };
+    });
+    const s = settle(rs);
+    results.push({ ...s, acceptance: p.acceptance });
+  }
+  info.load_end = load1();
+  info.calib_min = ctx.pass_min_calib_ms;
+  info.base_calib = baseCalib;
+  passInfo.push(info);
+  log(`pass ${config} end, load ${info.load_end.toFixed(2)}`);
+}
+
+for (const c of CONFIGS) {
+  if (c === 'chrome-x2' && !CONFIGS.includes('chrome') && !baseCalib) throw new Error('chrome-x2 needs the chrome pass for its calibration base');
+  await pass(c);
+}
+server.close();
+
+// ---- output ------------------------------------------------------------------------------------
+try { firefoxVersion = execFileSync('firefox', ['--version'], { env: childEnv, timeout: 20000 }).toString().trim(); } catch (e) { firefoxVersion = 'n/a'; }
+const sha = execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { env: childEnv }).toString().trim();
+const renderers = {};
+for (const r of rawAll) if (r.renderer) (renderers[r.config] ||= new Set()).add(r.renderer);
+const uas = {};
+for (const r of rawAll) if (r.ua) (uas[r.config] ||= new Set()).add(r.ua);
+const lines = [];
+lines.push('# jnext browser benchmark (make bench-web)');
+lines.push(`# date:   ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`);
+lines.push(`# host:   ${os.hostname()}, ${os.cpus()[0].model}`);
+lines.push(`# commit: ${sha}`);
+lines.push(`# build:  ${BUILD} (jnext-${VERSION}), emsdk ${E.BENCH_EMSDK || '6.0.13'}`);
+lines.push(`# core set: ${E.BENCH_CORES || 'unpinned'} (fastest class, one logical CPU per physical core)`);
+lines.push(`# chrome:  ${chromeVersion || 'n/a'} (${chromePath}), args: ${CHROME_ARGS.join(' ')}`);
+lines.push(`# firefox: ${firefoxVersion}`);
+for (const [c, s] of Object.entries(renderers)) lines.push(`# webgl renderer ${c}: ${[...s].join(' | ')}`);
+for (const [c, s] of Object.entries(uas)) lines.push(`# user agent ${c}: ${[...s].join(' | ')}`);
+lines.push(`# window: W=${W} warm-up frames, M=${M} frames or ${CAP_MS / 1000} s; box 640x512; machine next; one wasm instance per cell`);
+for (const i of passInfo) lines.push(`# pass ${i.config}: load1 at start ${i.load_start.toFixed(2)}, at end ${i.load_end.toFixed(2)}${i.loaded ? ' LOADED (not counted)' : ''}; calibration min ${i.calib_min.toFixed(2)} ms${i.config === 'chrome-x2' ? `, unthrottled median ${i.base_calib.toFixed(2)} ms` : ''}`);
+const timer = rawAll.filter((r) => r.timer_res_ms).map((r) => r.timer_res_ms);
+if (timer.length) lines.push(`# performance.now() resolution observed (median over cells): ${percentile(timer, 50).toFixed(4)} ms`);
+lines.push(`# programs: ${programs.length} (acceptance: ${programs.filter((p) => p.acceptance).map((p) => p.name).join(' ')})`);
+lines.push('');
+for (const r of results) lines.push(formatLine(r) + (r.acceptance ? '' : ' informative=1'));
+lines.push('');
+let table = '';
+try { checkComplete(results, programs.map((p) => p.name), CONFIGS); table = markdownTable(results, programs.map((p) => p.name), CONFIGS); }
+catch (e) { table = 'INCOMPLETE: ' + e.message; process.exitCode = 1; }
+for (const l of table.split('\n')) lines.push('# ' + l);
+const acc = results.filter((r) => r.acceptance);
+const fails = acc.filter((r) => r.verdict !== 'PASS');
+lines.push(`# acceptance: ${acc.length - fails.length}/${acc.length} cells PASS; not PASS: ${fails.map((r) => `${r.config}/${r.program}=${r.verdict}`).join(' ') || 'none'}`);
+if (passInfo.some((i) => i.loaded)) lines.push('# NOTE: at least one pass ran LOADED; it never counts for the acceptance');
+fs.writeFileSync(E.BENCH_OUT, lines.join('\n') + '\n');
+fs.writeFileSync(path.join(SCRATCH, 'raw.json'), JSON.stringify(rawAll.map((r) => ({ ...r, costs: undefined, deltas: undefined, audio: undefined, n: r.deltas && r.deltas.length })), null, 1));
+for (const r of rawAll) if (r.profile) {
+  console.log(`PROFILE ${r.config} ${r.program}: ` + Object.entries(r.profile.classes).map(([k, v]) => `${k}=${v.toFixed(1)}%`).join(' '));
+  for (const t of r.profile.top) console.log(`  ${t.pct.toFixed(1).padStart(5)}%  ${t.fn}`);
+}
+console.log(lines.join('\n'));
+if (refused.length) { console.log('bench-web: refused requests: ' + [...new Set(refused)].join(' ')); }
+process.exit(process.exitCode || 0);

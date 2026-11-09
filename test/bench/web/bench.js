@@ -40,6 +40,7 @@
       if (S.frames >= S.cell.M || t1 - S.anchorT >= S.cell.capMs) {
         S.capped = S.frames < S.cell.M;
         S.rec = false; S.done = true; S.endT = t1;
+        if (window.benchMark) window.benchMark('stop');
       }
     });
   };
@@ -129,6 +130,7 @@
       (function count() { if (!stop) { ticks++; origRAF(count); } })();
       const wall0 = performance.now();
       S.rec = true;
+      if (window.benchMark) window.benchMark('start');   // the driver's profiler (Chrome, PROFILE=)
       await waitFor(() => S.done, cell.capMs + 30000);
       stop = true;
       raw.wall_ms = S.endT - S.anchorT;

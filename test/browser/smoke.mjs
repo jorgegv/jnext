@@ -1,4 +1,4 @@
-// Browser smoke rows BRW-01..29 (make wasm-browser-test), run by browser-smoke.sh
+// Browser smoke rows BRW-01..31 (make wasm-browser-test), run by browser-smoke.sh
 // on the SDK's node. Each row prints PASS|FAIL <ID> <text>; the run ends with the
 // suite's `Total:` line and exits non-zero on any FAIL. Oracles are NATIVE runs
 // of the same arguments, made by browser-smoke.sh into $SMOKE_ORACLE (build/
@@ -448,6 +448,29 @@ row('BRW-29', 'the page\'s ENV wins for the keyboard element: with #document, ke
   await page.keyboard.type('hi', { delay: 40 });
   const v = await page.inputValue('#textbox');
   must(v === '', `input holds ${JSON.stringify(v)} (SDL took the keys: ENV ignored)`);
+});
+
+row('BRW-30', '48K: the frame period export reads 19.968 ms and the CPU speed export 3.5 MHz (floating point)', async () => {
+  // Oracle: 448 x 312 x 4 master cycles per frame (zxula_timing.vhd:262,270) at 28 MHz = 19.968 ms; the
+  // 48K CPU divisor 8 = 28 / 8 = 3.5 MHz (an integer division would give 3).
+  const page = await open({ args: BASE, files: [CARD], canvas: '640x512' });
+  await start(page); await waitFrame(page, 50);
+  const r = await page.evaluate(() => [window.jnextModule._jnext_web_frame_period_ms(), window.jnextModule._jnext_web_cpu_mhz()]);
+  must(r[0] === 19.968 && r[1] === 3.5, JSON.stringify(r));
+});
+
+row('BRW-31', 'a Next NEX: the period and CPU speed exports equal a native headless run of the same arguments (beast: 60 Hz, 28 MHz)', async () => {
+  const bench = fs.readFileSync(orc('beast.bench'), 'utf8').split('\n').find((l) => l.startsWith('BENCH '));
+  must(bench, 'the native oracle printed no BENCH line');
+  const tpf = Number(/tstates_per_frame=(\d+)/.exec(bench)[1]);
+  const mhz = Number(/cpu=([\d.]+)MHz/.exec(bench)[1]);
+  const wantPeriod = (tpf * (28 / mhz)) * 1000 / 28000000;   // master cycles per frame / 28 MHz, in ms
+  must(Math.abs(wantPeriod - 17.198) < 0.001 && mhz === 28, `the oracle itself: period ${wantPeriod} mhz ${mhz}`);
+  const page = await open({ args: ['--machine', 'next', '--sdcard', '/media/card.img', '--silent', '--rtc', '2026-07-10T08:55:00', '--load', '/media/beast.nex'],
+                            files: [CARD, ['/nex/beast.nex', '/media/beast.nex']], canvas: '640x512' });
+  await start(page); await waitFrame(page, 450, 400000);
+  const r = await page.evaluate(() => [window.jnextModule._jnext_web_frame_period_ms(), window.jnextModule._jnext_web_cpu_mhz()]);
+  must(r[0] === wantPeriod && r[1] === mhz, `page ${JSON.stringify(r)} native ${wantPeriod} ${mhz}`);
 });
 
 row('BRW-26', 'every request the page made is in the allow-list; no image or ROM except the run\'s own card was fetched', async () => {
