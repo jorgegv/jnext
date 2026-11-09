@@ -660,13 +660,13 @@ package-web: wasm-web
 	@E=$$(bash test/provision-emsdk.sh --print-path) && \
 	bash packaging/web/package-web.sh build/wasm-core "$$E"
 
-# Contract-test packaging/web/package-web.sh (46 rows) on fake trees - hermetic, no emsdk
+# Contract-test packaging/web/package-web.sh (50 rows) on fake trees - hermetic, no emsdk
 web-package-test:
 	@bash test/packaging/web-package-test.sh
 
 # Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
 wasm-browser-test: wasm-web package-web playwright sdl-release sdcard-image
-	@# BRW-01..29, WBI-PW-01..08, WEBAPI-01..29 and WEBPKG-BR-01 on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# BRW-01..29, WBI-PW-01..08, WEBAPI-01..29, WEBPKG-BR-01 and WIDGET-01..15 on the pinned Playwright + Chromium headless shell. sdl-release is the
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core

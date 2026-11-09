@@ -19,7 +19,7 @@ you read it; it is not a replacement for it.
 | `make package-web` | the browser build as `jnext-<ver>-web.zip` in `build/wasm-core/`: the `.js` and `.wasm`, the example pages, the licence texts. Needs the Emscripten SDK (built by `make wasm-web`) |
 | `make package-test` | builds every package except macOS, Flatpak and the browser zip and **asserts its contents** (a missing tool fails) |
 | `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain; it also runs `make web-package-test` |
-| `make web-package-test` | the contract suite of `packaging/web/package-web.sh` (WEBPKG-01 to WEBPKG-46), on fake trees, hermetic |
+| `make web-package-test` | the contract suite of `packaging/web/package-web.sh` (WEBPKG-01 to WEBPKG-50), on fake trees, hermetic |
 
 The source tarball is deliberately not a `git archive`. That would produce an
 *empty* `third_party/spdlog` directory, which fails CMake configure the moment

@@ -7,9 +7,9 @@ Keep jnext-@VERSION@.wasm in the same directory as the .js file.
 
 plain.html, itch-game.html, itch-host.html and widget.html are example pages,
 explained in the user guide's chapter "JNEXT in a web page". widget.html uses
-jnext-widget.js, a ready-made player: a div, one script tag. Serve them from a web server
-over https (or http://localhost): a page opened as a local file cannot load
-the .wasm, and the player needs a secure context.
+jnext-widget.js, a ready-made player: a div, one script tag. Serve them from a
+web server over https (or http://localhost): a page opened as a local file
+cannot load the .wasm, and the player needs a secure context.
 
 This package contains no part of NextZXOS and no ROM. A page gives the player
 the address and SHA-256 of the NextZXOS system image, which SpecNext hosts;

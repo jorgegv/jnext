@@ -1,4 +1,4 @@
-// Browser rows WIDGET-01..07: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
+// Browser rows WIDGET-01..15: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
 // (make wasm-browser-test, spec widget.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Server A is the page host (http://localhost:<port>, a secure context): it serves the files of the
@@ -24,8 +24,10 @@ const ONLY = (E.WIDGET_ROWS || '').split(' ').filter(Boolean);   // development 
 const h = new Harness({});
 const MIMES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm' };
 const pages = {};   // virtual pages: name -> html
+const NOCORE = '/nocore/jnext-widget.js';   // the widget script alone, in a directory with no jnext-<ver>.js beside it
 const A = http.createServer((req, res) => {
   const name = decodeURIComponent(new URL(req.url, 'http://x').pathname.slice(1));
+  if ('/' + name === NOCORE) { res.writeHead(200, { 'Content-Type': 'text/javascript' }); res.end(fs.readFileSync(path.join(BUILD, 'jnext-widget.js'))); return; }
   if (pages[name] !== undefined) { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(pages[name]); return; }
   const f = path.join(BUILD, name);
   if (!/^[^/]+$/.test(name) || !fs.existsSync(f) || !fs.statSync(f).isFile()) { res.writeHead(404); res.end(); return; }
@@ -33,7 +35,16 @@ const A = http.createServer((req, res) => {
   res.end(fs.readFileSync(f));
 });
 await new Promise((r) => A.listen(0, '127.0.0.1', r));
+let releaseSlow = () => {};
 const B = http.createServer((req, res) => {
+  if (req.url === '/slow.img') {   // the card, held back at 40% until the row releases it
+    const body = fs.readFileSync(path.join(SCRATCH, 'card.img')), cut = Math.floor(body.length * 0.4);
+    const gate = new Promise((r) => { releaseSlow = r; });
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': body.length, 'Access-Control-Allow-Origin': '*' });
+    res.write(body.subarray(0, cut));
+    gate.then(() => res.end(body.subarray(cut)));
+    return;
+  }
   const f = { '/card.img': path.join(SCRATCH, 'card.img'), '/red.nex': path.join(ROOT, 'test/00regression/nex/red.nex') }[req.url];
   if (!f) { res.writeHead(404); res.end(); return; }
   const body = fs.readFileSync(f);
@@ -91,6 +102,7 @@ row('WIDGET-01', 'widget.html (the snippet): a framed player with title, toolbar
     const e = document.querySelector('.jnext-widget');
     return { title: e.querySelector('.jw-title').textContent, buttons: [...e.querySelectorAll('.jw-btn')].map((b) => b.textContent),
              overlay: e.querySelector('.jnext-overlay').textContent, state: e.jnextPlayer.state,
+             ovStyle: [getComputedStyle(e.querySelector('.jnext-overlay')).backgroundColor, getComputedStyle(e.querySelector('.jnext-overlay')).color],
              canvas: e.querySelector('canvas').width > 0 };
   });
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'widget-before.png') });
@@ -103,6 +115,7 @@ row('WIDGET-01', 'widget.html (the snippet): a framed player with title, toolbar
   must(JSON.stringify(before.buttons) === JSON.stringify(['Pause', 'Reset', 'Mute', 'Fullscreen']), 'buttons ' + before.buttons);
   must(before.overlay === 'Click to start' && before.state === 'waiting', 'before the click: ' + JSON.stringify(before));
   must(st === 'running', 'state after the click ' + st);
+  must(before.ovStyle.join() === 'rgba(244, 245, 247, 0.82),rgb(29, 35, 48)', 'overlay colours ' + before.ovStyle);
   must(page.msgs.length === 0, page.msgs.join('; '));
 });
 
@@ -203,7 +216,8 @@ row('WIDGET-04', 'two widgets on one page are independent: own player, own state
 
 row('WIDGET-05', 'host CSS isolation: a hostile page stylesheet leaves the toolbar in one row and the frame its size; the widget adds only .jnext-widget rules and changes nothing outside', async () => {
   const hostile = `*{box-sizing:content-box;color:#f00;font-size:40px;letter-spacing:5px}
-div,span{display:inline;width:3px;padding:30px;margin:11px;border:5px dotted #f0f;background:#ff0;position:relative;float:right}
+div,span{display:inline;width:3px;padding:30px;margin:11px;border:5px dotted #f0f;background:#ff0;position:relative;float:right;min-height:700px;opacity:.6;transform:translateX(30px)}
+canvas{filter:blur(2px);opacity:.5;border:4px solid #f0f}
 button{display:block;width:100%;height:80px;padding:20px;margin:9px;background:#f00;color:#0f0;font:italic 40px serif}
 body div,body button{text-transform:uppercase;line-height:90px}`;
   const side = `<div id="o1">outside div</div><button id="o2">outside button</button>`;
@@ -223,11 +237,13 @@ body div,body button{text-transform:uppercase;line-height:90px}`;
     const bs = [...e.querySelectorAll('.jw-btn')].map((b) => b.getBoundingClientRect());
     const tr = e.querySelector('.jw-title').getBoundingClientRect(), st = e.querySelector('.jw-stage').getBoundingClientRect();
     const pb = e.querySelector('.jnext-player').getBoundingClientRect(), ob = e.querySelector('.jnext-overlay').getBoundingClientRect();
+    const cs = (q) => { const c = getComputedStyle(e.querySelector(q)); return [c.opacity, c.transform, c.filter, c.minHeight].join('|'); };
+    const look = ['.jw-frame', '.jw-title', '.jw-stage', '.jw-tools', '.jnext-player', '.jnext-overlay', 'canvas'].map(cs);
     const sheet = document.getElementById('jnext-widget-css').sheet;
     const sel = [];
     (function walk(rules) { for (const r of rules) { if (r.selectorText) sel.push(r.selectorText); else if (r.cssRules) walk(r.cssRules); } })(sheet.cssRules);
     return { frameW: f.getBoundingClientRect().width, tops: bs.map((b) => Math.round(b.top)), widths: bs.map((b) => Math.round(b.width)),
-             titleH: tr.height, player: [pb.width, pb.height], overlay: [ob.width, ob.height], stageTop: st.top, playerTop: pb.top, stageW: st.width, sel, sheets: document.querySelectorAll('style').length };
+             look, titleH: tr.height, player: [pb.width, pb.height], overlay: [ob.width, ob.height], stageTop: st.top, playerTop: pb.top, stageW: st.width, sel, sheets: document.querySelectorAll('style').length };
   });
   const outsideWith = await probe(page);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'hostile.png') });
@@ -238,6 +254,7 @@ body div,body button{text-transform:uppercase;line-height:90px}`;
   must(info.widths.every((w) => w > 20 && w < 130), 'button widths ' + info.widths);
   must(info.player.join() === '640,512' && info.overlay.join() === '640,512' && info.playerTop === info.stageTop,
        'player box ' + info.player + ' overlay ' + info.overlay + ' top ' + info.playerTop + ' vs stage ' + info.stageTop);
+  must(info.look.every((l) => l === '1|none|none|0px' || l === '1|none|none|auto'), 'opacity|transform|filter|min-height leaked: ' + info.look);
   must(info.titleH < 40, 'title bar height ' + info.titleH);
   must(info.sel.length > 10 && info.sel.every((s) => s.split(',').every((p) => p.trim().startsWith('.jnext-widget'))),
        'rules outside .jnext-widget: ' + info.sel.filter((s) => s.split(',').some((p) => !p.trim().startsWith('.jnext-widget'))));
@@ -264,9 +281,9 @@ row('WIDGET-06', 'the guide\'s own-page snippet (jnext.mount, verbatim) boots: c
   await waitFor(page, () => document.querySelector('.jnext-overlay') && document.querySelector('.jnext-overlay').textContent === 'Click to start', null, 300000);
   await page.click('.jnext-overlay', { timeout: 600000, noWaitAfter: true });
   await waitFor(page, async () => { const p = await window.mounted; return p.state === 'running'; }, null, 300000);
-  const ready = await page.evaluate(async () => { const p = await window.mounted; await p.ready; return p.state; });
+  const ready = await page.evaluate(async () => { const p = await window.mounted; await p.ready; return p.state + ' ' + p.argv.join(' '); });
   await ctx.close();
-  must(ready === 'running', 'state ' + ready);
+  must(ready.startsWith('running ') && /--load \S*red\.nex/.test(ready), 'state and argv: ' + ready);
   must(msgs.length === 0, msgs.join('; '));
 });
 
@@ -277,9 +294,142 @@ row('WIDGET-07', 'the guide\'s widget snippet (verbatim) boots: the widget loads
   await clickStart(page);
   await waitRunning(page);
   const st = await stateOf(page);
+  const argv = await page.evaluate(() => document.querySelector('.jnext-widget').jnextPlayer.argv.join(' '));
   await page.context().close();
   must(st === 'running', 'state ' + st);
+  must(/--load \S*red\.nex/.test(argv), 'the guide\'s program is not loaded: ' + argv);
   must(page.msgs.length === 0, page.msgs.join('; '));
+});
+
+const buttonsDisabled = (page) => page.evaluate(() => [...document.querySelectorAll('.jnext-widget .jw-btn')].every((b) => b.disabled));
+const statusOf = (page) => page.evaluate(() => { const s = document.querySelector('.jnext-widget .jw-status'); return { text: s.textContent, cls: s.className, role: s.getAttribute('role'), color: getComputedStyle(s).color }; });
+const ERR_LIGHT = 'rgb(179, 38, 30)';
+
+row('WIDGET-08', 'real fullscreen: the screen fills the space between title bar and toolbar, and returns to its size on exit', async () => {
+  const page = await open(`${AURL}/widget.html?` + QUERY);
+  await waitClickable(page);
+  const geo = () => page.evaluate(() => {
+    const e = document.querySelector('.jnext-widget'), r = (q) => { const b = e.querySelector(q).getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; };
+    return { fs: document.fullscreenElement === e.querySelector('.jw-frame'), frame: r('.jw-frame'), title: r('.jw-title'), stage: r('.jw-stage'),
+             tools: r('.jw-tools'), player: r('.jnext-player'), canvas: r('canvas'), boxW: e.querySelector('.jnext-player').style.width,
+             vw: innerWidth, vh: innerHeight };
+  });
+  const before = await geo();
+  await page.locator('.jnext-widget [data-jw=fullscreen]').click();
+  await waitFor(page, () => document.fullscreenElement && document.querySelector('.jnext-widget .jnext-player').getBoundingClientRect().width > 700, null, 60000);
+  const on = await geo();
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fullscreen.png') });
+  await page.evaluate(() => document.exitFullscreen());
+  await waitFor(page, () => !document.fullscreenElement && document.querySelector('.jnext-widget .jnext-player').getBoundingClientRect().width === 640, null, 60000);
+  const off = await geo();
+  await page.context().close();
+  must(before.canvas[2] === 640 && before.canvas[3] === 512, 'before: canvas ' + before.canvas);
+  must(on.fs && on.canvas[2] > 640 && on.canvas[3] > 512, 'fullscreen: canvas ' + on.canvas);
+  must(Math.abs(on.canvas[2] - on.stage[2]) < 1 && Math.abs(on.canvas[3] - on.stage[3]) < 1, 'canvas ' + on.canvas + ' is not the stage ' + on.stage);
+  must(Math.abs(on.stage[1] - (on.title[1] + on.title[3])) < 2 && Math.abs((on.stage[1] + on.stage[3]) - on.tools[1]) < 2, 'stage ' + on.stage + ' not between title ' + on.title + ' and toolbar ' + on.tools);
+  must(on.tools[1] + on.tools[3] <= on.vh + 1 && on.frame[2] >= on.vw - 1, 'frame ' + on.frame + ' viewport ' + on.vw + 'x' + on.vh);
+  must(!off.fs && off.canvas[2] === 640 && off.canvas[3] === 512 && off.boxW === '640px', 'after exit: canvas ' + off.canvas + ' width ' + off.boxW);
+});
+
+row('WIDGET-09', 'progress bar: topmost at its position while the image downloads, and its width follows the download', async () => {
+  const q = new URLSearchParams({ image: BURL + '/slow.img', sha256: SHA, file: BURL + '/red.nex' });
+  const page = await open(`${AURL}/widget.html?` + q.toString());
+  const probe = () => page.evaluate(() => {
+    const e = document.querySelector('.jnext-widget'), bar = e.querySelector('.jw-progress'), b = bar.getBoundingClientRect();
+    const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+    return { pct: parseInt(bar.style.width, 10) || 0, w: b.width, top: top === bar, status: e.querySelector('.jw-status').textContent,
+             stage: e.querySelector('.jw-stage').getBoundingClientRect().width };
+  });
+  await waitFor(page, () => { const w = parseInt(document.querySelector('.jnext-widget .jw-progress').style.width, 10); return w >= 10 && w < 100; }, null, 120000);
+  await waitFor(page, () => { const e = document.querySelector('.jnext-widget'), p = parseInt(e.querySelector('.jw-progress').style.width, 10);
+    return Math.abs(e.querySelector('.jw-progress').getBoundingClientRect().width - 640 * p / 100) < 2; }, null, 30000);
+  const mid = await probe();
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'progress.png') });
+  releaseSlow();
+  await waitClickable(page);
+  const done = await probe();
+  await page.context().close();
+  must(mid.top, 'the progress bar is covered by another element at 40%');
+  must(mid.pct >= 10 && mid.pct < 100 && Math.abs(mid.w - mid.stage * mid.pct / 100) < 2, 'bar ' + mid.w + 'px = ' + mid.pct + '% of ' + mid.stage);
+  must(mid.status === 'download ' + mid.pct + '%', 'status ' + mid.status + ' vs bar ' + mid.pct + '%');
+  must(done.pct === 0, 'bar after the download: ' + done.pct + '%');
+});
+
+row('WIDGET-10', 'the toolbar and status follow the player when the page itself calls pause(), resume() and setVolume()', async () => {
+  const page = await open(`${AURL}/widget.html?` + QUERY);
+  await waitClickable(page);
+  await clickStart(page);
+  await waitRunning(page);
+  const view = () => page.evaluate(() => { const e = document.querySelector('.jnext-widget');
+    return [e.querySelector('[data-jw=pause]').textContent, e.querySelector('[data-jw=mute]').textContent,
+            e.querySelector('[data-jw=mute]').getAttribute('aria-pressed'), e.querySelector('.jw-status').textContent, e.jnextPlayer.state].join('|'); });
+  const call = (f) => page.evaluate(f);
+  await call(() => document.querySelector('.jnext-widget').jnextPlayer.pause());
+  const paused = await view();
+  await page.locator('.jnext-widget [data-jw=pause]').click();       // the button now resumes
+  await waitState(page, 'running');
+  const resumed = await view();
+  await call(() => document.querySelector('.jnext-widget').jnextPlayer.setVolume(0));
+  const muted = await view();
+  await call(() => document.querySelector('.jnext-widget').jnextPlayer.setVolume(1));
+  const unmuted = await view();
+  await page.context().close();
+  must(paused === 'Resume|Mute|false|paused|paused', 'page-side pause: ' + paused);
+  must(resumed === 'Pause|Mute|false|running|running', 'button after a page-side pause: ' + resumed);
+  must(muted === 'Pause|Unmute|true|running|running', 'page-side setVolume(0): ' + muted);
+  must(unmuted === 'Pause|Mute|false|running|running', 'page-side setVolume(1): ' + unmuted);
+});
+
+row('WIDGET-11', 'an image that fails (wrong digest): the status line says error in the error colour, the buttons stay disabled', async () => {
+  const q = new URLSearchParams({ image: BURL + '/card.img', sha256: 'a'.repeat(64), file: BURL + '/red.nex' });
+  const page = await open(`${AURL}/widget.html?` + q.toString());
+  await waitFor(page, () => document.querySelector('.jnext-widget .jw-status').textContent.startsWith('error: '), null, 300000);
+  const st = await statusOf(page), dis = await buttonsDisabled(page);
+  await page.context().close();
+  must(st.cls.includes('jw-error') && st.color === ERR_LIGHT && st.role === 'status', 'status ' + JSON.stringify(st));
+  must(dis, 'a button is enabled after the error');
+});
+
+row('WIDGET-12', 'no data-image: the status line says so in the error colour, the buttons stay disabled', async () => {
+  pages['noimg.html'] = '<!doctype html><body><div class="jnext-widget"></div><script src="jnext-widget.js"></script></body>';
+  const page = await open(`${AURL}/noimg.html`);
+  await waitFor(page, () => document.querySelector('.jnext-widget .jw-status').textContent.startsWith('error: '), null, 60000);
+  const st = await statusOf(page), dis = await buttonsDisabled(page);
+  await page.context().close();
+  must(st.text === 'error: data-image is missing' && st.cls.includes('jw-error') && st.color === ERR_LIGHT, 'status ' + JSON.stringify(st));
+  must(dis, 'a button is enabled');
+});
+
+row('WIDGET-13', 'jnext-<ver>.js cannot be loaded: the framed widget shows the error in its status line', async () => {
+  pages['nocore.html'] = '<!doctype html><body><div class="jnext-widget" data-image="x" data-sha256="y"></div><script src="/nocore/jnext-widget.js"></script></body>';
+  const page = await open(`${AURL}/nocore.html`);
+  await waitFor(page, () => document.querySelector('.jnext-widget .jw-status') && document.querySelector('.jnext-widget .jw-status').textContent.startsWith('error: '), null, 60000);
+  const st = await statusOf(page), dis = await buttonsDisabled(page);
+  const framed = await page.evaluate(() => !!document.querySelector('.jnext-widget .jw-frame .jw-title'));
+  await page.context().close();
+  must(st.text === `error: cannot load ${AURL}/nocore/jnext-${VERSION}.js` && st.cls.includes('jw-error') && st.color === ERR_LIGHT, 'status ' + JSON.stringify(st));
+  must(framed && dis, 'framed ' + framed + ' disabled ' + dis);
+});
+
+row('WIDGET-14', 'the click-to-start overlay takes the dark theme colours', async () => {
+  const page = await open(`${AURL}/widget.html?` + QUERY, { colorScheme: 'dark' });
+  await waitClickable(page);
+  const ov = await page.evaluate(() => { const c = getComputedStyle(document.querySelector('.jnext-widget .jnext-overlay')); return [c.backgroundColor, c.color, c.fontWeight].join('|'); });
+  await page.context().close();
+  must(ov === 'rgba(20, 22, 28, 0.82)|rgb(230, 233, 240)|600', 'overlay ' + ov);
+});
+
+row('WIDGET-15', 'after a toolbar click while running, the keyboard focus is back on the canvas', async () => {
+  const page = await open(`${AURL}/widget.html?` + QUERY);
+  await waitClickable(page);
+  await clickStart(page);
+  await waitRunning(page);
+  await page.locator('.jnext-widget [data-jw=mute]').click();
+  const a = await page.evaluate(() => document.activeElement && document.activeElement.tagName + ':' + document.activeElement.id);
+  await page.locator('.jnext-widget [data-jw=reset]').click();
+  const b = await page.evaluate(() => document.activeElement && document.activeElement.tagName + ':' + document.activeElement.id);
+  await page.context().close();
+  must(/^CANVAS:jnext-canvas-/.test(a) && /^CANVAS:jnext-canvas-/.test(b), 'focus after Mute: ' + a + ', after Reset: ' + b);
 });
 
 let pass = 0, fail = 0;

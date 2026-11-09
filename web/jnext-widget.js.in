@@ -43,7 +43,7 @@
     W + '.jw-title{all:initial;display:block;box-sizing:border-box;padding:6px 12px;background:var(--jw-bar);' +
       'border-bottom:1px solid var(--jw-line);color:var(--jw-fg);font:600 13px/1.3 system-ui,sans-serif}' +
     W + '.jw-stage{all:initial;display:block;position:relative;box-sizing:border-box;background:#000}' +
-    W + '.jw-progress{all:initial;display:block;position:absolute;left:0;bottom:0;height:4px;width:0;' +
+    W + '.jw-progress{all:initial;display:block;position:absolute;z-index:2;left:0;bottom:0;height:4px;width:0;' +
       'background:var(--jw-accent);transition:width .15s}' +
     W + '.jw-tools{all:initial;display:flex;box-sizing:border-box;align-items:center;gap:6px;padding:6px 8px;' +
       'background:var(--jw-bar);border-top:1px solid var(--jw-line)}' +
@@ -57,11 +57,13 @@
     W + '.jw-status{all:initial;display:block;flex:1;min-width:0;overflow:hidden;white-space:nowrap;' +
       'text-overflow:ellipsis;text-align:right;color:var(--jw-fg);font:12px/1.3 ui-monospace,monospace}' +
     W + '.jw-status.jw-error{color:var(--jw-err)}' +
-    // The elements the player itself creates, made proof against a page's rules for div and canvas.
-    W + '.jnext-player,' + W + '.jnext-overlay,' + W + 'canvas{padding:0;margin:0;border:0;float:none;max-width:none}' +
-    W + '.jnext-player{display:block;box-sizing:content-box}' +
-    W + '.jnext-overlay{box-sizing:border-box;width:auto;height:auto;text-transform:none;letter-spacing:normal;line-height:normal}' +
-    W + '.jw-frame:fullscreen{border-radius:0}';
+    // The elements the player itself creates: its inline styles stay, a page's rules for div and
+    // canvas (any property) go.
+    W + '.jnext-player{all:initial;display:block;box-sizing:content-box}' +
+    W + '.jnext-overlay{all:initial;box-sizing:border-box}' +
+    W + 'canvas{all:initial;display:block}' +
+    W + '.jw-frame:fullscreen{display:flex;flex-direction:column;border-radius:0}' +
+    W + '.jw-frame:fullscreen .jw-stage{flex:1 1 0;min-height:0}';
 
   function injectCss() {
     if (document.getElementById('jnext-widget-css')) return;
@@ -79,8 +81,9 @@
     return e;
   }
 
-  function mountWidget(el) {
-    if (el.jnextPlayer !== undefined) return;
+  // Builds the frame of one widget; the player comes later (run). Returns the handle.
+  function build(el) {
+    if (el.jnextUi) return el.jnextUi;
     el.jnextPlayer = null;
     var num = function (name, dflt) {
       var v = parseInt(el.getAttribute('data-' + name), 10);
@@ -94,7 +97,9 @@
     var stage = div('jw-stage', frame);
     var bar = div('jw-progress', stage);
     var tools = div('jw-tools', frame);
-    var player = null;
+    var ui = { el: el, width: width, height: height, stage: stage, bar: bar, player: null, errored: false,
+               started: false, volume: 1 };
+    el.jnextUi = ui;
 
     function button(label, name, onclick) {
       var b = document.createElement('button');
@@ -106,78 +111,111 @@
       b.addEventListener('click', function () {
         onclick(b);
         var c = stage.querySelector('canvas');
-        if (c && player && player.state === 'running') c.focus();
+        if (c && ui.player && ui.player.state === 'running') c.focus();
       });
       tools.appendChild(b);
       return b;
     }
-    var muted = false;
-    var pauseBtn = button('Pause', 'pause', function (b) {
-      if (player.state === 'paused') { player.resume(); b.textContent = 'Pause'; }
-      else if (player.state === 'running') { player.pause(); b.textContent = 'Resume'; }
+    ui.pauseBtn = button('Pause', 'pause', function () {
+      var pl = ui.player;
+      if (pl.state === 'paused') pl.resume();
+      else if (pl.state === 'running') pl.pause();
     });
-    button('Reset', 'reset', function () { player.reset().catch(function () {}); });
-    button('Mute', 'mute', function (b) {
-      muted = !muted;
-      player.setVolume(muted ? 0 : 1);
-      b.textContent = muted ? 'Unmute' : 'Mute';
-      b.setAttribute('aria-pressed', muted ? 'true' : 'false');
-    });
+    button('Reset', 'reset', function () { ui.player.reset().catch(function () {}); });
+    ui.muteBtn = button('Mute', 'mute', function () { ui.player.setVolume(ui.volume === 0 ? 1 : 0); });
+    ui.muteBtn.setAttribute('aria-pressed', 'false');
     if (frame.requestFullscreen) {
       button('Fullscreen', 'fullscreen', function () { frame.requestFullscreen(); });
+      // Fullscreen: the stage takes the space between the title bar and the toolbar and the
+      // player box follows it; the size comes back on exit.
+      document.addEventListener('fullscreenchange', function () {
+        var box = stage.querySelector('.jnext-player');
+        if (!box) return;
+        var on = document.fullscreenElement === frame;
+        box.style.width = on ? '100%' : width + 'px';
+        box.style.height = on ? '100%' : height + 'px';
+      });
     }
-    var status = div('jw-status', tools, 'Loading...');
-    function say(text, isError) {
-      status.textContent = text;
-      status.className = 'jw-status' + (isError ? ' jw-error' : '');
-    }
+    ui.status = div('jw-status', tools, 'Loading...');
+    ui.status.setAttribute('role', 'status');
+    ui.tools = tools;
+    ui.say = function (text, isError) {
+      if (isError) ui.errored = true;
+      ui.status.textContent = text;
+      ui.status.className = 'jw-status' + (isError ? ' jw-error' : '');
+    };
+    // Labels and status follow the player's own state and last volume, whoever changed them.
+    ui.sync = function () {
+      var pl = ui.player;
+      if (!pl) return;
+      ui.pauseBtn.textContent = pl.state === 'paused' ? 'Resume' : 'Pause';
+      ui.muteBtn.textContent = ui.volume === 0 ? 'Unmute' : 'Mute';
+      ui.muteBtn.setAttribute('aria-pressed', ui.volume === 0 ? 'true' : 'false');
+      if (!ui.errored && ui.started) ui.say(pl.state === 'paused' ? 'paused' : 'running');
+    };
+    return ui;
+  }
 
+  // Mounts the player of one built widget.
+  function run(ui) {
+    var el = ui.el;
     var image = el.getAttribute('data-image');
-    if (!image) { say('error: data-image is missing', true); return; }
+    if (!image) { ui.say('error: data-image is missing', true); return; }
     var options = {
       image: { url: image, sha256: el.getAttribute('data-sha256') || '' },
-      width: width,
-      height: height,
+      width: ui.width,
+      height: ui.height,
       onProgress: function (phase, fraction) {
-        bar.style.width = Math.round(fraction * 100) + '%';
-        say(phase + ' ' + Math.round(fraction * 100) + '%');
+        ui.bar.style.width = Math.round(fraction * 100) + '%';
+        ui.say(phase + ' ' + Math.round(fraction * 100) + '%');
       },
-      onReady: function () { bar.style.width = '0'; say('running'); },
-      onError: function (message) { say('error: ' + message, true); }
+      onReady: function () { ui.bar.style.width = '0'; ui.started = true; ui.sync(); },
+      onError: function (message) { ui.say('error: ' + message, true); }
     };
     if (el.getAttribute('data-file')) options.file = el.getAttribute('data-file');
 
-    var p = jnext.mount(stage, options);
+    var p = jnext.mount(ui.stage, options);
     // The API's own overlay (its text and its click are the API's): only its looks are set here.
-    var ov = stage.querySelector('.jnext-overlay');
+    var ov = ui.stage.querySelector('.jnext-overlay');
     if (ov) {
       ov.style.background = 'var(--jw-overlay)';
       ov.style.color = 'var(--jw-fg)';
       ov.style.font = '600 18px system-ui,sans-serif';
     }
     p.then(function (pl) {
-      player = pl;
+      ['pause', 'resume', 'reset', 'setVolume'].forEach(function (name) {
+        var orig = pl[name];
+        pl[name] = function (v) {
+          var r = orig.apply(pl, arguments);
+          if (name === 'setVolume') ui.volume = v;
+          ui.sync();
+          return r;
+        };
+      });
+      ui.player = pl;
       el.jnextPlayer = pl;
-      for (var i = 0; i < tools.children.length; i++) tools.children[i].disabled = false;
-      say('click the screen to start');
+      ui.bar.style.width = '0';
+      for (var i = 0; i < ui.tools.children.length; i++) ui.tools.children[i].disabled = false;
+      ui.say('click the screen to start');
     }, function () { /* onError has shown it */ });
   }
 
-  function mountAll() {
-    injectCss();
-    var list = document.querySelectorAll('.jnext-widget');
-    for (var i = 0; i < list.length; i++) mountWidget(list[i]);
+  function widgets() {
+    var list = document.querySelectorAll('.jnext-widget'), out = [];
+    for (var i = 0; i < list.length; i++) out.push(build(list[i]));
+    return out;
   }
 
   function start() {
-    if (typeof jnext !== 'undefined') { mountAll(); return; }
     injectCss();
+    var all = widgets();
+    var go = function () { all.forEach(run); };
+    if (typeof jnext !== 'undefined') { go(); return; }
     var s = document.createElement('script');
     s.src = CORE;
-    s.onload = mountAll;
+    s.onload = go;
     s.onerror = function () {
-      var list = document.querySelectorAll('.jnext-widget');
-      for (var i = 0; i < list.length; i++) list[i].textContent = 'JNEXT widget: cannot load ' + CORE;
+      all.forEach(function (ui) { ui.say('error: cannot load ' + CORE, true); });
     };
     document.head.appendChild(s);
   }

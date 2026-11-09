@@ -8,7 +8,7 @@
 # (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:29`
 # (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
-# boots the example page) and `widget.mjs:7` (rows WIDGET-01..07: the ready-made widget and the
+# boots the example page) and `widget.mjs:15` (rows WIDGET-01..15: the ready-made widget and the
 # guide's two embedding snippets, run verbatim). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,
@@ -34,7 +34,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:29" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:7" "$@")
+SPECS=("smoke.mjs:29" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:15" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)

@@ -8,9 +8,9 @@
 #   package-web.sh --verify <zip> <build-dir> <emsdk-dir>
 #       Check a zip against its sources; exit non-zero on any failure.
 #
-# WHAT IT HOLDS (one list, manifest() below): jnext-<ver>.js and .wasm, the three
-# example pages and jnext-widget.js, README.txt (with the source link), LICENSE, CREDITS.md and
-# licenses/, the licence texts of the libraries linked into jnext_web. The
+# WHAT IT HOLDS (one list, manifest() below): jnext-<ver>.js and .wasm, the four
+# example pages, jnext-widget.js, README.txt (with the source link), LICENSE,
+# CREDITS.md and licenses/, the licence texts of the libraries linked into jnext_web. The
 # <ver> comes from version.yaml and nowhere else.
 #
 # NEVER A NextZXOS IMAGE (copyrighted: owner rule, CLAUDE.md). The page fetches

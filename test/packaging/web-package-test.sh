@@ -13,12 +13,12 @@
 # reads it (date_time, external_attr, extra); GitHub Actions workflow syntax as
 # PyYAML parses the real release.yml and ci.yml. There is no VHDL: this is packaging.
 #
-# Rows WEBPKG-01 .. WEBPKG-46. A missing tool FAILS WEBPKG-01 and every other row
+# Rows WEBPKG-01 .. WEBPKG-50. A missing tool FAILS WEBPKG-01 and every other row
 # then reports FAIL "not run": there is no SKIP path.
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-EXPECTED_ROWS=46
+EXPECTED_ROWS=50
 EPOCH_FIX=1762600000
 
 total=0; passed=0; failed=0
@@ -534,6 +534,30 @@ mz "$T/c46.zip" dup:jnext-9.9.9-web/LICENSE
 run_verify "$GOOD" "$T/c46.zip"
 ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "duplicate entry names" && ok=1
 row WEBPKG-46 "$ok" "a zip with two entries of one name refused"
+
+# ---- WEBPKG-47..50: the widget file and its page ----
+scen wnoload
+sed 's/jnext-widget\.js/x.js/g' "$D/build/widget.html" >"$D/p"; mv "$D/p" "$D/build/widget.html"
+run_pkg "$D"
+ok=0; [[ $RC -ne 0 ]] && errhas "$D" "widget.html does not load jnext-widget.js" && nozip "$D" && ok=1
+row WEBPKG-47 "$ok" "widget.html not loading jnext-widget.js refused"
+
+scen wstale
+sed 's/jnext-9.9.9.js/jnext-9.9.8.js/g' "$D/build/jnext-widget.js" >"$D/p"; mv "$D/p" "$D/build/jnext-widget.js"
+run_pkg "$D"
+ok=0; [[ $RC -ne 0 ]] && errhas "$D" "jnext-widget.js refers to jnext-9.9.8" && nozip "$D" && ok=1
+row WEBPKG-48 "$ok" "jnext-widget.js naming jnext-9.9.8.js refused, naming the file and 9.9.8"
+
+scen wnocore
+sed 's/jnext-9.9.9.js/core.js/g' "$D/build/jnext-widget.js" >"$D/p"; mv "$D/p" "$D/build/jnext-widget.js"
+run_pkg "$D"
+ok=0; [[ $RC -ne 0 ]] && errhas "$D" "jnext-widget.js does not load jnext-9.9.9.js" && nozip "$D" && ok=1
+row WEBPKG-49 "$ok" "jnext-widget.js with no jnext-9.9.9.js refused"
+
+mz "$T/c50.zip" zeros:jnext-9.9.9-web/jnext-widget.js:1048577
+run_verify "$GOOD" "$T/c50.zip"
+ok=0; [[ $RC -ne 0 ]] && errhas "$GOOD" "jnext-widget.js is 1048577 bytes" && ok=1
+row WEBPKG-50 "$ok" "a jnext-widget.js entry of 1 MiB + 1 refused on size, the message naming it"
 
 # ---- WEBPKG-34..36: the workflows ----
 r=$(python3 -I -c 'import sys, yaml
