@@ -95,7 +95,7 @@ const load1 = () => Number(fs.readFileSync('/proc/loadavg', 'utf8').split(' ')[0
 async function waitQuiet(label) {
   const t0 = Date.now();
   let l = load1();
-  while (l > LOAD_MAX && Date.now() - t0 < QUIET_WAIT_MS) {
+  while (E.BENCH_QUIET_WAIT !== '0' && l > LOAD_MAX && Date.now() - t0 < QUIET_WAIT_MS) {
     log(`${label}: load ${l.toFixed(2)} > ${LOAD_MAX}, waiting`);
     await sleep(30000);
     l = load1();
@@ -106,7 +106,9 @@ async function waitQuiet(label) {
 // ---- Chrome ------------------------------------------------------------------------------------
 const chromePath = E.JNEXT_BENCH_CHROME || '/usr/bin/google-chrome';
 let chromeVersion = '', firefoxVersion = '';
-const CHROME_ARGS = ['--mute-audio', '--autoplay-policy=no-user-gesture-required', ...(E.BENCH_CHROME_ARGS ? E.BENCH_CHROME_ARGS.split(' ') : [])];
+// --use-angle=gl-egl: headless Chrome's default is SwiftShader (software WebGL); a visitor's Chrome
+// draws on the GPU (the results file records the renderer used).
+const CHROME_ARGS = ['--mute-audio', '--autoplay-policy=no-user-gesture-required', '--use-angle=gl-egl', ...(E.BENCH_CHROME_ARGS ? E.BENCH_CHROME_ARGS.split(' ') : [])];
 
 // Group `Profiler` nodes into the report's classes by function name (self time).
 function splitProfile(prof) {
@@ -188,7 +190,13 @@ async function firefoxPass(config, cells, onResult) {
   const set = E.BENCH_CORES ? ['taskset', '-c', E.BENCH_CORES] : [];
   let proc = null;
   const launch = () => {
-    proc = spawn('timeout', ['--kill-after=10s', '14400s', ...set, 'firefox', '--headless', '--no-remote', '--profile', prof, url],
+    // BENCH_FIREFOX=xvfb (the default): headed Firefox on a private Xvfb. Headless Firefox 159 gives jnext's
+    // canvas no WebGL context (SDL falls back to a 2D canvas), so every cell would be INVALID.
+    // -d lets Xvfb pick its display, -noreset keeps it up between Firefox's clients (never -a / -n).
+    const head = E.BENCH_FIREFOX !== 'headless'
+      ? ['xvfb-run', '-d', '--server-args=-screen 0 1280x1024x24 -noreset', 'firefox']
+      : ['firefox', '--headless'];
+    proc = spawn('timeout', ['--kill-after=10s', '14400s', ...set, ...head, '--no-remote', '--profile', prof, url],
                  { detached: true, stdio: 'ignore', env: { ...childEnv, MOZ_DISABLE_CONTENT_SANDBOX: '', MOZ_HEADLESS: '1' } });
   };
   const kill = async () => {
@@ -233,6 +241,7 @@ async function pass(config) {
     rawAll.push(raw);
     if (!runs.has(k)) runs.set(k, []);
     runs.get(k).push(raw);
+    if (raw.gl_dbg && !raw.gl) log('gl_dbg ' + raw.gl_dbg);
     log(`  ${config} ${raw.program} run ${raw.run}: ${raw.error ? 'ERROR ' + raw.error : 'frames ' + raw.deltas.reduce((a, b) => a + b, 0) + ' calib ' + raw.calib_ms.toFixed(1)}`);
   };
   const exec = config === 'firefox' ? firefoxPass : chromePass;
@@ -251,7 +260,7 @@ async function pass(config) {
     const j = judged(r);
     if (j.verdict !== 'INVALID' && needsRepeat({ verdict: j.verdict, m: j.m })) rep.push(p);
   }
-  if (rep.length && !PROFILE.length) {
+  if (rep.length && !PROFILE.length && E.BENCH_NO_REPEAT !== '1') {
     log(`pass ${config}: repeating ${rep.map((p) => p.name).join(',')} twice`);
     await exec(config, rep.flatMap((p) => [cellFor(config, p, 2), cellFor(config, p, 3)]), collect);
   }

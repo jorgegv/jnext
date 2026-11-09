@@ -12,7 +12,9 @@
 # Variables (all optional): CONFIGS=chrome,chrome-x2,firefox  SET=<program,...> (default: the whole
 # set)  W=250 M=600 (warm-up and window frames)  PROFILE=<program,...> (Chrome CPU profile of those
 # cells, with a profiling build in WEB_BUILD)  WEB_BUILD=<dir> (default: the argument)
-# PROFILE_DIR=<dir> (where .cpuprofile files are copied)  JNEXT_BENCH_CHROME=<chrome binary>.
+# PROFILE_DIR=<dir> (where .cpuprofile files are copied)  RESULTS=<file> (instead of the
+# committed test/bench file)  FIREFOX_MODE=headless (default xvfb: headed Firefox on a
+# private Xvfb; headless Firefox 159 gives the canvas no WebGL context)  NO_REPEAT=1 (no repeat runs)  QUIET_WAIT=0 (do not wait for a quiet host: the pass is marked LOADED)  JNEXT_BENCH_CHROME=<chrome binary>.
 #
 # Standalone script, run with bash (not sourced by a row runner), so it owns its trap.
 #
@@ -95,11 +97,12 @@ fi
 SHA=$(git -C "$ROOT" rev-parse --short HEAD)
 OUT="$ROOT/test/bench/web-baseline-$SHA.txt"
 [[ -n "${PROFILE:-}" ]] && OUT="$SCRATCH/web-profile.txt"
+[[ -n "${RESULTS:-}" ]] && OUT="$RESULTS"
 
 export BENCH_ROOT="$ROOT" BENCH_BUILD="$BUILD" BENCH_VERSION="$VERSION" BENCH_SCRATCH="$SCRATCH" \
        BENCH_SHA256="$CARD_SHA256" BENCH_OUT="$OUT" BENCH_CONFIGS="$CONFIGS" BENCH_SET="${SET:-}" \
        BENCH_W="${W:-250}" BENCH_M="${M:-600}" BENCH_PROFILE="${PROFILE:-}" BENCH_CORES="$CORES" \
-       BENCH_EMSDK=6.0.13 JNEXT_PLAYWRIGHT_DIR="$PW" JNEXT_BENCH_CHROME="$CHROME"
+       BENCH_EMSDK=6.0.13 BENCH_FIREFOX="${FIREFOX_MODE:-xvfb}" BENCH_NO_REPEAT="${NO_REPEAT:-0}" BENCH_QUIET_WAIT="${QUIET_WAIT:-1}" JNEXT_PLAYWRIGHT_DIR="$PW" JNEXT_BENCH_CHROME="$CHROME"
 
 pin=()
 [[ -n "$CORES" ]] && pin=(taskset -c "$CORES")

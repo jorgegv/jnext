@@ -71,7 +71,7 @@
   function kernel() {
     const t0 = performance.now();
     let x = 1;
-    for (let i = 0; i < 40000000; i++) x = (Math.imul(x, 1664525) + 1013904223) | 0;
+    for (let i = 0; i < 70000000; i++) x = (Math.imul(x, 1664525) + 1013904223) | 0;
     sink ^= x;
     return performance.now() - t0;
   }
@@ -92,7 +92,10 @@
   });
 
   function glInfo(canvas) {
-    const gl = canvas.getContext('webgl');
+    const c = canvas || {};
+    const dbg = [!!canvas, canvas && canvas.width, document.querySelectorAll('canvas').length, (() => { try { return String(canvas.getContext('webgl2')); } catch (e) { return 'E' + e; } })(), (() => { try { return String(canvas.getContext('webgl')); } catch (e) { return 'E' + e; } })(), (() => { try { return String(canvas.getContext('2d')); } catch (e) { return 'E' + e; } })()].join(',');
+    window.__gldbg = dbg;
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');   // whichever SDL created
     if (!gl) return { gl: false, renderer: '' };
     const ext = gl.getExtension('WEBGL_debug_renderer_info');
     return { gl: true, renderer: String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER)) };
@@ -103,10 +106,15 @@
 
   async function runCell(cell) {
     S.cell = cell;
-    const raw = { program: cell.program, config: cell.config, ua: navigator.userAgent, error: null };
+    const raw = { program: cell.program, config: cell.config, run: cell.run, ua: navigator.userAgent, error: null };
     try {
       raw.calib_ms = calibrate();
-      raw.timer_res_ms = (() => { let m = 1e9, p = performance.now(); for (let i = 0; i < 2000; i++) { const n = performance.now(); if (n > p) { m = Math.min(m, n - p); p = n; } } return m; })();
+      raw.timer_res_ms = (() => {   // the smallest step performance.now() makes (bounded to 300 ms)
+        const end = performance.now() + 300;
+        let m = Infinity, p = performance.now(), n;
+        while ((n = performance.now()) < end) { if (n > p) { m = Math.min(m, n - p); p = n; } }
+        return Number.isFinite(m) ? m : 0;
+      })();
       await new Promise((res, rej) => {
         const s = document.createElement('script');
         s.src = cell.module; s.onload = res; s.onerror = () => rej(new Error('module script failed to load'));
@@ -143,7 +151,7 @@
       raw.capped = S.capped;
       raw.audio_state = S.ctxs[0] ? S.ctxs[0].state : 'none';
       const g = glInfo(document.querySelector('#box canvas'));
-      raw.gl = g.gl; raw.renderer = g.renderer;
+      raw.gl = g.gl; raw.renderer = g.renderer; raw.gl_dbg = window.__gldbg;
       say(`${cell.config} ${cell.program}: ${S.frames} frames in ${(raw.wall_ms / 1000).toFixed(2)} s`);
     } catch (e) {
       raw.error = String(e && e.message || e);
