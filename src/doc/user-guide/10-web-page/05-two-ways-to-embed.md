@@ -1,4 +1,4 @@
-# 10.5 Two ways to embed JNEXT: your own page, or the ready-made widget
+# 10.5 Two ways to embed JNEXT, your own page or the ready-made widget
 
 There are two ways to put a player on a page. Pick `jnext.mount()` (10.1, 10.2) when
 you want full control of the layout, the controls and the messages. Pick the widget

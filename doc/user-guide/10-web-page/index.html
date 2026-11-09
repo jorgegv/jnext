@@ -4116,6 +4116,8 @@
       
         
       
+        
+      
     
     
     
@@ -4277,6 +4279,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="05-two-ways-to-embed.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10.5 Two ways to embed JNEXT, your own page or the widget
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -4310,8 +4340,9 @@ by a page you write (or by an itch.io upload). A page needs one script file,
 <code>jnext-VERSION.js</code>, with <code>jnext-VERSION.wasm</code> beside it. The script defines one
 global, <code>jnext</code>, and <code>jnext.mount(container, options)</code> puts a player in a DOM
 element.</p>
-<p>Every public release carries <code>jnext-VERSION-web.zip</code>: the two files, the three
-example pages (<code>plain.html</code>, <code>itch-game.html</code>, <code>itch-host.html</code>), a <code>README.txt</code>
+<p>Every public release carries <code>jnext-VERSION-web.zip</code>: the two files, the ready-made
+widget (<code>jnext-widget.js</code>), four example pages (<code>plain.html</code>, <code>widget.html</code>,
+<code>itch-game.html</code>, <code>itch-host.html</code>), a <code>README.txt</code>
 with the link to the source of that build, <code>LICENSE</code>, <code>CREDITS.md</code> and a
 <code>licenses/</code> directory. Host <code>jnext-VERSION.js</code> and <code>jnext-VERSION.wasm</code> together,
 and keep the licence files beside them. There is no NextZXOS in the zip: the
@@ -4319,10 +4350,11 @@ page fetches the system image from the address you give it.</p>
 <p>Everything the player is told is a command-line flag or a <code>--set</code> key of the
 desktop emulator; the reference list is in the man page section "THE BROWSER
 BUILD". The player's <code>argv</code> property shows the command line your options became.</p>
-<p>This chapter has four pages: a page with a game (10.1), the options and the
+<p>This chapter has five pages: a page with a game (10.1), the options and the
 player's controls (10.2), putting it on itch.io, plus what the browser build does
-not do (10.3), and the SD-card image, what the browser keeps and what to do when a
-page does not start (10.4).</p>
+not do (10.3), the SD-card image, what the browser keeps and what to do when a
+page does not start (10.4), and the two ways to embed JNEXT, your own page or the
+ready-made widget, each as a complete page to copy (10.5).</p>
 
 
 

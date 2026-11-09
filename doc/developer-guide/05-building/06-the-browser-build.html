@@ -3273,7 +3273,7 @@ is <code>window.prompt()</code> in a browser).</p>
 <td><code>make wasm-browser-test</code></td>
 <td><code>build/wasm-core</code></td>
 <td>the browser frontend in the pinned Chromium headless shell</td>
-<td>BRW-01 to BRW-29, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
+<td>BRW-01 to BRW-29, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-07, and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
 <td><code>browser</code></td>
 </tr>
 </tbody>
@@ -3288,6 +3288,13 @@ is <code>window.prompt()</code> in a browser).</p>
   example pages. Details: <a href="01-make-targets.html">5.1</a>, <a href="04-continuous-integration.html">5.4</a>,
   <a href="../04-testing/02-declared-suites-and-pinned-counts.html">4.2</a> and
   <a href="../04-testing/03-the-regression-suite.html">4.3</a>.</li>
+<li>The widget (<code>web/jnext-widget.js.in</code>) is a plain script on top of <code>jnext.mount()</code>:
+  every <code>.jnext-widget</code> element gets a frame, a progress bar, a toolbar and a status
+  line, with all CSS injected once under <code>.jnext-widget</code> (each part resets its own
+  properties with <code>all: initial</code>; the API's own overlay keeps its text and click, and
+  only its colours are set from the theme variables). The WIDGET rows (<code>widget.mjs</code>)
+  include the two code blocks of the user guide's section 10.5, extracted from its
+  source and run verbatim, so the guide's snippets cannot drift from what is tested.</li>
 <li>Native suites test the browser's policy without a browser: <code>web_api_test</code> (the option
   table, the argv and the man page's browser section; <code>make cli-check</code> runs it),
   <code>browser_policy_test</code> (the frame-callback gate and the page's refusals),
