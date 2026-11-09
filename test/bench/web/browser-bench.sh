@@ -16,7 +16,7 @@
 # FIREFOX_MODE=xvfb|headed|headless (default xvfb: MOZ_HEADLESS=1 on a private Xvfb display, WebGL on the GPU;
 # headed: a headed Firefox on that display, WebGL in software, so its cells are INVALID; headless: `firefox
 # --headless`, no Xvfb, no DISPLAY, no WebGL at all)  RAW_DIR=<dir> (every
-# cell's raw JSON)  NO_REPEAT=1 (no repeat runs)  QUIET_WAIT=0 (do not wait for a quiet host: the pass is
+# cell's raw JSON)  PAGE_ARGS="--flag value" (extra jnext arguments, an experiment)  NO_REPEAT=1 (no repeat runs)  QUIET_WAIT=0 (do not wait for a quiet host: the pass is
 # marked LOADED)  JNEXT_BENCH_CHROME=<chrome binary>  BENCH_CHROME_ARGS=<extra Chrome flags>.
 #
 # Standalone script, run with bash (not sourced by a row runner), so it owns its trap.
@@ -113,7 +113,7 @@ OUT="$ROOT/test/bench/web-baseline-$SHA.txt"
 export BENCH_ROOT="$ROOT" BENCH_BUILD="$BUILD" BENCH_VERSION="$VERSION" BENCH_SCRATCH="$SCRATCH" \
        BENCH_SHA256="$CARD_SHA256" BENCH_OUT="$OUT" BENCH_CONFIGS="$CONFIGS" BENCH_SET="${SET:-}" \
        BENCH_W="${W:-250}" BENCH_M="${M:-600}" BENCH_PROFILE="${PROFILE:-}" BENCH_CORES="$CORES" \
-       BENCH_EMSDK="${EMSDK##*/emsdk-}" BENCH_FIREFOX="${FIREFOX_MODE:-xvfb}" BENCH_RAW_DIR="${RAW_DIR:-}" BENCH_NO_REPEAT="${NO_REPEAT:-0}" BENCH_QUIET_WAIT="${QUIET_WAIT:-1}" JNEXT_PLAYWRIGHT_DIR="$PW" JNEXT_BENCH_CHROME="$CHROME"
+       BENCH_EMSDK="${EMSDK##*/emsdk-}" BENCH_FIREFOX="${FIREFOX_MODE:-xvfb}" BENCH_RAW_DIR="${RAW_DIR:-}" BENCH_PAGE_ARGS="${PAGE_ARGS:-}" BENCH_NO_REPEAT="${NO_REPEAT:-0}" BENCH_QUIET_WAIT="${QUIET_WAIT:-1}" JNEXT_PLAYWRIGHT_DIR="$PW" JNEXT_BENCH_CHROME="$CHROME"
 
 pin=()
 [[ -n "$CORES" ]] && pin=(taskset -c "$CORES")

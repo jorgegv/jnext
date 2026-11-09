@@ -120,7 +120,7 @@
       });
       let ready = false, err = null;
       const player = await window.jnext.mount(document.getElementById('box'), {
-        image: cell.image, file: cell.file, machine: 'next', width: 640, height: 512,
+        image: cell.image, file: cell.file, machine: 'next', width: 640, height: 512, ...(cell.args ? { args: cell.args } : {}),
         onReady: () => { ready = true; }, onError: (m) => { err = m; },
       });
       S.mod = player._module;

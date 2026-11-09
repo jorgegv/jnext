@@ -91,6 +91,7 @@ const MODULE = `/build/jnext-${VERSION}.js`;
 
 const cellFor = (config, p, run) => ({
   program: p.name, config, run, W, M, capMs: CAP_MS, readyMs: 240000, module: MODULE,
+  args: E.BENCH_PAGE_ARGS ? E.BENCH_PAGE_ARGS.split(' ') : undefined,   // extra jnext arguments (an experiment: results then are not the shipped default)
   file: `/nex/${URLDIR[p.dir]}/${p.file}`, image: { url: '/scratch/card.img', sha256: E.BENCH_SHA256 },
 });
 
@@ -382,6 +383,7 @@ lines.push(`# firefox: ${firefoxVersion}`);
 lines.push(`# firefox mode: ${{ xvfb: 'MOZ_HEADLESS=1 on a private Xvfb display (xvfb-run -d): WebGL on the GPU', headed: 'headed on a private Xvfb display (xvfb-run -d): WebGL in software (llvmpipe)', headless: '--headless with no Xvfb and no DISPLAY: no WebGL' }[FIREFOX_MODE]}`);
 for (const [c, s] of Object.entries(renderers)) lines.push(`# webgl renderer ${c}: ${[...s].join(' | ')}`);
 for (const [c, s] of Object.entries(uas)) lines.push(`# user agent ${c}: ${[...s].join(' | ')}`);
+if (E.BENCH_PAGE_ARGS) lines.push(`# EXPERIMENT: extra jnext arguments: ${E.BENCH_PAGE_ARGS} (not the shipped default)`);
 lines.push(`# window: W=${W} warm-up frames, M=${M} frames or ${CAP_MS / 1000} s; box 640x512; machine next; one wasm instance per cell`);
 for (const i of passInfo) lines.push(`# pass ${i.config}: load1 at start ${i.load_start.toFixed(2)}, at end ${i.load_end.toFixed(2)}${i.loaded ? ' LOADED (not counted)' : ''}; calibration median ${i.calib_ref.toFixed(2)} ms${i.config === 'chrome-x2' ? `, unthrottled median ${i.base_calib.toFixed(2)} ms` : ''}`);
 const timer = rawAll.filter((r) => r.timer_res_ms).map((r) => r.timer_res_ms);
