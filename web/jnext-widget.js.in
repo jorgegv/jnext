@@ -59,7 +59,8 @@
     W + '.jw-status.jw-error{color:var(--jw-err)}' +
     // The elements the player itself creates, made proof against a page's rules for div and canvas.
     W + '.jnext-player,' + W + '.jnext-overlay,' + W + 'canvas{padding:0;margin:0;border:0;float:none;max-width:none}' +
-    W + '.jnext-overlay{box-sizing:border-box;text-transform:none;letter-spacing:normal;line-height:normal}' +
+    W + '.jnext-player{display:block;box-sizing:content-box}' +
+    W + '.jnext-overlay{box-sizing:border-box;width:auto;height:auto;text-transform:none;letter-spacing:normal;line-height:normal}' +
     W + '.jw-frame:fullscreen{border-radius:0}';
 
   function injectCss() {
