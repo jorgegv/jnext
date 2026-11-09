@@ -335,10 +335,11 @@ async function pass(config) {
     log(`pass ${config}: repeating ${rep.map((p) => p.name).join(',')} twice`);
     await exec(config, rep.flatMap((p) => [cellFor(config, p, 2), cellFor(config, p, 3)]), collect);
   }
-  if (config === 'chrome') {
-    const cs = [...runs.values()].map((a) => a[0].calib_ms).filter((x) => x).sort((a, b) => a - b);
-    baseCalib = cs.length ? cs[Math.floor((cs.length - 1) / 2)] : 0;
-  }
+  // The unthrottled reference for the x2 band is the chrome pass's own median calibration (the figure the header
+  // prints and the busy witness uses). It used to be the median of every program's FIRST run, which on a laptop in
+  // its slow CPU state (calibration 82 ms instead of 58) skewed it to 64.9 and made 20 of 39 x2 cells
+  // `throttle_not_in_effect` (the P2 table).
+  if (config === 'chrome') baseCalib = ctxFor().pass_ref_calib_ms;
   const ctx = ctxFor();
   for (const p of programs) {
     const rs = runs.get(p.name).map((r) => {
