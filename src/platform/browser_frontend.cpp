@@ -95,6 +95,19 @@ extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_frame()
     return g_ctx.app ? static_cast<double>(g_ctx.app->emulator().frame_num()) : 0.0;
 }
 
+// Test seams for the browser bench and its rows: the video frame period in ms (floating point,
+// 28 MHz master cycles per frame / 28000) and the effective CPU speed in MHz (28 / divisor, not
+// the pending one). 0 before the run starts.
+extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_frame_period_ms()
+{
+    return g_ctx.app ? g_ctx.app->emulator().frame_period_ms() : 0.0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_cpu_mhz()
+{
+    return g_ctx.app ? 28.0 / static_cast<double>(g_ctx.app->emulator().clock().cpu_divisor()) : 0.0;
+}
+
 // Make a warm-start recording durable: the page mounts IndexedDB (IDBFS) on the
 // warm-start directory only, and store() calls this once after writing a file.
 // With no IDBFS mounted (node, a page that did not ask) syncfs has nothing to
