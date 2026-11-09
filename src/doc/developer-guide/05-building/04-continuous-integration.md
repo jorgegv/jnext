@@ -114,8 +114,11 @@ dependency set and checks out the repository with submodules; then
   (`~/.cache/jnext/tools/playwright-1.65.0`, keyed by the version and the two pin
   prefixes) and uses the SD-image cache: the run turns the cached distribution
   image into a minimal card in a scratch directory that is deleted at the end,
-  and the leg has no artifact step that could carry it. The dnf list carries the
-  shared libraries the headless shell links.
+  and the leg's one artifact step uploads exactly `build/wasm-core/jnext-*-web.zip`,
+  which cannot carry it. The run also builds the browser package (`make package-web`
+  is a prerequisite of `wasm-browser-test`, so there is no step of its own), and its
+  row WEBPKG-BR-01 boots the extracted zip; the zip is uploaded as `jnext-web-zip`.
+  The dnf list carries the shared libraries the headless shell links, and `zip`.
 
 They used to be steps of one job, so the 28-minute build matrix and the
 regression ran back to back although neither uses the other's output. Each leg
@@ -191,6 +194,7 @@ and compression is off since the packages are already compressed.
 | `jnext-windows-x86-sdl-zip` | `jnext-<v>-windows-x86-sdl.zip` | `package` (repo-internal, not a release asset) |
 | `jnext-linux-rpm` | `jnext-<v>-1.x86_64.rpm` | `package` |
 | `jnext-source-zip` | `jnext-<v>-src.zip` | `package` |
+| `jnext-web-zip` | `jnext-<v>-web.zip` | `test` (`browser` leg) |
 | `jnext-macos-dmg` | `jnext-<v>-Darwin.dmg` | `macos` |
 | `jnext-linux-flatpak` | `jnext-<v>-x86_64.flatpak` | `flatpak` |
 
@@ -233,13 +237,15 @@ whose reference screenshot is an SD-card directory listing.
 public — the allowlist described in [5.3](03-packaging-and-release.md). When it
 is not, nothing builds, and the tag remains a private history marker.
 
-When it is, six artifact jobs run. `deb` is a matrix over two pinned Ubuntu LTS
+When it is, seven artifact jobs run. `deb` is a matrix over two pinned Ubuntu LTS
 containers, one per supported release, because `dpkg-shlibdeps` bakes the
 container's own library package names into the dependency list, so a deb built
 in one release's container is uninstallable on the next. `rpm` builds in the
 pinned Fedora container, so that its dependencies are Fedora-native. Then `src`,
 `windows` (three zips from one Fedora container), `flatpak` (one line, calling
-`flatpak-build.yml`), and `macos`.
+`flatpak-build.yml`), `web` (`make package-web` in a Fedora container: the browser
+zip, with the Emscripten SDK cache of the `test` job and no SD image, since the
+zip never holds one) and `macos`.
 Finally **`publish`** attaches everything to a GitHub Release, gated on
 `if: success() && needs.gate.outputs.publish == 'true'`.
 

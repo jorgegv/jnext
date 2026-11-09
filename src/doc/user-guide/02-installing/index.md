@@ -25,6 +25,7 @@ are untested development builds, for people helping to check a fix.
     | macOS | `jnext-macos-dmg` |
     | Fedora / RHEL | `jnext-linux-rpm` |
     | Any Linux (Flatpak) | `jnext-linux-flatpak` |
+    | A web page | `jnext-web-zip` |
     | Source code | `jnext-source-zip` |
 
     The `jnext-windows-*-sdl-zip` artifacts are reduced builds without the Qt

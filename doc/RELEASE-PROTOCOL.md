@@ -200,7 +200,8 @@ metainfo excepted). **Do not add a hard-coded copy of the version; read
 | `make package-win-qt5` / `package-win32-qt5` | Windows 7/8 `-legacy` `.zip`s, x64 and 32-bit — the Qt5 full-GUI builds (GH #108) |
 | `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + `org.kde.Sdk//6.10`); ends by running `make verify-flatpak-permissions` on it |
 | `make package-macos` | macOS `.dmg` (Darwin only) |
-| `make package-test` | build every package (except macOS) and assert each artifact |
+| `make package-web` | the browser build, `jnext-<ver>-web.zip` (js + wasm, example pages, licence texts), in `build/wasm-core/`; needs the Emscripten SDK; verifies its own zip and never holds a NextZXOS image |
+| `make package-test` | build every package (except macOS, Flatpak and the browser zip) and assert each artifact |
 | `make package-contract-test` | the packaging-**script** contract suites only — hermetic, ~4 s, no toolchain |
 
 CI runs these same targets — one build path, with **exactly one declared
@@ -226,9 +227,14 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 
 **Packaging correctness is gated automatically** (issue #61):
 
-- `make package-contract-test` is a prerequisite of `make unit-test`, so the eight
-  packaging contract suites — including `verify-bundle`, the GH #46 gate
+- `make package-contract-test` is a prerequisite of `make unit-test`, so the nine
+  packaging contract suites (and `web-package-test`) — including `verify-bundle`, the GH #46 gate
   — run on every local test run and every CI push.
+- The browser zip is not a `package-test` row (it needs the Emscripten SDK, as the Flatpak
+  needs its own SDK). `package-web.sh` verifies its own zip and deletes it on any
+  refusal; `make web-package-test` (hermetic) is part of `package-contract-test`, so of
+  `make unit-test`; and `make wasm-browser-test` builds the zip and boots it in headless
+  Chromium on every push (the `browser` leg of `ci.yml`).
 - The full `make package-test` runs as its own parallel `package` job in
   `ci.yml` on every push to `main` and every PR. It is deliberately **not**
   duplicated into `release.yml`: by convention a release tag is cut from a
@@ -272,7 +278,7 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
   a **`v*` tag push**. Jobs:
   1. **`gate`** — reads `releases.yaml` from the tag's own commit and checks
      whether `$GITHUB_REF_NAME` is listed → outputs `build` / `publish`.
-  2. **`deb` / `rpm` / `src` / `windows` / `flatpak` / `macos`** — run only
+  2. **`deb` / `rpm` / `src` / `windows` / `flatpak` / `web` / `macos`** — run only
      when `build == true`. `deb` is a **matrix** over `ubuntu:24.04` and
      `ubuntu:26.04` pinned containers: CPack's `dpkg-shlibdeps` bakes in the
      container's library package names, so each LTS gets its own deb (the 24.04
@@ -283,7 +289,9 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
      `CURL_OPENSSL_4` libcurl node); `src` runs `make package-src` to emit the
      submodule-aware `jnext-<ver>-src.zip`; Windows via `make package-win`,
      `make package-win-qt5` and `make package-win32-qt5` (the x64 zip plus the
-     two `-legacy` zips) in a `fedora:44` container; `flatpak` via
+     two `-legacy` zips) in a `fedora:44` container; `web` runs `make package-web`
+     in a `fedora:44` container (the browser zip; the job restores no SD image);
+     `flatpak` via
      `flatpak-builder` in the KDE 6.10 container (the one declared divergence
      from the make-target rule, §4);
      macOS native on `macos-latest` via `make package-macos`, **no longer

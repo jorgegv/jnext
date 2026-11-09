@@ -6,7 +6,9 @@
 #
 # Specs default to `smoke.mjs:29` (rows BRW-01..29, this directory) and `image.mjs:8`
 # (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:29`
-# (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller). Further specs
+# (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
+# (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
+# boots the example page). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,
 # and its row count is pinned here, so a spec that loses rows fails the run.
@@ -31,7 +33,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:29" "image.mjs:8" "api.mjs:29" "$@")
+SPECS=("smoke.mjs:29" "image.mjs:8" "api.mjs:29" "package.mjs:1" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -52,6 +54,8 @@ BUILD_VERSION=$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' "$BUILD/CMakeCache.
 VERSION=$(sed -n 's/^version: *//p' "$ROOT/version.yaml")
 [[ -n "$BUILD_VERSION" && "$BUILD_VERSION" == "$VERSION" ]] || die "build version [$BUILD_VERSION] != version.yaml [$VERSION]: rebuild"
 for f in "jnext-$VERSION.js" "jnext-$VERSION.wasm"; do [[ -f "$BUILD/$f" ]] || die "$BUILD/$f is not built (make wasm-web)"; done
+PKGZIP="$BUILD/jnext-$VERSION-web.zip"
+[[ -f "$PKGZIP" ]] || die "$PKGZIP is not built (make package-web)"
 
 mkdir -p "$HOME/tmp"
 SCRATCH=$(mktemp -d "$HOME/tmp/jnext-browser-smoke.XXXXXX")
@@ -68,6 +72,8 @@ python3 -I -c 'import sys, zipfile
 with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED) as z:
     z.write(sys.argv[1], "minimal.img")' "$SCRATCH/card.img" "$SCRATCH/card.img.zip" || die "cannot zip the card"
 ZIP_SHA256=$(sha256sum "$SCRATCH/card.img.zip" | cut -d' ' -f1)
+# The shipped zip, extracted by a FOREIGN reader: package.mjs serves only this directory.
+mkdir "$SCRATCH/pkg" && python3 -I -m zipfile -e "$PKGZIP" "$SCRATCH/pkg" || die "cannot extract $PKGZIP"
 python3 -I "$HERE/tap2tzx.py" "$ROOT/test/00regression/tap/beeper_demo.tap" "$SCRATCH/beeper_demo.tzx" || die "tap2tzx failed"
 
 # Native oracle: oracle <name> <sdl|headless> <jnext args...>; the card is a throwaway clone.
@@ -105,7 +111,7 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/copper.cfg" \
 rm -rf "$O/copper.card" "$O/copper.cfg"
 
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
-       SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION"
+       SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg"
 
 TOTAL=0; PASS=0; FAIL=0; SKIP=0; FAULT=0
 for spec in "${SPECS[@]}"; do
