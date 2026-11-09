@@ -256,15 +256,26 @@ async function pass(config) {
   // judge, find repeats
   const ctxFor = () => {
     const all = [...runs.values()].flat().filter((r) => !r.error && r.calib_ms);
-    const min = all.length ? Math.min(...all.map((r) => r.calib_ms)) : 0;
-    return { x2: config === 'chrome-x2', base_calib_ms: baseCalib, pass_min_calib_ms: min, window_frames: M };
+    // The pass reference is the MEDIAN calibration: a minimum is one lucky cell, and Firefox's first cell of a
+    // pass calibrates 35% faster than every later one.
+    const cs = all.map((r) => r.calib_ms).sort((a, b) => a - b);
+    const ref = cs.length ? cs[Math.floor((cs.length - 1) / 2)] : 0;
+    return { x2: config === 'chrome-x2', base_calib_ms: baseCalib, pass_ref_calib_ms: ref, window_frames: M };
   };
   const judged = (r) => ({ ...judge(r, ctxFor()), raw: r });
+  // A cell whose every run was INVALID for a busier host (or a slower CPU state: the calibration is bimodal on
+  // this laptop, 58 and 82 ms) is run again, up to three rounds, so the pass ends with a valid run per program.
+  const busyOnly = (p) => runs.get(p.name).every((r) => judge(r, ctxFor()).reason === 'host_got_busier');
+  for (let round = 0; round < 3 && !PROFILE.length; round++) {
+    const busy = programs.filter(busyOnly);
+    if (!busy.length) break;
+    log(`pass ${config}: ${busy.length} cell(s) all-busy, retry round ${round + 1}: ${busy.map((p) => p.name).join(',')}`);
+    await exec(config, busy.map((p) => cellFor(config, p, 4 + round)), collect);
+  }
   const rep = [];
   for (const p of programs) {
-    const r = runs.get(p.name)[0];
-    const j = judged(r);
-    if (j.verdict !== 'INVALID' && needsRepeat({ verdict: j.verdict, m: j.m })) rep.push(p);
+    const j = runs.get(p.name).map(judged).find((x) => x.verdict !== 'INVALID');
+    if (j && needsRepeat({ verdict: j.verdict, m: j.m })) rep.push(p);
   }
   if (rep.length && !PROFILE.length && E.BENCH_NO_REPEAT !== '1') {
     log(`pass ${config}: repeating ${rep.map((p) => p.name).join(',')} twice`);
@@ -284,7 +295,7 @@ async function pass(config) {
     results.push({ ...s, acceptance: p.acceptance });
   }
   info.load_end = load1();
-  info.calib_min = ctx.pass_min_calib_ms;
+  info.calib_ref = ctx.pass_ref_calib_ms;
   info.base_calib = baseCalib;
   passInfo.push(info);
   log(`pass ${config} end, load ${info.load_end.toFixed(2)}`);
@@ -315,7 +326,7 @@ lines.push(`# firefox: ${firefoxVersion}`);
 for (const [c, s] of Object.entries(renderers)) lines.push(`# webgl renderer ${c}: ${[...s].join(' | ')}`);
 for (const [c, s] of Object.entries(uas)) lines.push(`# user agent ${c}: ${[...s].join(' | ')}`);
 lines.push(`# window: W=${W} warm-up frames, M=${M} frames or ${CAP_MS / 1000} s; box 640x512; machine next; one wasm instance per cell`);
-for (const i of passInfo) lines.push(`# pass ${i.config}: load1 at start ${i.load_start.toFixed(2)}, at end ${i.load_end.toFixed(2)}${i.loaded ? ' LOADED (not counted)' : ''}; calibration min ${i.calib_min.toFixed(2)} ms${i.config === 'chrome-x2' ? `, unthrottled median ${i.base_calib.toFixed(2)} ms` : ''}`);
+for (const i of passInfo) lines.push(`# pass ${i.config}: load1 at start ${i.load_start.toFixed(2)}, at end ${i.load_end.toFixed(2)}${i.loaded ? ' LOADED (not counted)' : ''}; calibration median ${i.calib_ref.toFixed(2)} ms${i.config === 'chrome-x2' ? `, unthrottled median ${i.base_calib.toFixed(2)} ms` : ''}`);
 const timer = rawAll.filter((r) => r.timer_res_ms).map((r) => r.timer_res_ms);
 if (timer.length) lines.push(`# performance.now() resolution observed (median over cells): ${percentile(timer, 50).toFixed(4)} ms`);
 lines.push(`# programs: ${programs.length} (acceptance: ${programs.filter((p) => p.acceptance).map((p) => p.name).join(' ')})`);

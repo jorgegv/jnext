@@ -58,7 +58,7 @@ row('WBENCH-06', 'emu at refresh, shown 30: FAIL', () => {
   must(j.verdict === 'FAIL' && near(j.m.emu_fps, 50) && near(j.m.shown_fps, 30), JSON.stringify(j));
 });
 
-row('WBENCH-07', 'period changed, AudioContext suspended, x2 ratio 1.5, 60 s cap with 400 frames: each INVALID with its own reason', () => {
+row('WBENCH-07', 'period changed, AudioContext suspended, x2 ratio 1.5, 60 s cap with 400 frames, calibration 1.1x over the reference: each INVALID with its own reason', () => {
   const cases = [
     [{ ...GOOD(), period_end_ms: 17.198 }, {}],
     [{ ...GOOD(), audio_state: 'suspended' }, {}],
@@ -70,6 +70,12 @@ row('WBENCH-07', 'period changed, AudioContext suspended, x2 ratio 1.5, 60 s cap
   must(got.every((g) => g.verdict === 'INVALID' && g.m === null), JSON.stringify(got.map((g) => g.verdict)));
   must(new Set(reasons).size === 4 && reasons.every((r) => /^[a-z_]+$/.test(r) && r !== '-'), JSON.stringify(reasons));
   must(judge(GOOD(), { x2: true, base_calib_ms: 25 }).verdict === 'PASS', 'ratio 2.0 must be in band');
+  // a cell whose calibration is above 1.10 x the pass reference is INVALID but keeps its numbers
+  const busy = judge({ ...GOOD(), calib_ms: 55.1 }, { pass_ref_calib_ms: 50 });
+  const edge = judge({ ...GOOD(), calib_ms: 55 }, { pass_ref_calib_ms: 50 });
+  must(busy.verdict === 'INVALID' && busy.reason === 'host_got_busier' && busy.would === 'PASS' && busy.m && near(busy.m.emu_fps, 50),
+       JSON.stringify(busy));
+  must(edge.verdict === 'PASS', 'exactly 1.10 x the reference is not busier: ' + JSON.stringify(edge));
 });
 
 row('WBENCH-08', 'a results set lacking firefox/beast: the summary throws, naming it', () => {

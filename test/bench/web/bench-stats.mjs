@@ -18,7 +18,7 @@
 export const WINDOW_FRAMES = 600;
 export const PASS_RATIO = 0.99;
 export const THROTTLE_BAND = [1.8, 2.2];     // x2 calibration / unthrottled calibration
-export const BUSY_FACTOR = 1.10;             // a cell's calibration vs the pass minimum
+export const BUSY_FACTOR = 1.10;             // a cell's calibration vs the pass reference (its median)
 export const REPEAT_EMU_RATIO = 0.95;
 export const REPEAT_HEADROOM = 1.10;
 
@@ -56,8 +56,10 @@ export function rateVerdict(m) {
 }
 
 // ctx: { base_calib_ms: the unthrottled pass's median calibration (x2 cells only),
-//        pass_min_calib_ms: the pass minimum, x2: bool, window_frames }
-// Returns { verdict: PASS|FAIL|INVALID, reason, m }.
+//        pass_ref_calib_ms: the pass's median calibration, x2: bool, window_frames }
+// Returns { verdict: PASS|FAIL|INVALID, reason, m }. An INVALID cell has m null, except
+// host_got_busier, which keeps its metrics and what the rate test would have said (`would`): the
+// run is not counted, but its numbers are still shown.
 export function judge(raw, ctx = {}) {
   const want = ctx.window_frames || WINDOW_FRAMES;
   const bad = (reason) => ({ verdict: 'INVALID', reason, m: null });
@@ -71,8 +73,10 @@ export function judge(raw, ctx = {}) {
     const r = raw.calib_ms / ctx.base_calib_ms;
     if (!(r >= THROTTLE_BAND[0] && r <= THROTTLE_BAND[1])) return bad('throttle_not_in_effect');
   }
-  if (ctx.pass_min_calib_ms && raw.calib_ms > BUSY_FACTOR * ctx.pass_min_calib_ms) return bad('host_got_busier');
   const m = metrics(raw);
+  if (ctx.pass_ref_calib_ms && raw.calib_ms > BUSY_FACTOR * ctx.pass_ref_calib_ms) {
+    return { verdict: 'INVALID', reason: 'host_got_busier', m, would: rateVerdict(m) };
+  }
   return { verdict: rateVerdict(m), reason: '-', m };
 }
 
@@ -109,6 +113,7 @@ const f = (v, d) => (Number.isFinite(v) ? v.toFixed(d) : 'nan');
 export function formatLine(c) {
   const m = c.m;
   const parts = [`config=${c.config}`, `program=${c.program}`, `verdict=${c.verdict}`, `reason=${c.reason || '-'}`];
+  if (c.would) parts.push(`would=${c.would}`);
   if (m) {
     parts.push(`frames=${m.frames}`, `wall_s=${f(m.wall_s, 3)}`, `refresh=${f(m.refresh, 3)}`,
                `emu_fps=${f(m.emu_fps, 2)}`, `shown_fps=${f(m.shown_fps, 2)}`,
@@ -135,7 +140,7 @@ export function speedLabel(raw) {
 export function markdownTable(results, programs, configs) {
   checkComplete(results, programs, configs);
   const by = new Map(results.map((r) => [r.config + '/' + r.program, r]));
-  const cell = (r) => (r.verdict === 'INVALID' ? `INVALID (${r.reason})`
+  const cell = (r) => (r.verdict === 'INVALID' ? `INVALID (${r.reason}${r.would ? '; would ' + r.would : ''})${r.m ? ' ' + f(r.m.ms_per_frame, 2) + ' ms/f ' + f(r.m.emu_fps, 1) + '/' + f(r.m.refresh, 1) : ''}`
     : `${r.verdict} ${f(r.m.ms_per_frame, 2)} ms/f ${f(r.m.emu_fps, 1)}/${f(r.m.refresh, 1)} p95 ${f(r.m.p95, 1)} ${r.speed ? 'x' + r.speed : ''}`.trim());
   const out = ['| program | ' + configs.join(' | ') + ' |', '|---|' + configs.map(() => '---|').join('')];
   for (const p of programs) out.push(`| ${p} | ` + configs.map((c) => cell(by.get(c + '/' + p))).join(' | ') + ' |');
