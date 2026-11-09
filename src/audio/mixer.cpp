@@ -49,7 +49,7 @@ void Mixer::reset()
     acc_l_ = acc_r_ = acc_cycles_ = 0;
 }
 
-void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+[[gnu::always_inline]] inline void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
                 int32_t& pcm_L, int32_t& pcm_R) const
 {
     // VHDL audio_mixer.vhd scaling (all values are 13-bit unsigned, 0-8191):
@@ -169,7 +169,7 @@ void Mixer::mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
     pcm_R = beeper_term + ay_R + dac_R + i2s_R;
 }
 
-void Mixer::accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+[[gnu::always_inline]] inline void Mixer::accumulate_impl_(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
                        uint32_t master_cycles)
 {
     if (master_cycles == 0) return;
@@ -183,13 +183,16 @@ void Mixer::accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& da
     acc_cycles_ += master_cycles;
 }
 
+void Mixer::accumulate(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint32_t master_cycles)
+{ accumulate_impl_(beeper, ts, dac, master_cycles); }
+
 void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Dac& dac)
 {
     accumulate(beeper, ts, dac, 1);
     emit_sample();
 }
 
-void Mixer::emit_sample()
+[[gnu::always_inline]] inline void Mixer::emit_sample_impl_()
 {
     // Nothing was accumulated for this sample — emit nothing rather than invent
     // a level. (The emulator always accumulates before emitting.)
@@ -245,6 +248,31 @@ void Mixer::emit_sample()
         int16_t pair[2] = { static_cast<int16_t>(sL), static_cast<int16_t>(sR) };
         if (record_callback_) record_callback_(pair, 1);
         if (capture_callback_) capture_callback_(pair, 1);
+    }
+}
+
+void Mixer::emit_sample() { emit_sample_impl_(); }
+
+void Mixer::integrate_span(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint64_t cycles,
+                           uint64_t& sample_accum, uint64_t threshold, void (*on_sample)(void*), void* ctx)
+{
+    // GH #452 - the HALT batch's replay of Emulator::advance_audio(): the same walk, in chunks that stop
+    // at each output-sample boundary, but for a whole span at once, and with the work of a boundary
+    // that is not the mixer's (the Pi's sample) handed back through `on_sample`. It has its own inlined
+    // copies of accumulate() and emit_sample(), so the device cluster's single caller of each keeps
+    // being the one the compiler inlines.
+    uint64_t remaining = cycles;
+    while (remaining > 0) {
+        const uint64_t need = (threshold - sample_accum + SAMPLE_RATE - 1) / SAMPLE_RATE;
+        const uint64_t take = std::min(remaining, need);
+        accumulate_impl_(beeper, ts, dac, static_cast<uint32_t>(take));
+        sample_accum += take * SAMPLE_RATE;
+        remaining -= take;
+        if (sample_accum >= threshold) {
+            sample_accum -= threshold;
+            emit_sample_impl_();
+            on_sample(ctx);
+        }
     }
 }
 

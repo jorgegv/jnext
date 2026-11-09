@@ -81,7 +81,7 @@ and no waits at the second.
 
 ## Frame start
 
-`run_frame()` (`src/core/emulator.cpp:10370`) opens with two steps that have to
+`run_frame()` (`src/core/emulator.cpp:10371`) opens with two steps that have to
 come before anything else. `service_esp_frame()` applies the replay gate and
 mirrors the ESP worker thread's state into the flag the hot path reads, and the
 rewind step modes get their chance to return early — if the debugger has asked
@@ -101,7 +101,7 @@ rather than start a fresh one. Calling `begin_new_frame()` in the middle of a
 frame would re-baseline the per-scanline change logs the compositor replays.
 The visible symptom is a frame that renders flat.
 
-`begin_new_frame()` (`src/core/emulator.cpp:9434`) does the following, in order:
+`begin_new_frame()` (`src/core/emulator.cpp:9435`) does the following, in order:
 
 1. Take a rewind snapshot, if rewind is enabled. Frame boundaries are chosen
    for this precisely because the scheduler queue is empty at that instant, so
@@ -154,7 +154,7 @@ A `.tzx` or `.wav` save also samples the tape-out level
 end of the frame; see
 [3.8](../03-subsystems/08-media-and-loaders.md).
 
-**Then `step_one_instruction()`** (`src/core/emulator.cpp:10940`), the one shared per-instruction
+**Then `step_one_instruction()`** (`src/core/emulator.cpp:10958`), the one shared per-instruction
 body. It picks exactly one of four things to do:
 
 - If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -163,6 +163,39 @@ body. It picks exactly one of four things to do:
   PC = 0 — advance by a NOP-sized step and execute nothing.
 - If a NEX boot hold is still counting down, likewise.
 - Otherwise, execute one Z80 instruction.
+
+**A HALT repeat is one slot too, and a run of them can be one slot.** FUSE's HALT
+leaves PC on the opcode, so a halted CPU re-fetches the `0x76` and burns one slot (4 T,
+5 T at 28 MHz from SRAM) in the whole body above, and in the device cluster below, for
+every repeat: most of the frame of a program that idles on `EI; HALT`. When
+`run_frame()` (and only `run_frame()`: a debugger Step is one repeat, always) executes a
+slot that was such a repeat, `halt_batch_after_slot_()` asks whether each further repeat would do
+exactly what this one did. The first repeat is always real, so every M1 hook, the fetch and
+the T-states come from the real path and no contention or wait formula is restated. The
+answer is yes only if the CPU actually ran the slot (not a DMA slot, a parked CPU or a boot hold), nothing observes the machine (no debugger, trace, rewind, RZX, tape),
+nothing is waiting for an instruction boundary (an `/INT`, an `/NMI`, a pending host NMI
+press, a CPU speed or contention commit), the DMA is idle or only waiting out its burst prescaler with the bus released, the UART and NMI source are idle and the IM2 fabric
+is quiescent (in either mode: with a device in `S_REQ` the `/INT` line is asserted and a request is pending, which refuses), the HALT page is not contended (with the NR 0x08 bit-6 contention shadow
+settled, since a page is uncontended only while the disable is in force) and the PC is not
+one the DivMMC automap, the esxDOS shim or the NMI vector react to. Then the slot absorbs `n - 1` more repeats (`Z80Cpu::repeat_halt()`: the
+T-state counter, `R` and the `execute()` serial, which is all `n - 1` more `execute()` calls
+change), where `n` is bounded to end before the next scheduler event (a scanline, the CVC
+reload, the frame end), the next interrupt request, the next CTC event, the opening of the DMA prescaler gate (`Dma::cycles_to_prescaler_gate()`) and the next Copper
+action (`Copper::idle_cycles()` from the Copper's own position, the same
+`copper_position_at_()` the Copper loop uses). The batched slot then runs the device cluster
+once, from the same call as every other slot, over the whole window; the PSG and the mixer are not
+split-invariant, so their part is replayed repeat by repeat in the same order first, and the cluster's
+own PSG and audio block is switched off for that one call. Nothing else about a batch is allowed into the
+loop or the cluster: a second caller of the cluster, or a flag the loop carries per slot, cost every slot of
+every program a percent in instructions under the WebAssembly build's clang, and the replay's own copies of the
+audio chain are kept byte-different from the originals (a counter) so that the link-time optimiser does not fold
+them back into one function with two callers. Every bound, and every gate whose absence changes what the machine
+does, is pinned by a row of `halt_batch_equiv_test` or `halt_batch_periph_test` whose mutation
+turns it red. A few gates are redundant with another and stay as explicit statements of the
+contract (an `/INT` pending implies a non-quiescent IM2 fabric; an armed debugger implies the
+memory gate). The DivMMC and Multiface flip-flop states are NOT gates: at a PC the automap
+does not react to by address, every transition of either converges within one M1 edge, which
+the real repeat already is, so a gate on their state was removed as provably redundant.
 
 Around that choice it also records the trace entry, notes what the end-of-slot
 interrupt tick will need (the instruction's T-states, its first edge, its opcode
@@ -175,7 +208,7 @@ stepping.
 
 **Then a data-breakpoint check**, which returns early if one fired.
 
-**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11626`), the
+**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11644`), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -220,7 +253,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13333`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13623`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

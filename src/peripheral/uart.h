@@ -609,9 +609,14 @@ public:
     /// attached and both channels idle, where the span only moves the edges
     /// on — is decided here, inline; tick_active() is the same span with
     /// something to do.
+    /// GH #452 - tick() is the plain linear advance of time_ (nothing attached, both channels
+    /// idle); a HALT repeat batch may span it.
+    bool tick_is_noop() const {
+        return !device_attached_ && channels_[0].tick_idle() && channels_[1].tick_idle();
+    }
+
     void tick(uint32_t master_cycles) {
-        if (!device_attached_ && channels_[0].tick_idle()
-                && channels_[1].tick_idle()) {
+        if (tick_is_noop()) {
             channels_[0].set_span_base(time_);
             channels_[1].set_span_base(time_);
             time_ += master_cycles;

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3178,7 +3178,7 @@ path, once, rather than to run a lot of anything.</p>
 <tbody>
 <tr>
 <td>boot-48k, boot-nextzxos, copper-demo, beast, bifrost</td>
-<td>the <code>make bench</code> workloads</td>
+<td>the five original <code>make bench</code> workloads</td>
 </tr>
 <tr>
 <td>parallax, trainyard-express, beanbros</td>
@@ -3475,8 +3475,11 @@ what ships. Then:</p>
   retrained, so a difference is the code's;</li>
 <li>to ask how fast the shipped binary is, use <code>build/gui-release/jnext</code>.</li>
 </ul>
-<p><strong><code>make bench</code>.</strong> <code>test/bench/bench.sh</code> runs the five canonical workloads
-(boot-48k, boot-nextzxos, copper-demo, beast, bifrost) through
+<p><strong><code>make bench</code>.</strong> <code>test/bench/bench.sh</code> runs the eight canonical workloads
+(boot-48k, boot-nextzxos, copper-demo, beast, bifrost, and the HALT-idle
+halt-idle-35, halt-idle-28 and ctc-dac-28, built from <code>demo/halt_bench</code>; each
+of those NEX sets its own CPU speed, because <code>--cpu-speed</code> does not survive a
+warm start) through
 <code>jnext --benchmark N</code>, which runs <em>N</em> frames headless and uncapped and prints a
 machine-readable <code>BENCH</code> line. It takes the median of five runs, pins them with
 <code>taskset</code> to the fastest core class (read from <code>scaling_max_freq</code>, never

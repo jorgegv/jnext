@@ -12,7 +12,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind                |      369 |      369 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind call stack     |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Copper                |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Copper                |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU (int)      |      137 |      137 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -112,6 +112,17 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Extended NEX streaming |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
 | TAP loader (container) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZIP program archives  |       76 |       76 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (fixtures) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (peripherals) |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (cold boot) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (NEX corpus 1/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (NEX corpus 2/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (NEX corpus 3/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (NEX corpus 4/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (NEX corpus 5/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (NEX corpus 6/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (NEX corpus 7/8) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (NEX corpus 8/8) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | TZX loader (container) |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tape SAVE TZX/WAV (GH #89) |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot IM latch (NR 0xC0) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -197,6 +208,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      271 |      271 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **15983**| **15983**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16097**| **16097**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

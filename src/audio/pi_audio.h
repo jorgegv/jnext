@@ -109,6 +109,9 @@ public:
     uint64_t idle_reads()      const { return idle_reads_.load(); }
     /// Frames buffered and not yet popped.
     uint32_t available() const { return head_.load() - tail_.load(); }
+    /// Test hook: put one frame in the ring as the reader thread would, with no FIFO and no thread
+    /// (so on every OS), for a stream a row can make fully deterministic.
+    void push_for_test(int16_t left, int16_t right) { push(left, right); }
 
 private:
     static constexpr std::size_t kHeader = 44;   ///< QEMU's WAV header

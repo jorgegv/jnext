@@ -85,6 +85,19 @@ public:
     /// levels are constant between accumulate() calls, so a sample straddling an
     /// instruction boundary gets each level weighted by how long it actually held.
     void emit_sample();
+    /// GH #452 - Emulator::advance_audio() for a whole span, for the HALT batch's audio replay: walks
+    /// `cycles` in chunks that stop at each output-sample boundary (`sample_accum` is the caller's
+    /// Bresenham accumulator, `threshold` its limit), accumulating and emitting as advance_audio() does,
+    /// and calls `on_sample(ctx)` after each emitted sample (the Pi's input is latched there).
+    /// Its own inlined copies of the two entry points above keep accumulate() / emit_sample() with
+    /// their one caller each (advance_audio(), inlined into the device cluster).
+    void integrate_span(const Beeper& beeper, const TurboSound& ts, const Dac& dac, uint64_t cycles,
+                        uint64_t& sample_accum, uint64_t threshold, void (*on_sample)(void*), void* ctx);
+private:
+    [[gnu::always_inline]] inline void accumulate_impl_(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+                                                        uint32_t master_cycles);
+    [[gnu::always_inline]] inline void emit_sample_impl_();
+public:
 
     /// Point-sample the current source states into one output sample.
     /// Equivalent to accumulate(..., 1) + emit_sample(). Retained for the unit
@@ -142,7 +155,7 @@ public:
 private:
     /// The VHDL 13-bit unsigned mix (audio_mixer.vhd:99-100) of the current
     /// source levels. Pure function of the sources — no state, no filtering.
-    void mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
+    [[gnu::always_inline]] inline void mix(const Beeper& beeper, const TurboSound& ts, const Dac& dac,
              int32_t& pcm_L, int32_t& pcm_R) const;
 
     // Box-filter accumulator: sum of (13-bit mix x master cycles held), and the
