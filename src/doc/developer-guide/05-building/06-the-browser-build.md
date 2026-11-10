@@ -14,8 +14,8 @@ by a pinned Emscripten SDK. One tree, `build/wasm-core`, links two modules:
   (WCORE-01 to WCORE-09) and `make regression-wasm` run it under node. The unit suites
   are separate modules, built in `build/wasm-unit-test`.
 - `jnext_web` (`jnext-<version>.js` and `.wasm`): the build a page loads, with the
-  example pages (`plain.html`, `itch-host.html`, `itch-game.html`) configured beside
-  it.
+  example pages (`plain.html`, `itch-host.html`, `itch-game.html`, `widget.html`) and
+  the ready-made widget (`jnext-widget.js`) configured beside it.
 
 Two preprocessor symbols mark browser-only code. `__EMSCRIPTEN__` is defined in
 both modules. `JNEXT_BROWSER` is a compile definition of `jnext_web` alone: it marks
@@ -37,7 +37,7 @@ the output of `git grep -n EMSCRIPTEN` over the CMake files.
 | `CMakeLists.txt` | `if(NOT EMSCRIPTEN)` around `src/remote` | No debugger protocol servers: a page has no sockets to serve on. |
 | `CMakeLists.txt` | `if(NOT EMSCRIPTEN)` around `src/script` | No script host. |
 | `CMakeLists.txt` | `if(EMSCRIPTEN)` after the `jnext` target | The node `jnext` links with `-sNODERAWFS=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1`. |
-| `CMakeLists.txt` | `if(EMSCRIPTEN)` around `jnext_web` | Defines the `jnext_web` target: `main.cpp`, `browser_frontend.cpp` and `web/web_controller.cpp`; `OUTPUT_NAME` `jnext-<version>`; `JNEXT_BROWSER=1`; the web link options (`-sENVIRONMENT=web`, `-sMODULARIZE=1`, `-sEXPORT_NAME=createJnextModule`, `-sINVOKE_RUN=0`, `-sEXIT_RUNTIME=0`, the exported runtime methods and functions, `-lidbfs.js`); the two `--extern-post-js` files, `web/jnext-image.js` then the configured `jnext_api.js`; and a `configure_file` of `jnext_api.js.in` and of each example page. |
+| `CMakeLists.txt` | `if(EMSCRIPTEN)` around `jnext_web` | Defines the `jnext_web` target: `main.cpp`, `browser_frontend.cpp` and `web/web_controller.cpp`; `OUTPUT_NAME` `jnext-<version>`; `JNEXT_BROWSER=1`; the web link options (`-sENVIRONMENT=web`, `-sMODULARIZE=1`, `-sEXPORT_NAME=createJnextModule`, `-sINVOKE_RUN=0`, `-sEXIT_RUNTIME=0`, the exported runtime methods and functions, `-lidbfs.js`); the two `--extern-post-js` files, `web/jnext-image.js` then the configured `jnext_api.js`; and a `configure_file` of `jnext_api.js.in`, of each example page and of `jnext-widget.js.in`. |
 | `src/core/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` around `find_package(PNG)` | No libpng package search: the port target above stands in. |
 | `src/core/CMakeLists.txt` | `elseif(EMSCRIPTEN)` in the network-library choice | No network library: `sdcard_provisioner_net_web.cpp` is self-contained (a portable SHA-256, no download). |
 | `src/platform/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` | `jnext_platform` does not link `jnext_remote` or `jnext_script`. |
@@ -54,7 +54,8 @@ Source files carry the same two symbols. The list below is the output of
   and keeping the application and the logging alive after `main()` returns.
 - `src/platform/sdl_app.cpp` and `sdl_app.h`: no script host; the stepped warm-start
   recording in `SdlApp::tick()` with its progress report; `release_mouse_capture()`, for
-  when the browser ends the pointer lock itself.
+  when the browser ends the pointer lock itself; `take_audio_fill_stats()`, the bench's
+  audio fill-events seam.
 - `src/platform/headless_app.cpp` and `headless_app.h`: no script host.
 - `src/platform/sdl_display.cpp`: the canvas is created as an OpenGL window and the
   page owns its size (window scale does nothing).

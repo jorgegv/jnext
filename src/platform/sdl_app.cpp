@@ -28,6 +28,16 @@
 #include <cmath>
 #include <ctime>
 
+// The ONE place this file sleeps (SdlApp::pacing_sleep): the frame loop's sleep goes through the test seam
+// (sdl_app.h, set_pacing_time_for_test), so SDLT-02 can prove tick() reports its sleep and never performs it.
+// A direct SDL sleep anywhere else in this file would bypass that seam, so the three SDL sleep names are poisoned
+// after this point (a compile error, not a quiet regression). This is a NAME guard: a sleep by other means
+// (std::this_thread, usleep) or one hidden in a callee defined in another file is out of its scope.
+static void real_sleep_ms(uint32_t ms) { SDL_Delay(ms); }
+#define SDL_Delay        DO_NOT_CALL_SDL_Delay_HERE_USE_pacing_sleep
+#define SDL_DelayNS      DO_NOT_CALL_SDL_DelayNS_HERE_USE_pacing_sleep
+#define SDL_DelayPrecise DO_NOT_CALL_SDL_DelayPrecise_HERE_USE_pacing_sleep
+
 bool SdlApp::init(int argc, char* argv[]) {
     // SDL3 SDL_Init returns bool (true = success); SDL2 returned 0 on
     // success and a negative on failure, so the SENSE of this test is
@@ -484,8 +494,16 @@ void SdlApp::run() {
     while (more) {
         uint32_t sleep_ms = 0;
         more = tick(sleep_ms);
-        if (sleep_ms > 0) SDL_Delay(sleep_ms);
+        if (sleep_ms > 0) pacing_sleep(sleep_ms);
     }
+}
+
+int64_t SdlApp::pacing_now_us() const {
+    return pacing_now_us_ ? pacing_now_us_() : static_cast<int64_t>(SDL_GetTicksNS() / 1000);
+}
+
+void SdlApp::pacing_sleep(uint32_t ms) const {
+    if (pacing_sleep_ms_) pacing_sleep_ms_(ms); else real_sleep_ms(ms);
 }
 
 #ifdef __EMSCRIPTEN__
@@ -868,7 +886,7 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
         // The deadline advances by the EXACT fractional period (frame_deadline.h, the Qt window's scheme): a whole
         // number of ms per tick ran 1.3% fast at 49.36 Hz and the audio pacer paid for it with a held picture every
         // ~1.6 s. The scheduler measures from now, at the end of the tick's work.
-        const int64_t now_us = static_cast<int64_t>(SDL_GetTicksNS() / 1000);
+        const int64_t now_us = pacing_now_us();
         const int64_t period_us = effective_frame_period_us();
         const int ms = frame_sched_anchored_ ? frame_sched_.next_interval_ms(now_us, period_us)
                                              : frame_sched_.rebase(now_us, period_us);
