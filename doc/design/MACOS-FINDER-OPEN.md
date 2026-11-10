@@ -27,13 +27,15 @@ so the Finder did not offer JNext for any Spectrum file.
 | the open starts JNext (double-click, Open With, Dock drop on a closed app) | the file loads straight away, exactly as File > Load NEX File… would (cold boot, NEX V1.3 warning, archive picker, Recent Files) |
 | JNext is already running | the window comes forward and asks *Open "name"? Whatever is running now will be lost.* with **Open** / **Cancel**. Cancel is the default and the Esc button, and leaves the machine untouched |
 | an unattended run (`--delayed-automatic-exit`, a script) | nothing is asked and nothing is loaded; the open is logged |
+| another open arrives while the question is up (the dialog's event loop delivers it) | it is dropped and logged; the question already on screen is not stacked with a second one |
+| several files opened at once at launch | each loads in turn; the last one is what runs |
 
 Registered document types (`packaging/macos/Info.plist.in`):
 
 | type | extensions | role | rank |
 |------|-----------|------|------|
 | jnext snapshot (exported UTI `io.github.zxjogv.jnext.jns`) | `.jns` | Editor | **Owner**: JNext's own format, so JNext is its default app |
-| Spectrum program (imported UTIs `io.github.zxjogv.jnext.<ext>`) | `.nex .sna .szx .z80 .tap .tzx .rzx` | Viewer | Alternate |
+| Spectrum program (by extension, `CFBundleTypeExtensions`) | `.nex .sna .szx .z80 .tap .tzx .rzx` | Viewer | Alternate |
 | ZIP archive (`public.zip-archive`) | `.zip` | Viewer | Alternate |
 | WAV audio (`com.microsoft.waveform-audio`) | `.wav` | Viewer | Alternate |
 
@@ -41,6 +43,19 @@ Alternate rank lists JNext under Open With and makes it choosable as the
 default, but never takes a type over from the user's own choice (another
 emulator, Archive Utility, a media player). `.pok` is not registered: a
 trainer applies to a program that is already loaded, not to a fresh machine.
+
+The Spectrum formats are matched **by extension**, not by declaring type
+identifiers for them. A first version declared imported UTIs
+(`io.github.zxjogv.jnext.nex` and so on). That made every such file resolve to
+JNext's identifier, and it broke an association the user had already made: a
+user preference for `.nex`, which LaunchServices stores against the extension,
+stopped applying, and another emulator that claims `.nex` by extension became
+the default instead. Matching by extension holds whatever identifier a file
+resolves to, and it is what other emulators do. Measured with
+`NSWorkspace.urlsForApplications(toOpen:)` on a Mac with one such emulator
+installed: JNext is offered for every registered extension, and the user's
+existing choice keeps working. `.jns` keeps an exported identifier, because no
+other application reads it.
 
 ## 3. Design
 
@@ -59,12 +74,14 @@ trainer applies to a program that is already loaded, not to a fresh machine.
   `ConfirmDesktopOpenCallback`, the pattern of `set_confirm_restart_callback()`;
   the real `QMessageBox` when unset), then calls `handle_load_path()`, the
   route File > Load and Recent Files already share. Every format rule, refusal
-  and dialog therefore applies unchanged.
+  and dialog therefore applies unchanged. `desktop_open_asking_` is set while
+  the question is up, so an open delivered by the question's own event loop is
+  dropped rather than stacking a second question.
 * **`QtApp`** installs the filter before `exec()` and stamps
   `loop_started_` immediately before entering it.
 * **CMake** points `MACOSX_BUNDLE_INFO_PLIST` at the template, which is
-  CMake's own `MacOSXBundleInfo.plist.in` plus `CFBundleDocumentTypes`,
-  `UTExportedTypeDeclarations` and `UTImportedTypeDeclarations`. It only takes
+  CMake's own `MacOSXBundleInfo.plist.in` plus `CFBundleDocumentTypes` and
+  `UTExportedTypeDeclarations` (for `.jns`). It only takes
   effect with `-DMACOS_APP_BUNDLE=ON` (the `.dmg` build).
 
 ## 4. Tests
@@ -76,19 +93,27 @@ at its load callback, the seam the frontend's cold boot hangs off):
 |-----|---------|
 | DOP-01 | `at_launch()` at -1, 0 and window-1 ms is the launch; at the window it is not |
 | DOP-02 | a `QFileOpenEvent` sent to the application reaches the handler with its file, consumed |
-| DOP-03 | any other event passes the filter untouched |
+| DOP-03 | any other event passes the filter untouched: it reaches its target |
 | DOP-04 | at launch: loads with no question |
 | DOP-05 | running, answer Cancel: asked about this file, nothing loaded |
 | DOP-06 | running, answer Open: the file loads |
 | DOP-07 | running unattended: asks nobody, loads nothing |
 | DOP-08 | the real dialog: Cancel is default and Esc button; Esc loads nothing |
 | DOP-09 | the real dialog: Open loads the file |
+| DOP-10 | an open arriving while the question is up is dropped, not stacked; the next one asks |
 
 Discrimination: without the feature the suite does not compile (neither the
-filter nor `open_from_desktop()` exists). With the question disabled
-(`open_from_desktop()` always loading), DOP-05..09 fail.
+filter nor `open_from_desktop()` exists). Each mutant below was built and run:
+
+| mutant | rows that fail |
+|--------|----------------|
+| `open_from_desktop()` never asks | DOP-05..09 |
+| the filter consumes every event | DOP-03 |
+| no `desktop_open_asking_` guard | DOP-10 |
 
 The `Info.plist` entries and the Apple Event delivery are outside any suite;
 they were checked by hand on macOS with a `-DMACOS_APP_BUNDLE=ON` build:
 `open -a jnext.app file.nex` with JNext closed (loads with no question) and
-with it running (asks).
+with it running (asks; Cancel keeps the program, Open reloads), and the Open
+With lists above. The `QtApp` wiring (the filter's lambda, the `loop_started_`
+stamp) is reachable only through that path.
