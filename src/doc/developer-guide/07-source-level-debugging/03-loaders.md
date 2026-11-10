@@ -140,7 +140,7 @@ attaches pending, and the loop owner watches it once per tick with
 **Without one** (`1` and `2`). There is no program to judge a map by, so only the map of a z88dk
 dot command is accepted. Each loop owner makes the load once, at start-up, before
 `ScriptHost::start()`, so a `file:line` rule in a script resolves
-(the guard is `source_map_no_program`: `headless_app.cpp:79-90`, `src/platform/sdl_app.cpp:257`, `gui/qt_app.cpp:352`). The call is
+(the guard is `source_map_no_program`: `headless_app.cpp:79-90`, `src/platform/sdl_app.cpp:264`, `gui/qt_app.cpp:352`). The call is
 `emulator_attach_cli_source_map(dbg, file, deferred = false, dot_only = true, rzx = (case 2))`,
 which passes `dot_only` to `load_source_map()`. After the adapter has parsed the file,
 `dot_only && !candidate.dot()` returns `SourceMapLoad::not_dot` with the error "it is not the map
