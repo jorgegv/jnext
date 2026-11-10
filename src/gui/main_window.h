@@ -587,6 +587,9 @@ private:
     RebootCallback   reboot_callback_;
     ConfirmRestartCallback confirm_restart_callback_;
     ConfirmDesktopOpenCallback confirm_desktop_open_callback_;
+    /// open_from_desktop() is asking: the question's own event loop can
+    /// deliver another desktop open, which must not stack a second question.
+    bool desktop_open_asking_ = false;
     EspConfigCallback esp_config_callback_;
 
     // Kempston-mouse host adapter (G43). Mirrors SdlApp's wiring pattern;

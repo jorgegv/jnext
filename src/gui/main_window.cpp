@@ -1706,8 +1706,15 @@ void MainWindow::open_from_desktop(const QString& path, bool at_launch) {
             Log::platform()->warn("desktop open of {} ignored: unattended run", path.toStdString());
             return;
         }
+        if (desktop_open_asking_) {
+            Log::platform()->warn("desktop open of {} ignored: already asking about another file",
+                                  path.toStdString());
+            return;
+        }
+        desktop_open_asking_ = true;
         const bool load = confirm_desktop_open_callback_ ? confirm_desktop_open_callback_(path)
                                                          : confirm_desktop_open_dialog(path);
+        desktop_open_asking_ = false;
         if (!load) return;
     }
     Log::platform()->info("desktop open: {}{}", path.toStdString(), at_launch ? " (at launch)" : "");

@@ -143,10 +143,15 @@ int main(int argc, char** argv)
         const bool consumed = QApplication::sendEvent(&app, &fe);
         check("DOP-02", "a QFileOpenEvent sent to the application reaches the handler with its file, consumed",
               consumed && got.size() == 1 && got[0] == tap);
-        QObject target;
+        // A filter that wrongly ate every event would keep it from its target.
+        struct Target : QObject {
+            int seen = 0;
+            bool event(QEvent* e) override { if (e->type() == QEvent::User) ++seen; return QObject::event(e); }
+        } target;
         QEvent other(QEvent::User);
         QApplication::sendEvent(&target, &other);
-        check("DOP-03", "any other event passes the filter untouched", got.size() == 1);
+        check("DOP-03", "any other event passes the filter untouched: it reaches its target, handler not called",
+              target.seen == 1 && got.size() == 1);
         app.removeEventFilter(&filter);
     }
     {   // DOP-04
@@ -188,6 +193,24 @@ int main(int argc, char** argv)
         DialogWatcher w(/*open=*/true);
         f.win.open_from_desktop(tap, false);
         check("DOP-09", "the real question: Open loads the file", w.saw_modal && f.loads.size() == 1);
+    }
+
+    {   // DOP-10
+        Fixture f;
+        f.answer = true;
+        const QString other = cfgdir.filePath(QStringLiteral("other.tap"));
+        // A second open delivered while the first question is up (its event
+        // loop runs): the callback stands in for that nested delivery.
+        f.win.set_confirm_desktop_open_callback([&](const QString& p) {
+            f.asked.push_back(p);
+            if (f.asked.size() == 1) f.win.open_from_desktop(other, false);
+            return true;
+        });
+        f.win.open_from_desktop(tap, false);
+        f.win.open_from_desktop(tap, false);   // the question is over: asks again
+        check("DOP-10", "an open arriving while the question is up is dropped, not stacked; the next one asks",
+              f.asked.size() == 2 && f.asked[0] == tap && f.asked[1] == tap && f.loads.size() == 2,
+              std::to_string(f.asked.size()) + " asked, " + std::to_string(f.loads.size()) + " loaded");
     }
 
     std::printf("\n==============================================\n");
