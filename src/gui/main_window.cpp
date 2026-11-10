@@ -1696,6 +1696,37 @@ void MainWindow::rebuild_recent_menu() {
     });
 }
 
+void MainWindow::open_from_desktop(const QString& path, bool at_launch) {
+    // The Finder brought JNext to the front; bring the window with it.
+    if (isMinimized()) showNormal();
+    raise();
+    activateWindow();
+    if (!at_launch) {
+        if (unattended_) {   // no dialog, as every other dialog here
+            Log::platform()->warn("desktop open of {} ignored: unattended run", path.toStdString());
+            return;
+        }
+        const bool load = confirm_desktop_open_callback_ ? confirm_desktop_open_callback_(path)
+                                                         : confirm_desktop_open_dialog(path);
+        if (!load) return;
+    }
+    Log::platform()->info("desktop open: {}{}", path.toStdString(), at_launch ? " (at launch)" : "");
+    handle_load_path(path);
+}
+
+bool MainWindow::confirm_desktop_open_dialog(const QString& path) {
+    QMessageBox box(QMessageBox::Question, tr("Open File"),
+                    tr("Open \"%1\"?").arg(QFileInfo(path).fileName()),
+                    QMessageBox::NoButton, this);
+    box.setInformativeText(tr("Whatever is running now will be lost."));
+    QPushButton* open = box.addButton(tr("Open"), QMessageBox::AcceptRole);
+    QPushButton* cancel = box.addButton(QMessageBox::Cancel);
+    box.setDefaultButton(cancel);
+    box.setEscapeButton(cancel);
+    box.exec();
+    return box.clickedButton() == open;
+}
+
 void MainWindow::on_recent_file(const QString& path) {
     if (!QFileInfo::exists(path)) {
         recent_files::List list = recent_list(app_config_.data().recent_files);

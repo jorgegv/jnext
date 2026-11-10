@@ -1055,6 +1055,7 @@ my %NO_MATRIX_SECTION = (
     # core has no loader and no dialog, so there is nothing to cite. The
     # policy predicate/probe/enforcement rows live in nex_loader_test.
     'nex_v13_dialog_test' => 'experimental NEX V1.3 warning dialog (GUI), no core counterpart',
+    'desktop_open_test'   => 'files the desktop (macOS Finder) opens with JNext (host GUI), no core counterpart',
 
     # ── POK trainer files ────────────────────────────────────────────
     # GH #381. The oracle is the World of Spectrum POKformat.txt (a host file

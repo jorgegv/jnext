@@ -19,6 +19,7 @@
 #include "platform/speed_report.h"
 #include "platform/sdl_audio.h"
 #include "core/log.h"
+#include "gui/desktop_open.h"
 #include "debug/source_file.h"   // GH #344: program_loads_later
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
@@ -467,6 +468,18 @@ bool QtApp::init(int argc, char* argv[]) {
             config_set_               = true;
         });
 
+    // Files the Finder opens with JNext (doc/design/MACOS-FINDER-OPEN.md):
+    // installed before the event loop, which is where the launch open arrives.
+    qapp_->installEventFilter(new desktop_open::FileOpenFilter(
+        [this](const QString& path) {
+            qint64 ms = -1;
+            if (loop_started_)
+                ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - *loop_started_).count();
+            if (main_window_) main_window_->open_from_desktop(path, desktop_open::at_launch(ms));
+        },
+        qapp_));
+
     main_window_->show();
 
     // Re-apply scale after the window is mapped so devicePixelRatio is correct.
@@ -513,6 +526,7 @@ int QtApp::run() {
         exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
     else if (main_window_ && !rzx_play_file_.empty())
         main_window_->startup_rzx_started(rzx_play_file_);   // GH #406: --load x.rzx joins Recent Files
+    loop_started_ = std::chrono::steady_clock::now();   // desktop_open::at_launch()
     return qapp_->exec();
 }
 
