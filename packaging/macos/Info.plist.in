@@ -34,7 +34,10 @@
 	     the Dock icon); they arrive as a QFileOpenEvent (src/gui/desktop_open.h).
 	     .jns is JNext's own snapshot format, so JNext owns it. Every other format
 	     is shared with other emulators: Alternate rank lists JNext under Open With
-	     and never takes a type over from the user's default application.
+	     and never takes a type over from the user's default application. The
+	     Spectrum formats match by extension, not by a type identifier: another
+	     app may already have given .tap or .nex an identifier of its own, and an
+	     extension match holds whichever one the file resolves to.
 	     doc/design/MACOS-FINDER-OPEN.md. -->
 	<key>CFBundleDocumentTypes</key>
 	<array>
@@ -57,15 +60,15 @@
 			<string>Viewer</string>
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
-			<key>LSItemContentTypes</key>
+			<key>CFBundleTypeExtensions</key>
 			<array>
-				<string>io.github.zxjogv.jnext.nex</string>
-				<string>io.github.zxjogv.jnext.sna</string>
-				<string>io.github.zxjogv.jnext.szx</string>
-				<string>io.github.zxjogv.jnext.z80</string>
-				<string>io.github.zxjogv.jnext.tap</string>
-				<string>io.github.zxjogv.jnext.tzx</string>
-				<string>io.github.zxjogv.jnext.rzx</string>
+				<string>nex</string>
+				<string>sna</string>
+				<string>szx</string>
+				<string>z80</string>
+				<string>tap</string>
+				<string>tzx</string>
+				<string>rzx</string>
 			</array>
 		</dict>
 		<dict>
@@ -109,128 +112,6 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>jns</string>
-				</array>
-			</dict>
-		</dict>
-	</array>
-	<key>UTImportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>io.github.zxjogv.jnext.nex</string>
-			<key>UTTypeDescription</key>
-			<string>NEX program</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>nex</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>io.github.zxjogv.jnext.sna</string>
-			<key>UTTypeDescription</key>
-			<string>SNA snapshot</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>sna</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>io.github.zxjogv.jnext.szx</string>
-			<key>UTTypeDescription</key>
-			<string>SZX snapshot</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>szx</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>io.github.zxjogv.jnext.z80</string>
-			<key>UTTypeDescription</key>
-			<string>Z80 snapshot</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>z80</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>io.github.zxjogv.jnext.tap</string>
-			<key>UTTypeDescription</key>
-			<string>TAP tape image</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>tap</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>io.github.zxjogv.jnext.tzx</string>
-			<key>UTTypeDescription</key>
-			<string>TZX tape image</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>tzx</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>io.github.zxjogv.jnext.rzx</string>
-			<key>UTTypeDescription</key>
-			<string>RZX input recording</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>rzx</string>
 				</array>
 			</dict>
 		</dict>
