@@ -30,10 +30,13 @@
 
 // The ONE place this file sleeps (SdlApp::pacing_sleep): the frame loop's sleep goes through the test seam
 // (sdl_app.h, set_pacing_time_for_test), so SDLT-02 can prove tick() reports its sleep and never performs it.
-// A direct SDL_Delay anywhere else in this file would bypass that seam, so the name is poisoned after this point
-// (a compile error, not a quiet regression).
+// A direct SDL sleep anywhere else in this file would bypass that seam, so the three SDL sleep names are poisoned
+// after this point (a compile error, not a quiet regression). This is a NAME guard: a sleep by other means
+// (std::this_thread, usleep) or one hidden in a callee defined in another file is out of its scope.
 static void real_sleep_ms(uint32_t ms) { SDL_Delay(ms); }
-#define SDL_Delay DO_NOT_CALL_SDL_Delay_HERE_USE_pacing_sleep
+#define SDL_Delay        DO_NOT_CALL_SDL_Delay_HERE_USE_pacing_sleep
+#define SDL_DelayNS      DO_NOT_CALL_SDL_DelayNS_HERE_USE_pacing_sleep
+#define SDL_DelayPrecise DO_NOT_CALL_SDL_DelayPrecise_HERE_USE_pacing_sleep
 
 bool SdlApp::init(int argc, char* argv[]) {
     // SDL3 SDL_Init returns bool (true = success); SDL2 returned 0 on

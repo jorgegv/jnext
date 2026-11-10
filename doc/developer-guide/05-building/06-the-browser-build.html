@@ -3063,7 +3063,7 @@ the output of <code>git grep -n EMSCRIPTEN</code> over the CMake files.</p>
 <tr>
 <td><code>CMakeLists.txt</code></td>
 <td><code>if(EMSCRIPTEN)</code> around <code>jnext_web</code></td>
-<td>Defines the <code>jnext_web</code> target: <code>main.cpp</code>, <code>browser_frontend.cpp</code> and <code>web/web_controller.cpp</code>; <code>OUTPUT_NAME</code> <code>jnext-&lt;version&gt;</code>; <code>JNEXT_BROWSER=1</code>; the web link options (<code>-sENVIRONMENT=web</code>, <code>-sMODULARIZE=1</code>, <code>-sEXPORT_NAME=createJnextModule</code>, <code>-sINVOKE_RUN=0</code>, <code>-sEXIT_RUNTIME=0</code>, the exported runtime methods and functions, <code>-lidbfs.js</code>); the two <code>--extern-post-js</code> files, <code>web/jnext-image.js</code> then the configured <code>jnext_api.js</code>; and a <code>configure_file</code> of <code>jnext_api.js.in</code> and of each example page.</td>
+<td>Defines the <code>jnext_web</code> target: <code>main.cpp</code>, <code>browser_frontend.cpp</code> and <code>web/web_controller.cpp</code>; <code>OUTPUT_NAME</code> <code>jnext-&lt;version&gt;</code>; <code>JNEXT_BROWSER=1</code>; the web link options (<code>-sENVIRONMENT=web</code>, <code>-sMODULARIZE=1</code>, <code>-sEXPORT_NAME=createJnextModule</code>, <code>-sINVOKE_RUN=0</code>, <code>-sEXIT_RUNTIME=0</code>, the exported runtime methods and functions, <code>-lidbfs.js</code>); the two <code>--extern-post-js</code> files, <code>web/jnext-image.js</code> then the configured <code>jnext_api.js</code>; and a <code>configure_file</code> of <code>jnext_api.js.in</code>, of each example page and of <code>jnext-widget.js.in</code>.</td>
 </tr>
 <tr>
 <td><code>src/core/CMakeLists.txt</code></td>
