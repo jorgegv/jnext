@@ -66,6 +66,20 @@ when you rebuild a program and want to run it again. **Clear Recent Files** empt
 File…** open with the file you loaded last selected when it is still in the
 folder they open in.
 
+## Opening files from the Finder (macOS)
+
+On a Mac, JNEXT opens the files you hand it from the Finder: double-click a
+`.jns` snapshot (JNEXT's own format, so JNEXT is its default application), or
+use **Open With** on a `.nex`, `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.rzx`,
+`.wav` or `.zip`. To make JNEXT open one of those on a double-click, select a
+file, choose **File > Get Info**, pick JNEXT under **Open with** and click
+**Change All…**. Dropping a file on JNEXT's Dock icon works the same way.
+
+If that starts JNEXT, the file loads straight away, as **File > Load NEX File…**
+would, and joins **File > Recent Files**. If JNEXT is already running, it asks
+first, because whatever is running now would be lost; **Cancel** is the default
+and leaves the machine as it was.
+
 ## Programs in ZIP archives
 
 A program downloaded as `game.tap.zip` or `game.nex.zip` loads without

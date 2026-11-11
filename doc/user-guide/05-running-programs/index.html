@@ -4170,6 +4170,17 @@ when you rebuild a program and want to run it again. <strong>Clear Recent Files<
 <code>~/.jnext/jnext.conf</code> (<code>[recent] files</code>), and <strong>Load NEX File…</strong> and <strong>Open Tape
 File…</strong> open with the file you loaded last selected when it is still in the
 folder they open in.</p>
+<h2 id="opening-files-from-the-finder-macos">Opening files from the Finder (macOS)<a class="headerlink" href="#opening-files-from-the-finder-macos" title="Permanent link">&para;</a></h2>
+<p>On a Mac, JNEXT opens the files you hand it from the Finder: double-click a
+<code>.jns</code> snapshot (JNEXT's own format, so JNEXT is its default application), or
+use <strong>Open With</strong> on a <code>.nex</code>, <code>.sna</code>, <code>.szx</code>, <code>.z80</code>, <code>.tap</code>, <code>.tzx</code>, <code>.rzx</code>,
+<code>.wav</code> or <code>.zip</code>. To make JNEXT open one of those on a double-click, select a
+file, choose <strong>File &gt; Get Info</strong>, pick JNEXT under <strong>Open with</strong> and click
+<strong>Change All…</strong>. Dropping a file on JNEXT's Dock icon works the same way.</p>
+<p>If that starts JNEXT, the file loads straight away, as <strong>File &gt; Load NEX File…</strong>
+would, and joins <strong>File &gt; Recent Files</strong>. If JNEXT is already running, it asks
+first, because whatever is running now would be lost; <strong>Cancel</strong> is the default
+and leaves the machine as it was.</p>
 <h2 id="programs-in-zip-archives">Programs in ZIP archives<a class="headerlink" href="#programs-in-zip-archives" title="Permanent link">&para;</a></h2>
 <p>A program downloaded as <code>game.tap.zip</code> or <code>game.nex.zip</code> loads without
 unzipping it, from the command line (<code>jnext game.tap.zip</code>) and from <strong>File &gt;
