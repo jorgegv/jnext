@@ -153,8 +153,7 @@ bool EsxdosHostFs::validate_root(const std::string& root, std::string& error,
     return true;
 }
 
-bool EsxdosHostFs::configure(const std::string& root, bool writable,
-                             std::string& error)
+void EsxdosHostFs::clear()
 {
     for (auto& f : files_) { if (f.stream.is_open()) f.stream.close(); f = FileHandle{}; }
     for (auto& d : dirs_)  d = DirHandle{};
@@ -162,6 +161,12 @@ bool EsxdosHostFs::configure(const std::string& root, bool writable,
     active_ = false;
     writable_ = false;
     root_.clear();
+}
+
+bool EsxdosHostFs::configure(const std::string& root, bool writable,
+                             std::string& error)
+{
+    clear();
 
     fs::path canonical;
     if (!validate_root(root, error, &canonical)) return false;

@@ -459,12 +459,15 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Answer a few RST $08 esxDOS calls (version, one in-memory\n"
       "file, .RUN sibling NEX) for any program; a directly loaded\n"
-      "NEX gets more automatically. Not for use with NextZXOS" },
+      "NEX gets more automatically, and with no --esxdos-stub-root\n"
+      "its own directory is served read-only. Not for use with\n"
+      "NextZXOS" },
     { "--esxdos-stub-root", 1, Doc::Documented, OptId::EsxdosStubRoot,
       "DIR",
       "Serve host directory DIR to the guest through the esxDOS\n"
       "file and directory calls, instead of the single in-memory\n"
-      "file. Implies --esxdos-stub. Read-only unless\n"
+      "file. Overrides the default root, the directory of the\n"
+      "loaded NEX. Implies --esxdos-stub. Read-only unless\n"
       "--esxdos-stub-writable is also given.\n"
       "SEEN BY: a NEX loaded with --load, and dot commands.\n"
       "NOT SEEN BY: NextZXOS - its Browser, file selector, BASIC\n"
@@ -475,7 +478,7 @@ inline constexpr Option OPTIONS[] = {
     { "--esxdos-stub-writable", 0, Doc::Documented, OptId::EsxdosStubWritable,
       "",
       "Allow the guest to create, truncate and write files under\n"
-      "--esxdos-stub-root. Off by default: a guest write is a real\n"
+      "--esxdos-stub-root (or the NEX's directory). Off by default: a guest write is a real\n"
       "host side effect, and rewinding the emulator cannot undo it" },
     { "--rtc", 1, Doc::Documented, OptId::Rtc,
       "\"YYYY-MM-DD HH:MM:SS\"",
