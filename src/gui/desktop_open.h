@@ -20,7 +20,9 @@
 #include <QObject>
 #include <QString>
 
+#include <chrono>
 #include <functional>
+#include <optional>
 #include <utility>
 
 namespace desktop_open {
@@ -32,6 +34,14 @@ inline constexpr qint64 kLaunchWindowMs = 3000;
 constexpr bool at_launch(qint64 ms_since_loop_start)
 {
     return ms_since_loop_start < kLaunchWindowMs;
+}
+
+/// Milliseconds from `loop_started` to `now`; -1 when the loop has not started.
+inline qint64 ms_since_loop_start(const std::optional<std::chrono::steady_clock::time_point>& loop_started,
+                                  std::chrono::steady_clock::time_point now)
+{
+    if (!loop_started) return -1;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(now - *loop_started).count();
 }
 
 /// Installed on the QApplication: hands every QFileOpenEvent's file to

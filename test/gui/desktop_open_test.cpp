@@ -26,7 +26,11 @@
 #include <QTemporaryDir>
 #include <QTimer>
 
+#include <chrono>
 #include <cstdio>
+#include <fstream>
+#include <optional>
+#include <sstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -54,6 +58,20 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
         if (!detail.empty()) std::printf(" [%s]", detail.c_str());
         std::printf("\n");
     }
+}
+
+std::string code_of(const char* path)   // a source file, line comments removed
+{
+    std::ifstream in(path);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    std::string code, line;
+    std::istringstream ls(ss.str());
+    while (std::getline(ls, line)) {
+        const size_t c = line.find("//");
+        code += (c == std::string::npos ? line : line.substr(0, c)) + "\n";
+    }
+    return code;
 }
 
 struct Fixture {
@@ -211,6 +229,38 @@ int main(int argc, char** argv)
         check("DOP-10", "an open arriving while the question is up is dropped, not stacked; the next one asks",
               f.asked.size() == 2 && f.asked[0] == tap && f.asked[1] == tap && f.loads.size() == 2,
               std::to_string(f.asked.size()) + " asked, " + std::to_string(f.loads.size()) + " loaded");
+    }
+
+    // DOP-11
+    {
+        using clk = std::chrono::steady_clock;
+        const clk::time_point t0 = clk::time_point(std::chrono::seconds(100));
+        check("DOP-11", "ms_since_loop_start: unset is -1 (the launch); set is the elapsed milliseconds",
+              desktop_open::ms_since_loop_start(std::nullopt, t0) == -1 &&
+                  desktop_open::ms_since_loop_start(t0, t0) == 0 &&
+                  desktop_open::ms_since_loop_start(t0, t0 + std::chrono::milliseconds(2500)) == 2500);
+    }
+
+    // DOP-12..14: the QtApp wiring, reachable only through the Apple Event, so
+    // pinned by reading the source (as color_scheme_test CS-23 does).
+    {
+        const std::string code = code_of(JNEXT_QT_APP_CPP);
+        const size_t init = code.find("bool QtApp::init(");
+        const size_t inst = code.find("qapp_->installEventFilter(new desktop_open::FileOpenFilter(", init);
+        const size_t win = code.find("main_window_->show();", init);
+        const size_t run = code.find("int QtApp::run(");
+        const size_t stamp = code.find("loop_started_ = std::chrono::steady_clock::now();", run);
+        const size_t exec = code.find("return qapp_->exec();", run);
+        const size_t hand = code.find("desktop_open::at_launch(", inst);
+        const size_t ms = code.find("desktop_open::ms_since_loop_start(loop_started_,", inst);
+        check("DOP-12", "QtApp::init() installs the FileOpenFilter on the QApplication, before the window is shown (source check)",
+              init != std::string::npos && inst != std::string::npos && win != std::string::npos &&
+                  inst < win);
+        check("DOP-13", "QtApp::run() stamps loop_started_ before entering the event loop (source check)",
+              run != std::string::npos && stamp != std::string::npos && exec != std::string::npos &&
+                  stamp < exec);
+        check("DOP-14", "the FileOpenFilter handler passes at_launch() the time since loop_started_ (source check)",
+              ms != std::string::npos && hand != std::string::npos && ms < hand && hand < win);
     }
 
     std::printf("\n==============================================\n");

@@ -472,10 +472,7 @@ bool QtApp::init(int argc, char* argv[]) {
     // installed before the event loop, which is where the launch open arrives.
     qapp_->installEventFilter(new desktop_open::FileOpenFilter(
         [this](const QString& path) {
-            qint64 ms = -1;
-            if (loop_started_)
-                ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                         std::chrono::steady_clock::now() - *loop_started_).count();
+            const qint64 ms = desktop_open::ms_since_loop_start(loop_started_, std::chrono::steady_clock::now());
             if (main_window_) main_window_->open_from_desktop(path, desktop_open::at_launch(ms));
         },
         qapp_));

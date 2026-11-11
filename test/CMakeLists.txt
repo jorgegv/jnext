@@ -1704,6 +1704,9 @@ if(ENABLE_QT_UI)
     add_executable(desktop_open_test gui/desktop_open_test.cpp)
     target_link_libraries(desktop_open_test PRIVATE jnext_gui)
     target_include_directories(desktop_open_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # DOP-12..14 read QtApp::init() / run() from the source tree.
+    target_compile_definitions(desktop_open_test PRIVATE
+        JNEXT_QT_APP_CPP="${CMAKE_SOURCE_DIR}/src/gui/qt_app.cpp")
     add_test(NAME desktop_open_tests COMMAND desktop_open_test)
 
     # GH #381 - Machine > POK Trainers...: the real menu action, file picker,
