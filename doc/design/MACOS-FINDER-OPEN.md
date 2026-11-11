@@ -1,7 +1,7 @@
 # Opening Files From the Finder (macOS)
 
 > Status: **implemented** (Qt frontend; the document types are macOS-only).
-> Tests: `test/gui/desktop_open_test.cpp`, rows DOP-01..09.
+> Tests: `test/gui/desktop_open_test.cpp`, rows DOP-01..14.
 
 ## 1. Use case
 
@@ -26,7 +26,7 @@ so the Finder did not offer JNext for any Spectrum file.
 |-----------|--------------|
 | the open starts JNext (double-click, Open With, Dock drop on a closed app) | the file loads straight away, exactly as File > Load NEX File… would (cold boot, NEX V1.3 warning, archive picker, Recent Files) |
 | JNext is already running | the window comes forward and asks *Open "name"? Whatever is running now will be lost.* with **Open** / **Cancel**. Cancel is the default and the Esc button, and leaves the machine untouched |
-| an unattended run (`--delayed-automatic-exit`, a script) | nothing is asked and nothing is loaded; the open is logged |
+| an unattended run (`--delayed-automatic-exit`, a script) | at launch the file loads, as `--load` would in a scripted run; in an already-running JNext nothing is asked and nothing is loaded, and the open is logged |
 | another open arrives while the question is up (the dialog's event loop delivers it) | it is dropped and logged; the question already on screen is not stacked with a second one |
 | several files opened at once at launch | each loads in turn; the last one is what runs |
 
@@ -64,6 +64,8 @@ other application reads it.
     hands each `QFileOpenEvent::file()` to a handler and consumes the event.
     It is installed on every platform; only macOS ever sends the event, and
     that keeps the filter reachable by the Linux suites.
+  * `ms_since_loop_start(loop_started, now)`: the elapsed milliseconds, -1
+    when the loop has not started.
   * `at_launch(ms_since_loop_start)`: true before the event loop starts and
     for `kLaunchWindowMs` (3 s) after. LaunchServices delivers the launch open
     as the loop starts (Qt's `finishLaunching`), well inside the window, and
@@ -101,6 +103,10 @@ at its load callback, the seam the frontend's cold boot hangs off):
 | DOP-08 | the real dialog: Cancel is default and Esc button; Esc loads nothing |
 | DOP-09 | the real dialog: Open loads the file |
 | DOP-10 | an open arriving while the question is up is dropped, not stacked; the next one asks |
+| DOP-11 | `ms_since_loop_start()`: unset is -1, set is the elapsed milliseconds |
+| DOP-12 | source check: `QtApp::init()` installs the `FileOpenFilter` before the window is shown |
+| DOP-13 | source check: `QtApp::run()` stamps `loop_started_` before `exec()` |
+| DOP-14 | source check: the handler passes `at_launch()` the time since `loop_started_` |
 
 Discrimination: without the feature the suite does not compile (neither the
 filter nor `open_from_desktop()` exists). Each mutant below was built and run:
@@ -111,9 +117,13 @@ filter nor `open_from_desktop()` exists). Each mutant below was built and run:
 | the filter consumes every event | DOP-03 |
 | no `desktop_open_asking_` guard | DOP-10 |
 
+Removing the `loop_started_` stamp (every open would count as the launch and
+replace a running program with no question) fails DOP-13; removing the filter
+install fails DOP-12.
+
 The `Info.plist` entries and the Apple Event delivery are outside any suite;
 they were checked by hand on macOS with a `-DMACOS_APP_BUNDLE=ON` build:
 `open -a jnext.app file.nex` with JNext closed (loads with no question) and
 with it running (asks; Cancel keeps the program, Open reloads), and the Open
-With lists above. The `QtApp` wiring (the filter's lambda, the `loop_started_`
-stamp) is reachable only through that path.
+With lists above. The `QtApp` wiring is reachable at run time only through
+that path; DOP-12..14 pin it from the source.
