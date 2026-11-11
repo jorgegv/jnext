@@ -251,8 +251,10 @@ int main(int argc, char** argv)
         const size_t run = code.find("int QtApp::run(");
         const size_t stamp = code.find("loop_started_ = std::chrono::steady_clock::now();", run);
         const size_t exec = code.find("return qapp_->exec();", run);
-        const size_t hand = code.find("desktop_open::at_launch(", inst);
-        const size_t ms = code.find("desktop_open::ms_since_loop_start(loop_started_,", inst);
+        const size_t ms = code.find(
+            "const qint64 ms = desktop_open::ms_since_loop_start(loop_started_, std::chrono::steady_clock::now());", inst);
+        const size_t hand = code.find(
+            "main_window_->open_from_desktop(path, desktop_open::at_launch(ms));", inst);
         check("DOP-12", "QtApp::init() installs the FileOpenFilter on the QApplication, before the window is shown (source check)",
               init != std::string::npos && inst != std::string::npos && win != std::string::npos &&
                   inst < win);

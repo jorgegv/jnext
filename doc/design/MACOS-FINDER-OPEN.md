@@ -119,7 +119,8 @@ filter nor `open_from_desktop()` exists). Each mutant below was built and run:
 
 Removing the `loop_started_` stamp (every open would count as the launch and
 replace a running program with no question) fails DOP-13; removing the filter
-install fails DOP-12.
+install fails DOP-12; a handler that ignores the elapsed time
+(`at_launch(-1)`, or `-1` for the elapsed value) fails DOP-14.
 
 The `Info.plist` entries and the Apple Event delivery are outside any suite;
 they were checked by hand on macOS with a `-DMACOS_APP_BUNDLE=ON` build:
