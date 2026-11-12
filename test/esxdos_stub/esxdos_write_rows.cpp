@@ -753,6 +753,22 @@ void run_esxdos_write_rows(int& passed, int& failed)
         n.file("Long Name b.txt", "bbb");
         const uint32_t freed = n.size_of("LONGNA~1.TXT");
         const bool tail2 = n.size_of("LONGNA~2.TXT") == 0xFFFFFFFFu;
+        // host-side removal (no guest call to free the alias): the next listing forgets it
+        Fx hs(base, "al6", true);
+        hs.file("Long Name a.txt", "a"); hs.file("Long Name b.txt", "bb");
+        hs.size_of("LONGNA~1.TXT");
+        fs::remove(hs.root / "Long Name a.txt"); fs::remove(hs.root / "Long Name b.txt");
+        hs.size_of("LONGNA~1.TXT");
+        hs.file("Long Name b.txt", "bbbb");
+        const uint32_t host_freed = hs.size_of("LONGNA~1.TXT");
+        // a guest rename frees the alias of the name that went, at once
+        Fx rn(base, "al7", true);
+        rn.file("Long Name a.txt", "a"); rn.file("Long Name b.txt", "bb"); rn.file("Long Name c.txt", "ccc");
+        rn.size_of("LONGNA~1.TXT");
+        rn.hfs.unlink("LONGNA~1.TXT");
+        rn.hfs.rename("LONGNA~3.TXT", "Long Name e.txt");
+        rn.file("Long Name c.txt", "c-again");
+        const uint32_t renamed_freed = rn.size_of("LONGNA~1.TXT");
         Fx g(base, "al2", true);
         g.file("Long Name a.txt", "a");
         const uint32_t a1 = g.size_of("LONGNA~1.TXT");
@@ -762,7 +778,8 @@ void run_esxdos_write_rows(int& passed, int& failed)
                "fresh alias, and a native 8.3 host name always wins and displaces the long name "
                "([alias] S035C..S0368)",
                d1 == 4 && e2 == 3 && d1b == 4 && a1 == 1 && g.size_of("LONGNA~1.TXT") == 6 &&
-                   g.size_of("LONGNA~2.TXT") == 1 && freed == 3 && tail2);
+                   g.size_of("LONGNA~2.TXT") == 1 && freed == 3 && tail2 && host_freed == 4 &&
+                   renamed_freed == 7);
         Fx h(base, "al3", true);
         h.dir("sub"); h.file("sub/x.txt", "x");
         const uint8_t cd = h.hfs.chdir("SUB");
