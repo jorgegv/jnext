@@ -986,7 +986,7 @@ public:
     DebugState& debug_state() { return debug_state_; }
     const DebugState& debug_state() const { return debug_state_; }
 
-    /// Arm or disarm the magic breakpoint (ED FF / DD 01 pause the debugger)
+    /// Arm or disarm the magic breakpoint (ED FF / FD 00 / DD 01 pause the debugger)
     /// on the RUNNING machine, and record it in config() so a cold boot built
     /// from that config keeps it. A debugger facility, not machine state: it
     /// touches nothing else. (The Debug menu used to re-run init() for this,

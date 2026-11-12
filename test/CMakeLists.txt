@@ -1387,7 +1387,8 @@ target_include_directories(debugger_backend_test PRIVATE ${CMAKE_SOURCE_DIR}/src
 # (GH #390) the committed sjasmplus --sym / --exp ones, SYM-29/31/32 beside a z88dk map.
 target_compile_definitions(debugger_backend_test PRIVATE
     JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap"
-    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+    JNEXT_SJASMBREAK_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmbreak")
 add_test(NAME debugger_backend_tests COMMAND debugger_backend_test)
 
 # GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState

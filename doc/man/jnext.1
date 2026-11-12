@@ -1200,8 +1200,8 @@ example \f[CR]sym+m\f[R] is \f[CR].\f[R]).
 .SS Debugging
 .TP
 \f[B]\-\-magic\-breakpoint\f[R]
-Enable the magic\-breakpoint opcodes (\f[CR]ED FF\f[R] and
-\f[CR]DD 01\f[R]).
+Enable the magic\-breakpoint opcodes (\f[CR]ED FF\f[R], \f[CR]FD 00\f[R]
+and \f[CR]DD 01\f[R]).
 .TP
 \f[B]\-\-persistent\-breakpoints\f[R]
 Keep breakpoints and watchpoints armed while the debugger window is
@@ -3699,13 +3699,17 @@ Its default \f[CR]resetOnLaunch: true\f[R] starts each session with
 does not step over interrupt routines (\f[CR]set\-debug\-settings\f[R]
 bit 5 is refused, and DeZog shows that once as a warning).
 .SH MAGIC BREAKPOINT AND MAGIC PORT
-The magic breakpoint uses the \f[CR]ED FF\f[R] (ZEsarUX) and
-\f[CR]DD 01\f[R] (CSpect) opcodes to pause the debugger when enabled;
-execution then resumes right after the two bytes.
-When disabled, and on real hardware, \f[CR]ED FF\f[R] is a two\-byte
-NOP, but \f[CR]DD 01\f[R] is not: the \f[CR]DD\f[R] prefix is ignored
-and \f[CR]01 nn nn\f[R] executes as \f[CR]LD BC,nn\f[R], consuming the
-two bytes that follow and overwriting \f[CR]BC\f[R].
+The magic breakpoint uses the \f[CR]ED FF\f[R] (ZEsarUX),
+\f[CR]FD 00\f[R] (CSpect 2.19.9.1 and later; the sjasmplus
+\f[CR]break\f[R] instruction since 1.21.0, which needs
+\f[CR]\-\-zxnext=cspect\f[R] or \f[CR]OPT \-\-zxnext=cspect\f[R]) and
+\f[CR]DD 01\f[R] (older CSpect and sjasmplus) opcodes to pause the
+debugger when enabled; execution then resumes right after the two bytes.
+When disabled, and on real hardware, \f[CR]ED FF\f[R] and
+\f[CR]FD 00\f[R] are two\-byte NOPs, but \f[CR]DD 01\f[R] is not: the
+\f[CR]DD\f[R] prefix is ignored and \f[CR]01 nn nn\f[R] executes as
+\f[CR]LD BC,nn\f[R], consuming the two bytes that follow and overwriting
+\f[CR]BC\f[R].
 Enable it with \f[B]\-\-magic\-breakpoint\f[R] or \f[B]Debug > Magic
 Breakpoint\f[R].
 .PP

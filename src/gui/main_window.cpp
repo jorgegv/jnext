@@ -1340,7 +1340,7 @@ void MainWindow::create_menus() {
 
     magic_bp_action_ = debug_menu->addAction(tr("Magic &Breakpoint"));
     magic_bp_action_->setCheckable(true);
-    magic_bp_action_->setToolTip(tr("Enable magic breakpoints (ED FF / DD 01)"));
+    magic_bp_action_->setToolTip(tr("Enable magic breakpoints (ED FF / FD 00 / DD 01)"));
     // Its checked state is the machine's, synced by set_emulator(): this runs
     // in the constructor, before any machine is bound (GH #278 WP6).
     connect(magic_bp_action_, &QAction::triggered, this, [this](bool checked) {
