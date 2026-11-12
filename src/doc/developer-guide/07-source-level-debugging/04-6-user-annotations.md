@@ -162,7 +162,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   code view's context menu. The Disassembly calls it with the one place of the line, its address and the
   `entry.space` it was drawn with (in `DisasmPanel::contextMenuEvent()`, `add_annotation_actions` is called at `src/debugger/disasm_panel.cpp:986`); the
   Source tab calls it with the line's `st.starts` (in `SourcePanel::fill_context_menu()`, `add_annotation_actions` is called at
-  `src/debugger/source_panel.cpp:1356`), so a line that compiled to several places gets a submenu per entry,
+  `src/debugger/source_panel.cpp:1369`), so a line that compiled to several places gets a submenu per entry,
   a place not mapped now stays editable (the key does not depend on the mapping), and a line with no code
   has the entries disabled with the tab's *no code at* tooltip. Both views therefore offer the same words in
   the same order (`QANN-11`).

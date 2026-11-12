@@ -3267,7 +3267,7 @@ gutter widget in a left viewport margin and a header strip above it (<code>setVi
 <ul>
 <li><strong>Columns.</strong> <code>BP | Line</code>: the number is <code>blockNumber() + 1</code> (<code>paint_gutter()</code>, <code>source_panel.cpp:158</code>).</li>
 <li><strong>The mark of a line</strong> is computed at paint time, for the visible lines only
-  (<code>SourcePanel::line_mark()</code>, <code>source_panel.cpp:1118</code>, over <code>line_state()</code>, <code>source_panel.cpp:1073</code>), so it is never stale and needs
+  (<code>SourcePanel::line_mark()</code>, <code>source_panel.cpp:1131</code>, over <code>line_state()</code>, <code>source_panel.cpp:1086</code>), so it is never stale and needs
   no cache. <code>line_state()</code> derives, for line L of the file shown: <code>starts</code> (where the map says L
   begins, from <code>resolve(file:line)</code>, so an alias line is marked), <code>placed</code> (those starts the
   memory mapped <em>now</em> supplies), <code>drawn</code> (this GUI's Execute breakpoints, from
@@ -3281,7 +3281,7 @@ gutter widget in a left viewport margin and a header strip above it (<code>setVi
   <code>paint_gutter()</code> draws on <code>highlighted_line()</code> only, in the 5-px strip after the number cell
   (<code>x</code> in <code>[width-6, width-2]</code>, which no pinned pixel reading uses); the colour goes through <code>palette_tint::ink()</code>, and the text
   highlight stays the palette's own.</li>
-<li><strong>A click</strong> calls <code>SourcePanel::toggle_breakpoint_at_line()</code> (<code>source_panel.cpp:1161</code>), the one toggle: it
+<li><strong>A click</strong> calls <code>SourcePanel::toggle_breakpoint_at_line()</code> (<code>source_panel.cpp:1174</code>), the one toggle: it
   removes what the line shows plus a hidden group tied to an unmapped memory, else
   <code>add_source_line()</code> (not idempotent, hence the check). The context menu calls the same
   function. A line with no code shows the store's reason as a tooltip.</li>
@@ -3297,7 +3297,7 @@ gutter widget in a left viewport margin and a header strip above it (<code>setVi
   caller with its recorded <code>FetchSource</code> (<code>CallFrame::caller_space</code>).</li>
 </ul>
 <h3 id="the-context-menu">The context menu<a class="headerlink" href="#the-context-menu" title="Permanent link">&para;</a></h3>
-<p><code>SourcePanel::fill_context_menu()</code> (<code>source_panel.cpp:1276</code>, called from the editor's and the gutter's
+<p><code>SourcePanel::fill_context_menu()</code> (<code>source_panel.cpp:1289</code>, called from the editor's and the gutter's
 <code>contextMenuEvent</code>) offers the Disassembly's actions on the source line: Copy, Copy with Addresses,
 Select All; Toggle Breakpoint; Run to Here (<code>run_to_line_requested</code>, which <code>DebuggerManager</code> runs as
 <code>Debugger::run_to_source_line</code> behind its corruption gate; Enter in the editor and the bindable Run to
@@ -3306,12 +3306,12 @@ Cursor, while the tab has the focus, are the same request); Show in Disassembly
 Those entries come from <code>operand_menu.{h,cpp}</code> (<code>add_operand_actions()</code>), shared with the
 Disassembly's own menu so the two cannot differ. The Source tab fills a <code>MenuOperands</code> from the
 labels at the line's places and the word under the pointer. A word is classified as a register in
-parentheses, a number or a name, and a name goes through <code>SourcePanel::symbol_for_word()</code> (<code>source_panel.cpp:1186</code>),
+parentheses, a number or a name, and a name goes through <code>SourcePanel::symbol_for_word()</code> (<code>source_panel.cpp:1199</code>),
 the single seam for the C names (<code>resolve_key("@" + word)</code>; <code>@</code> forces a symbol).</p>
 <p>After the Show in Disassembly entry the menu carries the user-annotation entries: Add / Rename
 Label…, Remove Label and Add / Edit Comment…, from <code>add_annotation_actions()</code>
 (<code>src/debugger/annotation_menu.cpp:77</code>), once per place the line compiled to
-(<code>SourcePanel::fill_context_menu()</code> calls <code>add_annotation_actions</code>, <code>src/debugger/source_panel.cpp:1356</code>). The Disassembly
+(<code>SourcePanel::fill_context_menu()</code> calls <code>add_annotation_actions</code>, <code>src/debugger/source_panel.cpp:1369</code>). The Disassembly
 shows the labels and comments; the Source tab does not. How they are stored, saved and drawn is
 <a href="04-6-user-annotations.html">7.4.6</a>, section 10.</p>
 <h3 id="selection-sync-with-the-disassembly">Selection sync with the Disassembly<a class="headerlink" href="#selection-sync-with-the-disassembly" title="Permanent link">&para;</a></h3>
@@ -3320,7 +3320,7 @@ shows the labels and comments; the Source tab does not. How they are stored, sav
 did in its sender, so no move echoes.</p>
 <ul>
 <li><strong>Source to Disassembly.</strong> <code>SourcePanel::source_lines_selected(file, first, last, reveal)</code> is
-  emitted by <code>emit_lines_()</code> (<code>source_panel.cpp:1008</code>), only when the file or the lines changed (<code>lines_file_</code>,
+  emitted by <code>emit_lines_()</code> (<code>source_panel.cpp:1021</code>), only when the file or the lines changed (<code>lines_file_</code>,
   <code>lines_first_</code>, <code>lines_last_</code>; a message and Running emit an empty file, and <code>none = true</code> says the
   text stays but nothing of it is selected). The lines are <code>selected_blocks_()</code>'s, the same rule as
   Copy with Addresses (a selection ending at a block start does not take that block). The editor's
@@ -3338,22 +3338,22 @@ did in its sender, so no move echoes.</p>
   only (<code>notify_selection_()</code>, <code>disasm_panel.cpp:413</code>: a press, a drag, a navigation key, Select All, the menu's
   collapse), when the triple differs from the last one sent. <code>show_address()</code> and a refresh do not
   emit; <code>set_source_lines()</code> forgets the last triple, so the next click on the same lines is a change
-  again. <code>SourcePanel::set_disasm_selection()</code> (<code>source_panel.cpp:963</code>) is ignored while running or
+  again. <code>SourcePanel::set_disasm_selection()</code> (<code>source_panel.cpp:976</code>) is ignored while running or
   without a map, stores the range (<code>disasm_range_</code>, dropped when the machine runs, so a stop shows no
   tint of it), and sets <code>browse_addr_</code> unless the caret's primary line is the PC's own statement.
   <code>refresh_()</code> then describes <code>browse_addr_</code> instead of the PC. The lines of the instructions in the
-  range (<code>linked_lines_()</code>, <code>:1027</code>, walking <code>instruction_length</code> over <code>memory_reader()</code>) get an
+  range (<code>linked_lines_()</code>, <code>:1040</code>, walking <code>instruction_length</code> over <code>memory_reader()</code>) get an
   <code>ExtraSelection</code> in the scheme's <code>linked_line</code>, after the coverage tints and before the PC's. There is no cache of those lines: a full 64K
   range cost about 3.5 ms when measured at design time (not re-measured since), and it is
   paid at each <code>refresh()</code>, which runs only when the paused stamp changed, not on every tick.</li>
 <li><strong>Show in Source.</strong> <code>DisasmPanel::show_source_requested(addr)</code>, from a menu item present only while
   a map is loaded and enabled only where <code>lookup()</code> finds a line. The window raises the Source tab and
-  calls <code>SourcePanel::show_address()</code> (<code>source_panel.cpp:983</code>).</li>
+  calls <code>SourcePanel::show_address()</code> (<code>source_panel.cpp:996</code>).</li>
 </ul>
 <p>Browsing ends at <code>follow_pc()</code> (every stop), <code>show_running()</code>, the map going away (the None and Stale
 branches of <code>refresh_()</code>), another loaded map (<code>browse_map_</code>), an address with no line now, a file the
 map no longer names, and <strong>Go to
-PC Line</strong> (<code>go_to_pc_line()</code>, <code>source_panel.cpp:989</code>). A message about the browsed line itself (file not found, a <code>.m4</code>
+PC Line</strong> (<code>go_to_pc_line()</code>, <code>source_panel.cpp:1002</code>). A message about the browsed line itself (file not found, a <code>.m4</code>
 line without a listing) does not end it, so the message and Locate File... stay usable, and Go to PC Line stays enabled. Every accepted
 Disassembly selection places the cursor on the caret's line (<code>place_now_</code>, cleared by the placement
 itself, so the next ticks leave the cursor and scroll alone). A Source move made while the machine runs
@@ -3376,10 +3376,11 @@ does not have. The PC's own file is <code>go_to_pc_line()</code> (a click on the
 the file already shown while browsing changes nothing; otherwise <code>browse_addr_</code> is dropped,
 <code>browse_file_</code> and <code>browse_map_</code> set and the view placed at line 1 (<code>placed_</code>, <code>place_now_</code>) by
 <code>refresh_file_browse_()</code>. That path shares <code>load_text_()</code> and <code>add_tints_()</code> (coverage and the
-Disassembly's lines, keyed on the file shown) with the PC path, has no line to range-check and no PC
-bar, and labels the view <code>file  (browsing; the PC is at f:l, $addr)</code> with no address of its own. A
+Disassembly's lines, keyed on the file shown) with the PC path, has no line to range-check, draws the PC
+bar only when the PC is in the file browsed (possible without a stop when a client sets the PC while
+paused), and labels the view <code>file  (browsing; the PC is at f:l, $addr)</code> with no address of its own. A
 file the tab cannot find keeps the browse, so Locate File... still works. A Disassembly selection that
-has a source line (<code>set_disasm_selection()</code>) clears <code>browse_file_</code>. Rows <code>QSRC-210</code> to <code>QSRC-219</code> and
+has a source line (<code>set_disasm_selection()</code>) clears <code>browse_file_</code>. Rows <code>QSRC-210</code> to <code>QSRC-223</code> and
 <code>SRCFILES-01</code> pin it.</p>
 <h2 id="the-qt-variables-tab">The Qt Variables tab<a class="headerlink" href="#the-qt-variables-tab" title="Permanent link">&para;</a></h2>
 <p><code>VariablesPanel</code> (<code>src/debugger/variables_panel.*</code>) is a tab of the bottom-right tab widget, between Watches and

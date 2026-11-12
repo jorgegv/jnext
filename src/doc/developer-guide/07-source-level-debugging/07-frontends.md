@@ -178,7 +178,7 @@ gutter widget in a left viewport margin and a header strip above it (`setViewpor
 
 - **Columns.** `BP | Line`: the number is `blockNumber() + 1` (`paint_gutter()`, `source_panel.cpp:158`).
 - **The mark of a line** is computed at paint time, for the visible lines only
-  (`SourcePanel::line_mark()`, `source_panel.cpp:1118`, over `line_state()`, `source_panel.cpp:1073`), so it is never stale and needs
+  (`SourcePanel::line_mark()`, `source_panel.cpp:1131`, over `line_state()`, `source_panel.cpp:1086`), so it is never stale and needs
   no cache. `line_state()` derives, for line L of the file shown: `starts` (where the map says L
   begins, from `resolve(file:line)`, so an alias line is marked), `placed` (those starts the
   memory mapped *now* supplies), `drawn` (this GUI's Execute breakpoints, from
@@ -192,7 +192,7 @@ gutter widget in a left viewport margin and a header strip above it (`setViewpor
   `paint_gutter()` draws on `highlighted_line()` only, in the 5-px strip after the number cell
   (`x` in `[width-6, width-2]`, which no pinned pixel reading uses); the colour goes through `palette_tint::ink()`, and the text
   highlight stays the palette's own.
-- **A click** calls `SourcePanel::toggle_breakpoint_at_line()` (`source_panel.cpp:1161`), the one toggle: it
+- **A click** calls `SourcePanel::toggle_breakpoint_at_line()` (`source_panel.cpp:1174`), the one toggle: it
   removes what the line shows plus a hidden group tied to an unmapped memory, else
   `add_source_line()` (not idempotent, hence the check). The context menu calls the same
   function. A line with no code shows the store's reason as a tooltip.
@@ -209,7 +209,7 @@ gutter widget in a left viewport margin and a header strip above it (`setViewpor
 
 ### The context menu
 
-`SourcePanel::fill_context_menu()` (`source_panel.cpp:1276`, called from the editor's and the gutter's
+`SourcePanel::fill_context_menu()` (`source_panel.cpp:1289`, called from the editor's and the gutter's
 `contextMenuEvent`) offers the Disassembly's actions on the source line: Copy, Copy with Addresses,
 Select All; Toggle Breakpoint; Run to Here (`run_to_line_requested`, which `DebuggerManager` runs as
 `Debugger::run_to_source_line` behind its corruption gate; Enter in the editor and the bindable Run to
@@ -218,13 +218,13 @@ Cursor, while the tab has the focus, are the same request); Show in Disassembly
 Those entries come from `operand_menu.{h,cpp}` (`add_operand_actions()`), shared with the
 Disassembly's own menu so the two cannot differ. The Source tab fills a `MenuOperands` from the
 labels at the line's places and the word under the pointer. A word is classified as a register in
-parentheses, a number or a name, and a name goes through `SourcePanel::symbol_for_word()` (`source_panel.cpp:1186`),
+parentheses, a number or a name, and a name goes through `SourcePanel::symbol_for_word()` (`source_panel.cpp:1199`),
 the single seam for the C names (`resolve_key("@" + word)`; `@` forces a symbol).
 
 After the Show in Disassembly entry the menu carries the user-annotation entries: Add / Rename
 Label…, Remove Label and Add / Edit Comment…, from `add_annotation_actions()`
 (`src/debugger/annotation_menu.cpp:77`), once per place the line compiled to
-(`SourcePanel::fill_context_menu()` calls `add_annotation_actions`, `src/debugger/source_panel.cpp:1356`). The Disassembly
+(`SourcePanel::fill_context_menu()` calls `add_annotation_actions`, `src/debugger/source_panel.cpp:1369`). The Disassembly
 shows the labels and comments; the Source tab does not. How they are stored, saved and drawn is
 [7.4.6](04-6-user-annotations.md), section 10.
 
@@ -235,7 +235,7 @@ shows the labels and comments; the Source tab does not. How they are stored, sav
 did in its sender, so no move echoes.
 
 - **Source to Disassembly.** `SourcePanel::source_lines_selected(file, first, last, reveal)` is
-  emitted by `emit_lines_()` (`source_panel.cpp:1008`), only when the file or the lines changed (`lines_file_`,
+  emitted by `emit_lines_()` (`source_panel.cpp:1021`), only when the file or the lines changed (`lines_file_`,
   `lines_first_`, `lines_last_`; a message and Running emit an empty file, and `none = true` says the
   text stays but nothing of it is selected). The lines are `selected_blocks_()`'s, the same rule as
   Copy with Addresses (a selection ending at a block start does not take that block). The editor's
@@ -253,22 +253,22 @@ did in its sender, so no move echoes.
   only (`notify_selection_()`, `disasm_panel.cpp:413`: a press, a drag, a navigation key, Select All, the menu's
   collapse), when the triple differs from the last one sent. `show_address()` and a refresh do not
   emit; `set_source_lines()` forgets the last triple, so the next click on the same lines is a change
-  again. `SourcePanel::set_disasm_selection()` (`source_panel.cpp:963`) is ignored while running or
+  again. `SourcePanel::set_disasm_selection()` (`source_panel.cpp:976`) is ignored while running or
   without a map, stores the range (`disasm_range_`, dropped when the machine runs, so a stop shows no
   tint of it), and sets `browse_addr_` unless the caret's primary line is the PC's own statement.
   `refresh_()` then describes `browse_addr_` instead of the PC. The lines of the instructions in the
-  range (`linked_lines_()`, `:1027`, walking `instruction_length` over `memory_reader()`) get an
+  range (`linked_lines_()`, `:1040`, walking `instruction_length` over `memory_reader()`) get an
   `ExtraSelection` in the scheme's `linked_line`, after the coverage tints and before the PC's. There is no cache of those lines: a full 64K
   range cost about 3.5 ms when measured at design time (not re-measured since), and it is
   paid at each `refresh()`, which runs only when the paused stamp changed, not on every tick.
 - **Show in Source.** `DisasmPanel::show_source_requested(addr)`, from a menu item present only while
   a map is loaded and enabled only where `lookup()` finds a line. The window raises the Source tab and
-  calls `SourcePanel::show_address()` (`source_panel.cpp:983`).
+  calls `SourcePanel::show_address()` (`source_panel.cpp:996`).
 
 Browsing ends at `follow_pc()` (every stop), `show_running()`, the map going away (the None and Stale
 branches of `refresh_()`), another loaded map (`browse_map_`), an address with no line now, a file the
 map no longer names, and **Go to
-PC Line** (`go_to_pc_line()`, `source_panel.cpp:989`). A message about the browsed line itself (file not found, a `.m4`
+PC Line** (`go_to_pc_line()`, `source_panel.cpp:1002`). A message about the browsed line itself (file not found, a `.m4`
 line without a listing) does not end it, so the message and Locate File... stay usable, and Go to PC Line stays enabled. Every accepted
 Disassembly selection places the cursor on the caret's line (`place_now_`, cleared by the placement
 itself, so the next ticks leave the cursor and scroll alone). A Source move made while the machine runs
