@@ -4523,7 +4523,7 @@ NEX loaded with <code>file</code> saves through esxDOS (10.3). <code>player.rese
 The saves belong to the image: a page that now names another image, even one that
 differs in one byte, starts with none. A record made for another image is refused with a message naming
 <code>--sdcard-writes-reset</code>: mount once with <code>args: ['--sdcard-writes-reset']</code> to discard it. A
-record that is not a valid record at all (damaged, or in a format this version does not
+record whose header is not a valid one (damaged, or in a format this version does not
 read) is refused as "not a jnext SD-writes file" and the reset does not remove it: clear the
 site's data in the browser, or delete the record from the <code>jnext-card-writes</code> database
 (store <code>journals</code>) with the browser's developer tools.</p>

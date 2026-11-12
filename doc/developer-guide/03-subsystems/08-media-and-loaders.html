@@ -4804,7 +4804,7 @@ bytes. A <strong>kept-file record</strong> holds the file the esxDOS stand-in ke
 </table>
 <p>There is one kept file per journal (the stand-in keeps one file), so a later record replaces an
 earlier one whatever its name. A bind refuses a complete kept-file record whose L is below 2 or
-whose n exceeds L - 2 as "not a jnext SD-writes file", and drops a trailing record that runs past
+whose n exceeds L - 2 as "not a jnext SD-writes file" (the reset flag discards such a file, as it does any file with a journal's header), and drops a trailing record that runs past
 the end of the file like a partial sector record. Compaction writes the sector records in
 ascending order, then the kept-file record. A card of 2^32 sectors (2 TiB) or more is refused at
 bind, so that no sector number can be the marker. The kept file is not card state:
