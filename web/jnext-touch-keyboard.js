@@ -42,10 +42,10 @@
     'quote': ['"', 'Double quote', ['Quote']],
     'period': ['.', 'Period', ['Period']],
     'comma': [',', 'Comma', ['Comma']],
-    'left': ['←', 'Cursor left', ['ArrowLeft']],
-    'right': ['→', 'Cursor right', ['ArrowRight']],
-    'up': ['↑', 'Cursor up', ['ArrowUp']],
-    'down': ['↓', 'Cursor down', ['ArrowDown']]
+    'left': ['\u2190', 'Cursor left', ['ArrowLeft']],
+    'right': ['\u2192', 'Cursor right', ['ArrowRight']],
+    'up': ['\u2191', 'Cursor up', ['ArrowUp']],
+    'down': ['\u2193', 'Cursor down', ['ArrowDown']]
   };
   '1234567890'.split('').forEach(function (c) { KEYS[c] = [c, 'Key ' + c, ['Digit' + c]]; });
   'qwertyuiopasdfghjklzxcvbnm'.split('').forEach(function (c) {
