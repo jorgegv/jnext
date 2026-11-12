@@ -4519,7 +4519,7 @@ NextZXOS on every visit and records nothing.</p>
 <pre><code class="language-js">jnext.mount(el, { image: {...}, file: 'game.nex', keepWrites: true });
 </code></pre>
 <p>Whatever the program writes to the card is there at the next visit, and so is the one file a
-NEX loaded with <code>file</code> saves through esxDOS (10.3). <code>player.resetCard()</code> clears both (10.2).
+NEX loaded with <code>file</code> saves through esxDOS (10.3). <code>player.resetCard()</code> clears both (10.2). A save is stored a moment after the program makes it: a reload within moments of a save can lose it (the store on leaving the page is best effort).
 The saves belong to the image: a page that now names another image, even one that
 differs in one byte, starts with none. A record made for another image is refused with a message naming
 <code>--sdcard-writes-reset</code>: mount once with <code>args: ['--sdcard-writes-reset']</code> to discard it. A
@@ -4601,7 +4601,7 @@ their status line.</p>
 </tr>
 <tr>
 <td><code>&lt;file&gt; is not a jnext SD-writes file; not touching it</code></td>
-<td>The stored record is damaged, or in a format this version does not read; <code>--sdcard-writes-reset</code> does not remove it. Clear the site's data, or delete the record from the <code>jnext-card-writes</code> database.</td>
+<td>The stored record's header is damaged, or in a format this version does not read; <code>--sdcard-writes-reset</code> does not remove it. Clear the site's data, or delete the record from the <code>jnext-card-writes</code> database. (A record with a valid header whose saved-file entry is inconsistent is refused the same way, but <code>--sdcard-writes-reset</code> does discard it.)</td>
 </tr>
 <tr>
 <td><code>&lt;file&gt; was made for another image ...; run with --sdcard-writes-reset to discard them</code></td>

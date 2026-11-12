@@ -30,7 +30,7 @@ const MODULE = `/build/jnext-${VERSION}.js`;
 const SHA = E.SMOKE_CARD_SHA256, ZIPSHA = E.SMOKE_ZIP_SHA256;
 const W1 = fs.readFileSync(path.join(ORACLE, 'w1.jsdw')), W2 = fs.readFileSync(path.join(ORACLE, 'w2.jsdw'));
 const E1 = fs.readFileSync(path.join(ORACLE, 'e1.jsdw')), E2 = fs.readFileSync(path.join(ORACLE, 'e2.jsdw')),
-      E4 = fs.readFileSync(path.join(ORACLE, 'e4.jsdw'));
+      E3 = fs.readFileSync(path.join(ORACLE, 'e3.jsdw')), E4 = fs.readFileSync(path.join(ORACLE, 'e4.jsdw'));
 
 const h = new Harness({});
 const bLog = [];
@@ -110,7 +110,7 @@ async function waitMsg(page, text, ms = 400000) {
     if (errs.length) throw new Error('onError before ' + text + ': ' + errs.join(' | ').slice(0, 300));
     await sleep(50);
   }
-  throw new Error('no "' + text + '" within ' + ms + ' ms; saw ' + JSON.stringify(page.msgs.filter((m) => /SAVE/.test(m))));
+  throw new Error('no "' + text + '" within ' + ms + ' ms; saw ' + JSON.stringify(page.msgs.filter((m) => /SAVE|ESX/.test(m))));
 }
 // A visit: open, click, wait for the guest's line; the player stays mounted.
 async function visit(page, players, line, opts) {
@@ -383,15 +383,30 @@ row('WBW-16', 'without keepWrites the stand-in\'s file lives in memory only: ESX
   must(!names.includes('jnext-card-writes'), 'databases ' + JSON.stringify(names));
 });
 
-row('WBW-17', 'a changed NEX on the same page and image reads the old save: original ESX 1, ESX 2, then the variant ESX 3, then the original ESX 4; the final record equals the native sequence\'s journal', async () => {
+row('WBW-17', 'a changed NEX on the same page and image reads the old save: original ESX 1, ESX 2, then the variant ESX 3, then the original ESX 4 (each visit follows the stored record of the one before, whose store is slowed by 400 ms); every record equals the native sequence\'s journal', async () => {
   const page = await newPage();
-  await visit(page, [ESXGUEST()], 'ESX 1 OK');
-  await visit(page, [ESXGUEST()], 'ESX 2 OK');
-  await visit(page, [ESXGUEST({ file: '/fixture/esx_save_counter_b.nex' })], 'ESX 3 OK');
-  await visit(page, [ESXGUEST()], 'ESX 4 OK');
-  const s = await storedWithin(page, 5000, (s) => sameBytes(s[K1], E4));
+  // A visit whose store is slowed (as WBW-10): the next visit must wait for the record, as a visitor's reload would.
+  const slowVisit = async (players, line) => {
+    await open(page, players);
+    await slowPersist(page, 400, 'write');
+    const r = await rec(page);
+    must(!r.mountError, 'mount: ' + r.mountError);
+    await click(page);
+    await waitMsg(page, line);
+  };
+  const want = async (b, what) => {
+    const s = await storedWithin(page, 5000, (s) => sameBytes(s[K1], b));
+    must(s && Object.keys(s).length === 1 && sameBytes(s[K1], b), `the record after ${what}: ${desc(s)}; native ${b.length} bytes`);
+  };
+  await slowVisit([ESXGUEST()], 'ESX 1 OK');
+  await want(E1, 'ESX 1');
+  await slowVisit([ESXGUEST()], 'ESX 2 OK');
+  await want(E2, 'ESX 2');
+  await slowVisit([ESXGUEST({ file: '/fixture/esx_save_counter_b.nex' })], 'ESX 3 OK');
+  await want(E3, 'the changed NEX\'s ESX 3');
+  await slowVisit([ESXGUEST()], 'ESX 4 OK');
+  await want(E4, 'ESX 4');
   await page.ctx.close();
-  must(s && Object.keys(s).length === 1 && sameBytes(s[K1], E4), `the final record: ${desc(s)}; native ${E4.length} bytes`);
 });
 
 let pass = 0, fail = 0;
