@@ -3955,7 +3955,9 @@ alias is fixed when the file is created, and a program that deleted
 keeps the aliases it handed out per directory (<code>aliases_</code>, not in a snapshot:
 it follows host changes no rewind undoes), the first listing numbers in sorted
 order, a later one keeps them, forgets the vanished and gives a new name the
-lowest free tail, and a name that is itself 8.3 always keeps it. And <code>resolve()</code>
+lowest free tail, and a name that is itself 8.3 always keeps it. <code>unlink</code>,
+<code>rmdir</code> and <code>rename</code> free the alias of the name that goes at once
+(<code>forget_alias()</code>), as a FAT volume does, so a name created next takes it. And <code>resolve()</code>
 no longer takes a name merely because the host answers to it: a component
 counts as present only when the directory LISTING holds it byte for byte (or by
 case, or by its 8.3 name); a name the host answers to that the listing does not
