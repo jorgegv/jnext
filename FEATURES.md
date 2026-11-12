@@ -148,7 +148,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - PC/data/read/write breakpoints with watchpoints
 - I/O port breakpoints: IO Read on `IN`, IO Write on `OUT`, by low byte or exact 16-bit port
 - Breakpoint enable/disable per row, plus a master switch
-- Symbol table from Z88DK MAP files and sjasmplus `--sym` / `--exp` files (`--map` or the Map menu), with inline symbol names in disassembly
+- Symbol table from Z88DK MAP files and sjasmplus `--sym` / `--exp` files (`--map` or the Map menu), with inline symbol names in disassembly, and the 48K ROM's names from the symbol map every package ships (Map > Load MAP File > Simple Format)
 - **Source-level debugging**: z88dk `-debug` maps and listings and sjasmplus SLD maps give C and assembly source lines, NextBuild / Boriel `Memory.txt` gives symbols (`--source-map FILE`) (user guide: The Source Debugger)
 - Banked code matched by page, with identity checks against the linker's section binaries
 - z88dk dot commands debugged from their map (`jnext --source-map prog.map`, also with RZX replay)

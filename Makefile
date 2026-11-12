@@ -1811,7 +1811,7 @@ package-win: win-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Windows bundle.\n"; exit 1; \
 		fi; \
 	 done && \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_RELEASE)/$$name.zip" && \
 	 ( cd "$(BUILD_DIR_WIN_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
@@ -1836,7 +1836,7 @@ package-win-sdl: win-sdl-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \
 	 done && \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_SDL_RELEASE)/$$name.zip" && \
 	 ( cd "$(BUILD_DIR_WIN_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
@@ -1862,7 +1862,7 @@ package-win-qt5: win-qt5-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
 	 done && \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_QT5_RELEASE)/$$name.zip" && \
 	 ( cd "$(BUILD_DIR_WIN_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
@@ -1888,7 +1888,7 @@ package-win32-qt5: win32-qt5-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
 	 done && \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN32_QT5_RELEASE)/$$name.zip" && \
 	 ( cd "$(BUILD_DIR_WIN32_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
@@ -1914,7 +1914,7 @@ package-win32-sdl: win32-sdl-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \
 	 done && \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN32_SDL_RELEASE)/$$name.zip" && \
 	 ( cd "$(BUILD_DIR_WIN32_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
@@ -1984,6 +1984,8 @@ verify-macos-dmg:
 		hdiutil attach "$$dmg" -nobrowse -readonly -noverify -noautoopen -mountpoint "$$mnt" >/dev/null; \
 	$(MACOS_BOUND) 300 "verify-bundle (mounted dmg)" \
 		bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" </dev/null; \
+	test -f "$$mnt/jnext.app/Contents/Resources/48rom.map" \
+		|| { echo "error: the .dmg's jnext.app has no Contents/Resources/48rom.map" >&2; exit 1; }; \
 	printf "$(BOLD)dmg verified:$(RESET) $$dmg\n"
 
 # Self-test packaging-test.sh's failure path: a failing sub-test's log must surface inline (GH #80)

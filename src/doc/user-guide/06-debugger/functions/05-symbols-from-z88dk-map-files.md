@@ -29,7 +29,8 @@ Load a symbol table with **Map ▸ Load MAP File**, which offers three formats:
   second is shown as `_inc`. The disassembly *copy* writes the assembler
   name (`LD HL,_counter`), so the pasted text still assembles.
 - **Simple Format (48K ROM)…** — plain `NAME = $ADDR` lines, one per line,
-  `;` for comments.
+  `;` for comments. JNEXT comes with one: see
+  [The 48K ROM by name](#the-48k-rom-by-name).
 - **sjasmplus Format (--sym, --exp)…** — the symbol file sjasmplus writes with
   `--sym=FILE` or `--exp=FILE`, lines such as `main.loop: EQU 0x00008006`.
   `--sym` lists every label (sorted by name from sjasmplus 1.21.1, in another
@@ -60,6 +61,34 @@ the disassembly right-click menu offers to watch the symbol by name. The open
 panels show the names as soon as the file is loaded.
 
 Where two symbols share an address, the first one in the file wins.
+
+## The 48K ROM by name
+
+Every JNEXT package includes `48rom.map`, a symbol map of the 48K Spectrum ROM: 395 names for
+its routines and system variables, taken from skoolkit's disassembly of the ROM. Load it with
+**Map ▸ Load MAP File ▸ Simple Format (48K ROM)…**. It is in:
+
+| Installed from | `48rom.map` is in |
+|---|---|
+| the rpm or the deb | `/usr/share/jnext/` |
+| the Flatpak | `/var/lib/flatpak/app/io.github.zxjogv.jnext/current/active/files/share/jnext/`; for a `--user` installation, `~/.local/share/flatpak/` instead of `/var/lib/flatpak/`; inside the sandbox it is `/app/share/jnext/48rom.map` |
+| a Windows zip | the folder you unzipped, next to `jnext.exe` |
+| the macOS `.dmg` | inside the application: `/Applications/jnext.app/Contents/Resources/` (in the file dialog, **Cmd+Shift+G** opens a folder by its path) |
+| the source | `data/` |
+
+With it loaded, stepping through code that calls the ROM reads like a ROM listing:
+
+- the Disassembly names what the code calls and reads: `CALL $03B5` reads `CALL BEEPER`,
+  `LD HL,($5C5D)` reads `LD HL,(CH_ADD)`, and the Label column names each routine where it
+  starts (a long name is cut short there);
+- step into a `RST $10` and the Call Stack shows an `RST` frame whose target is
+  `PRINT_A_CHARACTER`;
+- a breakpoint can be set by name: `BEEPER` in the Breakpoints panel's **Add** dialog stops
+  where the ROM starts a beep, and the Symbol column says `BEEPER`.
+
+The names are not tied to a memory: they name those addresses whatever is paged in there, so
+they describe the code only while the 48K ROM is (on a 48K machine, for one). `--map` does not
+read this format: load the file from the Map menu.
 
 On the command line, `--map FILE` loads a z88dk `.map` or an sjasmplus `--sym`
 or `--exp` file. It tells them apart by the file's first line, not by its name

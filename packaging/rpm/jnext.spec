@@ -67,6 +67,8 @@ appstream-util validate-relax --nonet %{buildroot}%{_datadir}/metainfo/io.github
 %doc %{_docdir}/%{name}/user-guide
 %{_mandir}/man1/jnext.1*
 %{_bindir}/jnext
+%dir %{_datadir}/%{name}
+%{_datadir}/%{name}/48rom.map
 %{_datadir}/applications/io.github.zxjogv.jnext.desktop
 %{_datadir}/metainfo/io.github.zxjogv.jnext.metainfo.xml
 %{_datadir}/icons/hicolor/scalable/apps/io.github.zxjogv.jnext.svg

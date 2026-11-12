@@ -16,9 +16,10 @@
 - A .szx saved from a 128K, +2A/+3 or Pentagon now keeps the AY registers, so music and effects survive a reload
 - macOS: a file opened from the Finder (double-click, Open With, Dock) now loads instead of being ignored
 - NextZXOS no longer freezes on a blank grey screen when an interrupt lands right after LD A,I (e.g. a quick SPACE at the Welcome screen)
+- The packages now include the 48K ROM symbol map, so the debugger can name ROM routines (Map > Load MAP File > Simple Format)
 
 ### Contributors in this release
-- @shrek128, @vmorilla, @Luzie, @shadowphiar
+- @shrek128, @vmorilla, @Luzie, @shadowphiar, @janko-jj
 
 ## v1.2.0 (2026-11-06)
 
