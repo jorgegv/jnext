@@ -91,7 +91,7 @@ if want esxdos-hostfs-func; then
           && "$hf_escaped" -eq 0 && "$hf_err" -eq 0 \
           && "$ctl_slice" -eq 0 && "$ctl_err" -ge 1 \
           && "$bad_rc" -ne 0 && "$bad_msg" -ge 1 ]]; then
-        pass_row " (drive-qualified c:/data.txt read at offset 6 via RST \$08; escape refused; no root = no content; bad root fatal)"
+        pass_row " (drive-qualified c:/data.txt read at offset 6 via RST \$08; escape refused; implicit root without the file = no content; bad root fatal)"
     else
         fail_row " (rc=$hf_rc want0, slice=$hf_slice want>=1, sandbox_ok=$hf_sandbox want>=1, escaped=$hf_escaped want0, err=$hf_err want0, ctl_slice=$ctl_slice want0, ctl_err=$ctl_err want>=1, bad_rc=$bad_rc want!=0, bad_msg=$bad_msg want>=1)"
     fi
