@@ -30,6 +30,8 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QCoreApplication>
+#include <QComboBox>
+#include <QSignalBlocker>
 #include <QCursor>
 #include <QEvent>
 #include <QFontMetrics>
@@ -42,6 +44,7 @@
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextEdit>
+#include <QScrollBar>
 #include <QToolTip>
 #include <QVBoxLayout>
 
@@ -363,6 +366,24 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     loads->addStretch();
     layout->addLayout(loads);
 
+    // GH #480 - the files the map names. A row of its own: the loads row already fills the tab's
+    // minimum width. No '&' (the window's Alt namespace).
+    auto* files = new QHBoxLayout();
+    files->setSpacing(4);
+    files->addWidget(new QLabel(tr("File:"), this));
+    file_combo_ = new QComboBox(this);
+    file_combo_->setObjectName(QStringLiteral("source_file_combo"));
+    file_combo_->setAccessibleName(tr("Source file"));
+    file_combo_->setToolTip(tr("Open a source file the map names, to browse it and set breakpoints in its gutter"));
+    file_combo_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    file_combo_->setMinimumContentsLength(16);
+    file_combo_->setEnabled(false);
+    connect(file_combo_, QOverload<int>::of(&QComboBox::activated), this, [this](int i) {
+        if (i >= 0 && i < static_cast<int>(combo_files_.size())) open_file(combo_files_[static_cast<size_t>(i)]);
+    });
+    files->addWidget(file_combo_, 1);
+    layout->addLayout(files);
+
     location_label_ = new QLabel(tr("No source map loaded"), this);
     location_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     // A refused map's message names its full path before the reason; wrapped,
@@ -486,6 +507,7 @@ void SourcePanel::show_running()
     editor_->setExtraSelections({});
     highlighted_line_ = 0;
     browse_addr_.reset();     // GH #347: the stop that follows shows the PC
+    browse_file_.clear();     // GH #480
     place_now_ = false;
     disasm_range_.reset();
     emit_lines_(false, /*none=*/true);   // the text stays, but nothing of it is selected now
@@ -505,6 +527,7 @@ void SourcePanel::update_buttons(bool paused)
     out_btn_->setEnabled(forward);
     back_btn_->setEnabled(backward);
     reverse_btn_->setEnabled(backward);
+    file_combo_->setEnabled(forward);   // GH #480: the same predicate as the forward steps
 }
 
 SourceLanguage SourcePanel::source_language() const { return highlighter_->language(); }
@@ -558,6 +581,7 @@ void SourcePanel::follow_pc()
 {
     placed_ = false;
     browse_addr_.reset();
+    browse_file_.clear();   // GH #480
     if (dbg_) refresh();
 }
 
@@ -565,7 +589,8 @@ void SourcePanel::refresh()
 {
     apply_scheme_();
     refresh_();
-    goto_pc_btn_->setEnabled(browse_addr_.has_value());
+    goto_pc_btn_->setEnabled(browsing());
+    sync_file_list_();
     update_gutter();   // the marks follow the memory mapped now
 }
 
@@ -601,6 +626,7 @@ void SourcePanel::refresh_()
     const auto status = dbg_->source_map_status();
     if (status.state == jnext::dbg::Debugger::SourceMapStatus::State::Stale) {
         browse_addr_.reset();   // GH #347: the map is gone
+        browse_file_.clear();
         show_message(tr("Source map '%1' does not match the program in memory: %2. "
                         "Load it again to use it.")
                          .arg(QString::fromStdString(status.file),
@@ -609,6 +635,7 @@ void SourcePanel::refresh_()
     }
     if (status.state == jnext::dbg::Debugger::SourceMapStatus::State::None) {
         browse_addr_.reset();   // GH #347: the map is gone
+        browse_file_.clear();
         show_message(status.reason.empty()
                          ? tr("No source map loaded")
                          : tr("No source map loaded: %1")
@@ -629,6 +656,16 @@ void SourcePanel::refresh_()
     // GH #347 - the label and the view describe the address the Disassembly led to while
     // browsing, else the PC's. A browse ends with its map, or when its address has no line now.
     if (browse_addr_ && dbg_->source_map().loaded_file() != browse_map_) browse_addr_.reset();
+    // GH #480 - a file browse also ends when the map no longer names its file.
+    if (!browse_file_.empty() && (dbg_->source_map().loaded_file() != browse_map_ ||
+                                  dbg_->source_map().files().count(browse_file_) == 0)) {
+        browse_file_.clear();
+        placed_ = false;
+    }
+    if (!browse_file_.empty()) {
+        refresh_file_browse_(pc_loc, pc, note);
+        return;
+    }
     const SourceLocation* location = pc_loc;
     uint16_t addr = pc;
     if (browse_addr_) {
@@ -653,56 +690,15 @@ void SourcePanel::refresh_()
 
     // GH #348 - the start-up code's m4 output, which the build did not keep, is in the
     // listing (`prog.lis`) the map was loaded with: shown from there, labelled so.
-    const SourceText* embedded = dbg_->source_map().embedded_text(location->file);
+    const SourceText* embedded = nullptr;
     QString source_path;
-    if (embedded) {
-        // A key no real path can equal, so switching back to a disk file reloads it.
-        source_path = QStringLiteral("\x01m4:") + QString::fromStdString(location->file) +
-                      QLatin1Char('\x01') + QString::fromStdString(embedded->origin) + QLatin1Char('\x01') +
-                      QString::number(reinterpret_cast<quintptr>(embedded), 16) + QLatin1Char(':') +
-                      QString::number(embedded->lines.size());
-        if (source_path != loaded_source_) {
-            QStringList lines;
-            lines.reserve(static_cast<int>(embedded->lines.size()));
-            for (const std::string& l : embedded->lines) lines << QString::fromUtf8(l.c_str());
-            set_source_text(lines.join(QLatin1Char('\n')), location->file);
-            loaded_source_ = source_path;
-            loaded_mtime_ = -1;
-            placed_ = false;
-        }
-    } else {
-        // GH #420 - a z88dk record in a `.m4` file (the CRT): the assembler numbered the
-        // lines of the m4 OUTPUT, which the build did not keep, so no file on disk has them.
-        if (dbg_->source_map().format() == "z88dk" &&
-            QString::fromStdString(location->file).endsWith(QLatin1String(".m4"), Qt::CaseInsensitive)) {
-            show_message(tr("%1:%2 - the line counts the m4 output of this file, which the build "
-                            "did not keep; use the disassembly")
-                             .arg(QString::fromStdString(location->file)).arg(location->line) + note);
-            return;
-        }
-        source_path = resolve_source_file(location->file);
-        if (source_path.isEmpty()) {
-            show_message(tr("%1:%2 - source file not found")
-                             .arg(QString::fromStdString(location->file))
-                             .arg(location->line) + note);
-            set_unresolved(location->file);
-            return;
-        }
-        // Reloaded when the file changes on disk, so an edit-and-rebuild cycle
-        // never highlights a line of the old text.
-        const qint64 mtime = QFileInfo(source_path).lastModified().toMSecsSinceEpoch();
-        if (source_path != loaded_source_ || mtime != loaded_mtime_) {
-            QFile file(source_path);
-            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                show_message(tr("Could not open %1").arg(source_path));
-                return;
-            }
-            set_source_text(QString::fromUtf8(file.readAll()), location->file);
-            loaded_source_ = source_path;
-            loaded_mtime_ = mtime;
-            placed_ = false;   // a new text, or another file, starts at its top
-        }
-    }
+    const QString file_text = QString::fromStdString(location->file);
+    if (!load_text_(location->file,
+                    tr("%1:%2 - the line counts the m4 output of this file, which the build "
+                       "did not keep; use the disassembly").arg(file_text).arg(location->line),
+                    tr("%1:%2 - source file not found").arg(file_text).arg(location->line),
+                    note, embedded, source_path))
+        return;
     shown_file_ = location->file;
 
     location_label_->setToolTip(embedded ? QString::fromStdString(embedded->origin) : source_path);
@@ -742,41 +738,11 @@ void SourcePanel::refresh_()
         return;
     }
 
-    // GH #388 - memory coverage: with it on, every line of this file the program
-    // executed (an X byte in one of the line's ranges) has a pale full-width
-    // background. X only: the R and W of a line's bytes have no per-source-line
-    // meaning (a line's bytes are its code). The current-line selection is
-    // appended LAST so it wins on its own line.
+    // GH #388 / GH #347 - the executed lines, then the lines of the Disassembly's selection;
+    // the PC's line goes LAST so it wins on its own (the PC's own line is the highlighted one
+    // only when the file shown is the PC's).
     QList<QTextEdit::ExtraSelection> selections;
-    if (dbg_->mem_coverage_enabled()) {
-        const QColor tint = highlighter_->colours_in_force().coverage_line;   // the scheme's (GH #422)
-        for (const uint32_t line : dbg_->executed_source_lines(location->file)) {
-            const QTextBlock b = doc->findBlockByNumber(static_cast<int>(line) - 1);
-            if (line == 0 || !b.isValid()) continue;
-            QTextEdit::ExtraSelection t;
-            t.cursor = QTextCursor(b);
-            t.cursor.clearSelection();
-            t.format.setBackground(tint);
-            t.format.setProperty(QTextFormat::FullWidthSelection, true);
-            selections.append(t);
-        }
-    }
-
-    // GH #347 - the lines of the Disassembly's selection, then the PC's line LAST so it wins on
-    // its own: the PC's own line is the highlighted one only when the file shown is the PC's.
-    if (disasm_range_) {
-        const QColor linked = highlighter_->colours_in_force().linked_line;   // the scheme's
-        for (const int line : linked_lines_(location->file)) {
-            const QTextBlock b = doc->findBlockByNumber(line - 1);
-            if (line < 1 || line > file_lines || !b.isValid()) continue;
-            QTextEdit::ExtraSelection t;
-            t.cursor = QTextCursor(b);
-            t.cursor.clearSelection();
-            t.format.setBackground(linked);
-            t.format.setProperty(QTextFormat::FullWidthSelection, true);
-            selections.append(t);
-        }
-    }
+    add_tints_(selections, location->file, file_lines);
     int pc_line = 0;
     if (pc_loc && pc_loc->file == location->file && pc_loc->line >= 1 && pc_loc->line <= file_lines &&
         doc->findBlockByNumber(pc_loc->line - 1).isValid()) {
@@ -813,12 +779,193 @@ void SourcePanel::refresh_()
     emit_lines_(false);   // a stop put the cursor on the PC's line: the Disassembly tints it
 }
 
+// The one text loader (see the header): the m4 listing the map carries, the z88dk `.m4` message,
+// else the file found on disk, reloaded when it changes there.
+bool SourcePanel::load_text_(const std::string& file, const QString& m4_message,
+                             const QString& missing_message, const QString& note,
+                             const SourceText*& embedded, QString& source_path)
+{
+    embedded = dbg_->source_map().embedded_text(file);
+    if (embedded) {
+        // A key no real path can equal, so switching back to a disk file reloads it.
+        source_path = QStringLiteral("\x01m4:") + QString::fromStdString(file) +
+                      QLatin1Char('\x01') + QString::fromStdString(embedded->origin) + QLatin1Char('\x01') +
+                      QString::number(reinterpret_cast<quintptr>(embedded), 16) + QLatin1Char(':') +
+                      QString::number(embedded->lines.size());
+        if (source_path != loaded_source_) {
+            QStringList lines;
+            lines.reserve(static_cast<int>(embedded->lines.size()));
+            for (const std::string& l : embedded->lines) lines << QString::fromUtf8(l.c_str());
+            set_source_text(lines.join(QLatin1Char('\n')), file);
+            loaded_source_ = source_path;
+            loaded_mtime_ = -1;
+            placed_ = false;
+        }
+        return true;
+    }
+    // GH #420 - a z88dk record in a `.m4` file (the CRT): the assembler numbered the
+    // lines of the m4 OUTPUT, which the build did not keep, so no file on disk has them.
+    if (dbg_->source_map().format() == "z88dk" &&
+        QString::fromStdString(file).endsWith(QLatin1String(".m4"), Qt::CaseInsensitive)) {
+        show_message(m4_message + note);
+        return false;
+    }
+    source_path = resolve_source_file(file);
+    if (source_path.isEmpty()) {
+        show_message(missing_message + note);
+        set_unresolved(file);
+        return false;
+    }
+    // Reloaded when the file changes on disk, so an edit-and-rebuild cycle
+    // never highlights a line of the old text.
+    const qint64 mtime = QFileInfo(source_path).lastModified().toMSecsSinceEpoch();
+    if (source_path != loaded_source_ || mtime != loaded_mtime_) {
+        QFile f(source_path);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            show_message(tr("Could not open %1").arg(source_path));
+            return false;
+        }
+        set_source_text(QString::fromUtf8(f.readAll()), file);
+        loaded_source_ = source_path;
+        loaded_mtime_ = mtime;
+        placed_ = false;   // a new text, or another file, starts at its top
+    }
+    return true;
+}
+
+// GH #388 - memory coverage: with it on, every line of the file the program executed (an X
+// byte in one of the line's ranges) has a pale full-width background. X only: the R and W of a
+// line's bytes have no per-source-line meaning (a line's bytes are its code). GH #347 - then the
+// lines with an instruction in the Disassembly's range.
+void SourcePanel::add_tints_(QList<QTextEdit::ExtraSelection>& out, const std::string& file,
+                             int file_lines) const
+{
+    const QTextDocument* doc = editor_->document();
+    if (dbg_->mem_coverage_enabled()) {
+        const QColor tint = highlighter_->colours_in_force().coverage_line;   // the scheme's (GH #422)
+        for (const uint32_t line : dbg_->executed_source_lines(file)) {
+            const QTextBlock b = doc->findBlockByNumber(static_cast<int>(line) - 1);
+            if (line == 0 || !b.isValid()) continue;
+            QTextEdit::ExtraSelection t;
+            t.cursor = QTextCursor(b);
+            t.cursor.clearSelection();
+            t.format.setBackground(tint);
+            t.format.setProperty(QTextFormat::FullWidthSelection, true);
+            out.append(t);
+        }
+    }
+    if (disasm_range_) {
+        const QColor linked = highlighter_->colours_in_force().linked_line;   // the scheme's
+        for (const int line : linked_lines_(file)) {
+            const QTextBlock b = doc->findBlockByNumber(line - 1);
+            if (line < 1 || line > file_lines || !b.isValid()) continue;
+            QTextEdit::ExtraSelection t;
+            t.cursor = QTextCursor(b);
+            t.cursor.clearSelection();
+            t.format.setBackground(linked);
+            t.format.setProperty(QTextFormat::FullWidthSelection, true);
+            out.append(t);
+        }
+    }
+}
+
+// GH #480 - the file chosen from the File list is shown from its top; no line of it is the
+// target, so there is no past-the-end check, no address in the label and no PC bar (the PC's own
+// file is never browsed: open_file()).
+void SourcePanel::refresh_file_browse_(const SourceLocation* pc_loc, uint16_t pc, const QString& note)
+{
+    const QString f = QString::fromStdString(browse_file_);
+    const SourceText* embedded = nullptr;
+    QString source_path;
+    if (!load_text_(browse_file_,
+                    tr("%1 - the map's lines count the m4 output of this file, which the build "
+                       "did not keep; use the disassembly").arg(f),
+                    tr("%1 - source file not found").arg(f), note, embedded, source_path))
+        return;
+    shown_file_ = browse_file_;
+    location_label_->setToolTip(embedded ? QString::fromStdString(embedded->origin) : source_path);
+    const QString browse_text = pc_loc
+        ? tr("  (browsing; the PC is at %1:%2, $%3)")
+              .arg(QString::fromStdString(pc_loc->file)).arg(pc_loc->line)
+              .arg(QString::asprintf("%04X", pc))
+        : tr("  (browsing; the PC is in no source line)");
+    location_label_->setText(
+        f + (embedded ? tr("  (m4 output, from %1)").arg(QFileInfo(QString::fromStdString(embedded->origin)).fileName())
+                      : QString()) + browse_text + note);
+
+    QList<QTextEdit::ExtraSelection> selections;
+    add_tints_(selections, browse_file_, file_line_count(editor_->document()));
+    editor_->setExtraSelections(selections);
+    if (!placed_ || place_now_) {
+        place_now_ = false;
+        {
+            SyncScope sync(syncing_);
+            QTextCursor at(editor_->document()->firstBlock());
+            at.clearSelection();
+            editor_->setTextCursor(at);
+            editor_->verticalScrollBar()->setValue(0);
+        }
+        placed_ = true;
+        placed_line_ = 0;
+    }
+    highlighted_line_ = 0;
+    emit_lines_(false);   // the Disassembly tints the first line's instructions; it does not scroll
+}
+
+void SourcePanel::open_file(const std::string& file)
+{
+    if (!dbg_ || !dbg_->state().paused || dbg_->source_map().empty() ||
+        dbg_->source_map().files().count(file) == 0)
+        return;
+    const SourceLocation* pc_loc = dbg_->source_location();
+    if (pc_loc && pc_loc->file == file) {
+        go_to_pc_line();   // a click on the PC's own file is not browsing
+        return;
+    }
+    if (file == shown_file_ && browsing()) return;   // already shown: the cursor and scroll stay
+    browse_addr_.reset();
+    browse_file_ = file;
+    browse_map_ = dbg_->source_map().loaded_file();
+    placed_ = false;
+    place_now_ = true;
+    refresh();
+}
+
+void SourcePanel::choose_file()
+{
+    if (!file_combo_->isEnabled()) return;
+    file_combo_->setFocus();
+    file_combo_->showPopup();
+}
+
+// GH #480 - the items are the map's own file names; the widget is touched only when the set
+// changed (a paused tick redraws nothing, GH #428), the current item only when it differs.
+void SourcePanel::sync_file_list_()
+{
+    std::vector<std::string> files;
+    if (dbg_) files.assign(dbg_->source_map().files().begin(), dbg_->source_map().files().end());
+    if (files != combo_files_) {
+        const QSignalBlocker block(file_combo_);
+        file_combo_->clear();
+        for (const std::string& f : files) file_combo_->addItem(QString::fromStdString(f));
+        combo_files_ = files;
+    }
+    const std::string& cur = !browse_file_.empty() ? browse_file_ : shown_file_;
+    const auto it = std::find(combo_files_.begin(), combo_files_.end(), cur);
+    const int idx = it == combo_files_.end() ? -1 : static_cast<int>(it - combo_files_.begin());
+    if (file_combo_->currentIndex() != idx) {
+        const QSignalBlocker block(file_combo_);
+        file_combo_->setCurrentIndex(idx);
+    }
+}
+
 // GH #347 - the Disassembly's selection leads the view.
 void SourcePanel::set_disasm_selection(uint16_t lo, uint16_t hi, uint16_t caret)
 {
     if (!dbg_ || !dbg_->state().paused || dbg_->source_map().empty()) return;
     disasm_range_ = DisasmRange{lo, hi, caret};
     if (const SourceLocation* loc = dbg_->source_location(caret)) {
+        browse_file_.clear();   // GH #480: an address browse (or the PC view) replaces a file browse
         const SourceLocation* pc_loc = dbg_->source_location();
         if (pc_loc && pc_loc->file == loc->file && pc_loc->line == loc->line) {
             browse_addr_.reset();   // the PC's own statement
@@ -842,6 +989,7 @@ void SourcePanel::show_address(uint16_t addr)
 void SourcePanel::go_to_pc_line()
 {
     browse_addr_.reset();
+    browse_file_.clear();   // GH #480
     placed_ = false;
     refresh();
 }

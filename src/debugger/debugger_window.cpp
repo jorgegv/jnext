@@ -711,6 +711,14 @@ void DebuggerWindow::create_menus() {
     source_reverse_action_ = source_item(tr("&Reverse Continue"),
                                          &DebuggerManager::on_source_reverse_continue);
     source_menu->addSeparator();
+    // GH #480 - the Source tab's File list: raise the tab and open it. Enabled with the forward steps.
+    source_open_action_ = source_menu->addAction(tr("Open Source &File..."));
+    connect(source_open_action_, &QAction::triggered, this, [this]() {
+        if (!source_panel_) return;
+        tab_widget_->setCurrentWidget(source_panel_);
+        source_panel_->choose_file();
+    });
+    source_open_action_->setEnabled(false);
     source_item(tr("Load Source &Map..."), &DebuggerManager::on_load_sld);
     source_item(tr("Load &Symbols (Memory.txt)..."), &DebuggerManager::on_load_nextbuild_memory);
     if (source_panel_) {
@@ -721,6 +729,7 @@ void DebuggerWindow::create_menus() {
             source_out_action_->setEnabled(forward);
             source_back_action_->setEnabled(backward);
             source_reverse_action_->setEnabled(backward);
+            source_open_action_->setEnabled(forward);
         });
         source_panel_->update_buttons(dbg_.state().paused);
     }

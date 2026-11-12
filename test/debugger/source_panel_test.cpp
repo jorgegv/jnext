@@ -7544,6 +7544,372 @@ void test_source_sync_review() {
     }
 }
 
+// ── QSRC-210..219 (GH #480): the Source tab's File list ──
+// Oracle: the issue's request (open any file the map names, browse it, set breakpoints in its
+// gutter) and the browse/gutter contract the user guide documents; expected values are the
+// literals of the fixture files (main.bas 10..13 at $8000/$8002/$8005/$8006 in p80, sub.bas:1 at
+// $9000 in p90). No VHDL counterpart: jnext-internal GUI.
+
+QComboBox* file_combo(SourcePanel* sp) {
+    return sp->findChild<QComboBox*>(QStringLiteral("source_file_combo"));
+}
+
+QStringList combo_items(QComboBox* c) {
+    QStringList out;
+    for (int i = 0; i < c->count(); ++i) out << c->itemText(i);
+    return out;
+}
+
+/// The user's pick: `activated` on the real combo, with the index of `name` (-1 when absent).
+bool choose_in_list(SourcePanel* sp, const QString& name) {
+    QComboBox* c = file_combo(sp);
+    const int idx = c ? c->findText(name) : -1;
+    if (idx < 0) return false;
+    Q_EMIT c->activated(idx);
+    QApplication::processEvents();
+    return true;
+}
+
+void test_source_any_file() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // QSRC-210: the list, its enabled state, its rebuilds
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        QComboBox* c = file_combo(w.sp);
+        const bool listed = c && combo_items(c) == QStringList{"main.bas", "sub.bas"} && c->isEnabled() &&
+                            c->currentText() == QStringLiteral("main.bas");
+        Fixture nomap;
+        nomap.enable();
+        SyncWin w0(nomap);
+        QComboBox* c0 = file_combo(w0.sp);
+        const bool empty = c0 && c0->count() == 0 && !c0->isEnabled();
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        w.sp->refresh();
+        const bool running = !c->isEnabled();
+        fx.emu.debug_state().pause();
+        fx.dbg()->activate_follow_pc();
+        w.tick();
+        const bool back = c->isEnabled();
+        // a same-path reload with another file set rebuilds the list and ends a browse of a file it dropped
+        write_text(tmp + "/extra.bas", "REM extra\n");
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        const bool browsing_before = w.sp->browsing() && w.sp->shown_file() == "sub.bas";
+        const std::string a = std::to_string(fx.p80);
+        write_text(fx.sld, std::string("|SLD.data.version|1\nmain.bas|10||0") + kNextDevice +
+                               "main.bas|10||0|" + a + "|32768|T|\n" + "extra.bas|1||0|" + a + "|32770|T|\n");
+        fx.load_map();
+        w.tick();
+        const bool rebuilt = combo_items(c) == QStringList{"extra.bas", "main.bas"} && !w.sp->browsing();
+        // an idle paused tick does not touch the widget
+        QSignalSpy ins(c->model(), &QAbstractItemModel::rowsInserted);
+        QSignalSpy rem(c->model(), &QAbstractItemModel::rowsRemoved);
+        QSignalSpy rst(c->model(), &QAbstractItemModel::modelReset);
+        for (int i = 0; i < 20; ++i) w.tick();
+        const bool idle = ins.count() == 0 && rem.count() == 0 && rst.count() == 0;
+        check("QSRC-210",
+              "the File list holds exactly the map's files (main.bas, sub.bas), enabled and on main.bas; empty and "
+              "disabled with no map; disabled while running; rebuilt by a same-path reload with another file set "
+              "(which also ends a browse of a file the map dropped); 20 idle paused ticks touch nothing",
+              listed && empty && running && back && browsing_before && rebuilt && idle,
+              "listed=" + std::to_string(listed) + " empty=" + std::to_string(empty) + " running=" +
+                  std::to_string(running) + " back=" + std::to_string(back) + " before=" +
+                  std::to_string(browsing_before) + " rebuilt=" + std::to_string(rebuilt) + " idle=" +
+                  std::to_string(idle));
+    }
+    {   // QSRC-211: choosing a file browses it from its top; stops end it
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        write_text(tmp + "/sub.bas", "REM sub 1\nREM sub 2\nREM sub 3\n");
+        SyncWin w(fx);
+        QComboBox* c = file_combo(w.sp);
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        QPushButton* goto_pc = button(w.sp, QStringLiteral("Go to PC Line"));
+        const bool shown = w.sp->shown_file() == "sub.bas" && w.sp->browsing() &&
+                           w.ed->textCursor().blockNumber() == 0 && w.sp->highlighted_line() == 0 &&
+                           w.sp->location_text() == QStringLiteral("sub.bas  (browsing; the PC is at main.bas:10, $8000)") &&
+                           goto_pc->isEnabled() && c->currentText() == QStringLiteral("sub.bas");
+        for (int i = 0; i < 20; ++i) w.tick();
+        w.src_move(2);
+        const int scroll = w.ed->verticalScrollBar()->value();
+        for (int i = 0; i < 20; ++i) w.tick();
+        const bool steady = w.sp->shown_file() == "sub.bas" && w.ed->textCursor().blockNumber() == 1 &&
+                            w.ed->verticalScrollBar()->value() == scroll;
+        fx.dbg()->activate_follow_pc();   // a stop
+        w.tick();
+        const bool stopped = w.sp->shown_file() == "main.bas" && w.sp->highlighted_line() == 10 &&
+                             !w.sp->browsing() && c->currentText() == QStringLiteral("main.bas") &&
+                             !goto_pc->isEnabled();
+        check("QSRC-211",
+              "choosing sub.bas shows it from its first line, browsing, no PC bar, label 'sub.bas  (browsing; the PC is at "
+              "main.bas:10, $8000)', Go to PC Line enabled and the list on sub.bas; 40 ticks leave the cursor and scroll; "
+              "a stop shows main.bas:10 again and the list follows",
+              shown && steady && stopped,
+              "shown=" + std::to_string(shown) + " steady=" + std::to_string(steady) + " stopped=" +
+                  std::to_string(stopped) + " " + s(w.sp->location_text()));
+    }
+    {   // QSRC-212: the gutter of a browsed file, banked lines
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90), far = std::to_string(fx.p80 + 2);
+        fx.backend->load_source_map(write_sld("anyfile-gutter.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" +
+            "util.bas|1||0|" + b + "|36864|T|\n" +
+            "util.bas|3||0|" + far + "|32773|T|\n"), false);
+        write_main({});
+        write_text(tmp + "/util.bas", "REM u1\nREM u2\nREM u3\n");
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        v.sp->open_file("util.bas");
+        QApplication::processEvents();
+        const bool open = v.sp->shown_file() == "util.bas" && v.sp->browsing();
+        v.click(1);
+        auto bps = m.pc_breakpoints();
+        const bool one = bps.size() == 1 && bps[0].addr == 0x9000 && bps[0].space == pg(fx.p90) &&
+                         v.sp->line_mark(1) == SourcePanel::LineMark::Armed;
+        v.click(2);
+        v.hover(2);
+        const bool nocode = m.pc_breakpoints().size() == 1 && v.gutter->toolTip() == QStringLiteral("no code at util.bas:2");
+        v.hover(3);
+        const bool unmapped_tip = v.gutter->toolTip().contains(QStringLiteral("not mapped now; click to set"));
+        v.click(3);
+        bps = m.pc_breakpoints();
+        const bool tied = bps.size() == 2 && std::any_of(bps.begin(), bps.end(), [&](const BreakpointModel::PcBreakpoint& p) {
+                              return p.addr == 0x8005 && p.space == pg(fx.p80 + 2);
+                          });
+        check("QSRC-212",
+              "in a browsed util.bas a gutter click on line 1 arms $9000 tied to its page and the line shows armed; line 2 (no "
+              "record) adds nothing and says 'no code at util.bas:2'; line 3 (page not mapped now) says so and a click arms "
+              "$8005 tied to its page; the tab stays on util.bas",
+              open && one && nocode && unmapped_tip && tied && v.sp->shown_file() == "util.bas" && v.sp->browsing(),
+              "open=" + std::to_string(open) + " one=" + std::to_string(one) + " nocode=" + std::to_string(nocode) +
+                  " tip=" + std::to_string(unmapped_tip) + " tied=" + std::to_string(tied) + " " + s(v.gutter->toolTip()));
+    }
+    {   // QSRC-213: the PC's file, and re-choosing the browsed one
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        write_text(tmp + "/sub.bas", "REM s1\nREM s2\nREM s3\nREM s4\nREM s5\n");
+        SyncWin w(fx);
+        w.dis_click(0x9000);
+        const bool addr_browse = w.sp->browsing() && w.sp->shown_file() == "sub.bas";
+        choose_in_list(w.sp, QStringLiteral("main.bas"));
+        const bool pcs = !w.sp->browsing() && w.sp->highlighted_line() == 10 && w.ed->textCursor().blockNumber() == 9;
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        w.src_move(4);
+        const int scroll = w.ed->verticalScrollBar()->value();
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        const bool kept = w.sp->browsing() && w.ed->textCursor().blockNumber() == 3 &&
+                          w.ed->verticalScrollBar()->value() == scroll;
+        check("QSRC-213",
+              "with $9000 browsed, choosing main.bas (the PC's file) is Go to PC Line (line 10 highlighted, cursor on it, not "
+              "browsing); choosing sub.bas, moving to line 4 and choosing sub.bas again leaves cursor, scroll and the browse",
+              addr_browse && pcs && kept,
+              "addr=" + std::to_string(addr_browse) + " pcs=" + std::to_string(pcs) + " kept=" + std::to_string(kept));
+    }
+    {   // QSRC-214: a file that is not found
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+        fx.backend->load_source_map(write_sld("anyfile-gone.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "gone.bas|1||0|" + b + "|36864|T|\n"), false);
+        write_main({});
+        SyncWin w(fx);
+        choose_in_list(w.sp, QStringLiteral("gone.bas"));
+        QPushButton* locate = button(w.sp, QStringLiteral("Locate File..."));
+        QPushButton* goto_pc = button(w.sp, QStringLiteral("Go to PC Line"));
+        auto state = [&]() {
+            return w.sp->location_text() == QStringLiteral("gone.bas - source file not found") &&
+                   locate->isEnabled() && w.sp->browsing() && goto_pc->isEnabled() &&
+                   file_combo(w.sp)->currentText() == QStringLiteral("gone.bas");
+        };
+        const bool missing = state();
+        for (int i = 0; i < 5; ++i) w.tick();
+        const bool kept = state();
+        put_file(tmp + "/q214/gone.bas", "REM gone 1\n");
+        fx.mgr->set_source_dirs({QString::fromStdString(tmp + "/q214")});
+        w.tick();
+        const bool found = w.sp->shown_file() == "gone.bas" && w.sp->browsing() && !locate->isEnabled();
+        check("QSRC-214",
+              "choosing gone.bas, which is on no search path, says 'gone.bas - source file not found' with Locate File... and Go to PC "
+              "Line enabled and the list on it, through five ticks; adding its directory shows it, still browsing",
+              missing && kept && found,
+              "missing=" + std::to_string(missing) + " kept=" + std::to_string(kept) + " found=" + std::to_string(found) +
+                  " " + s(w.sp->location_text()));
+    }
+    {   // QSRC-215: a z88dk .m4 file: the listing's text, or the m4 message
+        auto m4_name = [](SourcePanel* sp) {
+            QString name;
+            for (const QString& it : combo_items(file_combo(sp)))
+                if (it.endsWith(QStringLiteral("zxn_crt.asm.m4"))) name = it;
+            return name;
+        };
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q215";
+        const std::string map = root + "/build/prog.map";
+        copy_z88dk("master/sdcc-debug", "prog.map", map);
+        copy_z88dk("master/sdcc-debug", "prog.lis", root + "/build/prog.lis");
+        put_file(root + "/build/z88dk/lib/crt/newlib/crt_start_di.inc", numbered_lines(10, "; di "));
+        fx.backend->load_source_map(map, true);
+        set_cpu(fx, 0x8000);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const QString name = m4_name(sp);
+        const bool chose = !name.isEmpty() && choose_in_list(sp, name);
+        auto* ed = sp->findChild<QPlainTextEdit*>();
+        const bool listing = chose && ed->document()->blockCount() == 9701 &&
+                             sp->location_text().startsWith(name + QStringLiteral("  (m4 output, from prog.lis)  (browsing; the PC is at ")) &&
+                             !button(sp, QStringLiteral("Locate File..."))->isEnabled();
+        Fixture fy;
+        fy.enable();
+        z88dk_in_build(fy, tmp + "/q215b", 0x8000);
+        fy.mgr->refresh_panels();
+        SourcePanel* sy = fy.dbg()->source_panel();
+        const QString name2 = m4_name(sy);
+        const bool chose2 = !name2.isEmpty() && choose_in_list(sy, name2);
+        const bool message = chose2 && sy->location_text() ==
+            name2 + QStringLiteral(" - the map's lines count the m4 output of this file, which the build did not keep; use the disassembly");
+        check("QSRC-215",
+              "choosing the CRT's m4 file of a map loaded with prog.lis shows the listing's 9701 lines labelled '(m4 output, from "
+              "prog.lis)  (browsing; the PC is at ...', no Locate File...; without the listing the label is the m4 message",
+              listing && message,
+              "listing=" + std::to_string(listing) + " message=" + std::to_string(message) + " " + s(sp->location_text()) +
+                  " | " + s(sy->location_text()));
+    }
+    {   // QSRC-216: the PC in no source line
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        set_cpu(fx, 0x8100);
+        SyncWin w(fx);
+        w.tick();
+        QComboBox* c = file_combo(w.sp);
+        const bool none = w.sp->location_text().startsWith(QStringLiteral("$8100 (")) &&
+                          w.sp->location_text().contains(QStringLiteral("no source mapping")) && c->isEnabled() &&
+                          c->currentIndex() == -1;
+        choose_in_list(w.sp, QStringLiteral("main.bas"));
+        const bool browsed = w.sp->location_text() == QStringLiteral("main.bas  (browsing; the PC is in no source line)") &&
+                             w.sp->highlighted_line() == 0 && w.sp->browsing();
+        check("QSRC-216",
+              "with the PC in no source line the list is enabled on no item; choosing main.bas browses it (not Go to PC Line), "
+              "label 'main.bas  (browsing; the PC is in no source line)', no PC bar",
+              none && browsed, "none=" + std::to_string(none) + " browsed=" + std::to_string(browsed) + " " + s(w.sp->location_text()));
+    }
+    {   // QSRC-217: how a file browse ends, and how it is replaced
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        QComboBox* c = file_combo(w.sp);
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        w.dis_click(0x8002);
+        const bool addr = w.sp->location_text().startsWith(QStringLiteral("main.bas:11  $8002")) && w.sp->browsing() &&
+                          c->currentText() == QStringLiteral("main.bas");
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        const bool file_label = w.sp->location_text() == QStringLiteral("sub.bas  (browsing; the PC is at main.bas:10, $8000)");
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        w.sp->refresh();
+        const bool run = !w.sp->browsing() && !c->isEnabled();
+        fx.emu.debug_state().pause();
+        fx.dbg()->activate_follow_pc();
+        w.tick();
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        const bool again = w.sp->browsing();
+        write_text(tmp + "/other-map.sld", read_text(fx.sld));
+        fx.backend->load_source_map(tmp + "/other-map.sld", false);
+        w.tick();
+        const bool other_map = again && !w.sp->browsing();
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        const bool again2 = w.sp->browsing();
+        fx.backend->clear_source_map();
+        w.tick();
+        const bool cleared = again2 && !w.sp->browsing() && c->count() == 0 && !c->isEnabled();
+        check("QSRC-217",
+              "a Disassembly click replaces a file browse by an address browse (list on main.bas); choosing again replaces it "
+              "(label without an address); a run ends it and disables the list; another map path, and a cleared map, end it too",
+              addr && file_label && run && other_map && cleared,
+              "addr=" + std::to_string(addr) + " label=" + std::to_string(file_label) + " run=" + std::to_string(run) +
+                  " other=" + std::to_string(other_map) + " cleared=" + std::to_string(cleared));
+    }
+    {   // QSRC-218: Debug > Source > Open Source File...
+        Fixture fx;
+        fx.enable();
+        QAction* open = menu_action(fx.dbg(), QStringLiteral("Open Source &File..."));
+        const bool nomap = open && !open->isEnabled();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        const bool paused = open && open->isEnabled();
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        w.sp->refresh();
+        const bool running = open && !open->isEnabled();
+        QComboBox* c = file_combo(w.sp);
+        w.sp->choose_file();
+        const bool inert = !c->view()->isVisible();
+        fx.emu.debug_state().pause();
+        fx.dbg()->activate_follow_pc();
+        w.tick();
+        QTabWidget* tabs = nullptr;
+        for (auto* tw : fx.dbg()->findChildren<QTabWidget*>())
+            if (tw->indexOf(w.sp) >= 0) tabs = tw;
+        if (tabs) tabs->setCurrentIndex(tabs->indexOf(w.sp) == 0 ? 1 : 0);
+        const bool away = tabs && tabs->currentWidget() != w.sp;
+        if (open) open->trigger();
+        QApplication::processEvents();
+        const bool raised = tabs && tabs->currentWidget() == w.sp && c->view()->isVisible();
+        c->hidePopup();
+        check("QSRC-218",
+              "Debug > Source > Open Source &File... is disabled with no map and while running, enabled paused with a map; "
+              "triggered from another tab it shows the Source tab and opens the list's popup; the list's own choose does nothing "
+              "while it is disabled",
+              nomap && paused && running && inert && away && raised,
+              "nomap=" + std::to_string(nomap) + " paused=" + std::to_string(paused) + " running=" + std::to_string(running) +
+                  " inert=" + std::to_string(inert) + " away=" + std::to_string(away) + " raised=" + std::to_string(raised));
+    }
+    {   // QSRC-219: the Disassembly follows a file browse; coverage in the browsed file
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        write_text(tmp + "/sub.bas", "REM s1\nREM s2\nREM s3\n");
+        SyncWin w(fx);
+        fx.backend->mem_coverage_enable(true);
+        button(w.sp, QStringLiteral("Into"))->click();
+        button(w.sp, QStringLiteral("Over"))->click();   // the CALL runs sub.bas:1 through
+        QApplication::processEvents();
+        w.tick();
+        const int dis_scroll = w.scroll->value();
+        QSignalSpy spy(w.sp, &SourcePanel::source_lines_selected);
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        const bool once = spy.count() == 1 && spy[0][0].toString() == QStringLiteral("sub.bas") &&
+                          spy[0][1].toInt() == 1 && spy[0][2].toInt() == 1 && !spy[0][3].toBool();
+        const bool linked = w.dp->source_linked(0x9000) && w.scroll->value() == dis_scroll;
+        const QColor cov = w.sp->findChild<SourceHighlighter*>()->colours_in_force().coverage_line;
+        bool tint = false;
+        for (const auto& sel : w.ed->extraSelections())
+            if (sel.cursor.blockNumber() == 0 && sel.format.background().color() == cov) tint = true;
+        spy.clear();
+        w.src_select(2, 3);
+        const bool user = spy.count() == 1 && spy[0][0].toString() == QStringLiteral("sub.bas") &&
+                          spy[0][1].toInt() == 2 && spy[0][2].toInt() == 3 && spy[0][3].toBool();
+        check("QSRC-219",
+              "choosing sub.bas tells the Disassembly once (sub.bas, 1..1, no reveal), $9000 is linked and the Disassembly does not "
+              "scroll; with coverage on and $9000 executed, line 1 carries the scheme's coverage tint; the user's selection of lines "
+              "2..3 announces with reveal",
+              once && linked && tint && user,
+              "once=" + std::to_string(once) + " linked=" + std::to_string(linked) + " tint=" + std::to_string(tint) +
+                  " user=" + std::to_string(user));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -7613,6 +7979,7 @@ int main(int argc, char** argv) {
     test_source_sync();           // GH #347 stage 2
     test_annotations_menu();      // GH #387 stage 2
     test_source_sync_review();    // GH #347 stage 2, review 1
+    test_source_any_file();       // GH #480
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
