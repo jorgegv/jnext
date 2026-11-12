@@ -7,7 +7,7 @@
 //
 // Rows: janko's four scenarios (HBQ-60/63/64: ESP at boot, disabled and enabled by a cold boot
 // during the run; HBQ-65: the debugger window open) and the observers a client can still hold
-// (HBQ-61/62: a UART device that wants ticks, channel 0 and 1; HBQ-66..72: Execute and Mem
+// (HBQ-61/62: a UART device that wants ticks, channel 0 and 1; HBQ-66..74: Execute and Mem
 // subscriptions, run-to-cycle, a Cycle subscription, coverage).
 //
 // No ROM, no SD image: a bare Next with a program written straight into RAM.
@@ -558,6 +558,38 @@ int main() {
         const Pair p = run_pair(s);
         check("HBQ-71", "PC and memory coverage on: identical per frame, the coverage sets identical, the HALT batch never engaged",
               p.diff.empty() && p.on.run.halt_batched == 0 && p.on.log.size() == 1, detail_of(p));
+    }
+
+    // HBQ-73: a LEGACY PC breakpoint (the BreakpointSet model, not a subscription) AT the HALT with a
+    // client attached and a resume per frame: each resume stops after one repeat; the batch stays off.
+    {
+        Spec s = with_window("window-legacy-breakpoint-at-halt", 40);
+        s.watch_debug = false;
+        s.setup = [](Rig& r) {
+            install_calls(*r.emu);
+            attach_window(r);
+            r.emu->debug_state().breakpoints().add_pc(kHaltPc);
+        };
+        s.before = resume_each_frame;
+        s.alive = [](Rig& r) { return r.emu->call_stack().frames().size() >= 1 && r.emu->debug_state().paused(); };
+        const Pair p = run_pair(s);
+        check("HBQ-73", "a legacy PC breakpoint at the HALT with a client attached and a resume per frame: identical per frame, the HALT batch never engaged",
+              p.diff.empty() && p.on.run.halt_batched == 0, detail_of(p));
+    }
+
+    // HBQ-74: a LEGACY I/O watchpoint (the same set's wp_all_, on the port the ISR writes) with a client
+    // attached: the batch stays off (any watchpoint refuses, D3), identical per frame.
+    {
+        Spec s = with_window("window-legacy-io-watchpoint", 40);
+        s.watch_debug = false;
+        s.setup = [](Rig& r) {
+            install_calls(*r.emu);
+            attach_window(r);
+            r.emu->debug_state().breakpoints().add_watchpoint(0x00FE, WatchType::IO_WRITE);
+        };
+        const Pair p = run_pair(s);
+        check("HBQ-74", "a legacy I/O watchpoint with a client attached: identical per frame, the HALT batch never engaged",
+              p.diff.empty() && p.on.run.halt_batched == 0, detail_of(p));
     }
 
     // HBQ-72: the window CLOSED with the user's breakpoints kept: a non-arming observer client (the Qt
