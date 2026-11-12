@@ -16,6 +16,7 @@
 #include "core/saveable.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -97,6 +98,15 @@ std::string fingerprint(const fs::path& root) {
     std::string s;
     for (const std::string& r : rows) s += r + "|";
     return s;
+}
+
+/// True when the directory `dir` holds an entry whose name is exactly `name`. Not
+/// fs::exists(): a Windows host strips a trailing dot or space from the name it is
+/// asked about, so exists("dot.") is true when only "dot" is there.
+bool lists_exactly(const fs::path& dir, const std::string& name) {
+    for (const auto& e : fs::directory_iterator(dir))
+        if (e.path().filename().string() == name) return true;
+    return false;
 }
 
 /// A fresh fixture root and a class instance served from it.
@@ -526,11 +536,11 @@ void run_esxdos_write_rows(int& passed, int& failed)
                "F_MKDIR \"dot.\" drops the trailing dot, so \"dot\" and \"dot.\" are the same "
                "directory ([mkdir] S027E..S0282); a trailing space is refused with esx_einval "
                "(declared divergence: NextZXOS keeps it)",
-               dot_mk == H::kOk && f.has("dot") && !f.has("dot.") &&
+               dot_mk == H::kOk && lists_exactly(f.root, "dot") && !lists_exactly(f.root, "dot.") &&
                    f.hfs.opendir("dot.", H::kDirLfnOnly, dh) == H::kOk &&
                    f.hfs.close(dh) == H::kOk && f.hfs.opendir("dot", H::kDirLfnOnly, dh) == H::kOk &&
                    f.hfs.close(dh) == H::kOk && f.hfs.mkdir("sp ") == H::kEinval &&
-                   !f.has("sp ") && !f.has("sp"));
+                   !lists_exactly(f.root, "sp ") && !lists_exactly(f.root, "sp"));
         f.file("rn.txt", "r");
         wcheck("HFW-66",
                "F_RENAME to a name with \" < > | is esx_einval and nothing moves ([mkdir] "
@@ -797,17 +807,24 @@ void run_esxdos_write_rows(int& passed, int& failed)
         k.file("Long Name a.txt", "A");          // jnext's sorted listing numbers THIS ~1
         bool precondition = true;
         std::string alias_seen = "(no host alias on this platform: control)";
+        bool alias_is_listed = false;      // the host's alias for b is one of the names jnext lists
+        std::string host_alias;
 #ifdef _WIN32
         {
             wchar_t shortw[MAX_PATH] = {0};
             const std::wstring longw = (k.root / "Long Name b.txt").wstring();
             const DWORD n = GetShortPathNameW(longw.c_str(), shortw, MAX_PATH);
-            std::string alias;
-            for (DWORD i = 0; i < n; ++i) alias.push_back(static_cast<char>(shortw[i]));
-            alias_seen = alias;
-            // The precondition: the host really has an alias for b that is NOT the 8.3
-            // name jnext lists b under, else this row proves nothing.
-            precondition = n > 0 && fs::path(alias).filename().string() == "LONGNA~1.TXT";
+            std::string full;
+            for (DWORD i = 0; i < n; ++i) full.push_back(static_cast<char>(shortw[i]));
+            host_alias = fs::path(full).filename().string();
+            alias_seen = host_alias;
+            // The precondition: the host really has an alias for b (NTFS numbers it by
+            // creation order, LONGNA~1.TXT; wine hashes one, LONG~PSN.TXT), else this
+            // row proves nothing.
+            precondition = n > 0 && !host_alias.empty() && host_alias != "Long Name b.txt";
+            std::string up = host_alias;
+            for (char& c : up) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            alias_is_listed = up == "LONGNA~1.TXT" || up == "LONGNA~2.TXT";
         }
 #endif
 #ifdef __APPLE__
@@ -818,6 +835,13 @@ void run_esxdos_write_rows(int& passed, int& failed)
         }
 #endif
         const uint32_t via_alias = k.size_of("LONGNA~1.TXT");
+        // The host's own alias, when it is not a name jnext lists: refused, never b.
+        bool host_alias_refused = true;
+        if (!host_alias.empty() && !alias_is_listed) {
+            H::StatInfo hs;
+            host_alias_refused = k.hfs.stat(host_alias, hs) != H::kOk &&
+                                 k.hfs.unlink(host_alias) != H::kOk;
+        }
         const uint8_t del = k.hfs.unlink("LONGNA~1.TXT");
         bool apple_ok = true;
 #ifdef __APPLE__
@@ -829,10 +853,11 @@ void run_esxdos_write_rows(int& passed, int& failed)
         wcheck("HFW-103",
                "the host's own alias never reaches a different file than the listing names: "
                "\"LONGNA~1.TXT\" is the file jnext lists under it (\"Long Name a.txt\"), the "
-               "one a host numbering by creation order calls that is untouched (Windows: the "
-               "alias of the first file made; macOS: an NFC spelling of an NFD name; Linux: a "
-               "control with no host alias)",
-               precondition && apple_ok && via_alias == 1 && del == H::kOk &&
+               "one a host numbering by creation order calls that is untouched, and an alias "
+               "the listing does not know is refused (Windows: its own short name for the first "
+               "file made; macOS: an NFC spelling of an NFD name; Linux: a control with no host "
+               "alias)",
+               precondition && apple_ok && host_alias_refused && via_alias == 1 && del == H::kOk &&
                    !k.has("Long Name a.txt") && k.has("Long Name b.txt") &&
                    k.read("Long Name b.txt") == "BBB",
                "precondition=" + std::to_string(precondition) + " alias=" + alias_seen +
