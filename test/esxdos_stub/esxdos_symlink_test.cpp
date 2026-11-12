@@ -11,14 +11,18 @@
 // symlink is ever traversed, whichever way it points -- and esxapi.def's
 // esx_eacces (8) for the refusal.
 
+#include "core/emulator.h"
+#include "core/emulator_config.h"
 #include "core/esxdos_hostfs.h"
 
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #include "../row_id.h"
 #include "../test_portable.h"
@@ -160,6 +164,70 @@ int main() {
             hcheck("HFS-12", "symlink fixtures unavailable on this host", false, "");
         }
 
+    }
+
+    // NXROOT-13 (GH #490) -- the implicit root of --esxdos-stub is the directory
+    // the NEX's PATH names, not its link target's: L/link.nex -> R/real.nex
+    // serves L (the directory `.RUN` and the kept-open sibling lookup already
+    // use). Needs a symlink, hence here and POSIX-only.
+    {
+        const fs::path nbase = fs::temp_directory_path() /
+                               ("jnext-gh490-links-" + jtp::process_id_string());
+        fs::remove_all(nbase, rm_ec);
+        fs::create_directories(nbase / "L");
+        fs::create_directories(nbase / "R");
+        put_file(nbase / "L" / "data.bin", "L");
+        put_file(nbase / "R" / "data.bin", "R");
+        {   // V1.2, one bank (bank 2), PC $8000 = JR $
+            std::vector<char> f(512, 0);
+            std::copy_n("NextV1.2", 8, f.begin());
+            f[9] = 1; f[12] = static_cast<char>(0xF0); f[13] = static_cast<char>(0xBF);
+            f[15] = static_cast<char>(0x80); f[18 + 2] = 1;
+            std::vector<char> bank(0x4000, 0);
+            bank[0] = 0x18; bank[1] = static_cast<char>(0xFE);
+            f.insert(f.end(), bank.begin(), bank.end());
+            std::ofstream o(nbase / "R" / "real.nex", std::ios::binary | std::ios::trunc);
+            o.write(f.data(), static_cast<std::streamsize>(f.size()));
+        }
+        std::error_code nln;
+        fs::create_symlink(nbase / "R" / "real.nex", nbase / "L" / "link.nex", nln);
+        bool ok = false;
+        std::string got;
+        std::string root;
+        if (!nln) {
+            EmulatorConfig c;
+            c.type = MachineType::ZXN_ISSUE2;
+            c.esxdos_stub = true;
+            c.rewind_buffer_frames = 0;
+            auto ep = std::make_unique<Emulator>();
+            Emulator& e = *ep;
+            ok = e.init(c) && e.load_nex((nbase / "L" / "link.nex").string());
+            root = e.esxdos_hostfs().root().string();
+            if (ok && e.cpu().on_esxdos_call) {
+                const std::string nm = "data.bin";
+                for (std::size_t i = 0; i <= nm.size(); ++i)
+                    e.mmu().write(static_cast<uint16_t>(0x9100 + i),
+                                  i < nm.size() ? static_cast<uint8_t>(nm[i]) : 0);
+                Z80Registers r{};
+                r.AF = static_cast<uint16_t>('*' << 8);
+                r.IX = 0x9100;
+                r.BC = static_cast<uint16_t>(EsxdosHostFs::kModeRead << 8);
+                if (e.cpu().on_esxdos_call(0x9A, r) && !(r.AF & 1)) {
+                    Z80Registers rd{};
+                    rd.AF = static_cast<uint16_t>(r.AF & 0xFF00);
+                    rd.IX = 0x9200;
+                    rd.BC = 1;
+                    if (e.cpu().on_esxdos_call(0x9D, rd) && !(rd.AF & 1))
+                        got.push_back(static_cast<char>(e.mmu().read(0x9200)));
+                }
+            }
+        }
+        hcheck("NXROOT-13",
+               "a NEX reached through a symlink serves the directory of the link, "
+               "not of its target",
+               !nln && ok && root == fs::canonical(nbase / "L").string() && got == "L",
+               "root=" + root + " got='" + got + "'");
+        fs::remove_all(nbase, rm_ec);
     }
 
     fs::remove_all(base, rm_ec);

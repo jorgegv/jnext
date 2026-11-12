@@ -647,12 +647,24 @@ For programs run without NextZXOS; a directly loaded NEX gets a fuller
 set automatically (see \f[B]LOADING PROGRAMS\f[R]).
 With NextZXOS booted it answers in front of NextZXOS\(cqs own esxDOS for
 those calls, and NextZXOS\(cqs file commands stop working.
+.RS
+.PP
+With a NEX to load (\f[B]\-\-load\f[R], or a bare file name) and no
+\f[B]\-\-esxdos\-stub\-root\f[R], the directory the NEX is in is served
+to it as if it had been given as \f[I]DIR\f[R] (below): read\-only
+unless \f[B]\-\-esxdos\-stub\-writable\f[R] is also given, and in place
+of the in\-memory file.
+To keep the in\-memory file, load the NEX without
+\f[B]\-\-esxdos\-stub\f[R].
+.RE
 .TP
 \f[B]\-\-esxdos\-stub\-root\f[R] \f[I]DIR\f[R]
 Serve the host directory \f[I]DIR\f[R] to the guest through the esxDOS
 file and directory calls, instead of the single in\-memory file.
 Implies \f[B]\-\-esxdos\-stub\f[R].
 Read\-only unless \f[B]\-\-esxdos\-stub\-writable\f[R] is also given.
+\f[I]DIR\f[R] replaces the default of \f[B]\-\-esxdos\-stub\f[R], the
+directory of the loaded NEX.
 .RS
 .PP
 \f[B]Which programs see \f[BI]DIR\f[B], and which do not.\f[R] A NEX
@@ -696,7 +708,8 @@ This option is for programs jnext loads itself.
 .TP
 \f[B]\-\-esxdos\-stub\-writable\f[R]
 Allow the guest to create, truncate and write files under
-\f[B]\-\-esxdos\-stub\-root\f[R].
+\f[B]\-\-esxdos\-stub\-root\f[R], or in the directory of the loaded NEX
+when no root is given.
 Off by default, and deliberately a separate flag: a guest write changes
 a real file on the host immediately, and rewinding the emulator cannot
 undo it.
@@ -1996,8 +2009,10 @@ for a NEX whose header asks for its file to stay open: reading that
 file, including data appended after its banks (also through the
 block\-streaming calls), and reading, never writing, other files in the
 same directory by name.
-Such a NEX gets the host files instead of the in\-memory file (unless
-\f[B]\-\-esxdos\-stub\f[R] is also given).
+Such a NEX gets the host files instead of the in\-memory file (with
+\f[B]\-\-esxdos\-stub\f[R] it gets its directory through the host
+directory below instead, which also lets it open several files, list the
+directory and see names in any case).
 .PP
 Every other call from \f[CR]$80\f[R] to \f[CR]$B1\f[R] returns an error
 (carry set, \f[CR]A\f[R]=2), including calls NextZXOS does implement,
@@ -2008,10 +2023,13 @@ message.
 Codes above \f[CR]$B1\f[R] are not esxDOS calls and go to the code at
 \f[CR]$0008\f[R].
 .PP
-Without \f[B]\-\-esxdos\-stub\-root\f[R] this is not a filesystem.
+Without \f[B]\-\-esxdos\-stub\f[R] or \f[B]\-\-esxdos\-stub\-root\f[R]
+this is not a filesystem.
 Apart from the kept\-open case above the program cannot see files on the
 host or on the SD card, so a program that needs data files has to be
-copied to the SD card with them and started from NextZXOS.
+copied to the SD card with them and started from NextZXOS, or loaded
+with \f[B]\-\-esxdos\-stub\f[R], which serves the directory the NEX is
+in (next section).
 .SS A host directory for directly loaded programs
 \f[B]\-\-esxdos\-stub\-root\f[R] \f[I]DIR\f[R] replaces the single
 in\-memory file with the real host directory \f[I]DIR\f[R].
@@ -2072,6 +2090,27 @@ and symbolic links are refused rather than followed.
 A \f[I]DIR\f[R] that does not exist, or is not a directory, is an error
 at start\-up: jnext says so and exits non\-zero rather than running with
 the option silently inert.
+.PP
+\f[B]Without a \f[BI]DIR\f[B], the directory of the NEX.\f[R]
+\f[B]\-\-esxdos\-stub\f[R] alone, with a NEX to load
+(\f[B]\-\-load\f[R], or a bare file name), serves the directory the NEX
+is in, exactly as \f[B]\-\-esxdos\-stub\-root\f[R] with that directory
+would: \f[CR]jnext \-\-esxdos\-stub \-\-load mygame/game.nex\f[R] lets
+the program open \f[CR]mygame/data.bin\f[R] by name.
+It is read\-only unless \f[B]\-\-esxdos\-stub\-writable\f[R] is given,
+and it replaces the single in\-memory file (a program that saves a file
+then gets an error instead of the in\-memory copy; load it without
+\f[B]\-\-esxdos\-stub\f[R] to keep that).
+An explicit \f[B]\-\-esxdos\-stub\-root\f[R] takes precedence.
+The directory is the one the path names (for a symbolic link, the
+link\(cqs own directory).
+It lasts from the NEX load until the next reset, soft reset or load: a
+NEX loaded later, through \f[B]File > Load NEX File\&...\f[R], a recent
+file, \f[CR]run NAME.nex\f[R] or the debugger, gets its own directory.
+A NEX taken out of a \f[CR].zip\f[R] has no directory on disk and gets
+none, and neither do a snapshot, a tape or a program injected with
+\f[B]\-\-inject\f[R].
+A \f[CR].jns\f[R] does not record it.
 .PP
 And it is not for use alongside a booted NextZXOS.
 Implying \f[B]\-\-esxdos\-stub\f[R] means it inherits the same

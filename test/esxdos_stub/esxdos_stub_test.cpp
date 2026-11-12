@@ -976,6 +976,344 @@ int main() {
         std::filesystem::remove(br_ctl_path, ec);
     }
 
+    // GH #490 — --esxdos-stub with no --esxdos-stub-root serves the directory
+    // of the NEX that was loaded. There is no VHDL side (host-side esxDOS
+    // servicing); the oracle is the explicit-root behaviour HFS-01..127 pin
+    // against esxapi.def, which the implicit root must equal, and the
+    // esxapi.def error numbers (esx_enoent=5, esx_erdonly=24).
+    {
+        namespace fs = std::filesystem;
+        const fs::path base = fs::temp_directory_path() /
+                              ("jnext_gh490_" + std::to_string(::getpid()));
+        std::error_code ec;
+        fs::remove_all(base, ec);
+        auto put = [](const fs::path& p, const std::string& body) {
+            fs::create_directories(p.parent_path());
+            std::ofstream f(p, std::ios::binary | std::ios::trunc);
+            f.write(body.data(), static_cast<std::streamsize>(body.size()));
+        };
+        std::vector<uint8_t> spin(0x4000, 0);
+        spin[0] = 0x18; spin[1] = 0xFE;                       // JR $
+        const std::vector<uint8_t> payload = {'P', 'A', 'Y', '!'};
+        const fs::path dir_a = base / "a", dir_b = base / "b", dir_x = base / "x";
+        const std::string nex_a = (dir_a / "game.nex").string();
+        const std::string nex_b = (dir_b / "game.nex").string();
+        fs::create_directories(dir_a);
+        fs::create_directories(dir_b);
+        fs::create_directories(dir_x);
+        const bool built = write_probe_nex(nex_a, spin) && write_probe_nex(nex_b, spin);
+        put(dir_a / "data.bin", "AAAA");
+        put(dir_b / "data.bin", "BBBB");
+        put(dir_x / "data.bin", "XXXX");
+        // A TAP with one 19-byte header block (flag 0, type 3, name, 6 zero bytes, checksum).
+        {
+            std::vector<uint8_t> tap = {0x13, 0x00, 0x00, 0x03};
+            for (char c : std::string("gh490     ")) tap.push_back(static_cast<uint8_t>(c));
+            for (int i = 0; i < 6; ++i) tap.push_back(0);   // len, param1, param2
+            uint8_t x = 0;
+            for (std::size_t i = 2; i < tap.size(); ++i) x ^= tap[i];
+            tap.push_back(x);
+            std::ofstream f(dir_a / "game.tap", std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(tap.data()),
+                    static_cast<std::streamsize>(tap.size()));
+        }
+
+        auto canon = [](const fs::path& p) { return fs::canonical(p).string(); };
+        struct Open { bool handled; bool carry; uint8_t a; };
+        auto f_open = [](Emulator& e, const std::string& name, uint8_t mode) {
+            write_string(e, 0x9100, name);
+            Z80Registers r{};
+            r.AF = static_cast<uint16_t>('*' << 8);
+            r.IX = 0x9100;
+            r.BC = static_cast<uint16_t>(mode << 8);
+            const bool h = call(e, 0x9A, r);
+            return Open{h, carry(r), static_cast<uint8_t>(r.AF >> 8)};
+        };
+        auto read4 = [](Emulator& e, uint8_t handle) {
+            Z80Registers r{};
+            r.AF = static_cast<uint16_t>(handle << 8);
+            r.IX = 0x9200;
+            r.BC = 4;
+            std::string got;
+            if (call(e, 0x9D, r) && !carry(r))
+                for (int i = 0; i < 4; ++i)
+                    got.push_back(static_cast<char>(e.mmu().read(0x9200 + i)));
+            return got;
+        };
+        auto read_file = [](const fs::path& p) {
+            std::ifstream f(p, std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(f), {});
+        };
+        auto is_file_handle = [](const Open& o) {
+            return o.handled && !o.carry && o.a >= 0x04 && o.a <= 0x0B;
+        };
+        auto fresh = [] { return std::make_unique<Emulator>(); };
+
+        EmulatorConfig stub = cfg;                 // esxdos_stub on, no root
+        stub.load_file.clear();
+        stub.rewind_buffer_frames = 0;
+
+        // NXROOT-01 — the issue's case 1: no root given, a NEX loaded.
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            const bool ok = built && e.init(stub) && e.load_nex(nex_a);
+            const Open o = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            const std::string got = is_file_handle(o) ? read4(e, o.a) : "";
+            check("NXROOT-01",
+                  "--esxdos-stub, no root, NEX loaded: the NEX's directory is served "
+                  "(active, root = its canonical path, data.bin read by name)",
+                  ok && e.esxdos_hostfs().active() &&
+                  e.esxdos_hostfs().root().string() == canon(dir_a) && got == "AAAA",
+                  "ok=" + std::to_string(ok) + " root=" +
+                  e.esxdos_hostfs().root().string() + " got='" + got + "'");
+        }
+        // NXROOT-02 — an explicit root overrides it (issue case 2).
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            EmulatorConfig c = stub; c.esxdos_stub_root = dir_x.string();
+            const bool ok = built && e.init(c) && e.load_nex(nex_a);
+            const Open o = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            const std::string got = is_file_handle(o) ? read4(e, o.a) : "";
+            check("NXROOT-02",
+                  "an explicit --esxdos-stub-root wins over the NEX's directory",
+                  ok && e.esxdos_hostfs().root().string() == canon(dir_x) && got == "XXXX",
+                  "root=" + e.esxdos_hostfs().root().string() + " got='" + got + "'");
+        }
+        // NXROOT-03 — no program: the in-memory path (issue case 3).
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            const bool ok = e.init(stub);
+            const Open o = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            check("NXROOT-03",
+                  "--esxdos-stub with nothing loaded has no host directory: the "
+                  "in-memory file answers (F_OPEN of another name -> Fc=1, A=5)",
+                  ok && !e.esxdos_hostfs().active() && o.handled && o.carry && o.a == 5,
+                  "active=" + std::to_string(e.esxdos_hostfs().active()) +
+                  " A=" + std::to_string(o.a));
+        }
+        // NXROOT-04 — a TAP (cfg.load_file set) gets none either.
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            EmulatorConfig c = stub; c.load_file = (dir_a / "game.tap").string();
+            const bool ok = e.init(c) && emulator_apply_load(e, c.load_file, false);
+            check("NXROOT-04",
+                  "--esxdos-stub with a TAP loaded has no host directory",
+                  ok && !e.esxdos_hostfs().active(),
+                  "ok=" + std::to_string(ok) +
+                  " active=" + std::to_string(e.esxdos_hostfs().active()));
+        }
+        // NXROOT-05 — read-only by default (issue case 4).
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            const bool ok = built && e.init(stub) && e.load_nex(nex_a);
+            const Open cr = f_open(e, "new.bin",
+                EsxdosHostFs::kModeWrite | EsxdosHostFs::kModeCreatTrunc);
+            const Open wr = f_open(e, "data.bin", EsxdosHostFs::kModeWrite);
+            check("NXROOT-05",
+                  "the implicit root is read-only: create and write-open both fail "
+                  "with esx_erdonly (A=24), nothing changes on disk",
+                  ok && cr.handled && cr.carry && cr.a == 24 && wr.handled &&
+                  wr.carry && wr.a == 24 && !fs::exists(dir_a / "new.bin") &&
+                  read_file(dir_a / "data.bin") == "AAAA",
+                  "create A=" + std::to_string(cr.a) + " write A=" + std::to_string(wr.a));
+        }
+        // NXROOT-06 — --esxdos-stub-writable makes it writable.
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            EmulatorConfig c = stub; c.esxdos_stub_writable = true;
+            const bool ok = built && e.init(c) && e.load_nex(nex_a);
+            const Open cr = f_open(e, "new.bin",
+                EsxdosHostFs::kModeWrite | EsxdosHostFs::kModeCreatTrunc);
+            bool wrote = false;
+            if (is_file_handle(cr)) {
+                write_string(e, 0x9200, "W!");
+                Z80Registers r{};
+                r.AF = static_cast<uint16_t>(cr.a << 8);
+                r.IX = 0x9200;
+                r.BC = 2;
+                wrote = call(e, 0x9E, r) && !carry(r);
+                Z80Registers cl{};
+                cl.AF = static_cast<uint16_t>(cr.a << 8);
+                call(e, 0x9B, cl);
+            }
+            check("NXROOT-06",
+                  "with --esxdos-stub-writable the implicit root accepts a create+write",
+                  ok && wrote && read_file(dir_a / "new.bin") == "W!",
+                  "wrote=" + std::to_string(wrote));
+            fs::remove(dir_a / "new.bin", ec);
+        }
+        // NXROOT-07 — without --esxdos-stub nothing changes: the kept-open
+        // companion lookup (ExtendedNexHost::kSiblingHandle) still answers.
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            const std::string kept = (dir_a / "kept.nex").string();
+            const bool ok = write_probe_nex(kept, spin, 1, payload);
+            EmulatorConfig c = stub; c.esxdos_stub = false;
+            const bool loaded = ok && e.init(c) && e.load_nex(kept);
+            const Open o = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            check("NXROOT-07",
+                  "no --esxdos-stub: no host directory, the kept-open NEX's sibling "
+                  "lookup answers as before",
+                  loaded && !e.esxdos_hostfs().active() && o.handled && !o.carry &&
+                  o.a == ExtendedNexHost::kSiblingHandle,
+                  "A=" + std::to_string(o.a));
+            fs::remove(kept, ec);
+        }
+        // NXROOT-08 — the in-place load (debugger `load`) follows the NEX.
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            const bool ok = built && e.init(stub) && e.load_nex(nex_a) && e.load_nex(nex_b);
+            const Open o = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            const std::string got = is_file_handle(o) ? read4(e, o.a) : "";
+            check("NXROOT-08",
+                  "a second load_nex() on the same Emulator re-roots at the new NEX's "
+                  "directory",
+                  ok && e.esxdos_hostfs().root().string() == canon(dir_b) && got == "BBBB",
+                  "root=" + e.esxdos_hostfs().root().string() + " got='" + got + "'");
+        }
+        // NXROOT-09 — the cold-boot route (File > Load, Recent, .RUN).
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            bool ok = built && e.init(stub) && e.load_nex(nex_a);
+            ColdBootHooks hooks;
+            hooks.schedule_load = [&](const std::string& f, int) {
+                ok = emulator_apply_load(e, f, false) && ok;
+            };
+            emulator_frontend_cold_boot(e, stub, nex_b, hooks);
+            const Open o = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            const std::string got = is_file_handle(o) ? read4(e, o.a) : "";
+            check("NXROOT-09",
+                  "a cold boot followed by the scheduled load (File > Load NEX, "
+                  "run NAME.nex) roots at the newly loaded NEX's directory",
+                  ok && e.esxdos_hostfs().root().string() == canon(dir_b) && got == "BBBB",
+                  "root=" + e.esxdos_hostfs().root().string() + " got='" + got + "'");
+        }
+        // NXROOT-10 / -11 — a soft reset ends the implicit root, not an explicit one.
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            const bool ok = built && e.init(stub) && e.load_nex(nex_a);
+            const bool was_active = e.esxdos_hostfs().active();
+            e.soft_reset();
+            const Open o = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            check("NXROOT-10",
+                  "a soft reset ends the implicit root: the in-memory file answers "
+                  "again (F_OPEN data.bin -> Fc=1, A=5)",
+                  ok && was_active && !e.esxdos_hostfs().active() && o.handled &&
+                  o.carry && o.a == 5,
+                  "active=" + std::to_string(e.esxdos_hostfs().active()) +
+                  " A=" + std::to_string(o.a));
+        }
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            EmulatorConfig c = stub; c.esxdos_stub_root = dir_x.string();
+            const bool ok = built && e.init(c) && e.load_nex(nex_a);
+            e.soft_reset();
+            check("NXROOT-11",
+                  "control for NXROOT-10: an explicit root survives a soft reset",
+                  ok && e.esxdos_hostfs().active() &&
+                  e.esxdos_hostfs().root().string() == canon(dir_x));
+        }
+        // NXROOT-12 — kept-open NEX under the stub: own name still streams the
+        // appended payload, the sibling comes from the directory.
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            const std::string kept = (dir_a / "kept.nex").string();
+            const bool ok = write_probe_nex(kept, spin, 1, payload);
+            const bool loaded = ok && e.init(stub) && e.load_nex(kept);
+            const Open own = f_open(e, "kept.nex", EsxdosHostFs::kModeRead);
+            const Open sib = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            const std::string got = is_file_handle(sib) ? read4(e, sib.a) : "";
+            check("NXROOT-12",
+                  "kept-open NEX under --esxdos-stub: its own name still answers "
+                  "with the bridge handle, data.bin comes from the directory",
+                  loaded && own.handled && !own.carry &&
+                  own.a == ExtendedNexHost::kHandle && got == "AAAA",
+                  "own A=" + std::to_string(own.a) + " sib A=" +
+                  std::to_string(sib.a) + " got='" + got + "'");
+            fs::remove(kept, ec);
+        }
+        // NXROOT-14..16 — EsxdosHostFs::clear() on a re-root: handles are
+        // closed, the current directory is reset, directory handles are dropped.
+        put(dir_a / "sub" / "data.bin", "SSSS");
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            const bool ok = built && e.init(stub) && e.load_nex(nex_a);
+            const Open old = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            const bool l2 = e.load_nex(nex_b);
+            Z80Registers r{};
+            r.AF = static_cast<uint16_t>(old.a << 8);
+            r.IX = 0x9200;
+            r.BC = 4;
+            const bool stale = call(e, 0x9D, r);
+            const bool stale_failed = stale && carry(r);
+            const Open o = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            const std::string got = is_file_handle(o) ? read4(e, o.a) : "";
+            check("NXROOT-14",
+                  "re-rooting by load_nex() closes the open file handles: F_READ on "
+                  "the old handle fails (Fc=1), a fresh open reads the new directory",
+                  ok && l2 && is_file_handle(old) && stale_failed && got == "BBBB",
+                  "stale handled=" + std::to_string(stale) + " carry=" +
+                  std::to_string(stale && carry(r)) + " got='" + got + "'");
+        }
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            const bool ok = built && e.init(stub) && e.load_nex(nex_a);
+            write_string(e, 0x9100, "sub");
+            Z80Registers cd{};
+            cd.AF = static_cast<uint16_t>('*' << 8);
+            cd.IX = 0x9100;
+            const bool cd_ok = call(e, 0xA9, cd) && !carry(cd);
+            const Open in_sub = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            const std::string sub_got = is_file_handle(in_sub) ? read4(e, in_sub.a) : "";
+            const bool l2 = e.load_nex(nex_b);
+            const Open o = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            const std::string got = is_file_handle(o) ? read4(e, o.a) : "";
+            check("NXROOT-15",
+                  "re-rooting resets the current directory: after F_CHDIR into a/sub "
+                  "(data.bin = SSSS there), data.bin in the new root reads BBBB",
+                  ok && cd_ok && sub_got == "SSSS" && l2 && got == "BBBB",
+                  "cd=" + std::to_string(cd_ok) + " sub='" + sub_got + "' got='" + got + "'");
+        }
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            const bool ok = built && e.init(stub) && e.load_nex(nex_a);
+            write_string(e, 0x9100, "/");
+            Z80Registers od{};
+            od.IX = 0x9100;
+            od.BC = static_cast<uint16_t>(EsxdosHostFs::kDirLfnOnly << 8);
+            const bool od_ok = call(e, 0xA3, od) && !carry(od);
+            const uint8_t dh = static_cast<uint8_t>(od.AF >> 8);
+            const bool l2 = e.load_nex(nex_b);
+            Z80Registers rd{};
+            rd.AF = static_cast<uint16_t>(dh << 8);
+            rd.IX = 0x9200;
+            const bool handled = call(e, 0xA4, rd);
+            check("NXROOT-16",
+                  "re-rooting drops open directory handles: F_READDIR on the old "
+                  "handle fails (Fc=1)",
+                  ok && od_ok && EsxdosHostFs::is_dir_handle(dh) && l2 && handled &&
+                  carry(rd),
+                  "dh=" + std::to_string(dh) + " handled=" + std::to_string(handled) +
+                  " carry=" + std::to_string(carry(rd)));
+        }
+        // NXROOT-17 — an explicit root that cannot be served (deleted mid-session)
+        // is NOT replaced by the NEX's directory.
+        {
+            auto ep = fresh(); Emulator& e = *ep;
+            EmulatorConfig c = stub;
+            c.esxdos_stub_root = (base / "no-such-dir").string();
+            const bool ok = built && e.init(c) && e.load_nex(nex_a);
+            const Open o = f_open(e, "data.bin", EsxdosHostFs::kModeRead);
+            const std::string got = is_file_handle(o) ? read4(e, o.a) : "";
+            check("NXROOT-17",
+                  "an explicit --esxdos-stub-root that cannot be served stays unserved: "
+                  "the NEX's directory does not silently replace it",
+                  ok && !e.esxdos_hostfs().active() && got != "AAAA",
+                  "active=" + std::to_string(e.esxdos_hostfs().active()) + " got='" + got + "'");
+        }
+        fs::remove_all(base, ec);
+    }
+
     // GH #31 — --esxdos-stub-root rows live in their own translation unit
     // (esxdos_hostfs_rows.cpp) and report into the same two counters, so the
     // suite still prints one Total: line and the manifest still pins one

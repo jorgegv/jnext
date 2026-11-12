@@ -69,7 +69,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6201 | 6201 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6201**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5700**. Rows the 193 suites declared in `test/unit-tests.conf` run live: **16034**.
+Rows the sections above carry: **6201**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5700**. Rows the 193 suites declared in `test/unit-tests.conf` run live: **16051**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -81,15 +81,15 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 145 suites (10418 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 145 suites (10435 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
 | `fuse_z80_test` | 1356 | data-driven FUSE runner, no per-row IDs |
 | `z80n_test` | 85 | data-driven FUSE-style runner, opcode names not row IDs |
 | `rewind_call_stack_test` | 20 | debugger call-stack tracker restored by rewind, emptied by a state load or reset (jnext-internal); the T80N core has no debugger |
-| `esxdos_stub_test` | 185 | esxDOS API surface + jnext trap policy, not core logic |
-| `esxdos_symlink_test` | 6 | esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic |
+| `esxdos_stub_test` | 201 | esxDOS API surface + jnext trap policy, not core logic |
+| `esxdos_symlink_test` | 7 | esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic |
 | `quick_snapshot_posix_test` | 2 | GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle |
 | `video_recorder_posix_test` | 7 | GH #446 ffmpeg PATH lookup rows needing exec bits, symlinks and a decoy script (POSIX-only); host tooling, no VHDL oracle |
 | `pgo_map_parse_test` | 4 | GH #416 PGO link-map reader contract (POSIX-only, drives cmake -P); build tooling, no VHDL oracle |
