@@ -1122,14 +1122,11 @@ int Z80Cpu::execute() {
             // Pre-fix: Q persisted from the prior FUSE opcode, poisoning
             // SCF/CCF X/Y bits across any Z80N → SCF sequence.
             //
-            // iff2_read semantics (NMOS LD A,I / LD A,R quirk): if INT is
-            // accepted on the very next instruction boundary after LD A,I/R
-            // and IFF2 was 1, the P flag (which the LD just stored) gets
-            // cleared to model the well-known race condition. FUSE clears
-            // iff2_read=0 at the top of every opcode. A Z80N opcode in
-            // between LD A,I and an INT acceptance is a non-immediate
-            // boundary, so iff2_read MUST be cleared too — otherwise jnext
-            // fires the NMOS quirk wrongly.
+            // iff2_read: set by LD A,I / LD A,R in the vendored z80_ed.c,
+            // cleared at the top of every opcode. It has no consumer any
+            // more (the NMOS LD A,I/R P/V race is not modelled, because the
+            // T80N has none: t80n.vhd:1175, 1193, 1206, 1768-1771); the
+            // clear is kept as hygiene.
             z80.q = 0;
             z80.iff2_read = 0;
             sync_regs_from_fuse(regs_);
@@ -1523,9 +1520,8 @@ void Z80Cpu::describe_state(jnext::save::StateDesc& d)
     //     compared with the counter for equality at the boundary straight
     //     after the EI, and the counter is re-seeded rather than restored, so
     //     what travels is whether that grace is pending HERE: 0 yes, -1 no.
-    //   iff2_read — the NMOS LD A,I / LD A,R quirk flag: if INT is accepted
-    //     on the next instruction boundary, the P flag (holding the IFF2 the
-    //     LD stored) gets cleared.
+    //   iff2_read — the vendored core's LD A,I / LD A,R flag. Nothing reads
+    //     it any more (the T80N has no LD A,I/R P/V race); it only travels.
     d.i32("ei_grace", ser_ei_grace_);
     d.u8("iff2_read", ser_iff2_read_);
     // Interrupt state.

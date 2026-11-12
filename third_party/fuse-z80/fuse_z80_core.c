@@ -135,9 +135,11 @@ int fuse_z80_interrupt(libspectrum_byte vector)
     if ((libspectrum_signed_dword)tstates == z80.interrupts_enabled_at)
         return 0;
 
-    if (z80.iff2_read && !IS_CMOS) {
-        F &= ~FLAG_P;
-    }
+    /* No NMOS LD A,I / LD A,R race here (z80.iff2_read has no consumer):
+     * the T80N writes F.P/V from IFF2 at T3 of the LD's M1 (t80n.vhd:1175,
+     * 1188-1193, 1206) and an accepted interrupt clears IFF2 only at the end
+     * of the instruction (t80n.vhd:1768-1771), so P/V always holds the IFF2
+     * from before the acceptance. */
 
     if (z80.halted) { PC++; z80.halted = 0; }
 
