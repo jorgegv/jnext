@@ -182,7 +182,7 @@ A z88dk dot command is not a program the emulator loads. NextZXOS copies the fil
 bank when the command is typed and runs it from `$2000` there, so at the moment the map is attached
 nothing says whether the right command is in memory, and a landing says nothing about it either.
 The map therefore has its own rule, on top of the tape machinery above. `SourceMap::dot()`
-(`source_map.h:194`) is set by the z88dk adapter ([7.4.3](04-3-z88dk-map.md), rule 5).
+(`source_map.h:199`) is set by the z88dk adapter ([7.4.3](04-3-z88dk-map.md), rule 5).
 
 - **Always deferred.** `load_source_map()` defers a dot map whatever `verify_at_first_execution` says
   (`verify_at_first_execution`, `debugger_source.cpp:502`), when it has any byte check. `add_check()` marks the check `dot` only if

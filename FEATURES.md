@@ -152,7 +152,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - **Source-level debugging**: z88dk `-debug` maps and listings and sjasmplus SLD maps give C and assembly source lines, NextBuild / Boriel `Memory.txt` gives symbols (`--source-map FILE`) (user guide: The Source Debugger)
 - Banked code matched by page, with identity checks against the linker's section binaries
 - z88dk dot commands debugged from their map (`jnext --source-map prog.map`, also with RZX replay)
-- Source tab: current line, statement stepping (Into, Over, Out, Back, Reverse Continue), search path for sources (`--source-dir`)
+- Source tab: current line, any file the map names (File list, gutter breakpoints), statement stepping (Into, Over, Out, Back, Reverse Continue), search path for sources (`--source-dir`)
 - Source breakpoints by `file:line` or symbol, with gutter click, right-click menu and syntax colouring in selectable schemes
 - Source tab and Disassembly stay in sync, and the Call Stack shows each call's source line
 - **C variables**: Variables tab shows parameters, locals, globals and statics with C types, structs, arrays, pointers and z88dk floats

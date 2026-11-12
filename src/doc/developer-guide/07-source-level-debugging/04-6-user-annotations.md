@@ -162,7 +162,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   code view's context menu. The Disassembly calls it with the one place of the line, its address and the
   `entry.space` it was drawn with (in `DisasmPanel::contextMenuEvent()`, `add_annotation_actions` is called at `src/debugger/disasm_panel.cpp:986`); the
   Source tab calls it with the line's `st.starts` (in `SourcePanel::fill_context_menu()`, `add_annotation_actions` is called at
-  `src/debugger/source_panel.cpp:1208`), so a line that compiled to several places gets a submenu per entry,
+  `src/debugger/source_panel.cpp:1356`), so a line that compiled to several places gets a submenu per entry,
   a place not mapped now stays editable (the key does not depend on the mapping), and a line with no code
   has the entries disabled with the tab's *no code at* tooltip. Both views therefore offer the same words in
   the same order (`QANN-11`).
@@ -192,7 +192,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   formats do not include them (`QANN-04`). The Source tab does not draw comments (it shows the user's own
   file).
 - **The Map menu.** `DebuggerWindow` adds **Open Annotations…**, **Save Annotations** and **Save Annotations As…**
-  (`connect`, `src/debugger/debugger_window.cpp:890-894`), connected to `DebuggerManager::on_open_annotations()`
+  (`connect`, `src/debugger/debugger_window.cpp:899-903`), connected to `DebuggerManager::on_open_annotations()`
   (`debugger_manager.cpp:784`), `on_save_annotations()` (`:760`) and `on_save_annotations_as()` (`:750`); Save with no
   current file is Save As, which appends `.jdp` to a name without a suffix. Failures are warnings with the
   backend's `why` (an Open names the line).

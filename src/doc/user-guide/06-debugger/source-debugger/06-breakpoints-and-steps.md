@@ -16,7 +16,7 @@ compiled to several places (a routine in two banks, say) is ONE breakpoint,
 armed at each place and listed as one row, "main.bas:120 (2 locations)": Enabled,
 Edit and Remove act on all its places, and a click on the dot of one place in the
 disassembly gutter removes only that place. A line with no code is refused with "no code at main.bas:120". A click in the Source tab's
-gutter sets or clears the same breakpoint on the line shown, and removing one place in the
+gutter sets or clears the same breakpoint on the line shown (any file the map names can be opened from the tab's File list and its gutter clicked), and removing one place in the
 disassembly leaves a half mark on the Source tab's line. A number wins over a symbol: `FE` or `B` is that
 address even when the program has a variable called `FE` or `B`. Write `@FE`
 to mean the symbol (a z88dk C variable takes its C name: `counter`, not `_counter`). A breakpoint on a line of banked code is tied to

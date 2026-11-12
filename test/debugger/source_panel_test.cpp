@@ -7768,7 +7768,7 @@ void test_source_any_file() {
                              !button(sp, QStringLiteral("Locate File..."))->isEnabled();
         Fixture fy;
         fy.enable();
-        z88dk_in_build(fy, tmp + "/q215b", 0x8000);
+        z88dk_in_build(fy, tmp + "/q215b");   // the PC on main.c:19: the m4 file is NOT the PC's
         fy.mgr->refresh_panels();
         SourcePanel* sy = fy.dbg()->source_panel();
         const QString name2 = m4_name(sy);
@@ -7787,11 +7787,11 @@ void test_source_any_file() {
         fx.enable();
         fx.load_map();
         write_main({});
-        set_cpu(fx, 0x8100);
+        set_cpu(fx, 0x4000);   // screen RAM: in no range of the map
         SyncWin w(fx);
         w.tick();
         QComboBox* c = file_combo(w.sp);
-        const bool none = w.sp->location_text().startsWith(QStringLiteral("$8100 (")) &&
+        const bool none = w.sp->location_text().startsWith(QStringLiteral("$4000 (")) &&
                           w.sp->location_text().contains(QStringLiteral("no source mapping")) && c->isEnabled() &&
                           c->currentIndex() == -1;
         choose_in_list(w.sp, QStringLiteral("main.bas"));
