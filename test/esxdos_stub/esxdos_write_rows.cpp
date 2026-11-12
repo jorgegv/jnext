@@ -982,6 +982,81 @@ void run_esxdos_write_rows(int& passed, int& failed)
                    t.hfs.chmod("cs/*.*", 0, H::kChmodWrite) == H::kOk);
     }
 
+    // ══ A new long name never takes an existing file's 8.3 alias (review round 2) ═
+    {
+        // "Save Game 1" sorts BEFORE "Save Game 2", which holds SAVEGA~1.SAV; FAT
+        // fixes an alias when its file is created, so the newcomer gets ~2.
+        auto kept = [&](Fx& f) {
+            return f.size_of("S/SAVEGA~1.SAV") == 2 && f.size_of("S/SAVEGA~2.SAV") == 1;
+        };
+        Fx a(base, "n1a", true);
+        a.file("S/Save Game 2.sav", "22"); a.size_of("S/SAVEGA~1.SAV");
+        uint8_t h = 0;
+        const uint8_t oc = a.hfs.open("S/Save Game 1.sav", H::kModeWrite | H::kModeCreatTrunc, h);
+        std::size_t wrote = 0;
+        a.hfs.write(h, reinterpret_cast<const uint8_t*>("1"), 1, wrote);
+        a.hfs.close(h);
+        wcheck("HFW-147",
+               "a long name CREATED next to an aliased one that sorts after it takes the lowest "
+               "free tail: the existing file keeps SAVEGA~1.SAV ([alias] a new name takes the "
+               "lowest free tail, aliases stay put)",
+               oc == H::kOk && kept(a));
+        Fx b(base, "n1b", true);
+        b.file("S/Save Game 2.sav", "22"); b.file("S/tmp.sav", "1"); b.size_of("S/SAVEGA~1.SAV");
+        const uint8_t rb = b.hfs.rename("S/tmp.sav", "S/Save Game 1.sav");
+        wcheck("HFW-148",
+               "a file RENAMED to such a name leaves the existing file's alias alone",
+               rb == H::kOk && kept(b));
+        Fx c(base, "n1c", true);
+        c.file("S/Save Game 2.sav", "22"); c.file("Save Game 1.sav", "1"); c.size_of("S/SAVEGA~1.SAV");
+        const uint8_t rc = c.hfs.rename("Save Game 1.sav", "S");
+        wcheck("HFW-149",
+               "a file MOVED into the directory leaves the existing file's alias alone",
+               rc == H::kOk && kept(c));
+        Fx d(base, "n1d", true);
+        d.file("S/Save Game 2.sav", "22"); d.size_of("S/SAVEGA~1.SAV");
+        const uint8_t md = d.hfs.mkdir("S/Save Game 1.sav");
+        H::StatInfo dst;
+        wcheck("HFW-150",
+               "a directory MADE with such a name leaves the existing file's alias alone and "
+               "takes ~2 (F_STAT of a directory is esx_einval)",
+               md == H::kOk && d.size_of("S/SAVEGA~1.SAV") == 2 &&
+                   d.hfs.stat("S/SAVEGA~2.SAV", dst) == H::kEinval);
+
+        // A long-named file moved into a directory holding a same-prefix long name is
+        // not a collision: it gets a FRESH alias there (as a renamed file does).
+        Fx m1(base, "n2a", true);
+        m1.file("A/Save Game 1.sav", "1"); m1.file("B/Save Game 2.sav", "22");
+        m1.size_of("B/SAVEGA~1.SAV");
+        const uint8_t mv = m1.hfs.rename("A/Save Game 1.sav", "B");
+        wcheck("HFW-151",
+               "moving a long name into a directory holding a same-prefix long name is Fc=0: "
+               "the moved file gets a fresh alias and the existing one keeps its own",
+               mv == H::kOk && m1.size_of("B/SAVEGA~1.SAV") == 2 &&
+                   m1.size_of("B/SAVEGA~2.SAV") == 1);
+        Fx m2(base, "n2b", true);
+        m2.file("A/Save Game 1.sav", "1"); m2.file("B/Save Game 2.sav", "22");
+        m2.size_of("B/SAVEGA~1.SAV");
+        wcheck("HFW-152",
+               "the into-directory spelling and the explicit-name spelling of the same move "
+               "answer alike (Fc=0 both)",
+               m2.hfs.rename("A/Save Game 1.sav", "B/Save Game 4.sav") == H::kOk && mv == H::kOk);
+        Fx t1(base, "n2c", true);
+        t1.file("D/Save Game.sav", "held"); t1.file("SAVE GAME.SAV", "moving");
+        wcheck("HFW-153",
+               "a long name held in the target in another case is a collision (esx_edevicebusy): "
+               "the case term on its own, a long name has no matching 8.3 form",
+               t1.hfs.rename("SAVE GAME.SAV", "D") == H::kEdevicebusy && t1.has("SAVE GAME.SAV"));
+        std::string cwd;
+        Fx t2(base, "n2d", true);
+        t2.file("f.txt", "x");
+        wcheck("HFW-154",
+               "F_GETCWD A=$FF of \"../x\" at the root is esx_enotdir, not an internal marker; "
+               "a wildcard under a file or a missing directory is esx_enotdir too",
+               t2.hfs.getcwd_of("../x", cwd) == H::kEnotdir &&
+                   t2.hfs.unlink("f.txt/*") == H::kEnotdir && t2.hfs.unlink("nodir/*") == H::kEnotdir);
+    }
+
     // ══ The dispatcher: registers, claims, and what a refusal looks like ═════
     {
         const fs::path droot = base / "disp";

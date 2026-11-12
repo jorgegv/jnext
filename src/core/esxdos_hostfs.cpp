@@ -190,21 +190,31 @@ bool EsxdosHostFs::list_host_dir(const fs::path& dir, std::vector<Listed>& out) 
             if (aliased[i] && out[i].lfn == it->first) { there = true; break; }
         it = there ? std::next(it) : table.erase(it);
     }
+    // First every kept alias of a name still here (unless a native name displaced
+    // it) is reserved, THEN the rest get the lowest free tail: a new name that sorts
+    // before an aliased one must not take its short name (FAT fixes an alias when
+    // the file is created).
+    std::vector<bool> fresh(out.size(), false);
     for (std::size_t i = 0; i < out.size(); ++i) {
         if (!aliased[i]) continue;
-        Listed& l = out[i];
-        const auto have = table.find(l.lfn);
+        const auto have = table.find(out[i].lfn);
         if (have != table.end() && !taken(have->second)) {
-            l.sfn = have->second;
+            out[i].sfn = have->second;
+            used.push_back(have->second);
         } else {
-            unsigned n = 1;
-            std::string sfn;
-            do { sfn = EsxdosHostFs::short_name(l.lfn, n++); }
-            while (taken(sfn) && n < 1000);
-            l.sfn = sfn;
-            table[l.lfn] = sfn;
+            fresh[i] = true;
         }
-        used.push_back(l.sfn);
+    }
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        if (!fresh[i]) continue;
+        Listed& l = out[i];
+        unsigned n = 1;
+        std::string sfn;
+        do { sfn = EsxdosHostFs::short_name(l.lfn, n++); }
+        while (taken(sfn) && n < 1000);
+        l.sfn = sfn;
+        table[l.lfn] = sfn;
+        used.push_back(sfn);
     }
     return true;
 }
@@ -1046,19 +1056,15 @@ uint8_t EsxdosHostFs::rename(const std::string& from, const std::string& to)
         const auto m = std::mismatch(src.begin(), src.end(), target.begin(), target.end());
         if (src_dir && m.first == src.end()) return kEexist;     // into its own subtree
         // A name already there is decided by what the volume would answer to, not
-        // by what the host does (GH #457 review): the listing's names in any case,
-        // and 8.3 aliases in both directions (the source's own, and the one a long
-        // name in the target holds). The host's own answer is a further guard.
-        std::string sname = src.filename().string(), ssfn;
-        std::vector<Listed> sib, held;
-        if (list_host_dir(src.parent_path(), sib))
-            for (const Listed& l : sib)
-                if (l.lfn == sname) { ssfn = l.sfn; break; }
+        // by what the host does (GH #457 review): the listing's names in any case, and
+        // the 8.3 alias a long name in the target holds (a long-named source gets a
+        // FRESH alias there, so its own is not a collision). The host's own answer
+        // is a further guard.
+        const std::string sname = src.filename().string();
+        std::vector<Listed> held;
         if (list_host_dir(dst, held))
             for (const Listed& l : held)
-                if (iequal(l.lfn, sname) || iequal(l.sfn, sname) ||
-                    (!ssfn.empty() && (iequal(l.lfn, ssfn) || iequal(l.sfn, ssfn))))
-                    return kEdevicebusy;
+                if (iequal(l.lfn, sname) || iequal(l.sfn, sname)) return kEdevicebusy;
         std::error_code ec2;
         if (fs::exists(fs::symlink_status(target, ec2))) return kEdevicebusy;
     } else {
