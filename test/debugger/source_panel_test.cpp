@@ -2477,10 +2477,10 @@ void test_source_menu() {
             for (QAction* a : m->actions())
                 if (!a->isSeparator()) items << a->text().remove(QLatin1Char('&'));
         const QStringList want{"Step Into", "Step Over", "Step Out", "Step Back",
-                               "Reverse Continue", "Load Source Map...",
-                               "Load Symbols (Memory.txt)..."};
+                               "Reverse Continue", "Open Source File...", "Load Source Map...",
+                               "Load Symbols (Memory.txt)..."};   // GH #480: + Open Source File...
         check("QSRC-47", "Debug > Source holds, in order: Step Into, Step Over, Step Out, "
-                         "Step Back, Reverse Continue, Load Source Map..., "
+                         "Step Back, Reverse Continue, Open Source File..., Load Source Map..., "
                          "Load Symbols (Memory.txt)...",
               items == want, s(items.join(QStringLiteral(" | "))));
     }
