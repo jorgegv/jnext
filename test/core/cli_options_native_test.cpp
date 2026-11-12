@@ -6,7 +6,7 @@
 // assertions; cli_options_test keeps the table, man page and parser rows. The row
 // descriptions are in the header of cli_options_test.cpp:
 //   CLI-ENV-01, CLI-BIN-01..04, CLI-TAP-01, CLI-JNS-05, CLI-NUM-05..07,
-//   CLI-SET-03..12, CLI-SET-14, CLI-COV-01, CLI-ANN-01, CLI-REX-01, CLI-REX-02.
+//   CLI-SET-03..12, CLI-SET-14, CLI-COV-01, CLI-ANN-01, CLI-REX-01, CLI-REX-02, CLI-TKB-02.
 // `make cli-check` runs both suites (CLI-BIN-04 checks the binary's --help against
 // the man page).
 
@@ -146,6 +146,8 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-REX-02", "--import-skoolkit and --import-ghidra read files at start",
                  "jnext binary not built at " + bin);
+            skip("CLI-TKB-02", "--touch-keyboard warns outside a browser page; a bad value exits 1",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -194,6 +196,8 @@ int main() {
             skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-REX-02", "--import-skoolkit and --import-ghidra read files at start",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-TKB-02", "--touch-keyboard warns outside a browser page; a bad value exits 1",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -845,6 +849,27 @@ int main() {
                       arity && rc == 0 && logged && rc_bad != 0 && names && rc_bad_g != 0 && names_g,
                       std::string("rc=") + std::to_string(rc) + " logged=" + (logged ? "1" : "0") + " rc_bad=" +
                           std::to_string(rc_bad) + " names=" + (names ? "1" : "0") + " " + all.substr(0, 300));
+            }
+
+            // CLI-TKB-02: --touch-keyboard is a browser-page option; this native build accepts it with
+            // one warning per occurrence and carries on, and a value other than auto/on/off exits 1
+            // naming the flag and the value.
+            {
+                const std::string base = "--headless --machine 48k" + sd_arg;
+                const int rc_ok = run_split(base + " --touch-keyboard off --delayed-automatic-exit-frames 5");
+                const std::string ok_err = slurp(err_path);
+                const std::string warn = "warning: --touch-keyboard has no effect outside a browser page; ignoring.";
+                size_t warns = 0;
+                for (size_t at = ok_err.find(warn); at != std::string::npos; at = ok_err.find(warn, at + 1)) ++warns;
+                const int rc_bad = run_split(base + " --touch-keyboard sideways --delayed-automatic-exit-frames 5");
+                const std::string bad_err = slurp(err_path);
+                const bool names = bad_err.find("--touch-keyboard") != std::string::npos &&
+                                   bad_err.find("sideways") != std::string::npos;
+                check("CLI-TKB-02", "--touch-keyboard off exits 0 with exactly one 'has no effect outside a browser page' warning; "
+                                    "--touch-keyboard sideways exits 1 naming the flag and the value",
+                      rc_ok == 0 && warns == 1 && rc_bad == 1 && names,
+                      "rc_ok=" + std::to_string(rc_ok) + " warns=" + std::to_string(warns) + " rc_bad=" +
+                          std::to_string(rc_bad) + " " + bad_err.substr(0, 200));
             }
 
             // CLI-SET-06: the CPU speed reaches the machine. A 48K run, so the firmware does not

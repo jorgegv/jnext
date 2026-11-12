@@ -52,6 +52,8 @@ inline constexpr Option WEB_OPTIONS[] = {
       "The program to run: a URL, {url}, or {data, name}; absent boots to the NextZXOS menu" },
     { "machine", Kind::Flag, cli::OptId::Machine, std::nullopt, std::nullopt, false, nullptr,
       "The machine to start" },
+    { "touchKeyboard", Kind::Flag, cli::OptId::TouchKeyboard, std::nullopt, std::nullopt, false, nullptr,
+      "The on-screen keyboard: 'auto' (shown on a phone or tablet), 'on' or 'off'" },
     { "muted", Kind::SetKey, std::nullopt, std::nullopt, config_keys::KeyId::StartupSilent, false, nullptr,
       "Start with no audio device for the session" },
     { "set", Kind::SetMap, std::nullopt, std::nullopt, std::nullopt, false, nullptr,

@@ -1074,6 +1074,24 @@ int main() {
               bad.empty(), join(bad));
     }
 
+    // --- CLI-TKB-01: --touch-keyboard's value parser; the page reads the numbers -----------------
+    {
+        using cli::TouchKeyboard;
+        TouchKeyboard a = TouchKeyboard::Off, b = TouchKeyboard::Off, c = TouchKeyboard::Auto;
+        const bool good = cli::parse_touch_keyboard("auto", a) && cli::parse_touch_keyboard("on", b) &&
+                          cli::parse_touch_keyboard("off", c);
+        const bool nums = static_cast<int>(a) == 0 && static_cast<int>(b) == 1 && static_cast<int>(c) == 2 &&
+                          a == TouchKeyboard::Auto && b == TouchKeyboard::On && c == TouchKeyboard::Off;
+        std::string bad;
+        for (const char* v : { "", "On", "AUTO", "yes", "true", "1", "auto " }) {
+            TouchKeyboard keep = TouchKeyboard::On;
+            if (cli::parse_touch_keyboard(v, keep) || keep != TouchKeyboard::On) bad += std::string(" [") + v + "]";
+        }
+        check("CLI-TKB-01", "parse_touch_keyboard: auto/on/off give Auto/On/Off = 0/1/2; '', On, AUTO, yes, true, 1, 'auto ' "
+                            "are refused and leave the output unchanged",
+              good && nums && bad.empty(), bad);
+    }
+
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total + g_skip, g_pass, g_fail, g_skip);
