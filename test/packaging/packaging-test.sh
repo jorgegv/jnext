@@ -187,8 +187,11 @@ clear_artifacts build/dist '*.tar.gz'
 clear_artifacts build/dist 'jnext-*-src.zip'
 if make package-src >"$LOGDIR/src.log" 2>&1; then
     tb=$(pick_artifact build/dist '*.tar.gz' "v$VER.tar.gz" 2>>"$LOGDIR/src.log")
-    if [ -n "$tb" ] && [ -s "$tb" ] && tar tzf "$tb" 2>/dev/null | grep -q "/CMakeLists.txt$"; then
-        ok package-src "$(basename "$tb")"
+    if [ -n "$tb" ] && [ -s "$tb" ] && tar tzf "$tb" 2>/dev/null | grep -q "/CMakeLists.txt$" \
+       && ! tar tzf "$tb" 2>/dev/null | grep -q "/data/48rom.map$"; then
+        bad package-src "tarball has no data/48rom.map (the 48K ROM symbol map)" "$LOGDIR/src.log"
+    elif [ -n "$tb" ] && [ -s "$tb" ] && tar tzf "$tb" 2>/dev/null | grep -q "/CMakeLists.txt$"; then
+        ok package-src "$(basename "$tb") (+ data/48rom.map)"
     else
         bad package-src "no tarball, empty, or missing CMakeLists.txt" "$LOGDIR/src.log"
     fi
@@ -199,8 +202,11 @@ if make package-src >"$LOGDIR/src.log" 2>&1; then
     if [ -n "$z" ] && [ -s "$z" ]; then
         zl=$(unzip -l "$z" 2>/dev/null)
         if printf '%s' "$zl" | grep -q "/CMakeLists.txt$" \
+           && ! printf '%s' "$zl" | grep -q "/data/48rom.map$"; then
+            bad package-src-zip "zip has no data/48rom.map (the 48K ROM symbol map)" "$LOGDIR/src.log"
+        elif printf '%s' "$zl" | grep -q "/CMakeLists.txt$" \
            && printf '%s' "$zl" | grep -q "third_party/spdlog/CMakeLists.txt$"; then
-            ok package-src-zip "$(basename "$z")"
+            ok package-src-zip "$(basename "$z") (+ data/48rom.map)"
         else
             bad package-src-zip "zip missing CMakeLists.txt or vendored submodule content" "$LOGDIR/src.log"
         fi
@@ -216,8 +222,11 @@ if command -v rpmbuild >/dev/null 2>&1; then
     clear_artifacts build/rpm-release 'jnext-*.x86_64.rpm'
     if make package-rpm >"$LOGDIR/rpm.log" 2>&1; then
         r=$(pick_artifact build/rpm-release 'jnext-*.x86_64.rpm' "jnext-$VER-1.x86_64.rpm" 2>>"$LOGDIR/rpm.log")
-        if [ -n "$r" ] && rpm -qlp "$r" 2>/dev/null | grep -q "bin/jnext$"; then
-            ok package-rpm "$(basename "$r")"
+        if [ -n "$r" ] && rpm -qlp "$r" 2>/dev/null | grep -q "bin/jnext$" \
+           && ! rpm -qlp "$r" 2>/dev/null | grep -q "^/usr/share/jnext/48rom.map$"; then
+            bad package-rpm "rpm has no /usr/share/jnext/48rom.map (the 48K ROM symbol map)" "$LOGDIR/rpm.log"
+        elif [ -n "$r" ] && rpm -qlp "$r" 2>/dev/null | grep -q "bin/jnext$"; then
+            ok package-rpm "$(basename "$r") (+ 48rom.map)"
         else
             bad package-rpm "no current-version .rpm, or missing bin/jnext" "$LOGDIR/rpm.log"
         fi
@@ -233,8 +242,11 @@ if command -v dpkg-deb >/dev/null 2>&1; then
     clear_artifacts build/deb-release 'jnext_*_amd64.deb'
     if make package-deb >"$LOGDIR/deb.log" 2>&1; then
         d=$(pick_artifact build/deb-release 'jnext_*_amd64.deb' "jnext_${VER}_amd64.deb" 2>>"$LOGDIR/deb.log")
-        if [ -n "$d" ] && dpkg-deb -c "$d" 2>/dev/null | grep -q "bin/jnext$"; then
-            ok package-deb "$(basename "$d")"
+        if [ -n "$d" ] && dpkg-deb -c "$d" 2>/dev/null | grep -q "bin/jnext$" \
+           && ! dpkg-deb -c "$d" 2>/dev/null | grep -q "\./usr/share/jnext/48rom.map$"; then
+            bad package-deb "deb has no /usr/share/jnext/48rom.map (the 48K ROM symbol map)" "$LOGDIR/deb.log"
+        elif [ -n "$d" ] && dpkg-deb -c "$d" 2>/dev/null | grep -q "bin/jnext$"; then
+            ok package-deb "$(basename "$d") (+ 48rom.map)"
         else
             bad package-deb "no current-version .deb, or missing bin/jnext" "$LOGDIR/deb.log"
         fi
@@ -274,13 +286,15 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
             # SDL bundle's OS floor.
             if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring"; then
                 bad package-win "curl/OpenSSL chain DLLs leaked back into the zip (GH #108 Phase B regression)" "$LOGDIR/win.log"
+            elif ! printf '%s' "$list" | grep -qE '[[:space:]]jnext-[^/]+/48rom\.map$'; then
+                bad package-win "zip has no 48rom.map at its root (the 48K ROM symbol map)" "$LOGDIR/win.log"
             elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -q "Qt6Core.dll" \
                && printf '%s' "$list" | grep -q "Qt6Svg.dll" \
                && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
                && printf '%s' "$list" | grep -qi "SDL3.dll" \
                && ! printf '%s' "$list" | grep -qi "SDL2.dll"; then
-                ok package-win "$(basename "$z") (jnext.exe + Qt6 Core/Svg + SDL3 DLLs + qwindows plugin, no SDL2 shim, no curl/OpenSSL)"
+                ok package-win "$(basename "$z") (jnext.exe + Qt6 Core/Svg + SDL3 DLLs + qwindows plugin + 48rom.map, no SDL2 shim, no curl/OpenSSL)"
             else
                 bad package-win ".zip missing bundled DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win.log"
             fi
@@ -518,12 +532,14 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
             # post-Win7 import in this bundle (WINDOWS-COMPAT-PLAN.md §2).
             if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring|iconv"; then
                 bad package-win-sdl "curl/OpenSSL chain DLLs leaked back into the zip — Win7 floor regression (GH #108 Phase B)" "$LOGDIR/win-sdl.log"
+            elif ! printf '%s' "$list" | grep -qE '[[:space:]]jnext-[^/]+/48rom\.map$'; then
+                bad package-win-sdl "zip has no 48rom.map at its root (the 48K ROM symbol map)" "$LOGDIR/win-sdl.log"
             elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -qi "SDL3.dll" \
                && ! printf '%s' "$list" | grep -qi "SDL2.dll" \
                && ! printf '%s' "$list" | grep -q "Qt6" \
                && ! printf '%s' "$list" | grep -q "platforms/"; then
-                ok package-win-sdl "$(basename "$z") (jnext.exe + SDL3, no SDL2 shim, no Qt, no curl/OpenSSL)"
+                ok package-win-sdl "$(basename "$z") (jnext.exe + SDL3 + 48rom.map, no SDL2 shim, no Qt, no curl/OpenSSL)"
             else
                 bad package-win-sdl ".zip missing exe or SDL3.dll, or Qt files / the SDL2 shim leaked in" "$LOGDIR/win-sdl.log"
             fi
@@ -562,13 +578,15 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
             elif ! printf '%s' "$subsys" | grep -qi "Windows GUI" \
                || printf '%s' "$subsys" | grep -qi "CUI"; then
                 bad package-win-qt5 "jnext.exe not GUI subsystem — got: ${subsys:-<none>}" "$LOGDIR/win-qt5.log"
+            elif ! printf '%s' "$list" | grep -qE '[[:space:]]jnext-[^/]+/48rom\.map$'; then
+                bad package-win-qt5 "zip has no 48rom.map at its root (the 48K ROM symbol map)" "$LOGDIR/win-qt5.log"
             elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -q "Qt5Core.dll" \
                && printf '%s' "$list" | grep -q "Qt5Svg.dll" \
                && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
                && printf '%s' "$list" | grep -qi "SDL3.dll" \
                && ! printf '%s' "$list" | grep -qi "SDL2.dll"; then
-                ok package-win-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5 Core/Svg + SDL3 DLLs + qwindows, no SDL2 shim, no Qt6, no curl/OpenSSL)"
+                ok package-win-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5 Core/Svg + SDL3 DLLs + qwindows + 48rom.map, no SDL2 shim, no Qt6, no curl/OpenSSL)"
             else
                 bad package-win-qt5 ".zip missing exe/Qt5 DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win-qt5.log"
             fi
@@ -611,12 +629,14 @@ if command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >
             list=$(unzip -l "$z" 2>/dev/null)
             if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring|iconv"; then
                 bad package-win32-sdl "curl/OpenSSL chain DLLs leaked back into the zip — Win7 floor regression (GH #108 Phase B)" "$LOGDIR/win32-sdl.log"
+            elif ! printf '%s' "$list" | grep -qE '[[:space:]]jnext-[^/]+/48rom\.map$'; then
+                bad package-win32-sdl "zip has no 48rom.map at its root (the 48K ROM symbol map)" "$LOGDIR/win32-sdl.log"
             elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -qi "SDL3.dll" \
                && ! printf '%s' "$list" | grep -qi "SDL2.dll" \
                && ! printf '%s' "$list" | grep -q "Qt6" \
                && ! printf '%s' "$list" | grep -q "platforms/"; then
-                ok package-win32-sdl "$(basename "$z") (jnext.exe + SDL3, no SDL2 shim, no Qt, no curl/OpenSSL)"
+                ok package-win32-sdl "$(basename "$z") (jnext.exe + SDL3 + 48rom.map, no SDL2 shim, no Qt, no curl/OpenSSL)"
             else
                 bad package-win32-sdl ".zip missing exe or SDL3.dll, or Qt files / the SDL2 shim leaked in" "$LOGDIR/win32-sdl.log"
             fi
@@ -654,13 +674,15 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
             elif ! printf '%s' "$subsys" | grep -qi "Windows GUI" \
                || printf '%s' "$subsys" | grep -qi "CUI"; then
                 bad package-win32-qt5 "jnext.exe not GUI subsystem — got: ${subsys:-<none>}" "$LOGDIR/win32-qt5.log"
+            elif ! printf '%s' "$list" | grep -qE '[[:space:]]jnext-[^/]+/48rom\.map$'; then
+                bad package-win32-qt5 "zip has no 48rom.map at its root (the 48K ROM symbol map)" "$LOGDIR/win32-qt5.log"
             elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -q "Qt5Core.dll" \
                && printf '%s' "$list" | grep -q "Qt5Svg.dll" \
                && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
                && printf '%s' "$list" | grep -qi "SDL3.dll" \
                && ! printf '%s' "$list" | grep -qi "SDL2.dll"; then
-                ok package-win32-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5 Core/Svg + SDL3 DLLs + qwindows, no SDL2 shim, no Qt6, no curl/OpenSSL)"
+                ok package-win32-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5 Core/Svg + SDL3 DLLs + qwindows + 48rom.map, no SDL2 shim, no Qt6, no curl/OpenSSL)"
             else
                 bad package-win32-qt5 ".zip missing exe/Qt5 DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win32-qt5.log"
             fi
