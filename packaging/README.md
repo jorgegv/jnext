@@ -18,7 +18,8 @@ exact string.
 `CMakeLists.txt` gained `install()` rules (Task 67) that are always present
 (they don't gate any build option): the `jnext` binary, the `.desktop`
 launcher, the AppStream metainfo, a scalable SVG + 512×512 PNG icon under
-`hicolor`, `LICENSE`/`README.md`/`ChangeLog`/`USAGE.md` under `share/doc/jnext`,
+`hicolor`, `LICENSE`/`README.md`/`ChangeLog`/`USAGE.md` under `share/doc/jnext`, the 48K ROM
+symbol map `48rom.map` under `share/jnext`,
 and the man page at `share/man/man1/jnext.1` (pre-generated and committed, so
 installing needs no doc toolchain — the formats compress it themselves, hence
 the `jnext.1*` glob in the RPM `%files`). `include(CPack)`

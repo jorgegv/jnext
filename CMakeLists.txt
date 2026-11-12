@@ -537,6 +537,11 @@ if(APPLE AND MACOS_APP_BUNDLE)
     target_sources(jnext PRIVATE ${CMAKE_SOURCE_DIR}/packaging/assets/jnext.icns)
     set_source_files_properties(${CMAKE_SOURCE_DIR}/packaging/assets/jnext.icns
         PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+    # The 48K ROM symbol map (Map > Load MAP File > Simple Format), copied in at
+    # build time so the install-time codesign seal covers it.
+    target_sources(jnext PRIVATE ${CMAKE_SOURCE_DIR}/data/48rom.map)
+    set_source_files_properties(${CMAKE_SOURCE_DIR}/data/48rom.map
+        PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
     # Let the bundled dylibs in Contents/Frameworks be found at run time.
     set_target_properties(jnext PROPERTIES
         INSTALL_RPATH "@executable_path/../Frameworks"
@@ -804,6 +809,10 @@ endif()
 
 install(FILES LICENSE README.md ChangeLog USAGE.md
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
+# The 48K ROM symbol map: load it with Map > Load MAP File > Simple Format.
+install(FILES data/48rom.map
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/jnext)
 
 # User guide. Committed pre-rendered (from src/doc/user-guide via
 # `make docs-userguide`), so installing needs no doc toolchain — same rationale

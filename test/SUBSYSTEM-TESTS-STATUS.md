@@ -104,7 +104,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ZIP program archives  |       71 |       71 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (fixtures) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (peripherals) |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Cycle batching equivalence (ESP and debugger client) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (cold boot) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 1/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 2/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -134,7 +133,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source maps + symbols |      130 |      130 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (skoolkit/Ghidra export) |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
-| z88dk -debug map adapter |      153 |      153 |      0 |       0 |    100% | 🟢 All tests pass. |
+| z88dk -debug map adapter |      157 |      157 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk --list listing adapter |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk CDB record decoder |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | C value formatting (frames and values) |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -184,12 +183,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD-card/NextPi download dialog (GH #358) |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Toolbar SVG icon set + icon lint |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (Apply) |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (Apply) |       96 |       96 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |      122 |      122 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persist. BP (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger HALT batch (GUI) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Inspection Reads |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Sizing |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -201,6 +199,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      271 |      271 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16075**| **16075**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16055**| **16055**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

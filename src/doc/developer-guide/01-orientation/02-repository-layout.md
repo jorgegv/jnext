@@ -18,7 +18,7 @@ that knowing the rule is usually faster than grepping.
 | `tools/` | Developer utilities that are not part of the build: SD-image fixers, CSpect/DZRP differential-debugging helpers, profiler post-processing, the user-guide server, `crtshot` (one picture per CRT effect, for the user guide). |
 | `roms/` | `nextboot.rom` and nothing else. The 8 KB FPGA boot ROM is embedded into the binary at build time; every other ROM is read out of the SD-card image at runtime. Git-ignored beyond that file. |
 | `cmake/` | `GenerateVersion.cmake` — derives the version from `version.yaml`. |
-| `data/` | `48rom.map`, a symbol map for the 48K ROM used when disassembling. |
+| `data/` | `48rom.map`, a symbol map for the 48K ROM used when disassembling; every package installs it ([5.3](../05-building/03-packaging-and-release.md)). |
 | `docker/` | Dockerfiles for the Linux and Windows cross-builds. |
 | `.github/` | CI and release workflows, plus the issue templates. |
 | `.claude/` | The AI-assisted development apparatus: reusable agent definitions, task recipes, git hooks that enforce the branch rules, and process notes. Not part of the product, but it is where the project's conventions are made executable. |

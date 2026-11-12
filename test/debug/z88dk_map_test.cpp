@@ -4,6 +4,7 @@
 //              ranges (extents, zero-width lines, strict refusal), the program
 //              identity from the section binaries, and the symbol loaders'
 //              file-type residual
+//   ROMMAP-*   the shipped 48K ROM symbol map data/48rom.map (GH #485): count, the names the guide shows, unique names
 //   Z88DOT-*   z88dk dot commands (GH #351): rule 5 - the CODE group of a dot / dotx is
 //              DivMMC RAM bank 2, a dotn is refused, detection is by the map
 //
@@ -3684,6 +3685,45 @@ main cross_c AC97
                   r.unchecked == 0 && m.has_identity());
         if (!(r && r.listings == 1))
             for (const std::string& n : r.listing_notes) std::printf("  Z88MAP-38 note: %s\n", n.c_str());
+    }
+
+    {
+        // The 48K ROM symbol map every package ships (data/48rom.map), generated from skoolkit's
+        // ROM map titles (tools/gen_48rom_map.sh). The oracle is the file itself and the names the
+        // user guide shows: BEEPER at $03B5, PRINT_A_CHARACTER at the RST $10 restart, CH_ADD at $5C5D.
+        SymbolTable rm;
+        const int n = rm.load_simple_map(JNEXT_ROM_MAP);
+        check("ROMMAP-01", "load_simple_map() reads data/48rom.map: 395 symbols (3 comment lines, 395 NAME = $ADDR lines)", n == 395);
+        const auto at = [&](FetchSource sp, uint16_t a) { return rm.lookup(sp, a); };
+        check("ROMMAP-02", "the ROM names are unpaged: $0010 is PRINT_A_CHARACTER whatever is mapped (cpu, ROM 0, ROM 3), $03B5 is BEEPER",
+              at(MemSpace::cpu(), 0x0010) == std::optional<std::string>("PRINT_A_CHARACTER") &&
+                  at(MemSpace::rom(0), 0x0010) == std::optional<std::string>("PRINT_A_CHARACTER") &&
+                  at(MemSpace::rom(3), 0x0010) == std::optional<std::string>("PRINT_A_CHARACTER") &&
+                  at(MemSpace::cpu(), 0x03B5) == std::optional<std::string>("BEEPER"));
+        const auto namer = disasm_text::symbol_namer(&rm, {});
+        const auto bk = rm.resolve_key("BEEPER");
+        check("ROMMAP-03", "the guide's examples: a breakpoint by name BEEPER resolves to $03B5, CALL $03B5 reads CALL BEEPER, LD HL,($5C5D) reads LD HL,(CH_ADD)",
+              bk && bk->addr == 0x03B5 && disasm_text::apply_symbols("CALL $03B5", namer) == "CALL BEEPER" &&
+                  disasm_text::apply_symbols("LD HL,($5C5D)", namer) == "LD HL,(CH_ADD)");
+        // Read the file with a parser of its own: every name must reach ITS address (a repeated name
+        // keeps only its first, so one duplicated name in the file loses a routine).
+        std::ifstream in(JNEXT_ROM_MAP);
+        std::string ln;
+        int lines = 0, wrong = 0;
+        while (std::getline(in, ln)) {
+            if (ln.empty() || ln[0] == ';') continue;
+            const size_t eq = ln.find('=');
+            const size_t dl = ln.find('$', eq);
+            if (eq == std::string::npos || dl == std::string::npos) { ++wrong; continue; }
+            std::string name = ln.substr(0, eq);
+            while (!name.empty() && name.back() == ' ') name.pop_back();
+            const unsigned long addr = std::stoul(ln.substr(dl + 1), nullptr, 16);
+            ++lines;
+            const auto got = rm.lookup_name(name);
+            if (!got || *got != addr) ++wrong;
+        }
+        check("ROMMAP-04", "every NAME = $ADDR line of data/48rom.map resolves by name to its own address: 395 lines, none shadowed by an equal name",
+              lines == 395 && wrong == 0);
     }
 
     fs::remove_all(dir);
