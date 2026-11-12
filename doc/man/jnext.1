@@ -426,6 +426,14 @@ Interactive (SDL/Qt) frontends only; inert under \f[B]\-\-headless\f[R].
 The GUI equivalent is \f[I]Release captured mouse with\f[R] under
 \f[B]Settings > Preferences > Input\f[R], which applies live.
 .TP
+\f[B]\-\-touch\-keyboard\f[R] \f[I]MODE\f[R]
+Browser build only: when the on\-screen Spectrum keyboard is shown.
+\f[CR]auto\f[R] (default) shows it on a phone or tablet (a device whose
+main pointer is a finger), \f[CR]on\f[R] always, \f[CR]off\f[R] never.
+A page can also show or hide it while it runs (see \f[B]The touch
+keyboard\f[R]).
+Accepted, with a warning, and ignored by every other build.
+.TP
 \f[B]\-\-joy\-uart\-rx\f[R] \f[I]FILE\f[R]
 Attach \f[I]FILE\f[R] as a serial byte source on the joystick\-port UART
 RX pin \(em the \(lqPC\(rq end of a joy\-port serial cable, as used by a
@@ -3787,6 +3795,11 @@ page\(cqs memory only.
 \f[CR]machine\f[R] \f[I]string\f[R]
 \f[B]\-\-machine\f[R].
 .TP
+\f[CR]touchKeyboard\f[R] \f[I]string\f[R]
+\f[B]\-\-touch\-keyboard\f[R]: \f[CR]\(aqauto\(aq\f[R] (default; the
+on\-screen keyboard is shown on a phone or tablet),
+\f[CR]\(aqon\(aq\f[R] or \f[CR]\(aqoff\(aq\f[R].
+.TP
 \f[CR]muted\f[R] \f[I]boolean\f[R]
 \f[CR]startup.silent\f[R]: no audio device for the session.
 .TP
@@ -3827,6 +3840,40 @@ until the saves of \f[B]keepWrites\f[R] are stored).
 \f[CR]resetCard()\f[R] discards the saves kept by \f[CR]keepWrites\f[R]
 (the saved file included) and restarts the program; it needs that
 option, and resolves when the program is running again.
+\f[CR]showKeyboard(on)\f[R] shows (\f[CR]true\f[R]) or hides
+(\f[CR]false\f[R]) the on\-screen keyboard, whatever
+\f[B]\-\-touch\-keyboard\f[R] says; the page\(cqs call wins, before or
+after the start, and anything but a boolean throws.
+\f[CR]keyboardVisible\f[R] tells whether it is shown.
+.SS The touch keyboard
+The on\-screen Spectrum Next keyboard is for devices with no keyboard.
+It sits at the bottom of the player\(cqs box, which keeps the size the
+page gave it; the screen above it shrinks by the keyboard\(cqs height.
+It is built on the first time it is shown, so a page that never shows it
+has the DOM it would have without it.
+.PP
+Its keys are typed as the keys of a PC keyboard are: through the same
+path, so what the program sees is what a physical keyboard gives.
+A key goes down when a finger lands on it and up when the finger lifts;
+several fingers hold several keys, for chords and for games.
+Tapping a key never moves the keyboard focus off the screen.
+.PP
+There are two layouts, chosen by the width of the box and followed when
+it changes: below 504 CSS pixels the 40 keys of the 48K keyboard, in
+four rows (every other key of the Next is Caps Shift or Symbol Shift
+plus a key, as on a 48K), and from 504 pixels on the Next\(cqs 58 keys,
+in five rows, with the sixteen extra keys (Delete, Edit, Break, Graph,
+Extend, the cursor keys and the rest).
+Its height is at most 45% of the box.
+.PP
+Caps Shift and Symbol Shift latch: a quick tap (under half a second,
+with no other key pressed meanwhile) leaves the shift waiting, shown as
+pressed, and the next key is typed with it; a tap on a waiting shift
+cancels it.
+A shift held longer, or held while another key is pressed, is an
+ordinary hold and does not wait.
+Each key has an accessible name, and the shifts report
+\f[CR]aria\-pressed\f[R].
 .SS Not available in the browser
 A page has no processes, sockets or terminal, so these are refused with
 a message that says so: \f[B]\-\-nextpi\f[R], \f[B]\-\-nextpi\-dir\f[R],
