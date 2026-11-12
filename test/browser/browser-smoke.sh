@@ -8,8 +8,9 @@
 # (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:29`
 # (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
-# boots the example page), `widget.mjs:16` (rows WIDGET-01..16: the ready-made widget and the
-# guide's two embedding snippets, run verbatim) and `../bench/web/bench-stats-test.mjs:12` (rows
+# boots the example page), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
+# guide's two embedding snippets, run verbatim), `writes.mjs:10` (rows WBW-01..10: the guest's writes
+# kept across page loads, against a native journal oracle) and `../bench/web/bench-stats-test.mjs:12` (rows
 # WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,

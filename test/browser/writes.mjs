@@ -153,11 +153,16 @@ async function storedWithin(page, ms, ok) {
 }
 const sameBytes = (a, b) => a && b && Buffer.compare(a, b) === 0;
 const desc = (s) => s === null ? 'no database' : JSON.stringify(Object.fromEntries(Object.entries(s).map(([k, v]) => [k, v.length])));
-// Delay every store of the writes by `ms`: the persist is then in flight while the guest goes on writing.
-const slowPersist = (page, ms) => page.evaluate((ms) => {
+// Slow the store of the writes down by `ms`, in one of two ways. 'resolve': the store happens at once and
+// reads the file at the call, as it does unslowed, but it stays "in flight" for `ms` more, so the writes
+// the guest makes meanwhile can only be stored by the player's second pass. 'write': the store itself
+// happens `ms` late, so a destroy() that does not wait for it finds nothing stored.
+const slowPersist = (page, ms, mode) => page.evaluate(([ms, mode]) => {
   const orig = JnextImage.saveCardWrites;
-  JnextImage.saveCardWrites = (M, key) => new Promise((r) => setTimeout(r, ms)).then(() => orig(M, key));
-}, ms);
+  JnextImage.saveCardWrites = mode === 'resolve'
+    ? (M, key) => orig(M, key).then((v) => new Promise((r) => setTimeout(() => r(v), ms)))
+    : (M, key) => new Promise((r) => setTimeout(r, ms)).then(() => orig(M, key));
+}, [ms, mode]);
 
 const K1 = keyOf(SHA, '/page/api.html');
 let main = null;   // rows 01-05, 07, 09 share one context: its IndexedDB is the visitor's browser
@@ -165,7 +170,7 @@ let main = null;   // rows 01-05, 07, 09 share one context: its IndexedDB is the
 row('WBW-01', 'first visit with keepWrites: SAVE 1 OK; the stored record (key image digest + page) is byte-identical to the native journal; the cache holds only the image; nothing leaves the page but the module, the program and the image', async () => {
   main = await newPage();
   await open(main, [GUEST({ keepWrites: true })]);
-  await slowPersist(main, 150);
+  await slowPersist(main, 150, 'resolve');
   const r = await rec(main);
   must(!r.mountError, 'mount: ' + r.mountError);
   must(r.argv.includes('--sdcard-writes'), 'argv ' + JSON.stringify(r.argv));
@@ -299,7 +304,7 @@ row('WBW-09', 'a stored record made for another image (header digest changed) is
 row('WBW-10', 'destroy() right after the guest saved stores the writes before it resolves: the record is there the moment it does, and a new visit says SAVE 2 OK', async () => {
   const page = await newPage();
   await open(page, [GUEST({ keepWrites: true })]);
-  await slowPersist(page, 400);   // the persist the save started is still in flight when destroy() is called
+  await slowPersist(page, 400, 'write');   // the persist the save started is still in flight when destroy() is called
   await click(page);
   await waitMsg(page, 'SAVE 1 OK');
   await page.evaluate(() => window.player0.destroy());

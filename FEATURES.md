@@ -187,6 +187,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 ## Browser build
 
 - Embed JNEXT in a web page or an itch.io game with `jnext.mount()`; pause, reset, load and volume from JavaScript; several players per page; every option is a command-line flag or `--set` key, documented in the man page and diffed against the code; published with every public release as `jnext-<version>-web.zip`, ready to host; a copy-and-paste widget (one `div`, one script tag) with light and dark themes, title bar, progress bar and pause/reset/mute/fullscreen toolbar.
+- `keepWrites` (or `data-keep-writes` on the widget) keeps what a program writes to the SD card across page reloads, in the visitor's own browser, one record per image and page; `player.resetCard()` clears it.
 
 ## CLI
 - `--machine`, `--load`, `--headless`, `--tape-realtime`, `--tape-save`, `--esxdos-stub`
@@ -194,6 +195,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--sdcard` mounts an SD image, the source of all ROMs; falls back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img`, offering a download
 - `--sdcard-download-confirm`, `--sdcard-download-force` (auto-provision / force re-download of the fallback image)
 - `--sdcard-readonly` (write-protected card; the host file is never modified)
+- `--sdcard-writes FILE`, `--sdcard-writes-reset` (the image is never written: the machine's writes go to FILE and are laid over the image on every run; reset discards them)
 - `--sdcard-file-add FILE [--sdcard-file-dest PATH]` copies a host file or directory tree into the SD image and exits
 - `--sdcard-file-force` overwrites an existing destination file
 - `--warm-start-regenerate` (force a fresh warm-start recording)
