@@ -242,16 +242,16 @@ void run_esxdos_write_rows(int& passed, int& failed)
         Fx f(base, "unl", true);
         f.file("f1.txt", "1"); f.file("f2.txt", "22"); f.file("keep.txt", "k");
         wcheck("HFW-10",
-               "F_UNLINK deletes exactly the named file ([unlink] S003C)",
+               "F_UNLINK deletes exactly the named file ([unlink] S0063)",
                f.hfs.unlink("f1.txt") == H::kOk && !f.has("f1.txt") && f.has("f2.txt") &&
                    f.has("keep.txt"));
         wcheck("HFW-11",
                "F_UNLINK of a missing file is esx_enoent, through a missing directory "
-               "esx_enotdir ([unlink] S003F, S0040)",
+               "esx_enotdir ([unlink] S0066, S0067)",
                f.hfs.unlink("f1.txt") == H::kEnoent &&
                    f.hfs.unlink("nodir/x.txt") == H::kEnotdir);
         wcheck("HFW-12",
-               "F_UNLINK of an empty name and of the root is esx_einval ([unlink] S0041, S0042)",
+               "F_UNLINK of an empty name and of the root is esx_einval ([unlink] S0068, S0069)",
                f.hfs.unlink("") == H::kEinval && f.hfs.unlink("C:/") == H::kEinval);
         f.dir("d"); f.dir("nd"); f.file("nd/in.txt", "i");
         wcheck("HFW-13",
@@ -267,22 +267,22 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.hfs.close(h);
         wcheck("HFW-14",
                "F_UNLINK of an open file is esx_eacces and it stays; after F_CLOSE it goes "
-               "([unlink] S004B, S004E)",
+               "([unlink] S0072, S0075)",
                while_open == H::kEacces && kept && f.hfs.unlink("open.txt") == H::kOk &&
                    !f.has("open.txt"));
         f.file("ro.txt", "r"); make_read_only(f.root / "ro.txt");
         wcheck("HFW-15",
-               "F_UNLINK of a read-only file is esx_erdonly and it stays ([unlink] S0048)",
+               "F_UNLINK of a read-only file is esx_erdonly and it stays ([unlink] S006F)",
                f.hfs.unlink("ro.txt") == H::kErdonly && f.has("ro.txt"));
         f.file("Long Name.txt", "LONG"); f.file("other.txt", "o");
         wcheck("HFW-16",
                "F_UNLINK by the 8.3 name deletes the file the listing shows under it, and "
-               "only it ([unlink] S0054)",
+               "only it ([unlink] S007B)",
                f.hfs.unlink("LONGNA~1.TXT") == H::kOk && !f.has("Long Name.txt") &&
                    f.has("other.txt"));
         f.file("Case.TXT", "c");
         wcheck("HFW-17",
-               "F_UNLINK by a case variant deletes the host-spelled file ([unlink] S0059)",
+               "F_UNLINK by a case variant deletes the host-spelled file ([unlink] S0080)",
                f.hfs.unlink("case.txt") == H::kOk && !f.has("Case.TXT"));
     }
 
@@ -353,7 +353,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.file("a.txt", "a"); f.file("b.txt", "b"); f.file("e.txt", "e");
         wcheck("HFW-31",
                "wildcard F_UNLINK deletes every matching file and passes over a matching "
-               "directory ([wildmix] S01D5 before the read-only file)",
+               "directory ([wildmix] S01FC before the read-only file)",
                f.hfs.unlink("*.txt") == H::kOk && !f.has("a.txt") && !f.has("b.txt") &&
                    !f.has("e.txt") && f.has("d.txt"));
         wcheck("HFW-32",
@@ -365,17 +365,17 @@ void run_esxdos_write_rows(int& passed, int& failed)
         make_read_only(g.root / "c.txt");
         wcheck("HFW-33",
                "wildcard F_UNLINK stops at the first refused match (esx_erdonly): the earlier "
-               "ones are deleted, the later one kept ([wildmix] S01D5..S01DB)",
+               "ones are deleted, the later one kept ([wildmix] S01FC..S0202)",
                g.hfs.unlink("*.txt") == H::kErdonly && !g.has("a.txt") && !g.has("b.txt") &&
                    g.has("c.txt") && g.has("e.txt"));
         g.dir("sub");
         wcheck("HFW-34",
                "\"*\" in an empty subdirectory matches only \".\" and \"..\": Fc=0 and "
-               "nothing is deleted ([wildmix] S01E1)",
+               "nothing is deleted ([wildmix] S0208)",
                g.hfs.unlink("sub/*") == H::kOk && g.has("sub") && g.has("c.txt"));
         wcheck("HFW-35",
                "a wildcard in a DIRECTORY component finds nothing: esx_enoent, nothing "
-               "deleted ([wildmix] S01E3)",
+               "deleted ([wildmix] S020A)",
                g.hfs.unlink("s*/x.txt") == H::kEnoent && g.has("sub") && g.has("e.txt"));
     }
 
@@ -386,7 +386,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.dir("dir"); f.dir("dir2"); f.dir("dir2/dir");
         wcheck("HFW-40",
                "F_RENAME in place: the new name has the content, the old name is gone "
-               "([rename] S01FC)",
+               "([rename] S0223)",
                f.hfs.rename("a.txt", "a2.txt") == H::kOk && f.read("a2.txt") == "AAA" &&
                    !f.has("a.txt"));
         f.dir("mv");
@@ -398,20 +398,20 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.file("x1.txt", "X1"); f.file("x2.txt", "X2");
         wcheck("HFW-42",
                "F_RENAME onto an existing file is esx_eexist and both files are intact "
-               "(POSIX rename(2) and MinGW would replace it) ([rename] S01FF)",
+               "(POSIX rename(2) and MinGW would replace it) ([rename] S0226)",
                f.hfs.rename("x1.txt", "x2.txt") == H::kEexist && f.read("x1.txt") == "X1" &&
                    f.read("x2.txt") == "X2");
         wcheck("HFW-43",
-               "F_RENAME to a case variant of itself is esx_eexist ([rename] S0202)",
+               "F_RENAME to a case variant of itself is esx_eexist ([rename] S0229)",
                f.hfs.rename("Case.txt", "case.txt") == H::kEexist && f.has("Case.txt"));
         wcheck("HFW-44",
-               "F_RENAME into an existing directory puts the source inside it ([rename] S0206)",
+               "F_RENAME into an existing directory puts the source inside it ([rename] S022D)",
                f.hfs.rename("a2.txt", "dir") == H::kOk && f.read("dir/a2.txt") == "AAA" &&
                    !f.has("a2.txt"));
         f.file("dir2/dir/a2.txt", "Z");
         wcheck("HFW-45",
                "F_RENAME into a directory already holding that name is esx_edevicebusy and "
-               "nothing moved ([rename] S020C)",
+               "nothing moved ([rename] S0233)",
                f.hfs.rename("dir/a2.txt", "dir2/dir") == H::kEdevicebusy &&
                    f.read("dir/a2.txt") == "AAA" && f.read("dir2/dir/a2.txt") == "Z");
         f.file("dir2/dir/in.txt", "I");
@@ -426,16 +426,16 @@ void run_esxdos_write_rows(int& passed, int& failed)
         const uint8_t open_rn = f.hfs.rename("o.txt", "o2.txt");
         f.hfs.close(oh);
         wcheck("HFW-47",
-               "F_RENAME of an open file is esx_eacces ([rename] S0215)",
+               "F_RENAME of an open file is esx_eacces ([rename] S023C)",
                open_rn == H::kEacces && f.has("o.txt") && !f.has("o2.txt"));
         f.file("ro.txt", "R"); make_read_only(f.root / "ro.txt");
         wcheck("HFW-48",
-               "F_RENAME of a read-only file succeeds and it stays read-only ([rename] S0219, "
+               "F_RENAME of a read-only file succeeds and it stays read-only ([rename] S0240, "
                "S021A)",
                f.hfs.rename("ro.txt", "ro2.txt") == H::kOk && f.attr_of("ro2.txt") != 0xFF &&
                    (f.attr_of("ro2.txt") & H::kAttrReadOnly));
         wcheck("HFW-49",
-               "F_RENAME with a wildcard in either name is esx_einval ([rename] S021B, S021C)",
+               "F_RENAME with a wildcard in either name is esx_einval ([rename] S0242, S0243)",
                f.hfs.rename("*.txt", "zz.txt") == H::kEinval &&
                    f.hfs.rename("o.txt", "z*.txt") == H::kEinval && f.has("o.txt"));
         f.dir("cd"); f.file("cd/f.txt", "F");
@@ -443,7 +443,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.file("x9.txt", "x9");
         wcheck("HFW-50",
                "F_RENAME resolves a relative destination from the CWD, not from the source's "
-               "directory ([rename] S022C); an empty destination is the CWD itself ([rename] "
+               "directory ([rename] S0258); an empty destination is the CWD itself ([rename] "
                "S0249)",
                f.hfs.rename("f.txt", "../moved.txt") == H::kOk && f.has("moved.txt") &&
                    !f.has("cd/f.txt") && f.hfs.rename("../x9.txt", "") == H::kOk &&
@@ -461,7 +461,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.hfs.close(hh);
         wcheck("HFW-51",
                "F_RENAME of a directory holding an open file: the handle keeps its position "
-               "and F_READ reads the moved file ([rename] S0237..S023A)",
+               "and F_READ reads the moved file ([rename] S0263..S0266)",
                e == H::kOk && rn == H::kOk && rd == H::kOk && p2 == 9 &&
                    std::string(got.begin(), got.end()) == "5678");
         f.dir("cwd");
@@ -474,14 +474,14 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.hfs.close(mh);
         wcheck("HFW-52",
                "F_RENAME of the CWD: F_GETCWD shows the new name (declared divergence: "
-               "NextZXOS shows the old one, [rename] S0240) and a create lands in the "
+               "NextZXOS shows the old one, [rename] S026C) and a create lands in the "
                "renamed directory (S0244)",
                rc == H::kOk && cwd == "C:/CWD2/" && f.has("cwd2/made.txt") && !f.has("cwd"));
         f.hfs.chdir("/");
         f.file("n.txt", "n");
         wcheck("HFW-53",
                "F_RENAME of \".\" and \"..\" is esx_eacces, of the root esx_einval, into a "
-               "missing directory esx_enotdir ([rename] S021F, S0220, S0221, S021E)",
+               "missing directory esx_enotdir ([rename] S0246, S0247, S0248, S0245)",
                f.hfs.rename("dir/.", "dir/dx") == H::kEacces &&
                    f.hfs.rename("dir/..", "dx") == H::kEacces &&
                    f.hfs.rename("C:/", "rootx") == H::kEinval &&
@@ -494,7 +494,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.dir("seed");
         wcheck("HFW-60",
                "F_MKDIR creates a directory, and F_OPENDIR of it lists \".\" and \"..\" only "
-               "([mkdir] S0248)",
+               "([mkdir] S0274)",
                f.hfs.mkdir("new") == H::kOk && f.has("new") && [&] {
                    uint8_t dh = 0;
                    if (f.hfs.opendir("new", H::kDirLfnOnly, dh) != H::kOk) return false;
@@ -508,7 +508,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.file("file.txt", "x");
         wcheck("HFW-61",
                "F_MKDIR of an existing directory, an existing file and a case variant is "
-               "esx_eexist; of the root esx_einval, not esx_eexist ([mkdir] S024A, S024E, "
+               "esx_eexist; of the root esx_einval, not esx_eexist ([mkdir] S0276, S027A, "
                "S0254, S024F)",
                f.hfs.mkdir("new") == H::kEexist && f.hfs.mkdir("file.txt") == H::kEexist &&
                    f.hfs.mkdir("NEW") == H::kEexist && f.hfs.mkdir("C:/") == H::kEinval);
@@ -517,7 +517,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
                "S0250)",
                f.hfs.mkdir("no/parent") == H::kEnotdir && !f.has("no"));
         wcheck("HFW-63",
-               "F_MKDIR with a wildcard is esx_einval ([mkdir] S0252, S0253)",
+               "F_MKDIR with a wildcard is esx_einval ([mkdir] S027E, S027F)",
                f.hfs.mkdir("w*") == H::kEinval && f.hfs.mkdir("w?") == H::kEinval &&
                    !f.has("w*") && !f.has("w?"));
         const char* bad[] = {"x\"y", "x<y", "x>y", "x|y", "xx:y"};
@@ -528,13 +528,13 @@ void run_esxdos_write_rows(int& passed, int& failed)
         }
         wcheck("HFW-64",
                "F_MKDIR with \" < > | or : is esx_einval and creates nothing, on every host "
-               "([mkdir] S0258..S0270)",
+               "([mkdir] S0284..S029C)",
                all_einval && none_made);
         uint8_t dh = 0;
         const uint8_t dot_mk = f.hfs.mkdir("dot.");
         wcheck("HFW-65",
                "F_MKDIR \"dot.\" drops the trailing dot, so \"dot\" and \"dot.\" are the same "
-               "directory ([mkdir] S027E..S0282); a trailing space is refused with esx_einval "
+               "directory ([mkdir] S02AA..S02AE); a trailing space is refused with esx_einval "
                "(declared divergence: NextZXOS keeps it)",
                dot_mk == H::kOk && lists_exactly(f.root, "dot") && !lists_exactly(f.root, "dot.") &&
                    f.hfs.opendir("dot.", H::kDirLfnOnly, dh) == H::kOk &&
@@ -555,7 +555,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         const uint8_t c3 = f.hfs.open("f?g.txt", H::kModeWrite | H::kModeCreatTrunc, ch);
         wcheck("HFW-67",
                "F_OPEN create with \" or a wildcard character is esx_einval and creates "
-               "nothing ([mkdir] S025A, S026A, S026E)",
+               "nothing ([mkdir] S0286, S0296, S029A)",
                c1 == H::kEinval && c2 == H::kEinval && c3 == H::kEinval && !f.has("f\"g.txt") &&
                    !f.has("f*g.txt") && !f.has("f?g.txt"));
     }
@@ -565,10 +565,10 @@ void run_esxdos_write_rows(int& passed, int& failed)
         Fx f(base, "rd", true);
         f.dir("e"); f.dir("e2"); f.dir("ne"); f.file("ne/f.txt", "f"); f.file("file.txt", "x");
         wcheck("HFW-70",
-               "F_RMDIR removes an empty directory ([rmdir] S0297)",
+               "F_RMDIR removes an empty directory ([rmdir] S02C3)",
                f.hfs.rmdir("e") == H::kOk && !f.has("e"));
         wcheck("HFW-71",
-               "F_RMDIR of a non-empty directory is esx_enospc and it stays ([rmdir] S0299)",
+               "F_RMDIR of a non-empty directory is esx_enospc and it stays ([rmdir] S02C5)",
                f.hfs.rmdir("ne") == H::kEnospc && f.has("ne/f.txt"));
         wcheck("HFW-72",
                "F_RMDIR of a file is esx_enotdir, of a missing name esx_enoent ([rmdir] "
@@ -576,11 +576,11 @@ void run_esxdos_write_rows(int& passed, int& failed)
                f.hfs.rmdir("file.txt") == H::kEnotdir && f.has("file.txt") &&
                    f.hfs.rmdir("none") == H::kEnoent);
         wcheck("HFW-73",
-               "F_RMDIR of the root and with a wildcard is esx_einval ([rmdir] S029E, S02A0)",
+               "F_RMDIR of the root and with a wildcard is esx_einval ([rmdir] S02CA, S02CC)",
                f.hfs.rmdir("C:/") == H::kEinval && f.hfs.rmdir("e*") == H::kEinval && f.has("e2"));
         f.hfs.chdir("e2");
         wcheck("HFW-74",
-               "F_RMDIR of the CWD is esx_eacces, also as \".\" ([rmdir] S02A4, S02A6)",
+               "F_RMDIR of the CWD is esx_eacces, also as \".\" ([rmdir] S02D0, S02D2)",
                f.hfs.rmdir("../e2") == H::kEacces && f.hfs.rmdir(".") == H::kEacces && f.has("e2"));
         f.hfs.chdir("/");
     }
@@ -592,12 +592,12 @@ void run_esxdos_write_rows(int& passed, int& failed)
         for (int i = 0; i < 120; ++i) body[i] = static_cast<char>('a' + i % 26);
         f.file("s.txt", body);
         wcheck("HFW-80",
-               "F_TRUNCATE shrinks to the size in BCDE, the prefix intact ([trunc] S02B3)",
+               "F_TRUNCATE shrinks to the size in BCDE, the prefix intact ([trunc] S02DF)",
                f.hfs.truncate("s.txt", 50) == H::kOk && f.read("s.txt") == body.substr(0, 50));
         const bool ext = f.hfs.truncate("s.txt", 200) == H::kOk;
         const std::string grown = f.read("s.txt");
         wcheck("HFW-81",
-               "F_TRUNCATE extends, the added bytes read as zero ([trunc] S02B9, S02BD)",
+               "F_TRUNCATE extends, the added bytes read as zero ([trunc] S02E5, S02E9)",
                ext && grown.size() == 200 && grown.substr(0, 50) == body.substr(0, 50) &&
                    grown.substr(50) == std::string(150, '\0'));
         f.dir("dd");
@@ -613,14 +613,14 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.file("r.txt", std::string(100, 'r')); make_read_only(f.root / "r.txt");
         wcheck("HFW-83",
                "F_TRUNCATE of an open file is esx_eacces, of a read-only file esx_erdonly, both "
-               "unchanged ([trunc] S02CB, S02D2)",
+               "unchanged ([trunc] S0306, S030D)",
                t_open == H::kEacces && f.size_of("o.txt") == 100 &&
                    f.hfs.truncate("r.txt", 10) == H::kErdonly && f.size_of("r.txt") == 100);
         f.dir("tw"); f.file("tw/t1.txt", std::string(10, '1')); f.file("tw/t2.txt", std::string(20, '2'));
         f.file("tw/t3.dat", std::string(30, '3'));
         wcheck("HFW-84",
                "F_TRUNCATE with a wildcard truncates the FIRST match only; no match is "
-               "esx_enoent ([trunc] S02D6..S02DA)",
+               "esx_enoent ([trunc] S0311..S0315)",
                f.hfs.truncate("tw/*.txt", 3) == H::kOk && f.size_of("tw/t1.txt") == 3 &&
                    f.size_of("tw/t2.txt") == 20 && f.size_of("tw/t3.dat") == 30 &&
                    f.hfs.truncate("tw/*.zzz", 3) == H::kEnoent);
@@ -638,7 +638,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.hfs.fgetpos(fh, p2);
         wcheck("HFW-85",
                "F_FTRUNCATE sets the size; F_FGETPOS is unchanged, also past the new end "
-               "([trunc] S02D9..S02DE)",
+               "([trunc] S0314..S0319)",
                s1 == H::kOk && s2 == H::kOk && p1 == 60 && p2 == 60 && sz1 == 30 &&
                    f.size_of("f.txt") == 90);
         f.hfs.close(fh);
@@ -648,7 +648,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.hfs.close(rh);
         wcheck("HFW-86",
                "F_FTRUNCATE of a read handle is esx_erdonly, of a closed handle esx_ebadf "
-               "([trunc] S02E4, S02E6)",
+               "([trunc] S031F, S0321)",
                rdonly == H::kErdonly && f.hfs.ftruncate(rh, 10) == H::kEbadf &&
                    f.size_of("f.txt") == 90);
     }
@@ -672,12 +672,12 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.hfs.close(dh);
         wcheck("HFW-90",
                "F_CHMOD A_WRITE clear: read-only in F_STAT, F_FSTAT and F_READDIR, and the "
-               "host write bits are gone ([chmod] S02ED, S02EE)",
+               "host write bits are gone ([chmod] S0328, S0329)",
                c0 == H::kOk && (f.attr_of("f.txt") & H::kAttrReadOnly) &&
                    (fst.attr & H::kAttrReadOnly) && (rd_attr & H::kAttrReadOnly) &&
                    !host_writable(f.root / "f.txt"));
         wcheck("HFW-91",
-               "F_CHMOD A_WRITE set clears the read-only attribute again ([chmod] S02EF, S02F0)",
+               "F_CHMOD A_WRITE set clears the read-only attribute again ([chmod] S032A, S032B)",
                f.hfs.chmod("f.txt", H::kChmodWrite, H::kChmodWrite) == H::kOk &&
                    !(f.attr_of("f.txt") & H::kAttrReadOnly) && host_writable(f.root / "f.txt"));
         f.hfs.chmod("f.txt", 0, H::kChmodWrite);
@@ -690,7 +690,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.hfs.close(h4);
         wcheck("HFW-92",
                "a read-only file refuses F_OPEN for write and creat_trunc with esx_erdonly, "
-               "esx_eexist for creat_noexist, and opens for read ([openro] S0336..S0344)",
+               "esx_eexist for creat_noexist, and opens for read ([openro] S03A6..S03B4)",
                o2 == H::kErdonly && o3 == H::kErdonly && oe == H::kErdonly &&
                    on == H::kEexist && orr == H::kOk && f.read("f.txt") == "12345");
         f.hfs.chmod("f.txt", H::kChmodWrite, H::kChmodWrite);
@@ -704,13 +704,13 @@ void run_esxdos_write_rows(int& passed, int& failed)
         wcheck("HFW-93",
                "F_CHMOD changes the host cannot store (hidden, system, archive cleared, any "
                "mask outside A_WRITE/A_READ/A_ARCH, A_WRITE on a directory) are esx_enosys and "
-               "change nothing (declared divergence: NextZXOS stores them, [chmod] S02F5..S0309, "
+               "change nothing (declared divergence: NextZXOS stores them, [chmod] S0330..S0344, "
                "S0370)",
                hid == H::kEnosys && sys == H::kEnosys && arc == H::kEnosys && all == H::kEnosys &&
                    dirw == H::kEnosys && fingerprint(f.root) == before);
         wcheck("HFW-94",
                "F_CHMOD that leaves the reported bits as they are is Fc=0: A_ARCH set, A_READ "
-               "either way, a mask of 0 ([chmod] S02F1..S02F4, S02FF, S0301)",
+               "either way, a mask of 0 ([chmod] S032C..S032F, S033A, S033C)",
                f.hfs.chmod("f.txt", H::kChmodArch, H::kChmodArch) == H::kOk &&
                    f.hfs.chmod("f.txt", 0, H::kChmodRead) == H::kOk &&
                    f.hfs.chmod("f.txt", H::kChmodRead, H::kChmodRead) == H::kOk &&
@@ -719,7 +719,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.file("w1.txt", "1"); f.file("w2.txt", "2"); f.file("v.dat", "3");
         wcheck("HFW-95",
                "wildcard F_CHMOD applies to every matching file; a pattern with no match is "
-               "esx_enoent ([chmod] S031D..S0320)",
+               "esx_enoent ([chmod] S038D..S0390)",
                f.hfs.chmod("w*.txt", 0, H::kChmodWrite) == H::kOk &&
                    !host_writable(f.root / "w1.txt") && !host_writable(f.root / "w2.txt") &&
                    host_writable(f.root / "v.dat") && f.hfs.chmod("*.zzz", 0, H::kChmodWrite) == H::kEnoent);
@@ -748,7 +748,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.hfs.unlink("LONGNA~2.TXT");
         wcheck("HFW-100",
                "stable 8.3: after deleting LONGNA~1.TXT, LONGNA~2.TXT still names the same "
-               "file, and deleting it does not touch its neighbour ([alias] S0351..S035C)",
+               "file, and deleting it does not touch its neighbour ([alias] S03C1..S03CC)",
                s1 == 1 && s2 == 2 && s3 == 3 && neighbours && !f.has("Long Name b.txt") &&
                    f.has("Long Name c.txt") && f.size_of("LONGNA~3.TXT") == 3);
         f.file("Long Name d.txt", "dddd");
@@ -786,7 +786,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         wcheck("HFW-101",
                "stable 8.3: a new long name takes the lowest free tail, a renamed file gets a "
                "fresh alias, and a native 8.3 host name always wins and displaces the long name "
-               "([alias] S035C..S0368)",
+               "([alias] S03CC..S03D8)",
                d1 == 4 && e2 == 3 && d1b == 4 && a1 == 1 && g.size_of("LONGNA~1.TXT") == 6 &&
                    g.size_of("LONGNA~2.TXT") == 1 && freed == 3 && tail2 && host_freed == 4 &&
                    renamed_freed == 7);
@@ -922,7 +922,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         wcheck("HFW-140",
                "F_RENAME of a directory in place keeps the 8.3 aliases of what is inside: "
                "after deleting LONGNA~1.TXT, LONGNA~2.TXT and ~3 still name b and c in the "
-               "renamed directory ([alias] S0351..S035C)",
+               "renamed directory ([alias] S03C1..S03CC)",
                r1 == H::kOk && f.size_of("E/LONGNA~1.TXT") == none &&
                    f.size_of("E/LONGNA~2.TXT") == 2 && f.size_of("E/LONGNA~3.TXT") == 3);
         Fx g(base, "rk2", true);
@@ -932,7 +932,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         g.hfs.unlink("D/LONGNA~1.TXT");
         const uint8_t r2 = g.hfs.rename("D", "T");
         wcheck("HFW-141",
-               "and the same when it is renamed INTO an existing directory ([alias] S0351..S035C)",
+               "and the same when it is renamed INTO an existing directory ([alias] S03C1..S03CC)",
                r2 == H::kOk && g.size_of("T/D/LONGNA~1.TXT") == none &&
                    g.size_of("T/D/LONGNA~2.TXT") == 2 && g.size_of("T/D/LONGNA~3.TXT") == 3);
 
@@ -943,8 +943,8 @@ void run_esxdos_write_rows(int& passed, int& failed)
         const uint8_t c1 = c.hfs.rename("a2.txt", "D");
         wcheck("HFW-142",
                "F_RENAME into a directory that holds a case variant of the name is "
-               "esx_edevicebusy on every host and nothing moves ([rename] S020C; FAT is "
-               "case-insensitive, [unlink] S0059)",
+               "esx_edevicebusy on every host and nothing moves ([rename] S0233; FAT is "
+               "case-insensitive, [unlink] S0080)",
                c1 == H::kEdevicebusy && c.read("D/A2.TXT") == "held" && c.has("a2.txt") &&
                    c.read("a2.txt") == "moving" && !lists_exactly(c.root / "D", "a2.txt"));
         Fx a(base, "ra", true);
@@ -966,7 +966,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         t.dir("w/nodot"); t.file("w/f.txt", "12345");
         wcheck("HFW-144",
                "F_TRUNCATE with a wildcard whose first match is a directory is esx_einval "
-               "and truncates nothing (unmeasured; follows [trunc] S02C2)",
+               "and truncates nothing (unmeasured; follows [trunc] S02EE)",
                t.hfs.truncate("w/n*", 1) == H::kEinval && t.size_of("w/f.txt") == 5);
         t.dir("P/Q");
         wcheck("HFW-145",
@@ -1276,7 +1276,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         const std::string m5 = text(kBuf, t);
         wcheck("GETERR-01",
                "M_GETERR B=1 A=5 writes \"No such file or dir\" to DE with bit 7 on its last "
-               "byte; Fc=0, A=$02 ([geterr] S0375)",
+               "byte; Fc=0, A=$02 ([geterr] S03E5)",
                h1 && !cy(r) && rega(r) == 0x02 && m5 == "No such file or dir" && t);
         Z80Registers r2{};
         bool t2 = false, t3 = false;
@@ -1286,7 +1286,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         const std::string m31 = text(kBuf, t3);
         wcheck("GETERR-02",
                "codes 24 and 31, the read-only answers, give \"Read only\" and \"Device busy\" "
-               "([geterr] S0388, S038F)",
+               "([geterr] S03F8, S03FF)",
                m24 == "Read only" && m31 == "Device busy" && t2 && t3);
         const uint8_t custom[] = {'C', 'u', 's', 't', 'o', 'm', ' ', 'm', 's', 'g' | 0x80};
         for (std::size_t i = 0; i < sizeof(custom); ++i)
@@ -1300,7 +1300,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         bool t4 = false;
         const std::string m0 = text(kBuf + 0x40, t4);
         wcheck("GETERR-03",
-               "A=0 copies the bit-7-terminated message at IX to DE ([geterr] S0395)",
+               "A=0 copies the bit-7-terminated message at IX to DE ([geterr] S0405)",
                h3 && !cy(r3) && m0 == "Custom msg" && t4);
         Z80Registers r4{};
         bool t5 = false, t6 = false;
@@ -1309,7 +1309,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         geterr(0xFF, 1, kBuf, r4);
         const std::string mf = text(kBuf, t6);
         wcheck("GETERR-04",
-               "out-of-range codes ($20, $FF) give \"Unknown error\" ([geterr] S0390, S0393)",
+               "out-of-range codes ($20, $FF) give \"Unknown error\" ([geterr] S0400, S0403)",
                mu == "Unknown error" && mf == "Unknown error" && t5 && t6);
         for (int i = 0; i < 40; ++i)
             emu.mmu().write(static_cast<uint16_t>(kBuf + 0x80 + i), 0xEE);

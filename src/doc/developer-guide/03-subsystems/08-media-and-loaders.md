@@ -857,8 +857,10 @@ alias is fixed when the file is created, and a program that deleted
 `LONGNA~1.TXT` must not find `LONGNA~2.TXT` naming another file. `list_host_dir()`
 keeps the aliases it handed out per directory (`aliases_`, not in a snapshot:
 it follows host changes no rewind undoes), the first listing numbers in sorted
-order, a later one keeps them, forgets the vanished and gives a new name the
-lowest free tail, and a name that is itself 8.3 always keeps it. `unlink`,
+order, a later one keeps them, forgets the vanished, reserves every kept alias of
+a name still there (and every native 8.3 name) BEFORE giving a new name the lowest
+free tail, so a newcomer that sorts first never takes an existing file's short
+name, and a name that is itself 8.3 always keeps it. `unlink`,
 `rmdir` and `rename` free the alias of the name that goes at once
 (`forget_alias()`), as a FAT volume does, so a name created next takes it. And `resolve()`
 no longer takes a name merely because the host answers to it: a component

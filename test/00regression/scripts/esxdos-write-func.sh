@@ -13,6 +13,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # same program (test/fixtures/esxdos-write-probe/nextzxos.txt, measured once by
 # esxdos-write-oracle-func). The differences that remain are the declared ones, each
 # with its reason in the generator's DIVERGE table.
+#   0. every `[group] Snnnn` citation in the unit rows' descriptions names a step of that group
+#      (esxdos-write-cite-check.py), so the numbers cannot drift when the probe gains a step;
 #   1. the probe NEX files the generator writes are the ones the recording was made
 #      with (their sha256 is in its header): a probe edited without re-measuring fails;
 #   2. rw: --esxdos-stub-root DIR --esxdos-stub-writable, an empty DIR: the transcript
@@ -30,6 +32,9 @@ if want esxdos-write-func; then
 
     ver_rc=0
     ver=$(python3 -I "$probe" verify --recorded "$rec" 2>&1) || ver_rc=$?
+    # every [group] Snnnn a unit row cites names a step of that group in the recording
+    cite_rc=0
+    cite=$(python3 -I "$SCRIPT_DIR/esxdos-write-cite-check.py" "$PROJECT_DIR" 2>&1) || cite_rc=$?
     python3 -I "$probe" nex --mode rw "$W/W457RW.NEX"
     python3 -I "$probe" nex --mode ro "$W/W457RO.NEX"
 
@@ -53,11 +58,11 @@ if want esxdos-write-func; then
     cmp_ro=$(python3 -I "$probe" compare --recorded "$rec" --mode ro "$W/raw-ro.txt" 2>&1) || cmp_ro_rc=$?
     after=$(python3 -I "$probe" tree "$W/root")
 
-    if [[ $ver_rc -eq 0 && $rw_rc -eq 0 && $ro_rc -eq 0 && $cmp_rw_rc -eq 0 && $cmp_ro_rc -eq 0 \
+    if [[ $ver_rc -eq 0 && $cite_rc -eq 0 && $rw_rc -eq 0 && $ro_rc -eq 0 && $cmp_rw_rc -eq 0 && $cmp_ro_rc -eq 0 \
           && "$before" == "$after" && "$before" == *"W457/RO/nd/n.txt F "* ]]; then
         pass_row " (the probe NEX matches its recording; every write-call answer on a writable root and on a write-protected one equals NextZXOS 2.09's except the declared divergences; the write-protected tree is untouched)"
     else
-        fail_row " (verify rc=$ver_rc '${ver:0:200}'; rw rc=$rw_rc compare rc=$cmp_rw_rc '$(grep -E -m3 '^(DIFFERS|no END)' <<<"$cmp_rw" | tr '\n' ' ' || true)'; ro rc=$ro_rc compare rc=$cmp_ro_rc '$(grep -E -m3 '^(DIFFERS|no END)' <<<"$cmp_ro" | tr '\n' ' ' || true)'; tree unchanged=$([[ "$before" == "$after" ]] && echo yes || echo no))"
+        fail_row " (cites rc=$cite_rc '${cite:0:200}'; verify rc=$ver_rc '${ver:0:200}'; rw rc=$rw_rc compare rc=$cmp_rw_rc '$(grep -E -m3 '^(DIFFERS|no END)' <<<"$cmp_rw" | tr '\n' ' ' || true)'; ro rc=$ro_rc compare rc=$cmp_ro_rc '$(grep -E -m3 '^(DIFFERS|no END)' <<<"$cmp_ro" | tr '\n' ' ' || true)'; tree unchanged=$([[ "$before" == "$after" ]] && echo yes || echo no))"
     fi
 fi
 
