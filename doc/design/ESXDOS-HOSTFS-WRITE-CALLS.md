@@ -61,8 +61,8 @@ Where the recording differed from the hypotheses the work started from:
   call (the existing escape rows moved from `esx_epath` to it, owner-approved on
   exactly this evidence). A bare `..` is what a missing last name is: `esx_enoent`
   for lookups, `esx_einval` for a create, `esx_enotdir` for `F_OPENDIR`/`F_CHDIR`.
-  `F_STAT` of a bare `..` keeps the `esx_epath` an older row pins: a declared
-  divergence, an owner decision to make.
+  `F_STAT` of a bare `..` is `esx_enoent` too (the owner approved changing the older
+  row that pinned `esx_epath`, which left the enum).
 - A write-protected volume answers `esx_edevicebusy` (31), after the checks that
   do not write. `F_TRUNCATE` there answers success and loses the write; jnext
   refuses with 31 (declared: a write that did not happen is not an answer to copy).
@@ -80,13 +80,31 @@ Where the recording differed from the hypotheses the work started from:
   file gets a fresh one.
 - `M_GETERR`: Fc=0, A=$02 for every code; the texts are in `esxdos_trace.h`.
 
+## Declared divergences (each a tag in the generator's `DIVERGE` table)
+
+- `cwd-follows-rename`: a renamed current directory shows its new name in `F_GETCWD`.
+- `trailing-space`: a created name ending in a space is `esx_einval` (a host may strip it).
+- `chmod-unserved`, `chmod-dir`: `F_CHMOD` changes the host cannot store are `esx_enosys`.
+- `alias-create`: creating through the 8.3 alias of an existing long-named file
+  rewrites that FAT entry and loses the long name; jnext truncates the file it names
+  and keeps its host name.
+- `open-mode-no-rw`: an `F_OPEN` mode with no read and no write bit (`$04`, `$08`,
+  `$0C`) is `esx_einval` here (existing behaviour); NextZXOS opens or creates.
+- `ro-truncate`: `F_TRUNCATE` on a write-protected root is refused with
+  `esx_edevicebusy`; NextZXOS answers success and loses the write (owner-kept).
+- `ro-open-write`: `F_OPEN` for writing or creating on a write-protected root is
+  `esx_erdonly`; NextZXOS opens a writable file for writing and refuses a create
+  with `esx_edevicebusy` (owner-kept).
+
 ## Hazards the calls create, fixed with them
 
 - Unstable 8.3 aliases: renumbering on every listing makes a delete by short name hit
   another file once a neighbour is gone. Aliases are now kept per directory.
 - Host-only aliases: a case-insensitive host, an NTFS short name or a normalised
   spelling reached a different file than the listing shows. A name counts only if the
-  listing holds it.
+  listing holds it. A name already held in a rename's target directory is judged by
+  the listing too (any case, and 8.3 aliases both ways), and a renamed directory
+  keeps the aliases of what is inside it.
 
 ## Residuals
 

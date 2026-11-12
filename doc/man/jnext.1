@@ -2103,10 +2103,10 @@ returns.
 Paths are confined to \f[I]DIR\f[R].
 A path that climbs out of it is refused with \f[CR]esx_enotdir\f[R] (a
 bare \f[CR]..\f[R] above the root, which NextZXOS treats as a missing
-name, with \f[CR]esx_epath\f[R] for \f[CR]F_STAT\f[R]), whichever
-separator it uses, a guest absolute path such as \f[CR]/data/x.bin\f[R]
-means \f[CR]DIR/data/x.bin\f[R] and never the host\(cqs own
-\f[CR]/data\f[R], and symbolic links are refused rather than followed.
+name), whichever separator it uses, a guest absolute path such as
+\f[CR]/data/x.bin\f[R] means \f[CR]DIR/data/x.bin\f[R] and never the
+host\(cqs own \f[CR]/data\f[R], and symbolic links are refused rather
+than followed.
 .PP
 What the write calls do, where it is not obvious.
 \f[CR]F_UNLINK\f[R] deletes files only: a directory is matched and left
@@ -2142,8 +2142,14 @@ answer); a name ending in a space is refused with \f[CR]esx_einval\f[R]
 (NextZXOS keeps the space, a host may strip it); a renamed current
 directory shows its new name in \f[CR]F_GETCWD\f[R];
 \f[CR]F_TRUNCATE\f[R] on a write\-protected root is refused where
-NextZXOS answers success and loses the write; and \f[CR]F_OPEN\f[R] for
-writing on a write\-protected root is \f[CR]esx_erdonly\f[R].
+NextZXOS answers success and loses the write; \f[CR]F_OPEN\f[R] for
+writing on a write\-protected root is \f[CR]esx_erdonly\f[R]; an
+\f[CR]F_OPEN\f[R] mode with neither the read nor the write bit
+(\f[CR]$04\f[R], \f[CR]$08\f[R], \f[CR]$0C\f[R]) is
+\f[CR]esx_einval\f[R] where NextZXOS opens or creates; and creating a
+file through the 8.3 short name of an existing long\-named file
+truncates that file and keeps its name, where a FAT volume rewrites the
+entry and loses the long name.
 .PP
 A \f[I]DIR\f[R] that does not exist, or is not a directory, is an error
 at start\-up: jnext says so and exits non\-zero rather than running with

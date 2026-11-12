@@ -786,9 +786,10 @@ refused. An escaping path is therefore never constructed. The code is the one
 real NextZXOS gives, which treats `..` above the root as a name missing from the
 root directory: `esx_enotdir` when more path follows, for every call. A bare
 `..` is, per call, what a missing last name is: `esx_enoent` for lookups
-(`F_STAT` excepted: it keeps `esx_epath`, which an older row pins),
+(`F_STAT` included),
 `esx_einval` for a create, `esx_enotdir` for `F_OPENDIR` and `F_CHDIR`;
-`resolve()` returns `esx_epath` for it and each call maps it. A
+`resolve()` returns the internal marker `kBareDotDot` (not an esxDOS code) for
+it and each call maps it. A
 guest absolute path is absolute *within* the root. Both `/` and `\` separate
 components, on every host: FAT forbids a backslash inside a name, and treating
 it as an ordinary character would leave `std::filesystem::path` re-splitting it

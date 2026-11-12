@@ -265,8 +265,7 @@ def build_rw(g):
     g.mkfile(W + "/a.txt", 17)
     esc = ["C:/..", "C:/../W457/a.txt", W + "/../../W457/a.txt", "C:/../esc.txt"]
     for p in esc:
-        g.T("F_STAT %s" % p, "F_STAT", ix=p, de=STAT, kind=3,
-            tag="bare-dotdot-stat" if p == "C:/.." else None)
+        g.T("F_STAT %s" % p, "F_STAT", ix=p, de=STAT, kind=3)
     for p in esc[1:]:
         g.open_probe(p, 0x01, "read")
     g.open_probe("C:/../esc.txt", 0x0E, "create")
@@ -308,8 +307,7 @@ def build_rw(g):
     # the same, relative, with the root as the CWD
     g.T("F_CHDIR C:/", "F_CHDIR", ix="C:/")
     for nm, p in [("..", ".."), ("../x", "../x"), ("../..", "../.."), ("W457/../..", "W457/../..")]:
-        g.T("F_STAT %s from the root" % nm, "F_STAT", ix=p, de=STAT, kind=3,
-            tag="bare-dotdot-stat" if nm in ("..", "W457/../..") else None)
+        g.T("F_STAT %s from the root" % nm, "F_STAT", ix=p, de=STAT, kind=3)
         g.T("F_OPENDIR %s from the root" % nm, "F_OPENDIR", ix=p, bc=0x1000, mask=True, close=True)
         g.T("F_CHDIR %s from the root" % nm, "F_CHDIR", ix=p)
         g.T("F_OPEN %s from the root, create" % nm, "F_OPEN", ix=p, bc=0x0E00, mask=True, close=True)
@@ -853,8 +851,6 @@ def read_transcript(path, mode=None):
 # Declared divergences: step description tag substring -> reason. Filled from the
 # measurement (see the fixture README); a step not listed here that differs is a failure.
 DIVERGE = {
-    "bare-dotdot-stat": "F_STAT of a bare '..' above the root keeps the esx_epath (19) it has always answered (the "
-                        "HFS rows pin it); NextZXOS says esx_enoent (5)",
     "cwd-follows-rename": "a renamed current directory shows its NEW name in F_GETCWD; NextZXOS keeps showing the old one",
     "trailing-space": "a name ending in a space is refused with esx_einval: NextZXOS keeps the space, a host may strip it",
     "chmod-unserved": "an F_CHMOD change the host cannot store (hidden, system, archive cleared) is refused with "

@@ -204,6 +204,9 @@ int main() {
                    ul == EsxdosHostFs::kEacces && fs::is_symlink(wroot / "l.txt") &&
                        fs::exists(wroot / "real.txt"),
                    "A=" + hex2(ul));
+            // a link named "x" must not make a wildcard call in its directory refuse
+            std::error_code xln;
+            fs::create_symlink(wroot / "real.txt", wroot / "x", xln);
             const uint8_t wu = w.unlink("only-link/*.txt");
             hcheck("HFW-131",
                    "wildcard F_UNLINK does not delete a symlink: \"*.txt\" in a directory "

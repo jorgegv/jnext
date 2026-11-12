@@ -1819,10 +1819,9 @@ NextZXOS returns.
 
 Paths are confined to *DIR*. A path that climbs out of it is refused
 with `esx_enotdir` (a bare `..` above the root, which NextZXOS treats as
-a missing name, with `esx_epath` for `F_STAT`), whichever separator it
-uses, a guest absolute path such as `/data/x.bin` means `DIR/data/x.bin`
-and never the host’s own `/data`, and symbolic links are refused rather
-than followed.
+a missing name), whichever separator it uses, a guest absolute path such
+as `/data/x.bin` means `DIR/data/x.bin` and never the host’s own
+`/data`, and symbolic links are refused rather than followed.
 
 What the write calls do, where it is not obvious. `F_UNLINK` deletes
 files only: a directory is matched and left alone, with success, as on
@@ -1851,8 +1850,12 @@ would make `F_STAT` contradict the answer); a name ending in a space is
 refused with `esx_einval` (NextZXOS keeps the space, a host may strip
 it); a renamed current directory shows its new name in `F_GETCWD`;
 `F_TRUNCATE` on a write-protected root is refused where NextZXOS answers
-success and loses the write; and `F_OPEN` for writing on a
-write-protected root is `esx_erdonly`.
+success and loses the write; `F_OPEN` for writing on a write-protected
+root is `esx_erdonly`; an `F_OPEN` mode with neither the read nor the
+write bit (`$04`, `$08`, `$0C`) is `esx_einval` where NextZXOS opens or
+creates; and creating a file through the 8.3 short name of an existing
+long-named file truncates that file and keeps its name, where a FAT
+volume rewrites the entry and loses the long name.
 
 A *DIR* that does not exist, or is not a directory, is an error at
 start-up: jnext says so and exits non-zero rather than running with the

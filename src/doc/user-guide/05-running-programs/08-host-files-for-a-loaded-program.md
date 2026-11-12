@@ -150,7 +150,7 @@ wrong answer is worse than a clear refusal:
 - `F_RENAME` never replaces a file that is already there (`esx_eexist`), as on
   the card
 
-A few answers differ in small ways from the card, on purpose: a renamed current
+A few answers differ in small ways from the card, on purpose: an `F_OPEN` mode with neither the read nor the write bit is `esx_einval`; creating a file through the 8.3 short name of an existing long-named file truncates that file and keeps its long name (the card rewrites the entry and loses it); a renamed current
 directory shows its new name in `F_GETCWD`; `F_TRUNCATE` on a write-protected
 folder is refused (the card answers success and loses the write); and
 `F_OPEN` for writing on a write-protected folder is `esx_erdonly`.
