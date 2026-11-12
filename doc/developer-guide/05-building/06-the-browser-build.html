@@ -3243,17 +3243,48 @@ digest, because the page rewrites the card on every visit and its modification
 time would never match. A zipped image is extracted in <code>main()</code> with the
 program-archive reader (exactly one <code>.img</code> member; the zip's digest stands for
 it) and the extracted card is removed when the run ends. The recording is the
-one thing kept between visits: IndexedDB (IDBFS) is mounted on the warm-start
+only thing kept between visits by default: IndexedDB (IDBFS) is mounted on the warm-start
 directory only (<code>JNEXT_CONFIG_DIR=/jnext</code>, so <code>/jnext/warm-start</code>), and
 <code>warm_start::store()</code> calls a persist hook, installed by the browser frontend,
 that flushes it. Guest writes to the card live in memory and are gone at
-reload. A first NEX load records the NextZXOS machine in steps: <code>SdlApp::tick()</code>
+reload unless the page asks for <code>keepWrites</code> (below). A first NEX load records the NextZXOS machine in steps: <code>SdlApp::tick()</code>
 calls <code>Emulator::prepare_warm_start()</code> for a time budget per tick and reports
 <code>Module.jnextProgress(phase, fraction)</code> (<code>'warm-start'</code> while recording,
 <code>'restore'</code> for a cached recording; the page adds <code>'download'</code>), so the page can
 repaint and show progress instead of freezing for the length of the boot. With no
 image the provisioner declines the download without reading stdin (a stdin read
 is <code>window.prompt()</code> in a browser).</p>
+<p><em>Keeping the guest's writes.</em> <code>keepWrites: true</code> makes the page pass
+<code>--sdcard-writes &lt;path&gt;</code>, the SD write journal of
+<a href="../03-subsystems/08-media-and-loaders.html">3.8</a>, with a file in the in-memory filesystem
+(<code>/jnext/card-writes/&lt;key&gt;.jsdw</code>) that <code>web/jnext-image.js</code> brings in from, and stores back
+to, its own IndexedDB database <code>jnext-card-writes</code> (store <code>journals</code>, one record per key).
+The key is the image's SHA-256 and the first 16 hex digits of the SHA-256 of
+<code>location.pathname</code> (<code>cardWritesKey</code>), so one image has one record per page and a changed
+image never reuses the old one. A second IDBFS mount was rejected: it would create a database
+at mount, and the warm-start database is the only one a plain page makes; the store is
+written whole (the file is a few KB) and the database is created only for a page that uses
+the option. The option is opt-in: it adds a flag to the command line the API documents.
+<code>jnext_api.js</code> hands <code>keepWrites</code> to the emulator as the file's path (false is dropped) and
+rejects a non-boolean itself, before anything is fetched. The core's journal calls a persist
+hook after every committed write (<code>browser_frontend.cpp</code>, which calls
+<code>Module.jnextPersistCardWrites</code>); <code>persistCardWrites</code> runs one store at a time, and a write
+that arrives during one sets a flag that makes the same chain store once more, so the last
+write is the one kept. One store also runs after <code>callMain</code> returns, because a bind-time
+<code>--sdcard-writes-reset</code> happens before the hook exists (the file is then absent and the record
+is deleted), a best-effort one on <code>pagehide</code>, and a final one that <code>destroy()</code> awaits before it
+resolves. <code>player.resetCard()</code> calls <code>jnext_web_reset_card()</code> (<code>web_controller.cpp</code>), which
+runs <code>Emulator::forget_card_writes()</code> (the journal's <code>clear()</code>, whose hook deletes the record,
+and the stand-in's in-memory file, which a cold boot would otherwise carry over) and then the
+same restart as <code>reset('program')</code>. A NEX loaded with <code>file</code> is answered by the esxDOS stand-in (3.8), which keeps one file; the
+journal stores it as a second kind of record, when the program closes the file, so it travels in
+the same record, needs no other flag or store, and is reset with the card. The record has no
+program in its key: a changed NEX on the same page and image reads the old save. The stand-in's
+file is not card state, so a save through it leaves the warm-start key alone and the next visit
+restores the recording instead of making it again. Files in a host directory a page names with
+<code>--esxdos-stub-root</code> are in memory only. Two <code>keepWrites</code> players of one image on one page share
+a key; the last store wins. A visit after the program saved records the warm start again, because the card
+the recording was made on is not the one it now boots from.</p>
 <h2 id="how-it-is-tested">How it is tested<a class="headerlink" href="#how-it-is-tested" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3291,7 +3322,7 @@ is <code>window.prompt()</code> in a browser).</p>
 <td><code>make wasm-browser-test</code></td>
 <td><code>build/wasm-core</code></td>
 <td>the browser frontend in the pinned Chromium headless shell</td>
-<td>BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-16, WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, <code>test/bench/web/bench-stats-test.mjs</code>), and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
+<td>BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-17, WBW-01 to WBW-17 (the kept writes, <code>writes.mjs</code>: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, <code>test/bench/web/bench-stats-test.mjs</code>), and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
 <td><code>browser</code></td>
 </tr>
 </tbody>

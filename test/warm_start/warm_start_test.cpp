@@ -102,7 +102,9 @@
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/warm_start_cache.h"
+#include "core/sha256.h"
 #include "peripheral/sd_card.h"
+#include "peripheral/sd_write_journal.h"
 #include "core/saveable.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>
@@ -2216,6 +2218,256 @@ int main()
                   planted && hit && tap.count(kRestored) == 1 && tap.count(kDiffImage) == 0,
                   det("planted=%d hit=%d restored=%d different=%d", planted, hit,
                       tap.count(kRestored), tap.count(kDiffImage)));
+        }
+
+        // ── Write-journal rows (--sdcard-writes). Oracle: the journal's key rule in the
+        // developer guide (media chapter): with a non-empty journal the digest field is
+        // SHA-256(base || J), base the image's digest (all zero on the desktop key) and J
+        // the SHA-256 over every journaled sector ascending as (sector u32 LE, 512
+        // bytes); an empty journal leaves the key alone; the key is exact in journal mode.
+        // Expected values are built here from known writes with sdcard::sha256_hex (the
+        // SHA256-xx rows prove that backend), never through the journal.
+        {
+            namespace swj = sd_write_journal;
+            using Digest = std::array<uint8_t, 32>;
+            // One CMD24 of `sector` filled with `fill` through the emulator's own card.
+            auto write_at = [](Emulator& e, uint32_t sector, uint8_t fill) {
+                SdCardDevice& sd = e.sd_card();
+                sd.reset();
+                auto cmd = [&](uint8_t c, uint32_t arg) {
+                    sd.receive(0x40 | c);
+                    sd.receive(static_cast<uint8_t>(arg >> 24));
+                    sd.receive(static_cast<uint8_t>(arg >> 16));
+                    sd.receive(static_cast<uint8_t>(arg >> 8));
+                    sd.receive(static_cast<uint8_t>(arg));
+                    sd.receive(0x95);
+                    uint8_t r = 0xFF;
+                    for (int i = 0; i < 16 && r == 0xFF; ++i) r = sd.send();
+                    return r;
+                };
+                cmd(0, 0); cmd(8, 0x1AA); cmd(55, 0); cmd(41, 0x40000000); cmd(58, 0);
+                const uint8_t r1 = cmd(24, sector);
+                sd.receive(0xFE);
+                for (int i = 0; i < 512; ++i) sd.receive(fill);
+                sd.receive(0xFF);
+                sd.receive(0xFF);
+                bool accepted = false;
+                for (int i = 0; i < 32; ++i)
+                    if (sd.send() == 0x05) { accepted = true; break; }
+                sd.deselect();
+                return r1 == 0x00 && accepted;
+            };
+            // SHA-256(base || SHA-256(records)) for writes (sector, fill), ascending.
+            auto folded = [](const Digest& base,
+                             const std::vector<std::pair<uint32_t, uint8_t>>& writes) {
+                std::vector<uint8_t> rec;
+                for (const auto& w : writes) {
+                    for (int i = 0; i < 4; ++i) rec.push_back(static_cast<uint8_t>(w.first >> (8 * i)));
+                    rec.insert(rec.end(), 512, w.second);
+                }
+                Digest j{}, out{};
+                warm_start::parse_sha256_hex(sdcard::sha256_hex(rec), j);
+                std::vector<uint8_t> both;
+                for (uint8_t b : base) both.push_back(b);
+                for (uint8_t b : j) both.push_back(b);
+                warm_start::parse_sha256_hex(sdcard::sha256_hex(both), out);
+                return out;
+            };
+            auto bind_j = [&](const std::string& card, const std::string& hex) {
+                swj::Binding b;
+                b.bytes = fs::file_size(card, ec);
+                if (!hex.empty()) warm_start::parse_sha256_hex(hex, b.sha256);
+                else b.mtime = mtime_of(card);
+                std::string why;
+                return swj::bind(card, card + ".jsdw", b, false, why);
+            };
+            auto make_j_emu = [&](Emulator& e, const std::string& card, const std::string& hex) {
+                EmulatorConfig c;
+                c.type = MachineType::ZXN_ISSUE2;
+                c.rewind_buffer_frames = 0;
+                c.sd_card_image = card;
+                if (!hex.empty()) { c.sd_card_sha256 = hex; c.sd_card_sha256_for = card; }
+                e.init(c);
+            };
+            // A cache entry keyed {digest, size, mtime}, from this machine's own stream.
+            auto plant_key = [&](const std::string& card, const std::string& hex,
+                                 const Digest& digest, int64_t mtime) {
+                auto probe_heap = std::make_unique<Emulator>();
+                Emulator& probe = *probe_heap;
+                make_j_emu(probe, card, hex);
+                StateWriter measure;
+                probe.save_state(measure);
+                std::vector<uint8_t> st(measure.position());
+                StateWriter w(st.data(), st.size());
+                probe.save_state(w);
+                warm_start::Identity pid;
+                pid.machine_type = static_cast<uint8_t>(MachineType::ZXN_ISSUE2);
+                pid.format_version = warm_start::kFormatVersion;
+                pid.plain_bytes = st.size();
+                pid.sd_image_bytes = fs::file_size(card, ec);
+                pid.sd_image_mtime = mtime;
+                pid.sd_image_sha256 = digest;
+                std::string pwhy;
+                return warm_start::store(pid, st, pwhy);
+            };
+            auto fresh = [&](const std::string& name) {
+                const std::string card = g_dir + "/" + name;
+                blob(card);
+                fs::remove(card + ".jsdw", ec);
+                swj::forget_all_for_test();
+                fs::remove_all(warm_start::cache_dir(), ec);
+                Emulator::reset_warm_start_memo_for_test();
+                return card;
+            };
+            Digest base{};
+            warm_start::parse_sha256_hex(kHexA, base);
+
+            // WSR-SDW-01: the key folds the journal in.
+            {
+                const std::string card = fresh("sdw1.img");
+                const bool bound = bind_j(card, kHexA);
+                auto e0_heap = std::make_unique<Emulator>();
+                make_j_emu(*e0_heap, card, kHexA);
+                const bool wrote = write_at(*e0_heap, 0, 0x5A);
+                const Digest f = folded(base, {{0, 0x5A}});
+                const bool planted_base = plant_key(card, kHexA, base, 0);
+                LogTap tap(Log::emulator());
+                auto e1_heap = std::make_unique<Emulator>();
+                make_j_emu(*e1_heap, card, kHexA);
+                const bool miss = !e1_heap->ensure_warm_start_state();
+                const int diff = tap.count(kDiffImage);
+                const bool planted_fold = plant_key(card, kHexA, f, 0);
+                auto e2_heap = std::make_unique<Emulator>();
+                make_j_emu(*e2_heap, card, kHexA);
+                const bool hit = e2_heap->ensure_warm_start_state();
+                check("WSR-SDW-01",
+                      "with a non-empty journal the key digest is SHA-256(image digest || J): "
+                      "a recording planted under the image digest alone is refused, one planted "
+                      "under the folded digest is restored",
+                      bound && wrote && planted_base && miss && diff == 1 && planted_fold && hit &&
+                          tap.count(kRestored) == 1,
+                      det("bound=%d wrote=%d pb=%d miss=%d diff=%d pf=%d hit=%d restored=%d",
+                          bound, wrote, planted_base, miss, diff, planted_fold, hit,
+                          tap.count(kRestored)));
+            }
+            // WSR-SDW-02: the key follows the journal's CONTENT.
+            {
+                const std::string card = fresh("sdw2.img");
+                const bool bound = bind_j(card, kHexA);
+                auto e0_heap = std::make_unique<Emulator>();
+                make_j_emu(*e0_heap, card, kHexA);
+                const bool w0 = write_at(*e0_heap, 3, 0x11);
+                const bool planted = plant_key(card, kHexA, folded(base, {{3, 0x11}}), 0);
+                LogTap tap(Log::emulator());
+                auto e1_heap = std::make_unique<Emulator>();
+                make_j_emu(*e1_heap, card, kHexA);
+                const bool hit1 = e1_heap->ensure_warm_start_state();
+                // One more sector in the journal: the same recording is no longer this card's.
+                const bool w1 = write_at(*e0_heap, 9, 0x22);
+                auto e2_heap = std::make_unique<Emulator>();
+                make_j_emu(*e2_heap, card, kHexA);
+                const bool hit2 = e2_heap->ensure_warm_start_state();
+                check("WSR-SDW-02",
+                      "the recording planted under the journal's folded digest is restored by "
+                      "the next Emulator with the same journal, and refused once the journal "
+                      "holds one more sector",
+                      bound && w0 && planted && hit1 && w1 && !hit2 && tap.count(kRestored) == 1 &&
+                          tap.count(kDiffImage) == 1,
+                      det("bound=%d w0=%d planted=%d hit1=%d w1=%d hit2=%d restored=%d diff=%d",
+                          bound, w0, planted, hit1, w1, hit2, tap.count(kRestored),
+                          tap.count(kDiffImage)));
+            }
+            // WSR-SDW-03: journal mode is exact: an own write is no staleness.
+            {
+                const std::string card = fresh("sdw3.img");
+                const bool bound = bind_j(card, kHexA);
+                auto e1_heap = std::make_unique<Emulator>();   // the first mount sets the baseline
+                make_j_emu(*e1_heap, card, kHexA);
+                const bool wrote = write_at(*e1_heap, 0, 0x5A);
+                const bool planted = plant_key(card, kHexA, folded(base, {{0, 0x5A}}), 0);
+                LogTap tap(Log::emulator());
+                auto e2_heap = std::make_unique<Emulator>();
+                make_j_emu(*e2_heap, card, kHexA);
+                const bool hit = e2_heap->ensure_warm_start_state();
+                check("WSR-SDW-03",
+                      "journal mode: an own write in this session does not mark the digest stale "
+                      "- the recording keyed on the journal as it now is is restored and the "
+                      "stale-digest line is not logged (contrast WSR-SHA-03)",
+                      bound && wrote && planted && hit && tap.count(kRestored) == 1 &&
+                          tap.count(kStaleDigest) == 0,
+                      det("bound=%d wrote=%d planted=%d hit=%d restored=%d stale=%d", bound,
+                          wrote, planted, hit, tap.count(kRestored), tap.count(kStaleDigest)));
+            }
+            // WSR-SDW-04: the desktop key.
+            {
+                const std::string card = fresh("sdw4.img");
+                const bool bound = bind_j(card, "");
+                const int64_t mt = mtime_of(card);
+                // Empty journal: the key is today's, digest field all zero.
+                const bool planted_plain = plant(card);
+                LogTap tap(Log::emulator());
+                auto e1_heap = std::make_unique<Emulator>();
+                make_j_emu(*e1_heap, card, "");
+                const bool hit_empty = e1_heap->ensure_warm_start_state();
+                const bool wrote = write_at(*e1_heap, 5, 0x33);
+                // Non-empty: (size, mtime, SHA-256(zeros || J)).
+                const bool planted_fold = plant_key(card, "", folded(Digest{}, {{5, 0x33}}), mt);
+                auto e2_heap = std::make_unique<Emulator>();
+                make_j_emu(*e2_heap, card, "");
+                const bool hit_fold = e2_heap->ensure_warm_start_state();
+                check("WSR-SDW-04",
+                      "desktop key: with an empty journal the digest field stays all zero (the "
+                      "size + mtime recording is restored); with writes it is "
+                      "SHA-256(zeros || J) beside the same size and mtime",
+                      bound && planted_plain && hit_empty && wrote && planted_fold && hit_fold &&
+                          tap.count(kRestored) == 2,
+                      det("bound=%d plain=%d hit_empty=%d wrote=%d fold=%d hit_fold=%d restored=%d",
+                          bound, planted_plain, hit_empty, wrote, planted_fold, hit_fold,
+                          tap.count(kRestored)));
+            }
+            // WSR-SDW-05: clear() puts the key back.
+            {
+                const std::string card = fresh("sdw5.img");
+                const bool bound = bind_j(card, kHexA);
+                auto e1_heap = std::make_unique<Emulator>();
+                make_j_emu(*e1_heap, card, kHexA);
+                const bool wrote = write_at(*e1_heap, 0, 0x5A);
+                const bool planted = plant_key(card, kHexA, base, 0);   // under the image digest alone
+                LogTap tap(Log::emulator());
+                auto e2_heap = std::make_unique<Emulator>();
+                make_j_emu(*e2_heap, card, kHexA);
+                const bool miss = !e2_heap->ensure_warm_start_state();   // journal non-empty
+                swj::for_image(card)->clear();
+                auto e3_heap = std::make_unique<Emulator>();
+                make_j_emu(*e3_heap, card, kHexA);
+                const bool hit = e3_heap->ensure_warm_start_state();     // journal empty again
+                check("WSR-SDW-05",
+                      "after clear() the key is the image digest alone again: the recording "
+                      "planted under it, refused while the journal held a write, is restored",
+                      bound && wrote && planted && miss && hit && tap.count(kRestored) == 1,
+                      det("bound=%d wrote=%d planted=%d miss=%d hit=%d restored=%d", bound,
+                          wrote, planted, miss, hit, tap.count(kRestored)));
+            }
+            // WSR-SDW-06: a kept file is not card state: it never enters the key.
+            {
+                const std::string card = fresh("sdw6.img");
+                const bool bound = bind_j(card, kHexA);
+                const bool kept = swj::for_image(card)->commit_file("/JNHI.DAT", {0x01, 0x02});
+                const bool planted = plant_key(card, kHexA, base, 0);   // under the image digest alone
+                LogTap tap(Log::emulator());
+                auto e1_heap = std::make_unique<Emulator>();
+                make_j_emu(*e1_heap, card, kHexA);
+                const bool hit = e1_heap->ensure_warm_start_state();
+                check("WSR-SDW-06",
+                      "a journal holding only a kept-file record (no sector) leaves the key the "
+                      "image digest alone: the recording planted under it is restored and no "
+                      "'different SD image state' line is logged",
+                      bound && kept && planted && hit && tap.count(kRestored) == 1 &&
+                          tap.count(kDiffImage) == 0,
+                      det("bound=%d kept=%d planted=%d hit=%d restored=%d diff=%d", bound, kept,
+                          planted, hit, tap.count(kRestored), tap.count(kDiffImage)));
+            }
+            swj::forget_all_for_test();
         }
 
         // ── Stepped recording. Oracle: the plan, 2.2 (at most max_frames per

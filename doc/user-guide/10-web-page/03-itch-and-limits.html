@@ -4448,8 +4448,24 @@ Game controllers are page-wide: give the other players
 <li>Flags and <code>--set</code> keys that need a process, a socket or a terminal are refused with
   a message; the list is in the man page ("Not available in the browser").</li>
 <li>Only <code>.nex</code>, <code>.tap</code> and <code>.tzx</code> programs load. <code>--headless</code> and RZX are refused.</li>
-<li>Writes the guest makes to the SD card are not kept: the card lives in memory for the
-  session. Files JNEXT writes (screenshots, snapshots) live in memory too.</li>
+<li>Writes the guest makes to the SD card are kept across reloads only when the page asks
+  with <code>keepWrites</code> (10.4); without it the card lives in memory for the session. Files JNEXT
+  writes (screenshots, snapshots) live in memory in either case.</li>
+<li><code>keepWrites</code> keeps what reaches the card (a program started from the NextZXOS menu, or one
+  that drives the card itself, writes there) and the file a NEX loaded with <code>file</code> saves
+  through esxDOS. Such a NEX is not started by NextZXOS, so JNEXT's own stand-in answers its
+  esxDOS file calls (<code>RST $08</code>); it keeps ONE file, which is stored when the program closes
+  it and is there at the next visit (the man page, "esxDOS calls from a directly loaded
+  NEX"). A program that saves two files keeps only the last one written. The file belongs to
+  the page's card and the file name, not to the program: a changed NEX on the same page reads
+  the old save, as on a real Next. A save made this way does not make the next visit record
+  the machine again. Files such a page writes to a host directory it names with
+  <code>--esxdos-stub-root</code> live in memory only.</li>
+<li>With <code>keepWrites</code>, one image on one page has one set of saves: two <code>keepWrites</code> players of
+  the same image on the same page share it, and the last one to store wins. After the program
+  has saved, the next visit starts NextZXOS again and records the machine once more (the
+  card is no longer the one the recording was made on), which takes as long as a first visit's
+  <code>warm-start</code> step; a visit that follows one that saved nothing is restored as usual.</li>
 <li>Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q and the operating system's own keys never reach the page.</li>
 </ul>
 <h2 id="how-fast-it-runs">How fast it runs<a class="headerlink" href="#how-fast-it-runs" title="Permanent link">&para;</a></h2>

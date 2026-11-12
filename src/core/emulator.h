@@ -304,6 +304,11 @@ public:
     EsxdosStubState esxdos_stub_state() const;
     void restore_esxdos_stub_state(EsxdosStubState state);
 
+    /// Discard everything kept for the card in its write journal (sectors and the
+    /// stand-in's file) and the stand-in's in-memory file. False when no journal
+    /// is bound to the card.
+    bool forget_card_writes();
+
     /// Load a raw binary file into RAM at `org` and set PC to `pc`.
     /// Called after init() when --inject is used.  Returns true on success.
     bool inject_binary(const std::string& path, uint16_t org, uint16_t pc);

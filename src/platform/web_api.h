@@ -6,9 +6,11 @@
 // the native suite web_api_test drives it.
 //
 // jnext_api.js carries no flag spelling and no --set key. It hands the whole
-// options object to build_argv() (through jnext_web_argv()), with three
+// options object to build_argv() (through jnext_web_argv()), with four
 // substitutions made on its side: every function value becomes `true`, `file`
-// becomes its in-memory path, and `image` becomes {path, sha256}.
+// becomes its in-memory path, `image` becomes {path, sha256}, and `keepWrites`
+// (a boolean to the page) becomes the in-memory path of the writes file, or is
+// dropped when false.
 #include "core/cli_options.h"
 #include "platform/config_keys.h"
 
@@ -44,6 +46,8 @@ struct Option {
 inline constexpr Option WEB_OPTIONS[] = {
     { "image", Kind::Image, cli::OptId::Sdcard, cli::OptId::SdcardSha256, std::nullopt, true, nullptr,
       "The SD-card image: {url, sha256}, fetched, checked and cached by the page" },
+    { "keepWrites", Kind::Flag, cli::OptId::SdcardWrites, std::nullopt, std::nullopt, false, nullptr,
+      "Keep the guest's writes to the card (saves, high scores) in this browser across reloads" },
     { "file", Kind::Flag, cli::OptId::Load, std::nullopt, std::nullopt, false, nullptr,
       "The program to run: a URL, {url}, or {data, name}; absent boots to the NextZXOS menu" },
     { "machine", Kind::Flag, cli::OptId::Machine, std::nullopt, std::nullopt, false, nullptr,

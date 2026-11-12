@@ -3,6 +3,7 @@
 #include "core/esxdos_trace.h"
 #include "core/extended_nex_host.h"
 #include "core/log.h"
+#include "peripheral/sd_write_journal.h"
 #include "platform/emulator_boot.h"
 
 #include <spdlog/sinks/ostream_sink.h>
@@ -974,6 +975,234 @@ int main() {
         std::filesystem::remove(own_path, ec);
         std::filesystem::remove(br_own_path, ec);
         std::filesystem::remove(br_ctl_path, ec);
+    }
+
+    // ESXK-01..08 (the file the stand-in keeps in the card's write journal): a write-open file
+    // is kept when it is closed, and a later session on the same card gets it back. Oracle: the
+    // stand-in contract in the man page ("one file kept in memory ... read it back under the
+    // same name") plus the journal's format table; the page's key is the card, never the program.
+    {
+        namespace swj = sd_write_journal;
+        std::error_code kec;
+        const std::string kdir = (std::filesystem::temp_directory_path() /
+                                  ("jnext-esxk-" + std::to_string(::getpid()))).string();
+        std::filesystem::remove_all(kdir, kec);
+        std::filesystem::create_directories(kdir, kec);
+        const std::string card = kdir + "/card.img";
+        {
+            std::vector<uint8_t> bytes(64 * 1024, 0x44);
+            std::ofstream f(card, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(bytes.data()),
+                    static_cast<std::streamsize>(bytes.size()));
+        }
+        swj::Binding kb;
+        kb.bytes = 64 * 1024;
+        kb.sha256.fill(0x3C);
+        const std::string jf = kdir + "/w.jsdw";
+        auto bind_card = [&]() {
+            swj::forget_all_for_test();
+            std::string why;
+            return swj::bind(card, jf, kb, false, why);
+        };
+        static int hooks = 0;
+        auto hook = []() { ++hooks; };
+        auto cfg_for = [&](const std::string& load, const std::string& img) {
+            EmulatorConfig c;
+            c.type = MachineType::ZXN_ISSUE2;
+            c.esxdos_stub = true;
+            c.rewind_buffer_frames = 0;
+            c.sd_card_image = img;
+            c.load_file = load;
+            return c;
+        };
+        constexpr uint16_t k_name = 0x8000, k_data = 0x8100;
+        // F_OPEN: mode 0x0E00 = write/create-truncate, 0x0100 = read. Returns the A the call gave.
+        auto k_open = [&](Emulator& e, const std::string& name, uint16_t mode) {
+            write_string(e, k_name, name);
+            Z80Registers r{};
+            r.IX = k_name;
+            r.BC = mode;
+            call(e, 0x9A, r);
+            return std::make_pair(carry(r), static_cast<uint8_t>(r.AF >> 8));
+        };
+        auto k_write = [&](Emulator& e, uint8_t h, const std::vector<uint8_t>& d) {
+            for (size_t i = 0; i < d.size(); ++i)
+                e.mmu().write(static_cast<uint16_t>(k_data + i), d[i]);
+            Z80Registers r{};
+            r.AF = static_cast<uint16_t>(h << 8);
+            r.IX = k_data;
+            r.BC = static_cast<uint16_t>(d.size());
+            return call(e, 0x9E, r) && !carry(r);
+        };
+        auto k_close = [&](Emulator& e, uint8_t h) {   // {carry, A}
+            Z80Registers r{};
+            r.AF = static_cast<uint16_t>(h << 8);
+            call(e, 0x9B, r);
+            return std::make_pair(carry(r), static_cast<uint8_t>(r.AF >> 8));
+        };
+        // Save `d` as `name` the way a guest does: open for write, write, close.
+        auto k_save = [&](Emulator& e, const std::string& name, const std::vector<uint8_t>& d) {
+            const auto o = k_open(e, name, 0x0E00);
+            return !o.first && k_write(e, o.second, d) && !k_close(e, o.second).first;
+        };
+        // Read `name` back: empty optional-like pair {found, bytes}.
+        auto k_load = [&](Emulator& e, const std::string& name, size_t n) {
+            std::pair<bool, std::vector<uint8_t>> out{false, {}};
+            const auto o = k_open(e, name, 0x0100);
+            if (o.first) return out;
+            Z80Registers r{};
+            r.AF = static_cast<uint16_t>(o.second << 8);
+            r.IX = k_data;
+            r.BC = static_cast<uint16_t>(n);
+            if (!call(e, 0x9D, r) || carry(r)) return out;
+            out.first = true;
+            for (size_t i = 0; i < r.BC; ++i)
+                out.second.push_back(e.mmu().read(static_cast<uint16_t>(k_data + i)));
+            return out;
+        };
+        const std::vector<uint8_t> v3 = {0x43, 0x42, 0x01};
+        const std::string nm = "/JNHI.DAT";
+
+        {   // ESXK-01
+            const bool bound = bind_card();
+            auto e = std::make_unique<Emulator>();
+            e->init(cfg_for("/tmp/a.nex", card));
+            const auto o = k_open(*e, nm, 0x0E00);
+            const bool w = k_write(*e, o.second, v3);
+            const bool before = !swj::for_image(card)->kept_file();
+            const auto c = k_close(*e, o.second);
+            const auto kf = swj::for_image(card)->kept_file();
+            check("ESXK-01",
+                  "F_OPEN(write) + F_WRITE keep nothing in the write journal; F_CLOSE keeps the "
+                  "file (name and bytes) there and succeeds",
+                  bound && !o.first && w && before && !c.first && kf && kf->name == nm &&
+                  kf->data == v3);
+        }
+        {   // ESXK-02
+            bind_card();                                     // a reload: the journal rebinds from FILE
+            auto e = std::make_unique<Emulator>();
+            e->init(cfg_for("/tmp/a.nex", card));
+            const auto got = k_load(*e, nm, 3);
+            const auto other = k_open(*e, "/OTHER.DAT", 0x0100);
+            check("ESXK-02",
+                  "a new Emulator on the same bound card gets the saved file back: F_OPEN(read) of "
+                  "its name reads the bytes, another name answers Fc=1 A=5",
+                  got.first && got.second == v3 && other.first && other.second == 0x05);
+        }
+        {   // ESXK-03
+            swj::forget_all_for_test();
+            auto e = std::make_unique<Emulator>();
+            e->init(cfg_for("/tmp/a.nex", card));            // no journal bound to the card
+            const auto o = k_open(*e, nm, 0x0100);
+            check("ESXK-03",
+                  "with no journal bound to the card a new Emulator has no file (F_OPEN read: "
+                  "Fc=1 A=5): the session-only behaviour is unchanged",
+                  o.first && o.second == 0x05);
+        }
+        {   // ESXK-04
+            const bool bound = bind_card();
+            auto e = std::make_unique<Emulator>();
+            e->init(cfg_for("/tmp/CHANGED.nex", card));      // another program, same page
+            const auto got = k_load(*e, nm, 3);
+            check("ESXK-04",
+                  "a changed program (another load file) on the same card reads the old save: "
+                  "the record is keyed by the card and the file name, not by the program",
+                  bound && got.first && got.second == v3);
+        }
+        {   // ESXK-05
+            bind_card();
+            hooks = 0;
+            swj::set_persist_hook(hook);
+            auto e = std::make_unique<Emulator>();
+            const EmulatorConfig c = cfg_for("/tmp/a.nex", card);
+            e->init(c);
+            const bool had = e->forget_card_writes();
+            const int h = hooks;
+            emulator_cold_boot(*e, c);
+            const auto o = k_open(*e, nm, 0x0100);
+            const bool jgone = !std::filesystem::exists(jf) && !swj::for_image(card)->kept_file();
+            auto bare = std::make_unique<Emulator>();
+            bare->init(cfg_for("/tmp/a.nex", ""));
+            const bool none = !bare->forget_card_writes();
+            check("ESXK-05",
+                  "forget_card_writes() empties the journal (FILE gone, hook ran) and the in-memory "
+                  "file, so a cold boot after it has no file (A=5); it returns false with no "
+                  "journal bound",
+                  had && h == 1 && o.first && o.second == 0x05 && jgone && none,
+                  "hooks=" + std::to_string(h));
+            swj::set_persist_hook(nullptr);
+        }
+        {   // ESXK-06
+            const std::string blocker = kdir + "/blocker";
+            { std::ofstream f(blocker); f << "x"; }
+            swj::forget_all_for_test();
+            std::string why;
+            const bool bound = swj::bind(card, blocker + "/w.jsdw", kb, false, why);
+            auto e = std::make_unique<Emulator>();
+            e->init(cfg_for("/tmp/a.nex", card));
+            const auto o = k_open(*e, nm, 0x0E00);
+            const bool w = k_write(*e, o.second, v3);
+            const auto c = k_close(*e, o.second);
+            const auto got = k_load(*e, nm, 3);
+            check("ESXK-06",
+                  "when the journal's host file cannot be written, F_CLOSE answers Fc=1 A=6 (EIO) "
+                  "and the file still reads back in the session",
+                  bound && w && c.first && c.second == 0x06 && got.first && got.second == v3,
+                  why);
+        }
+        {   // ESXK-07
+            bind_card();
+            swj::for_image(card)->clear();
+            auto e = std::make_unique<Emulator>();
+            const EmulatorConfig c = cfg_for("/tmp/a.nex", card);
+            e->init(c);
+            const bool s1 = k_save(*e, nm, {0xAA});
+            const auto o = k_open(*e, nm, 0x0E00);          // rewrites it, never closed
+            const bool w = k_write(*e, o.second, {0xB1, 0xB2, 0xB3});
+            e->init(c, true);                                // a soft reset re-initialises
+            const auto got = k_load(*e, nm, 3);
+            check("ESXK-07",
+                  "an init() on a live session does not replace a file the guest has not closed "
+                  "with the journal's older copy",
+                  s1 && w && got.first && got.second == std::vector<uint8_t>({0xB1, 0xB2, 0xB3}));
+        }
+        {   // ESXK-08
+            bind_card();
+            swj::for_image(card)->clear();
+            hooks = 0;
+            swj::set_persist_hook(hook);
+            auto e = std::make_unique<Emulator>();
+            e->init(cfg_for("/tmp/a.nex", card));
+            const bool s1 = k_save(*e, nm, v3);
+            const int h1 = hooks;
+            const auto r = k_open(*e, nm, 0x0100);
+            const auto rc = k_close(*e, r.second);
+            const bool unchanged = hooks == h1 && std::filesystem::exists(jf);
+            // The journal forgets the file behind the session's back; a read-open close must not
+            // put the in-memory copy back.
+            swj::for_image(card)->clear();
+            const int h2 = hooks;
+            const auto r2 = k_open(*e, nm, 0x0100);
+            const auto rc2 = k_close(*e, r2.second);
+            const bool not_back = hooks == h2 && !std::filesystem::exists(jf) &&
+                                  !swj::for_image(card)->kept_file();
+            // create + close with no write keeps an empty file a new Emulator can open
+            const auto o = k_open(*e, "/EMPTY.DAT", 0x0E00);
+            const auto oc = k_close(*e, o.second);
+            auto e2 = std::make_unique<Emulator>();
+            e2->init(cfg_for("/tmp/a.nex", card));
+            const auto again = k_open(*e2, "/EMPTY.DAT", 0x0100);
+            check("ESXK-08",
+                  "closing a read-open file keeps nothing (no hook; after the journal was cleared the "
+                  "in-memory copy is not put back); create + close with no write keeps an empty file "
+                  "that a new Emulator opens",
+                  s1 && h1 == 1 && !r.first && !rc.first && unchanged && !r2.first && !rc2.first &&
+                  not_back && !o.first && !oc.first && !again.first,
+                  "hooks=" + std::to_string(hooks));
+            swj::set_persist_hook(nullptr);
+        }
+        swj::forget_all_for_test();
+        std::filesystem::remove_all(kdir, kec);
     }
 
     // GH #31 — --esxdos-stub-root rows live in their own translation unit
