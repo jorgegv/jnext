@@ -18,7 +18,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Memory/MMU (int)      |      137 |      137 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      379 |      379 |      0 |       0 |    100% | 🟢 All tests pass. |
-| esxDOS stub           |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
+| esxDOS stub           |      193 |      193 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub (symlinks, POSIX) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quick snapshots: prune never follows a symlink (GH #321) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg PATH lookup, POSIX) |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -44,8 +44,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | DivMMC (int, SRAM map) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       93 |       93 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card write journal (GH #470) |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card (POSIX-only rows) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card write journal (GH #470) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card (POSIX-only rows) |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (GH #269) |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (POSIX-only rows) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -54,7 +54,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD Card Provisioner   |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SHA-256 backends (GH #459) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Warm start (GH #234)  |      106 |      106 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Warm start (GH #234)  |      107 |      107 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start on a real card (GH #464) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot SD identity (.jns, GH #27 S7) |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -209,6 +209,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      271 |      271 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16135**| **16135**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16155**| **16155**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
