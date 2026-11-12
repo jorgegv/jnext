@@ -908,6 +908,80 @@ void run_esxdos_write_rows(int& passed, int& failed)
                    fs::exists(base / "ct" / "outside.txt") && fs::exists(base / "ct" / "o2.txt"));
     }
 
+    // ══ Aliases and collisions through F_RENAME (review round 1) ═════════════
+    {
+        const uint32_t none = 0xFFFFFFFFu;
+        // A directory keeps its 8.3 aliases when it is renamed: after a delete inside
+        // made the fresh numbering differ, a short name still names the same file.
+        Fx f(base, "rk", true);
+        f.file("D/Long Name a.txt", "a"); f.file("D/Long Name b.txt", "bb");
+        f.file("D/Long Name c.txt", "ccc");
+        f.size_of("D/LONGNA~1.TXT");
+        f.hfs.unlink("D/LONGNA~1.TXT");
+        const uint8_t r1 = f.hfs.rename("D", "E");
+        wcheck("HFW-140",
+               "F_RENAME of a directory in place keeps the 8.3 aliases of what is inside: "
+               "after deleting LONGNA~1.TXT, LONGNA~2.TXT and ~3 still name b and c in the "
+               "renamed directory ([alias] S0351..S035C)",
+               r1 == H::kOk && f.size_of("E/LONGNA~1.TXT") == none &&
+                   f.size_of("E/LONGNA~2.TXT") == 2 && f.size_of("E/LONGNA~3.TXT") == 3);
+        Fx g(base, "rk2", true);
+        g.file("D/Long Name a.txt", "a"); g.file("D/Long Name b.txt", "bb");
+        g.file("D/Long Name c.txt", "ccc"); g.dir("T");
+        g.size_of("D/LONGNA~1.TXT");
+        g.hfs.unlink("D/LONGNA~1.TXT");
+        const uint8_t r2 = g.hfs.rename("D", "T");
+        wcheck("HFW-141",
+               "and the same when it is renamed INTO an existing directory ([alias] S0351..S035C)",
+               r2 == H::kOk && g.size_of("T/D/LONGNA~1.TXT") == none &&
+                   g.size_of("T/D/LONGNA~2.TXT") == 2 && g.size_of("T/D/LONGNA~3.TXT") == 3);
+
+        // A name already held in the target directory is esx_edevicebusy whatever the
+        // host's case rules are, and an 8.3 alias counts as the name it stands for.
+        Fx c(base, "rc", true);
+        c.file("D/A2.TXT", "held"); c.file("a2.txt", "moving");
+        const uint8_t c1 = c.hfs.rename("a2.txt", "D");
+        wcheck("HFW-142",
+               "F_RENAME into a directory that holds a case variant of the name is "
+               "esx_edevicebusy on every host and nothing moves ([rename] S020C; FAT is "
+               "case-insensitive, [unlink] S0059)",
+               c1 == H::kEdevicebusy && c.read("D/A2.TXT") == "held" && c.has("a2.txt") &&
+                   c.read("a2.txt") == "moving" && !lists_exactly(c.root / "D", "a2.txt"));
+        Fx a(base, "ra", true);
+        a.file("E/Long Name.txt", "long"); a.file("LONGNA~1.TXT", "native");
+        const uint32_t before = a.size_of("E/LONGNA~1.TXT");
+        const uint8_t a1 = a.hfs.rename("/LONGNA~1.TXT", "E");
+        wcheck("HFW-143",
+               "F_RENAME of a native 8.3 name into a directory where a long name holds that "
+               "alias is esx_edevicebusy, nothing moves, and the long-named file keeps its "
+               "alias (a later delete by that short name must not reach the moved file)",
+               a1 == H::kEdevicebusy && before == 4 && a.size_of("E/LONGNA~1.TXT") == 4 &&
+                   a.has("LONGNA~1.TXT") && !a.has("E/LONGNA~1.TXT") && a.has("E/Long Name.txt"));
+
+        // Unmeasured branches, pinned so they cannot drift: a wildcard whose first
+        // match is a directory is esx_einval as F_TRUNCATE of a directory is ([trunc]
+        // S02C2); a directory renamed into its own existing subdirectory is refused
+        // before the host is asked; a wildcard F_CHMOD never touches "." or "..".
+        Fx t(base, "rt", true);
+        t.dir("w/nodot"); t.file("w/f.txt", "12345");
+        wcheck("HFW-144",
+               "F_TRUNCATE with a wildcard whose first match is a directory is esx_einval "
+               "and truncates nothing (unmeasured; follows [trunc] S02C2)",
+               t.hfs.truncate("w/n*", 1) == H::kEinval && t.size_of("w/f.txt") == 5);
+        t.dir("P/Q");
+        wcheck("HFW-145",
+               "F_RENAME of a directory into an existing directory inside it is esx_eexist "
+               "(not a host failure) and nothing moves",
+               t.hfs.rename("P", "P/Q") == H::kEexist && t.has("P/Q") && !t.has("P/Q/P"));
+        t.dir("cs"); t.file("cs/a.txt", "a");
+        wcheck("HFW-146",
+               "wildcard F_CHMOD in a subdirectory skips \".\" and \"..\": A_WRITE clear on "
+               "\"*\" matches only the file, so it is Fc=0 and not esx_enosys "
+               "for a directory",
+               t.hfs.chmod("cs/a*.txt", 0, H::kChmodWrite) == H::kOk && !host_writable(t.root / "cs/a.txt") &&
+                   t.hfs.chmod("cs/*.*", 0, H::kChmodWrite) == H::kOk);
+    }
+
     // ══ The dispatcher: registers, claims, and what a refusal looks like ═════
     {
         const fs::path droot = base / "disp";
@@ -1186,6 +1260,23 @@ void run_esxdos_write_rows(int& passed, int& failed)
         r7.BC = 0x0100;
         r7.DE = kBuf;
         const bool bare_handled = esx(be, 0x93, r7);
+        // An unterminated custom message (no bit 7 within 32 bytes) copies 32 bytes and
+        // not one more: the buffer is 32 bytes.
+        for (int i = 0; i < 40; ++i) {
+            emu.mmu().write(static_cast<uint16_t>(kName + i), 'A');
+            emu.mmu().write(static_cast<uint16_t>(kBuf + 0x100 + i), 0xEE);
+        }
+        Z80Registers r8{};
+        r8.AF = 0;
+        r8.BC = 0x0100;
+        r8.DE = kBuf + 0x100;
+        r8.IX = kName;
+        const bool h8 = esx(emu, 0x93, r8);
+        wcheck("GETERR-07",
+               "an unterminated custom message copies 32 bytes and not one past the buffer",
+               h8 && emu.mmu().read(kBuf + 0x100 + 31) == 'A' &&
+                   emu.mmu().read(kBuf + 0x100 + 32) == 0xEE &&
+                   emu.mmu().read(kBuf + 0x100 + 39) == 0xEE);
         wcheck("GETERR-06",
                "served with a host root; B=0 (a BASIC report on a Next, which does not "
                "return) gets the default refusal, not a message; not claimed by a bare "

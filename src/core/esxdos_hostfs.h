@@ -62,11 +62,15 @@ public:
         kEbadf        = 13,  // esx_ebadf
         kEnotdir      = 17,  // esx_enotdir
         kEexist       = 18,  // esx_eexist
-        kEpath        = 19,  // esx_epath   : a bare '..' above the root, see resolve()
         kEnosys       = 20,  // esx_enosys   — mode this class does not serve
         kErdonly      = 24,  // esx_erdonly : a read-only file; F_OPEN's answer on a read-only root
         kEdevicebusy  = 31,  // esx_edevicebusy: a change on a write-protected volume (measured)
     };
+
+    /// NOT an esxDOS code: what resolve() returns for a bare ".." above the root
+    /// (MEASURED, NextZXOS treats it as a name missing from the root directory).
+    /// Every caller maps it to the code its own call answers for a missing last name.
+    static constexpr uint8_t kBareDotDot = 0xFE;
 
     // F_CHMOD attribute bits, in B (values) and C (mask): z88dk
     // asm_esx_f_chmod.asm:57-63. NOT the FAT attribute bits below: A_WRITE is the

@@ -249,7 +249,7 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
                hfs.stat("sub/../../outside/secret.txt", st) ==
                    EsxdosHostFs::kEnotdir);
         hcheck("HFS-04", "a bare '..' is refused",
-               hfs.stat("..", st) == EsxdosHostFs::kEpath);
+               hfs.stat("..", st) == EsxdosHostFs::kEnoent);
         hcheck("HFS-05",
                "a guest ABSOLUTE path is absolute inside the root, so "
                "'/etc/passwd' is <root>/etc/passwd and simply does not exist — "
