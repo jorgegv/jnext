@@ -30,6 +30,8 @@
 //   CRT-W-39      no GL probe before the overlay (a GL widget in a no-GL window); CRT-W-40 start-up
 //                 fallback to crt_filter; CRT-W-41 Preferences vs start-up in a no-shader build; CRT-W-42 a saved Soft
 //                 set to Off in Preferences still starting as Scanlines (no-shader build)
+//   CRT-W-43      the start-up fallback with no GL: Soft -> Scanlines, TV -> off (the resolve() call
+//                 in apply_startup_config given shader=false)
 //   CRT-W-33..38  Soft Scanlines: the View entry, five-way exclusivity, the Lite overlay, the
 //                 Preferences choice, and the GL-failure fallback to the software Scanlines
 //   CRT-W-10      crt_shader not written by AppConfig::save()
@@ -879,12 +881,43 @@ int main(int argc, char** argv) {
               "soft: gl=" + std::to_string(!s_n) + " scan=" + std::to_string(s_sc) + " boxes=" + std::to_string(s_box) +
               " tv: gl=" + std::to_string(!t_n) + " scan=" + std::to_string(t_sc) + " boxes=" + std::to_string(t_box));
     }
+    {
+        // The START-UP path with no GL (probe injected): the saved shader cannot run, so a saved Soft
+        // starts as the software Scanlines and a saved TV as nothing. (CRT-W-39 is the same fallback
+        // through the View menu.)
+        EmulatorWidget::set_gl_probe_override(0);
+        AppConfigData soft;
+        soft.crt_shader = true;
+        soft.crt_shader_style = crt_shader::Style::Lite;
+        AppConfigData tv;
+        tv.crt_shader = true;
+        tv.crt_shader_style = crt_shader::Style::Tv;
+        const auto start = [&](const AppConfigData& cfg, bool& scanlines_on, bool& shader_on) {
+            MainWindow w;
+            w.show();
+            settle();
+            w.apply_startup_config(cfg);
+            settle(6);
+            scanlines_on = w.crt_filter();
+            shader_on = w.crt_shader();
+        };
+        bool a_sc = false, a_sh = true, b_sc = true, b_sh = true;
+        start(soft, a_sc, a_sh);
+        start(tv, b_sc, b_sh);
+        EmulatorWidget::set_gl_probe_override(-1);
+        check("CRT-W-43", "start-up with no GL context: a saved Soft scanlines starts as the software Scanlines, a saved TV as no effect",
+              a_sc && !a_sh && !b_sc && !b_sh,
+              "soft: scan=" + std::to_string(a_sc) + " shader=" + std::to_string(a_sh) +
+              " tv: scan=" + std::to_string(b_sc) + " shader=" + std::to_string(b_sh));
+    }
 #else
     check("CRT-W-35", "choosing Soft scanlines builds the GL overlay in the Lite style; choosing Scanlines instead removes it and builds none",
           !built_in, "no overlay in this build");
     check("CRT-W-37", "a GL failure under Soft scanlines continues as the software Scanlines with exactly one message saying so; under TV it continues with none on and a message that does not",
           !built_in, "no overlay in this build");
     check("CRT-W-39", "with no GL context no GL widget is ever created: Soft scanlines becomes the software Scanlines, TV becomes off, one message each",
+          !built_in, "no overlay in this build");
+    check("CRT-W-43", "start-up with no GL context: a saved Soft scanlines starts as the software Scanlines, a saved TV as no effect",
           !built_in, "no overlay in this build");
 #endif
     {
