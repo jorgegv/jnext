@@ -1,8 +1,8 @@
 /*
  * Save Counter
  *
- * Test program for the SD card's write journal: it keeps a run counter in one
- * raw sector of the card, read and written over the SPI ports (0xE7 chip
+ * Test program for the SD card's write journal: it keeps a run counter in two
+ * raw sectors of the card (SECTOR and the next, written one after the other), read and written over the SPI ports (0xE7 chip
  * select, 0xEB data) with CMD17 and CMD24, the way a program with its own SD
  * driver does. Each run reads the sector (counter 0 when it does not start
  * with "JNSV"), adds 1, writes it back, prints "SAVE <n> OK" (or "SAVE ERR
@@ -13,9 +13,8 @@
  * page, "esxDOS calls from a directly loaded NEX"), so a file saved that way
  * would never reach it. SPI reaches the card in every start mode.
  *
- * The sector is SECTOR (block address of an SDHC card): well inside the 40 MiB
- * minimal NextZXOS card and far past its FAT and files, so nothing of
- * NextZXOS's is touched.
+ * SECTOR is a block address of an SDHC card: well inside the 40 MiB minimal
+ * NextZXOS card and far past its FAT and files, so nothing of NextZXOS's is touched.
  *
  *   ./build/jnext --magic-port 0xCAFE --magic-port-mode line \
  *       --load test/fixtures/nex/save_counter.nex
@@ -87,6 +86,27 @@ static unsigned char cmd(unsigned char c, unsigned long arg, unsigned char crc)
     return 0xFF;
 }
 
+/* CMD24 of one sector: "JNSV", the counter, zeros. True when the card accepted it. */
+static unsigned char put_block(unsigned long sector, unsigned char n)
+{
+    unsigned char r;
+    unsigned int i;
+    if (cmd(24, sector, 0xFF) != 0) return 0;
+    put(0xFF);
+    put(0xFE);                              /* start-of-block token */
+    put('J'); put('N'); put('S'); put('V'); put(n);
+    for (i = 5; i < 512; i++) put(0);
+    put(0xFF); put(0xFF);                   /* CRC */
+    for (i = 0; i < 64; i++) {
+        r = get();
+        if ((r & 0x1F) == 0x05) break;
+    }
+    if (i == 64) return 0;
+    for (i = 0; i < 20000 && get() != 0xFF; i++)   /* busy */
+        ;
+    return 1;
+}
+
 void main(void)
 {
     unsigned char n = 0, b[5], r;
@@ -116,20 +136,8 @@ void main(void)
 
     n++;
 
-    /* write it back */
-    if (cmd(24, SECTOR, 0xFF) != 0) fail(4);
-    put(0xFF);
-    put(0xFE);                              /* start-of-block token */
-    put('J'); put('N'); put('S'); put('V'); put(n);
-    for (i = 5; i < 512; i++) put(0);
-    put(0xFF); put(0xFF);                   /* CRC */
-    for (i = 0; i < 64; i++) {
-        r = get();
-        if ((r & 0x1F) == 0x05) break;
-    }
-    if (i == 64) fail(5);
-    for (i = 0; i < 20000 && get() != 0xFF; i++)   /* busy */
-        ;
+    /* write it back, twice in a row: a save is usually more than one block (data, then an index) */
+    if (!put_block(SECTOR, n) || !put_block(SECTOR + 1, n)) fail(4);
     z80_outp(SPI_CS, 0xFF);                 /* deselect */
 
     zx_border(n & 7);
