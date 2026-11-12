@@ -410,8 +410,8 @@ void test_pass4_z80n_iff2_read_hygiene_at_dispatch(Result& res) {
 
 // LD A,I / LD A,R (`op2` = 0x57 / 0x5F) with IFF1=IFF2=1, then an INT accepted
 // at the very next boundary. Returns F.P/V and whether the INT was taken.
-void ld_a_ir_then_int(uint8_t op2, bool& p_set, bool& taken, uint16_t& pc,
-                      uint8_t& f) {
+void ld_a_ir_then_int(uint8_t op2, uint8_t im, bool& p_set, bool& taken,
+                      uint16_t& pc, uint8_t& f) {
     detach_contention();
     RamMemory mem;
     RecordingIo io;
@@ -420,13 +420,16 @@ void ld_a_ir_then_int(uint8_t op2, bool& p_set, bool& taken, uint16_t& pc,
     auto regs = cpu.get_registers();
     regs.AF = 0x0000;
     regs.IFF1 = 1; regs.IFF2 = 1;
-    regs.IM = 1;
+    regs.IM = im;
     regs.PC = 0x8000;
     regs.I = 0x3F;
     cpu.set_registers(regs);
     mem.ram[0x8000] = 0xED;
     mem.ram[0x8001] = op2;
-    mem.ram[0x0038] = 0x76;          // HALT: stops the ISR at its first opcode
+    mem.ram[0x0038] = 0x76;          // IM 0 (RST 38) / IM 1: HALT at the ISR
+    mem.ram[0x3FFF] = 0x00;          // IM 2: vector word at (I<<8)|0xFF -> 0x9000
+    mem.ram[0x4000] = 0x90;
+    mem.ram[0x9000] = 0x76;          // IM 2: HALT at the ISR
     cpu.execute();                   // LD A,I / LD A,R
     cpu.request_interrupt(0xFF);
     cpu.execute();                   // accepts the INT at the boundary
@@ -439,7 +442,7 @@ void ld_a_ir_then_int(uint8_t op2, bool& p_set, bool& taken, uint16_t& pc,
 
 void test_ldai_int_keeps_pv(Result& res) {
     bool p, taken; uint16_t pc; uint8_t f;
-    ld_a_ir_then_int(0x57, p, taken, pc, f);
+    ld_a_ir_then_int(0x57, 1, p, taken, pc, f);
     char detail[200];
     std::snprintf(detail, sizeof(detail),
                   "LD A,I with IFF2=1 then INT at the next boundary: F=0x%02x "
@@ -452,7 +455,7 @@ void test_ldai_int_keeps_pv(Result& res) {
 
 void test_ldar_int_keeps_pv(Result& res) {
     bool p, taken; uint16_t pc; uint8_t f;
-    ld_a_ir_then_int(0x5F, p, taken, pc, f);
+    ld_a_ir_then_int(0x5F, 1, p, taken, pc, f);
     char detail[200];
     std::snprintf(detail, sizeof(detail),
                   "LD A,R with IFF2=1 then INT at the next boundary: F=0x%02x "
@@ -463,23 +466,28 @@ void test_ldar_int_keeps_pv(Result& res) {
           p && taken && (pc == 0x0038 || pc == 0x0039), detail);
 }
 
-// P/V follows IFF2 on both sides: IFF2=0 clears a previously set P/V.
-void test_ldai_iff2_clear(Result& res) {
+// LD A,I / LD A,R (`op2`) with the given IFF1/IFF2 and F preset, no INT.
+uint8_t ld_a_ir_no_int(uint8_t op2, uint8_t iff1, uint8_t iff2, uint16_t af) {
     detach_contention();
     RamMemory mem;
     RecordingIo io;
     Z80Cpu cpu(mem, io);
     prep_cpu(cpu, mem);
     auto regs = cpu.get_registers();
-    regs.AF = 0x0004;                // F.P set beforehand
-    regs.IFF1 = 0; regs.IFF2 = 0;
+    regs.AF = af;
+    regs.IFF1 = iff1; regs.IFF2 = iff2;
     regs.PC = 0x8000;
     regs.I = 0x3F;
     cpu.set_registers(regs);
     mem.ram[0x8000] = 0xED;
-    mem.ram[0x8001] = 0x57;
+    mem.ram[0x8001] = op2;
     cpu.execute();
-    uint8_t f = cpu.get_registers().AF & 0xFF;
+    return cpu.get_registers().AF & 0xFF;
+}
+
+// P/V follows IFF2 on both sides: IFF2=0 clears a previously set P/V.
+void test_ldai_iff2_clear(Result& res) {
+    uint8_t f = ld_a_ir_no_int(0x57, 0, 0, 0x0004);   // F.P set beforehand
     char detail[120];
     std::snprintf(detail, sizeof(detail),
                   "LD A,I with IFF2=0, F.P preset: F=0x%02x (expect F.P=0)", f);
@@ -490,27 +498,62 @@ void test_ldai_iff2_clear(Result& res) {
 
 // P/V comes from IFF2, not IFF1 (inside an NMI handler IFF1=0, IFF2=1).
 void test_ldai_pv_from_iff2_not_iff1(Result& res) {
-    detach_contention();
-    RamMemory mem;
-    RecordingIo io;
-    Z80Cpu cpu(mem, io);
-    prep_cpu(cpu, mem);
-    auto regs = cpu.get_registers();
-    regs.AF = 0x0000;
-    regs.IFF1 = 0; regs.IFF2 = 1;
-    regs.PC = 0x8000;
-    regs.I = 0x3F;
-    cpu.set_registers(regs);
-    mem.ram[0x8000] = 0xED;
-    mem.ram[0x8001] = 0x57;
-    cpu.execute();
-    uint8_t f = cpu.get_registers().AF & 0xFF;
+    uint8_t f = ld_a_ir_no_int(0x57, 0, 1, 0x0000);
     char detail[120];
     std::snprintf(detail, sizeof(detail),
                   "LD A,I with IFF1=0 IFF2=1: F=0x%02x (expect F.P=1)", f);
     check(res, "CPU-LDAI-NMI-04",
           "LD A,I takes P/V from IFF2, not IFF1 [t80n.vhd:1193, 1765-1767]",
           (f & 0x04) != 0, detail);
+}
+
+// The same two conditions for LD A,R (separate microcode special, :1206).
+void test_ldar_iff2_clear(Result& res) {
+    uint8_t f = ld_a_ir_no_int(0x5F, 0, 0, 0x0004);
+    char detail[120];
+    std::snprintf(detail, sizeof(detail),
+                  "LD A,R with IFF2=0, F.P preset: F=0x%02x (expect F.P=0)", f);
+    check(res, "CPU-LDAR-IFF2-08",
+          "LD A,R with IFF2=0 clears P/V [t80n.vhd:1206]",
+          (f & 0x04) == 0, detail);
+}
+
+void test_ldar_pv_from_iff2_not_iff1(Result& res) {
+    uint8_t f = ld_a_ir_no_int(0x5F, 0, 1, 0x0000);
+    char detail[120];
+    std::snprintf(detail, sizeof(detail),
+                  "LD A,R with IFF1=0 IFF2=1: F=0x%02x (expect F.P=1)", f);
+    check(res, "CPU-LDAR-NMI-09",
+          "LD A,R takes P/V from IFF2, not IFF1 [t80n.vhd:1206, 1765-1767]",
+          (f & 0x04) != 0, detail);
+}
+
+// LD A,I then an INT accepted at the next boundary in IM 0 and IM 2: P/V keeps
+// IFF2 in every interrupt mode (the INTACK M1 cannot rewrite F: t80n.vhd:500-513).
+void test_ldai_int_keeps_pv_im0(Result& res) {
+    bool p, taken; uint16_t pc; uint8_t f;
+    ld_a_ir_then_int(0x57, 0, p, taken, pc, f);
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "IM 0, LD A,I with IFF2=1 then INT: F=0x%02x F.P=%d (expect 1) "
+                  "IFF1=%d (expect 0) PC=0x%04x (expect 0x0038)",
+                  f, p ? 1 : 0, taken ? 0 : 1, pc);
+    check(res, "CPU-LDAI-INT-IM0-06",
+          "LD A,I then INT in IM 0 keeps P/V = IFF2 [t80n.vhd:1193, 1768-1771]",
+          p && taken && (pc == 0x0038 || pc == 0x0039), detail);
+}
+
+void test_ldai_int_keeps_pv_im2(Result& res) {
+    bool p, taken; uint16_t pc; uint8_t f;
+    ld_a_ir_then_int(0x57, 2, p, taken, pc, f);
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "IM 2, LD A,I with IFF2=1 then INT: F=0x%02x F.P=%d (expect 1) "
+                  "IFF1=%d (expect 0) PC=0x%04x (expect 0x9000)",
+                  f, p ? 1 : 0, taken ? 0 : 1, pc);
+    check(res, "CPU-LDAI-INT-IM2-07",
+          "LD A,I then INT in IM 2 keeps P/V = IFF2 [t80n.vhd:1193, 1768-1771]",
+          p && taken && (pc == 0x9000 || pc == 0x9001), detail);
 }
 
 // The +3DOS-style interrupt save/restore idiom survives an INT accepted
@@ -3620,6 +3663,10 @@ int main() {
     test_ldai_iff2_clear(res);
     test_ldai_pv_from_iff2_not_iff1(res);
     test_ldai_save_restore_idiom(res);
+    test_ldar_iff2_clear(res);
+    test_ldar_pv_from_iff2_not_iff1(res);
+    test_ldai_int_keeps_pv_im0(res);
+    test_ldai_int_keeps_pv_im2(res);
     test_pass4_save_load_iff2_read_interrupts_enabled_at_behavior(res);
     // Pass-5 (cb8daf7) + Pass-6 (b4af634)
     test_pass5_pass6_z80n_tstates_via_fuse_counter(res);
