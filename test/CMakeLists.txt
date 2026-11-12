@@ -809,6 +809,17 @@ target_link_libraries(halt_batch_periph_test PRIVATE
 target_include_directories(halt_batch_periph_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME halt_batch_periph_tests COMMAND halt_batch_periph_test)
 
+# GH #489 - the HALT batch with an ESP-01 or a debugger client attached. jnext_platform for
+# emulator_cold_boot() (HBQ-63/64).
+add_executable(halt_batch_observer_test core/halt_batch_observer_test.cpp)
+target_link_libraries(halt_batch_observer_test PRIVATE
+    jnext_platform
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(halt_batch_observer_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME halt_batch_observer_tests COMMAND halt_batch_observer_test)
+
 add_executable(halt_batch_boot_test core/halt_batch_boot_test.cpp)
 target_link_libraries(halt_batch_boot_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
@@ -1996,6 +2007,18 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_persistent_bp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_persistent_bp_tests COMMAND debugger_persistent_bp_test)
+
+    # GH #489 - the debugger window open must not take the HALT batch away on an idle program:
+    # the real DebuggerManager attach path and BreakpointModel against a real Emulator.
+    add_executable(debugger_halt_batch_test debugger/halt_batch_test.cpp)
+    set_target_properties(debugger_halt_batch_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_halt_batch_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_halt_batch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_halt_batch_tests COMMAND debugger_halt_batch_test)
 
     # A debugger INSPECTION read is not a guest access. Drives the
     # real DebuggerWindow panels (Watches / Stack / Disassembly / Memory, the

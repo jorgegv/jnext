@@ -505,7 +505,10 @@ Everything that couples the two sides lives on **jnext's** side of the line:
   RX FIFO, mirrors the core's tick gate, and binds the module's logging seam to
   jnext's `esp01` logger so `--log-level esp01=debug` works. It is five
   forwarding methods plus one flag; if it ever grows a state machine, something
-  has been put on the wrong side of the line.
+  has been put on the wrong side of the line. That flag is also what the HALT
+  batch reads: an attached device that does not want ticks (an idle ESP-01) does
+  not stop the batch (`Uart::batch_quiescent()`), because the per-instruction
+  service already skips it; one that does want ticks refuses it.
 - `esp_host_policy.{h,cpp}` holds what a reusable module cannot own, because it
   is about *this program's* relationship with *its* user: the optional
   `--esp-allow` hostname allowlist, and a bounded thread-safe connection log

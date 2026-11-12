@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.24</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.25</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.24</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.25</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3515,7 +3515,10 @@ designed in and is checked, not one that happens to hold today.</p>
   RX FIFO, mirrors the core's tick gate, and binds the module's logging seam to
   jnext's <code>esp01</code> logger so <code>--log-level esp01=debug</code> works. It is five
   forwarding methods plus one flag; if it ever grows a state machine, something
-  has been put on the wrong side of the line.</li>
+  has been put on the wrong side of the line. That flag is also what the HALT
+  batch reads: an attached device that does not want ticks (an idle ESP-01) does
+  not stop the batch (<code>Uart::batch_quiescent()</code>), because the per-instruction
+  service already skips it; one that does want ticks refuses it.</li>
 <li><code>esp_host_policy.{h,cpp}</code> holds what a reusable module cannot own, because it
   is about <em>this program's</em> relationship with <em>its</em> user: the optional
   <code>--esp-allow</code> hostname allowlist, and a bounded thread-safe connection log

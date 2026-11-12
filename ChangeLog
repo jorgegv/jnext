@@ -18,6 +18,7 @@
 - NEX: header bit 6 and byte 152 follow the loaders: V1.3 non-zero skips classic screens, an unknown value loads, V1.2 ignores bit 6
 - A .szx saved from a 128K, +2A/+3 or Pentagon now keeps the AY registers, so music and effects survive a reload
 - macOS: a file opened from the Finder (double-click, Open With, Dock) now loads instead of being ignored
+- Idle programs keep their low CPU use with the ESP-01 enabled or the debugger window open; Preferences OK no longer resets the CPU speed
 - NextZXOS no longer freezes on a blank grey screen when an interrupt lands right after LD A,I (e.g. a quick SPACE at the Welcome screen)
 - The packages now include the 48K ROM symbol map, so the debugger can name ROM routines (Map > Load MAP File > Simple Format)
 

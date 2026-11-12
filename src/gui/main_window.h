@@ -403,7 +403,11 @@ public:
     /// competitor and are not already baked into the EmulatorConfig used for
     /// Emulator::init() (machine type and silent are — see main.cpp's CLI/
     /// AppConfig merge). Called once at startup, after set_emulator().
-    void apply_startup_config(const AppConfigData& cfg);
+    ///
+    /// `program_cpu_speed` false leaves the running machine's CPU speed alone (GH #489):
+    /// Preferences passes it only when the CPU-speed field changed, because the machine's
+    /// speed is whatever the program or the menu set it to, not the dialog's value.
+    void apply_startup_config(const AppConfigData& cfg, bool program_cpu_speed = true);
 
     /// Access to the live, on-disk-backed preferences (Preferences dialog
     /// reads/writes through this).
@@ -749,6 +753,9 @@ private:
     // applied, and write-through updated by file dialogs that remember a
     // directory (Load Program, Open Tape, Save Screenshot).
     AppConfig app_config_;
+    // GH #489 - the CPU speed the Preferences dialog last showed (the saved value at launch, then
+    // the last applied one): apply_preferences() programs NR 0x07 only when the field differs.
+    CpuSpeed prefs_cpu_speed_ = CpuSpeed::MHZ_3_5;
 
     // GH #1 — the debugger key bindings that are IN EFFECT, which is not
     // necessarily what app_config_ holds: apply_preferences() is the one place

@@ -271,6 +271,7 @@ MainWindow::MainWindow(QWidget* parent)
     // of non-headless invocations stay deterministic (test/00regression/
     // regression.sh).
     app_config_.load();
+    prefs_cpu_speed_ = app_config_.data().cpu_speed;   // GH #489
 #ifdef ENABLE_DEBUGGER
     // GH #312 \u2014 fold an older Debugger.conf into jnext.conf once, even if
     // the debugger is never opened this run.
@@ -2945,7 +2946,7 @@ void MainWindow::on_save_snapshot() {
 // Preferences (Task 66 — Configurability)
 // ---------------------------------------------------------------------------
 
-void MainWindow::apply_startup_config(const AppConfigData& cfg) {
+void MainWindow::apply_startup_config(const AppConfigData& cfg, bool program_cpu_speed) {
     // GH #417 - the session's paths and quick-screenshot format. At start-up cfg is the
     // saved file with the command line's values over it; from Preferences it is the
     // dialog's. Either way app_config_ (what is saved) is not touched here.
@@ -2961,7 +2962,8 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
     // would re-open the machine-type/silent precedence bug — this method
     // only sees the persisted value, not whether the CLI overrode it.
     if (emulator_) {
-        emulator_->nextreg().write(0x07, static_cast<uint8_t>(cfg.cpu_speed));
+        if (program_cpu_speed)
+            emulator_->nextreg().write(0x07, static_cast<uint8_t>(cfg.cpu_speed));
         emulator_->tape().set_fast_load(cfg.tape_fast_load);
         emulator_->tzx_tape().set_fast_load(cfg.tape_fast_load);
         emulator_->set_tape_auto_play(cfg.tape_auto_play);
@@ -2996,7 +2998,7 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
     if (when_slow_prefer_callback_) when_slow_prefer_callback_(cfg.when_slow_prefer);
 
     // Sync the CPU-speed / emulator-speed menu radio groups to match.
-    if (speed_group_) {
+    if (speed_group_ && program_cpu_speed) {
         for (QAction* a : speed_group_->actions()) {
             if (a->data().toInt() == static_cast<int>(cfg.cpu_speed)) {
                 a->setChecked(true);
@@ -3071,7 +3073,8 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
     // instead of stranding it until the next launch.
     if (esp_config_callback_) esp_config_callback_(cfg.esp_enabled, cfg.esp_allowed_hosts);
 
-    switch (preferences_apply_outcome(restart_required, confirmed)) {
+    const PreferencesApplyOutcome outcome = preferences_apply_outcome(restart_required, confirmed);
+    switch (outcome) {
     case PreferencesApplyOutcome::RebootThenApplyLive:
         on_machine_type(cfg.machine_type);
         break;
@@ -3088,7 +3091,16 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
     // Every other setting applies live and silently, in every outcome above —
     // declining the restart must not also discard the joypad change that the
     // user actually came here to make.
-    apply_startup_config(cfg);
+    //
+    // GH #489 - the CPU speed is programmed only when the user changed that field. The machine's
+    // speed is whatever the program (NextZXOS runs at 28 MHz) or the CPU Speed menu made it; writing
+    // the dialog's value on every OK dropped a session to the Startup speed (3.5 MHz by default)
+    // whatever else was changed. A cold boot above restarts the machine, so its speed is
+    // programmed again whatever the field did.
+    const bool cpu_speed_changed = cfg.cpu_speed != prefs_cpu_speed_ ||
+                                   outcome == PreferencesApplyOutcome::RebootThenApplyLive;
+    prefs_cpu_speed_ = cfg.cpu_speed;
+    apply_startup_config(cfg, cpu_speed_changed);
 
     // Task 79 / GH #311 — live-apply the per-connector input sources and the
     // assigned controllers. The dialog already enforces the one-cursor and
