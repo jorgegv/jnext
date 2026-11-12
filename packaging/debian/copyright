@@ -18,6 +18,19 @@ Files: third_party/zot/*
 Copyright: Salvatore Sanfilippo
 License: MIT
 
+Files: third_party/crtemu/*
+Copyright: 2016 Mattias Gustavsson
+License: MIT
+Comment: dual licensed MIT or Unlicense (public domain); taken here under the MIT terms.
+
+Files: third_party/nlohmann-json/*
+Copyright: 2013-2022 Niels Lohmann
+License: MIT
+
+Files: third_party/fatfs/*
+Copyright: 2025 ChaN
+License: FatFs
+
 License: GPL-3
  On Debian systems, the complete text of the GNU General Public License
  version 3 can be found in "/usr/share/common-licenses/GPL-3".
@@ -36,3 +49,16 @@ License: MIT
  the following conditions: the above copyright notice and this
  permission notice shall be included in all copies or substantial
  portions of the Software.
+
+License: FatFs
+ FatFs module is an open source software. Redistribution and use of FatFs in
+ source and binary forms, with or without modification, are permitted provided
+ that the following condition is met:
+ .
+ 1. Redistributions of source code must retain the above copyright notice,
+    this condition and the following disclaimer.
+ .
+ This software is provided by the copyright holder and contributors "AS IS"
+ and any warranties related to this software are DISCLAIMED.
+ The copyright owner or contributors be NOT LIABLE for any damages caused
+ by use of this software.

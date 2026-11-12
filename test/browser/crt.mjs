@@ -229,6 +229,12 @@ row('BCRT-07', '--crt soft in an 800x600 and a 640x600 canvas: the picture fills
       for (const y of [0, 43, 556, 599]) must(black(px(im, x, y)), `bar (${x},${y}) = ${px(im, x, y)}`);
       for (const y of [45, 46, 47, 48, 49, 50, 549, 550, 551, 552, 553, 554]) must(lit(px(im, x, y)), `picture (${x},${y}) = ${px(im, x, y)}`);
       note('BCRT-07', `640x600 x=320: ${[43, 44, 45, 46, 554, 555, 556].map((y) => `${y}:${px(im, x, y)}`).join(' ')}`);
+      // The scanline period follows the picture's own height (a viewport that does not start at
+      // the origin must not shift it): at 640x512 every row sits on a zero crossing, so the plain
+      // border colour is dimmed evenly down a column (measured spread 6 with the viewport fix, 84 without).
+      const col = []; for (let y = 48; y <= 100; y++) col.push(px(im, 300, y)[0]);
+      note('BCRT-07', `640x600 x=300 y=48..100: min ${Math.min(...col)} max ${Math.max(...col)}`);
+      must(Math.max(...col) - Math.min(...col) <= 12, `the border column varies ${Math.min(...col)}..${Math.max(...col)} down the picture`);
     }
     await page.ctx.close();
   }

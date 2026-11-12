@@ -43,7 +43,28 @@ Qt path, and a `QOpenGLWidget` already owns a context, so:
    removed: a texture coordinate of 0..1 is the whole picture. `crt_shader_policy_test`
    CRT-POL-14 fails if they come back.
 
+8. `CRTEMU_GL_CLAMP_TO_EDGE` and the WebGL wrap remap, in the host-loader arm. That arm includes
+   no GL header, so it names the wrap enums itself; upstream's WebGL branch (`__wasm__`) used a
+   raw `GL_CLAMP_TO_EDGE` in 12 places, which does not compile there, and the arm defined
+   `CRTEMU_GL_CLAMP_TO_BORDER` as 0x812D unconditionally, which WebGL rejects (INVALID_ENUM),
+   leaving REPEAT on textures whose size is not a power of two, which WebGL 1 treats as
+   incomplete. Under `CRTEMU_WEBGL` the border wrap is now CLAMP_TO_EDGE, as in upstream's
+   SDL arm (the fragment shaders emulate the border). The desktop's arm is unchanged. This is
+   what the browser build compiles (`src/platform/crtemu_browser_impl.cpp`, on SDL's WebGL 1
+   context through `SDL_GL_GetProcAddress`).
+
+9. The window size in `crtemu_present()` is the viewport's width and height. Upstream took
+   `viewport[2] - viewport[0]` and `viewport[3] - viewport[1]` (a GL viewport is x, y, width,
+   height), which is only right at the origin: a host that letterboxes inside its drawing buffer
+   (the browser build) got a wrong `resolution` and `size`, so the scanline period moved (a moire
+   in the soft scanlines). The three window-to-CRT coordinate helpers further down, which jnext
+   does not call, keep the upstream expressions.
+
 The shader sources are `#version 120` (GLSL 1.20): the host must request a 2.1 /
 compatibility context (`src/gui/crt_gl_overlay.cpp` does).
+
+`LICENSE` beside the header is the header's own licence block (the text after its implementation,
+from "This software is available under 2 licenses" to the closing rule), verbatim: the browser
+build's zip carries it.
 
 Do not edit `crtemu.h` further without recording it here.

@@ -257,8 +257,8 @@ naming the option and the value, and exits with status 1.
     choices of the **Preferences** CRT effect pop-up. The same as setting
     `startup.crt_filter`, `startup.crt_shader` and `startup.crt_shader_style`
     together. `soft`, `tv` and `pc` need the GPU shader; a build without it
-    refuses them (exit status 1) and offers `off` and `scanlines`. Qt window
-    only: elsewhere **jnext** warns and ignores it.
+    refuses them (exit status 1) and offers `off` and `scanlines`. The Qt window
+    and the browser build: elsewhere **jnext** warns and ignores it.
 
 **\--speed** *PERCENT*
 :   Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x. Clamped to
@@ -1233,14 +1233,15 @@ The entries say which frontends use the key: the Qt window, the SDL-only build
 :   The window scale; **\--scale**. The Qt window.
 
 `startup.crt_filter` *true|false*
-:   The software scanlines effect; **\--crt scanlines**. The Qt window.
+:   The software scanlines effect; **\--crt scanlines**. The Qt window and the
+    browser build.
 
 `startup.crt_shader` *true|false*
-:   The GPU CRT shader; **\--crt**. The Qt window.
+:   The GPU CRT shader; **\--crt**. The Qt window and the browser build.
 
 `startup.crt_shader_style` *0..2*
 :   The shader's look: 0 is `tv`, 1 is `pc`, 2 is `soft`; **\--crt**. The Qt
-    window.
+    window and the browser build.
 
 `startup.silent` *true|false*
 :   Start with the sound muted; **\--silent**. All frontends.
@@ -2786,6 +2787,15 @@ visitor clicks the player, because browsers allow sound only after a click. The
 image is fetched from another origin, so that server must send an
 `Access-Control-Allow-Origin` header. The page must be a secure context:
 `https://`, `http://localhost` or `http://127.0.0.1`.
+
+The CRT effect of the desktop window is available too, off by default: a page asks
+for it with the option **\--crt** *EFFECT* (in `args`) or the three `startup.crt_*`
+settings (in `set`), and gets the same five looks with the same parameters. It runs
+on the page's WebGL, so it needs a browser with WebGL, and the soft scanlines show
+their lines only when the picture is at least twice 640x512 device pixels, as on the
+desktop. If the shader cannot run, the player logs one line starting `CRT effect:`
+and carries on: with the software scanlines for `soft` (or when `scanlines` was also
+asked), with the plain picture otherwise.
 
 ## JavaScript options
 

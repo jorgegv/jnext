@@ -1682,8 +1682,12 @@ void crtemu_present( crtemu_t* crtemu, CRTEMU_U64 time_us, CRTEMU_U32 const* pix
 
     crtemu->Viewport( viewport[ 0 ], viewport[ 1 ], viewport[ 2 ], viewport[ 3 ] );
 
-    int window_width = viewport[ 2 ] - viewport[ 0 ];
-    int window_height = viewport[ 3 ] - viewport[ 1 ];
+    /* JNEXT PATCH 9: a GL viewport is (x, y, width, height); upstream read [2] and [3] as the far
+       corner, which is the same only for a viewport at the origin. A host that letterboxes inside
+       the drawing buffer (the browser build) got a wrong `resolution` and `size`: the scanline
+       period moved. */
+    int window_width = viewport[ 2 ];
+    int window_height = viewport[ 3 ];
 
     int aspect_width = (int)( ( window_height * 4 ) / 3 );
     int aspect_height= (int)( ( window_width * 3 ) / 4 );
