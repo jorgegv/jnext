@@ -474,7 +474,7 @@ public:
     /// `Debugger` does this in its constructor and clears it in its destructor:
     /// a dangling table pointer reachable from the MMU would be a use-after-free
     /// on the hot path.
-    void set_event_table(jnext::dbg::EventTable* t) { events_ = t; }
+    void set_event_table(jnext::dbg::EventTable* t) { events_ = t; if (!t) events_live_ = false; }
     jnext::dbg::EventTable* event_table() const { return events_; }
 
     /// Install the two hooks the hot loop calls. `drain` is the boundary drain
@@ -546,6 +546,24 @@ public:
     /// armed" rather than probing eight addresses.
     uint8_t rd_watch_mask() const { return breakpoints_.watch_slot_mask_rd(); }
     uint8_t wr_watch_mask() const { return breakpoints_.watch_slot_mask_wr(); }
+
+    /// GH #489 - THE HALT BATCH'S DEBUGGER TERM: is anything watching the machine PER INSTRUCTION?
+    /// Emulator::halt_batch_after_slot_() G2 reads this one predicate, so every contributor is
+    /// enumerated together. An attached client with none of the below (the debugger window open
+    /// on an idle program) is NOT a reason: the absorbed repeats would run a no-op armed block, no
+    /// watch or subscription latches nothing, the raster walk is advanced over the window in one
+    /// piece and the call-stack tracker learns nothing from a HALT repeat.
+    ///
+    /// DELIBERATELY CONSERVATIVE: any breakpoint (the MODEL: enabled or not, legacy PC, memory and
+    /// I/O watchpoints, the one-shot), any live subscription of any kind and
+    /// --persistent-breakpoints refuse, even when nothing covers the HALT's PC.
+    bool halt_batch_blocked() const {
+        return persistent_ || replay_armed_ || magic_hold_ || verify_hold_ ||
+               paused_ || step_off_pending_ || step_mode_ != StepMode::NONE ||
+               data_bp_hit_ || event_boundary_work_ || execute_armed_ || nextreg_armed_ ||
+               events_live_ || coverage_ != nullptr || mem_cov_sink_ != nullptr ||
+               !breakpoints_.empty();
+    }
 
     /// Is there anything for the boundary drain to do? A single cached bool:
     /// the ring holds something, or a `Cycle` subscription is armed (the one
@@ -804,6 +822,8 @@ private:
     bool cycle_armed_         = false;
     bool execute_armed_       = false;
     bool nextreg_armed_       = false;
+    // GH #489 - any live subscription of any kind; see halt_batch_blocked().
+    bool events_live_         = false;
     // GH #276 B4 — INS-20; see coverage_sink().
     std::bitset<65536>* coverage_ = nullptr;
     // GH #276 B4 — CAP-01; see capture_render().

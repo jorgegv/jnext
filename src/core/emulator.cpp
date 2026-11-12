@@ -11791,8 +11791,9 @@ void Emulator::pi_sample_thunk_(void* self)
     // the whole window when the slot was a HALT repeat that stands for several (halt_batch_after_slot_()
     // has absorbed the rest and halt_batch_replay_() has replayed the PSG and the mixer), 0 when not.
     // run_frame() then runs the device cluster over the window and calls halt_batch_end_(). Batching
-    // requires the debugger idle (G2), so the boundary drain and the data-breakpoint test between this
-    // call and the cluster are empty.
+    // requires no per-instruction debugger observation (G2: DebugState::halt_batch_blocked()), so the
+    // boundary drain and the data-breakpoint test between this call and the cluster stay empty: no
+    // watchpoint or subscription exists to latch, and a pending stop is a refusal.
     bool batched = false;
     const uint64_t total = halt_batch_after_slot_(master_cycles, batched);
     if (!batched) return 0;
@@ -11841,11 +11842,14 @@ void Emulator::pi_sample_thunk_(void* self)
     // expired pulse window, are per-slot decisions).
     if (cpu_.int_pending() || cpu_.nmi_pending()) return master_cycles;
 
-    // G2: nothing is observing the machine: breakpoints, watchpoints, events, step modes, the
-    // raster walk, coverage, trace, call stack, profiler, a rewind replay.
-    if (debug_state_.attached() || debug_state_.armed() || debug_state_.raster_live() ||
-        debug_state_.coverage_sink() || debug_state_.mem_gate_live() ||
-        trace_log_.enabled() || call_stack_.enabled() || profiler_.active() || replay_mode_)
+    // G2: nothing observes the machine per instruction: a breakpoint, watchpoint, subscription,
+    // step mode, coverage (DebugState::halt_batch_blocked(), which also holds a pause and every
+    // armed() contributor but an attached client), trace, profiler, a rewind replay. An attached
+    // client alone does not refuse (GH #489): the raster walk is advanced over the window below, and
+    // the call-stack tracker learns nothing from a HALT repeat (the real repeat has filled the newest
+    // frame's target space; no 0x76 path pushes or pops).
+    if (debug_state_.halt_batch_blocked() || trace_log_.enabled() || profiler_.active() ||
+        replay_mode_)
         return master_cycles;
 
     // G3: RZX counts instructions per frame and replays input per instruction.
@@ -11861,8 +11865,9 @@ void Emulator::pi_sample_thunk_(void* self)
     const bool dma_waiting = !dma_.idle_for_batch();
     if (dma_waiting && !dma_.burst_wait_quiescent()) return master_cycles;
 
-    // G10: the UART bit engine and the host serial sources tick per slot.
-    if (!uart_.tick_is_noop() || joy_uart_source_ || joy_uart_link_) return master_cycles;
+    // G10: the UART bit engine, an attached device that wants ticks, and the host serial sources
+    // tick per slot. An attached device that wants none (an idle ESP-01, GH #489) does not refuse.
+    if (!uart_.batch_quiescent() || joy_uart_source_ || joy_uart_link_) return master_cycles;
 
     // G11: no NR 0x07 / NR 0x08 b6 commit waiting for its edge (zxnext.vhd:5796-5828). The b6
     // half is NOT redundant with P2: a contended page is uncontended while the disable is in
@@ -11952,6 +11957,9 @@ void Emulator::pi_sample_thunk_(void* self)
     cpu_.repeat_halt(static_cast<uint32_t>(extra_repeats), static_cast<uint32_t>(tstates));
     clock_.tick(extra_repeats * p);
     dma_.tick_burst_wait(extra_repeats * static_cast<uint64_t>(tstates));
+    // The per-slot raster walk (run_frame()'s step_one_instruction() tail) is additive over the
+    // window: its inputs cannot change with no instruction running (B4 excludes Copper MOVEs).
+    if (debug_state_.raster_live()) video_timing_.advance(static_cast<int>(extra_repeats * tstates));
     slot_repeat_mc_ = p;
     halt_repeats_batched_ += extra_repeats;
     if (dma_waiting) halt_repeats_batched_dma_wait_ += extra_repeats;

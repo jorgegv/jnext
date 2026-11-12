@@ -615,6 +615,26 @@ public:
         return !device_attached_ && channels_[0].tick_idle() && channels_[1].tick_idle();
     }
 
+
+    /// GH #489 - a HALT repeat batch may span tick() when it would be a no-op for the bit engine
+    /// AND for every attached device: both channels idle, and no attached device wants ticks
+    /// (service_attached_device() calls a device only while tick_wanted() is true, so an idle
+    /// device already costs the per-slot path nothing). tick_wanted() cannot change inside a batch
+    /// window: it is re-mirrored only by a device's poll / set_inert (at the start of run_frame()),
+    /// by receive() (a completed guest TX byte: TX is idle) and by its own tick() (not called while
+    /// it is false). A channel held in reset (framing bit 7) whose device still wants ticks is
+    /// refused, conservatively. tick_is_noop() and tick() are unchanged: the per-slot path keeps its
+    /// measured cost.
+    bool batch_quiescent() const {
+        if (!channels_[0].tick_idle() || !channels_[1].tick_idle()) return false;
+        if (!device_attached_) return true;
+        for (const UartChannel& c : channels_) {
+            const UartDevice* d = c.device();
+            if (d && d->tick_wanted()) return false;
+        }
+        return true;
+    }
+
     void tick(uint32_t master_cycles) {
         if (tick_is_noop()) {
             channels_[0].set_span_base(time_);
