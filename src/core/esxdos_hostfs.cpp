@@ -858,6 +858,19 @@ bool EsxdosHostFs::host_read_only(const fs::path& host)
     return (st.permissions() & fs::perms::owner_write) == fs::perms::none;
 }
 
+void EsxdosHostFs::forget_alias(const fs::path& host) const
+{
+    const auto dir = aliases_.find(host.parent_path().string());
+    if (dir != aliases_.end()) dir->second.erase(host.filename().string());
+    const std::string key = host.string();
+    for (auto it = aliases_.begin(); it != aliases_.end();) {
+        const bool under = it->first.size() > key.size() &&
+                           it->first.compare(0, key.size(), key) == 0 &&
+                           (it->first[key.size()] == '/' || it->first[key.size()] == '\\');
+        it = (it->first == key || under) ? aliases_.erase(it) : std::next(it);
+    }
+}
+
 bool EsxdosHostFs::is_open_file(const fs::path& host) const
 {
     for (const FileHandle& f : files_) {
@@ -924,7 +937,9 @@ uint8_t EsxdosHostFs::unlink_file(const fs::path& host)
     if (host_read_only(host)) return kErdonly;
     if (!writable_) return kEdevicebusy;
     std::error_code ec;
-    return fs::remove(host, ec) && !ec ? kOk : kEio;
+    if (!fs::remove(host, ec) || ec) return kEio;
+    forget_alias(host);
+    return kOk;
 }
 
 uint8_t EsxdosHostFs::unlink(const std::string& guest_path)
@@ -1041,10 +1056,13 @@ uint8_t EsxdosHostFs::rename(const std::string& from, const std::string& to)
         if (src_dir) reopen_streams(src, fs::path());
         return kEio;
     }
+    // The source name is free again, and takes its alias with it.
+    if (const auto d = aliases_.find(src.parent_path().string()); d != aliases_.end())
+        d->second.erase(src.filename().string());
     if (src_dir) {
         reopen_streams(src, target);
-        // Forget the aliases of the moved directories: they are looked up by host
-        // path, and the new path is listed afresh.
+        // The aliases kept for what was inside a moved directory follow it: they
+        // are looked up by host path.
         const std::string old_key = src.string();
         for (auto it = aliases_.begin(); it != aliases_.end();) {
             const bool under = it->first == old_key ||
@@ -1104,7 +1122,9 @@ uint8_t EsxdosHostFs::rmdir(const std::string& guest_path)
     // Empty means NOTHING in it on the host, an unlisted symlink included.
     if (fs::directory_iterator(host, ec) != fs::directory_iterator()) return kEnospc;
     if (!writable_) return kEdevicebusy;
-    return fs::remove(host, ec) && !ec ? kOk : kEio;
+    if (!fs::remove(host, ec) || ec) return kEio;
+    forget_alias(host);
+    return kOk;
 }
 
 uint8_t EsxdosHostFs::truncate_file(const fs::path& host, uint32_t size)

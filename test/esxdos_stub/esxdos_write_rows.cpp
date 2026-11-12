@@ -430,11 +430,14 @@ void run_esxdos_write_rows(int& passed, int& failed)
                    f.hfs.rename("o.txt", "z*.txt") == H::kEinval && f.has("o.txt"));
         f.dir("cd"); f.file("cd/f.txt", "F");
         f.hfs.chdir("cd");
+        f.file("x9.txt", "x9");
         wcheck("HFW-50",
                "F_RENAME resolves a relative destination from the CWD, not from the source's "
-               "directory ([rename] S022C)",
+               "directory ([rename] S022C); an empty destination is the CWD itself ([rename] "
+               "S0249)",
                f.hfs.rename("f.txt", "../moved.txt") == H::kOk && f.has("moved.txt") &&
-                   !f.has("cd/f.txt"));
+                   !f.has("cd/f.txt") && f.hfs.rename("../x9.txt", "") == H::kOk &&
+                   f.has("cd/x9.txt") && !f.has("x9.txt"));
         f.hfs.chdir("/");
         f.dir("hd"); f.file("hd/h.txt", "0123456789");
         uint8_t hh = 0, e = f.hfs.open("hd/h.txt", H::kModeRead, hh);
@@ -743,6 +746,13 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.hfs.rename("LONGNA~3.TXT", "Long Name e.txt");
         const uint32_t e2 = f.size_of("LONGNA~2.TXT");
         const uint32_t d1b = f.size_of("LONGNA~1.TXT");
+        Fx n(base, "al5", true);
+        n.file("Long Name a.txt", "a"); n.file("Long Name b.txt", "bb");
+        n.size_of("LONGNA~1.TXT");
+        n.hfs.unlink("LONGNA~1.TXT"); n.hfs.unlink("LONGNA~2.TXT");
+        n.file("Long Name b.txt", "bbb");
+        const uint32_t freed = n.size_of("LONGNA~1.TXT");
+        const bool tail2 = n.size_of("LONGNA~2.TXT") == 0xFFFFFFFFu;
         Fx g(base, "al2", true);
         g.file("Long Name a.txt", "a");
         const uint32_t a1 = g.size_of("LONGNA~1.TXT");
@@ -752,7 +762,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
                "fresh alias, and a native 8.3 host name always wins and displaces the long name "
                "([alias] S035C..S0368)",
                d1 == 4 && e2 == 3 && d1b == 4 && a1 == 1 && g.size_of("LONGNA~1.TXT") == 6 &&
-                   g.size_of("LONGNA~2.TXT") == 1);
+                   g.size_of("LONGNA~2.TXT") == 1 && freed == 3 && tail2);
         Fx h(base, "al3", true);
         h.dir("sub"); h.file("sub/x.txt", "x");
         const uint8_t cd = h.hfs.chdir("SUB");

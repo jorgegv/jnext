@@ -332,6 +332,10 @@ private:
     bool list_host_dir(const std::filesystem::path& dir,
                        std::vector<Listed>& out) const;
 
+    /// Drops the alias a deleted or renamed-away entry held (and, for a directory,
+    /// every alias kept for what was inside it): a FAT volume frees a short name
+    /// when its file goes, and the next new name may take it.
+    void forget_alias(const std::filesystem::path& host) const;
     /// True when an open file handle of ours is this host file.
     bool is_open_file(const std::filesystem::path& host) const;
     /// A regular file with no host write permission: what F_STAT reports as the
