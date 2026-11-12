@@ -294,10 +294,11 @@ does not have. The PC's own file is `go_to_pc_line()` (a click on the PC's state
 the file already shown while browsing changes nothing; otherwise `browse_addr_` is dropped,
 `browse_file_` and `browse_map_` set and the view placed at line 1 (`placed_`, `place_now_`) by
 `refresh_file_browse_()`. That path shares `load_text_()` and `add_tints_()` (coverage and the
-Disassembly's lines, keyed on the file shown) with the PC path, has no line to range-check and no PC
-bar, and labels the view `file  (browsing; the PC is at f:l, $addr)` with no address of its own. A
+Disassembly's lines, keyed on the file shown) with the PC path, has no line to range-check, draws the PC
+bar only when the PC is in the file browsed (possible without a stop when a client sets the PC while
+paused), and labels the view `file  (browsing; the PC is at f:l, $addr)` with no address of its own. A
 file the tab cannot find keeps the browse, so Locate File... still works. A Disassembly selection that
-has a source line (`set_disasm_selection()`) clears `browse_file_`. Rows `QSRC-210` to `QSRC-219` and
+has a source line (`set_disasm_selection()`) clears `browse_file_`. Rows `QSRC-210` to `QSRC-223` and
 `SRCFILES-01` pin it.
 
 ## The Qt Variables tab

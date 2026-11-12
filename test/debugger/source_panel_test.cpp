@@ -7624,7 +7624,7 @@ void test_source_any_file() {
         fx.enable();
         fx.load_map();
         write_main({});
-        write_text(tmp + "/sub.bas", "REM sub 1\nREM sub 2\nREM sub 3\n");
+        write_text(tmp + "/sub.bas", numbered_lines(300, "REM sub "));   // long enough to scroll
         SyncWin w(fx);
         QComboBox* c = file_combo(w.sp);
         choose_in_list(w.sp, QStringLiteral("sub.bas"));
@@ -7635,9 +7635,10 @@ void test_source_any_file() {
                            goto_pc->isEnabled() && c->currentText() == QStringLiteral("sub.bas");
         for (int i = 0; i < 20; ++i) { w.tick(); w.sp->refresh(); }
         w.src_move(2);
+        w.ed->verticalScrollBar()->setValue(100);
         const int scroll = w.ed->verticalScrollBar()->value();
         for (int i = 0; i < 20; ++i) { w.tick(); w.sp->refresh(); }
-        const bool steady = w.sp->shown_file() == "sub.bas" && w.ed->textCursor().blockNumber() == 1 &&
+        const bool steady = scroll > 0 && w.sp->shown_file() == "sub.bas" && w.ed->textCursor().blockNumber() == 1 &&
                             w.ed->verticalScrollBar()->value() == scroll;
         fx.dbg()->activate_follow_pc();   // a stop
         w.tick();
@@ -7694,7 +7695,7 @@ void test_source_any_file() {
         fx.enable();
         fx.load_map();
         write_main({});
-        write_text(tmp + "/sub.bas", "REM s1\nREM s2\nREM s3\nREM s4\nREM s5\n");
+        write_text(tmp + "/sub.bas", numbered_lines(300, "REM s"));   // long enough to scroll
         SyncWin w(fx);
         w.dis_click(0x9000);
         const bool addr_browse = w.sp->browsing() && w.sp->shown_file() == "sub.bas";
@@ -7702,9 +7703,10 @@ void test_source_any_file() {
         const bool pcs = !w.sp->browsing() && w.sp->highlighted_line() == 10 && w.ed->textCursor().blockNumber() == 9;
         choose_in_list(w.sp, QStringLiteral("sub.bas"));
         w.src_move(4);
+        w.ed->verticalScrollBar()->setValue(100);
         const int scroll = w.ed->verticalScrollBar()->value();
         choose_in_list(w.sp, QStringLiteral("sub.bas"));
-        const bool kept = w.sp->browsing() && w.ed->textCursor().blockNumber() == 3 &&
+        const bool kept = scroll > 0 && w.sp->browsing() && w.ed->textCursor().blockNumber() == 3 &&
                           w.ed->verticalScrollBar()->value() == scroll;
         check("QSRC-213",
               "with $9000 browsed, choosing main.bas (the PC's file) is Go to PC Line (line 10 highlighted, cursor on it, not "
@@ -7887,6 +7889,80 @@ void test_source_any_file() {
               nomap && paused && running && inert && away && raised,
               "nomap=" + std::to_string(nomap) + " paused=" + std::to_string(paused) + " running=" + std::to_string(running) +
                   " inert=" + std::to_string(inert) + " away=" + std::to_string(away) + " raised=" + std::to_string(raised));
+    }
+    {   // QSRC-220: the Go to PC Line button ends a file browse
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        const bool browsing_first = w.sp->browsing() && w.sp->shown_file() == "sub.bas";
+        button(w.sp, QStringLiteral("Go to PC Line"))->click();
+        QApplication::processEvents();
+        check("QSRC-220",
+              "with sub.bas chosen from the list, the Go to PC Line button shows main.bas with line 10 highlighted and the tab "
+              "is no longer browsing",
+              browsing_first && !w.sp->browsing() && w.sp->shown_file() == "main.bas" && w.sp->highlighted_line() == 10,
+              s(w.sp->location_text()));
+    }
+    {   // QSRC-221: a stale map ends a file browse for good
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        const bool before = w.sp->browsing();
+        fx.backend->reset(jnext::dbg::CLIENT_NONE, jnext::dbg::ResetKind::Soft);
+        w.tick();
+        const bool stale = before && !w.sp->browsing() && w.sp->location_text().contains(QStringLiteral("does not match"));
+        fx.load_map();
+        set_cpu(fx, 0x8000);
+        w.tick();
+        check("QSRC-221",
+              "a file browse of sub.bas ends when the map goes stale (soft reset) and loading the same map again shows the PC's "
+              "main.bas line, not the old file browse",
+              stale && !w.sp->browsing() && w.sp->shown_file() == "main.bas",
+              s(w.sp->location_text()));
+    }
+    {   // QSRC-222: the PC bar in a browsed file when a client moves the PC there without a stop
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        write_text(tmp + "/sub.bas", "REM s1\nREM s2\nREM s3\n");
+        SyncWin w(fx);
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        const bool none_yet = w.sp->highlighted_line() == 0;
+        set_cpu(fx, 0x9000);
+        w.sp->refresh();
+        QApplication::processEvents();
+        const auto sels = w.ed->extraSelections();
+        const bool bar = !sels.isEmpty() && sels.back().cursor.blockNumber() == 0 &&
+                         sels.back().format.background().color() == w.ed->palette().highlight().color();
+        check("QSRC-222",
+              "browsing sub.bas, a PC set to $9000 (sub.bas:1) without a stop puts the PC bar on line 1 (highlight 1, last "
+              "selection), and the label names the PC at sub.bas:1",
+              none_yet && w.sp->browsing() && w.sp->highlighted_line() == 1 && bar &&
+                  w.sp->location_text() == QStringLiteral("sub.bas  (browsing; the PC is at sub.bas:1, $9000)"),
+              s(w.sp->location_text()));
+    }
+    {   // QSRC-223: open_file() ignores a name the map does not have
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.dis_click(0x8002);   // an address browse
+        const QString before = w.sp->location_text();
+        w.sp->open_file("nope.bas");
+        QApplication::processEvents();
+        check("QSRC-223",
+              "open_file() of a name the map does not have changes nothing: the address browse of $8002 stays",
+              w.sp->browsing() && w.sp->shown_file() == "main.bas" && w.sp->location_text() == before &&
+                  before.startsWith(QStringLiteral("main.bas:11  $8002")),
+              s(w.sp->location_text()));
     }
     {   // QSRC-219: the Disassembly follows a file browse; coverage in the browsed file
         Fixture fx;

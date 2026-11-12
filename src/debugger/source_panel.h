@@ -131,7 +131,7 @@ public:
     /// browsing mode, and let the gutter set breakpoints in it. The PC's own file is Go to PC
     /// Line; the file already browsed stays as the user left it. Ignored while the machine
     /// runs, with no map, or for a name the map does not have.
-    void open_file(const std::string& file);
+    void open_file(std::string file);
     /// GH #480 - Debug > Source > Open Source File...: focus the File list and open its popup.
     /// Nothing while the list is disabled.
     void choose_file();
@@ -215,15 +215,15 @@ private:
     /// GH #480 - the File list's items follow the map's file set (rebuilt only when it changes),
     /// its current item the file shown or browsed, and it is enabled with the forward steps.
     void sync_file_list_();
-    /// The one text loader of refresh_() (the PC's line, an address browse, a file browse):
-    /// the embedded m4 text, the z88dk `.m4` message, the file on disk (reloaded on a change).
-    /// On false the message is already shown (`m4_message` / `missing_message` are the
-    /// callers' wordings, `note` is appended).
     /// The tints of a file's lines: the executed ones (memory coverage) and the Disassembly's
     /// range, appended to `out` (the PC bar is the caller's, last).
     void add_tints_(QList<QTextEdit::ExtraSelection>& out, const std::string& file, int file_lines) const;
     /// GH #480 - refresh_() while a file chosen from the File list is browsed.
     void refresh_file_browse_(const SourceLocation* pc_loc, uint16_t pc, const QString& note);
+    /// The one text loader of refresh_() (the PC's line, an address browse, a file browse):
+    /// the embedded m4 text, the z88dk `.m4` message, the file on disk (reloaded on a change).
+    /// On false the message is already shown (`m4_message` / `missing_message` are the
+    /// callers' wordings, `note` is appended).
     bool load_text_(const std::string& file, const QString& m4_message,
                     const QString& missing_message, const QString& note,
                     const SourceText*& embedded, QString& source_path);

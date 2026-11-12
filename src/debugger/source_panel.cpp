@@ -870,8 +870,9 @@ void SourcePanel::add_tints_(QList<QTextEdit::ExtraSelection>& out, const std::s
 }
 
 // GH #480 - the file chosen from the File list is shown from its top; no line of it is the
-// target, so there is no past-the-end check, no address in the label and no PC bar (the PC's own
-// file is never browsed: open_file()).
+// target, so there is no past-the-end check and no address in the label. open_file() never browses
+// the PC's own file, but a PC set while paused (a GDB or DeZog client) can move into it without a
+// stop: then the PC bar is drawn, as for an address browse.
 void SourcePanel::refresh_file_browse_(const SourceLocation* pc_loc, uint16_t pc, const QString& note)
 {
     const QString f = QString::fromStdString(browse_file_);
@@ -894,7 +895,19 @@ void SourcePanel::refresh_file_browse_(const SourceLocation* pc_loc, uint16_t pc
                       : QString()) + browse_text + note);
 
     QList<QTextEdit::ExtraSelection> selections;
-    add_tints_(selections, browse_file_, file_line_count(editor_->document()));
+    const int file_lines = file_line_count(editor_->document());
+    add_tints_(selections, browse_file_, file_lines);
+    int pc_line = 0;
+    if (pc_loc && pc_loc->file == browse_file_ && pc_loc->line >= 1 && pc_loc->line <= file_lines) {
+        pc_line = pc_loc->line;
+        QTextEdit::ExtraSelection bar;
+        bar.cursor = QTextCursor(editor_->document()->findBlockByNumber(pc_line - 1));
+        bar.cursor.clearSelection();
+        bar.format.setBackground(editor_->palette().highlight());
+        bar.format.setForeground(editor_->palette().highlightedText());
+        bar.format.setProperty(QTextFormat::FullWidthSelection, true);
+        selections.append(bar);
+    }
     editor_->setExtraSelections(selections);
     if (!placed_ || place_now_) {
         place_now_ = false;
@@ -908,11 +921,11 @@ void SourcePanel::refresh_file_browse_(const SourceLocation* pc_loc, uint16_t pc
         placed_ = true;
         placed_line_ = 0;
     }
-    highlighted_line_ = 0;
+    highlighted_line_ = pc_line;
     emit_lines_(false);   // the Disassembly tints the first line's instructions; it does not scroll
 }
 
-void SourcePanel::open_file(const std::string& file)
+void SourcePanel::open_file(std::string file)
 {
     if (!dbg_ || !dbg_->state().paused || dbg_->source_map().empty() ||
         dbg_->source_map().files().count(file) == 0)
