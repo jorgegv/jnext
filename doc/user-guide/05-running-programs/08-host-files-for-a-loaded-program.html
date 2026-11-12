@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.22</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.22</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4231,16 +4231,37 @@
 <h1 id="58-host-files-for-a-directly-loaded-program">5.8 Host files for a directly loaded program<a class="headerlink" href="#58-host-files-for-a-directly-loaded-program" title="Permanent link">&para;</a></h1>
 <p>A program that reads data files normally means a slow loop while you develop
 it: rebuild, copy the files into the SD-card image, boot, navigate, run. The
-<code>--esxdos-stub-root</code> option removes the copying step for programs JNEXT loads
-directly.</p>
+<code>--esxdos-stub</code> and <code>--esxdos-stub-root</code> options remove the copying step for
+programs JNEXT loads directly. The short form serves the directory the NEX is
+in:</p>
+<pre><code class="language-sh">jnext --esxdos-stub --load mygame/game.nex
+</code></pre>
+<p>The program can now open <code>mygame/data.bin</code> by name. If the data lives somewhere
+else, name the directory:</p>
 <pre><code class="language-sh">jnext --esxdos-stub-root ./assets --load game.nex
 </code></pre>
-<p><code>./assets</code> now <em>is</em> the filesystem the program sees. <code>F_OPEN</code>, <code>F_READ</code>,
+<p><code>./assets</code> now <em>is</em> the filesystem the program sees (and it wins over the
+NEX's own directory if you give both). <code>F_OPEN</code>, <code>F_READ</code>,
 <code>F_SEEK</code>, <code>F_READDIR</code> and the rest of the esxDOS file and directory calls work
 on the real files in that directory, including files in subdirectories. Edit a
 file on the host, re-run, and the program reads the new version — nothing to
 copy.</p>
 <p>It is read-only unless you also pass <code>--esxdos-stub-writable</code>.</p>
+<p>A few things about the short form, <code>--esxdos-stub</code> with no directory:</p>
+<ul>
+<li>It replaces the single in-memory file a directly loaded NEX otherwise gets,
+  so a program that saves a file (a high-score table, say) is refused instead
+  of saving into memory. Load the NEX without <code>--esxdos-stub</code> to keep the
+  in-memory file, or add <code>--esxdos-stub-writable</code> to let it write beside the
+  NEX.</li>
+<li>It lasts until the next reset, soft reset or load. A NEX loaded afterwards
+  (from <strong>File &gt; Load NEX File…</strong>, a recent file, a <code>run NAME.nex</code> call or the
+  debugger) is served its own directory.</li>
+<li>A NEX taken out of a <code>.zip</code> has no directory on disk and gets none; neither
+  do snapshots and tapes.</li>
+<li>For a NEX reached through a symbolic link, the directory is the link's own.</li>
+<li>A saved <code>.jns</code> snapshot does not remember it.</li>
+</ul>
 <p>If the directory does not exist, JNEXT says so and stops, rather than starting
 up with the option quietly doing nothing.</p>
 <h2 id="what-sees-it-and-what-does-not">What sees it, and what does not<a class="headerlink" href="#what-sees-it-and-what-does-not" title="Permanent link">&para;</a></h2>

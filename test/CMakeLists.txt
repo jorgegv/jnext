@@ -184,7 +184,10 @@ if(NOT WIN32)
         JNEXT_TEST_CMAKE="${CMAKE_COMMAND}" JNEXT_TEST_SRC="${CMAKE_SOURCE_DIR}")
     add_test(NAME pgo_map_parse_tests COMMAND pgo_map_parse_test)
     add_executable(esxdos_symlink_test esxdos_stub/esxdos_symlink_test.cpp)
-    target_link_libraries(esxdos_symlink_test PRIVATE jnext_core spdlog::spdlog)
+    target_link_libraries(esxdos_symlink_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(esxdos_symlink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME esxdos_symlink_tests COMMAND esxdos_symlink_test)
     # GH #446 -- the POSIX-only rows of the ffmpeg PATH lookup (exec bits, symlinks, decoy script).

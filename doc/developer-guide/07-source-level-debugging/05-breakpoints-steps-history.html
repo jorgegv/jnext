@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.22</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.22</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3210,7 +3210,7 @@ slot for the whole body, and its internal jumps are not returns. <code>CallStack
 <code>PUSH IY</code>, Z80N <code>PUSH nn</code> or <code>EX (SP),HL/IX/IY</code> put <code>caller_pc + 3</code> above the slot of the newest
 <code>CALL</code> frame; the latest store wins. The copy is live (<code>CallStack::ret_copy_live_()</code>,
 <code>call_stack.cpp:69</code>) while it sits at or above SP and still holds that value. The words are read
-through a stack reader that <code>Emulator::Emulator()</code> (<code>emulator.cpp:42</code>) installs over <code>Mmu::peek()</code>
+through a stack reader that <code>Emulator::Emulator()</code> (<code>emulator.cpp:43</code>) installs over <code>Mmu::peek()</code>
 (<code>mmu.h:367</code>), which has no watchpoint or latch side effect. Without a reader (the bare tracker
 rows) nothing is recorded and clause B is "SP above the slot".</p>
 <p>Then <code>pop_frames_to_sp()</code> ends the older frames whose slot is below SP. Only the newest frame is

@@ -550,6 +550,7 @@ with status 1.
     replay.
 
 **--esxdos-stub**
+
 :   Answer a few `RST $08` esxDOS calls for any program, for the whole
     session: the version query, one in-memory file and `run sibling.nex`
     chaining. Every other call goes to the code at `$0008`. For programs
@@ -559,12 +560,20 @@ with status 1.
     With NextZXOS booted it answers in front of NextZXOS’s own esxDOS
     for those calls, and NextZXOS’s file commands stop working.
 
+    With a NEX to load (**--load**, or a bare file name) and no
+    **--esxdos-stub-root**, the directory the NEX is in is served to it
+    as if it had been given as *DIR* (below): read-only unless
+    **--esxdos-stub-writable** is also given, and in place of the
+    in-memory file. To keep the in-memory file, load the NEX without
+    **--esxdos-stub**.
+
 **--esxdos-stub-root** *DIR*
 
 :   Serve the host directory *DIR* to the guest through the esxDOS file
     and directory calls, instead of the single in-memory file. Implies
     **--esxdos-stub**. Read-only unless **--esxdos-stub-writable** is
-    also given.
+    also given. *DIR* replaces the default of **--esxdos-stub**, the
+    directory of the loaded NEX.
 
     **Which programs see *DIR*, and which do not.** A NEX loaded with
     **--load** sees it, and so do dot commands: those reach the
@@ -601,8 +610,9 @@ with status 1.
 
 **--esxdos-stub-writable**
 :   Allow the guest to create, truncate and write files under
-    **--esxdos-stub-root**. Off by default, and deliberately a separate
-    flag: a guest write changes a real file on the host immediately, and
+    **--esxdos-stub-root**, or in the directory of the loaded NEX when
+    no root is given. Off by default, and deliberately a separate flag:
+    a guest write changes a real file on the host immediately, and
     rewinding the emulator cannot undo it. Reads are fully rewindable;
     writes are not.
 

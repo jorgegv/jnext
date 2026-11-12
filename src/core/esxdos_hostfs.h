@@ -155,6 +155,10 @@ public:
     /// closes every handle.
     bool configure(const std::string& root, bool writable, std::string& error);
 
+    /// Close every handle and drop the root: the dispatcher no longer claims
+    /// any call. configure() starts with it.
+    void clear();
+
     /// Check a candidate root WITHOUT configuring anything, so the CLI can
     /// refuse at start-up instead of degrading silently to the in-memory
     /// stub. configure() calls it, so the two can never disagree.

@@ -18,8 +18,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Memory/MMU (int)      |      137 |      137 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      379 |      379 |      0 |       0 |    100% | 🟢 All tests pass. |
-| esxDOS stub           |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
-| esxDOS stub (symlinks, POSIX) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
+| esxDOS stub           |      201 |      201 |      0 |       0 |    100% | 🟢 All tests pass. |
+| esxDOS stub (symlinks, POSIX) |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quick snapshots: prune never follows a symlink (GH #321) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg PATH lookup, POSIX) |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | PGO link-map parser (GH #416) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -199,6 +199,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      271 |      271 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16038**| **16038**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16055**| **16055**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

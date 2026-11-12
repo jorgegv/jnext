@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.22</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.22</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3704,7 +3704,10 @@ loaded from the GUI after start-up.</p>
   it. <code>load_tap()</code>, <code>load_tzx()</code> and <code>load_wav()</code> deliberately do not: they
   attach tape media to the running machine, so a NEX still running keeps its
   stand-in.</li>
-<li><code>EmulatorConfig::esxdos_stub</code> (<code>--esxdos-stub</code>), for the whole session.</li>
+<li><code>EmulatorConfig::esxdos_stub</code> (<code>--esxdos-stub</code>), for the whole session. With a
+  NEX loaded and no <code>--esxdos-stub-root</code>, <code>load_nex()</code> also points
+  <code>EsxdosHostFs</code> at the NEX's directory (below), so the host directory, not the
+  in-memory file, then answers.</li>
 <li>The extended-NEX host bridge (<code>extended_nex_host_</code>), open when the NEX
   header's <code>file_handle</code> is non-zero. Only <code>load_nex()</code> opens it, so it never
   exists without <code>direct_nex_esxdos_</code>; <code>init()</code> closes it, so both resets and
@@ -3749,7 +3752,7 @@ precondition: the DivMMC automap that takes <code>$0008</code> to NextZXOS needs
 </tr>
 <tr>
 <td><code>$9A</code> <code>F_OPEN</code></td>
-<td>host bridge: the NEX's own file or a read-only sibling regular file (no symlinks, no paths) on host handles 2/3, other names refused unless <code>--esxdos-stub</code> is also given; otherwise the in-memory file</td>
+<td>host bridge: the NEX's own file or a read-only sibling regular file (no symlinks, no paths) on host handles 2/3, other names refused unless <code>--esxdos-stub</code> is also given, in which case the host directory of the NEX answers them; otherwise the in-memory file</td>
 <td>in-memory file</td>
 </tr>
 <tr>
@@ -3825,6 +3828,23 @@ separate opt-in for writes. <code>EsxdosHostFs</code> (<code>src/core/esxdos_hos
 the sandbox, the handle table and the 8.3/timestamp synthesis; the dispatcher
 block sits in <code>handle_esxdos</code> between the extended-NEX bridge and the legacy
 in-memory switch.</p>
+<p><strong>Two ways a root is configured.</strong> An explicit root (<code>--esxdos-stub-root</code>) is
+configured by <code>init()</code> from <code>EmulatorConfig::esxdos_stub_root</code>, lasts the
+session and is re-applied by every re-init. The implicit root has no config
+field: <code>load_nex()</code>, after the load, calls <code>configure()</code> with the parent of
+<code>active_nex_path_</code> (absolute, lexically normal, not <code>canonical()</code>: the
+directory the path names, as <code>run NAME.nex</code> and the kept-open sibling lookup
+use; a symbolic link's own directory) when <code>esxdos_stub</code> is set, no explicit
+root exists and the NEX was not extracted from an archive
+(<code>program_archive::extracted_from()</code>: the scratch copy has no directory of its
+own). It is therefore set again by every NEX load, in place or through a cold
+boot, whichever frontend asked, and <code>init()</code> ends it with
+<code>EsxdosHostFs::clear()</code> (a soft reset, or any re-initialising load), as it ends
+<code>direct_nex_esxdos_</code>. It is not written to the config, which would pin the
+first NEX's directory for every later menu load, and not recorded by a <code>.jns</code>
+(a <code>.jns</code> restore does not re-arm the direct-NEX context either). The root's
+writability follows <code>esxdos_stub_writable</code>. A directory that cannot be served is
+logged and the in-memory file stays.</p>
 <p><strong>Handle spaces.</strong> 1 is the in-memory file, 2 and 3 are <code>ExtendedNexHost</code>, and
 <code>EsxdosHostFs</code> owns <code>$04..$0B</code> for files and <code>$84..$87</code> for directories. The
 dispatcher claims a handle-keyed call only for handles in its own range, so the
@@ -3962,10 +3982,18 @@ into <code>esxdos_stub_test</code>): the sandbox and the 8.3/timestamp synthesis
 the class, every register convention through the real dispatcher. The
 regression row <code>esxdos-hostfs-func</code> runs a real guest program that opens, seeks
 to offset 6, reads and prints a real host file through <code>RST $08</code>, then probes
-the sandbox from inside the guest — with a control run, no root, that must not
-produce the content.</p>
-<p><strong>Known gaps.</strong> Without <code>--esxdos-stub-root</code> a directly loaded program still
-cannot reach host files other than the kept-open NEX and its siblings, and the
+the sandbox from inside the guest — with a control run, <code>--esxdos-stub</code> alone, whose implicit root holds no such
+file, that must not produce the content. <code>NXROOT-01..12</code> in
+<code>esxdos_stub_test</code> and <code>NXROOT-13</code> in <code>esxdos_symlink_test</code> pin the implicit
+root (the NEX's directory, an explicit root winning, no root without a NEX or
+without the stub, read-only and writable, following an in-place and a
+cold-boot load, ending at a soft reset, the kept-open NEX, a symlinked NEX);
+the regression row <code>esxdos-nexdir-func</code> runs the same guest program from the
+CLI with the root implicit (absolute and bare relative path), overridden, taken
+from a <code>.zip</code> and absent.</p>
+<p><strong>Known gaps.</strong> Without <code>--esxdos-stub</code> or <code>--esxdos-stub-root</code> a directly
+loaded program still cannot reach host files other than the kept-open NEX and
+its siblings, a NEX from an archive gets no directory, and the
 in-memory file still has no <code>F_SEEK</code>. <code>M_DOSVERSION</code> reports 1.94 without the
 host bridge. <code>M_GETERR</code> is not implemented in either back end.</p>
 <h2 id="rzx">RZX<a class="headerlink" href="#rzx" title="Permanent link">&para;</a></h2>

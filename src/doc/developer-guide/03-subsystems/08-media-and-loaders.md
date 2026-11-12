@@ -641,7 +641,10 @@ loaded from the GUI after start-up.
   it. `load_tap()`, `load_tzx()` and `load_wav()` deliberately do not: they
   attach tape media to the running machine, so a NEX still running keeps its
   stand-in.
-- `EmulatorConfig::esxdos_stub` (`--esxdos-stub`), for the whole session.
+- `EmulatorConfig::esxdos_stub` (`--esxdos-stub`), for the whole session. With a
+  NEX loaded and no `--esxdos-stub-root`, `load_nex()` also points
+  `EsxdosHostFs` at the NEX's directory (below), so the host directory, not the
+  in-memory file, then answers.
 - The extended-NEX host bridge (`extended_nex_host_`), open when the NEX
   header's `file_handle` is non-zero. Only `load_nex()` opens it, so it never
   exists without `direct_nex_esxdos_`; `init()` closes it, so both resets and
@@ -663,7 +666,7 @@ precondition: the DivMMC automap that takes `$0008` to NextZXOS needs
 | `$88` `M_DOSVERSION` | `BC`=`'NX'`; `DE`=`$0194`, or `$0202` with the host bridge | same, `$0194` |
 | `$89` `M_GETSETDRV` | get or set `C:` returns `A`=`$10`; any other drive, carry set, `A`=`$0B` | falls through |
 | `$8F` `M_EXECCMD` | `run NAME.nex` for a plain name in the same directory: chain-loads it through `nex_load_request_` | same |
-| `$9A` `F_OPEN` | host bridge: the NEX's own file or a read-only sibling regular file (no symlinks, no paths) on host handles 2/3, other names refused unless `--esxdos-stub` is also given; otherwise the in-memory file | in-memory file |
+| `$9A` `F_OPEN` | host bridge: the NEX's own file or a read-only sibling regular file (no symlinks, no paths) on host handles 2/3, other names refused unless `--esxdos-stub` is also given, in which case the host directory of the NEX answers them; otherwise the in-memory file | in-memory file |
 | `$9B` / `$9D` `F_CLOSE` / `F_READ` | host handles 2/3, else the in-memory file | in-memory file |
 | `$9E` `F_WRITE` | the in-memory file only; there is no host-handle branch, so a write to host handle 2 or 3 fails (carry set, `A`=5) | in-memory file |
 | `$9F` / `$A0` / `$A1` `F_SEEK` / `F_FGETPOS` / `F_FSTAT` | host handles; otherwise `F_SEEK` fails (`A`=5) and the other two get the catch-all error | `F_SEEK` fails (`A`=5); the other two fall through |
@@ -723,6 +726,24 @@ separate opt-in for writes. `EsxdosHostFs` (`src/core/esxdos_hostfs.*`) owns
 the sandbox, the handle table and the 8.3/timestamp synthesis; the dispatcher
 block sits in `handle_esxdos` between the extended-NEX bridge and the legacy
 in-memory switch.
+
+**Two ways a root is configured.** An explicit root (`--esxdos-stub-root`) is
+configured by `init()` from `EmulatorConfig::esxdos_stub_root`, lasts the
+session and is re-applied by every re-init. The implicit root has no config
+field: `load_nex()`, after the load, calls `configure()` with the parent of
+`active_nex_path_` (absolute, lexically normal, not `canonical()`: the
+directory the path names, as `run NAME.nex` and the kept-open sibling lookup
+use; a symbolic link's own directory) when `esxdos_stub` is set, no explicit
+root exists and the NEX was not extracted from an archive
+(`program_archive::extracted_from()`: the scratch copy has no directory of its
+own). It is therefore set again by every NEX load, in place or through a cold
+boot, whichever frontend asked, and `init()` ends it with
+`EsxdosHostFs::clear()` (a soft reset, or any re-initialising load), as it ends
+`direct_nex_esxdos_`. It is not written to the config, which would pin the
+first NEX's directory for every later menu load, and not recorded by a `.jns`
+(a `.jns` restore does not re-arm the direct-NEX context either). The root's
+writability follows `esxdos_stub_writable`. A directory that cannot be served is
+logged and the in-memory file stays.
 
 **Handle spaces.** 1 is the in-memory file, 2 and 3 are `ExtendedNexHost`, and
 `EsxdosHostFs` owns `$04..$0B` for files and `$84..$87` for directories. The
@@ -857,11 +878,19 @@ into `esxdos_stub_test`): the sandbox and the 8.3/timestamp synthesis against
 the class, every register convention through the real dispatcher. The
 regression row `esxdos-hostfs-func` runs a real guest program that opens, seeks
 to offset 6, reads and prints a real host file through `RST $08`, then probes
-the sandbox from inside the guest — with a control run, no root, that must not
-produce the content.
+the sandbox from inside the guest — with a control run, `--esxdos-stub` alone, whose implicit root holds no such
+file, that must not produce the content. `NXROOT-01..12` in
+`esxdos_stub_test` and `NXROOT-13` in `esxdos_symlink_test` pin the implicit
+root (the NEX's directory, an explicit root winning, no root without a NEX or
+without the stub, read-only and writable, following an in-place and a
+cold-boot load, ending at a soft reset, the kept-open NEX, a symlinked NEX);
+the regression row `esxdos-nexdir-func` runs the same guest program from the
+CLI with the root implicit (absolute and bare relative path), overridden, taken
+from a `.zip` and absent.
 
-**Known gaps.** Without `--esxdos-stub-root` a directly loaded program still
-cannot reach host files other than the kept-open NEX and its siblings, and the
+**Known gaps.** Without `--esxdos-stub` or `--esxdos-stub-root` a directly
+loaded program still cannot reach host files other than the kept-open NEX and
+its siblings, a NEX from an archive gets no directory, and the
 in-memory file still has no `F_SEEK`. `M_DOSVERSION` reports 1.94 without the
 host bridge. `M_GETERR` is not implemented in either back end.
 

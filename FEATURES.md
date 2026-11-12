@@ -77,7 +77,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--nex-args "LINE"`: argument line for a NEX V1.3 program, delivered in its CLI buffer
 - esxDOS answers for a directly loaded NEX: default drive, `run NAME.nex` chain-loading, in-memory file I/O, errors for other calls
 - `--esxdos-stub` gives the same esxDOS answers to programs loaded any other way
-- Host directory for a directly loaded program: `--esxdos-stub-root DIR` serves real host files through the esxDOS file and directory calls
+- Host directory for a directly loaded program: `--esxdos-stub-root DIR`, or with `--esxdos-stub` the NEX's own directory by default, serves real host files through the esxDOS file and directory calls
 - `--esxdos-stub-writable` allows guest writes to that host directory (read-only by default)
 - The host directory is for NEX programs and dot commands only, not for a booted NextZXOS (user guide: Host files for a directly loaded program)
 - Warm start (Next only, the default for `--load` of a `.nex`): the program runs on a cached recording of a real firmware boot

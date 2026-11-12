@@ -2,20 +2,44 @@
 
 A program that reads data files normally means a slow loop while you develop
 it: rebuild, copy the files into the SD-card image, boot, navigate, run. The
-`--esxdos-stub-root` option removes the copying step for programs JNEXT loads
-directly.
+`--esxdos-stub` and `--esxdos-stub-root` options remove the copying step for
+programs JNEXT loads directly. The short form serves the directory the NEX is
+in:
+
+```sh
+jnext --esxdos-stub --load mygame/game.nex
+```
+
+The program can now open `mygame/data.bin` by name. If the data lives somewhere
+else, name the directory:
 
 ```sh
 jnext --esxdos-stub-root ./assets --load game.nex
 ```
 
-`./assets` now *is* the filesystem the program sees. `F_OPEN`, `F_READ`,
+`./assets` now *is* the filesystem the program sees (and it wins over the
+NEX's own directory if you give both). `F_OPEN`, `F_READ`,
 `F_SEEK`, `F_READDIR` and the rest of the esxDOS file and directory calls work
 on the real files in that directory, including files in subdirectories. Edit a
 file on the host, re-run, and the program reads the new version — nothing to
 copy.
 
 It is read-only unless you also pass `--esxdos-stub-writable`.
+
+A few things about the short form, `--esxdos-stub` with no directory:
+
+- It replaces the single in-memory file a directly loaded NEX otherwise gets,
+  so a program that saves a file (a high-score table, say) is refused instead
+  of saving into memory. Load the NEX without `--esxdos-stub` to keep the
+  in-memory file, or add `--esxdos-stub-writable` to let it write beside the
+  NEX.
+- It lasts until the next reset, soft reset or load. A NEX loaded afterwards
+  (from **File > Load NEX File…**, a recent file, a `run NAME.nex` call or the
+  debugger) is served its own directory.
+- A NEX taken out of a `.zip` has no directory on disk and gets none; neither
+  do snapshots and tapes.
+- For a NEX reached through a symbolic link, the directory is the link's own.
+- A saved `.jns` snapshot does not remember it.
 
 If the directory does not exist, JNEXT says so and stops, rather than starting
 up with the option quietly doing nothing.
