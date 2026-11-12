@@ -1073,13 +1073,13 @@ uint8_t EsxdosHostFs::rename(const std::string& from, const std::string& to)
 uint8_t EsxdosHostFs::mkdir(const std::string& guest_path)
 {
     if (!active_) return kEnoent;
-    if (path_has_wild(guest_path)) return kEinval;      // measured
     fs::path host;
     if (uint8_t err = resolve(guest_path, host))
         return err == kEpath ? kEinval : err;           // measured: "C:/.." is esx_einval
     if (host == root_) return kEinval;                  // measured, not esx_eexist
     std::error_code ec;
     if (fs::exists(fs::symlink_status(host, ec))) return kEexist;
+    // A wildcard in the name is esx_einval too (measured): valid_new_name().
     if (!valid_new_name(host)) return kEinval;
     if (!writable_) return kEdevicebusy;
     return fs::create_directory(host, ec) && !ec ? kOk : kEio;
