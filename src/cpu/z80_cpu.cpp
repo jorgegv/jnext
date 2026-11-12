@@ -1033,16 +1033,6 @@ int Z80Cpu::execute() {
     if (opcode == 0xED) {
         uint8_t ext = chain_byte_(static_cast<uint16_t>(pc + 1));
 
-        // Magic breakpoint: ED FF (ZEsarUX/Spectaculator convention)
-        if (ext == 0xFF && on_magic_breakpoint) {
-            if (on_magic_breakpoint(pc)) {
-                // Advance PC past ED FF (acts as 2-byte NOP)
-                z80.pc.w = (pc + 2) & 0xFFFF;
-                sync_regs_from_fuse(regs_);
-                return 8;  // 8 T-states like a NOP
-            }
-        }
-
         if (kZ80NOpcodeTable[ext]) {
             // Guarded: see the should_log() rationale in PortDispatch::read
             // (src/port/port_dispatch.cpp). An unguarded trace() with
@@ -1175,6 +1165,10 @@ int Z80Cpu::execute() {
         // loop. The ED branch is correct as-is (ED is always 2 M1 bytes).
         if (on_m1_cycle) on_m1_cycle(pc, opcode);
         if (on_m1_cycle) on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), ext);
+        // Magic breakpoint ED FF (ZEsarUX/Spectaculator convention): a hardware two-byte NOP
+        // (t80n_mcode.vhd:2586, `others => null`; ED FF is not a Z80N opcode), so it runs through
+        // FUSE like every other ED NOP (R += 2, 8 T, contention) and the hook fires after it.
+        const bool magic_edff = ext == 0xFF && on_magic_breakpoint;
         int cycles_ed = fuse_z80_execute_one();
         if (fuse_z80_take_stackless_retn_consumed()) {
             stackless_retn_active_ = false;
@@ -1190,18 +1184,24 @@ int Z80Cpu::execute() {
             (ext == 0xA1) || (ext == 0xA9) || (ext == 0xB1) || (ext == 0xB9)) {
             regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
         }
+        if (magic_edff) on_magic_breakpoint(pc);   // the instruction's own PC; state is post-ED FF
         return (cycles_ed > 0) ? cycles_ed : 4;
     }
 
-    // Magic breakpoint: DD 01 (CSpect convention)
+    // Magic breakpoint: DD 01 (older CSpect / sjasmplus convention). The one magic form that is
+    // NOT a hardware instruction (`01 nn nn` is LD BC,nn): the hook's return value says whether to
+    // skip the two bytes. Both were fetched as M1s, so charge them as the Z80N path does.
     if (opcode == 0xDD) {
         uint8_t ext = chain_byte_(static_cast<uint16_t>(pc + 1));
         if (ext == 0x01 && on_magic_breakpoint) {
             if (on_magic_breakpoint(pc)) {
-                // Advance PC past DD 01 (acts as 2-byte NOP)
+                libspectrum_dword start_ts = tstates;
+                contend_read(pc, 4);
+                contend_read(static_cast<uint16_t>((pc + 1) & 0xFFFF), 4);
                 z80.pc.w = (pc + 2) & 0xFFFF;
+                z80.r = (z80.r + 2) & 0x7F;
                 sync_regs_from_fuse(regs_);
-                return 8;
+                return static_cast<int>(tstates - start_ts);
             }
         }
     }
@@ -1358,6 +1358,12 @@ int Z80Cpu::execute() {
     const bool is_inc_bc = (inner_opcode == 0x03);
     const bool is_dec_bc = (inner_opcode == 0x0B);
 
+    // Magic breakpoint FD 00 (CSpect 2.19.9.1+, sjasmplus `break` since 1.21.0): a real
+    // instruction, the IY-prefixed NOP (t80n_mcode.vhd:1384-1387, t80n.vhd:493: two M1s,
+    // R += 2, 8 T). It runs as below; the hook fires after it.
+    const bool magic_fd00 = opcode == 0xFD && on_magic_breakpoint &&
+                            chain_byte_(static_cast<uint16_t>(pc + 1)) == 0x00;
+
     int cycles = fuse_z80_execute_one();
     if (fuse_z80_take_stackless_retn_consumed()) {
         stackless_retn_active_ = false;
@@ -1421,6 +1427,7 @@ int Z80Cpu::execute() {
         // is set when result==0).
         regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
     }
+    if (magic_fd00) on_magic_breakpoint(pc);   // the instruction's own PC; state is post-FD 00
     return (cycles > 0) ? cycles : 4;
 }
 
