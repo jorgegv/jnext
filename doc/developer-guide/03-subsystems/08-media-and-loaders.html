@@ -3746,6 +3746,11 @@ precondition: the DivMMC automap that takes <code>$0008</code> to NextZXOS needs
 <td>falls through</td>
 </tr>
 <tr>
+<td><code>$93</code> <code>M_GETERR</code></td>
+<td><code>B</code>=1: the message for the error code in <code>A</code> (<code>A</code>=0: the bit-7-terminated one at <code>IX</code>) copied to the 32-byte buffer at <code>DE</code>, bit 7 on its last character; carry clear, <code>A</code>=<code>$02</code>. <code>B</code>=0 gets the catch-all error</td>
+<td>the same, only while <code>--esxdos-stub-root</code> or an implicit root is active; otherwise falls through</td>
+</tr>
+<tr>
 <td><code>$8F</code> <code>M_EXECCMD</code></td>
 <td><code>run NAME.nex</code> for a plain name in the same directory: chain-loads it through <code>nex_load_request_</code></td>
 <td>same</td>
@@ -3849,8 +3854,10 @@ logged and the in-memory file stays.</p>
 <code>EsxdosHostFs</code> owns <code>$04..$0B</code> for files and <code>$84..$87</code> for directories. The
 dispatcher claims a handle-keyed call only for handles in its own range, so the
 three back ends never contend; path-keyed calls (<code>F_OPEN</code>, <code>F_STAT</code>,
-<code>F_OPENDIR</code>, <code>F_CHDIR</code>, <code>F_GETCWD</code>, <code>F_GETFREE</code>, <code>M_GETDATE</code>) it claims
-outright, since with a root there is exactly one volume. The one interaction
+<code>F_OPENDIR</code>, <code>F_CHDIR</code>, <code>F_GETCWD</code>, <code>F_GETFREE</code>, <code>M_GETDATE</code>, and the write
+calls <code>F_UNLINK</code>, <code>F_RENAME</code>, <code>F_MKDIR</code>, <code>F_RMDIR</code>, <code>F_TRUNCATE</code>, <code>F_CHMOD</code>) it
+claims outright, since with a root there is exactly one volume; <code>F_FTRUNCATE</code> is
+handle-keyed and follows the handle rule. The one interaction
 worth knowing: with a root configured, the extended-NEX bridge's <em>sibling</em>
 lookup is skipped, so only the NEX's own filename still resolves beside the
 NEX — otherwise one name could mean two files.</p>
@@ -3876,7 +3883,14 @@ typo in a CI script would go green with the feature off. <code>configure()</code
 the same function, so the two cannot disagree.</p>
 <p><strong>Containment.</strong> Primary confinement is LEXICAL and consults nothing: the guest
 path is split, <code>.</code> dropped, <code>..</code> popped, and a pop that would leave the root
-refused with <code>esx_epath</code>. An escaping path is therefore never constructed. A
+refused. An escaping path is therefore never constructed. The code is the one
+real NextZXOS gives, which treats <code>..</code> above the root as a name missing from the
+root directory: <code>esx_enotdir</code> when more path follows, for every call. A bare
+<code>..</code> is, per call, what a missing last name is: <code>esx_enoent</code> for lookups
+(<code>F_STAT</code> included),
+<code>esx_einval</code> for a create, <code>esx_enotdir</code> for <code>F_OPENDIR</code> and <code>F_CHDIR</code>;
+<code>resolve()</code> returns the internal marker <code>kBareDotDot</code> (not an esxDOS code) for
+it and each call maps it. A
 guest absolute path is absolute <em>within</em> the root. Both <code>/</code> and <code>\</code> separate
 components, on every host: FAT forbids a backslash inside a name, and treating
 it as an ordinary character would leave <code>std::filesystem::path</code> re-splitting it
@@ -3899,11 +3913,69 @@ deleting the explicit check is enough. The full note is in
 <code>esxdos_hostfs.cpp</code>. The residual TOCTOU window is documented in the
 <code>.cpp</code>: closing it needs an <code>openat(O_NOFOLLOW)</code> walk with no portable form
 across the Linux, macOS and MinGW builds.</p>
+<p><strong>The write calls.</strong> <code>unlink</code>, <code>rename</code>, <code>mkdir</code>, <code>rmdir</code>, <code>truncate</code>,
+<code>ftruncate</code> and <code>chmod</code> on <code>EsxdosHostFs</code>, and <code>M_GETERR</code> in the dispatcher
+(its texts are <code>esxdos_error_message()</code> in <code>esxdos_trace.h</code>). There is no VHDL for
+them: NextZXOS is software, so the oracle is a PROBE, kept in the tree
+(<code>test/00regression/esxdos-write-probe.py</code>, the <code>nex</code> command writes the two
+NEX files), run under real NextZXOS booted in jnext on a scratch copy of the SD
+image, and the answers recorded in <code>test/fixtures/esxdos-write-probe/nextzxos.txt</code>
+with the image's sha256, <code>M_DOSVERSION</code> (2.09) and the sha256 of the probe NEX
+files in its header. Every rule in the code names the recorded group it came
+from. The generator's <code>DIVERGE</code> table lists each place jnext deliberately
+answers otherwise, with its reason. To re-measure: <code>esxdos-write-probe-measure.sh</code>
+(the fixture's <code>README.md</code>). The order of checks is the measured one: lookups
+and the checks that do not write first, then, on a write-protected root,
+<code>esx_edevicebusy</code>, then the host change.</p>
+<p>What the measurements showed, in the places a reader would guess otherwise: on
+success <code>A</code> is whatever the register held (junk), so the probe masks it, and
+the dispatcher returns 0; <code>F_UNLINK</code> of a directory is success and deletes
+nothing; <code>F_TRUNCATE</code> with a wildcard truncates the first match; <code>F_CHMOD</code>'s
+<code>A_WRITE</code> is the inverse of FAT's read-only bit, <code>A_READ</code> is inert, and hidden
+and system are set together, so only <code>A_WRITE</code>, <code>A_READ</code> and the archive bit
+set are served (everything else is <code>esx_enosys</code>: refused, not faked); a name with
+<code>"</code>, <code>&lt;</code>, <code>&gt;</code>, <code>|</code>, <code>:</code> is <code>esx_einval</code> in every call; a trailing dot is dropped;
+a renamed current directory keeps its old name in <code>F_GETCWD</code> on a card (jnext
+shows the new one); <code>F_RENAME</code> of an empty destination means the current
+directory. A file is read-only when its host write permission is absent
+(<code>host_read_only()</code>, from the permission bits, never from whether the OS would
+refuse: the gate runs as root); F_STAT, F_FSTAT, F_READDIR and F_OPEN agree.
+An open file of ours (<code>is_open_file()</code>, <code>fs::equivalent</code>) refuses
+<code>F_UNLINK</code>, <code>F_RENAME</code> and <code>F_TRUNCATE</code> before any host call, so Windows' own
+refusal never decides. The NEX file a kept-open NEX reads through the
+extended-NEX bridge is not one of ours and is not protected from deleting itself.
+<code>F_RENAME</code> refuses an existing destination before the host call (POSIX
+<code>rename(2)</code> and MinGW's replace it). A directory rename closes our streams under
+it, renames, reopens them under the new path on every host (so the reopen path
+is exercised on Linux too), rebases the file and directory handle paths, and
+moves the CWD with it.</p>
+<p>Two structural fixes came with these calls, because deleting makes them
+dangerous. The 8.3 aliases are no longer renumbered on every listing: a FAT
+alias is fixed when the file is created, and a program that deleted
+<code>LONGNA~1.TXT</code> must not find <code>LONGNA~2.TXT</code> naming another file. <code>list_host_dir()</code>
+keeps the aliases it handed out per directory (<code>aliases_</code>, not in a snapshot:
+it follows host changes no rewind undoes), the first listing numbers in sorted
+order, a later one keeps them, forgets the vanished, reserves every kept alias of
+a name still there (and every native 8.3 name) BEFORE giving a new name the lowest
+free tail, so a newcomer that sorts first never takes an existing file's short
+name, and a name that is itself 8.3 always keeps it. <code>unlink</code>,
+<code>rmdir</code> and <code>rename</code> free the alias of the name that goes at once
+(<code>forget_alias()</code>), as a FAT volume does, so a name created next takes it. And <code>resolve()</code>
+no longer takes a name merely because the host answers to it: a component
+counts as present only when the directory LISTING holds it byte for byte (or by
+case, or by its 8.3 name); a name the host answers to that the listing does not
+(Windows' own short name, numbered by creation order; macOS's normalisation)
+is refused with <code>esx_eacces</code>, so it cannot reach a different file than the
+listing shows under it, and the guest's spelling is never stored as the
+current directory.</p>
 <p><strong>Rewind.</strong> An open <code>std::fstream</code> is not snapshottable, so <code>save_state</code> writes
 only <code>(handle, is_dir, mode, position, path)</code> per open handle plus the guest
 CWD, and <code>load_state</code> reopens from that. Reads therefore rewind exactly.
 Writes cannot — the host side effect already happened — which is the whole
-reason writes are behind a second flag.</p>
+reason writes are behind a second flag. That covers every call above: a
+snapshot taken before an <code>F_UNLINK</code> or <code>F_RENAME</code> does not bring the file back,
+and <code>restore()</code> drops a handle whose file is gone (the open fails and the slot
+stays closed), so <code>F_READ</code> on it is <code>esx_ebadf</code>.</p>
 <p><strong>Exact answers, or refusals.</strong> A listing mode is served only where the answer
 is exactly NextZXOS's, and refused with <code>esx_enosys</code> everywhere else: a caller
 that asked for a filtered or sorted listing and silently got neither is worse
@@ -3977,6 +4049,16 @@ volume at the block layer, which the project declined
 (<code>doc/design/TASK89-ESXDOS-HOST-FILESYSTEM.md</code> §0.1 decision 5). The boundary is permanent, and the user-facing docs say so in
 <code>--help</code>, the man page and the user guide because the flag's name invites the
 opposite assumption.</p>
+<p><strong>Tests, write calls.</strong> <code>HFW-01..121</code> and <code>GETERR-01..06</code> in
+<code>test/esxdos_stub/esxdos_write_rows.cpp</code> (class level, then the dispatcher's
+registers, then rewind), every expected value a line of the recording or a
+declared divergence, each row's comment naming its group; <code>HFW-130..134</code> in
+<code>esxdos_symlink_test</code> (no write call acts on a symlink); the regression row
+<code>esxdos-write-func</code> runs the probe NEX on a writable root and on a
+write-protected one and judges every line against the recording (and refuses a
+probe edited without re-measuring), <code>esxdos-write-oracle-func</code> runs it under
+real NextZXOS on a scratch copy of the SD image and requires the recording back
+exactly, so the fixture cannot silently stop being reproducible.</p>
 <p><strong>Tests.</strong> <code>HFS-01..122</code> in <code>test/esxdos_stub/esxdos_hostfs_rows.cpp</code> (linked
 into <code>esxdos_stub_test</code>): the sandbox and the 8.3/timestamp synthesis against
 the class, every register convention through the real dispatcher. The
@@ -3995,7 +4077,8 @@ from a <code>.zip</code> and absent.</p>
 loaded program still cannot reach host files other than the kept-open NEX and
 its siblings, a NEX from an archive gets no directory, and the
 in-memory file still has no <code>F_SEEK</code>. <code>M_DOSVERSION</code> reports 1.94 without the
-host bridge. <code>M_GETERR</code> is not implemented in either back end.</p>
+host bridge. <code>M_GETERR</code> is answered for a directly loaded NEX and with a host
+root; <code>B</code>=0, which raises a BASIC error report on a Next, is not.</p>
 <h2 id="rzx">RZX<a class="headerlink" href="#rzx" title="Permanent link">&para;</a></h2>
 <p>RZX records a <em>session</em>, and it does so by recording inputs rather than
 pictures. The file holds an embedded snapshot of the machine at the start plus,

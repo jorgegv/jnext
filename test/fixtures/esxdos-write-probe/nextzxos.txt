@@ -1,0 +1,1131 @@
+# NextZXOS answers to the esxDOS write calls, recorded by esxdos-write-probe-measure.sh
+# oracle: real NextZXOS booted in jnext, probe NEX run with .nexload; nothing here is computed
+# image: cspect-next-1gb-fixed.img sha256 845428d92f71cb724acb34503fa192effb7a39ceb3ac42cbc56384a1d5cf94a9
+# M_DOSVERSION: S0000 F0 A** 4E580209 (B,C='N','X'; DE=0x0209 is NextZXOS 2.09)
+# probe NEX sha256 d456447254f893a8b03f10368e1766c95ea8ccfe16d1e6dfa140018be5a84e54 W457RW.NEX
+# probe NEX sha256 840780f86d82ab1f0493a6f900b55f302ac58e283a031d962800659bea2e442e W457RO.NEX
+# jnext 1.2.26, RTC 2026-07-10T08:55:00, measured 2026-11-12
+# line: S<step> F<carry> A<hex or **> [extra] ; <step description>. A** = A masked on success (it is whatever the
+# register held; NextZXOS leaves junk there), or a handle number
+[rw]
+S0000 F0 A** 4E580209 ; M_DOSVERSION (header, not compared)
+S0001 F0 A** ; F_CHDIR C:/
+S0002 F0 A** ; F_MKDIR C:/W457 
+S0003 F0 A** ; F_CHDIR C:/W457
+S0004 F0 A** C:/W457/ ; F_GETCWD
+S0005 F0 A** ; [dotdot] create C:/W457/a.txt (17 bytes) 
+S0006 F0 A** 0011 ; [dotdot] write 17 bytes
+S0007 F0 A** ; [dotdot] close
+S0008 F1 A05 ; [dotdot] F_STAT C:/..
+S0009 F1 A11 ; [dotdot] F_STAT C:/../W457/a.txt
+S000A F1 A11 ; [dotdot] F_STAT C:/W457/../../W457/a.txt
+S000B F1 A11 ; [dotdot] F_STAT C:/../esc.txt
+S000C F1 A11 ; [dotdot] F_OPEN C:/../W457/a.txt mode 01 read
+S000D F1 A11 ; [dotdot] F_OPEN C:/W457/../../W457/a.txt mode 01 read
+S000E F1 A11 ; [dotdot] F_OPEN C:/../esc.txt mode 01 read
+S000F F1 A11 ; [dotdot] F_OPEN C:/../esc.txt mode 0E create
+S0010 F1 A05 ; [dotdot] F_STAT C:/esc.txt (exists?)
+S0011 F1 A11 ; [dotdot] F_OPENDIR C:/..
+S0012 F1 A11 ; [dotdot] F_CHDIR C:/..
+S0013 F0 A** C:/W457/ ; [dotdot] F_GETCWD
+S0014 F0 A** ; [dotdot] F_CHDIR C:/W457
+S0015 F1 A11 ; [dotdot] F_MKDIR C:/../escdir (above the root)
+S0016 F1 A05 ; [dotdot] F_STAT C:/escdir (exists?)
+S0017 F1 A05 ; [dotdot] F_RMDIR C:/..
+S0018 F1 A11 ; [dotdot] F_TRUNCATE C:/../W457/a.txt 3
+S0019 F1 A11 ; [dotdot] F_CHMOD C:/../W457/a.txt B=00 C=01 
+S001A F1 A11 ; [dotdot] F_RENAME src above root
+S001B F1 A11 ; [dotdot] F_RENAME dst above root
+S001C F1 A05 ; [dotdot] F_UNLINK C:/..
+S001D F1 A11 ; [dotdot] F_UNLINK C:/../W457/a.txt
+S001E F0 A** 20 11000000 ; [dotdot] F_STAT C:/W457/a.txt (after the escapes)
+S001F F1 A05 ; [dotdot] F_STAT C:/W457/b.txt (exists?)
+S0020 F1 A05 ; [dotdot] F_STAT C:/esc2.txt (exists?)
+S0021 F0 A** ; [dotdot] F_MKDIR C:/W457/sub 
+S0022 F0 A** ; [dotdot] F_CHDIR W457/sub
+S0023 F1 A11 ; [dotdot] F_STAT ../../../W457/a.txt (relative above root)
+S0024 F1 A05 ; [dotdot] F_STAT ../../a.txt
+S0025 F0 A** ; [dotdot] F_CHDIR C:/W457
+S0026 F1 A05 ; [dotdot] F_OPEN C:/.. read
+S0027 F1 A07 ; [dotdot] F_OPEN C:/.. create
+S0028 F1 A07 ; [dotdot] F_MKDIR C:/.. (bare, above the root)
+S0029 F1 A05 ; [dotdot] F_TRUNCATE C:/..
+S002A F1 A05 ; [dotdot] F_CHMOD C:/.. B=00 C=01 (bare, above the root)
+S002B F1 A05 ; [dotdot] F_RENAME C:/.. -> x
+S002C F1 A07 ; [dotdot] F_RENAME a.txt -> C:/..
+S002D F0 A** ; [dotdot] F_STAT C:/W457/a.txt (exists?)
+S002E F1 A11 ; [dotdot] F_UNLINK C:/../*.txt
+S002F F1 A11 ; [dotdot] F_RMDIR C:/../x
+S0030 F1 A11 ; [dotdot] F_CHDIR C:/../..
+S0031 F1 A11 ; [dotdot] F_STAT C:/../..
+S0032 F0 A** ; [dotdot] F_CHDIR C:/
+S0033 F1 A05 ; [dotdot] F_STAT .. from the root
+S0034 F1 A11 ; [dotdot] F_OPENDIR .. from the root
+S0035 F1 A11 ; [dotdot] F_CHDIR .. from the root
+S0036 F1 A07 ; [dotdot] F_OPEN .. from the root, create
+S0037 F1 A05 ; [dotdot] F_UNLINK .. from the root
+S0038 F1 A05 ; [dotdot] F_RMDIR .. from the root
+S0039 F1 A11 ; [dotdot] F_STAT ../x from the root
+S003A F1 A11 ; [dotdot] F_OPENDIR ../x from the root
+S003B F1 A11 ; [dotdot] F_CHDIR ../x from the root
+S003C F1 A11 ; [dotdot] F_OPEN ../x from the root, create
+S003D F1 A11 ; [dotdot] F_UNLINK ../x from the root
+S003E F1 A11 ; [dotdot] F_RMDIR ../x from the root
+S003F F1 A11 ; [dotdot] F_STAT ../.. from the root
+S0040 F1 A11 ; [dotdot] F_OPENDIR ../.. from the root
+S0041 F1 A11 ; [dotdot] F_CHDIR ../.. from the root
+S0042 F1 A11 ; [dotdot] F_OPEN ../.. from the root, create
+S0043 F1 A11 ; [dotdot] F_UNLINK ../.. from the root
+S0044 F1 A11 ; [dotdot] F_RMDIR ../.. from the root
+S0045 F1 A05 ; [dotdot] F_STAT W457/../.. from the root
+S0046 F1 A11 ; [dotdot] F_OPENDIR W457/../.. from the root
+S0047 F1 A11 ; [dotdot] F_CHDIR W457/../.. from the root
+S0048 F1 A07 ; [dotdot] F_OPEN W457/../.. from the root, create
+S0049 F1 A05 ; [dotdot] F_UNLINK W457/../.. from the root
+S004A F1 A05 ; [dotdot] F_RMDIR W457/../.. from the root
+S004B F0 A** C:/ ; [dotdot] F_GETCWD
+S004C F0 A** ; [dotdot] F_CHDIR C:/W457
+S004D F0 A** ; [unlink] F_MKDIR C:/W457/u 
+S004E F0 A** ; [unlink] create C:/W457/u/f1.txt (31 bytes) 
+S004F F0 A** 001F ; [unlink] write 31 bytes
+S0050 F0 A** ; [unlink] close
+S0051 F0 A** ; [unlink] create C:/W457/u/f2.txt (32 bytes) 
+S0052 F0 A** 0020 ; [unlink] write 32 bytes
+S0053 F0 A** ; [unlink] close
+S0054 F0 A** ; [unlink] create C:/W457/u/Long Name.txt (33 bytes) 
+S0055 F0 A** 0021 ; [unlink] write 33 bytes
+S0056 F0 A** ; [unlink] close
+S0057 F0 A** ; [unlink] F_MKDIR C:/W457/u/d 
+S0058 F0 A** ; [unlink] F_MKDIR C:/W457/u/nd 
+S0059 F0 A** ; [unlink] create C:/W457/u/nd/in.txt (34 bytes) 
+S005A F0 A** 0022 ; [unlink] write 34 bytes
+S005B F0 A** ; [unlink] close
+S005C F0 A** ; [unlink] create C:/W457/u/ro.txt (35 bytes) 
+S005D F0 A** 0023 ; [unlink] write 35 bytes
+S005E F0 A** ; [unlink] close
+S005F F0 A** ; [unlink] F_CHMOD C:/W457/u/ro.txt B=00 C=01 (read-only)
+S0060 F0 A** ; [unlink] create C:/W457/u/open.txt (36 bytes) 
+S0061 F0 A** 0024 ; [unlink] write 36 bytes
+S0062 F0 A** ; [unlink] close
+S0063 F0 A** ; [unlink] F_UNLINK f1.txt
+S0064 F1 A05 ; [unlink] F_STAT C:/W457/u/f1.txt (exists?)
+S0065 F0 A** 20 20000000 ; [unlink] F_STAT C:/W457/u/f2.txt (neighbour kept)
+S0066 F1 A05 ; [unlink] F_UNLINK f1.txt again (missing)
+S0067 F1 A11 ; [unlink] F_UNLINK missing dir
+S0068 F1 A07 ; [unlink] F_UNLINK empty string
+S0069 F1 A07 ; [unlink] F_UNLINK C:/
+S006A F0 A** ; [unlink] F_UNLINK empty directory d
+S006B F1 A07 ; [unlink] F_STAT C:/W457/u/d (exists?)
+S006C F0 A** ; [unlink] F_UNLINK non-empty directory nd
+S006D F1 A07 ; [unlink] F_STAT C:/W457/u/nd (exists?)
+S006E F0 A** ; [unlink] F_STAT C:/W457/u/nd/in.txt (exists?)
+S006F F1 A18 ; [unlink] F_UNLINK read-only file
+S0070 F0 A** ; [unlink] F_STAT C:/W457/u/ro.txt (exists?)
+S0071 F0 A** ; [unlink] open for write
+S0072 F1 A08 ; [unlink] F_UNLINK open file
+S0073 F0 A** ; [unlink] F_STAT C:/W457/u/open.txt (exists?)
+S0074 F0 A** ; [unlink] close
+S0075 F0 A** ; [unlink] F_UNLINK it after close
+S0076 F1 A05 ; [unlink] F_STAT C:/W457/u/open.txt (exists?)
+S0077 F0 A** ; [unlink] open for read
+S0078 F1 A08 ; [unlink] F_UNLINK file open for read
+S0079 F0 A** ; [unlink] close
+S007A F0 A** ; [unlink] F_STAT C:/W457/u/f2.txt (exists?)
+S007B F0 A** ; [unlink] F_UNLINK 8.3 name LONGNA~1.TXT
+S007C F1 A05 ; [unlink] F_STAT C:/W457/u/Long Name.txt (exists?)
+S007D F0 A** ; [unlink] create C:/W457/u/Case.TXT (37 bytes) 
+S007E F0 A** 0025 ; [unlink] write 37 bytes
+S007F F0 A** ; [unlink] close
+S0080 F0 A** ; [unlink] F_UNLINK case variant case.txt
+S0081 F1 A05 ; [unlink] F_STAT C:/W457/u/Case.TXT (exists?)
+S0082 F1 A05 ; [unlink] F_STAT C:/W457/u/CASE.TXT (exists?)
+S0083 F1 A05 ; [unlink] F_UNLINK relative from the CWD (W457): u/Case.TXT
+S0084 F1 A05 ; [unlink] F_STAT C:/W457/u/Case.TXT (exists?)
+S0085 F0 A** ; [wild] F_MKDIR C:/W457/w00 
+S0086 F0 A** ; [wild] create C:/W457/w00/Long Name.txt
+S0087 F0 A** ; [wild] create C:/W457/w00/longna.txt
+S0088 F0 A** ; [wild] create C:/W457/w00/a.txt
+S0089 F0 A** ; [wild] create C:/W457/w00/ab.txt
+S008A F0 A** ; [wild] create C:/W457/w00/abc.txt
+S008B F0 A** ; [wild] create C:/W457/w00/x.tar.gz
+S008C F0 A** ; [wild] create C:/W457/w00/a.tx
+S008D F0 A** ; [wild] create C:/W457/w00/b
+S008E F0 A** ; [wild] F_UNLINK C:/W457/w00/L*.txt
+S008F F1 A05 ; [wild] exists Long Name.txt after pattern L*.txt
+S0090 F1 A05 ; [wild] exists longna.txt after pattern L*.txt
+S0091 F0 A** ; [wild] exists a.txt after pattern L*.txt
+S0092 F0 A** ; [wild] exists ab.txt after pattern L*.txt
+S0093 F0 A** ; [wild] exists abc.txt after pattern L*.txt
+S0094 F0 A** ; [wild] exists x.tar.gz after pattern L*.txt
+S0095 F0 A** ; [wild] exists a.tx after pattern L*.txt
+S0096 F0 A** ; [wild] exists b after pattern L*.txt
+S0097 F0 A** ; [wild] F_MKDIR C:/W457/w01 
+S0098 F0 A** ; [wild] create C:/W457/w01/Long Name.txt
+S0099 F0 A** ; [wild] create C:/W457/w01/longna.txt
+S009A F0 A** ; [wild] create C:/W457/w01/a.txt
+S009B F0 A** ; [wild] create C:/W457/w01/ab.txt
+S009C F0 A** ; [wild] create C:/W457/w01/abc.txt
+S009D F0 A** ; [wild] create C:/W457/w01/x.tar.gz
+S009E F0 A** ; [wild] create C:/W457/w01/a.tx
+S009F F0 A** ; [wild] create C:/W457/w01/b
+S00A0 F0 A** ; [wild] F_UNLINK C:/W457/w01/*.TXT
+S00A1 F1 A05 ; [wild] exists Long Name.txt after pattern *.TXT
+S00A2 F1 A05 ; [wild] exists longna.txt after pattern *.TXT
+S00A3 F1 A05 ; [wild] exists a.txt after pattern *.TXT
+S00A4 F1 A05 ; [wild] exists ab.txt after pattern *.TXT
+S00A5 F1 A05 ; [wild] exists abc.txt after pattern *.TXT
+S00A6 F0 A** ; [wild] exists x.tar.gz after pattern *.TXT
+S00A7 F0 A** ; [wild] exists a.tx after pattern *.TXT
+S00A8 F0 A** ; [wild] exists b after pattern *.TXT
+S00A9 F0 A** ; [wild] F_MKDIR C:/W457/w02 
+S00AA F0 A** ; [wild] create C:/W457/w02/Long Name.txt
+S00AB F0 A** ; [wild] create C:/W457/w02/longna.txt
+S00AC F0 A** ; [wild] create C:/W457/w02/a.txt
+S00AD F0 A** ; [wild] create C:/W457/w02/ab.txt
+S00AE F0 A** ; [wild] create C:/W457/w02/abc.txt
+S00AF F0 A** ; [wild] create C:/W457/w02/x.tar.gz
+S00B0 F0 A** ; [wild] create C:/W457/w02/a.tx
+S00B1 F0 A** ; [wild] create C:/W457/w02/b
+S00B2 F0 A** ; [wild] F_UNLINK C:/W457/w02/*.t*
+S00B3 F1 A05 ; [wild] exists Long Name.txt after pattern *.t*
+S00B4 F1 A05 ; [wild] exists longna.txt after pattern *.t*
+S00B5 F1 A05 ; [wild] exists a.txt after pattern *.t*
+S00B6 F1 A05 ; [wild] exists ab.txt after pattern *.t*
+S00B7 F1 A05 ; [wild] exists abc.txt after pattern *.t*
+S00B8 F0 A** ; [wild] exists x.tar.gz after pattern *.t*
+S00B9 F1 A05 ; [wild] exists a.tx after pattern *.t*
+S00BA F0 A** ; [wild] exists b after pattern *.t*
+S00BB F0 A** ; [wild] F_MKDIR C:/W457/w03 
+S00BC F0 A** ; [wild] create C:/W457/w03/Long Name.txt
+S00BD F0 A** ; [wild] create C:/W457/w03/longna.txt
+S00BE F0 A** ; [wild] create C:/W457/w03/a.txt
+S00BF F0 A** ; [wild] create C:/W457/w03/ab.txt
+S00C0 F0 A** ; [wild] create C:/W457/w03/abc.txt
+S00C1 F0 A** ; [wild] create C:/W457/w03/x.tar.gz
+S00C2 F0 A** ; [wild] create C:/W457/w03/a.tx
+S00C3 F0 A** ; [wild] create C:/W457/w03/b
+S00C4 F0 A** ; [wild] F_UNLINK C:/W457/w03/Long?Name.txt
+S00C5 F1 A05 ; [wild] exists Long Name.txt after pattern Long?Name.txt
+S00C6 F0 A** ; [wild] exists longna.txt after pattern Long?Name.txt
+S00C7 F0 A** ; [wild] exists a.txt after pattern Long?Name.txt
+S00C8 F0 A** ; [wild] exists ab.txt after pattern Long?Name.txt
+S00C9 F0 A** ; [wild] exists abc.txt after pattern Long?Name.txt
+S00CA F0 A** ; [wild] exists x.tar.gz after pattern Long?Name.txt
+S00CB F0 A** ; [wild] exists a.tx after pattern Long?Name.txt
+S00CC F0 A** ; [wild] exists b after pattern Long?Name.txt
+S00CD F0 A** ; [wild] F_MKDIR C:/W457/w04 
+S00CE F0 A** ; [wild] create C:/W457/w04/Long Name.txt
+S00CF F0 A** ; [wild] create C:/W457/w04/longna.txt
+S00D0 F0 A** ; [wild] create C:/W457/w04/a.txt
+S00D1 F0 A** ; [wild] create C:/W457/w04/ab.txt
+S00D2 F0 A** ; [wild] create C:/W457/w04/abc.txt
+S00D3 F0 A** ; [wild] create C:/W457/w04/x.tar.gz
+S00D4 F0 A** ; [wild] create C:/W457/w04/a.tx
+S00D5 F0 A** ; [wild] create C:/W457/w04/b
+S00D6 F1 A05 ; [wild] F_UNLINK C:/W457/w04/*NAME.TXT
+S00D7 F0 A** ; [wild] exists Long Name.txt after pattern *NAME.TXT
+S00D8 F0 A** ; [wild] exists longna.txt after pattern *NAME.TXT
+S00D9 F0 A** ; [wild] exists a.txt after pattern *NAME.TXT
+S00DA F0 A** ; [wild] exists ab.txt after pattern *NAME.TXT
+S00DB F0 A** ; [wild] exists abc.txt after pattern *NAME.TXT
+S00DC F0 A** ; [wild] exists x.tar.gz after pattern *NAME.TXT
+S00DD F0 A** ; [wild] exists a.tx after pattern *NAME.TXT
+S00DE F0 A** ; [wild] exists b after pattern *NAME.TXT
+S00DF F0 A** ; [wild] F_MKDIR C:/W457/w05 
+S00E0 F0 A** ; [wild] create C:/W457/w05/Long Name.txt
+S00E1 F0 A** ; [wild] create C:/W457/w05/longna.txt
+S00E2 F0 A** ; [wild] create C:/W457/w05/a.txt
+S00E3 F0 A** ; [wild] create C:/W457/w05/ab.txt
+S00E4 F0 A** ; [wild] create C:/W457/w05/abc.txt
+S00E5 F0 A** ; [wild] create C:/W457/w05/x.tar.gz
+S00E6 F0 A** ; [wild] create C:/W457/w05/a.tx
+S00E7 F0 A** ; [wild] create C:/W457/w05/b
+S00E8 F1 A05 ; [wild] F_UNLINK C:/W457/w05/*ame.txt
+S00E9 F0 A** ; [wild] exists Long Name.txt after pattern *ame.txt
+S00EA F0 A** ; [wild] exists longna.txt after pattern *ame.txt
+S00EB F0 A** ; [wild] exists a.txt after pattern *ame.txt
+S00EC F0 A** ; [wild] exists ab.txt after pattern *ame.txt
+S00ED F0 A** ; [wild] exists abc.txt after pattern *ame.txt
+S00EE F0 A** ; [wild] exists x.tar.gz after pattern *ame.txt
+S00EF F0 A** ; [wild] exists a.tx after pattern *ame.txt
+S00F0 F0 A** ; [wild] exists b after pattern *ame.txt
+S00F1 F0 A** ; [wild] F_MKDIR C:/W457/w06 
+S00F2 F0 A** ; [wild] create C:/W457/w06/Long Name.txt
+S00F3 F0 A** ; [wild] create C:/W457/w06/longna.txt
+S00F4 F0 A** ; [wild] create C:/W457/w06/a.txt
+S00F5 F0 A** ; [wild] create C:/W457/w06/ab.txt
+S00F6 F0 A** ; [wild] create C:/W457/w06/abc.txt
+S00F7 F0 A** ; [wild] create C:/W457/w06/x.tar.gz
+S00F8 F0 A** ; [wild] create C:/W457/w06/a.tx
+S00F9 F0 A** ; [wild] create C:/W457/w06/b
+S00FA F1 A05 ; [wild] F_UNLINK C:/W457/w06/L*e.txt
+S00FB F0 A** ; [wild] exists Long Name.txt after pattern L*e.txt
+S00FC F0 A** ; [wild] exists longna.txt after pattern L*e.txt
+S00FD F0 A** ; [wild] exists a.txt after pattern L*e.txt
+S00FE F0 A** ; [wild] exists ab.txt after pattern L*e.txt
+S00FF F0 A** ; [wild] exists abc.txt after pattern L*e.txt
+S0100 F0 A** ; [wild] exists x.tar.gz after pattern L*e.txt
+S0101 F0 A** ; [wild] exists a.tx after pattern L*e.txt
+S0102 F0 A** ; [wild] exists b after pattern L*e.txt
+S0103 F0 A** ; [wild] F_MKDIR C:/W457/w07 
+S0104 F0 A** ; [wild] create C:/W457/w07/Long Name.txt
+S0105 F0 A** ; [wild] create C:/W457/w07/longna.txt
+S0106 F0 A** ; [wild] create C:/W457/w07/a.txt
+S0107 F0 A** ; [wild] create C:/W457/w07/ab.txt
+S0108 F0 A** ; [wild] create C:/W457/w07/abc.txt
+S0109 F0 A** ; [wild] create C:/W457/w07/x.tar.gz
+S010A F0 A** ; [wild] create C:/W457/w07/a.tx
+S010B F0 A** ; [wild] create C:/W457/w07/b
+S010C F1 A05 ; [wild] F_UNLINK C:/W457/w07/*~1.txt
+S010D F0 A** ; [wild] exists Long Name.txt after pattern *~1.txt
+S010E F0 A** ; [wild] exists longna.txt after pattern *~1.txt
+S010F F0 A** ; [wild] exists a.txt after pattern *~1.txt
+S0110 F0 A** ; [wild] exists ab.txt after pattern *~1.txt
+S0111 F0 A** ; [wild] exists abc.txt after pattern *~1.txt
+S0112 F0 A** ; [wild] exists x.tar.gz after pattern *~1.txt
+S0113 F0 A** ; [wild] exists a.tx after pattern *~1.txt
+S0114 F0 A** ; [wild] exists b after pattern *~1.txt
+S0115 F0 A** ; [wild] F_MKDIR C:/W457/w08 
+S0116 F0 A** ; [wild] create C:/W457/w08/Long Name.txt
+S0117 F0 A** ; [wild] create C:/W457/w08/longna.txt
+S0118 F0 A** ; [wild] create C:/W457/w08/a.txt
+S0119 F0 A** ; [wild] create C:/W457/w08/ab.txt
+S011A F0 A** ; [wild] create C:/W457/w08/abc.txt
+S011B F0 A** ; [wild] create C:/W457/w08/x.tar.gz
+S011C F0 A** ; [wild] create C:/W457/w08/a.tx
+S011D F0 A** ; [wild] create C:/W457/w08/b
+S011E F1 A05 ; [wild] F_UNLINK C:/W457/w08/Long*
+S011F F0 A** ; [wild] exists Long Name.txt after pattern Long*
+S0120 F0 A** ; [wild] exists longna.txt after pattern Long*
+S0121 F0 A** ; [wild] exists a.txt after pattern Long*
+S0122 F0 A** ; [wild] exists ab.txt after pattern Long*
+S0123 F0 A** ; [wild] exists abc.txt after pattern Long*
+S0124 F0 A** ; [wild] exists x.tar.gz after pattern Long*
+S0125 F0 A** ; [wild] exists a.tx after pattern Long*
+S0126 F0 A** ; [wild] exists b after pattern Long*
+S0127 F0 A** ; [wild] F_MKDIR C:/W457/w09 
+S0128 F0 A** ; [wild] create C:/W457/w09/Long Name.txt
+S0129 F0 A** ; [wild] create C:/W457/w09/longna.txt
+S012A F0 A** ; [wild] create C:/W457/w09/a.txt
+S012B F0 A** ; [wild] create C:/W457/w09/ab.txt
+S012C F0 A** ; [wild] create C:/W457/w09/abc.txt
+S012D F0 A** ; [wild] create C:/W457/w09/x.tar.gz
+S012E F0 A** ; [wild] create C:/W457/w09/a.tx
+S012F F0 A** ; [wild] create C:/W457/w09/b
+S0130 F1 A05 ; [wild] F_UNLINK C:/W457/w09/Lo*
+S0131 F0 A** ; [wild] exists Long Name.txt after pattern Lo*
+S0132 F0 A** ; [wild] exists longna.txt after pattern Lo*
+S0133 F0 A** ; [wild] exists a.txt after pattern Lo*
+S0134 F0 A** ; [wild] exists ab.txt after pattern Lo*
+S0135 F0 A** ; [wild] exists abc.txt after pattern Lo*
+S0136 F0 A** ; [wild] exists x.tar.gz after pattern Lo*
+S0137 F0 A** ; [wild] exists a.tx after pattern Lo*
+S0138 F0 A** ; [wild] exists b after pattern Lo*
+S0139 F0 A** ; [wild] F_MKDIR C:/W457/w10 
+S013A F0 A** ; [wild] create C:/W457/w10/Long Name.txt
+S013B F0 A** ; [wild] create C:/W457/w10/longna.txt
+S013C F0 A** ; [wild] create C:/W457/w10/a.txt
+S013D F0 A** ; [wild] create C:/W457/w10/ab.txt
+S013E F0 A** ; [wild] create C:/W457/w10/abc.txt
+S013F F0 A** ; [wild] create C:/W457/w10/x.tar.gz
+S0140 F0 A** ; [wild] create C:/W457/w10/a.tx
+S0141 F0 A** ; [wild] create C:/W457/w10/b
+S0142 F0 A** ; [wild] F_UNLINK C:/W457/w10/*.gz
+S0143 F0 A** ; [wild] exists Long Name.txt after pattern *.gz
+S0144 F0 A** ; [wild] exists longna.txt after pattern *.gz
+S0145 F0 A** ; [wild] exists a.txt after pattern *.gz
+S0146 F0 A** ; [wild] exists ab.txt after pattern *.gz
+S0147 F0 A** ; [wild] exists abc.txt after pattern *.gz
+S0148 F1 A05 ; [wild] exists x.tar.gz after pattern *.gz
+S0149 F0 A** ; [wild] exists a.tx after pattern *.gz
+S014A F0 A** ; [wild] exists b after pattern *.gz
+S014B F0 A** ; [wild] F_MKDIR C:/W457/w11 
+S014C F0 A** ; [wild] create C:/W457/w11/Long Name.txt
+S014D F0 A** ; [wild] create C:/W457/w11/longna.txt
+S014E F0 A** ; [wild] create C:/W457/w11/a.txt
+S014F F0 A** ; [wild] create C:/W457/w11/ab.txt
+S0150 F0 A** ; [wild] create C:/W457/w11/abc.txt
+S0151 F0 A** ; [wild] create C:/W457/w11/x.tar.gz
+S0152 F0 A** ; [wild] create C:/W457/w11/a.tx
+S0153 F0 A** ; [wild] create C:/W457/w11/b
+S0154 F0 A** ; [wild] F_UNLINK C:/W457/w11/*.tx
+S0155 F0 A** ; [wild] exists Long Name.txt after pattern *.tx
+S0156 F0 A** ; [wild] exists longna.txt after pattern *.tx
+S0157 F0 A** ; [wild] exists a.txt after pattern *.tx
+S0158 F0 A** ; [wild] exists ab.txt after pattern *.tx
+S0159 F0 A** ; [wild] exists abc.txt after pattern *.tx
+S015A F0 A** ; [wild] exists x.tar.gz after pattern *.tx
+S015B F1 A05 ; [wild] exists a.tx after pattern *.tx
+S015C F0 A** ; [wild] exists b after pattern *.tx
+S015D F0 A** ; [wild] F_MKDIR C:/W457/w12 
+S015E F0 A** ; [wild] create C:/W457/w12/Long Name.txt
+S015F F0 A** ; [wild] create C:/W457/w12/longna.txt
+S0160 F0 A** ; [wild] create C:/W457/w12/a.txt
+S0161 F0 A** ; [wild] create C:/W457/w12/ab.txt
+S0162 F0 A** ; [wild] create C:/W457/w12/abc.txt
+S0163 F0 A** ; [wild] create C:/W457/w12/x.tar.gz
+S0164 F0 A** ; [wild] create C:/W457/w12/a.tx
+S0165 F0 A** ; [wild] create C:/W457/w12/b
+S0166 F0 A** ; [wild] F_UNLINK C:/W457/w12/a?.txt
+S0167 F0 A** ; [wild] exists Long Name.txt after pattern a?.txt
+S0168 F0 A** ; [wild] exists longna.txt after pattern a?.txt
+S0169 F1 A05 ; [wild] exists a.txt after pattern a?.txt
+S016A F1 A05 ; [wild] exists ab.txt after pattern a?.txt
+S016B F0 A** ; [wild] exists abc.txt after pattern a?.txt
+S016C F0 A** ; [wild] exists x.tar.gz after pattern a?.txt
+S016D F0 A** ; [wild] exists a.tx after pattern a?.txt
+S016E F0 A** ; [wild] exists b after pattern a?.txt
+S016F F0 A** ; [wild] F_MKDIR C:/W457/w13 
+S0170 F0 A** ; [wild] create C:/W457/w13/Long Name.txt
+S0171 F0 A** ; [wild] create C:/W457/w13/longna.txt
+S0172 F0 A** ; [wild] create C:/W457/w13/a.txt
+S0173 F0 A** ; [wild] create C:/W457/w13/ab.txt
+S0174 F0 A** ; [wild] create C:/W457/w13/abc.txt
+S0175 F0 A** ; [wild] create C:/W457/w13/x.tar.gz
+S0176 F0 A** ; [wild] create C:/W457/w13/a.tx
+S0177 F0 A** ; [wild] create C:/W457/w13/b
+S0178 F0 A** ; [wild] F_UNLINK C:/W457/w13/b.*
+S0179 F0 A** ; [wild] exists Long Name.txt after pattern b.*
+S017A F0 A** ; [wild] exists longna.txt after pattern b.*
+S017B F0 A** ; [wild] exists a.txt after pattern b.*
+S017C F0 A** ; [wild] exists ab.txt after pattern b.*
+S017D F0 A** ; [wild] exists abc.txt after pattern b.*
+S017E F0 A** ; [wild] exists x.tar.gz after pattern b.*
+S017F F0 A** ; [wild] exists a.tx after pattern b.*
+S0180 F1 A05 ; [wild] exists b after pattern b.*
+S0181 F0 A** ; [wild] F_MKDIR C:/W457/w14 
+S0182 F0 A** ; [wild] create C:/W457/w14/Long Name.txt
+S0183 F0 A** ; [wild] create C:/W457/w14/longna.txt
+S0184 F0 A** ; [wild] create C:/W457/w14/a.txt
+S0185 F0 A** ; [wild] create C:/W457/w14/ab.txt
+S0186 F0 A** ; [wild] create C:/W457/w14/abc.txt
+S0187 F0 A** ; [wild] create C:/W457/w14/x.tar.gz
+S0188 F0 A** ; [wild] create C:/W457/w14/a.tx
+S0189 F0 A** ; [wild] create C:/W457/w14/b
+S018A F0 A** ; [wild] F_UNLINK C:/W457/w14/l*.TXT
+S018B F1 A05 ; [wild] exists Long Name.txt after pattern l*.TXT
+S018C F1 A05 ; [wild] exists longna.txt after pattern l*.TXT
+S018D F0 A** ; [wild] exists a.txt after pattern l*.TXT
+S018E F0 A** ; [wild] exists ab.txt after pattern l*.TXT
+S018F F0 A** ; [wild] exists abc.txt after pattern l*.TXT
+S0190 F0 A** ; [wild] exists x.tar.gz after pattern l*.TXT
+S0191 F0 A** ; [wild] exists a.tx after pattern l*.TXT
+S0192 F0 A** ; [wild] exists b after pattern l*.TXT
+S0193 F0 A** ; [wild] F_MKDIR C:/W457/w15 
+S0194 F0 A** ; [wild] create C:/W457/w15/Long Name.txt
+S0195 F0 A** ; [wild] create C:/W457/w15/longna.txt
+S0196 F0 A** ; [wild] create C:/W457/w15/a.txt
+S0197 F0 A** ; [wild] create C:/W457/w15/ab.txt
+S0198 F0 A** ; [wild] create C:/W457/w15/abc.txt
+S0199 F0 A** ; [wild] create C:/W457/w15/x.tar.gz
+S019A F0 A** ; [wild] create C:/W457/w15/a.tx
+S019B F0 A** ; [wild] create C:/W457/w15/b
+S019C F0 A** ; [wild] F_UNLINK C:/W457/w15/LONGNA~1.*
+S019D F1 A05 ; [wild] exists Long Name.txt after pattern LONGNA~1.*
+S019E F0 A** ; [wild] exists longna.txt after pattern LONGNA~1.*
+S019F F0 A** ; [wild] exists a.txt after pattern LONGNA~1.*
+S01A0 F0 A** ; [wild] exists ab.txt after pattern LONGNA~1.*
+S01A1 F0 A** ; [wild] exists abc.txt after pattern LONGNA~1.*
+S01A2 F0 A** ; [wild] exists x.tar.gz after pattern LONGNA~1.*
+S01A3 F0 A** ; [wild] exists a.tx after pattern LONGNA~1.*
+S01A4 F0 A** ; [wild] exists b after pattern LONGNA~1.*
+S01A5 F0 A** ; [wild] F_MKDIR C:/W457/w16 
+S01A6 F0 A** ; [wild] create C:/W457/w16/Long Name.txt
+S01A7 F0 A** ; [wild] create C:/W457/w16/longna.txt
+S01A8 F0 A** ; [wild] create C:/W457/w16/a.txt
+S01A9 F0 A** ; [wild] create C:/W457/w16/ab.txt
+S01AA F0 A** ; [wild] create C:/W457/w16/abc.txt
+S01AB F0 A** ; [wild] create C:/W457/w16/x.tar.gz
+S01AC F0 A** ; [wild] create C:/W457/w16/a.tx
+S01AD F0 A** ; [wild] create C:/W457/w16/b
+S01AE F0 A** ; [wild] F_UNLINK C:/W457/w16/??????~1.TXT
+S01AF F1 A05 ; [wild] exists Long Name.txt after pattern ??????~1.TXT
+S01B0 F0 A** ; [wild] exists longna.txt after pattern ??????~1.TXT
+S01B1 F0 A** ; [wild] exists a.txt after pattern ??????~1.TXT
+S01B2 F0 A** ; [wild] exists ab.txt after pattern ??????~1.TXT
+S01B3 F0 A** ; [wild] exists abc.txt after pattern ??????~1.TXT
+S01B4 F0 A** ; [wild] exists x.tar.gz after pattern ??????~1.TXT
+S01B5 F0 A** ; [wild] exists a.tx after pattern ??????~1.TXT
+S01B6 F0 A** ; [wild] exists b after pattern ??????~1.TXT
+S01B7 F0 A** ; [wild] F_MKDIR C:/W457/w17 
+S01B8 F0 A** ; [wild] create C:/W457/w17/Long Name.txt
+S01B9 F0 A** ; [wild] create C:/W457/w17/longna.txt
+S01BA F0 A** ; [wild] create C:/W457/w17/a.txt
+S01BB F0 A** ; [wild] create C:/W457/w17/ab.txt
+S01BC F0 A** ; [wild] create C:/W457/w17/abc.txt
+S01BD F0 A** ; [wild] create C:/W457/w17/x.tar.gz
+S01BE F0 A** ; [wild] create C:/W457/w17/a.tx
+S01BF F0 A** ; [wild] create C:/W457/w17/b
+S01C0 F0 A** ; [wild] F_UNLINK C:/W457/w17/*
+S01C1 F0 A** ; [wild] exists Long Name.txt after pattern *
+S01C2 F0 A** ; [wild] exists longna.txt after pattern *
+S01C3 F0 A** ; [wild] exists a.txt after pattern *
+S01C4 F0 A** ; [wild] exists ab.txt after pattern *
+S01C5 F0 A** ; [wild] exists abc.txt after pattern *
+S01C6 F0 A** ; [wild] exists x.tar.gz after pattern *
+S01C7 F0 A** ; [wild] exists a.tx after pattern *
+S01C8 F1 A05 ; [wild] exists b after pattern *
+S01C9 F0 A** ; [wild] F_MKDIR C:/W457/w18 
+S01CA F0 A** ; [wild] create C:/W457/w18/Long Name.txt
+S01CB F0 A** ; [wild] create C:/W457/w18/longna.txt
+S01CC F0 A** ; [wild] create C:/W457/w18/a.txt
+S01CD F0 A** ; [wild] create C:/W457/w18/ab.txt
+S01CE F0 A** ; [wild] create C:/W457/w18/abc.txt
+S01CF F0 A** ; [wild] create C:/W457/w18/x.tar.gz
+S01D0 F0 A** ; [wild] create C:/W457/w18/a.tx
+S01D1 F0 A** ; [wild] create C:/W457/w18/b
+S01D2 F1 A05 ; [wild] F_UNLINK C:/W457/w18/*.none
+S01D3 F0 A** ; [wild] exists Long Name.txt after pattern *.none
+S01D4 F0 A** ; [wild] exists longna.txt after pattern *.none
+S01D5 F0 A** ; [wild] exists a.txt after pattern *.none
+S01D6 F0 A** ; [wild] exists ab.txt after pattern *.none
+S01D7 F0 A** ; [wild] exists abc.txt after pattern *.none
+S01D8 F0 A** ; [wild] exists x.tar.gz after pattern *.none
+S01D9 F0 A** ; [wild] exists a.tx after pattern *.none
+S01DA F0 A** ; [wild] exists b after pattern *.none
+S01DB F0 A** ; [wild] F_MKDIR C:/W457/w19 
+S01DC F0 A** ; [wild] create C:/W457/w19/Long Name.txt
+S01DD F0 A** ; [wild] create C:/W457/w19/longna.txt
+S01DE F0 A** ; [wild] create C:/W457/w19/a.txt
+S01DF F0 A** ; [wild] create C:/W457/w19/ab.txt
+S01E0 F0 A** ; [wild] create C:/W457/w19/abc.txt
+S01E1 F0 A** ; [wild] create C:/W457/w19/x.tar.gz
+S01E2 F0 A** ; [wild] create C:/W457/w19/a.tx
+S01E3 F0 A** ; [wild] create C:/W457/w19/b
+S01E4 F0 A** ; [wild] F_UNLINK C:/W457/w19/*.*
+S01E5 F1 A05 ; [wild] exists Long Name.txt after pattern *.*
+S01E6 F1 A05 ; [wild] exists longna.txt after pattern *.*
+S01E7 F1 A05 ; [wild] exists a.txt after pattern *.*
+S01E8 F1 A05 ; [wild] exists ab.txt after pattern *.*
+S01E9 F1 A05 ; [wild] exists abc.txt after pattern *.*
+S01EA F1 A05 ; [wild] exists x.tar.gz after pattern *.*
+S01EB F1 A05 ; [wild] exists a.tx after pattern *.*
+S01EC F1 A05 ; [wild] exists b after pattern *.*
+S01ED F0 A** ; [wildmix] F_MKDIR C:/W457/wm 
+S01EE F0 A** ; [wildmix] F_MKDIR C:/W457/wm/d.txt 
+S01EF F0 A** ; [wildmix] create C:/W457/wm/a.txt (50 bytes) 
+S01F0 F0 A** 0032 ; [wildmix] write 50 bytes
+S01F1 F0 A** ; [wildmix] close
+S01F2 F0 A** ; [wildmix] create C:/W457/wm/b.txt (50 bytes) 
+S01F3 F0 A** 0032 ; [wildmix] write 50 bytes
+S01F4 F0 A** ; [wildmix] close
+S01F5 F0 A** ; [wildmix] create C:/W457/wm/c.txt (50 bytes) 
+S01F6 F0 A** 0032 ; [wildmix] write 50 bytes
+S01F7 F0 A** ; [wildmix] close
+S01F8 F0 A** ; [wildmix] create C:/W457/wm/e.txt (50 bytes) 
+S01F9 F0 A** 0032 ; [wildmix] write 50 bytes
+S01FA F0 A** ; [wildmix] close
+S01FB F0 A** ; [wildmix] F_CHMOD C:/W457/wm/c.txt B=00 C=01 (read-only)
+S01FC F1 A18 ; [wildmix] F_UNLINK *.txt (dir d.txt matches; c.txt is read-only)
+S01FD F1 A07 ; [wildmix] F_STAT C:/W457/wm/d.txt (exists?)
+S01FE F1 A05 ; [wildmix] F_STAT C:/W457/wm/a.txt (exists?)
+S01FF F1 A05 ; [wildmix] F_STAT C:/W457/wm/b.txt (exists?)
+S0200 F0 A** ; [wildmix] F_STAT C:/W457/wm/c.txt (exists?)
+S0201 F0 A** ; [wildmix] F_STAT C:/W457/wm/e.txt (exists?)
+S0202 F1 A18 ; [wildmix] F_UNLINK *.txt again (c.txt stops it)
+S0203 F1 A05 ; [wildmix] F_STAT C:/W457/wm/a.txt (exists?)
+S0204 F1 A05 ; [wildmix] F_STAT C:/W457/wm/b.txt (exists?)
+S0205 F0 A** ; [wildmix] F_STAT C:/W457/wm/c.txt (exists?)
+S0206 F0 A** ; [wildmix] F_STAT C:/W457/wm/e.txt (exists?)
+S0207 F0 A** ; [wildmix] F_MKDIR C:/W457/wm/sub 
+S0208 F0 A** ; [wildmix] F_UNLINK * in an empty subdirectory
+S0209 F1 A07 ; [wildmix] F_STAT C:/W457/wm/sub (exists?)
+S020A F1 A05 ; [wildmix] F_UNLINK wildcard in a directory component
+S020B F1 A05 ; [wildmix] F_UNLINK no match
+S020C F0 A** ; [rename] F_MKDIR C:/W457/r 
+S020D F0 A** ; [rename] create C:/W457/r/a.txt (61 bytes) 
+S020E F0 A** 003D ; [rename] write 61 bytes
+S020F F0 A** ; [rename] close
+S0210 F0 A** ; [rename] create C:/W457/r/b.txt (62 bytes) 
+S0211 F0 A** 003E ; [rename] write 62 bytes
+S0212 F0 A** ; [rename] close
+S0213 F0 A** ; [rename] create C:/W457/r/o.txt (63 bytes) 
+S0214 F0 A** 003F ; [rename] write 63 bytes
+S0215 F0 A** ; [rename] close
+S0216 F0 A** ; [rename] create C:/W457/r/Case.txt (64 bytes) 
+S0217 F0 A** 0040 ; [rename] write 64 bytes
+S0218 F0 A** ; [rename] close
+S0219 F0 A** ; [rename] F_MKDIR C:/W457/r/dir 
+S021A F0 A** ; [rename] F_MKDIR C:/W457/r/dir2 
+S021B F0 A** ; [rename] F_MKDIR C:/W457/r/dir2/dir 
+S021C F0 A** ; [rename] create C:/W457/r/dir/in.txt (65 bytes) 
+S021D F0 A** 0041 ; [rename] write 65 bytes
+S021E F0 A** ; [rename] close
+S021F F0 A** ; [rename] create C:/W457/r/ro.txt (66 bytes) 
+S0220 F0 A** 0042 ; [rename] write 66 bytes
+S0221 F0 A** ; [rename] close
+S0222 F0 A** ; [rename] F_CHMOD C:/W457/r/ro.txt B=00 C=01 (read-only)
+S0223 F0 A** ; [rename] F_RENAME C:/W457/r/a.txt -> C:/W457/r/a2.txt (in place)
+S0224 F0 A** 20 3D000000 ; [rename] F_STAT C:/W457/r/a2.txt 
+S0225 F1 A05 ; [rename] F_STAT C:/W457/r/a.txt (exists?)
+S0226 F1 A12 ; [rename] F_RENAME C:/W457/r/a2.txt -> C:/W457/r/b.txt (onto an existing file)
+S0227 F0 A** 20 3D000000 ; [rename] F_STAT C:/W457/r/a2.txt 
+S0228 F0 A** 20 3E000000 ; [rename] F_STAT C:/W457/r/b.txt 
+S0229 F1 A12 ; [rename] F_RENAME C:/W457/r/Case.txt -> C:/W457/r/case.txt (to a case variant of itself)
+S022A F0 A** ; [rename] F_STAT C:/W457/r/Case.txt (exists?)
+S022B F0 A** ; [rename] F_STAT C:/W457/r/case.txt (exists?)
+S022C F1 A12 ; [rename] F_RENAME C:/W457/r/a2.txt -> C:/W457/r/B.TXT (onto a case variant of another file)
+S022D F0 A** ; [rename] F_RENAME C:/W457/r/a2.txt -> C:/W457/r/dir (into an existing directory)
+S022E F0 A** ; [rename] F_STAT C:/W457/r/dir/a2.txt (exists?)
+S022F F1 A05 ; [rename] F_STAT C:/W457/r/a2.txt (exists?)
+S0230 F0 A** ; [rename] create C:/W457/r/dir2/dir/a2.txt (67 bytes) 
+S0231 F0 A** 0043 ; [rename] write 67 bytes
+S0232 F0 A** ; [rename] close
+S0233 F1 A1F ; [rename] F_RENAME C:/W457/r/dir/a2.txt -> C:/W457/r/dir2/dir (into a directory holding the name)
+S0234 F0 A** 20 3D000000 ; [rename] F_STAT C:/W457/r/dir/a2.txt 
+S0235 F0 A** 20 43000000 ; [rename] F_STAT C:/W457/r/dir2/dir/a2.txt 
+S0236 F0 A** ; [rename] F_RENAME C:/W457/r/dir2/dir -> C:/W457/r/dir3 (a directory)
+S0237 F0 A** ; [rename] F_STAT C:/W457/r/dir3/a2.txt (exists?)
+S0238 F1 A05 ; [rename] F_STAT C:/W457/r/dir2/dir (exists?)
+S0239 F1 A12 ; [rename] F_RENAME C:/W457/r/dir2 -> C:/W457/r/dir2/dir3 (a directory into its own subtree)
+S023A F1 A07 ; [rename] F_STAT C:/W457/r/dir2 (exists?)
+S023B F0 A** ; [rename] open for write
+S023C F1 A08 ; [rename] F_RENAME C:/W457/r/o.txt -> C:/W457/r/o2.txt (an open file)
+S023D F0 A** ; [rename] close
+S023E F0 A** ; [rename] F_STAT C:/W457/r/o.txt (exists?)
+S023F F1 A05 ; [rename] F_STAT C:/W457/r/o2.txt (exists?)
+S0240 F0 A** ; [rename] F_RENAME C:/W457/r/ro.txt -> C:/W457/r/ro2.txt (a read-only file)
+S0241 F0 A** 21 42000000 ; [rename] F_STAT C:/W457/r/ro2.txt (still read-only?)
+S0242 F1 A07 ; [rename] F_RENAME C:/W457/r/*.txt -> C:/W457/r/zz.txt (wildcard source)
+S0243 F1 A07 ; [rename] F_RENAME C:/W457/r/o.txt -> C:/W457/r/z*.txt (wildcard destination)
+S0244 F1 A05 ; [rename] F_RENAME C:/W457/r/none.txt -> C:/W457/r/n2.txt (missing source)
+S0245 F1 A11 ; [rename] F_RENAME C:/W457/r/o.txt -> C:/W457/r/nodir/o.txt (into a missing directory)
+S0246 F1 A08 ; [rename] F_RENAME C:/W457/r/. -> C:/W457/r/dotx (source '.')
+S0247 F1 A08 ; [rename] F_RENAME C:/W457/r/.. -> C:/W457/r/dotdotx (source '..')
+S0248 F1 A07 ; [rename] F_RENAME C:/ -> C:/W457/r/rootx (source the root)
+S0249 F0 A** ; [rename] F_RENAME C:/W457/r/o.txt ->  (an empty destination)
+S024A F0 A** ; [rename] create C:/W457/r/toroot.txt (72 bytes) 
+S024B F0 A** 0048 ; [rename] write 72 bytes
+S024C F0 A** ; [rename] close
+S024D F0 A** ; [rename] F_RENAME C:/W457/r/toroot.txt -> C:/ (to the root (into it))
+S024E F1 A05 ; [rename] F_STAT C:/W457/r/toroot.txt (exists?)
+S024F F0 A** 20 48000000 ; [rename] F_STAT C:/toroot.txt 
+S0250 F0 A** ; [rename] F_MKDIR C:/W457/r/cd 
+S0251 F0 A** ; [rename] create C:/W457/r/cd/f.txt (68 bytes) 
+S0252 F0 A** 0044 ; [rename] write 68 bytes
+S0253 F0 A** ; [rename] close
+S0254 F0 A** ; [rename] create C:/W457/r/cd/g.txt (69 bytes) 
+S0255 F0 A** 0045 ; [rename] write 69 bytes
+S0256 F0 A** ; [rename] close
+S0257 F0 A** ; [rename] F_CHDIR r/cd
+S0258 F0 A** ; [rename] F_RENAME f.txt -> ../moved.txt (relative dest from the CWD)
+S0259 F0 A** ; [rename] F_STAT C:/W457/r/moved.txt (exists?)
+S025A F1 A05 ; [rename] F_STAT C:/W457/r/cd/f.txt (exists?)
+S025B F0 A** ; [rename] F_STAT C:/W457/r/cd/../moved.txt (exists?)
+S025C F0 A** ; [rename] F_CHDIR C:/W457
+S025D F0 A** ; [rename] F_MKDIR C:/W457/r/hd 
+S025E F0 A** ; [rename] create C:/W457/r/hd/h.txt (70 bytes) 
+S025F F0 A** 0046 ; [rename] write 70 bytes
+S0260 F0 A** ; [rename] close
+S0261 F0 A** ; [rename] open hd/h.txt read
+S0262 F0 A** 00000005 ; [rename] seek 5
+S0263 F0 A** ; [rename] F_RENAME C:/W457/r/hd -> C:/W457/r/hd2 (a directory holding an open file)
+S0264 F0 A** 00000005 ; [rename] F_FGETPOS through the handle
+S0265 F0 A** 262D343B ; [rename] F_READ 4 bytes through the handle
+S0266 F0 A** 00000009 ; [rename] F_FGETPOS
+S0267 F0 A** ; [rename] close
+S0268 F0 A** ; [rename] F_STAT C:/W457/r/hd2/h.txt (exists?)
+S0269 F0 A** ; [rename] F_MKDIR C:/W457/r/cwd 
+S026A F0 A** ; [rename] F_CHDIR r/cwd
+S026B F0 A** ; [rename] F_RENAME C:/W457/r/cwd -> C:/W457/r/cwd2 (the CWD)
+S026C F0 A** C:/W457/R/CWD/ ; [rename] F_GETCWD
+S026D F0 A** ; [rename] create made.txt (71 bytes) (relative create after renaming the CWD)
+S026E F0 A** 0047 ; [rename] write 71 bytes
+S026F F0 A** ; [rename] close
+S0270 F0 A** ; [rename] F_STAT C:/W457/r/cwd2/made.txt (exists?)
+S0271 F1 A11 ; [rename] F_STAT C:/W457/r/cwd/made.txt (exists?)
+S0272 F0 A** ; [rename] F_CHDIR C:/W457
+S0273 F0 A** ; [mkdir] F_MKDIR C:/W457/m 
+S0274 F0 A** ; [mkdir] F_MKDIR C:/W457/m/new 
+S0275 F1 A07 ; [mkdir] F_STAT C:/W457/m/new (exists?)
+S0276 F1 A12 ; [mkdir] F_MKDIR C:/W457/m/new (existing dir)
+S0277 F0 A** ; [mkdir] create C:/W457/m/file.txt (81 bytes) 
+S0278 F0 A** 0051 ; [mkdir] write 81 bytes
+S0279 F0 A** ; [mkdir] close
+S027A F1 A12 ; [mkdir] F_MKDIR C:/W457/m/file.txt (existing file)
+S027B F1 A07 ; [mkdir] F_MKDIR C:/ (the root)
+S027C F1 A11 ; [mkdir] F_MKDIR C:/W457/m/no/parent (missing parent)
+S027D F1 A05 ; [mkdir] F_STAT C:/W457/m/no (exists?)
+S027E F1 A07 ; [mkdir] F_MKDIR C:/W457/m/w* (wildcard)
+S027F F1 A07 ; [mkdir] F_MKDIR C:/W457/m/w? 
+S0280 F1 A12 ; [mkdir] F_MKDIR C:/W457/m/NEW (case variant of existing)
+S0281 F0 A** ; [mkdir] F_MKDIR C:/W457/m/Long Dir Name 
+S0282 F1 A07 ; [mkdir] F_STAT C:/W457/m/LONGDI~1 (exists?)
+S0283 F1 A07 ; [mkdir] F_MKDIR  
+S0284 F1 A07 ; [mkdir] F_MKDIR C:/W457/m/x"y (FAT-forbidden character)
+S0285 F1 A07 ; [mkdir] F_STAT C:/W457/m/x"y (exists?)
+S0286 F1 A07 ; [mkdir] create file with it
+S0287 F1 A07 ; [mkdir] F_STAT C:/W457/m/f"g.txt (exists?)
+S0288 F1 A07 ; [mkdir] F_MKDIR C:/W457/m/x<y (FAT-forbidden character)
+S0289 F1 A07 ; [mkdir] F_STAT C:/W457/m/x<y (exists?)
+S028A F1 A07 ; [mkdir] create file with it
+S028B F1 A07 ; [mkdir] F_STAT C:/W457/m/f<g.txt (exists?)
+S028C F1 A07 ; [mkdir] F_MKDIR C:/W457/m/x>y (FAT-forbidden character)
+S028D F1 A07 ; [mkdir] F_STAT C:/W457/m/x>y (exists?)
+S028E F1 A07 ; [mkdir] create file with it
+S028F F1 A07 ; [mkdir] F_STAT C:/W457/m/f>g.txt (exists?)
+S0290 F1 A07 ; [mkdir] F_MKDIR C:/W457/m/x|y (FAT-forbidden character)
+S0291 F1 A07 ; [mkdir] F_STAT C:/W457/m/x|y (exists?)
+S0292 F1 A07 ; [mkdir] create file with it
+S0293 F1 A07 ; [mkdir] F_STAT C:/W457/m/f|g.txt (exists?)
+S0294 F1 A07 ; [mkdir] F_MKDIR C:/W457/m/x*y (FAT-forbidden character)
+S0295 F1 A05 ; [mkdir] F_STAT C:/W457/m/x*y (exists?)
+S0296 F1 A07 ; [mkdir] create file with it
+S0297 F1 A05 ; [mkdir] F_STAT C:/W457/m/f*g.txt (exists?)
+S0298 F1 A07 ; [mkdir] F_MKDIR C:/W457/m/x?y (FAT-forbidden character)
+S0299 F1 A05 ; [mkdir] F_STAT C:/W457/m/x?y (exists?)
+S029A F1 A07 ; [mkdir] create file with it
+S029B F1 A05 ; [mkdir] F_STAT C:/W457/m/f?g.txt (exists?)
+S029C F1 A07 ; [mkdir] F_MKDIR C:/W457/m/x:y (FAT-forbidden character)
+S029D F1 A07 ; [mkdir] F_STAT C:/W457/m/x:y (exists?)
+S029E F1 A07 ; [mkdir] create file with it
+S029F F1 A07 ; [mkdir] F_STAT C:/W457/m/f:g.txt (exists?)
+S02A0 F0 A** ; [mkdir] create C:/W457/m/rn.txt (82 bytes) 
+S02A1 F0 A** 0052 ; [mkdir] write 82 bytes
+S02A2 F0 A** ; [mkdir] close
+S02A3 F1 A07 ; [mkdir] F_RENAME to a name with a quote
+S02A4 F0 A** ; [mkdir] F_STAT C:/W457/m/rn.txt (exists?)
+S02A5 F1 A07 ; [mkdir] F_STAT C:/W457/m/r"n.txt (exists?)
+S02A6 F1 A07 ; [mkdir] F_RENAME to a name with <
+S02A7 F1 A07 ; [mkdir] F_RENAME to a name with |
+S02A8 F1 A07 ; [mkdir] F_RENAME to a name with >
+S02A9 F0 A** ; [mkdir] F_STAT C:/W457/m/rn.txt (exists?)
+S02AA F0 A** ; [mkdir] F_MKDIR C:/W457/m/dot. (trailing dot)
+S02AB F1 A07 ; [mkdir] F_STAT C:/W457/m/dot (exists?)
+S02AC F1 A07 ; [mkdir] F_STAT C:/W457/m/dot. (exists?)
+S02AD F0 A** ; [mkdir] F_OPENDIR dot.
+S02AE F0 A** ; [mkdir] F_OPENDIR dot
+S02AF F0 A** ; [mkdir] F_MKDIR C:/W457/m/sp  (trailing space)
+S02B0 F1 A05 ; [mkdir] F_STAT C:/W457/m/sp (exists?)
+S02B1 F1 A07 ; [mkdir] F_STAT C:/W457/m/sp  (exists?)
+S02B2 F0 A** ; [mkdir] F_OPENDIR 'sp '
+S02B3 F1 A11 ; [mkdir] F_OPENDIR sp
+S02B4 F0 A** ; [mkdir] F_CHDIR into new
+S02B5 F0 A** C:/W457/M/NEW/ ; [mkdir] F_GETCWD
+S02B6 F0 A** ; [mkdir] F_CHDIR C:/W457
+S02B7 F0 A** ; [rmdir] F_MKDIR C:/W457/rd 
+S02B8 F0 A** ; [rmdir] F_MKDIR C:/W457/rd/e 
+S02B9 F0 A** ; [rmdir] F_MKDIR C:/W457/rd/ne 
+S02BA F0 A** ; [rmdir] F_MKDIR C:/W457/rd/e2 
+S02BB F0 A** ; [rmdir] F_MKDIR C:/W457/rd/cw 
+S02BC F0 A** ; [rmdir] F_MKDIR C:/W457/rd/od 
+S02BD F0 A** ; [rmdir] create C:/W457/rd/ne/f.txt (91 bytes) 
+S02BE F0 A** 005B ; [rmdir] write 91 bytes
+S02BF F0 A** ; [rmdir] close
+S02C0 F0 A** ; [rmdir] create C:/W457/rd/file.txt (92 bytes) 
+S02C1 F0 A** 005C ; [rmdir] write 92 bytes
+S02C2 F0 A** ; [rmdir] close
+S02C3 F0 A** ; [rmdir] F_RMDIR empty
+S02C4 F1 A05 ; [rmdir] F_STAT C:/W457/rd/e (exists?)
+S02C5 F1 A09 ; [rmdir] F_RMDIR non-empty
+S02C6 F0 A** ; [rmdir] F_STAT C:/W457/rd/ne/f.txt (exists?)
+S02C7 F1 A11 ; [rmdir] F_RMDIR a file
+S02C8 F0 A** ; [rmdir] F_STAT C:/W457/rd/file.txt (exists?)
+S02C9 F1 A05 ; [rmdir] F_RMDIR missing
+S02CA F1 A07 ; [rmdir] F_RMDIR the root
+S02CB F1 A07 ; [rmdir] F_RMDIR empty string
+S02CC F1 A07 ; [rmdir] F_RMDIR wildcard
+S02CD F1 A07 ; [rmdir] F_STAT C:/W457/rd/e2 (exists?)
+S02CE F1 A08 ; [rmdir] F_RMDIR dot
+S02CF F0 A** ; [rmdir] F_CHDIR rd/cw
+S02D0 F1 A08 ; [rmdir] F_RMDIR the CWD
+S02D1 F1 A07 ; [rmdir] F_STAT C:/W457/rd/cw (exists?)
+S02D2 F1 A08 ; [rmdir] F_RMDIR '.' from inside
+S02D3 F1 A09 ; [rmdir] F_RMDIR a parent of the CWD
+S02D4 F0 A** ; [rmdir] F_CHDIR C:/W457
+S02D5 F0 A** ; [rmdir] F_OPENDIR rd/od
+S02D6 F0 A** ; [rmdir] F_RMDIR a directory with an open F_OPENDIR handle
+S02D7 F1 A05 ; [rmdir] F_STAT C:/W457/rd/od (exists?)
+S02D8 F0 A** ; [rmdir] close
+S02D9 F1 A05 ; [rmdir] F_RMDIR it after close
+S02DA F1 A05 ; [rmdir] F_STAT C:/W457/rd/od (exists?)
+S02DB F0 A** ; [trunc] F_MKDIR C:/W457/t 
+S02DC F0 A** ; [trunc] create C:/W457/t/s.txt (120 bytes) 
+S02DD F0 A** 0078 ; [trunc] write 120 bytes
+S02DE F0 A** ; [trunc] close
+S02DF F0 A** ; [trunc] F_TRUNCATE C:/W457/t/s.txt to 50 (shrink)
+S02E0 F0 A** 20 32000000 ; [trunc] F_STAT C:/W457/t/s.txt 
+S02E1 F0 A** ; [trunc] F_TRUNCATE C:/W457/t/s.txt to 50 (same size)
+S02E2 F0 A** 20 32000000 ; [trunc] F_STAT C:/W457/t/s.txt 
+S02E3 F0 A** ; [trunc] F_TRUNCATE C:/W457/t/s.txt to 0 (to 0)
+S02E4 F0 A** 20 00000000 ; [trunc] F_STAT C:/W457/t/s.txt 
+S02E5 F0 A** ; [trunc] F_TRUNCATE C:/W457/t/s.txt to 200 (extend)
+S02E6 F0 A** 20 C8000000 ; [trunc] F_STAT C:/W457/t/s.txt 
+S02E7 F0 A** ; [trunc] open to read the extension
+S02E8 F0 A** 000000BE ; [trunc] seek 190
+S02E9 F0 A** 00000000000000000000 ; [trunc] read 10 (zero fill?)
+S02EA F0 A** ; [trunc] close
+S02EB F0 A** ; [trunc] F_TRUNCATE C:/W457/t/s.txt to 74565 (BCDE = 00012345, 74565)
+S02EC F0 A** 20 45230100 ; [trunc] F_STAT C:/W457/t/s.txt 
+S02ED F0 A** ; [trunc] F_MKDIR C:/W457/t/dd 
+S02EE F1 A07 ; [trunc] F_TRUNCATE C:/W457/t/dd to 5 (a directory)
+S02EF F1 A07 ; [trunc] F_STAT C:/W457/t/dd (exists?)
+S02F0 F1 A05 ; [trunc] F_TRUNCATE C:/W457/t/none to 5 (missing)
+S02F1 F0 A** ; [trunc] F_TRUNCATE C:/W457/t/*.txt to 5 (wildcard)
+S02F2 F0 A** 20 05000000 ; [trunc] F_STAT C:/W457/t/s.txt 
+S02F3 F0 A** ; [trunc] F_MKDIR C:/W457/t/tw 
+S02F4 F0 A** ; [trunc] create C:/W457/t/tw/t1.txt (10 bytes) 
+S02F5 F0 A** 000A ; [trunc] write 10 bytes
+S02F6 F0 A** ; [trunc] close
+S02F7 F0 A** ; [trunc] create C:/W457/t/tw/t2.txt (20 bytes) 
+S02F8 F0 A** 0014 ; [trunc] write 20 bytes
+S02F9 F0 A** ; [trunc] close
+S02FA F0 A** ; [trunc] create C:/W457/t/tw/t3.dat (30 bytes) 
+S02FB F0 A** 001E ; [trunc] write 30 bytes
+S02FC F0 A** ; [trunc] close
+S02FD F0 A** ; [trunc] F_TRUNCATE C:/W457/t/tw/*.txt to 3 (wildcard, two matches)
+S02FE F0 A** 20 03000000 ; [trunc] F_STAT C:/W457/t/tw/t1.txt 
+S02FF F0 A** 20 14000000 ; [trunc] F_STAT C:/W457/t/tw/t2.txt 
+S0300 F0 A** 20 1E000000 ; [trunc] F_STAT C:/W457/t/tw/t3.dat 
+S0301 F1 A05 ; [trunc] F_TRUNCATE C:/W457/t/tw/*.zzz to 3 (wildcard, no match)
+S0302 F0 A** ; [trunc] create C:/W457/t/o.txt (100 bytes) 
+S0303 F0 A** 0064 ; [trunc] write 100 bytes
+S0304 F0 A** ; [trunc] close
+S0305 F0 A** ; [trunc] open o.txt write
+S0306 F1 A08 ; [trunc] F_TRUNCATE C:/W457/t/o.txt to 10 (an open file)
+S0307 F0 A** 20 64000000 ; [trunc] F_STAT C:/W457/t/o.txt 
+S0308 F0 A** ; [trunc] close
+S0309 F0 A** ; [trunc] create C:/W457/t/r.txt (100 bytes) 
+S030A F0 A** 0064 ; [trunc] write 100 bytes
+S030B F0 A** ; [trunc] close
+S030C F0 A** ; [trunc] F_CHMOD C:/W457/t/r.txt B=00 C=01 (read-only)
+S030D F1 A18 ; [trunc] F_TRUNCATE C:/W457/t/r.txt to 10 (read-only file)
+S030E F0 A** 21 64000000 ; [trunc] F_STAT C:/W457/t/r.txt 
+S030F F0 A** ; [trunc] create C:/W457/t/f.txt (100 bytes) 
+S0310 F0 A** 0064 ; [trunc] write 100 bytes
+S0311 F0 A** ; [trunc] close
+S0312 F0 A** ; [trunc] open f.txt read+write (mode 03)
+S0313 F0 A** 0000003C ; [trunc] seek 60
+S0314 F0 A** ; [trunc] F_FTRUNCATE to 30 (shrink below the position)
+S0315 F0 A** 0000003C ; [trunc] F_FGETPOS
+S0316 F0 A** 20 1E000000 ; [trunc] F_FSTAT
+S0317 F0 A** ; [trunc] F_FTRUNCATE to 90 (extend)
+S0318 F0 A** 20 5A000000 ; [trunc] F_FSTAT
+S0319 F0 A** 0000003C ; [trunc] F_FGETPOS
+S031A F0 A** 00000050 ; [trunc] seek 80
+S031B F0 A** 00000000000000000000 ; [trunc] read 10 (zero fill?)
+S031C F0 A** ; [trunc] close
+S031D F0 A** 20 5A000000 ; [trunc] F_STAT C:/W457/t/f.txt 
+S031E F0 A** ; [trunc] open f.txt read (mode 01)
+S031F F1 A18 ; [trunc] F_FTRUNCATE a read handle
+S0320 F0 A** ; [trunc] close
+S0321 F1 A0D ; [trunc] F_FTRUNCATE the closed handle
+S0322 F0 A** 20 5A000000 ; [trunc] F_STAT C:/W457/t/f.txt 
+S0323 F0 A** ; [chmod] F_MKDIR C:/W457/c 
+S0324 F0 A** ; [chmod] create C:/W457/c/f.txt (101 bytes) 
+S0325 F0 A** 0065 ; [chmod] write 101 bytes
+S0326 F0 A** ; [chmod] close
+S0327 F0 A** ; [chmod] F_MKDIR C:/W457/c/dd 
+S0328 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=01 (A_WRITE clear)
+S0329 F0 A** 21 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S032A F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 (A_WRITE set)
+S032B F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S032C F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=80 (A_READ clear)
+S032D F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S032E F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=80 C=80 (A_READ set)
+S032F F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0330 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=02 C=02 (A_HIDDEN set)
+S0331 F0 A** 26 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0332 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=02 (A_HIDDEN clear)
+S0333 F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0334 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=04 C=04 (A_SYSTEM set)
+S0335 F0 A** 26 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0336 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=04 (A_SYSTEM clear)
+S0337 F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0338 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=20 (A_ARCH clear)
+S0339 F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S033A F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 (A_ARCH set)
+S033B F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S033C F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=00 (mask 0)
+S033D F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S033E F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=FF (all bits clear $FF)
+S033F F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0340 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=FF C=FF (all bits set $FF)
+S0341 F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0342 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=26 (mask $26 clear)
+S0343 F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0344 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=26 C=26 (mask $26 set)
+S0345 F0 A** 21 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0346 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
+S0347 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
+S0348 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=81 (write+read clear)
+S0349 F0 A** 21 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S034A F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
+S034B F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
+S034C F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=81 C=81 (write+read set)
+S034D F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S034E F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
+S034F F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
+S0350 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=81 (write set, read clear)
+S0351 F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0352 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
+S0353 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
+S0354 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=80 C=81 (write clear, read set)
+S0355 F0 A** 21 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0356 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
+S0357 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
+S0358 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=21 (write+arch clear)
+S0359 F0 A** 01 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S035A F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
+S035B F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
+S035C F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=21 C=21 (write+arch set)
+S035D F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S035E F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
+S035F F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
+S0360 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=21 (write set, arch clear)
+S0361 F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0362 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
+S0363 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
+S0364 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=21 (write clear, arch set)
+S0365 F0 A** 21 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0366 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
+S0367 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
+S0368 F0 A** ; [chmod] F_MKDIR C:/W457/c/pd 
+S0369 F0 A** ; [chmod] F_MKDIR C:/W457/c/pd/dd 
+S036A F0 A** ; [chmod] F_OPENDIR c/pd (before)
+S036B F0 A01 10 . ; [chmod] F_READDIR entry 0
+S036C F0 A01 10 .. ; [chmod] F_READDIR entry 1
+S036D F0 A01 10 dd ; [chmod] F_READDIR entry 2
+S036E F0 A00 ; [chmod] F_READDIR entry 3
+S036F F0 A** ; [chmod] close
+S0370 F0 A** ; [chmod] F_CHMOD C:/W457/c/pd/dd B=00 C=01 (directory, A_WRITE clear)
+S0371 F0 A** ; [chmod] F_OPENDIR c/pd after A_WRITE clear
+S0372 F0 A01 10 . ; [chmod] F_READDIR entry 0
+S0373 F0 A01 10 .. ; [chmod] F_READDIR entry 1
+S0374 F0 A01 11 dd ; [chmod] F_READDIR entry 2
+S0375 F0 A00 ; [chmod] F_READDIR entry 3
+S0376 F0 A** ; [chmod] close
+S0377 F0 A** ; [chmod] F_CHMOD C:/W457/c/pd/dd B=02 C=02 (directory, A_HIDDEN set)
+S0378 F0 A** ; [chmod] F_OPENDIR c/pd after A_HIDDEN set
+S0379 F0 A01 10 . ; [chmod] F_READDIR entry 0
+S037A F0 A01 10 .. ; [chmod] F_READDIR entry 1
+S037B F0 A01 17 dd ; [chmod] F_READDIR entry 2
+S037C F0 A00 ; [chmod] F_READDIR entry 3
+S037D F0 A** ; [chmod] close
+S037E F0 A** ; [chmod] F_CHMOD C:/W457/c/pd/dd B=00 C=20 (directory, A_ARCH clear)
+S037F F0 A** ; [chmod] F_OPENDIR c/pd after A_ARCH clear
+S0380 F0 A01 10 . ; [chmod] F_READDIR entry 0
+S0381 F0 A01 10 .. ; [chmod] F_READDIR entry 1
+S0382 F0 A01 17 dd ; [chmod] F_READDIR entry 2
+S0383 F0 A00 ; [chmod] F_READDIR entry 3
+S0384 F0 A** ; [chmod] close
+S0385 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
+S0386 F1 A05 ; [chmod] F_CHMOD C:/W457/c/none B=00 C=01 (missing)
+S0387 F0 A** ; [chmod] create C:/W457/c/w1.txt (102 bytes) 
+S0388 F0 A** 0066 ; [chmod] write 102 bytes
+S0389 F0 A** ; [chmod] close
+S038A F0 A** ; [chmod] create C:/W457/c/w2.txt (103 bytes) 
+S038B F0 A** 0067 ; [chmod] write 103 bytes
+S038C F0 A** ; [chmod] close
+S038D F0 A** ; [chmod] F_CHMOD C:/W457/c/w*.txt B=00 C=01 (wildcard, A_WRITE clear)
+S038E F0 A** 21 66000000 ; [chmod] F_STAT C:/W457/c/w1.txt 
+S038F F0 A** 21 67000000 ; [chmod] F_STAT C:/W457/c/w2.txt 
+S0390 F1 A05 ; [chmod] F_CHMOD C:/W457/c/*.zzz B=00 C=01 (wildcard, no match)
+S0391 F0 A** ; [chmod] create C:/W457/c/o.txt (104 bytes) 
+S0392 F0 A** 0068 ; [chmod] write 104 bytes
+S0393 F0 A** ; [chmod] close
+S0394 F0 A** ; [chmod] open o.txt write
+S0395 F0 A** ; [chmod] F_CHMOD C:/W457/c/o.txt B=00 C=01 (file open for write)
+S0396 F0 A** 0005 ; [chmod] F_WRITE 5 more through the handle
+S0397 F0 A** ; [chmod] close
+S0398 F0 A** 21 68000000 ; [chmod] F_STAT C:/W457/c/o.txt 
+S0399 F1 A05 ; [chmod] F_CHMOD C:/W457/c/Long Name.txt B=00 C=01 (missing)
+S039A F0 A** ; [chmod] create C:/W457/c/Long Name.txt (105 bytes) 
+S039B F0 A** 0069 ; [chmod] write 105 bytes
+S039C F0 A** ; [chmod] close
+S039D F0 A** ; [chmod] F_CHMOD C:/W457/c/LONGNA~1.TXT B=00 C=01 (8.3 name)
+S039E F0 A** 21 69000000 ; [chmod] F_STAT C:/W457/c/Long Name.txt 
+S039F F1 A07 ; [chmod] F_CHMOD C:/ B=00 C=01 (the root)
+S03A0 F1 A07 ; [chmod] F_CHMOD  B=00 C=01 (empty)
+S03A1 F0 A** ; [openro] F_MKDIR C:/W457/o 
+S03A2 F0 A** ; [openro] create C:/W457/o/ro.txt (111 bytes) 
+S03A3 F0 A** 006F ; [openro] write 111 bytes
+S03A4 F0 A** ; [openro] close
+S03A5 F0 A** ; [openro] F_CHMOD C:/W457/o/ro.txt B=00 C=01 (read-only)
+S03A6 F0 A** ; [openro] F_OPEN C:/W457/o/ro.txt mode 01 
+S03A7 F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03A8 F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 02 
+S03A9 F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03AA F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 03 
+S03AB F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03AC F1 A12 ; [openro] F_OPEN C:/W457/o/ro.txt mode 04 
+S03AD F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03AE F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 08 
+S03AF F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03B0 F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 0C 
+S03B1 F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03B2 F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 0D 
+S03B3 F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03B4 F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 0E 
+S03B5 F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03B6 F0 A** ; [alias] F_MKDIR C:/W457/al 
+S03B7 F0 A** ; [alias] create C:/W457/al/Long Name a.txt (121 bytes) 
+S03B8 F0 A** 0079 ; [alias] write 121 bytes
+S03B9 F0 A** ; [alias] close
+S03BA F0 A** ; [alias] create C:/W457/al/Long Name b.txt (122 bytes) 
+S03BB F0 A** 007A ; [alias] write 122 bytes
+S03BC F0 A** ; [alias] close
+S03BD F0 A** ; [alias] create C:/W457/al/Long Name c.txt (123 bytes) 
+S03BE F0 A** 007B ; [alias] write 123 bytes
+S03BF F0 A** ; [alias] close
+S03C0 F0 A** 20 79000000 ; [alias] F_STAT C:/W457/al/LONGNA~1.TXT 
+S03C1 F0 A** 20 7A000000 ; [alias] F_STAT C:/W457/al/LONGNA~2.TXT 
+S03C2 F0 A** 20 7B000000 ; [alias] F_STAT C:/W457/al/LONGNA~3.TXT 
+S03C3 F0 A** ; [alias] F_UNLINK LONGNA~1.TXT
+S03C4 F1 A05 ; [alias] F_STAT C:/W457/al/LONGNA~1.TXT 
+S03C5 F0 A** 20 7A000000 ; [alias] F_STAT C:/W457/al/LONGNA~2.TXT 
+S03C6 F0 A** 20 7B000000 ; [alias] F_STAT C:/W457/al/LONGNA~3.TXT 
+S03C7 F1 A05 ; [alias] F_STAT C:/W457/al/Long Name a.txt 
+S03C8 F0 A** 20 7A000000 ; [alias] F_STAT C:/W457/al/Long Name b.txt 
+S03C9 F0 A** 20 7B000000 ; [alias] F_STAT C:/W457/al/Long Name c.txt 
+S03CA F0 A** ; [alias] F_UNLINK LONGNA~2.TXT
+S03CB F1 A05 ; [alias] F_STAT C:/W457/al/Long Name b.txt 
+S03CC F0 A** 20 7B000000 ; [alias] F_STAT C:/W457/al/Long Name c.txt 
+S03CD F0 A** ; [alias] create C:/W457/al/Long Name d.txt (124 bytes) 
+S03CE F0 A** 007C ; [alias] write 124 bytes
+S03CF F0 A** ; [alias] close
+S03D0 F0 A** 20 7C000000 ; [alias] F_STAT C:/W457/al/LONGNA~1.TXT 
+S03D1 F1 A05 ; [alias] F_STAT C:/W457/al/LONGNA~2.TXT 
+S03D2 F0 A** 20 7B000000 ; [alias] F_STAT C:/W457/al/LONGNA~3.TXT 
+S03D3 F1 A05 ; [alias] F_STAT C:/W457/al/LONGNA~4.TXT 
+S03D4 F0 A** ; [alias] F_RENAME c -> Long Name e.txt
+S03D5 F0 A** 20 7C000000 ; [alias] F_STAT C:/W457/al/LONGNA~1.TXT 
+S03D6 F0 A** 20 7B000000 ; [alias] F_STAT C:/W457/al/LONGNA~2.TXT 
+S03D7 F1 A05 ; [alias] F_STAT C:/W457/al/LONGNA~3.TXT 
+S03D8 F1 A05 ; [alias] F_STAT C:/W457/al/LONGNA~4.TXT 
+S03D9 F0 A** ; [alias] create C:/W457/al/LONGNA~1.TXT (125 bytes) (a native 8.3 name that is an alias)
+S03DA F0 A** 007D ; [alias] write 125 bytes
+S03DB F0 A** ; [alias] close
+S03DC F0 A** 20 7D000000 ; [alias] F_STAT C:/W457/al/LONGNA~1.TXT 
+S03DD F0 A** 20 7B000000 ; [alias] F_STAT C:/W457/al/LONGNA~2.TXT 
+S03DE F1 A05 ; [alias] F_STAT C:/W457/al/LONGNA~3.TXT 
+S03DF F1 A05 ; [alias] F_STAT C:/W457/al/LONGNA~4.TXT 
+S03E0 F1 A05 ; [alias] F_STAT C:/W457/al/Long Name d.txt 
+S03E1 F0 A02 4FCB ; [geterr] M_GETERR A=1 B=1
+S03E2 F0 A02 4E6F7420696D706C656D656E7465E4 ; [geterr] M_GETERR A=2 B=1
+S03E3 F0 A02 53746D7420656E64206572F2 ; [geterr] M_GETERR A=3 B=1
+S03E4 F0 A02 57726F6E672066696C6520747970E5 ; [geterr] M_GETERR A=4 B=1
+S03E5 F0 A02 4E6F20737563682066696C65206F72206469F2 ; [geterr] M_GETERR A=5 B=1
+S03E6 F0 A02 492F4F206572726FF2 ; [geterr] M_GETERR A=6 B=1
+S03E7 F0 A02 4261642066696C656E616DE5 ; [geterr] M_GETERR A=7 B=1
+S03E8 F0 A02 4163636573732064656E6965E4 ; [geterr] M_GETERR A=8 B=1
+S03E9 F0 A02 44726976652066756CEC ; [geterr] M_GETERR A=9 B=1
+S03EA F0 A02 42616420692F6F20726571756573F4 ; [geterr] M_GETERR A=10 B=1
+S03EB F0 A02 4E6F20737563682064726976E5 ; [geterr] M_GETERR A=11 B=1
+S03EC F0 A02 546F6F206D616E792066696C6573206F7065EE ; [geterr] M_GETERR A=12 B=1
+S03ED F0 A02 4261642068616E646CE5 ; [geterr] M_GETERR A=13 B=1
+S03EE F0 A02 4E6F2073756368206465766963E5 ; [geterr] M_GETERR A=14 B=1
+S03EF F0 A02 46696C6520707472206F766572666C6FF7 ; [geterr] M_GETERR A=15 B=1
+S03F0 F0 A02 4973204449D2 ; [geterr] M_GETERR A=16 B=1
+S03F1 F0 A02 4E6F74204449D2 ; [geterr] M_GETERR A=17 B=1
+S03F2 F0 A02 416C7265616479206578697374F3 ; [geterr] M_GETERR A=18 B=1
+S03F3 F0 A02 496E76616C696420706174E8 ; [geterr] M_GETERR A=19 B=1
+S03F4 F0 A02 4E6F205359D3 ; [geterr] M_GETERR A=20 B=1
+S03F5 F0 A02 5061746820746F6F206C6F6EE7 ; [geterr] M_GETERR A=21 B=1
+S03F6 F0 A02 4E6F207375636820636F6D6D616EE4 ; [geterr] M_GETERR A=22 B=1
+S03F7 F0 A02 496E207573E5 ; [geterr] M_GETERR A=23 B=1
+S03F8 F0 A02 52656164206F6E6CF9 ; [geterr] M_GETERR A=24 B=1
+S03F9 F0 A02 426164207665726966F9 ; [geterr] M_GETERR A=25 B=1
+S03FA F0 A02 537973206C6F6164206572F2 ; [geterr] M_GETERR A=26 B=1
+S03FB F0 A02 44495220696E207573E5 ; [geterr] M_GETERR A=27 B=1
+S03FC F0 A02 4D41505241CD ; [geterr] M_GETERR A=28 B=1
+S03FD F0 A02 447269766520627573F9 ; [geterr] M_GETERR A=29 B=1
+S03FE F0 A02 556E6B6E6F776E2066696C657379737465ED ; [geterr] M_GETERR A=30 B=1
+S03FF F0 A02 44657669636520627573F9 ; [geterr] M_GETERR A=31 B=1
+S0400 F0 A02 556E6B6E6F776E206572726FF2 ; [geterr] M_GETERR A=32 B=1
+S0401 F0 A02 556E6B6E6F776E206572726FF2 ; [geterr] M_GETERR A=127 B=1
+S0402 F0 A02 556E6B6E6F776E206572726FF2 ; [geterr] M_GETERR A=128 B=1
+S0403 F0 A02 556E6B6E6F776E206572726FF2 ; [geterr] M_GETERR A=255 B=1
+S0404 F0 A02 4E6F20737563682066696C65206F72206469F2 ; [geterr] M_GETERR A=5 B=1, buffer prefilled? (second call)
+S0405 F0 A02 437573746F6D206D6573736167C5 ; [geterr] M_GETERR A=0 B=1 IX=custom (bit 7 terminated)
+S0406 F0 A** ; [tree] F_MKDIR C:/W457/RO 
+S0407 F0 A** ; [tree] create C:/W457/RO/f.txt (21 bytes) 
+S0408 F0 A** 0015 ; [tree] write 21 bytes
+S0409 F0 A** ; [tree] close
+S040A F0 A** ; [tree] create C:/W457/RO/ro.txt (22 bytes) 
+S040B F0 A** 0016 ; [tree] write 22 bytes
+S040C F0 A** ; [tree] close
+S040D F0 A** ; [tree] F_CHMOD C:/W457/RO/ro.txt B=00 C=01 (read-only)
+S040E F0 A** ; [tree] F_MKDIR C:/W457/RO/ed 
+S040F F0 A** ; [tree] F_MKDIR C:/W457/RO/nd 
+S0410 F0 A** ; [tree] create C:/W457/RO/nd/n.txt (23 bytes) 
+S0411 F0 A** 0017 ; [tree] write 23 bytes
+S0412 F0 A** ; [tree] close
+S0413 F0 A** 20 15000000 ; [tree] F_STAT C:/W457/RO/f.txt 
+S0414 F0 A** 21 16000000 ; [tree] F_STAT C:/W457/RO/ro.txt 
+END
+[ro]
+S0000 F0 A** 4E580209 ; M_DOSVERSION (header, not compared)
+S0001 F0 A** ; [ro] F_CHDIR C:/
+S0002 F0 A** ; [ro] F_CHDIR C:/W457/RO
+S0003 F0 A** C:/W457/RO/ ; [ro] F_GETCWD
+S0004 F0 A** 15000000 ; [ro] F_STAT C:/W457/RO/f.txt 
+S0005 F0 A** 16000000 ; [ro] F_STAT C:/W457/RO/ro.txt 
+S0006 F1 A07 ; [ro] F_STAT C:/W457/RO/ed (exists?)
+S0007 F0 A** ; [ro] F_STAT C:/W457/RO/nd/n.txt (exists?)
+S0008 F1 A1F ; [ro] F_UNLINK C:/W457/RO/f.txt (file)
+S0009 F1 A05 ; [ro] F_UNLINK C:/W457/RO/none.txt (missing)
+S000A F1 A11 ; [ro] F_UNLINK C:/W457/RO/nodir/x.txt (missing dir)
+S000B F1 A18 ; [ro] F_UNLINK C:/W457/RO/ro.txt (read-only file)
+S000C F0 A** ; [ro] F_UNLINK C:/W457/RO/ed (directory)
+S000D F1 A1F ; [ro] F_UNLINK C:/W457/RO/*.txt (wildcard)
+S000E F1 A11 ; [ro] F_UNLINK C:/../x (above the root)
+S000F F0 A** ; [ro] open f.txt read
+S0010 F1 A08 ; [ro] F_UNLINK C:/W457/RO/f.txt (an open file)
+S0011 F1 A18 ; [ro] F_FTRUNCATE the read handle
+S0012 F0 A** ; [ro] close
+S0013 F1 A1F ; [ro] F_RENAME C:/W457/RO/f.txt -> C:/W457/RO/g.txt (file)
+S0014 F1 A12 ; [ro] F_RENAME C:/W457/RO/f.txt -> C:/W457/RO/ro.txt (onto an existing file)
+S0015 F1 A05 ; [ro] F_RENAME C:/W457/RO/none.txt -> C:/W457/RO/g.txt (missing source)
+S0016 F1 A1F ; [ro] F_RENAME C:/W457/RO/f.txt -> C:/W457/RO/ed (into an existing directory)
+S0017 F1 A1F ; [ro] F_RENAME C:/W457/RO/ro.txt -> C:/W457/RO/r2.txt (read-only file)
+S0018 F1 A1F ; [ro] F_RENAME C:/W457/RO/ed -> C:/W457/RO/ed2 (a directory)
+S0019 F1 A07 ; [ro] F_RENAME C:/W457/RO/*.txt -> C:/W457/RO/z.txt (wildcard)
+S001A F1 A1F ; [ro] F_MKDIR C:/W457/RO/newdir (new)
+S001B F1 A12 ; [ro] F_MKDIR C:/W457/RO/ed (existing dir)
+S001C F1 A12 ; [ro] F_MKDIR C:/W457/RO/f.txt (existing file)
+S001D F1 A11 ; [ro] F_MKDIR C:/W457/RO/no/parent (missing parent)
+S001E F1 A07 ; [ro] F_MKDIR C:/W457/RO/w* (wildcard)
+S001F F1 A1F ; [ro] F_RMDIR C:/W457/RO/ed (empty)
+S0020 F1 A09 ; [ro] F_RMDIR C:/W457/RO/nd (non-empty)
+S0021 F1 A11 ; [ro] F_RMDIR C:/W457/RO/f.txt (file)
+S0022 F1 A05 ; [ro] F_RMDIR C:/W457/RO/none (missing)
+S0023 F1 A08 ; [ro] F_RMDIR C:/W457/RO (the CWD)
+S0024 F1 A07 ; [ro] F_RMDIR C:/ (the root)
+S0025 F0 A** ; [ro] F_TRUNCATE C:/W457/RO/f.txt to 5 (shrink)
+S0026 F0 A** ; [ro] F_TRUNCATE C:/W457/RO/f.txt to 100 (extend)
+S0027 F0 A** ; [ro] F_TRUNCATE C:/W457/RO/f.txt to 21 (same size)
+S0028 F1 A18 ; [ro] F_TRUNCATE C:/W457/RO/ro.txt to 5 (read-only file)
+S0029 F1 A07 ; [ro] F_TRUNCATE C:/W457/RO/ed to 5 (directory)
+S002A F1 A05 ; [ro] F_TRUNCATE C:/W457/RO/none to 5 (missing)
+S002B F0 A** ; [ro] F_TRUNCATE C:/W457/RO/*.txt to 5 (wildcard)
+S002C F1 A1F ; [ro] F_CHMOD C:/W457/RO/f.txt B=00 C=01 (A_WRITE clear)
+S002D F1 A1F ; [ro] F_CHMOD C:/W457/RO/ro.txt B=01 C=01 (A_WRITE set)
+S002E F1 A1F ; [ro] F_CHMOD C:/W457/RO/f.txt B=20 C=20 (A_ARCH set)
+S002F F1 A1F ; [ro] F_CHMOD C:/W457/RO/f.txt B=01 C=00 (mask 0)
+S0030 F1 A05 ; [ro] F_CHMOD C:/W457/RO/none B=00 C=01 (missing)
+S0031 F1 A1F ; [ro] F_CHMOD C:/W457/RO/ed B=00 C=01 (directory)
+S0032 F1 A1F ; [ro] F_CHMOD C:/W457/RO/*.txt B=00 C=01 (wildcard)
+S0033 F0 A** ; [ro] F_OPEN C:/W457/RO/f.txt mode 02 (f.txt)
+S0034 F0 A** ; [ro] F_OPEN C:/W457/RO/f.txt mode 03 (f.txt)
+S0035 F1 A1F ; [ro] F_OPEN C:/W457/RO/f.txt mode 0C (f.txt)
+S0036 F1 A1F ; [ro] F_OPEN C:/W457/RO/f.txt mode 0E (f.txt)
+S0037 F1 A12 ; [ro] F_OPEN C:/W457/RO/f.txt mode 04 (f.txt)
+S0038 F0 A** ; [ro] F_OPEN C:/W457/RO/f.txt mode 08 (f.txt)
+S0039 F0 A** ; [ro] F_OPEN C:/W457/RO/f.txt mode 01 (f.txt)
+S003A F1 A18 ; [ro] F_OPEN C:/W457/RO/ro.txt mode 02 (read-only file)
+S003B F1 A1F ; [ro] F_OPEN C:/W457/RO/new.txt mode 0E (create)
+S003C F1 A1F ; [ro] F_OPEN C:/W457/RO/new.txt mode 04 (create, must not exist)
+S003D F1 A05 ; [ro] F_STAT C:/W457/RO/new.txt (exists?)
+S003E F0 A** 15000000 ; [ro] F_STAT C:/W457/RO/f.txt 
+S003F F0 A** 16000000 ; [ro] F_STAT C:/W457/RO/ro.txt 
+S0040 F1 A05 ; [ro] F_STAT C:/W457/RO/g.txt (exists?)
+S0041 F1 A05 ; [ro] F_STAT C:/W457/RO/newdir (exists?)
+S0042 F1 A07 ; [ro] F_STAT C:/W457/RO/ed (exists?)
+S0043 F1 A05 ; [ro] F_STAT C:/W457/RO/ed2 (exists?)
+S0044 F0 A** ; [ro] F_STAT C:/W457/RO/nd/n.txt (exists?)
+S0045 F0 A02 52656164206F6E6CF9 ; [ro] M_GETERR A=24
+S0046 F0 A02 44657669636520627573F9 ; [ro] M_GETERR A=31
+S0047 F0 A02 44726976652066756CEC ; [ro] M_GETERR A=9
+S0048 F0 A02 4163636573732064656E6965E4 ; [ro] M_GETERR A=8
+END

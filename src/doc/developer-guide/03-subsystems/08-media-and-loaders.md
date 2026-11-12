@@ -665,6 +665,7 @@ precondition: the DivMMC automap that takes `$0008` to NextZXOS needs
 | `$85`-`$87` `DISK_FILEMAP` / `STRMSTART` / `STRMEND` | with the host bridge, block streaming from the NEX file; without it, the catch-all error below | falls through |
 | `$88` `M_DOSVERSION` | `BC`=`'NX'`; `DE`=`$0194`, or `$0202` with the host bridge | same, `$0194` |
 | `$89` `M_GETSETDRV` | get or set `C:` returns `A`=`$10`; any other drive, carry set, `A`=`$0B` | falls through |
+| `$93` `M_GETERR` | `B`=1: the message for the error code in `A` (`A`=0: the bit-7-terminated one at `IX`) copied to the 32-byte buffer at `DE`, bit 7 on its last character; carry clear, `A`=`$02`. `B`=0 gets the catch-all error | the same, only while `--esxdos-stub-root` or an implicit root is active; otherwise falls through |
 | `$8F` `M_EXECCMD` | `run NAME.nex` for a plain name in the same directory: chain-loads it through `nex_load_request_` | same |
 | `$9A` `F_OPEN` | host bridge: the NEX's own file or a read-only sibling regular file (no symlinks, no paths) on host handles 2/3, other names refused unless `--esxdos-stub` is also given, in which case the host directory of the NEX answers them; otherwise the in-memory file | in-memory file |
 | `$9B` / `$9D` `F_CLOSE` / `F_READ` | host handles 2/3, else the in-memory file | in-memory file |
@@ -749,8 +750,10 @@ logged and the in-memory file stays.
 `EsxdosHostFs` owns `$04..$0B` for files and `$84..$87` for directories. The
 dispatcher claims a handle-keyed call only for handles in its own range, so the
 three back ends never contend; path-keyed calls (`F_OPEN`, `F_STAT`,
-`F_OPENDIR`, `F_CHDIR`, `F_GETCWD`, `F_GETFREE`, `M_GETDATE`) it claims
-outright, since with a root there is exactly one volume. The one interaction
+`F_OPENDIR`, `F_CHDIR`, `F_GETCWD`, `F_GETFREE`, `M_GETDATE`, and the write
+calls `F_UNLINK`, `F_RENAME`, `F_MKDIR`, `F_RMDIR`, `F_TRUNCATE`, `F_CHMOD`) it
+claims outright, since with a root there is exactly one volume; `F_FTRUNCATE` is
+handle-keyed and follows the handle rule. The one interaction
 worth knowing: with a root configured, the extended-NEX bridge's *sibling*
 lookup is skipped, so only the NEX's own filename still resolves beside the
 NEX — otherwise one name could mean two files.
@@ -779,7 +782,14 @@ the same function, so the two cannot disagree.
 
 **Containment.** Primary confinement is LEXICAL and consults nothing: the guest
 path is split, `.` dropped, `..` popped, and a pop that would leave the root
-refused with `esx_epath`. An escaping path is therefore never constructed. A
+refused. An escaping path is therefore never constructed. The code is the one
+real NextZXOS gives, which treats `..` above the root as a name missing from the
+root directory: `esx_enotdir` when more path follows, for every call. A bare
+`..` is, per call, what a missing last name is: `esx_enoent` for lookups
+(`F_STAT` included),
+`esx_einval` for a create, `esx_enotdir` for `F_OPENDIR` and `F_CHDIR`;
+`resolve()` returns the internal marker `kBareDotDot` (not an esxDOS code) for
+it and each call maps it. A
 guest absolute path is absolute *within* the root. Both `/` and `\` separate
 components, on every host: FAT forbids a backslash inside a name, and treating
 it as an ordinary character would leave `std::filesystem::path` re-splitting it
@@ -803,11 +813,72 @@ deleting the explicit check is enough. The full note is in
 `.cpp`: closing it needs an `openat(O_NOFOLLOW)` walk with no portable form
 across the Linux, macOS and MinGW builds.
 
+**The write calls.** `unlink`, `rename`, `mkdir`, `rmdir`, `truncate`,
+`ftruncate` and `chmod` on `EsxdosHostFs`, and `M_GETERR` in the dispatcher
+(its texts are `esxdos_error_message()` in `esxdos_trace.h`). There is no VHDL for
+them: NextZXOS is software, so the oracle is a PROBE, kept in the tree
+(`test/00regression/esxdos-write-probe.py`, the `nex` command writes the two
+NEX files), run under real NextZXOS booted in jnext on a scratch copy of the SD
+image, and the answers recorded in `test/fixtures/esxdos-write-probe/nextzxos.txt`
+with the image's sha256, `M_DOSVERSION` (2.09) and the sha256 of the probe NEX
+files in its header. Every rule in the code names the recorded group it came
+from. The generator's `DIVERGE` table lists each place jnext deliberately
+answers otherwise, with its reason. To re-measure: `esxdos-write-probe-measure.sh`
+(the fixture's `README.md`). The order of checks is the measured one: lookups
+and the checks that do not write first, then, on a write-protected root,
+`esx_edevicebusy`, then the host change.
+
+What the measurements showed, in the places a reader would guess otherwise: on
+success `A` is whatever the register held (junk), so the probe masks it, and
+the dispatcher returns 0; `F_UNLINK` of a directory is success and deletes
+nothing; `F_TRUNCATE` with a wildcard truncates the first match; `F_CHMOD`'s
+`A_WRITE` is the inverse of FAT's read-only bit, `A_READ` is inert, and hidden
+and system are set together, so only `A_WRITE`, `A_READ` and the archive bit
+set are served (everything else is `esx_enosys`: refused, not faked); a name with
+`"`, `<`, `>`, `|`, `:` is `esx_einval` in every call; a trailing dot is dropped;
+a renamed current directory keeps its old name in `F_GETCWD` on a card (jnext
+shows the new one); `F_RENAME` of an empty destination means the current
+directory. A file is read-only when its host write permission is absent
+(`host_read_only()`, from the permission bits, never from whether the OS would
+refuse: the gate runs as root); F_STAT, F_FSTAT, F_READDIR and F_OPEN agree.
+An open file of ours (`is_open_file()`, `fs::equivalent`) refuses
+`F_UNLINK`, `F_RENAME` and `F_TRUNCATE` before any host call, so Windows' own
+refusal never decides. The NEX file a kept-open NEX reads through the
+extended-NEX bridge is not one of ours and is not protected from deleting itself.
+`F_RENAME` refuses an existing destination before the host call (POSIX
+`rename(2)` and MinGW's replace it). A directory rename closes our streams under
+it, renames, reopens them under the new path on every host (so the reopen path
+is exercised on Linux too), rebases the file and directory handle paths, and
+moves the CWD with it.
+
+Two structural fixes came with these calls, because deleting makes them
+dangerous. The 8.3 aliases are no longer renumbered on every listing: a FAT
+alias is fixed when the file is created, and a program that deleted
+`LONGNA~1.TXT` must not find `LONGNA~2.TXT` naming another file. `list_host_dir()`
+keeps the aliases it handed out per directory (`aliases_`, not in a snapshot:
+it follows host changes no rewind undoes), the first listing numbers in sorted
+order, a later one keeps them, forgets the vanished, reserves every kept alias of
+a name still there (and every native 8.3 name) BEFORE giving a new name the lowest
+free tail, so a newcomer that sorts first never takes an existing file's short
+name, and a name that is itself 8.3 always keeps it. `unlink`,
+`rmdir` and `rename` free the alias of the name that goes at once
+(`forget_alias()`), as a FAT volume does, so a name created next takes it. And `resolve()`
+no longer takes a name merely because the host answers to it: a component
+counts as present only when the directory LISTING holds it byte for byte (or by
+case, or by its 8.3 name); a name the host answers to that the listing does not
+(Windows' own short name, numbered by creation order; macOS's normalisation)
+is refused with `esx_eacces`, so it cannot reach a different file than the
+listing shows under it, and the guest's spelling is never stored as the
+current directory.
+
 **Rewind.** An open `std::fstream` is not snapshottable, so `save_state` writes
 only `(handle, is_dir, mode, position, path)` per open handle plus the guest
 CWD, and `load_state` reopens from that. Reads therefore rewind exactly.
 Writes cannot — the host side effect already happened — which is the whole
-reason writes are behind a second flag.
+reason writes are behind a second flag. That covers every call above: a
+snapshot taken before an `F_UNLINK` or `F_RENAME` does not bring the file back,
+and `restore()` drops a handle whose file is gone (the open fails and the slot
+stays closed), so `F_READ` on it is `esx_ebadf`.
 
 **Exact answers, or refusals.** A listing mode is served only where the answer
 is exactly NextZXOS's, and refused with `esx_enosys` everywhere else: a caller
@@ -873,6 +944,17 @@ volume at the block layer, which the project declined
 `--help`, the man page and the user guide because the flag's name invites the
 opposite assumption.
 
+**Tests, write calls.** `HFW-01..121` and `GETERR-01..06` in
+`test/esxdos_stub/esxdos_write_rows.cpp` (class level, then the dispatcher's
+registers, then rewind), every expected value a line of the recording or a
+declared divergence, each row's comment naming its group; `HFW-130..134` in
+`esxdos_symlink_test` (no write call acts on a symlink); the regression row
+`esxdos-write-func` runs the probe NEX on a writable root and on a
+write-protected one and judges every line against the recording (and refuses a
+probe edited without re-measuring), `esxdos-write-oracle-func` runs it under
+real NextZXOS on a scratch copy of the SD image and requires the recording back
+exactly, so the fixture cannot silently stop being reproducible.
+
 **Tests.** `HFS-01..122` in `test/esxdos_stub/esxdos_hostfs_rows.cpp` (linked
 into `esxdos_stub_test`): the sandbox and the 8.3/timestamp synthesis against
 the class, every register convention through the real dispatcher. The
@@ -892,7 +974,8 @@ from a `.zip` and absent.
 loaded program still cannot reach host files other than the kept-open NEX and
 its siblings, a NEX from an archive gets no directory, and the
 in-memory file still has no `F_SEEK`. `M_DOSVERSION` reports 1.94 without the
-host bridge. `M_GETERR` is not implemented in either back end.
+host bridge. `M_GETERR` is answered for a directly loaded NEX and with a host
+root; `B`=0, which raises a BASIC error report on a Next, is not.
 
 ## RZX
 

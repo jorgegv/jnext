@@ -477,10 +477,11 @@ inline constexpr Option OPTIONS[] = {
       "NextZXOS can see it, copy it into the SD-card image." },
     { "--esxdos-stub-writable", 0, Doc::Documented, OptId::EsxdosStubWritable,
       "",
-      "Allow the guest to create, truncate and write files under\n"
-      "--esxdos-stub-root (or the NEX's directory). Off by\n"
-      "default: a guest write is a real host side effect, and\n"
-      "rewinding the emulator cannot undo it" },
+      "Allow the guest to create, truncate, write, delete and\n"
+      "rename files, make and remove directories and set the\n"
+      "read-only bit of files under --esxdos-stub-root (or the\n"
+      "NEX's directory). Off by default: a guest write is a real\n"
+      "host side effect, and rewinding the emulator cannot undo it" },
     { "--rtc", 1, Doc::Documented, OptId::Rtc,
       "\"YYYY-MM-DD HH:MM:SS\"",
       "Pin the RTC to a fixed date/time (frozen clock)\n"

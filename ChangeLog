@@ -4,6 +4,7 @@
 
 ### User Features
 - `--esxdos-stub` now serves a loaded NEX its own directory when no `--esxdos-stub-root` is given
+- esxDOS host folder: delete (wildcards too), rename, make/remove directories, truncate, read-only bit and error messages, answered as NextZXOS does (from @shrek128's WebAssembly port)
 - Much faster emulation of programs that HALT or wait on the Copper: 20 to 84 % fewer host instructions per frame, same output (suggested by @shrek128)
 
 ### Developer Features

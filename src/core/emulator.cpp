@@ -1217,8 +1217,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 cfg.esxdos_stub_writable ? "read-write" : "read-only");
             if (cfg.esxdos_stub_writable)
                 Log::emulator()->warn(
-                    "--esxdos-stub-writable: guest writes change host files "
-                    "immediately; rewinding the emulator cannot undo them");
+                    "--esxdos-stub-writable: guest writes, deletions and renames "
+                    "change host files immediately; rewinding the emulator cannot "
+                    "undo them");
         }
     } else {
         // No explicit root: an implicit one (the loaded NEX's directory, set
@@ -1776,6 +1777,47 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                                 esxdos_hostfs_.chdir(read_filespec(r.IX)))
                             return fail(err);
                         return done(0x00);
+                    // The calls that change the host folder (GH #457). Registers
+                    // from the z88dk asm_esx_f_*.asm headers; the answers are
+                    // NextZXOS 2.09's, measured (esxdos_hostfs.h). On success A
+                    // is whatever it was (NextZXOS leaves junk there): 0 here.
+                    case 0xAD:    // F_UNLINK: A=drive, IX=filespec (wildcards)
+                        if (const uint8_t err = esxdos_hostfs_.unlink(read_filespec(r.IX)))
+                            return fail(err);
+                        return done(0x00);
+                    case 0xB0:    // F_RENAME: A=drive, IX=source, DE=destination
+                        if (const uint8_t err = esxdos_hostfs_.rename(
+                                read_filespec(r.IX), read_filespec(r.DE)))
+                            return fail(err);
+                        return done(0x00);
+                    case 0xAA:    // F_MKDIR: A=drive, IX=path
+                        if (const uint8_t err = esxdos_hostfs_.mkdir(read_filespec(r.IX)))
+                            return fail(err);
+                        return done(0x00);
+                    case 0xAB:    // F_RMDIR: A=drive, IX=path
+                        if (const uint8_t err = esxdos_hostfs_.rmdir(read_filespec(r.IX)))
+                            return fail(err);
+                        return done(0x00);
+                    case 0xAE: {  // F_TRUNCATE: A=drive, IX=filespec, BCDE=new size
+                        const uint32_t size = (static_cast<uint32_t>(r.BC) << 16) | r.DE;
+                        if (const uint8_t err =
+                                esxdos_hostfs_.truncate(read_filespec(r.IX), size))
+                            return fail(err);
+                        return done(0x00);
+                    }
+                    case 0xA2: {  // F_FTRUNCATE: A=handle, BCDE=new size
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        const uint32_t size = (static_cast<uint32_t>(r.BC) << 16) | r.DE;
+                        if (const uint8_t err = esxdos_hostfs_.ftruncate(handle, size))
+                            return fail(err);
+                        return done(handle);
+                    }
+                    case 0xAF:    // F_CHMOD: A=drive, IX=filespec, B=values, C=mask
+                        if (const uint8_t err = esxdos_hostfs_.chmod(
+                                read_filespec(r.IX), static_cast<uint8_t>(r.BC >> 8),
+                                static_cast<uint8_t>(r.BC)))
+                            return fail(err);
+                        return done(0x00);
                     case 0xB1:    // F_GETFREE — A=drive; BCDE = 512-byte blocks
                         put_pos(esxdos_hostfs_.free_blocks());
                         return done(0x00);
@@ -1831,6 +1873,41 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         set_a_and_carry(kDriveC, false);
                     else
                         set_a_and_carry(0x0B, true);
+                    return true;
+                }
+                case 0x93: { // M_GETERR: A=code (0: custom message at IX), B=1, DE=buffer
+                    // Same scope gate as M_GETSETDRV. B=0 raises a BASIC error
+                    // report and does not return on a Next; there is no BASIC
+                    // behind a direct load, so it, and any other B, get the
+                    // default refusal below. B=1 copies the message into the
+                    // 32-byte buffer at DE, the last character with bit 7 set.
+                    // Measured under NextZXOS 2.09: Fc=0 and A=$02 for every code,
+                    // the texts in esxdos_error_message(), "Unknown error" above
+                    // 31 (GH #457).
+                    if (!direct_nex_esxdos_ && !esxdos_hostfs_.active())
+                        return false;
+                    if ((r.BC >> 8) != 1) {
+                        if (direct_nex_esxdos_) { set_a_and_carry(0x02, true); return true; }
+                        return false;
+                    }
+                    const uint8_t code = static_cast<uint8_t>(r.AF >> 8);
+                    uint8_t msg[32];
+                    std::size_t n = 0;
+                    if (code == 0) {
+                        // A custom message: bit-7 terminated, at most 32 bytes.
+                        while (n < 32) {
+                            msg[n] = mmu_.read(static_cast<uint16_t>(r.IX + n));
+                            if (msg[n++] & 0x80) break;
+                        }
+                    } else {
+                        const char* text = esxdos_error_message(code);
+                        for (; text[n] && n < 32; ++n)
+                            msg[n] = static_cast<uint8_t>(text[n]);
+                        msg[n - 1] |= 0x80;
+                    }
+                    for (std::size_t i = 0; i < n; ++i)
+                        mmu_.write(static_cast<uint16_t>(r.DE + i), msg[i]);
+                    set_a_and_carry(0x02, false);
                     return true;
                 }
                 case 0x8F: { // M_EXECCMD — support .RUN sibling.nex
@@ -8309,8 +8386,9 @@ bool Emulator::load_nex(const std::string& path)
                     config_.esxdos_stub_writable ? "read-write" : "read-only");
                 if (config_.esxdos_stub_writable)
                     Log::emulator()->warn(
-                        "--esxdos-stub-writable: guest writes change host files "
-                        "immediately; rewinding the emulator cannot undo them");
+                        "--esxdos-stub-writable: guest writes, deletions and renames "
+                        "change host files immediately; rewinding the emulator "
+                        "cannot undo them");
             }
         }
     }

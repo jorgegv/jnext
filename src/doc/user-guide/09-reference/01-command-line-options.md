@@ -609,12 +609,14 @@ with status 1.
     option is for programs jnext loads itself.
 
 **--esxdos-stub-writable**
-:   Allow the guest to create, truncate and write files under
-    **--esxdos-stub-root**, or in the directory of the loaded NEX when
-    no root is given. Off by default, and deliberately a separate flag:
-    a guest write changes a real file on the host immediately, and
-    rewinding the emulator cannot undo it. Reads are fully rewindable;
-    writes are not.
+:   Allow the guest to create, truncate, write, delete and rename files,
+    make and remove directories, and set or clear the read-only bit of
+    files under **--esxdos-stub-root**, or in the directory of the
+    loaded NEX when no root is given: the program can delete any file
+    there. Off by default, and deliberately a separate flag: a guest
+    write changes a real file on the host immediately, and rewinding the
+    emulator cannot undo it. Reads are fully rewindable; writes,
+    deletions and renames are not.
 
 **--rtc** *“YYYY-MM-DD HH:MM:SS”*
 :   Pin the RTC to a fixed date and time (a frozen clock) instead of

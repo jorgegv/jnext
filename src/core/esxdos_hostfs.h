@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -56,14 +57,29 @@ public:
         kEio          = 6,   // esx_eio
         kEinval       = 7,   // esx_einval
         kEacces       = 8,   // esx_eacces
+        kEnospc       = 9,   // esx_enospc  : F_RMDIR of a non-empty directory (measured)
         kEnfile       = 12,  // esx_enfile   — out of handles
         kEbadf        = 13,  // esx_ebadf
         kEnotdir      = 17,  // esx_enotdir
         kEexist       = 18,  // esx_eexist
-        kEpath        = 19,  // esx_epath
         kEnosys       = 20,  // esx_enosys   — mode this class does not serve
-        kErdonly      = 24,  // esx_erdonly  — read-only mount
+        kErdonly      = 24,  // esx_erdonly : a read-only file; F_OPEN's answer on a read-only root
+        kEdevicebusy  = 31,  // esx_edevicebusy: a change on a write-protected volume (measured)
     };
+
+    /// NOT an esxDOS code: what resolve() returns for a bare ".." above the root
+    /// (MEASURED, NextZXOS treats it as a name missing from the root directory).
+    /// Every caller maps it to the code its own call answers for a missing last name.
+    static constexpr uint8_t kBareDotDot = 0xFE;
+
+    // F_CHMOD attribute bits, in B (values) and C (mask): z88dk
+    // asm_esx_f_chmod.asm:57-63. NOT the FAT attribute bits below: A_WRITE is the
+    // INVERSE of FAT's read-only, and A_READ is inert (measured).
+    static constexpr uint8_t kChmodWrite  = 0x01;
+    static constexpr uint8_t kChmodHidden = 0x02;
+    static constexpr uint8_t kChmodSystem = 0x04;
+    static constexpr uint8_t kChmodArch   = 0x20;
+    static constexpr uint8_t kChmodRead   = 0x80;
 
     // F_OPEN access modes (esxapi.def:78-84).
     static constexpr uint8_t kModeRead        = 0x01;
@@ -195,6 +211,29 @@ public:
     uint8_t stat(const std::string& guest_path, StatInfo& out);
     uint8_t sync(uint8_t handle);
 
+    // ── Calls that change the host folder (GH #457) ─────────────────────────
+    // Each answers as NextZXOS 2.09 was MEASURED to answer (test/fixtures/
+    // esxdos-write-probe/nextzxos.txt), and changes the host only when the root
+    // is writable. A write-protected root answers every call that would write
+    // with esx_edevicebusy, after every check that does not write.
+    uint8_t unlink(const std::string& guest_path);
+    uint8_t rename(const std::string& from, const std::string& to);
+    uint8_t mkdir(const std::string& guest_path);
+    uint8_t rmdir(const std::string& guest_path);
+    uint8_t truncate(const std::string& guest_path, uint32_t size);
+    uint8_t ftruncate(uint8_t handle, uint32_t size);
+    /// F_CHMOD: `values` (B) and `mask` (C). Only the A_WRITE, A_READ and
+    /// A_ARCH bits are served, and only where the result is what F_STAT and
+    /// F_READDIR will then report; anything else is esx_enosys.
+    uint8_t chmod(const std::string& guest_path, uint8_t values, uint8_t mask);
+
+    /// NextZXOS's name matcher for F_UNLINK / F_CHMOD / F_TRUNCATE wildcards,
+    /// reproduced from the measured answers: the pattern and the name are split at
+    /// their LAST '.', each half is matched alone and case-insensitively; '?' is
+    /// one character or the end of the half; '*' is a wildcard only as the LAST
+    /// character of a half.
+    static bool wildcard_match(const std::string& pattern, const std::string& name);
+
     // ── Directory calls ───────────────────────────────────────────────────
     /// `sf` is the sort/filter mode F_OPENDIR takes in C; it is read only when
     /// `mode` has kDirSfEnable.
@@ -251,6 +290,14 @@ private:
         uint64_t      position = 0;
     };
 
+    /// One host directory entry, as every call that NAMES an entry sees it.
+    struct Listed {
+        std::filesystem::path path;
+        std::string lfn;      // the host name
+        std::string sfn;      // its 8.3 name (stable: see list_host_dir())
+        bool        is_dir = false;
+    };
+
     struct DirHandle {
         bool                  open = false;
         std::string           path;       // host path of the directory
@@ -276,6 +323,47 @@ private:
     uint8_t resolve(const std::string& guest_path, std::filesystem::path& out,
                     std::vector<std::string>* components = nullptr) const;
 
+    /// The listing of `dir`: sorted by host name, symlinks and anything that is
+    /// neither a file nor a directory left out, each entry given its 8.3 name.
+    /// F_READDIR, F_GETCWD and resolve() must agree on what an entry's short name
+    /// is, and so must two listings of the same directory a deletion apart: a
+    /// FAT 8.3 alias is fixed when the file is created, and the name a program
+    /// deleted `LONGNA~1.TXT` by must not become another file's afterwards. So the
+    /// aliases already handed out are kept in `aliases_`; the FIRST listing of a
+    /// directory assigns them in sorted order (lowest free `~N`), later ones keep
+    /// them, forget the vanished and give a new name the lowest free tail. A name
+    /// that is itself a valid 8.3 name always keeps it.
+    bool list_host_dir(const std::filesystem::path& dir,
+                       std::vector<Listed>& out) const;
+
+    /// Drops the alias a deleted or renamed-away entry held (and, for a directory,
+    /// every alias kept for what was inside it): a FAT volume frees a short name
+    /// when its file goes, and the next new name may take it.
+    void forget_alias(const std::filesystem::path& host) const;
+    /// True when an open file handle of ours is this host file.
+    bool is_open_file(const std::filesystem::path& host) const;
+    /// A regular file with no host write permission: what F_STAT reports as the
+    /// read-only attribute. Decided from the permission BITS, never from whether
+    /// the OS would refuse a write (it does not, for root).
+    static bool host_read_only(const std::filesystem::path& host);
+    /// Entries of `dir` that `leaf` (a wildcard) matches by long or 8.3 name, in
+    /// listing order; "." and ".." first for a subdirectory.
+    bool wildcard_entries(const std::filesystem::path& dir, const std::string& leaf,
+                          std::vector<Listed>& hits) const;
+    /// The entries a wildcard final component of `guest` matches, in listing order
+    /// ("." and ".." first in a subdirectory). kEnoent when none, or when a
+    /// directory component holds a wildcard.
+    uint8_t wild_lookup(const std::string& guest, std::vector<Listed>& hits) const;
+    uint8_t unlink_file(const std::filesystem::path& host);
+    uint8_t truncate_file(const std::filesystem::path& host, uint32_t size);
+    uint8_t chmod_file(const std::filesystem::path& host, uint8_t values, uint8_t mask);
+    /// A directory rename: the streams under `dir` are closed first (Windows
+    /// refuses to rename a directory holding an open file) and reopened under
+    /// `to` after (`to` empty: where they were, after a refusal); every handle
+    /// path under `dir` follows.
+    void close_streams_under(const std::filesystem::path& dir);
+    void reopen_streams(const std::filesystem::path& from, const std::filesystem::path& to);
+
     /// `C:/` plus each of `comps` (host-spelled, below the root) as its 8.3
     /// name followed by '/'. The F_GETCWD form; see the .cpp.
     uint8_t format_path(const std::vector<std::string>& comps,
@@ -298,6 +386,11 @@ private:
 
     std::array<FileHandle, kFileHandles> files_{};
     std::array<DirHandle, kDirHandles>   dirs_{};
+
+    /// directory host path -> long name -> the ~N alias it was given (see
+    /// list_host_dir()). Never in a rewind snapshot: it follows host changes that
+    /// no rewind undoes.
+    mutable std::map<std::string, std::map<std::string, std::string>> aliases_;
 };
 
 #endif  // JNEXT_CORE_ESXDOS_HOSTFS_H

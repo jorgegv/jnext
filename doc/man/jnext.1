@@ -707,13 +707,14 @@ This option is for programs jnext loads itself.
 .RE
 .TP
 \f[B]\-\-esxdos\-stub\-writable\f[R]
-Allow the guest to create, truncate and write files under
-\f[B]\-\-esxdos\-stub\-root\f[R], or in the directory of the loaded NEX
-when no root is given.
+Allow the guest to create, truncate, write, delete and rename files,
+make and remove directories, and set or clear the read\-only bit of
+files under \f[B]\-\-esxdos\-stub\-root\f[R], or in the directory of the
+loaded NEX when no root is given: the program can delete any file there.
 Off by default, and deliberately a separate flag: a guest write changes
 a real file on the host immediately, and rewinding the emulator cannot
 undo it.
-Reads are fully rewindable; writes are not.
+Reads are fully rewindable; writes, deletions and renames are not.
 .TP
 \f[B]\-\-rtc\f[R] \f[I]\(lqYYYY\-MM\-DD HH:MM:SS\(rq\f[R]
 Pin the RTC to a fixed date and time (a frozen clock) instead of
@@ -2005,6 +2006,12 @@ It is never written to disk and is gone when jnext exits;
 \f[CR]run NAME.nex\f[R] (\f[CR]M_EXECCMD\f[R]), which loads another NEX
 file from the same directory;
 .IP \(bu 2
+the error message query (\f[CR]M_GETERR\f[R], with \f[CR]B\f[R]=1): the
+text NextZXOS gives for an error code, copied to the buffer in
+\f[CR]DE\f[R] with bit 7 set on its last character.
+\f[CR]B\f[R]=0, which raises a BASIC error report and does not return on
+a Next, gets the error below;
+.IP \(bu 2
 for a NEX whose header asks for its file to stay open: reading that
 file, including data appended after its banks (also through the
 block\-streaming calls), and reading, never writing, other files in the
@@ -2044,6 +2051,18 @@ It is meant for developing a program that reads data files: edit them in
 place and re\-run, instead of copying them into the SD\-card image each
 time.
 .PP
+With \f[B]\-\-esxdos\-stub\-writable\f[R] it also changes the host
+files: \f[CR]F_UNLINK\f[R] (wildcards too), \f[CR]F_RENAME\f[R],
+\f[CR]F_MKDIR\f[R], \f[CR]F_RMDIR\f[R], \f[CR]F_TRUNCATE\f[R],
+\f[CR]F_FTRUNCATE\f[R] and \f[CR]F_CHMOD\f[R], and \f[CR]M_GETERR\f[R]
+gives the text of an error code.
+Each answers as NextZXOS 2.09 was measured to answer it (the probe and
+its recording are in the source tree), including which error code a
+refusal carries.
+A write\-protected root (no \f[B]\-\-esxdos\-stub\-writable\f[R])
+answers every call that would write with \f[CR]esx_edevicebusy\f[R],
+after every check that does not write, and changes nothing.
+.PP
 \f[B]It does not make the host directory the SD card.\f[R] Only programs
 that reach the filesystem through \f[CR]RST $08\f[R] can see it \(em a
 directly loaded NEX, and dot commands.
@@ -2082,10 +2101,55 @@ The error codes for missing and mistyped paths are the ones NextZXOS
 returns.
 .PP
 Paths are confined to \f[I]DIR\f[R].
-A path that climbs out of it is refused, whichever separator it uses, a
-guest absolute path such as \f[CR]/data/x.bin\f[R] means
-\f[CR]DIR/data/x.bin\f[R] and never the host\(cqs own \f[CR]/data\f[R],
-and symbolic links are refused rather than followed.
+A path that climbs out of it is refused with \f[CR]esx_enotdir\f[R] (a
+bare \f[CR]..\f[R] above the root, which NextZXOS treats as a missing
+name), whichever separator it uses, a guest absolute path such as
+\f[CR]/data/x.bin\f[R] means \f[CR]DIR/data/x.bin\f[R] and never the
+host\(cqs own \f[CR]/data\f[R], and symbolic links are refused rather
+than followed.
+.PP
+What the write calls do, where it is not obvious.
+\f[CR]F_UNLINK\f[R] deletes files only: a directory is matched and left
+alone, with success, as on NextZXOS; \f[CR]F_RMDIR\f[R] removes an empty
+directory, refuses the current one, and calls a non\-empty one
+\f[CR]esx_enospc\f[R].
+A wildcard in \f[CR]F_UNLINK\f[R] and \f[CR]F_CHMOD\f[R] is matched as
+NextZXOS matches it (the name and the extension, split at the last dot,
+each matched alone, \f[CR]?\f[R] for one character or none, \f[CR]*\f[R]
+only as the last character of either half, long or 8.3 name, any case);
+it works in the name only, never in a directory, \f[CR]F_TRUNCATE\f[R]
+takes the first file it matches and \f[CR]F_RENAME\f[R],
+\f[CR]F_MKDIR\f[R] and \f[CR]F_RMDIR\f[R] refuse a wildcard.
+\f[CR]F_RENAME\f[R] never replaces a file, moves a source into an
+existing directory, and a directory it renames keeps its open files and
+its place as the current directory.
+The read\-only bit of a file follows the host: a file without write
+permission is read\-only for \f[CR]F_STAT\f[R], \f[CR]F_FSTAT\f[R],
+\f[CR]F_READDIR\f[R], \f[CR]F_OPEN\f[R] for writing, \f[CR]F_UNLINK\f[R]
+and \f[CR]F_TRUNCATE\f[R], and \f[CR]F_CHMOD\f[R] with
+\f[CR]A_WRITE\f[R] changes that permission.
+An 8.3 short name (\f[CR]LONGNA\(ti1.TXT\f[R]) keeps naming the same
+file after others are deleted, as on FAT, and a name the host answers to
+that the directory listing does not hold (an NTFS short name, a
+differently normalised spelling) is refused rather than reaching another
+file.
+.PP
+Where it differs from NextZXOS, deliberately: \f[CR]F_CHMOD\f[R] of the
+hidden and system bits, of the archive bit cleared, and of a directory
+is refused with \f[CR]esx_enosys\f[R] (a host file has no such
+attributes; faking it would make \f[CR]F_STAT\f[R] contradict the
+answer); a name ending in a space is refused with \f[CR]esx_einval\f[R]
+(NextZXOS keeps the space, a host may strip it); a renamed current
+directory shows its new name in \f[CR]F_GETCWD\f[R];
+\f[CR]F_TRUNCATE\f[R] on a write\-protected root is refused where
+NextZXOS answers success and loses the write; \f[CR]F_OPEN\f[R] for
+writing on a write\-protected root is \f[CR]esx_erdonly\f[R]; an
+\f[CR]F_OPEN\f[R] mode with neither the read nor the write bit
+(\f[CR]$04\f[R], \f[CR]$08\f[R], \f[CR]$0C\f[R]) is
+\f[CR]esx_einval\f[R] where NextZXOS opens or creates; and creating a
+file through the 8.3 short name of an existing long\-named file
+truncates that file and keeps its name, where a FAT volume rewrites the
+entry and loses the long name.
 .PP
 A \f[I]DIR\f[R] that does not exist, or is not a directory, is an error
 at start\-up: jnext says so and exits non\-zero rather than running with
