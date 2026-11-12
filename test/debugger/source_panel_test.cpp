@@ -7607,7 +7607,7 @@ void test_source_any_file() {
         QSignalSpy ins(c->model(), &QAbstractItemModel::rowsInserted);
         QSignalSpy rem(c->model(), &QAbstractItemModel::rowsRemoved);
         QSignalSpy rst(c->model(), &QAbstractItemModel::modelReset);
-        for (int i = 0; i < 20; ++i) w.tick();
+        for (int i = 0; i < 20; ++i) { w.tick(); w.sp->refresh(); }   // a tick may be gated off; refresh() is what must not rebuild
         const bool idle = ins.count() == 0 && rem.count() == 0 && rst.count() == 0;
         check("QSRC-210",
               "the File list holds exactly the map's files (main.bas, sub.bas), enabled and on main.bas; empty and "
@@ -7633,10 +7633,10 @@ void test_source_any_file() {
                            w.ed->textCursor().blockNumber() == 0 && w.sp->highlighted_line() == 0 &&
                            w.sp->location_text() == QStringLiteral("sub.bas  (browsing; the PC is at main.bas:10, $8000)") &&
                            goto_pc->isEnabled() && c->currentText() == QStringLiteral("sub.bas");
-        for (int i = 0; i < 20; ++i) w.tick();
+        for (int i = 0; i < 20; ++i) { w.tick(); w.sp->refresh(); }
         w.src_move(2);
         const int scroll = w.ed->verticalScrollBar()->value();
-        for (int i = 0; i < 20; ++i) w.tick();
+        for (int i = 0; i < 20; ++i) { w.tick(); w.sp->refresh(); }
         const bool steady = w.sp->shown_file() == "sub.bas" && w.ed->textCursor().blockNumber() == 1 &&
                             w.ed->verticalScrollBar()->value() == scroll;
         fx.dbg()->activate_follow_pc();   // a stop
@@ -7729,7 +7729,7 @@ void test_source_any_file() {
                    file_combo(w.sp)->currentText() == QStringLiteral("gone.bas");
         };
         const bool missing = state();
-        for (int i = 0; i < 5; ++i) w.tick();
+        for (int i = 0; i < 5; ++i) { w.tick(); w.sp->refresh(); }
         const bool kept = state();
         put_file(tmp + "/q214/gone.bas", "REM gone 1\n");
         fx.mgr->set_source_dirs({QString::fromStdString(tmp + "/q214")});
