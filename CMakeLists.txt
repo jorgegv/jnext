@@ -616,13 +616,15 @@ if(EMSCRIPTEN)
         -sEXPORTED_FUNCTIONS=_main,_malloc,_free
         -lidbfs.js
         # The JavaScript API (GH #465), appended after the emulator's own code, in this
-        # order: the image helpers, then jnext.mount() (which calls them).
+        # order: the image helpers, the touch keyboard, then jnext.mount() (which calls them).
         # SHELL: keeps each flag with its file (CMake de-duplicates a repeated bare option).
         "SHELL:--extern-post-js ${CMAKE_SOURCE_DIR}/web/jnext-image.js"
+        "SHELL:--extern-post-js ${CMAKE_SOURCE_DIR}/web/jnext-touch-keyboard.js"
         "SHELL:--extern-post-js ${CMAKE_BINARY_DIR}/web/jnext_api.js")
     configure_file(web/jnext_api.js.in "${CMAKE_BINARY_DIR}/web/jnext_api.js" @ONLY)
     set_property(TARGET jnext_web APPEND PROPERTY LINK_DEPENDS
-        "${CMAKE_SOURCE_DIR}/web/jnext-image.js" "${CMAKE_BINARY_DIR}/web/jnext_api.js")
+        "${CMAKE_SOURCE_DIR}/web/jnext-image.js" "${CMAKE_SOURCE_DIR}/web/jnext-touch-keyboard.js"
+        "${CMAKE_BINARY_DIR}/web/jnext_api.js")
     # The example pages, beside the .js/.wasm they load.
     foreach(page plain itch-host itch-game widget)
         configure_file(web/examples/${page}.html.in "${CMAKE_BINARY_DIR}/${page}.html" @ONLY)
