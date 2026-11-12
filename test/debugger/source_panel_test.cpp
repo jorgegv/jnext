@@ -7832,12 +7832,26 @@ void test_source_any_file() {
         fx.backend->clear_source_map();
         w.tick();
         const bool cleared = again2 && !w.sp->browsing() && c->count() == 0 && !c->isEnabled();
+        // an address browse replaced by a file browse leaves nothing behind: when the map drops the file,
+        // the view is the PC's again, not the old address
+        fx.load_map();
+        w.tick();
+        w.dis_click(0x8002);
+        choose_in_list(w.sp, QStringLiteral("sub.bas"));
+        const std::string a = std::to_string(fx.p80);
+        write_text(fx.sld, std::string("|SLD.data.version|1\nmain.bas|10||0") + kNextDevice +
+                               "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n");
+        fx.load_map();
+        w.tick();
+        const bool dropped = !w.sp->browsing() && w.sp->highlighted_line() == 10;
         check("QSRC-217",
               "a Disassembly click replaces a file browse by an address browse (list on main.bas); choosing again replaces it "
-              "(label without an address); a run ends it and disables the list; another map path, and a cleared map, end it too",
-              addr && file_label && run && other_map && cleared,
+              "(label without an address); a run ends it and disables the list; another map path, and a cleared map, end it too; "
+              "a map that drops the file ends it for good (no stale address browse behind it)",
+              addr && file_label && run && other_map && cleared && dropped,
               "addr=" + std::to_string(addr) + " label=" + std::to_string(file_label) + " run=" + std::to_string(run) +
-                  " other=" + std::to_string(other_map) + " cleared=" + std::to_string(cleared));
+                  " other=" + std::to_string(other_map) + " cleared=" + std::to_string(cleared) +
+                  " dropped=" + std::to_string(dropped));
     }
     {   // QSRC-218: Debug > Source > Open Source File...
         Fixture fx;
