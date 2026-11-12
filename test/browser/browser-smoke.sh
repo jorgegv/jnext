@@ -35,7 +35,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:16" "../bench/web/bench-stats-test.mjs:12" "$@")
+SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:17" "writes.mjs:10" "../bench/web/bench-stats-test.mjs:12" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -119,6 +119,23 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/beast.cfg" \
     --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/beast.nex" --benchmark 450 >"$O/beast.bench" 2>"$O/beast.err" \
     || die "oracle beast failed"
 rm -rf "$O/beast.card" "$O/beast.cfg"
+
+# The write journal oracle (writes.mjs WBW-01..03): the save_counter program natively, twice, on a
+# clone of the card with --sdcard-writes. The journal after each run (w1.jsdw, w2.jsdw) and the
+# guest's magic-port lines are what the page's stored record must equal byte for byte. The clone
+# is deleted; the journals hold only the sectors the guest wrote.
+cp --reflink=auto "$SCRATCH/card.img" "$O/w.card"
+for n in 1 2; do
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/w.cfg" \
+        timeout --foreground --kill-after=5s 300s "$NATIVE" --headless --sdcard "$O/w.card" --silent --machine next \
+        --sdcard-sha256 "$CARD_SHA256" --sdcard-writes "$O/w.jsdw" \
+        --rtc 2026-07-10T08:55:00 --magic-port 0xCAFE --magic-port-mode line \
+        --load "$ROOT/test/fixtures/nex/save_counter.nex" --delayed-automatic-exit-frames 400 \
+        >"$O/w$n.log" 2>&1 || { cat "$O/w$n.log" >&2; die "oracle writes run $n failed"; }
+    cp "$O/w.jsdw" "$O/w$n.jsdw"
+    grep -a "^SAVE $n OK\$" "$O/w$n.log" >/dev/null || { cat "$O/w$n.log" >&2; die "oracle writes run $n did not save"; }
+done
+rm -rf "$O/w.card" "$O/w.cfg" "$O/w.jsdw"
 
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
        SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg"

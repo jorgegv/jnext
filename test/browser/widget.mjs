@@ -1,4 +1,4 @@
-// Browser rows WIDGET-01..16: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
+// Browser rows WIDGET-01..17: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
 // (make wasm-browser-test, spec widget.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Server A is the page host (http://localhost:<port>, a secure context): it serves the files of the
@@ -456,6 +456,21 @@ row('WIDGET-16', 'a page-side destroy(): the toolbar is disabled, the status say
   must(st.text === 'stopped', 'status ' + JSON.stringify(st));
   must(dis, 'a button is still enabled after destroy()');
   must(page.msgs.length === 0, page.msgs.join('; '));
+});
+
+row('WIDGET-17', 'data-keep-writes gives a widget player whose command line carries --sdcard-writes, and el.jnextPlayer.resetCard is a function; without the attribute neither', async () => {
+  const one = `<div class="jnext-widget" data-image="${BURL}/card.img" data-sha256="${SHA}" data-file="${BURL}/red.nex"`;
+  pages['keep.html'] = `<!doctype html><body>${one} data-keep-writes></div>${one}></div><script src="jnext-widget.js"></script></body>`;
+  const page = await open(`${AURL}/keep.html`);
+  await waitClickable(page, 0);
+  await waitClickable(page, 1);
+  const r = await page.evaluate(() => [...document.querySelectorAll('.jnext-widget')].map((e) => ({
+    argv: e.jnextPlayer.argv, fn: typeof e.jnextPlayer.resetCard })));
+  await page.context().close();
+  const w = r[0].argv.indexOf('--sdcard-writes');
+  must(w >= 0 && /^\/jnext\/card-writes\/[0-9a-f]{64}-[0-9a-f]{16}\.jsdw$/.test(r[0].argv[w + 1]) && r[0].fn === 'function',
+       'keep-writes widget: ' + JSON.stringify(r[0]));
+  must(r[1].argv.indexOf('--sdcard-writes') < 0, 'plain widget argv: ' + JSON.stringify(r[1].argv));
 });
 
 let pass = 0, fail = 0;

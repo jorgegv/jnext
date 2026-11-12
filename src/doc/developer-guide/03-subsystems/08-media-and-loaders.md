@@ -1569,3 +1569,58 @@ a server that answers after 8 s. What no row can show is the NextPi archive's ow
 display being wired in `main.cpp`: its download needs 22 GB free, which the
 regression suite cannot assume, so that one assignment is covered only by the
 classes it uses.
+
+### The SD card's write journal
+
+`--sdcard-writes FILE` keeps the guest's writes out of the image. `src/peripheral/sd_write_journal.*`
+holds a copy-on-write journal: `SdCardDevice` opens the image `ios::in` only, answers CMD24 by
+appending the block to the journal, and answers CMD17/CMD18 from the journal when it holds the
+sector, from the image when it does not. The card still presents as writable (the
+write-protect path is `--sdcard-readonly`, which excludes the flag). `main()` binds the journal
+after the card is resolved and any browser zip is extracted, so the identity is the card that
+will be mounted, and `--sdcard-writes-reset` discards the journal there, before any mount.
+
+**One journal per image, process-wide.** The warm-start recorder is a second `Emulator`, a cold
+boot a third, and `change_sd_card` can mount the image again, so the writes cannot belong to a
+device. `sd_write_journal::bind()` registers the journal under the image's canonical path;
+`SdCardDevice::mount()` asks `for_image()` and, for a bound image, runs in journal mode. Any
+other image mounts as before, so a live SD change to an unbound card writes that card.
+
+**The file.** All integers are little-endian.
+
+| offset | size | field |
+|---|---|---|
+| 0 | 8 | magic `JNEXTSDW` |
+| 8 | 4 | format version, 1 |
+| 12 | 4 | record payload size, 512 |
+| 16 | 8 | image size in bytes |
+| 24 | 8 | image mtime, raw `file_clock` ticks (0 when bound by digest) |
+| 32 | 32 | image SHA-256 (all zero: bound by size and mtime) |
+| 64 | 516 per record | sector number (u32) and its 512 bytes, in commit order; a later record supersedes an earlier one |
+
+The header is the binding. The image identity follows the warm-start key's own rule: the
+`--sdcard-sha256` digest when one is given for that path, else size and mtime. A journal made for
+another image, or a file with another magic or version, is refused with a message (the
+refusal for a foreign image names `--sdcard-writes-reset`; a file that is not a journal is never
+removed, with or without reset). At bind a trailing partial record (an interrupted append) is
+dropped, and a file with superseded records is rewritten compacted and sorted. The file and its
+header are created at the first commit; a commit that fails on the host answers the guest with
+the write-error token and truncates the file back to its last whole record.
+`test/00regression/sdcard-writes-apply.py` reads the same table independently and is what the
+regression row uses to lay a journal over a copy of the image.
+
+**The warm-start key follows the journal.** NextZXOS keeps FAT and directory state in RAM, so a
+recording made on the pristine card, restored over one that holds writes, can make a later save
+corrupt the card. With a non-empty journal the key's digest field (header offset 40) is
+`SHA-256(base || J)`: `base` is the image's own digest (all zero on the desktop size and mtime
+key) and `J` is the SHA-256 over every journaled sector, ascending, as sector (u32) and bytes. An
+empty journal leaves the key as it was. In journal mode the key is exact, because the image
+is never written and the journal is read live after the recording: `Emulator::
+prepare_warm_start` therefore treats the card as neither stale nor uncacheable, where
+`--sdcard-sha256` alone must (the digest describes the file only until jnext writes to it).
+Readers that go to the image directly (the ROM extractor, the card identity a `.jns` snapshot
+records) do not see the journal.
+
+The rows are `SDW-01..16` (`sdcard_writes_test`), `SDP-SDW-01` (a journal append that really
+fails), `WSR-SDW-01..05` (the key) and the regression row `sdcard-writes-func`, whose guest is
+`test/fixtures/nex/save_counter.nex` (source `demo/save_counter`).

@@ -5,6 +5,7 @@
 | option | type | what it is |
 |---|---|---|
 | `image` | `{url, sha256}`, required | The SD-card image, as `--sdcard` and `--sdcard-sha256`. |
+| `keepWrites` | boolean | `--sdcard-writes`, with a file the page manages: what the program writes to the card (saves, high scores) is kept in the visitor's browser and is there at the next visit. Off by default (10.4). |
 | `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. `.nex`, `.tap` and `.tzx` only. Without it the machine boots to the NextZXOS menu. |
 | `machine` | string | `--machine`. |
 | `muted` | boolean | `--set startup.silent`: no audio device for the session. |
@@ -38,7 +39,20 @@
 | `reset(kind)` | `'program'` (default): restart the program; with no program, the same as `'hard'`. `'hard'`: power on again. `'soft'`: reset. Returns a promise. |
 | `load(file)` | Load another program (same forms as `file`) while the machine runs. Resolves when it is in the machine. |
 | `setVolume(v)` | Master level, 0 (silent) to 1; anything else throws a `RangeError`. A player started `muted` has no audio device. |
-| `destroy()` | Stop the machine and remove the player. Afterwards every method throws. |
+| `resetCard()` | Forget the writes kept by `keepWrites` and restart the program, as `reset('program')` does. Needs `keepWrites` (it rejects without it). Resolves when the program is in the machine again. |
+| `destroy()` | Stop the machine and remove the player; with `keepWrites` it first waits until the writes are stored. Afterwards every method throws. |
+
+## Letting a visitor clear the saves
+
+A page that uses `keepWrites` can offer a button for `resetCard()`:
+
+```html
+<button onclick="player.resetCard()">Clear saves</button>
+```
+
+where `player` is what `jnext.mount()` resolved to (or `el.jnextPlayer` of a widget).
+`args: ['--sdcard-writes-reset']` does the same for one start, when the page is
+loaded.
 
 ## Keyboard
 
