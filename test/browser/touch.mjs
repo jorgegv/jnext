@@ -546,7 +546,7 @@ row('TKB-14', 'layout follows the width: 390x844 shows the compact layout (40 ke
   must(p.minH >= 24 && l.minH >= 24, 'key heights ' + p.minH + ' ' + l.minH);
 });
 
-row('TKB-15', 'accessibility: a labelled group, role=button keys with the spec\'s 58 names, aria-pressed on the shifts, a hidden keyboard display:none + aria-hidden; click() types the key once, a touch tap once', async () => {
+row('TKB-15', 'accessibility: a labelled group, role=button keys with the spec\'s 58 names, aria-pressed on the shifts, a hidden keyboard display:none + aria-hidden; click() types the key once, a touch tap once, a mouse click once', async () => {
   const page = await kmxPage(LANDSCAPE);
   const info = await page.evaluate(() => {
     const k = document.querySelector('#p0 .jnext-keyboard');
@@ -565,6 +565,23 @@ row('TKB-15', 'accessibility: a labelled group, role=button keys with the spec\'
   await until(() => page.kmx.length > idx && released(page), 6000, 'a touch tap typed');
   await sleep(400);
   const viaTouch = page.kmx.slice(idx);
+  idx = page.kmx.length;
+  // The Router merges two quick presses of one key, so a double typing cannot show in the program:
+  // count the key events that reach the canvas (the seam the keyboard types through) instead.
+  await page.evaluate(() => {
+    window.__ev = [];
+    const cv = document.querySelector('#p0 canvas');
+    for (const t of ['keydown', 'keyup']) cv.addEventListener(t, (e) => window.__ev.push(t + ':' + e.code));
+  });
+  const lc = await center(page, 'l');
+  await page.mouse.move(lc.x, lc.y); await page.mouse.down(); await sleep(100); await page.mouse.up();
+  await until(() => page.kmx.length > idx && released(page), 6000, 'a mouse click typed');
+  await sleep(400);
+  const viaMouse = page.kmx.slice(idx);
+  const mouseEvents = await page.evaluate(() => window.__ev.splice(0));
+  await touchTap(page, 'k', 100);
+  await sleep(400);
+  const touchEvents = await page.evaluate(() => window.__ev.splice(0));
   await page.evaluate(() => window.player0.showKeyboard(false));
   const hid = await page.evaluate(() => { const k = document.querySelector('#p0 .jnext-keyboard'); return [getComputedStyle(k).display, k.getAttribute('aria-hidden')]; });
   await close(page);
@@ -572,6 +589,9 @@ row('TKB-15', 'accessibility: a labelled group, role=button keys with the spec\'
   must(info.keys.length === 58 && badKeys.length === 0, 'keys: ' + info.keys.length + ' ' + badKeys.join(', '));
   must(viaClick.length === 2 && same(pressed(viaClick[0]), new Set([POS.p])) && viaClick[1] === REL, 'click(): ' + JSON.stringify(viaClick));
   must(viaTouch.length === 2 && same(pressed(viaTouch[0]), new Set([POS.o])) && viaTouch[1] === REL, 'touch tap: ' + JSON.stringify(viaTouch));
+  must(viaMouse.length === 2 && same(pressed(viaMouse[0]), new Set([POS.l])) && viaMouse[1] === REL, 'mouse click: ' + JSON.stringify(viaMouse));
+  must(mouseEvents.join() === 'keydown:KeyL,keyup:KeyL', 'key events of one mouse click: ' + mouseEvents);
+  must(touchEvents.join() === 'keydown:KeyK,keyup:KeyK', 'key events of one touch tap: ' + touchEvents);
   must(hid.join() === 'none,true', 'hidden keyboard: ' + hid);
 });
 
