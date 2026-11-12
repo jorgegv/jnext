@@ -48,7 +48,7 @@ mentions them, so a test can no longer be absent from this document.
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
-| CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
+| CPU/Z80N/IM2 regressions                   |    65 |   65 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   248 |  248 |    0 |    0 |       0 |          0 |
 | Companion: esp_sigpipe_test                |     2 |    2 |    0 |    0 |       0 |          0 |
 | ESP-01 AT engine                           |   499 |  499 |    0 |    0 |       0 |          0 |
@@ -67,9 +67,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6192 | 6192 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6201 | 6201 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6192**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5691**. Rows the 193 suites declared in `test/unit-tests.conf` run live: **16042**.
+Rows the sections above carry: **6201**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5700**. Rows the 193 suites declared in `test/unit-tests.conf` run live: **16051**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -4818,58 +4818,67 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | CPU-SAVELOAD-MEMPTR-Q | pass3 save load memptr q [0a64eff] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:218 |
 | Z80N-LDIX-FLAGS-FIXTURE-PRESENT | pass3 ldix flag fixtures present [0a64eff] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:227 |
 | Z80N-Q-HYGIENE-SWAPNIB-SCF | pass4 z80n q hygiene clears q at dispatch [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:320 |
-| Z80N-IFF2-READ-HYGIENE-AT-DISPATCH | pass4 z80n iff2 read hygiene at dispatch [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:413 |
-| Z80N-ADD-HL-NN-MEMPTR | pass4 add nn memptr [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:445 |
-| CPU-SAVELOAD-IFF2-READ-AND-IE-AT-BEHAVIOR | pass4 save load iff2 read interrupts enabled at behavior [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:529 |
-| Z80N-TSTATES-MUL | pass5 pass6 z80n tstates via fuse counter [65b5918+86128d5] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:564 |
-| Z80N-TSTATES-PUSH-NN | pass5 pass6 z80n tstates via fuse counter [65b5918+b4af634] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:582 |
-| Z80N-TSTATES-JP-C-12T | pass5 pass6 z80n tstates via fuse counter [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:603 |
-| Z80N-M1-CONTENTION-STRETCH | pass5 z80n m1 contention stretch [cb8daf7] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:688 |
-| Z80N-LDIX-TOTAL-16T-FROM-PASS-1-AND-6 | pass1 pass6 ldix terminal total tstates [65b5918+b4af634] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:737 |
-| Z80N-LDIX-INTERNAL-IDLE-CONTENTION-STRETCH | pass7 ldix internal idle contention stretch [07ed205] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:867 |
-| Z80N-LDIX-SKIP-WRITE-CONTENTION-STRETCH | pass9 ldix skip contention stretch [b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1008 |
-| IM2-ACK-VECTOR-EI-GRACE | pass8 im2 ack vector ei grace [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1106 |
-| CPU-CHAINED-PREFIX-DD-ED-WALKS | pass9 chained prefix dd ed walks [b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1170 |
-| CPU-CB-INNER-BYTE-M1-CALLBACK | pass8 cb inner byte m1 callback [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1213 |
-| Z80N-PUSH-NN-WZ-LO-ONLY | pass8 push nn wz lo only [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1248 |
-| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-TAKEN | pass9 ldws incdecz after djnz [was Pass-9 b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1311 |
-| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-NOT-TAKEN | v13 cpu 01 ldws incdecz after djnz not taken | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1369 |
-| Z80N-LDPIRX-FLAGS-FIXTURE-PRESENT | pass10 ldpirx flags present [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1381 |
-| Z80N-ADD-HL-A-FORCE-FC-ZERO | pass10 add hl a force carry zero [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1414 |
-| IM2-RETI-DECODE-SIMULTANEITY-NESTED-ISR | pass10 im2 reti decode simultaneity [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1459 |
-| V11-CPU-01-IM2-DDFD-ED-NO-RETI | v11 cpu 01 im2 ddfd ed no reti | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1530 |
-| V11-CPU-02-Z80N-PIXELDN-BAND3-WRAP-PRESERVES-H-HIGH | v11 cpu 02 pixeldn band3 wrap preserves h high | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1595 |
-| V11-CPU-02-Z80N-PIXELDN-ROW191-WRAP-UNCHANGED | v11 cpu 02 pixeldn row191 wrap unchanged [guard] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1627 |
-| V12-CPU-NIT-02-Z80N-OUTINB-EXTENDED-M1-CONTEND-NO-MREQ | v12 cpu nit 02 outinb extended m1 contend no mreq | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1755 |
-| V14-CPU-01-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu 01 inc bc updates incdecz for ldws | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1851 |
-| V14-CPU-01-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu 01 dec bc updates incdecz for ldws | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1910 |
-| V14-CPU-01-INC-HL-MUST-NOT-UPDATE-INCDECZ | v14 cpu 01 inc hl does not update incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1979 |
-| V14-CPU-NIT-01-A-DD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 dd inc bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2067 |
-| V14-CPU-NIT-01-B-FD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 fd inc bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2128 |
-| V14-CPU-NIT-01-C-DD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 dd dec bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2177 |
-| V14-CPU-NIT-01-D-FD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 fd dec bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2224 |
-| V14-CPU-NIT-01-E-DD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | v14 cpu nit 01 dd djnz updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2289 |
-| V14-CPU-NIT-01-F-FD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | v14 cpu nit 01 fd djnz updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2338 |
-| V17-CPU-01-IM2-INT-REQ-HELD-IN-PULSE-MODE-VHDL-170 | v17 cpu 01 im2 int req held in pulse mode | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2407 |
-| V17-Z80N-01a-BSRF-UB-FREE-VHDL-1006-1014 | v17 z80n 01 bsrf shift ge 16 fills ones | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2469 |
-| V17-Z80N-01b-BSLA-UB-FREE-VHDL-992 | v17 z80n 01 bsla shift ge 16 zero | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2510 |
-| V17-CPU-NIT-04-BSRA-UB-FREE-VHDL-1006-1014 | v17 cpu nit 04 bsra shift ge 16 sign fill | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2598 |
-| V18R-CPU-NIT-01-LDPIRX-MEMPTR-LO-STROBE | v18r cpu nit 01 ldpirx memptr lo strobe | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2651 |
-| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-CTC7 | v18r cpu 02 dma raise no pollute ctc7 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2704 |
-| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-ULA | v18r cpu 02 dma raise no pollute ula | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2735 |
-| V19-IM2-03-INT-UNQ-ONE-SHOT-AFTER-ISR | v19 im2 03 int unq one shot after isr | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2828 |
-| V19R-CPU-01-INT-REQ-PULSE-SYNTHESIS-MULTI-FRAME-VHDL-101 | v19r cpu 01 int req pulse synthesis multi frame | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2941 |
-| V21-IM2-01-INT-LINE-GATED-ON-IM-MODE-VHDL-150-1974 | v21 im2 01 int line gated on im mode | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3040 |
-| CPU-SOFTRESET-01 | soft reset preserves BC/DE/HL | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3144 |
-| CPU-SOFTRESET-02 | soft reset preserves the shadow set BC'/DE'/HL' | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3147 |
-| CPU-SOFTRESET-03 | soft reset preserves IX/IY | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3150 |
-| CPU-SOFTRESET-04 | soft reset sets the t80n reset state: PC=0 SP=FFFF AF=FFFF I=0 IFF/IM=0 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3153 |
-| CPU-HARDRESET-01 | hard reset zeroes the register file (power-on model) | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3164 |
-| PERF-SLNMI-01-ENABLE-CB-NOT-POLLED-WHILE-LATCH-CLEAR | stackless-NMI enable callback is not polled per instruction while the RETN latch is clear (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3227 |
-| PERF-SLNMI-02-ENABLE-CB-POLLED-WHILE-LATCH-SET | stackless-NMI enable callback is polled once per instruction while the RETN latch is set (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3271 |
-| PERF-SLNMI-03-CLEARING-ENABLE-MIDHANDLER-ABANDONS-LATCH | clearing NR 0xC0 bit 3 during the handler abandons the RETN latch and the RETN pops the real stack (zxnext.vhd:2074-2075) | zxnext.vhd:2074-2075 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3323 |
-| PERF-SLNMI-04-STATE-LOAD-CLEARING-LATCH-DISARMS-FUSE | a state load that clears the RETN latch also disarms the FUSE-side latch, so the next RETN is an ordinary stack return (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3372 |
-| V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175 | v22 im2 01 on reti clears im2 int req latch | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3444 |
+| Z80N-IFF2-READ-HYGIENE-AT-DISPATCH | pass4 z80n iff2 read hygiene at dispatch [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:399 |
+| CPU-LDAI-INT-01 | LD A,I then INT keeps P/V = IFF2 [t80n.vhd:1175, 1193, 1768-1771] | t80n.vhd:1175,1193,1768-1771 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:451 |
+| CPU-LDAR-INT-02 | LD A,R then INT keeps P/V = IFF2 [t80n.vhd:1175, 1206, 1768-1771] | t80n.vhd:1175,1206,1768-1771 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:464 |
+| CPU-LDAI-IFF2-03 | LD A,I with IFF2=0 clears P/V [t80n.vhd:1193] | t80n.vhd:1193 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:494 |
+| CPU-LDAI-NMI-04 | LD A,I takes P/V from IFF2, not IFF1 [t80n.vhd:1193, 1765-1767] | t80n.vhd:1193,1765-1767 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:505 |
+| CPU-LDAR-IFF2-08 | LD A,R with IFF2=0 clears P/V [t80n.vhd:1206] | t80n.vhd:1206 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:516 |
+| CPU-LDAR-NMI-09 | LD A,R takes P/V from IFF2, not IFF1 [t80n.vhd:1206, 1765-1767] | t80n.vhd:1206,1765-1767 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:526 |
+| CPU-LDAI-INT-IM0-06 | LD A,I then INT in IM 0 keeps P/V = IFF2 [t80n.vhd:1193, 1768-1771] | t80n.vhd:1193,1768-1771 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:541 |
+| CPU-LDAI-INT-IM2-07 | LD A,I then INT in IM 2 keeps P/V = IFF2 [t80n.vhd:1193, 1768-1771] | t80n.vhd:1193,1768-1771 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:554 |
+| CPU-LDAI-RESTORE-05 | LD A,I save/restore idiom re-enables interrupts after an INT at the LD A,I boundary [t80n.vhd:1193, 1768-1771] | t80n.vhd:1193,1768-1771 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:602 |
+| Z80N-ADD-HL-NN-MEMPTR | pass4 add nn memptr [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:635 |
+| CPU-SAVELOAD-IFF2-READ-AND-IE-AT-BEHAVIOR | pass4 save load iff2 read interrupts enabled at behavior [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:719 |
+| Z80N-TSTATES-MUL | pass5 pass6 z80n tstates via fuse counter [65b5918+86128d5] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:754 |
+| Z80N-TSTATES-PUSH-NN | pass5 pass6 z80n tstates via fuse counter [65b5918+b4af634] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:772 |
+| Z80N-TSTATES-JP-C-12T | pass5 pass6 z80n tstates via fuse counter [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:793 |
+| Z80N-M1-CONTENTION-STRETCH | pass5 z80n m1 contention stretch [cb8daf7] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:878 |
+| Z80N-LDIX-TOTAL-16T-FROM-PASS-1-AND-6 | pass1 pass6 ldix terminal total tstates [65b5918+b4af634] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:927 |
+| Z80N-LDIX-INTERNAL-IDLE-CONTENTION-STRETCH | pass7 ldix internal idle contention stretch [07ed205] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1057 |
+| Z80N-LDIX-SKIP-WRITE-CONTENTION-STRETCH | pass9 ldix skip contention stretch [b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1198 |
+| IM2-ACK-VECTOR-EI-GRACE | pass8 im2 ack vector ei grace [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1296 |
+| CPU-CHAINED-PREFIX-DD-ED-WALKS | pass9 chained prefix dd ed walks [b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1360 |
+| CPU-CB-INNER-BYTE-M1-CALLBACK | pass8 cb inner byte m1 callback [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1403 |
+| Z80N-PUSH-NN-WZ-LO-ONLY | pass8 push nn wz lo only [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1438 |
+| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-TAKEN | pass9 ldws incdecz after djnz [was Pass-9 b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1501 |
+| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-NOT-TAKEN | v13 cpu 01 ldws incdecz after djnz not taken | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1559 |
+| Z80N-LDPIRX-FLAGS-FIXTURE-PRESENT | pass10 ldpirx flags present [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1571 |
+| Z80N-ADD-HL-A-FORCE-FC-ZERO | pass10 add hl a force carry zero [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1604 |
+| IM2-RETI-DECODE-SIMULTANEITY-NESTED-ISR | pass10 im2 reti decode simultaneity [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1649 |
+| V11-CPU-01-IM2-DDFD-ED-NO-RETI | v11 cpu 01 im2 ddfd ed no reti | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1720 |
+| V11-CPU-02-Z80N-PIXELDN-BAND3-WRAP-PRESERVES-H-HIGH | v11 cpu 02 pixeldn band3 wrap preserves h high | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1785 |
+| V11-CPU-02-Z80N-PIXELDN-ROW191-WRAP-UNCHANGED | v11 cpu 02 pixeldn row191 wrap unchanged [guard] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1817 |
+| V12-CPU-NIT-02-Z80N-OUTINB-EXTENDED-M1-CONTEND-NO-MREQ | v12 cpu nit 02 outinb extended m1 contend no mreq | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1945 |
+| V14-CPU-01-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu 01 inc bc updates incdecz for ldws | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2041 |
+| V14-CPU-01-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu 01 dec bc updates incdecz for ldws | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2100 |
+| V14-CPU-01-INC-HL-MUST-NOT-UPDATE-INCDECZ | v14 cpu 01 inc hl does not update incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2169 |
+| V14-CPU-NIT-01-A-DD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 dd inc bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2257 |
+| V14-CPU-NIT-01-B-FD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 fd inc bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2318 |
+| V14-CPU-NIT-01-C-DD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 dd dec bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2367 |
+| V14-CPU-NIT-01-D-FD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 fd dec bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2414 |
+| V14-CPU-NIT-01-E-DD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | v14 cpu nit 01 dd djnz updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2479 |
+| V14-CPU-NIT-01-F-FD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | v14 cpu nit 01 fd djnz updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2528 |
+| V17-CPU-01-IM2-INT-REQ-HELD-IN-PULSE-MODE-VHDL-170 | v17 cpu 01 im2 int req held in pulse mode | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2597 |
+| V17-Z80N-01a-BSRF-UB-FREE-VHDL-1006-1014 | v17 z80n 01 bsrf shift ge 16 fills ones | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2659 |
+| V17-Z80N-01b-BSLA-UB-FREE-VHDL-992 | v17 z80n 01 bsla shift ge 16 zero | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2700 |
+| V17-CPU-NIT-04-BSRA-UB-FREE-VHDL-1006-1014 | v17 cpu nit 04 bsra shift ge 16 sign fill | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2788 |
+| V18R-CPU-NIT-01-LDPIRX-MEMPTR-LO-STROBE | v18r cpu nit 01 ldpirx memptr lo strobe | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2841 |
+| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-CTC7 | v18r cpu 02 dma raise no pollute ctc7 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2894 |
+| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-ULA | v18r cpu 02 dma raise no pollute ula | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2925 |
+| V19-IM2-03-INT-UNQ-ONE-SHOT-AFTER-ISR | v19 im2 03 int unq one shot after isr | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3018 |
+| V19R-CPU-01-INT-REQ-PULSE-SYNTHESIS-MULTI-FRAME-VHDL-101 | v19r cpu 01 int req pulse synthesis multi frame | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3131 |
+| V21-IM2-01-INT-LINE-GATED-ON-IM-MODE-VHDL-150-1974 | v21 im2 01 int line gated on im mode | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3230 |
+| CPU-SOFTRESET-01 | soft reset preserves BC/DE/HL | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3334 |
+| CPU-SOFTRESET-02 | soft reset preserves the shadow set BC'/DE'/HL' | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3337 |
+| CPU-SOFTRESET-03 | soft reset preserves IX/IY | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3340 |
+| CPU-SOFTRESET-04 | soft reset sets the t80n reset state: PC=0 SP=FFFF AF=FFFF I=0 IFF/IM=0 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3343 |
+| CPU-HARDRESET-01 | hard reset zeroes the register file (power-on model) | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3354 |
+| PERF-SLNMI-01-ENABLE-CB-NOT-POLLED-WHILE-LATCH-CLEAR | stackless-NMI enable callback is not polled per instruction while the RETN latch is clear (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3417 |
+| PERF-SLNMI-02-ENABLE-CB-POLLED-WHILE-LATCH-SET | stackless-NMI enable callback is polled once per instruction while the RETN latch is set (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3461 |
+| PERF-SLNMI-03-CLEARING-ENABLE-MIDHANDLER-ABANDONS-LATCH | clearing NR 0xC0 bit 3 during the handler abandons the RETN latch and the RETN pops the real stack (zxnext.vhd:2074-2075) | zxnext.vhd:2074-2075 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3513 |
+| PERF-SLNMI-04-STATE-LOAD-CLEARING-LATCH-DISARMS-FUSE | a state load that clears the RETN latch also disarms the FUSE-side latch, so the next RETN is an ordinary stack return (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3562 |
+| V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175 | v22 im2 01 on reti clears im2 int req latch | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3634 |
 
 ## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`
 

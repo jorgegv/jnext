@@ -3,6 +3,7 @@
 ## Unreleased (2026-11-07)
 
 ### User Features
+- `--esxdos-stub` now serves a loaded NEX its own directory when no `--esxdos-stub-root` is given
 - Much faster emulation of programs that HALT or wait on the Copper: 20 to 84 % fewer host instructions per frame, same output (suggested by @shrek128)
 
 ### Bug Fixes
@@ -14,6 +15,7 @@
 - NEX: header bit 6 and byte 152 follow the loaders: V1.3 non-zero skips classic screens, an unknown value loads, V1.2 ignores bit 6
 - A .szx saved from a 128K, +2A/+3 or Pentagon now keeps the AY registers, so music and effects survive a reload
 - macOS: a file opened from the Finder (double-click, Open With, Dock) now loads instead of being ignored
+- NextZXOS no longer freezes on a blank grey screen when an interrupt lands right after LD A,I (e.g. a quick SPACE at the Welcome screen)
 
 ### Contributors in this release
 - @shrek128, @vmorilla, @Luzie, @shadowphiar
