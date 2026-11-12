@@ -20,6 +20,7 @@
 #include "../row_id.h"
 
 void run_esxdos_hostfs_rows(int& passed, int& failed);
+void run_esxdos_write_rows(int& passed, int& failed);
 
 namespace {
 
@@ -1319,6 +1320,7 @@ int main() {
     // suite still prints one Total: line and the manifest still pins one
     // number for it.
     run_esxdos_hostfs_rows(passed, failed);
+    run_esxdos_write_rows(passed, failed);   // GH #457
 
     const int total = passed + failed;
     std::printf("Total: %d Passed: %d Failed: %d Skipped: 0\n", total, passed, failed);

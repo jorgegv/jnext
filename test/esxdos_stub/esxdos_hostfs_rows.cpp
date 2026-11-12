@@ -240,13 +240,14 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
         EsxdosHostFs::StatInfo st;
         hcheck("HFS-02",
                "a '..' segment that would leave the root is refused with "
-               "esx_epath (19), so the escaping path is never even formed",
-               hfs.stat("../outside/secret.txt", st) == EsxdosHostFs::kEpath,
+               "esx_enotdir (17), as NextZXOS answers it (measured), so the "
+               "escaping path is never even formed",
+               hfs.stat("../outside/secret.txt", st) == EsxdosHostFs::kEnotdir,
                "got " + hex2(hfs.stat("../outside/secret.txt", st)));
         hcheck("HFS-03",
                "a '..' buried mid-path escapes no better than a leading one",
                hfs.stat("sub/../../outside/secret.txt", st) ==
-                   EsxdosHostFs::kEpath);
+                   EsxdosHostFs::kEnotdir);
         hcheck("HFS-04", "a bare '..' is refused",
                hfs.stat("..", st) == EsxdosHostFs::kEpath);
         hcheck("HFS-05",
@@ -265,7 +266,7 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
                hfs.stat("c:/hello.txt", st) == EsxdosHostFs::kOk);
         hcheck("HFS-09",
                "a drive qualifier does not smuggle a '..' past the check",
-               hfs.stat("c:/../outside/secret.txt", st) == EsxdosHostFs::kEpath);
+               hfs.stat("c:/../outside/secret.txt", st) == EsxdosHostFs::kEnotdir);
 
         // HFS-10..12 and HFS-90..92 -- the symlink-refusal rows -- live in
         // esxdos_symlink_test (POSIX-only: Windows, and wine, cannot create
@@ -331,12 +332,12 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
                "any host — this refusal must not depend on whether "
                "std::filesystem::path re-splits it, which differs by platform",
                hfs.stat("a\\\\..\\\\..\\\\outside\\\\secret.txt", st) ==
-                   EsxdosHostFs::kEpath,
+                   EsxdosHostFs::kEnotdir,
                "err=" + hex2(hfs.stat("a\\\\..\\\\..\\\\outside\\\\secret.txt", st)));
         hcheck("HFS-95",
                "and a mixed-separator escape is refused as well",
                hfs.stat("sub/..\\\\../outside/secret.txt", st) ==
-                   EsxdosHostFs::kEpath);
+                   EsxdosHostFs::kEnotdir);
 
         hcheck("HFS-17",
                "a SUBDIRECTORY is reachable — the precedent resolve_sibling() "
@@ -507,7 +508,7 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
                "refused before anything is made",
                hfs.open("../escaped.bin", EsxdosHostFs::kModeWrite |
                                               EsxdosHostFs::kModeCreatTrunc,
-                        th) == EsxdosHostFs::kEpath &&
+                        th) == EsxdosHostFs::kEnotdir &&
                    !fs::exists(base / "escaped.bin"));
         uint8_t mh = 0;
         hcheck("HFS-109",
@@ -709,8 +710,8 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
         do_open(emu, "../outside/secret.txt", EsxdosHostFs::kModeRead, e3);
         hcheck("HFS-56",
                "the escape refusal is visible to the GUEST as Fc=1 with "
-               "esx_epath in A, through the real dispatcher",
-               e3 == EsxdosHostFs::kEpath, "A=" + hex2(e3));
+               "esx_enotdir in A, through the real dispatcher",
+               e3 == EsxdosHostFs::kEnotdir, "A=" + hex2(e3));
     }
     {
         // The legacy in-memory handle (1) and the extended-NEX handles (2, 3)
@@ -1099,8 +1100,8 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
         const std::string cwd3 = peek_str(emu, kBuf, end3);
         hcheck("HFS-81",
                "a chdir that would climb out of the root is refused with "
-               "esx_epath, and the CWD is left where it was",
-               handled && cy(up) && rega(up) == EsxdosHostFs::kEpath &&
+               "esx_enotdir, and the CWD is left where it was",
+               handled && cy(up) && rega(up) == EsxdosHostFs::kEnotdir &&
                    cwd3 == "C:/SUB/",
                "A=" + hex2(rega(up)) + " cwd='" + cwd3 + "'");
 

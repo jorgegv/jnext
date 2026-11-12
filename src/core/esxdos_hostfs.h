@@ -57,15 +57,15 @@ public:
         kEio          = 6,   // esx_eio
         kEinval       = 7,   // esx_einval
         kEacces       = 8,   // esx_eacces
-        kEnospc       = 9,   // esx_enospc   — F_RMDIR of a non-empty directory (measured)
+        kEnospc       = 9,   // esx_enospc  : F_RMDIR of a non-empty directory (measured)
         kEnfile       = 12,  // esx_enfile   — out of handles
         kEbadf        = 13,  // esx_ebadf
         kEnotdir      = 17,  // esx_enotdir
         kEexist       = 18,  // esx_eexist
-        kEpath        = 19,  // esx_epath    — a bare '..' above the root, see resolve()
+        kEpath        = 19,  // esx_epath   : a bare '..' above the root, see resolve()
         kEnosys       = 20,  // esx_enosys   — mode this class does not serve
-        kErdonly      = 24,  // esx_erdonly  — a read-only file; F_OPEN's answer on a read-only root
-        kEdevicebusy  = 31,  // esx_edevicebusy — a change on a write-protected volume (measured)
+        kErdonly      = 24,  // esx_erdonly : a read-only file; F_OPEN's answer on a read-only root
+        kEdevicebusy  = 31,  // esx_edevicebusy: a change on a write-protected volume (measured)
     };
 
     // F_CHMOD attribute bits, in B (values) and C (mask): z88dk

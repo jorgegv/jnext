@@ -1781,38 +1781,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     // from the z88dk asm_esx_f_*.asm headers; the answers are
                     // NextZXOS 2.09's, measured (esxdos_hostfs.h). On success A
                     // is whatever it was (NextZXOS leaves junk there): 0 here.
-                    case 0xAD:    // F_UNLINK — A=drive, IX=filespec (wildcards)
+                    case 0xAD:    // F_UNLINK: A=drive, IX=filespec (wildcards)
                         if (const uint8_t err = esxdos_hostfs_.unlink(read_filespec(r.IX)))
                             return fail(err);
                         return done(0x00);
-                    case 0xB0:    // F_RENAME — A=drive, IX=source, DE=destination
+                    case 0xB0:    // F_RENAME: A=drive, IX=source, DE=destination
                         if (const uint8_t err = esxdos_hostfs_.rename(
                                 read_filespec(r.IX), read_filespec(r.DE)))
                             return fail(err);
                         return done(0x00);
-                    case 0xAA:    // F_MKDIR — A=drive, IX=path
+                    case 0xAA:    // F_MKDIR: A=drive, IX=path
                         if (const uint8_t err = esxdos_hostfs_.mkdir(read_filespec(r.IX)))
                             return fail(err);
                         return done(0x00);
-                    case 0xAB:    // F_RMDIR — A=drive, IX=path
+                    case 0xAB:    // F_RMDIR: A=drive, IX=path
                         if (const uint8_t err = esxdos_hostfs_.rmdir(read_filespec(r.IX)))
                             return fail(err);
                         return done(0x00);
-                    case 0xAE: {  // F_TRUNCATE — A=drive, IX=filespec, BCDE=new size
+                    case 0xAE: {  // F_TRUNCATE: A=drive, IX=filespec, BCDE=new size
                         const uint32_t size = (static_cast<uint32_t>(r.BC) << 16) | r.DE;
                         if (const uint8_t err =
                                 esxdos_hostfs_.truncate(read_filespec(r.IX), size))
                             return fail(err);
                         return done(0x00);
                     }
-                    case 0xA2: {  // F_FTRUNCATE — A=handle, BCDE=new size
+                    case 0xA2: {  // F_FTRUNCATE: A=handle, BCDE=new size
                         if (!EsxdosHostFs::owns_handle(handle)) break;
                         const uint32_t size = (static_cast<uint32_t>(r.BC) << 16) | r.DE;
                         if (const uint8_t err = esxdos_hostfs_.ftruncate(handle, size))
                             return fail(err);
                         return done(handle);
                     }
-                    case 0xAF:    // F_CHMOD — A=drive, IX=filespec, B=values, C=mask
+                    case 0xAF:    // F_CHMOD: A=drive, IX=filespec, B=values, C=mask
                         if (const uint8_t err = esxdos_hostfs_.chmod(
                                 read_filespec(r.IX), static_cast<uint8_t>(r.BC >> 8),
                                 static_cast<uint8_t>(r.BC)))
@@ -1875,7 +1875,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         set_a_and_carry(0x0B, true);
                     return true;
                 }
-                case 0x93: { // M_GETERR — A=code (0: custom message at IX), B=1, DE=buffer
+                case 0x93: { // M_GETERR: A=code (0: custom message at IX), B=1, DE=buffer
                     // Same scope gate as M_GETSETDRV. B=0 raises a BASIC error
                     // report and does not return on a Next; there is no BASIC
                     // behind a direct load, so it, and any other B, get the
