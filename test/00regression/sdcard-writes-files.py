@@ -16,9 +16,11 @@ card's write journal"), not from the C++ that writes the file:
         0xFFFFFFFF + 512 bytes) or a kept-file record (0xFFFFFFFF u32, L u32,
         n u16, the name, the file's bytes: L - 2 - n of them)
 
-Prints "sectors=<count of sector records>" and then one line per kept-file
-record, in file order: "file <name> <bytes in hex>". Exit status 1 on anything
-the table does not allow.
+A later kept-file record supersedes an earlier one (there is one kept file per
+journal; the file on disk may hold superseded ones until the next bind compacts it).
+Prints "sectors=<count of sector records>" and then, when there is a kept file,
+the last one: "file <name> <bytes in hex>". Exit status 1 on anything the table
+does not allow.
 """
 import struct
 import sys
@@ -51,7 +53,7 @@ def main():
             sys.exit("a bad name length")
         name = j[pos + 10 : pos + 10 + n].decode("ascii")
         data = j[pos + 10 + n : pos + 8 + length]
-        files.append((name, data))
+        files = [(name, data)]
         pos += 8 + length
     print("sectors=%d" % sectors)
     for name, data in files:
