@@ -1005,12 +1005,11 @@ int main() {
         put(dir_a / "data.bin", "AAAA");
         put(dir_b / "data.bin", "BBBB");
         put(dir_x / "data.bin", "XXXX");
-        // A TAP with one 17-byte header block (flag 0, type 3, name, len 0).
+        // A TAP with one 19-byte header block (flag 0, type 3, name, 6 zero bytes, checksum).
         {
             std::vector<uint8_t> tap = {0x13, 0x00, 0x00, 0x03};
             for (char c : std::string("gh490     ")) tap.push_back(static_cast<uint8_t>(c));
-            tap.push_back(' ');
-            for (int i = 0; i < 6; ++i) tap.push_back(0);
+            for (int i = 0; i < 6; ++i) tap.push_back(0);   // len, param1, param2
             uint8_t x = 0;
             for (std::size_t i = 2; i < tap.size(); ++i) x ^= tap[i];
             tap.push_back(x);
