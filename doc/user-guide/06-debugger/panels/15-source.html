@@ -2218,6 +2218,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#opening-another-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opening another file
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#following-the-disassembly" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4188,13 +4199,15 @@
 
 <h1 id="source">Source<a class="headerlink" href="#source" title="Permanent link">&para;</a></h1>
 <p>The source line the CPU is running, read from the program's source map
-(<a href="../source-debugger/index.html">The Source Debugger</a>).</p>
+(<a href="../source-debugger/index.html">The Source Debugger</a>), or any other file the map names.</p>
 <p>At the top, the source steps — <strong>Into</strong>, <strong>Over</strong>, <strong>Out</strong>, <strong>Back</strong> and
 <strong>Reverse</strong> — and <strong>Load Source Map...</strong> / <strong>Load Memory.txt...</strong> to load a source map (an SLD or a z88dk map)
 or NextBuild symbols by hand, and <strong>Locate File...</strong>, enabled while the tab says
 <em>source file not found</em>. The steps are available while the machine is
 paused and a source map is loaded; <strong>Back</strong> and <strong>Reverse</strong> also need the trace
-log and rewind. The same steps and loads are also in <strong>Debug ▸ Source</strong>.</p>
+log and rewind. The same steps and loads are also in <strong>Debug ▸ Source</strong>. Under them, the <strong>File</strong> list opens any
+file the map names (see <a href="#opening-another-file">Opening another file</a>); <strong>Debug ▸ Source ▸ Open
+Source File...</strong> raises this tab and opens the list.</p>
 <p>Under them, a line naming the position — <code>main.bas:120  $8A3C  P2E</code>, ending in the tag of the memory the
 opcode comes from (<code>ROM0</code>, <code>DIVROM</code> when it is not a RAM page; the physical
 address in <a href="../index.html#which-memory-an-address-is-in">the physical style</a>) — and
@@ -4250,6 +4263,22 @@ tooltip says <em>not mapped now</em>. The column shows and edits only the debugg
 disassembly does; those of GDB, ZRCP, DeZog or a script are in the Breakpoints list only, and a click
 never removes them (<a href="08-breakpoints.html#whose-breakpoints-the-gutters-show-and-change">whose breakpoints the gutters show and change</a>). It works
 while the machine runs.</p>
+<h3 id="opening-another-file">Opening another file<a class="headerlink" href="#opening-another-file" title="Permanent link">&para;</a></h3>
+<p>The <strong>File</strong> list holds every file the source map names, by the name the map gives it (two
+<code>util.c</code> in different directories stay apart). It is available while the machine is paused and a
+source map is loaded, like the source steps. Choosing a file shows it from its first line, in
+<a href="#following-the-disassembly">browsing</a> mode: the label reads <code>util.c  (browsing; the PC is at
+main.c:18, $8A3C)</code>, with no address of its own, and the highlight and the arrow stay on the CPU's
+line only when that line is in the file shown. The gutter, the right-click menu, <strong>Run to Here</strong>
+and <strong>Copy with Addresses</strong> act on the file shown, as for any other: click a line to set a
+breakpoint on it. A line of banked code whose page is not mapped now still takes a breakpoint,
+tied to its page (the tooltip says <em>not mapped now; click to set</em>); a line with no code adds
+nothing and says <em>no code at util.c:2</em>. A file the tab cannot find says <em>source file not found</em>
+with <strong>Locate File...</strong> available; a z88dk <code>.m4</code> file shows its m4 text when the listing was
+loaded with the map, and otherwise says its lines cannot be shown (use the disassembly).</p>
+<p>Choosing the file the CPU is in is <strong>Go to PC Line</strong>; choosing the file already open changes
+nothing. The view stays where you put it through the refreshes while paused, and the
+Disassembly tints the instructions of the first line without scrolling.</p>
 <h3 id="following-the-disassembly">Following the disassembly<a class="headerlink" href="#following-the-disassembly" title="Permanent link">&para;</a></h3>
 <p>The Source tab and the <a href="03-disassembly.html">Disassembly</a> follow each other's selection. They are
 two views of the same code, and a selection in one lights what it covers in the other:</p>
@@ -4265,13 +4294,13 @@ two views of the same code, and a selection in one lights what it covers in the 
   tinted the same violet. An address with no source line (the ROM, a library) leaves the Source tab
   as it was.</li>
 </ul>
-<p>When the line you clicked is not the line the CPU is on, the tab is <strong>browsing</strong>: the label describes
+<p>When the line you clicked is not the line the CPU is on (or you chose a file from the <strong>File</strong> list), the tab is <strong>browsing</strong>: the label describes
 the address you clicked, not the PC, and ends <code>(browsing; the PC is at main.bas:10, $8000)</code> (or
 <code>the PC is in no source line</code>), and the Source tab shows that line's file, which may be another one
-than the PC's. The arrow stays on the CPU's own line, and the highlight too, when that line is in
+than the PC's. (A file chosen from the list is shown from its top, and its label has no address.) The arrow stays on the CPU's own line, and the highlight too, when that line is in
 the file shown. The view stays where you put it through the refreshes while paused. If the clicked line's file cannot be found, the tab says so and <strong>Locate File...</strong> and <strong>Go to PC Line</strong> stay available. Browsing ends at
 the next stop (a breakpoint, a step, a Pause, a rewind), when the machine runs, when the source
-map is cleared or another is loaded, and when you press <strong>Go to PC Line</strong>, which is enabled only while browsing and shows
+map is cleared or another is loaded (or no longer names the file), and when you press <strong>Go to PC Line</strong>, which is enabled only while browsing and shows
 the CPU's line again. A click on an instruction of the CPU's own line is not browsing.</p>
 <p>While the machine runs, neither tab follows the other.</p>
 <p>The tint is a pale violet in Light and a dark violet in Dark and Borland; it differs from the

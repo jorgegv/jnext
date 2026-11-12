@@ -2577,10 +2577,11 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
   none) and where it is; paused only. Double-click a value to edit it;
   right-click a row to watch it
 - **Source** - with a source map (a z88dk `-debug` map or a sjasmplus
-  SLD), the source line the CPU is on, with line numbers, a breakpoint
-  column, a current-line arrow, coverage tint and the Disassembly’s
-  right-click menu; source Step Into, Over, Out, Back and Reverse, also
-  in **Debug \> Source**
+  SLD), the source line the CPU is on, or any file the map names (a File
+  list, also **Debug \> Source \> Open Source File…**), with line
+  numbers, a breakpoint column, a current-line arrow, coverage tint and
+  the Disassembly’s right-click menu; source Step Into, Over, Out, Back
+  and Reverse, also in **Debug \> Source**
 - **Breakpoints** - execution, read, write and I/O watchpoints, in one
   panel. An I/O watchpoint address of **00**-**FF** matches any port
   with that low byte (**FE** catches every ULA access, whatever the high

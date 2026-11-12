@@ -1501,6 +1501,30 @@ int main() {
         }
     }
 
+    {   // SRCFILES-01 (GH #480): the file set the Source tab's File list shows
+        const MemSpace p4 = MemSpace::page(4);
+        SourceMap m;
+        // Oracle: the issue's request (every file the map names) - ranges incl. zero-width and
+        // aliases, "./" dropped, no duplicates, byte order.
+        m.replace({{p4, 0x8000, 0x8003, {"b.c", 1, 0}},
+                   {p4, 0x8003, 0x8005, {"b.c", 2, 0}},
+                   {p4, 0x9000, 0x9004, {"./a.c", 1, 0}},
+                   {p4, 0x9004, 0x9004, {"z.h", 7, 0}},
+                   {p4, 0xA000, 0xA002, {"anchor.s", 1, 0}}},
+                  {{"q.inc", 3, 4}}, std::nullopt, "mem");
+        const std::set<std::string> first = m.files();
+        m.clear();
+        const bool cleared = m.files().empty();
+        m.replace({{p4, 0x8000, 0x8003, {"c.c", 1, 0}}}, {}, std::nullopt, "mem");
+        const std::set<std::string> second = m.files();
+        check("SRCFILES-01",
+              "files() holds every file the map names, in byte order: ranges (\"./a.c\" as a.c), a "
+              "zero-width-only file, an alias-only file, each once; clear() empties it; a second "
+              "replace() leaves only its own",
+              first == std::set<std::string>{"a.c", "anchor.s", "b.c", "q.inc", "z.h"} && cleared &&
+                  second == std::set<std::string>{"c.c"});
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

@@ -3163,7 +3163,7 @@ where the loader puts the bytes.</p>
 bank when the command is typed and runs it from <code>$2000</code> there, so at the moment the map is attached
 nothing says whether the right command is in memory, and a landing says nothing about it either.
 The map therefore has its own rule, on top of the tape machinery above. <code>SourceMap::dot()</code>
-(<code>source_map.h:194</code>) is set by the z88dk adapter (<a href="04-3-z88dk-map.html">7.4.3</a>, rule 5).</p>
+(<code>source_map.h:199</code>) is set by the z88dk adapter (<a href="04-3-z88dk-map.html">7.4.3</a>, rule 5).</p>
 <ul>
 <li><strong>Always deferred.</strong> <code>load_source_map()</code> defers a dot map whatever <code>verify_at_first_execution</code> says
   (<code>verify_at_first_execution</code>, <code>debugger_source.cpp:502</code>), when it has any byte check. <code>add_check()</code> marks the check <code>dot</code> only if

@@ -318,6 +318,7 @@ private:
     QAction* source_out_action_ = nullptr;
     QAction* source_back_action_ = nullptr;
     QAction* source_reverse_action_ = nullptr;
+    QAction* source_open_action_ = nullptr;   // GH #480
     QAction* frame_back_action_ = nullptr;
     QAction* run_to_eof_action_ = nullptr;
     QAction* run_to_eosl_action_ = nullptr;

@@ -3199,7 +3199,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse <em>movement</em> is not counted: hover
   and Kempston mouse capture must not redraw a paused window;</li>
 <li>a flag, <code>source_file_changed</code>: whether the loaded source file's modification time differs from the one
-  loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:551</code>), so an edit on disk still shows.</li>
+  loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:574</code>), so an edit on disk still shows.</li>
 </ul>
 <p><code>refresh_window()</code> (<code>debugger_manager.cpp:960</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the

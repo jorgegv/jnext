@@ -3165,7 +3165,7 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   code view's context menu. The Disassembly calls it with the one place of the line, its address and the
   <code>entry.space</code> it was drawn with (in <code>DisasmPanel::contextMenuEvent()</code>, <code>add_annotation_actions</code> is called at <code>src/debugger/disasm_panel.cpp:986</code>); the
   Source tab calls it with the line's <code>st.starts</code> (in <code>SourcePanel::fill_context_menu()</code>, <code>add_annotation_actions</code> is called at
-  <code>src/debugger/source_panel.cpp:1208</code>), so a line that compiled to several places gets a submenu per entry,
+  <code>src/debugger/source_panel.cpp:1369</code>), so a line that compiled to several places gets a submenu per entry,
   a place not mapped now stays editable (the key does not depend on the mapping), and a line with no code
   has the entries disabled with the tab's <em>no code at</em> tooltip. Both views therefore offer the same words in
   the same order (<code>QANN-11</code>).</li>
@@ -3195,7 +3195,7 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   formats do not include them (<code>QANN-04</code>). The Source tab does not draw comments (it shows the user's own
   file).</li>
 <li><strong>The Map menu.</strong> <code>DebuggerWindow</code> adds <strong>Open Annotations…</strong>, <strong>Save Annotations</strong> and <strong>Save Annotations As…</strong>
-  (<code>connect</code>, <code>src/debugger/debugger_window.cpp:890-894</code>), connected to <code>DebuggerManager::on_open_annotations()</code>
+  (<code>connect</code>, <code>src/debugger/debugger_window.cpp:899-903</code>), connected to <code>DebuggerManager::on_open_annotations()</code>
   (<code>debugger_manager.cpp:784</code>), <code>on_save_annotations()</code> (<code>:760</code>) and <code>on_save_annotations_as()</code> (<code>:750</code>); Save with no
   current file is Save As, which appends <code>.jdp</code> to a name without a suffix. Failures are warnings with the
   backend's <code>why</code> (an Open names the line).</li>

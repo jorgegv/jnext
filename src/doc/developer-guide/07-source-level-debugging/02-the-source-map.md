@@ -107,6 +107,10 @@ as the map holds it* (`SourceLocation::file`, no suffix matching): every
 non-zero-width range as `{line, space, lo, hi_excl}`, ordered by line. Coverage
 uses it ([7.1](01-which-memory.md)).
 
+`files()` is the set of every file the map names (ranges, zero-width ones included, and aliases),
+under the same exact names, in byte order; the Source tab's File list shows it
+([7.7](07-frontends.md)).
+
 ## Embedded texts
 
 `SourceText { origin, lines }` is the text of a source file the toolchain did

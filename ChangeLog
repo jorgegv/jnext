@@ -6,6 +6,9 @@
 - `--esxdos-stub` now serves a loaded NEX its own directory when no `--esxdos-stub-root` is given
 - Much faster emulation of programs that HALT or wait on the Copper: 20 to 84 % fewer host instructions per frame, same output (suggested by @shrek128)
 
+### Developer Features
+- Source tab opens any file the source map names (File list), to browse it and set breakpoints in its gutter
+
 ### Bug Fixes
 - Programs loaded on the Next that print through the ROM (RST $10) no longer hang; the warm start records NextZXOS at its Command Line
 - Loading a NEX keeps the NextZXOS system variables and screen pixels, and sets the border as the NEX loaders do
