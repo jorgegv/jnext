@@ -821,24 +821,37 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.file("in.txt", "in");
         wcheck("HFW-105",
                "F_UNLINK, F_TRUNCATE and F_CHMOD of \"../x\" are esx_enotdir (as NextZXOS "
-               "answers an escape, [dotdot] S002F..S0031) and the file outside is intact",
+               "answers an escape, [dotdot] S002F..S0031), of a bare \"..\" esx_enoent "
+               "([dotdot] S0037, S0029, S002A) and the file outside is intact",
                f.hfs.unlink("../outside.txt") == H::kEnotdir &&
                    f.hfs.truncate("../outside.txt", 1) == H::kEnotdir &&
                    f.hfs.chmod("../outside.txt", 0, H::kChmodWrite) == H::kEnotdir &&
                    f.hfs.unlink("C:/../outside.txt") == H::kEnotdir &&
+                   f.hfs.unlink("..") == H::kEnoent &&
+                   f.hfs.truncate("C:/..", 1) == H::kEnoent &&
+                   f.hfs.chmod("..", 0, H::kChmodWrite) == H::kEnoent &&
                    slurp(base / "ct" / "outside.txt") == outside_before &&
                    host_writable(base / "ct" / "outside.txt"));
         wcheck("HFW-106",
                "F_RENAME with the source or the destination outside the root is refused "
-               "(esx_enotdir, [dotdot] S001A, S001B) and nothing moves",
+               "(esx_enotdir, [dotdot] S001A, S001B; a bare \"..\": source esx_enoent, destination "
+               "esx_einval, S002B, S002C) and nothing moves",
                f.hfs.rename("../outside.txt", "in2.txt") == H::kEnotdir &&
                    f.hfs.rename("in.txt", "../moved.txt") == H::kEnotdir &&
-                   f.has("in.txt") && !fs::exists(base / "ct" / "moved.txt") &&
+                   f.hfs.rename("..", "in2.txt") == H::kEnoent &&
+                   f.hfs.rename("in.txt", "C:/..") == H::kEinval && f.has("in.txt") && !fs::exists(base / "ct" / "moved.txt") &&
                    fs::exists(base / "ct" / "outside.txt"));
         wcheck("HFW-107",
                "F_MKDIR and F_RMDIR of \"../x\" and a wildcard F_UNLINK of \"../*.txt\" are "
-               "refused (esx_enotdir, [dotdot] S0015, S002E, S002F); nothing outside changes",
+               "refused (esx_enotdir, [dotdot] S0015, S002E, S002F); a bare \"..\" is esx_einval for "
+               "F_MKDIR, esx_enoent for F_RMDIR, esx_enotdir for F_OPENDIR and F_CHDIR "
+               "(S0028, S0038, S0034, S0035); nothing outside changes",
                f.hfs.mkdir("../newdir") == H::kEnotdir && f.hfs.rmdir("../x") == H::kEnotdir &&
+                   f.hfs.mkdir("..") == H::kEinval && f.hfs.rmdir("..") == H::kEnoent && [&] {
+                       uint8_t dh = 0;
+                       return f.hfs.opendir("C:/..", H::kDirLfnOnly, dh) == H::kEnotdir &&
+                              f.hfs.chdir("..") == H::kEnotdir;
+                   }() &&
                    f.hfs.unlink("../*.txt") == H::kEnotdir && !fs::exists(base / "ct" / "newdir") &&
                    fs::exists(base / "ct" / "outside.txt") && fs::exists(base / "ct" / "o2.txt"));
     }
