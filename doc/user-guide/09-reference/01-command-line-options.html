@@ -4729,20 +4729,29 @@ Saving…</strong> in the window. Cannot be combined with RZX recording or
 playback: the trap skips the ROM routine, which a recording cannot
 replay.</dd>
 <dt><strong>--esxdos-stub</strong></dt>
-<dd>Answer a few <code>RST $08</code> esxDOS calls for any program, for the whole
+<dd>
+<p>Answer a few <code>RST $08</code> esxDOS calls for any program, for the whole
 session: the version query, one in-memory file and <code>run sibling.nex</code>
 chaining. Every other call goes to the code at <code>$0008</code>. For programs
 run without NextZXOS; a directly loaded NEX gets a fuller set
 automatically (see <a href="../05-running-programs/index.html#programs-that-need-nextzxos">Programs that need
 NextZXOS</a>).
 With NextZXOS booted it answers in front of NextZXOS’s own esxDOS
-for those calls, and NextZXOS’s file commands stop working.</dd>
+for those calls, and NextZXOS’s file commands stop working.</p>
+<p>With a NEX to load (<strong>--load</strong>, or a bare file name) and no
+<strong>--esxdos-stub-root</strong>, the directory the NEX is in is served to it
+as if it had been given as <em>DIR</em> (below): read-only unless
+<strong>--esxdos-stub-writable</strong> is also given, and in place of the
+in-memory file. To keep the in-memory file, load the NEX without
+<strong>--esxdos-stub</strong>.</p>
+</dd>
 <dt><strong>--esxdos-stub-root</strong> <em>DIR</em></dt>
 <dd>
 <p>Serve the host directory <em>DIR</em> to the guest through the esxDOS file
 and directory calls, instead of the single in-memory file. Implies
 <strong>--esxdos-stub</strong>. Read-only unless <strong>--esxdos-stub-writable</strong> is
-also given.</p>
+also given. <em>DIR</em> replaces the default of <strong>--esxdos-stub</strong>, the
+directory of the loaded NEX.</p>
 <p><strong>Which programs see <em>DIR</em>, and which do not.</strong> A NEX loaded with
 <strong>--load</strong> sees it, and so do dot commands: those reach the
 filesystem through <code>RST $08</code>, which is what jnext intercepts.
@@ -4775,8 +4784,9 @@ option is for programs jnext loads itself.</p>
 </dd>
 <dt><strong>--esxdos-stub-writable</strong></dt>
 <dd>Allow the guest to create, truncate and write files under
-<strong>--esxdos-stub-root</strong>. Off by default, and deliberately a separate
-flag: a guest write changes a real file on the host immediately, and
+<strong>--esxdos-stub-root</strong>, or in the directory of the loaded NEX when
+no root is given. Off by default, and deliberately a separate flag:
+a guest write changes a real file on the host immediately, and
 rewinding the emulator cannot undo it. Reads are fully rewindable;
 writes are not.</dd>
 <dt><strong>--rtc</strong> <em>“YYYY-MM-DD HH:MM:SS”</em></dt>
