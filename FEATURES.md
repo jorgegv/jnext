@@ -186,7 +186,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 
 ## Browser build
 
-- Embed JNEXT in a web page or an itch.io game with `jnext.mount()`; pause, reset, load and volume from JavaScript; several players per page; every option is a command-line flag or `--set` key, documented in the man page and diffed against the code; published with every public release as `jnext-<version>-web.zip`, ready to host; a copy-and-paste widget (one `div`, one script tag) with light and dark themes, title bar, progress bar and pause/reset/mute/fullscreen toolbar.
+- Embed JNEXT in a web page or an itch.io game with `jnext.mount()`; pause, reset, load and volume from JavaScript; several players per page; every option is a command-line flag or `--set` key, documented in the man page and diffed against the code; published with every public release as `jnext-<version>-web.zip`, ready to host; a copy-and-paste widget (one `div`, one script tag) with light and dark themes, title bar, progress bar and pause/reset/mute/fullscreen toolbar; the desktop's CRT effect (scanlines, soft scanlines, TV, PC monitor) on WebGL, off by default, through `--crt` in `args` or the `startup.crt_*` settings in `set`.
 
 ## CLI
 - `--machine`, `--load`, `--headless`, `--tape-realtime`, `--tape-save`, `--esxdos-stub`

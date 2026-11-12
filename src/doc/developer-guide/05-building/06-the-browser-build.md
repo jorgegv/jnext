@@ -40,7 +40,7 @@ the output of `git grep -n EMSCRIPTEN` over the CMake files.
 | `CMakeLists.txt` | `if(EMSCRIPTEN)` around `jnext_web` | Defines the `jnext_web` target: `main.cpp`, `browser_frontend.cpp` and `web/web_controller.cpp`; `OUTPUT_NAME` `jnext-<version>`; `JNEXT_BROWSER=1`; the web link options (`-sENVIRONMENT=web`, `-sMODULARIZE=1`, `-sEXPORT_NAME=createJnextModule`, `-sINVOKE_RUN=0`, `-sEXIT_RUNTIME=0`, the exported runtime methods and functions, `-lidbfs.js`); the two `--extern-post-js` files, `web/jnext-image.js` then the configured `jnext_api.js`; and a `configure_file` of `jnext_api.js.in`, of each example page and of `jnext-widget.js.in`. |
 | `src/core/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` around `find_package(PNG)` | No libpng package search: the port target above stands in. |
 | `src/core/CMakeLists.txt` | `elseif(EMSCRIPTEN)` in the network-library choice | No network library: `sdcard_provisioner_net_web.cpp` is self-contained (a portable SHA-256, no download). |
-| `src/platform/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` | `jnext_platform` does not link `jnext_remote` or `jnext_script`. |
+| `src/platform/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` (twice) | `jnext_platform` does not link `jnext_remote` or `jnext_script`; and the sources `browser_crt.cpp` and `crtemu_browser_impl.cpp` (the CRT effect) are left out of every other build. |
 | `src/esp01/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` (twice) and `if(NOT WIN32 AND NOT EMSCRIPTEN)` (twice) | The ESP-01 suites (`esp_at_test`, `esp_socket_test`, `esp_sigpipe_test`) and their `add_test` lines are not built. |
 | `test/CMakeLists.txt` | `if(EMSCRIPTEN)` | The test executables link with `-sNODERAWFS=1 -sENVIRONMENT=node`, an 8 MB stack, `-sSTACK_OVERFLOW_CHECK=2`, `-sEXIT_RUNTIME=1`, and at `-O1`. |
 | `test/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` and `if(NOT WIN32 AND NOT EMSCRIPTEN)`, many | The suites whose subject the browser build compiles out or cannot run (processes, threads, sockets). One arm each; they are declared `# os: native` (or `posix`, `linux`) in `test/unit-tests.conf`, see [4.2](../04-testing/02-declared-suites-and-pinned-counts.md). |
@@ -57,8 +57,10 @@ Source files carry the same two symbols. The list below is the output of
   when the browser ends the pointer lock itself; `take_audio_fill_stats()`, the bench's
   audio fill-events seam.
 - `src/platform/headless_app.cpp` and `headless_app.h`: no script host.
-- `src/platform/sdl_display.cpp`: the canvas is created as an OpenGL window and the
-  page owns its size (window scale does nothing).
+- `src/platform/sdl_display.cpp` and `sdl_display.h`: the canvas is created as an OpenGL window and the
+  page owns its size (window scale does nothing); `set_crt()` and the CRT draw (below).
+- `src/platform/browser_crt.cpp`, `browser_crt.h` and `crtemu_browser_impl.cpp`: the CRT
+  effect, whole files.
 - `src/platform/debug_servers.cpp` and `debug_servers.h`: no protocol servers (the three servers are neither declared nor started).
 - `src/core/nextpi_provisioner.cpp`: compiled out.
 - `src/core/video_recorder.cpp`: no process to run ffmpeg, so the call fails as a
@@ -211,6 +213,35 @@ repaint and show progress instead of freezing for the length of the boot. With n
 image the provisioner declines the download without reading stdin (a stdin read
 is `window.prompt()` in a browser).
 
+*The CRT effect.* `--crt` and the three `startup.crt_*` keys (the `WEB` frontend bit in
+`config_keys.h`; the native SDL-only build still warns that they have no effect) turn on
+the desktop's crtemu shader, off by default. The SDL renderer of the page is a WebGL 1
+context (SDL's GLES2 driver), and a canvas holds one context, so crtemu draws on SDL's own:
+`BrowserCrt` (`platform/browser_crt.cpp`) owns a `crtemu_t` built right after the renderer, in
+the same host-loader mode as the Qt overlay (GL entry points from `SDL_GL_GetProcAddress`,
+`crtemu_browser_impl.cpp` being the one translation unit with crtemu's implementation, which
+carries patch 4: the vertex buffer and attribute are stated again at every present). With the
+shader on, `SdlDisplay::upload_frame` calls `BrowserCrt::present` instead of drawing:
+`SDL_FlushRenderer` hands the context over (it flushes SDL's batch and forgets its state
+cache), the framebuffer is swapped to ABGR into the object's own buffer, the viewport is SDL's
+letterbox rectangle (`SDL_GetRenderLogicalPresentationRect`, in output pixels, from the top;
+`SDL_GetRenderOutputSize` gives the height: the Current form returns the logical size under a
+logical presentation) turned into a GL viewport by `crt_shader::gl_viewport`, the context state
+crtemu does not set is set (framebuffer 0, blend and scissor off, every vertex attribute array
+but 0 disabled: SDL's GLES2 renderer enables attribute 1 with no buffer bound, and WebGL 1
+refuses a draw while an enabled array has no buffer), and `crtemu_present` draws, its own clear
+painting the letterbox bars. No SDL present is needed: the page shows the drawing buffer at the
+end of the frame. The effect is chosen once, after `SdlApp::init` (`main.cpp`; the rule is
+`crt_shader::resolve`, the one the Qt window uses too), and fixed for the run; SDL draws
+nothing while the shader runs. The software scanlines are 25% black on the odd rows of the
+640x512 logical screen, as the Qt overlay's. A shader that cannot be built (no WebGL renderer,
+a compile or link failure) leaves the run going: one `CRT effect:` warning, then the
+scanlines for the soft style (or when `startup.crt_filter` is also set) and the plain picture
+otherwise. `BrowserCrt` is destroyed before the renderer, because crtemu deletes its GL
+objects with the context alive. A lost WebGL context is not handled, as for SDL's own
+renderer. crtemu's WebGL arm needed two patches in the host-loader mode (8: the wrap enums, 9:
+the viewport size), listed in `third_party/crtemu/README.jnext.md`.
+
 ## How it is tested
 
 | target | tree | what runs | rows or suites | CI leg |
@@ -218,7 +249,7 @@ is `window.prompt()` in a browser).
 | `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..15 | with `regression-wasm` |
 | `make unit-test-wasm` | `build/wasm-unit-test` | the SDL-only unit suites under node, through `test/node-run.sh`; suites marked `# os: native` are absent by name | the manifest | `unit-wasm` |
 | `make regression-wasm` | `build/wasm-core` | the regression suite's screenshot rows, each pixel-equal to the native reference, plus the functional rows whose `os=` names `emscripten` | `regression_tests.conf` | `regression-wasm` |
-| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-16, WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
+| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-16, WBENCH-01 to WBENCH-12, BCRT-01 to BCRT-13 (the CRT effect: `test/browser/crt.mjs`, structure derived from the vendored shaders, not reference images) (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
 
 - `make wasm-core` proves the module starts, imports no shared memory, catches an exception,
   refuses what the browser cannot do, and hashes correctly on the portable SHA-256.
@@ -236,6 +267,7 @@ is `window.prompt()` in a browser).
   only its colours are set from the theme variables). The WIDGET rows (`widget.mjs`)
   include the two code blocks of the user guide's section 10.5, extracted from its
   source and run verbatim, so the guide's snippets cannot drift from what is tested.
+- `crt_shader_policy_test` (CRT-POL-15 to 18: the start-up rule and the GL viewport) and `config_keys_test` (SETK-CRT-01: the `WEB` bit) cover the CRT effect's rules natively.
 - Native suites test the browser's policy without a browser: `web_api_test` (the option
   table, the argv and the man page's browser section; `make cli-check` runs it),
   `browser_policy_test` (the frame-callback gate and the page's refusals),
