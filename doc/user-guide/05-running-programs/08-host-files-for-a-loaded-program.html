@@ -4246,7 +4246,13 @@ NEX's own directory if you give both). <code>F_OPEN</code>, <code>F_READ</code>,
 on the real files in that directory, including files in subdirectories. Edit a
 file on the host, re-run, and the program reads the new version — nothing to
 copy.</p>
-<p>It is read-only unless you also pass <code>--esxdos-stub-writable</code>.</p>
+<p>It is read-only unless you also pass <code>--esxdos-stub-writable</code>. With that flag
+the program can also delete (<code>F_UNLINK</code>, wildcards too), rename (<code>F_RENAME</code>),
+make and remove directories (<code>F_MKDIR</code>, <code>F_RMDIR</code>), truncate files
+(<code>F_TRUNCATE</code>, <code>F_FTRUNCATE</code>) and change their read-only bit (<code>F_CHMOD</code>), and
+ask for the text of an error code (<code>M_GETERR</code>): the calls a program uses to
+manage its save slots, its data directory or a log, answered the way NextZXOS
+answers them.</p>
 <p>A few things about the short form, <code>--esxdos-stub</code> with no directory:</p>
 <ul>
 <li>It replaces the single in-memory file a directly loaded NEX otherwise gets,
@@ -4312,13 +4318,20 @@ the SD-card image.</p>
 <li>lookup ignores case, so a program asking for <code>LEVEL1.BIN</code> finds <code>level1.bin</code></li>
 <li>the esxDOS drive prefixes <code>*:</code>, <code>$:</code> and <code>c:</code> all mean the same directory</li>
 <li>long names get a synthesised 8.3 short name, the way FAT does, for programs
-  that ask for short names, and a path can use either name</li>
+  that ask for short names, and a path can use either name. A short name keeps
+  naming the same file for as long as it exists, so deleting <code>LONGNA~1.TXT</code>
+  does not make <code>LONGNA~2.TXT</code> mean another file, as on a FAT card</li>
+<li>a name your host answers to that the directory does not list (an NTFS short
+  name, a differently normalised spelling of an accented name) is refused,
+  never handed to another file</li>
+<li>a trailing dot is dropped from a name, as FAT does (<code>save.</code> is <code>save</code>)</li>
 <li>the current directory reads back the way NextZXOS reports it: <code>C:/</code>, then
   each directory's 8.3 name followed by <code>/</code>, such as <code>C:/MYGAME~1/DATA/</code></li>
 </ul>
-<p>Anything that would leave the directory is refused, and so is any symbolic
-link — links are not listed either, so a program is never offered a name it
-would then be refused.</p>
+<p>Anything that would leave the directory is refused (<code>esx_enotdir</code>, as
+NextZXOS answers a path that does not exist), and so is any symbolic link —
+links are not listed either, so a program is never offered a name it would then
+be refused.</p>
 <h2 id="things-it-will-not-do">Things it will not do<a class="headerlink" href="#things-it-will-not-do" title="Permanent link">&para;</a></h2>
 <p>Some calls are refused outright rather than answered approximately, because a
 wrong answer is worse than a clear refusal:</p>
@@ -4334,14 +4347,36 @@ wrong answer is worse than a clear refusal:</p>
   fiction</li>
 <li><code>M_P3DOS</code>, which calls NextZXOS ROM routines directly, including raw sector
   reads. A directory has no sectors to give.</li>
+<li><code>F_CHMOD</code> of the hidden and system attributes, of the archive attribute
+  cleared, and of a directory's attributes: a host file or directory has no
+  such attribute for the next <code>F_STAT</code> or <code>F_READDIR</code> to show, so the call is
+  refused with <code>esx_enosys</code> instead of answering success and showing something
+  else. Setting or clearing the read-only bit works, and means the host write
+  permission</li>
+<li>a name that ends in a space (a card keeps it, a host may strip it). A name
+  with <code>"</code>, <code>&lt;</code>, <code>&gt;</code> or <code>|</code> in it is refused with <code>esx_einval</code>, as on the card,
+  and so is a wildcard in a name that is being created</li>
+<li><code>F_RENAME</code> never replaces a file that is already there (<code>esx_eexist</code>), as on
+  the card</li>
 </ul>
+<p>A few answers differ in small ways from the card, on purpose: a renamed current
+directory shows its new name in <code>F_GETCWD</code>; <code>F_TRUNCATE</code> on a write-protected
+folder is refused (the card answers success and loses the write); and
+<code>F_OPEN</code> for writing on a write-protected folder is <code>esx_erdonly</code>.</p>
 <h2 id="writing-and-rewind">Writing, and rewind<a class="headerlink" href="#writing-and-rewind" title="Permanent link">&para;</a></h2>
 <p><code>--esxdos-stub-writable</code> is a second, separate flag on purpose. A guest write
 lands on a real file on your disk straight away, and JNEXT's rewind cannot take
 it back — the emulator's timeline goes backwards, your filesystem does not.</p>
 <p>Reads are fully rewindable: an open file's position travels in the rewind
 snapshot and is restored with it, so rewinding and re-running re-reads exactly
-the same bytes.</p>
+the same bytes. Deletions, renames, new and removed directories, truncations and
+read-only changes are writes too, and are not undone: a handle that a rewind
+finds pointing at a file that has since been deleted or renamed is closed, not
+reopened.</p>
+<p>Without <code>--esxdos-stub-writable</code> the folder answers like a write-protected
+card: every call that would change something is refused with <code>esx_edevicebusy</code>,
+after the checks that do not write (a missing name is still <code>esx_enoent</code>, an
+existing directory <code>esx_eexist</code>), and nothing on the host changes.</p>
 <h2 id="timestamps">Timestamps<a class="headerlink" href="#timestamps" title="Permanent link">&para;</a></h2>
 <p>Directory entries and <code>F_STAT</code> report the host file's own modification time.
 <code>M_GETDATE</code>, which asks what time it is <em>now</em>, answers from the emulated clock

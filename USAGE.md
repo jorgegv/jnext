@@ -661,11 +661,13 @@ stop working — `.ls` reports *No such file or dir*. This option is for
 programs jnext loads itself.
 
 **--esxdos-stub-writable**  
-Allow the guest to create, truncate and write files under
-**--esxdos-stub-root**, or in the directory of the loaded NEX when no
-root is given. Off by default, and deliberately a separate flag: a guest
-write changes a real file on the host immediately, and rewinding the
-emulator cannot undo it. Reads are fully rewindable; writes are not.
+Allow the guest to create, truncate, write, delete and rename files,
+make and remove directories, and set or clear the read-only bit of files
+under **--esxdos-stub-root**, or in the directory of the loaded NEX when
+no root is given: the program can delete any file there. Off by default,
+and deliberately a separate flag: a guest write changes a real file on
+the host immediately, and rewinding the emulator cannot undo it. Reads
+are fully rewindable; writes, deletions and renames are not.
 
 **--rtc** *“YYYY-MM-DD HH:MM:SS”*  
 Pin the RTC to a fixed date and time (a frozen clock) instead of
@@ -1738,6 +1740,10 @@ at the next reset or soft reset. It answers:
   exits;
 - `run NAME.nex` (`M_EXECCMD`), which loads another NEX file from the
   same directory;
+- the error message query (`M_GETERR`, with `B`=1): the text NextZXOS
+  gives for an error code, copied to the buffer in `DE` with bit 7 set
+  on its last character. `B`=0, which raises a BASIC error report and
+  does not return on a Next, gets the error below;
 - for a NEX whose header asks for its file to stay open: reading that
   file, including data appended after its banks (also through the
   block-streaming calls), and reading, never writing, other files in the
@@ -1770,6 +1776,16 @@ as well. It is meant for developing a program that reads data files:
 edit them in place and re-run, instead of copying them into the SD-card
 image each time.
 
+With **--esxdos-stub-writable** it also changes the host files:
+`F_UNLINK` (wildcards too), `F_RENAME`, `F_MKDIR`, `F_RMDIR`,
+`F_TRUNCATE`, `F_FTRUNCATE` and `F_CHMOD`, and `M_GETERR` gives the text
+of an error code. Each answers as NextZXOS 2.09 was measured to answer
+it (the probe and its recording are in the source tree), including which
+error code a refusal carries. A write-protected root (no
+**--esxdos-stub-writable**) answers every call that would write with
+`esx_edevicebusy`, after every check that does not write, and changes
+nothing.
+
 **It does not make the host directory the SD card.** Only programs that
 reach the filesystem through `RST $08` can see it — a directly loaded
 NEX, and dot commands. NextZXOS cannot: its Browser, file selector,
@@ -1801,10 +1817,42 @@ that builds a path as the current directory plus a name gets one that
 works. The error codes for missing and mistyped paths are the ones
 NextZXOS returns.
 
-Paths are confined to *DIR*. A path that climbs out of it is refused,
-whichever separator it uses, a guest absolute path such as `/data/x.bin`
-means `DIR/data/x.bin` and never the host’s own `/data`, and symbolic
-links are refused rather than followed.
+Paths are confined to *DIR*. A path that climbs out of it is refused
+with `esx_enotdir` (a bare `..` above the root, which NextZXOS treats as
+a missing name, with `esx_epath` for `F_STAT`), whichever separator it
+uses, a guest absolute path such as `/data/x.bin` means `DIR/data/x.bin`
+and never the host’s own `/data`, and symbolic links are refused rather
+than followed.
+
+What the write calls do, where it is not obvious. `F_UNLINK` deletes
+files only: a directory is matched and left alone, with success, as on
+NextZXOS; `F_RMDIR` removes an empty directory, refuses the current one,
+and calls a non-empty one `esx_enospc`. A wildcard in `F_UNLINK` and
+`F_CHMOD` is matched as NextZXOS matches it (the name and the extension,
+split at the last dot, each matched alone, `?` for one character or
+none, `*` only as the last character of either half, long or 8.3 name,
+any case); it works in the name only, never in a directory, `F_TRUNCATE`
+takes the first file it matches and `F_RENAME`, `F_MKDIR` and `F_RMDIR`
+refuse a wildcard. `F_RENAME` never replaces a file, moves a source into
+an existing directory, and a directory it renames keeps its open files
+and its place as the current directory. The read-only bit of a file
+follows the host: a file without write permission is read-only for
+`F_STAT`, `F_FSTAT`, `F_READDIR`, `F_OPEN` for writing, `F_UNLINK` and
+`F_TRUNCATE`, and `F_CHMOD` with `A_WRITE` changes that permission. An
+8.3 short name (`LONGNA~1.TXT`) keeps naming the same file after others
+are deleted, as on FAT, and a name the host answers to that the
+directory listing does not hold (an NTFS short name, a differently
+normalised spelling) is refused rather than reaching another file.
+
+Where it differs from NextZXOS, deliberately: `F_CHMOD` of the hidden
+and system bits, of the archive bit cleared, and of a directory is
+refused with `esx_enosys` (a host file has no such attributes; faking it
+would make `F_STAT` contradict the answer); a name ending in a space is
+refused with `esx_einval` (NextZXOS keeps the space, a host may strip
+it); a renamed current directory shows its new name in `F_GETCWD`;
+`F_TRUNCATE` on a write-protected root is refused where NextZXOS answers
+success and loses the write; and `F_OPEN` for writing on a
+write-protected root is `esx_erdonly`.
 
 A *DIR* that does not exist, or is not a directory, is an error at
 start-up: jnext says so and exits non-zero rather than running with the
