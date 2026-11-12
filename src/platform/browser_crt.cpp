@@ -27,7 +27,6 @@ std::unique_ptr<BrowserCrt> BrowserCrt::create(SDL_Renderer* renderer, crt_shade
     std::unique_ptr<BrowserCrt> b(new BrowserCrt());
     b->crt_ = crtemu_create(static_cast<crtemu_type_t>(style), nullptr);
     if (!b->crt_) {
-        SDL_FlushRenderer(renderer);   // a failed build may have left state behind
         why = "the effect could not be built on this graphics driver";
         return nullptr;
     }
@@ -36,7 +35,6 @@ std::unique_ptr<BrowserCrt> BrowserCrt::create(SDL_Renderer* renderer, crt_shade
     const uint32_t clear = 0;
     crtemu_frame(b->crt_, const_cast<uint32_t*>(&clear), 1, 1);
     crtemu_frame(b->crt_, nullptr, 1, 1);
-    SDL_FlushRenderer(renderer);   // crtemu changed the context's state: SDL must not trust its cache
     b->t0_us_ = now_us();
     return b;
 }
@@ -58,9 +56,9 @@ void BrowserCrt::present(SDL_Renderer* renderer, const uint32_t* argb, int w, in
     const crt_shader::GlRect vp = crt_shader::gl_viewport(
         static_cast<int>(lr.x), static_cast<int>(lr.y), static_cast<int>(lr.w), static_cast<int>(lr.h), out_h);
 
-    // The state of the context that crtemu does not set itself, and that SDL's renderer left
-    // different from WebGL's default: blending on, and attribute array 1 enabled with no buffer.
-    glDisable(GL_BLEND);
+    // SDL's GLES2 renderer enables vertex attribute arrays 0 and 1 and binds a buffer to neither
+    // until its first draw, which it never makes now: WebGL 1 refuses a draw while an enabled array
+    // has no buffer, so disable every array but crtemu's own (0). Then the viewport is SDL's letterbox.
     GLint max_attribs = 0;
     glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &max_attribs);
     for (GLint i = 1; i < max_attribs; ++i) glDisableVertexAttribArray(static_cast<GLuint>(i));

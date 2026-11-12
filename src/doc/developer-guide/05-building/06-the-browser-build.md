@@ -221,19 +221,18 @@ context (SDL's GLES2 driver), and a canvas holds one context, so crtemu draws on
 the same host-loader mode as the Qt overlay (GL entry points from `SDL_GL_GetProcAddress`,
 `crtemu_browser_impl.cpp` being the one translation unit with crtemu's implementation, which
 carries patch 4: the vertex buffer and attribute are stated again at every present). With the
-shader on, `SdlDisplay::upload_frame` calls `BrowserCrt::present` instead of drawing:
-`SDL_FlushRenderer` hands the context over (it flushes SDL's batch and forgets its state
-cache), the framebuffer is swapped to ABGR into the object's own buffer, the viewport is SDL's
-letterbox rectangle (`SDL_GetRenderLogicalPresentationRect`, in output pixels, from the top;
+shader on, `SdlDisplay::upload_frame` calls `BrowserCrt::present` instead of drawing: the
+framebuffer is swapped to ABGR into the object's own buffer, the viewport is SDL's letterbox
+rectangle (`SDL_GetRenderLogicalPresentationRect`, in output pixels, from the top;
 `SDL_GetRenderOutputSize` gives the height: the Current form returns the logical size under a
-logical presentation) turned into a GL viewport by `crt_shader::gl_viewport`, the context state
-crtemu does not set is set (framebuffer 0, blend and scissor off, every vertex attribute array
-but 0 disabled: SDL's GLES2 renderer enables attribute 1 with no buffer bound, and WebGL 1
-refuses a draw while an enabled array has no buffer), and `crtemu_present` draws, its own clear
-painting the letterbox bars. No SDL present is needed: the page shows the drawing buffer at the
-end of the frame. The effect is chosen once, after `SdlApp::init` (`main.cpp`; the rule is
-`crt_shader::resolve`, the one the Qt window uses too), and fixed for the run; SDL draws
-nothing while the shader runs. The software scanlines are 25% black on the odd rows of the
+logical presentation) turned into a GL viewport by `crt_shader::gl_viewport`, every vertex
+attribute array but 0 is disabled (SDL's GLES2 renderer enables arrays 0 and 1 and binds a buffer
+to neither until its first draw, which it never makes now, and WebGL 1 refuses a draw while an
+enabled array has no buffer), and `crtemu_present` draws, its own clear painting the letterbox
+bars. SDL's own state needs no care, because it draws nothing while the shader runs. No SDL
+present is needed: the page shows the drawing buffer at the end of the frame. The effect is chosen
+once, after `SdlApp::init` (`main.cpp`; the rule is
+`crt_shader::resolve`, the one the Qt window uses too), and fixed for the run. The software scanlines are 25% black on the odd rows of the
 640x512 logical screen, as the Qt overlay's. A shader that cannot be built (no WebGL renderer,
 a compile or link failure) leaves the run going: one `CRT effect:` warning, then the
 scanlines for the soft style (or when `startup.crt_filter` is also set) and the plain picture
