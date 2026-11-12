@@ -14,6 +14,7 @@
 - NEX: header bit 6 and byte 152 follow the loaders: V1.3 non-zero skips classic screens, an unknown value loads, V1.2 ignores bit 6
 - A .szx saved from a 128K, +2A/+3 or Pentagon now keeps the AY registers, so music and effects survive a reload
 - macOS: a file opened from the Finder (double-click, Open With, Dock) now loads instead of being ignored
+- NextZXOS no longer freezes on a blank grey screen when an interrupt lands right after LD A,I (e.g. a quick SPACE at the Welcome screen)
 
 ### Contributors in this release
 - @shrek128, @vmorilla, @Luzie, @shadowphiar
