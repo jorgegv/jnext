@@ -178,9 +178,10 @@ void run_esxdos_write_rows(int& passed, int& failed)
         const std::string before = fingerprint(f.root);
 
         wcheck("HFW-01",
-               "read-only root: F_UNLINK of an existing file answers esx_edevicebusy "
-               "(31) and the file stays ([ro] S0008)",
-               f.hfs.unlink("a.txt") == H::kEdevicebusy && f.has("a.txt"));
+               "read-only root: F_UNLINK of an existing file, and a wildcard that matches "
+               "one, answers esx_edevicebusy (31) and the file stays ([ro] S0008, S000D)",
+               f.hfs.unlink("a.txt") == H::kEdevicebusy && f.has("a.txt") &&
+                   f.hfs.unlink("*.txt") == H::kEdevicebusy && f.has("a.txt") && f.has("b.txt"));
         wcheck("HFW-02",
                "read-only root: F_RENAME answers esx_edevicebusy, nothing moved ([ro] S0013)",
                f.hfs.rename("a.txt", "z.txt") == H::kEdevicebusy &&
@@ -201,8 +202,10 @@ void run_esxdos_write_rows(int& passed, int& failed)
                f.hfs.truncate("a.txt", 1) == H::kEdevicebusy && f.size_of("a.txt") == 4);
         wcheck("HFW-06",
                "read-only root: F_CHMOD answers esx_edevicebusy after the lookup, even for "
-               "a mask of 0 ([ro] S002C, S002F); a missing name is still esx_enoent (S0030)",
+               "a mask of 0, and for a wildcard ([ro] S002C, S002F, S0032); a missing name "
+               "is still esx_enoent (S0030)",
                f.hfs.chmod("a.txt", 0, H::kChmodWrite) == H::kEdevicebusy &&
+                   f.hfs.chmod("*.txt", 0, H::kChmodWrite) == H::kEdevicebusy &&
                    f.hfs.chmod("a.txt", 1, 0) == H::kEdevicebusy &&
                    f.hfs.chmod("none.txt", 0, H::kChmodWrite) == H::kEnoent &&
                    host_writable(f.root / "a.txt"));
