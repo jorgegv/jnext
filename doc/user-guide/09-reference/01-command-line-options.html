@@ -4607,18 +4607,23 @@ identified by its <strong>--sdcard-sha256</strong> digest or else by its size an
 modification time: a <em>FILE</em> made against another image is refused
 (exit status 1), and so is a file that is not a <strong>jnext</strong> SD-writes
 file. It is created at the first write and holds only the sectors
-the machine wrote (516 bytes each). Excludes <strong>--sdcard-readonly</strong>
-and <strong>--sdcard-file-add</strong>. A recording of the warm start is keyed on
-the image and on <em>FILE</em>’s content, so it is taken again after the
-machine has written. Files read from the image by the host (the
-ROMs, a snapshot’s card identity) do not see the writes. See <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why
-JNEXT needs an SD-card
+the machine wrote (516 bytes each) and the one file jnext’s esxDOS
+stand-in keeps for a directly loaded NEX (see <strong>esxDOS calls from a
+directly loaded NEX</strong>), stored when the program closes it and handed
+back to the stand-in at the next start, whatever the program: it
+belongs to the card, not to the NEX that wrote it. Excludes
+<strong>--sdcard-readonly</strong> and <strong>--sdcard-file-add</strong>. A recording of the
+warm start is keyed on the image and on <em>FILE</em>’s sectors, so it is
+taken again after the machine has written one; the stand-in’s file
+is not card state and does not change it. Files read from the image
+by the host (the ROMs, a snapshot’s card identity) do not see the
+writes. See <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
 image</a>.</dd>
 <dt><strong>--sdcard-writes-reset</strong></dt>
 <dd>Discard the writes kept in the <strong>--sdcard-writes</strong> <em>FILE</em> before the
-card is mounted, so the run starts on the image as it is. Requires
-<strong>--sdcard-writes</strong>. A file that is not a <strong>jnext</strong> SD-writes file
-is refused, never removed.</dd>
+card is mounted, the stand-in’s file included, so the run starts on
+the image as it is. Requires <strong>--sdcard-writes</strong>. A file that is not
+a <strong>jnext</strong> SD-writes file is refused, never removed.</dd>
 <dt><strong>--sdcard-file-add</strong> <em>FILE</em></dt>
 <dd>Copy host <em>FILE</em> — a file, or a directory with everything in it —
 into the SD-card image and <strong>exit without starting emulation</strong>.

@@ -25,6 +25,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -387,6 +388,36 @@ int main() {
               len_after == good_len && tok && still,
               "ok=" + std::to_string(ok_tok) + " bad=" + std::to_string(bad_tok) +
               " len=" + std::to_string(good_len) + "/" + std::to_string(len_after));
+        sd_write_journal::forget_all_for_test();
+        std::remove(jf.c_str());
+        std::remove(img.c_str());
+    }
+
+    // SDP-SDW-02: a kept-file append that really fails: commit_file answers false,
+    // FILE keeps its last whole length, the earlier kept file is still the kept one.
+    {
+        const std::string img = make_image(8);
+        const std::string jf = img + ".jsdw";
+        sd_write_journal::Binding b;
+        b.bytes = 8 * 512;
+        b.sha256.fill(0x5C);
+        std::string why;
+        sd_write_journal::bind(img, jf, b, false, why);
+        auto j = sd_write_journal::for_image(img);
+        const std::vector<uint8_t> first = {1, 2, 3};
+        const bool ok1 = j->commit_file("/A.DAT", first);
+        const auto good_len = std::filesystem::file_size(jf);
+        FsizeLimit lim;
+        lim.lower(good_len + 10);          // torn: the 8-byte head fits, the rest does not
+        const bool bad = j->commit_file("/B.DAT", std::vector<uint8_t>(200, 0x77));
+        lim.restore();
+        const auto len_after = std::filesystem::file_size(jf);
+        const auto kf = j->kept_file();
+        check("SDP-SDW-02",
+              "a kept-file append that really fails (RLIMIT_FSIZE) returns false, FILE keeps its "
+              "last whole length (no torn tail) and the earlier kept file is still the kept one",
+              ok1 && !bad && len_after == good_len && kf && kf->name == "/A.DAT" && kf->data == first,
+              "len=" + std::to_string(good_len) + "/" + std::to_string(len_after));
         sd_write_journal::forget_all_for_test();
         std::remove(jf.c_str());
         std::remove(img.c_str());

@@ -4458,7 +4458,8 @@ programs most often ask for:</p>
 <li>the current drive, which is always <code>C:</code>;</li>
 <li>one small file kept in memory, so a high score or a settings file can be
   saved and read back during the session (it is not written to disk, and it is
-  gone when JNEXT closes);</li>
+  gone when JNEXT closes, unless you run with <code>--sdcard-writes FILE</code>: the file is
+  then kept in <em>FILE</em> when the program closes it, and is there at the next run);</li>
 <li><code>run</code> of another NEX file in the same folder, for programs that come in
   several parts.</li>
 </ul>

@@ -231,9 +231,16 @@ write is the one kept. One store also runs after `callMain` returns, because a b
 `--sdcard-writes-reset` happens before the hook exists (the file is then absent and the record
 is deleted), a best-effort one on `pagehide`, and a final one that `destroy()` awaits before it
 resolves. `player.resetCard()` calls `jnext_web_reset_card()` (`web_controller.cpp`), which
-runs the journal's own `clear()` (the hook deletes the record) and then the same restart as
-`reset('program')`. Two `keepWrites` players of one image on one page share a key; the last
-store wins. A visit after the program saved records the warm start again, because the card
+runs `Emulator::forget_card_writes()` (the journal's `clear()`, whose hook deletes the record,
+and the stand-in's in-memory file, which a cold boot would otherwise carry over) and then the
+same restart as `reset('program')`. A NEX loaded with `file` is answered by the esxDOS stand-in (3.8), which keeps one file; the
+journal stores it as a second kind of record, when the program closes the file, so it travels in
+the same record, needs no other flag or store, and is reset with the card. The record has no
+program in its key: a changed NEX on the same page and image reads the old save. The stand-in's
+file is not card state, so a save through it leaves the warm-start key alone and the next visit
+restores the recording instead of making it again. Files in a host directory a page names with
+`--esxdos-stub-root` are in memory only. Two `keepWrites` players of one image on one page share
+a key; the last store wins. A visit after the program saved records the warm start again, because the card
 the recording was made on is not the one it now boots from.
 
 ## How it is tested
@@ -243,7 +250,7 @@ the recording was made on is not the one it now boots from.
 | `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..15 | with `regression-wasm` |
 | `make unit-test-wasm` | `build/wasm-unit-test` | the SDL-only unit suites under node, through `test/node-run.sh`; suites marked `# os: native` are absent by name | the manifest | `unit-wasm` |
 | `make regression-wasm` | `build/wasm-core` | the regression suite's screenshot rows, each pixel-equal to the native reference, plus the functional rows whose `os=` names `emscripten` | `regression_tests.conf` | `regression-wasm` |
-| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-17, WBW-01 to WBW-12 (the kept writes, `writes.mjs`: the stored record is compared byte for byte with the journal of a native run of the same program), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
+| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-17, WBW-01 to WBW-17 (the kept writes, `writes.mjs`: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
 
 - `make wasm-core` proves the module starts, imports no shared memory, catches an exception,
   refuses what the browser cannot do, and hashes correctly on the portable SHA-256.

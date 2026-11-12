@@ -1,7 +1,8 @@
 // The SD-card image in the browser: fetch it cross-origin, check its SHA-256 on
 // every visit, keep it in the Cache API, put it in the in-memory filesystem, and
 // persist two things in IndexedDB: the warm-start recording and, for a page that
-// asks (keepWrites), the sectors the guest wrote to the card.
+// asks (keepWrites), the sectors the guest wrote to the card and the file JNEXT's
+// esxDOS stand-in keeps for it (one journal file holds both).
 //
 // Plain script, no dependencies: it defines window.JnextImage (and
 // module.exports under a CommonJS loader). Program text is ASCII.
@@ -19,7 +20,7 @@
 //
 // The card is copyrighted NextZXOS content: it is never logged, traced or
 // stored anywhere but the Cache API entry and the in-memory filesystem. What
-// keepWrites stores is only the sectors the guest wrote (a few KB), in the
+// keepWrites stores is only the sectors the guest wrote and that one file (a few KB), in the
 // visitor's own IndexedDB; the card itself is never written.
 (function (root) {
   'use strict';

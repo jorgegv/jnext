@@ -28,12 +28,16 @@ Game controllers are page-wide: give the other players
 - Writes the guest makes to the SD card are kept across reloads only when the page asks
   with `keepWrites` (10.4); without it the card lives in memory for the session. Files JNEXT
   writes (screenshots, snapshots) live in memory in either case.
-- `keepWrites` keeps what reaches the card. A program started from the NextZXOS menu, or one
-  that drives the card itself, writes there. A NEX loaded with `file` is not started by
-  NextZXOS, so its esxDOS file calls (`RST $08`) are answered by JNEXT's own stand-in, which
-  keeps one file in memory and never touches the card (the man page, "esxDOS calls from a
-  directly loaded NEX"): such a save is not kept across reloads, with or without
-  `keepWrites`.
+- `keepWrites` keeps what reaches the card (a program started from the NextZXOS menu, or one
+  that drives the card itself, writes there) and the file a NEX loaded with `file` saves
+  through esxDOS. Such a NEX is not started by NextZXOS, so JNEXT's own stand-in answers its
+  esxDOS file calls (`RST $08`); it keeps ONE file, which is stored when the program closes
+  it and is there at the next visit (the man page, "esxDOS calls from a directly loaded
+  NEX"). A program that saves two files keeps only the last one written. The file belongs to
+  the page's card and the file name, not to the program: a changed NEX on the same page reads
+  the old save, as on a real Next. A save made this way does not make the next visit record
+  the machine again. Files such a page writes to a host directory it names with
+  `--esxdos-stub-root` live in memory only.
 - With `keepWrites`, one image on one page has one set of saves: two `keepWrites` players of
   the same image on the same page share it, and the last one to store wins. After the program
   has saved, the next visit starts NextZXOS again and records the machine once more (the

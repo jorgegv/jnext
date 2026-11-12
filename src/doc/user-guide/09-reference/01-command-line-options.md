@@ -166,19 +166,24 @@ with status 1.
     modification time: a *FILE* made against another image is refused
     (exit status 1), and so is a file that is not a **jnext** SD-writes
     file. It is created at the first write and holds only the sectors
-    the machine wrote (516 bytes each). Excludes **--sdcard-readonly**
-    and **--sdcard-file-add**. A recording of the warm start is keyed on
-    the image and on *FILE*’s content, so it is taken again after the
-    machine has written. Files read from the image by the host (the
-    ROMs, a snapshot’s card identity) do not see the writes. See [Why
-    JNEXT needs an SD-card
+    the machine wrote (516 bytes each) and the one file jnext’s esxDOS
+    stand-in keeps for a directly loaded NEX (see **esxDOS calls from a
+    directly loaded NEX**), stored when the program closes it and handed
+    back to the stand-in at the next start, whatever the program: it
+    belongs to the card, not to the NEX that wrote it. Excludes
+    **--sdcard-readonly** and **--sdcard-file-add**. A recording of the
+    warm start is keyed on the image and on *FILE*’s sectors, so it is
+    taken again after the machine has written one; the stand-in’s file
+    is not card state and does not change it. Files read from the image
+    by the host (the ROMs, a snapshot’s card identity) do not see the
+    writes. See [Why JNEXT needs an SD-card
     image](../03-first-run/01-why-jnext-needs-an-sd-card-image.md).
 
 **--sdcard-writes-reset**
 :   Discard the writes kept in the **--sdcard-writes** *FILE* before the
-    card is mounted, so the run starts on the image as it is. Requires
-    **--sdcard-writes**. A file that is not a **jnext** SD-writes file
-    is refused, never removed.
+    card is mounted, the stand-in’s file included, so the run starts on
+    the image as it is. Requires **--sdcard-writes**. A file that is not
+    a **jnext** SD-writes file is refused, never removed.
 
 **--sdcard-file-add** *FILE*
 :   Copy host *FILE* — a file, or a directory with everything in it —

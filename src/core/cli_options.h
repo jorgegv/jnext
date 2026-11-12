@@ -326,12 +326,15 @@ inline constexpr Option OPTIONS[] = {
       "mounted, so the writes survive the next run. FILE belongs to\n"
       "one image (its --sdcard-sha256, else its size and\n"
       "modification time): one made against another image is\n"
-      "refused. Created at the first write. Excludes\n"
+      "refused. Created at the first write. Also keeps the one\n"
+      "file the esxDOS stand-in holds for a directly loaded NEX,\n"
+      "stored when the program closes it. Excludes\n"
       "--sdcard-readonly and --sdcard-file-add." },
     { "--sdcard-writes-reset", 0, Doc::Documented, OptId::SdcardWritesReset,
       "",
-      "Discard the writes kept in the --sdcard-writes FILE before\n"
-      "the card is mounted. Needs --sdcard-writes. A file that is\n"
+      "Discard the writes kept in the --sdcard-writes FILE (the\n"
+      "stand-in's file included) before the card is mounted. Needs\n"
+      "--sdcard-writes. A file that is\n"
       "not a jnext SD-writes file is refused, never removed." },
     // GH #417 - the three Startup settings that have a menu of their own
     // (Machine > CPU Speed, View > Scale, View > CRT) and so get a flag; every

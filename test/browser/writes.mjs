@@ -1,11 +1,13 @@
-// Browser rows WBW-01..12: the guest's writes to the SD card kept across page loads (keepWrites,
+// Browser rows WBW-01..17: the guest's writes to the SD card kept across page loads (keepWrites,
 // resetCard()), in headless Chromium (make wasm-browser-test, spec writes.mjs). Run by
 // browser-smoke.sh on the SDK's node.
 //
 // Guest: test/fixtures/nex/save_counter.nex (source demo/save_counter): it keeps a one-byte run
 // counter in raw sectors 60000 and 60001 of the card (two writes in a row), over the SPI ports (an esxDOS file would be answered by
 // JNEXT's stand-in and never reach the card), and prints "SAVE <n> OK" on the magic port, which reaches the
-// page's console. The page is the API fixture (page/api.html, mounted with the options a row gives
+// page's console. WBW-13..17 use test/fixtures/nex/esx_save_counter.nex (source demo/esx_save_counter), whose
+// counter is a file saved through esxDOS (the stand-in's file, kept in the journal), and its variant
+// esx_save_counter_b.nex (another constant byte: a changed NEX), which print "ESX <n> OK". The page is the API fixture (page/api.html, mounted with the options a row gives
 // it); the card comes from a real server on 127.0.0.1 with CORS, as in api.mjs.
 //
 // Oracles: the NATIVE run of browser-smoke.sh (the same program, twice, on a clone of the card with
@@ -27,6 +29,8 @@ const VERSION = E.SMOKE_BUILD_VERSION;
 const MODULE = `/build/jnext-${VERSION}.js`;
 const SHA = E.SMOKE_CARD_SHA256, ZIPSHA = E.SMOKE_ZIP_SHA256;
 const W1 = fs.readFileSync(path.join(ORACLE, 'w1.jsdw')), W2 = fs.readFileSync(path.join(ORACLE, 'w2.jsdw'));
+const E1 = fs.readFileSync(path.join(ORACLE, 'e1.jsdw')), E2 = fs.readFileSync(path.join(ORACLE, 'e2.jsdw')),
+      E4 = fs.readFileSync(path.join(ORACLE, 'e4.jsdw'));
 
 const h = new Harness({});
 const bLog = [];
@@ -337,6 +341,57 @@ row('WBW-12', 'keepWrites:false is the documented boolean: mount() resolves, the
   const names = await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name));
   await page.ctx.close();
   must(!names.includes('jnext-card-writes'), 'databases ' + JSON.stringify(names));
+});
+
+// WBW-13..17: the file the esxDOS stand-in keeps for a directly loaded NEX. The oracle is the native
+// journal after each run (e1, e2, e4 of browser-smoke.sh); the record is keyed by the card and the page,
+// never by the program.
+const ESXGUEST = (extra = {}) => GUEST(Object.assign({ file: '/fixture/esx_save_counter.nex', keepWrites: true }, extra));
+let esx = null;
+
+row('WBW-13', 'a directly loaded NEX saving through esxDOS, first visit with keepWrites: ESX 1 OK; within 5 s the stored record is byte-identical to the native journal after its first run', async () => {
+  esx = await newPage();
+  await visit(esx, [ESXGUEST()], 'ESX 1 OK');
+  const s = await storedWithin(esx, 5000, (s) => Object.keys(s).length === 1 && sameBytes(s[K1], E1));
+  must(s && Object.keys(s).length === 1 && sameBytes(s[K1], E1), `the record (${desc(s)}) differs from the native journal (${E1.length} bytes)`);
+});
+
+row('WBW-14', 'reload: ESX 2 OK (the save survived); the record equals the native journal after the second run; the warm start was restored, not recorded again', async () => {
+  await visit(esx, [ESXGUEST()], 'ESX 2 OK');
+  const s = await storedWithin(esx, 5000, (s) => sameBytes(s[K1], E2));
+  must(s && Object.keys(s).length === 1 && sameBytes(s[K1], E2), `the record after the reload: ${desc(s)}; native ${E2.length} bytes`);
+  must(esx.msgs.some((m) => /restored a recorded NextZXOS machine/.test(m)), 'the warm start was not restored');
+  must(!esx.msgs.some((m) => /recorded a NextZXOS-resident machine/.test(m)), 'the warm start was recorded again');
+});
+
+row('WBW-15', 'resetCard() clears the stand-in\'s file too: it resolves at the next ready, the program says ESX 1 OK, and the record equals the native journal after the first run', async () => {
+  esx.msgs.length = 0;
+  const r = await esx.evaluate(() => window.player0.resetCard().then(() => 'ready', (e) => 'rejected ' + e.message));
+  must(r === 'ready', 'resetCard(): ' + r);
+  await waitMsg(esx, 'ESX 1 OK');
+  const s = await storedWithin(esx, 5000, (s) => sameBytes(s[K1], E1));
+  await esx.ctx.close();
+  must(s && Object.keys(s).length === 1 && sameBytes(s[K1], E1), `the record after resetCard(): ${desc(s)}`);
+});
+
+row('WBW-16', 'without keepWrites the stand-in\'s file lives in memory only: ESX 1 OK on two visits, and the browser has no jnext-card-writes database', async () => {
+  const page = await newPage();
+  await visit(page, [ESXGUEST({ keepWrites: false })], 'ESX 1 OK');
+  await visit(page, [ESXGUEST({ keepWrites: false })], 'ESX 1 OK');
+  const names = await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name));
+  await page.ctx.close();
+  must(!names.includes('jnext-card-writes'), 'databases ' + JSON.stringify(names));
+});
+
+row('WBW-17', 'a changed NEX on the same page and image reads the old save: original ESX 1, ESX 2, then the variant ESX 3, then the original ESX 4; the final record equals the native sequence\'s journal', async () => {
+  const page = await newPage();
+  await visit(page, [ESXGUEST()], 'ESX 1 OK');
+  await visit(page, [ESXGUEST()], 'ESX 2 OK');
+  await visit(page, [ESXGUEST({ file: '/fixture/esx_save_counter_b.nex' })], 'ESX 3 OK');
+  await visit(page, [ESXGUEST()], 'ESX 4 OK');
+  const s = await storedWithin(page, 5000, (s) => sameBytes(s[K1], E4));
+  await page.ctx.close();
+  must(s && Object.keys(s).length === 1 && sameBytes(s[K1], E4), `the final record: ${desc(s)}; native ${E4.length} bytes`);
 });
 
 let pass = 0, fail = 0;

@@ -7,7 +7,6 @@
 #include "platform/web_api.h"
 #include "platform/sdl_app.h"
 #include "core/emulator.h"
-#include "peripheral/sd_write_journal.h"
 
 #include <SDL3/SDL.h>
 #include <emscripten.h>
@@ -167,9 +166,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_reset(int kind)
 extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_reset_card()
 {
     if (!g_app) return 1;
-    const auto journal = sd_write_journal::for_image(g_app->emulator().config().sd_card_image);
-    if (!journal) return 2;
-    journal->clear();
+    if (!g_app->emulator().forget_card_writes()) return 2;
     return jnext_web_reset(0);
 }
 

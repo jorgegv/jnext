@@ -250,17 +250,22 @@ its **--sdcard-sha256** digest or else by its size and modification
 time: a *FILE* made against another image is refused (exit status 1),
 and so is a file that is not a **jnext** SD-writes file. It is created
 at the first write and holds only the sectors the machine wrote (516
-bytes each). Excludes **--sdcard-readonly** and **--sdcard-file-add**. A
-recording of the warm start is keyed on the image and on *FILE*’s
-content, so it is taken again after the machine has written. Files read
+bytes each) and the one file jnext’s esxDOS stand-in keeps for a
+directly loaded NEX (see **esxDOS calls from a directly loaded NEX**),
+stored when the program closes it and handed back to the stand-in at the
+next start, whatever the program: it belongs to the card, not to the NEX
+that wrote it. Excludes **--sdcard-readonly** and **--sdcard-file-add**.
+A recording of the warm start is keyed on the image and on *FILE*’s
+sectors, so it is taken again after the machine has written one; the
+stand-in’s file is not card state and does not change it. Files read
 from the image by the host (the ROMs, a snapshot’s card identity) do not
 see the writes. See **SD CARD AND ROMS**.
 
 **--sdcard-writes-reset**  
 Discard the writes kept in the **--sdcard-writes** *FILE* before the
-card is mounted, so the run starts on the image as it is. Requires
-**--sdcard-writes**. A file that is not a **jnext** SD-writes file is
-refused, never removed.
+card is mounted, the stand-in’s file included, so the run starts on the
+image as it is. Requires **--sdcard-writes**. A file that is not a
+**jnext** SD-writes file is refused, never removed.
 
 **--sdcard-file-add** *FILE*  
 Copy host *FILE* — a file, or a directory with everything in it — into
@@ -1765,8 +1770,10 @@ at the next reset or soft reset. It answers:
   that keeps its own file open (below);
 - one file kept in memory: the program can create it, write it, and read
   it back under the same name, which is enough for a high-score or
-  settings file. It is never written to disk and is gone when jnext
-  exits;
+  settings file. It is never written to a host file and is gone when
+  jnext exits, unless **--sdcard-writes** is given: the file is then
+  kept in that file when the program closes it, and the next run starts
+  with it;
 - `run NAME.nex` (`M_EXECCMD`), which loads another NEX file from the
   same directory;
 - for a NEX whose header asks for its file to stay open: reading that
@@ -3045,10 +3052,13 @@ writes to the card (saves, high scores) is kept in the visitor’s browser
 is keyed by the image’s SHA-256 and the page’s path, so another image or
 another page has its own, and it holds only the sectors written, never
 the card. The page can clear it with `resetCard()`, or with
-`args: ['--sdcard-writes-reset']` for one start. Only what reaches the
-card is kept: a NEX loaded with `file` that saves through esxDOS file
-calls is answered by JNEXT’s own stand-in (see **esxDOS calls from a
-directly loaded NEX**) and never writes the card.
+`args: ['--sdcard-writes-reset']` for one start. The file a NEX loaded
+with `file` saves through esxDOS is kept too: JNEXT’s own stand-in
+answers those calls (see **esxDOS calls from a directly loaded NEX**)
+and keeps one file, which belongs to the page’s card and the file name,
+not to the program, so a changed NEX on the same page reads the old
+save, as on a real Next. Files written to a host directory a page names
+with `args: ['--esxdos-stub-root', ...]` live in the page’s memory only.
 
 `machine` *string*  
 **--machine**.
@@ -3086,8 +3096,8 @@ powers the machine on again (`'hard'`) or resets it (`'soft'`).
 `setVolume(v)` sets the master output level, `0` to `1`. `destroy()`
 stops the machine and removes the player (it waits until the saves of
 **keepWrites** are stored). `resetCard()` discards the saves kept by
-`keepWrites` and restarts the program; it needs that option, and
-resolves when the program is running again.
+`keepWrites` (the saved file included) and restarts the program; it
+needs that option, and resolves when the program is running again.
 
 ### Not available in the browser
 

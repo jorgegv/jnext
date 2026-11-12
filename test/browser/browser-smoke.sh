@@ -36,7 +36,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:17" "writes.mjs:12" "../bench/web/bench-stats-test.mjs:12" "$@")
+SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "../bench/web/bench-stats-test.mjs:12" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -137,6 +137,25 @@ for n in 1 2; do
     grep -a "^SAVE $n OK\$" "$O/w$n.log" >/dev/null || { cat "$O/w$n.log" >&2; die "oracle writes run $n did not save"; }
 done
 rm -rf "$O/w.card" "$O/w.cfg" "$O/w.jsdw"
+
+# The esxDOS stand-in's kept file (writes.mjs WBW-13..17): esx_save_counter.nex natively, twice
+# (e1.jsdw, e2.jsdw), then the same program built with another constant byte (e3.jsdw: it reads the
+# old save, as a changed NEX does on a real Next), then the original again (e4.jsdw), always on one
+# journal of one clone of the card. The clone is deleted; each journal holds only the kept file.
+cp --reflink=auto "$SCRATCH/card.img" "$O/e.card"
+n=0
+for nex in esx_save_counter esx_save_counter esx_save_counter_b esx_save_counter; do
+    n=$((n + 1))
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/e.cfg" \
+        timeout --foreground --kill-after=5s 300s "$NATIVE" --headless --sdcard "$O/e.card" --silent --machine next \
+        --sdcard-sha256 "$CARD_SHA256" --sdcard-writes "$O/e.jsdw" \
+        --rtc 2026-07-10T08:55:00 --magic-port 0xCAFE --magic-port-mode line \
+        --load "$ROOT/test/fixtures/nex/$nex.nex" --delayed-automatic-exit-frames 400 \
+        >"$O/e$n.log" 2>&1 || { cat "$O/e$n.log" >&2; die "oracle esx run $n failed"; }
+    cp "$O/e.jsdw" "$O/e$n.jsdw"
+    grep -a "^ESX $n OK\$" "$O/e$n.log" >/dev/null || { cat "$O/e$n.log" >&2; die "oracle esx run $n did not save"; }
+done
+rm -rf "$O/e.card" "$O/e.cfg" "$O/e.jsdw"
 
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
        SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg"

@@ -2448,6 +2448,25 @@ int main()
                       det("bound=%d wrote=%d planted=%d miss=%d hit=%d restored=%d", bound,
                           wrote, planted, miss, hit, tap.count(kRestored)));
             }
+            // WSR-SDW-06: a kept file is not card state: it never enters the key.
+            {
+                const std::string card = fresh("sdw6.img");
+                const bool bound = bind_j(card, kHexA);
+                const bool kept = swj::for_image(card)->commit_file("/JNHI.DAT", {0x01, 0x02});
+                const bool planted = plant_key(card, kHexA, base, 0);   // under the image digest alone
+                LogTap tap(Log::emulator());
+                auto e1_heap = std::make_unique<Emulator>();
+                make_j_emu(*e1_heap, card, kHexA);
+                const bool hit = e1_heap->ensure_warm_start_state();
+                check("WSR-SDW-06",
+                      "a journal holding only a kept-file record (no sector) leaves the key the "
+                      "image digest alone: the recording planted under it is restored and no "
+                      "'different SD image state' line is logged",
+                      bound && kept && planted && hit && tap.count(kRestored) == 1 &&
+                          tap.count(kDiffImage) == 0,
+                      det("bound=%d kept=%d planted=%d hit=%d restored=%d diff=%d", bound, kept,
+                          planted, hit, tap.count(kRestored), tap.count(kDiffImage)));
+            }
             swj::forget_all_for_test();
         }
 

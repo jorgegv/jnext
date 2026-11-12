@@ -192,20 +192,25 @@ time: a \f[I]FILE\f[R] made against another image is refused (exit
 status 1), and so is a file that is not a \f[B]jnext\f[R] SD\-writes
 file.
 It is created at the first write and holds only the sectors the machine
-wrote (516 bytes each).
+wrote (516 bytes each) and the one file jnext\(cqs esxDOS stand\-in
+keeps for a directly loaded NEX (see \f[B]esxDOS calls from a directly
+loaded NEX\f[R]), stored when the program closes it and handed back to
+the stand\-in at the next start, whatever the program: it belongs to the
+card, not to the NEX that wrote it.
 Excludes \f[B]\-\-sdcard\-readonly\f[R] and
 \f[B]\-\-sdcard\-file\-add\f[R].
 A recording of the warm start is keyed on the image and on
-\f[I]FILE\f[R]\(cqs content, so it is taken again after the machine has
-written.
+\f[I]FILE\f[R]\(cqs sectors, so it is taken again after the machine has
+written one; the stand\-in\(cqs file is not card state and does not
+change it.
 Files read from the image by the host (the ROMs, a snapshot\(cqs card
 identity) do not see the writes.
 See \f[B]SD CARD AND ROMS\f[R].
 .TP
 \f[B]\-\-sdcard\-writes\-reset\f[R]
 Discard the writes kept in the \f[B]\-\-sdcard\-writes\f[R]
-\f[I]FILE\f[R] before the card is mounted, so the run starts on the
-image as it is.
+\f[I]FILE\f[R] before the card is mounted, the stand\-in\(cqs file
+included, so the run starts on the image as it is.
 Requires \f[B]\-\-sdcard\-writes\f[R].
 A file that is not a \f[B]jnext\f[R] SD\-writes file is refused, never
 removed.
@@ -2038,7 +2043,9 @@ a NEX that keeps its own file open (below);
 one file kept in memory: the program can create it, write it, and read
 it back under the same name, which is enough for a high\-score or
 settings file.
-It is never written to disk and is gone when jnext exits;
+It is never written to a host file and is gone when jnext exits, unless
+\f[B]\-\-sdcard\-writes\f[R] is given: the file is then kept in that
+file when the program closes it, and the next run starts with it;
 .IP \(bu 2
 \f[CR]run NAME.nex\f[R] (\f[CR]M_EXECCMD\f[R]), which loads another NEX
 file from the same directory;
@@ -3768,10 +3775,14 @@ so another image or another page has its own, and it holds only the
 sectors written, never the card.
 The page can clear it with \f[CR]resetCard()\f[R], or with
 \f[CR]args: [\(aq\-\-sdcard\-writes\-reset\(aq]\f[R] for one start.
-Only what reaches the card is kept: a NEX loaded with \f[CR]file\f[R]
-that saves through esxDOS file calls is answered by JNEXT\(cqs own
-stand\-in (see \f[B]esxDOS calls from a directly loaded NEX\f[R]) and
-never writes the card.
+The file a NEX loaded with \f[CR]file\f[R] saves through esxDOS is kept
+too: JNEXT\(cqs own stand\-in answers those calls (see \f[B]esxDOS calls
+from a directly loaded NEX\f[R]) and keeps one file, which belongs to
+the page\(cqs card and the file name, not to the program, so a changed
+NEX on the same page reads the old save, as on a real Next.
+Files written to a host directory a page names with
+\f[CR]args: [\(aq\-\-esxdos\-stub\-root\(aq, ...]\f[R] live in the
+page\(cqs memory only.
 .TP
 \f[CR]machine\f[R] \f[I]string\f[R]
 \f[B]\-\-machine\f[R].
@@ -3814,8 +3825,8 @@ again (\f[CR]\(aqhard\(aq\f[R]) or resets it (\f[CR]\(aqsoft\(aq\f[R]).
 \f[CR]destroy()\f[R] stops the machine and removes the player (it waits
 until the saves of \f[B]keepWrites\f[R] are stored).
 \f[CR]resetCard()\f[R] discards the saves kept by \f[CR]keepWrites\f[R]
-and restarts the program; it needs that option, and resolves when the
-program is running again.
+(the saved file included) and restarts the program; it needs that
+option, and resolves when the program is running again.
 .SS Not available in the browser
 A page has no processes, sockets or terminal, so these are refused with
 a message that says so: \f[B]\-\-nextpi\f[R], \f[B]\-\-nextpi\-dir\f[R],

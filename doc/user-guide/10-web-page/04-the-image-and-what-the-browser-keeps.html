@@ -4518,8 +4518,8 @@ NextZXOS on every visit and records nothing.</p>
 <h3 id="keeping-the-saves">Keeping the saves<a class="headerlink" href="#keeping-the-saves" title="Permanent link">&para;</a></h3>
 <pre><code class="language-js">jnext.mount(el, { image: {...}, file: 'game.nex', keepWrites: true });
 </code></pre>
-<p>Whatever the program writes to the card is there at the next visit (a NEX loaded with
-<code>file</code> that saves through esxDOS file calls does not write the card: 10.3). <code>player.resetCard()</code> clears them (10.2).
+<p>Whatever the program writes to the card is there at the next visit, and so is the one file a
+NEX loaded with <code>file</code> saves through esxDOS (10.3). <code>player.resetCard()</code> clears both (10.2).
 The saves belong to the image: a page that now names another image, even one that
 differs in one byte, starts with none. A record made for another image is refused with a message naming
 <code>--sdcard-writes-reset</code>: mount once with <code>args: ['--sdcard-writes-reset']</code> to discard it. A

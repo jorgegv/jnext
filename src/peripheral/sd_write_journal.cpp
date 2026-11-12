@@ -66,6 +66,14 @@ bool same_image(const Binding& a, const Binding& b) {
     return a.by_digest() ? a.sha256 == b.sha256 : a.mtime == b.mtime;
 }
 
+void put_kept(std::vector<uint8_t>& v, const KeptFile& k) {
+    put_le(v, kFileMarker, 4);
+    put_le(v, 2 + k.name.size() + k.data.size(), 4);
+    put_le(v, k.name.size(), 2);
+    v.insert(v.end(), k.name.begin(), k.name.end());
+    v.insert(v.end(), k.data.begin(), k.data.end());
+}
+
 bool write_whole(const std::string& file, const std::vector<uint8_t>& data) {
     const std::string tmp = file + ".tmp";
     {
@@ -119,6 +127,49 @@ bool Journal::empty() const {
     return map_.empty();
 }
 
+std::optional<KeptFile> Journal::kept_file() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return kept_;
+}
+
+bool Journal::commit_file(const std::string& name, const std::vector<uint8_t>& data) {
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (kept_ && kept_->name == name && kept_->data == data) return true;
+        // The name length is a u16 and L a u32: a name or file that does not fit is not kept.
+        if (name.size() > 0xFFFF || data.size() > 0xFFFFFFFFull - 2 - name.size()) return false;
+        KeptFile k{name, data};
+        std::vector<uint8_t> rec;
+        if (file_len_ == 0) rec = header_bytes(binding_);
+        put_kept(rec, k);
+
+        std::error_code ec;
+        const fs::path parent = fs::path(file_).parent_path();
+        if (!parent.empty()) fs::create_directories(parent, ec);
+        bool ok = false;
+        {
+            std::ofstream o(file_, std::ios::binary | std::ios::app);
+            if (o.is_open()) {
+                o.write(reinterpret_cast<const char*>(rec.data()),
+                        static_cast<std::streamsize>(rec.size()));
+                o.flush();
+                ok = o.good();
+            }
+        }
+        if (!ok) {
+            std::error_code rc;
+            fs::resize_file(file_, file_len_, rc);
+            jlog()->warn("SD write journal: host write to {} failed; the file is "
+                                  "not kept", file_);
+            return false;
+        }
+        file_len_ += rec.size();
+        kept_ = std::move(k);
+    }
+    if (PersistHook h = hook_now()) h();
+    return true;
+}
+
 bool Journal::commit(uint32_t sector, const uint8_t in[kSectorBytes]) {
     {
         std::lock_guard<std::mutex> lk(mu_);
@@ -161,6 +212,7 @@ void Journal::clear() {
     {
         std::lock_guard<std::mutex> lk(mu_);
         map_.clear();
+        kept_.reset();
         file_len_ = 0;
         std::error_code ec;
         fs::remove(file_, ec);
@@ -170,6 +222,10 @@ void Journal::clear() {
 
 bool bind(const std::string& image_path, const std::string& file,
           const Binding& binding, bool reset, std::string& why) {
+    if (binding.bytes >= kMaxImageBytes) {
+        why = "the SD image is too large for an SD-writes file (2 TiB or more)";
+        return false;
+    }
     auto j = std::make_shared<Journal>(file, binding);
 
     std::error_code ec;
@@ -208,22 +264,41 @@ bool bind(const std::string& image_path, const std::string& file,
     }
 
     if (!raw.empty()) {
-        const size_t body = raw.size() - kHeaderBytes;
-        const size_t whole = body / kRecordBytes;
-        const bool partial = (body % kRecordBytes) != 0;
-        bool superseded = false;
-        for (size_t i = 0; i < whole; ++i) {
-            const uint8_t* r = raw.data() + kHeaderBytes + i * kRecordBytes;
-            const uint32_t sector = static_cast<uint32_t>(get_le(r, 4));
-            if (j->map_.count(sector)) superseded = true;
-            std::array<uint8_t, kSectorBytes> a;
-            std::memcpy(a.data(), r + 4, kSectorBytes);
-            j->map_[sector] = a;
+        // Walk the records. One that runs past EOF is an interrupted append: dropped.
+        size_t pos = kHeaderBytes;
+        size_t whole_end = pos;
+        bool partial = false, superseded = false;
+        while (pos < raw.size()) {
+            if (raw.size() - pos < 4) { partial = true; break; }
+            const uint32_t first = static_cast<uint32_t>(get_le(raw.data() + pos, 4));
+            if (first != kFileMarker) {
+                if (raw.size() - pos < kRecordBytes) { partial = true; break; }
+                if (j->map_.count(first)) superseded = true;
+                std::array<uint8_t, kSectorBytes> a;
+                std::memcpy(a.data(), raw.data() + pos + 4, kSectorBytes);
+                j->map_[first] = a;
+                pos += kRecordBytes;
+            } else {
+                if (raw.size() - pos < 8) { partial = true; break; }
+                const uint64_t len = get_le(raw.data() + pos + 4, 4);
+                if (len > raw.size() - pos - 8) { partial = true; break; }
+                const uint8_t* body = raw.data() + pos + 8;
+                const uint64_t n = len >= 2 ? get_le(body, 2) : 0;
+                if (len < 2 || n > len - 2) {
+                    why = file + " is not a jnext SD-writes file; not touching it";
+                    return false;
+                }
+                if (j->kept_) superseded = true;
+                j->kept_ = KeptFile{std::string(reinterpret_cast<const char*>(body + 2), n),
+                                    std::vector<uint8_t>(body + 2 + n, body + len)};
+                pos += 8 + len;
+            }
+            whole_end = pos;
         }
         if (partial)
             jlog()->warn("SD write journal: {} ends in a partial record (an interrupted "
                                   "write); dropped", file);
-        if (j->map_.empty()) {
+        if (j->map_.empty() && !j->kept_) {
             fs::remove(file, ec);
         } else if (partial || superseded) {
             std::vector<uint8_t> out = header_bytes(binding);
@@ -231,13 +306,14 @@ bool bind(const std::string& image_path, const std::string& file,
                 put_le(out, kv.first, 4);
                 out.insert(out.end(), kv.second.begin(), kv.second.end());
             }
+            if (j->kept_) put_kept(out, *j->kept_);
             if (!write_whole(file, out)) {
                 why = "cannot rewrite " + file;
                 return false;
             }
             j->file_len_ = out.size();
         } else {
-            j->file_len_ = raw.size();
+            j->file_len_ = whole_end;
         }
     }
 

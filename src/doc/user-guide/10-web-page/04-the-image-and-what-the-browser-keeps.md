@@ -79,8 +79,8 @@ NextZXOS on every visit and records nothing.
 jnext.mount(el, { image: {...}, file: 'game.nex', keepWrites: true });
 ```
 
-Whatever the program writes to the card is there at the next visit (a NEX loaded with
-`file` that saves through esxDOS file calls does not write the card: 10.3). `player.resetCard()` clears them (10.2).
+Whatever the program writes to the card is there at the next visit, and so is the one file a
+NEX loaded with `file` saves through esxDOS (10.3). `player.resetCard()` clears both (10.2).
 The saves belong to the image: a page that now names another image, even one that
 differs in one byte, starts with none. A record made for another image is refused with a message naming
 `--sdcard-writes-reset`: mount once with `args: ['--sdcard-writes-reset']` to discard it. A

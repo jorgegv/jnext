@@ -127,6 +127,16 @@ void add_record(Bytes& f, uint32_t sector, const Bytes& data) {
     f.insert(f.end(), data.begin(), data.end());
 }
 
+// A kept-file record per the format table: 0xFFFFFFFF, L u32 (the bytes after it),
+// n u16, the name, the bytes.
+void add_kept(Bytes& f, const std::string& name, const Bytes& data) {
+    put_le(f, 0xFFFFFFFFull, 4);
+    put_le(f, 2 + name.size() + data.size(), 4);
+    put_le(f, name.size(), 2);
+    f.insert(f.end(), name.begin(), name.end());
+    f.insert(f.end(), data.begin(), data.end());
+}
+
 // SPI helpers
 void spi_write(SdCardDevice& sd, uint8_t v) { (void)sd.receive(v); }
 uint8_t spi_read(SdCardDevice& sd) { return sd.send(); }
@@ -626,6 +636,240 @@ int main() {
               "SD spec 7.3.1.4) and adds no record",
               tok == 0x20 && !exists(jf) && swj::for_image(img)->empty(),
               "tok=" + std::to_string(tok));
+        swj::forget_all_for_test();
+    }
+
+    // SDW-19..SDW-28: the file the esxDOS stand-in keeps (a kept-file record).
+    const Bytes kd1 = {0x01};
+    const Bytes kd2 = {0x02, 0x03};
+    const std::string kname = "/JNHI.DAT";
+    {   // SDW-19 / SDW-20: the first commit creates the file; a reload gets it back.
+        const std::string d = scratch();
+        const std::string img = make_image("c" + std::to_string(n_dir) + ".img");
+        const std::string jf = d + "/w.jsdw";
+        const swj::Binding b = digest_binding(0xAB);
+        std::string why;
+        swj::bind(img, jf, b, false, why);
+        const bool c1 = swj::for_image(img)->commit_file(kname, kd1);
+        Bytes want = expected_header(b);
+        add_kept(want, kname, kd1);
+        check("SDW-19",
+              "commit_file on a journal with no file creates FILE = header + one kept-file "
+              "record (0xFFFFFFFF, L, n, name, bytes), as the format table lays it out",
+              c1 && slurp(jf) == want && want.size() == 64 + 4 + 4 + 2 + 9 + 1);
+        swj::forget_all_for_test();
+        const bool rebound = swj::bind(img, jf, b, false, why);
+        const auto kf = swj::for_image(img)->kept_file();
+        bool blob = false;
+        {
+            Card c(img);
+            blob = reads(c.sd, 5, sector_bytes(5));
+        }
+        check("SDW-20",
+              "a fresh bind of that FILE (a reload) gives the kept file back (name and bytes); "
+              "no sector is journaled (empty()) and every sector reads the image",
+              rebound && kf && kf->name == kname && kf->data == kd1 &&
+              swj::for_image(img)->empty() && blob && slurp(jf) == want, why);
+        swj::forget_all_for_test();
+    }
+    {   // SDW-21 / SDW-22: later supersedes earlier; compaction order.
+        const std::string d = scratch();
+        const std::string img = make_image("c" + std::to_string(n_dir) + ".img");
+        const std::string jf = d + "/w.jsdw";
+        const swj::Binding b = digest_binding(0xAB);
+        std::string why;
+        swj::bind(img, jf, b, false, why);
+        {
+            Card c(img);
+            (void)write_block(c.sd, 9, payload(30));
+            (void)swj::for_image(img)->commit_file(kname, kd1);
+            (void)swj::for_image(img)->commit_file(kname, kd2);
+            (void)write_block(c.sd, 9, payload(31));
+        }
+        swj::forget_all_for_test();
+        const bool rebound = swj::bind(img, jf, b, false, why);
+        const auto kf = swj::for_image(img)->kept_file();
+        bool sect = false;
+        {
+            Card c(img);
+            sect = reads(c.sd, 9, payload(31));
+        }
+        Bytes want = expected_header(b);
+        add_record(want, 9, payload(31));
+        add_kept(want, kname, kd2);
+        check("SDW-21",
+              "sector 9, file v1, file v2, sector 9 again: a rebind serves the second sector copy and "
+              "v2, and compacts FILE to one sector record then one kept-file record",
+              rebound && sect && kf && kf->data == kd2 && slurp(jf) == want, why);
+        // Another name is the same journal's one file: the later record replaces it.
+        (void)swj::for_image(img)->commit_file("/OTHER.DAT", kd1);
+        swj::forget_all_for_test();
+        swj::bind(img, jf, b, false, why);
+        const auto kf2 = swj::for_image(img)->kept_file();
+        Bytes compact = expected_header(b);
+        add_record(compact, 9, payload(31));
+        add_kept(compact, "/OTHER.DAT", kd1);
+        check("SDW-22",
+              "a kept-file record of another name supersedes the earlier one (one file per "
+              "journal): after a reload only the later name is kept and FILE is compacted to the "
+              "sector record then that one kept-file record",
+              kf2 && kf2->name == "/OTHER.DAT" && kf2->data == kd1 && slurp(jf) == compact,
+              why);
+        swj::forget_all_for_test();
+    }
+    {   // SDW-23: a torn kept-file tail.
+        const std::string d = scratch();
+        const std::string img = make_image("c" + std::to_string(n_dir) + ".img");
+        const std::string jf = d + "/w.jsdw";
+        const swj::Binding b = digest_binding(0xAB);
+        std::string why;
+        Bytes whole = expected_header(b);
+        add_kept(whole, kname, kd1);
+        Bytes torn = whole;
+        add_kept(torn, "/NEW.DAT", Bytes(40, 0x55));
+        torn.resize(torn.size() - 5);              // L runs past EOF
+        {
+            std::ofstream o(jf, std::ios::binary | std::ios::trunc);
+            o.write(reinterpret_cast<const char*>(torn.data()), static_cast<std::streamsize>(torn.size()));
+        }
+        const bool b1 = swj::bind(img, jf, b, false, why);
+        const auto kf = swj::for_image(img)->kept_file();
+        const bool cut = slurp(jf) == whole;
+        // A tail cut inside the 8-byte head (marker + half of L).
+        Bytes head = whole;
+        put_le(head, 0xFFFFFFFFull, 4);
+        put_le(head, 7, 2);
+        {
+            std::ofstream o(jf, std::ios::binary | std::ios::trunc);
+            o.write(reinterpret_cast<const char*>(head.data()), static_cast<std::streamsize>(head.size()));
+        }
+        swj::forget_all_for_test();
+        const bool b2 = swj::bind(img, jf, b, false, why);
+        const bool cut2 = slurp(jf) == whole;
+        const bool c3 = swj::for_image(img)->commit_file("/NEXT.DAT", kd2);
+        Bytes after = expected_header(b);
+        add_kept(after, kname, kd1);
+        add_kept(after, "/NEXT.DAT", kd2);
+        check("SDW-23",
+              "a trailing kept-file record that runs past EOF (or is cut inside its marker/length "
+              "head) is dropped, the earlier records are served, FILE is cut back to the last whole "
+              "record, and the next commit appends there",
+              b1 && b2 && kf && kf->name == kname && cut && cut2 && c3 && slurp(jf) == after, why);
+        swj::forget_all_for_test();
+    }
+    {   // SDW-24: inconsistent inner lengths of a COMPLETE kept-file record.
+        const std::string d = scratch();
+        const std::string img = make_image("c" + std::to_string(n_dir) + ".img");
+        const swj::Binding b = digest_binding(0xAB);
+        bool all = true;
+        std::string last;
+        for (int variant = 0; variant < 2; ++variant) {
+            const std::string jf = d + "/w" + std::to_string(variant) + ".jsdw";
+            Bytes f = expected_header(b);
+            put_le(f, 0xFFFFFFFFull, 4);
+            if (variant == 0) {          // n = 9 > L - 2 = 3
+                put_le(f, 5, 4);
+                put_le(f, 9, 2);
+                f.insert(f.end(), {'a', 'b', 'c'});
+            } else {                      // L = 1 < 2
+                put_le(f, 1, 4);
+                f.push_back(0);
+            }
+            { std::ofstream o(jf, std::ios::binary | std::ios::trunc);
+              o.write(reinterpret_cast<const char*>(f.data()), static_cast<std::streamsize>(f.size())); }
+            for (int reset = 0; reset < 2; ++reset) {
+                std::string why;
+                const bool r = swj::bind(img, jf, b, reset == 1, why);
+                all = all && !r && has(why, "is not a jnext SD-writes file") && slurp(jf) == f;
+                last = why;
+            }
+        }
+        check("SDW-24",
+              "a complete kept-file record with n > L-2, or with L < 2, refuses the bind as not an "
+              "SD-writes file, with and without reset, and leaves FILE untouched", all, last);
+        swj::forget_all_for_test();
+    }
+    {   // SDW-25: the hook, an identical re-commit, clear().
+        const std::string d = scratch();
+        const std::string img = make_image("c" + std::to_string(n_dir) + ".img");
+        const std::string jf = d + "/w.jsdw";
+        std::string why;
+        swj::bind(img, jf, digest_binding(0xAB), false, why);
+        g_hook_count = 0;
+        swj::set_persist_hook(count_hook);
+        auto j = swj::for_image(img);
+        (void)j->commit_file(kname, kd1);
+        const int h1 = g_hook_count;
+        const uint64_t len1 = fs::file_size(jf);
+        (void)j->commit_file(kname, kd1);               // identical
+        const int h2 = g_hook_count;
+        const bool same_len = fs::file_size(jf) == len1;
+        (void)j->commit_file(kname, kd2);
+        const int h3 = g_hook_count;
+        j->clear();
+        check("SDW-25",
+              "the persist hook runs once per commit_file; an identical (name, bytes) re-commit "
+              "appends nothing and runs no hook; clear() removes FILE and the kept file, hook +1",
+              h1 == 1 && h2 == 1 && same_len && h3 == 2 && g_hook_count == 3 && !exists(jf) &&
+              !j->kept_file(),
+              "hooks " + std::to_string(h1) + "," + std::to_string(h2) + "," + std::to_string(h3) +
+              "," + std::to_string(g_hook_count));
+        swj::forget_all_for_test();
+    }
+    {   // SDW-26: reset at bind.
+        const std::string d = scratch();
+        const std::string img = make_image("c" + std::to_string(n_dir) + ".img");
+        const std::string jf = d + "/w.jsdw";
+        const swj::Binding b = digest_binding(0xAB);
+        std::string why;
+        swj::bind(img, jf, b, false, why);
+        {
+            Card c(img);
+            (void)write_block(c.sd, 4, payload(32));
+        }
+        (void)swj::for_image(img)->commit_file(kname, kd1);
+        swj::forget_all_for_test();
+        const bool ok = swj::bind(img, jf, b, true, why);
+        bool blob = false;
+        {
+            Card c(img);
+            blob = reads(c.sd, 4, sector_bytes(4));
+        }
+        check("SDW-26",
+              "bind(reset) on a FILE holding a sector record and a kept-file record discards both: "
+              "FILE is gone, no kept file, the image's bytes are served",
+              ok && !exists(jf) && !swj::for_image(img)->kept_file() && blob, why);
+        swj::forget_all_for_test();
+    }
+    {   // SDW-27: a kept file is not card state.
+        const std::string d = scratch();
+        const std::string img = make_image("c" + std::to_string(n_dir) + ".img");
+        const std::string jf = d + "/w.jsdw";
+        std::string why;
+        swj::bind(img, jf, digest_binding(0xAB), false, why);
+        (void)swj::for_image(img)->commit_file(kname, kd1);
+        int calls = 0;
+        swj::for_image(img)->for_each_sorted([&](uint32_t, const uint8_t*) { ++calls; });
+        check("SDW-27",
+              "with only a kept-file record, for_each_sorted calls its function zero times and "
+              "empty() is true (the warm-start key never sees the file)",
+              calls == 0 && swj::for_image(img)->empty() && exists(jf));
+        swj::forget_all_for_test();
+    }
+    {   // SDW-28: the 2 TiB guard.
+        const std::string d = scratch();
+        const std::string img = make_image("c" + std::to_string(n_dir) + ".img");
+        swj::Binding big = digest_binding(0xAB);
+        big.bytes = (1ull << 32) * 512;
+        std::string why_big, why_ok;
+        const bool r_big = swj::bind(img, d + "/big.jsdw", big, false, why_big);
+        swj::forget_all_for_test();
+        big.bytes -= 512;
+        const bool r_ok = swj::bind(img, d + "/ok.jsdw", big, false, why_ok);
+        check("SDW-28",
+              "a binding of 2^32 sectors (2 TiB) is refused (sector 0xFFFFFFFF is the kept-file "
+              "marker), naming the size; one sector less binds",
+              !r_big && has(why_big, "too large") && r_ok, why_big + " / " + why_ok);
         swj::forget_all_for_test();
     }
 

@@ -1933,10 +1933,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     }
                     return true;
                 }
-                case 0x9B:  // F_CLOSE
+                case 0x9B: { // F_CLOSE
+                    // A write-open file is kept in the card's write journal (when one is
+                    // bound), so it outlives the session: a failed host write is EIO.
+                    const bool was_write = esxdos_stub_file_open_ && esxdos_stub_file_write_;
                     esxdos_stub_file_open_ = false;
+                    if (was_write) {
+                        const auto journal = sd_write_journal::for_image(config_.sd_card_image);
+                        if (journal && !journal->commit_file(esxdos_stub_filename_, esxdos_stub_file_)) {
+                            Log::emulator()->error("esxdos stub: could not keep '{}' in the SD "
+                                                   "write journal", esxdos_stub_filename_);
+                            set_a_and_carry(0x06, true); // EIO
+                            return true;
+                        }
+                    }
                     set_a_and_carry(0x00, false); // success
                     return true;
+                }
                 case 0x9D: { // F_READ
                     const uint8_t handle = static_cast<uint8_t>(r.AF >> 8);
                     if (!esxdos_stub_file_open_ || esxdos_stub_file_write_ ||
@@ -7536,6 +7549,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         profiler_.init();
     }
 
+    // The file the esxDOS stand-in kept in the card's write journal in an earlier
+    // session (a page reload, a second run) is the stand-in's file again. A live
+    // session's own file, closed or not, is never replaced.
+    if (esxdos_stub_filename_.empty()) {
+        const auto journal = sd_write_journal::for_image(cfg.sd_card_image);
+        if (journal) {
+            if (auto kept = journal->kept_file()) {
+                esxdos_stub_filename_ = std::move(kept->name);
+                esxdos_stub_file_ = std::move(kept->data);
+                esxdos_stub_file_pos_ = 0;
+                esxdos_stub_file_open_ = false;
+                esxdos_stub_file_write_ = false;
+            }
+        }
+    }
+
     // GH #276 B2 — a RESET is a machine transition too. `soft_reset()` routes
     // through here, so the debugger's stop evidence (both `DebugState`'s and, via
     // the hook, `Debugger::Impl`'s) is reconciled for it exactly as for a restore.
@@ -8683,6 +8712,15 @@ void Emulator::restore_esxdos_stub_state(EsxdosStubState state)
     esxdos_stub_file_pos_ = 0;
     esxdos_stub_file_open_ = false;
     esxdos_stub_file_write_ = false;
+}
+
+bool Emulator::forget_card_writes()
+{
+    const auto journal = sd_write_journal::for_image(config_.sd_card_image);
+    if (!journal) return false;
+    journal->clear();
+    restore_esxdos_stub_state({});
+    return true;
 }
 
 void Emulator::restore_ay_registers(const uint8_t regs[16], uint8_t selected)

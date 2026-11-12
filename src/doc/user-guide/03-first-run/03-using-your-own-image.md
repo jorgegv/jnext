@@ -28,7 +28,9 @@ goes to *FILE*, which is laid over the image every time the card is mounted, so 
 saves survive the next run. *FILE* belongs to that image (its `--sdcard-sha256`, else
 its size and modification time) and is refused for another one; delete it, or add
 `--sdcard-writes-reset`, to start from the image again. It holds only the sectors the
-machine wrote, so it stays small.
+machine wrote, so it stays small, plus the one file that JNEXT's esxDOS stand-in keeps
+for a NEX loaded directly (see "Running programs"): that file is stored when the
+program closes it and is there at the next run.
 
 ## Changing the card while JNEXT runs
 
