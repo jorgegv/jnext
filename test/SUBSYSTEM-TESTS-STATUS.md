@@ -9,13 +9,13 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | FUSE Z80              |     1356 |     1356 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CPU/Z80N IM2 regr.    |       65 |       65 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind                |      369 |      369 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind call stack     |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU (int)      |      130 |      130 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU (int)      |      137 |      137 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      379 |      379 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -50,7 +50,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Warm start (GH #234)  |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Warm start (GH #234)  |       86 |       86 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot SD identity (.jns, GH #27 S7) |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot/warm start: no whole-card read (GH #396) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -103,7 +103,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | TAP loader (container) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZIP program archives  |       71 |       71 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (fixtures) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Cycle batching equivalence (peripherals) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Cycle batching equivalence (peripherals) |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (cold boot) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 1/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 2/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -133,7 +133,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source maps + symbols |      130 |      130 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (skoolkit/Ghidra export) |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
-| z88dk -debug map adapter |      153 |      153 |      0 |       0 |    100% | 🟢 All tests pass. |
+| z88dk -debug map adapter |      157 |      157 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk --list listing adapter |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk CDB record decoder |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | C value formatting (frames and values) |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -162,6 +162,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | GUI frame timer (single-shot, GH #155) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Finder/desktop file open (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | POK Trainers GUI dialog (GH #381) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | RZX Menus             |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI load-failure dialogs |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -198,6 +199,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      271 |      271 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **15950**| **15950**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16038**| **16038**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
