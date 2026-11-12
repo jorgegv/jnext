@@ -975,7 +975,7 @@ void run_esxdos_write_rows(int& passed, int& failed)
         ft1.AF = static_cast<uint16_t>(1 << 8);
         ft1.BC = 0;
         ft1.DE = 5;
-        const bool claimed1 = esx(emu, 0xA2, ft1) && !cy(ft1);
+        const bool claimed1 = esx(emu, 0xA2, ft1);   // not handled at all: another back end's
         Z80Registers cl{};
         cl.AF = static_cast<uint16_t>(fh << 8);
         esx(emu, 0x9B, cl);
