@@ -158,7 +158,7 @@ Soft scanlines, TV and PC entries have none, like the Scale entries in the same 
   set): the style numbers against crtemu's own enum, out-of-range fallback, the
   fullscreen scale on several screens and degenerate sizes, and the byte-level pixel
   conversion (the red/blue swap that would otherwise ship invisibly wrong).
-* `test/gui/crt_shader_widget_test.cpp` (42 rows, offscreen QPA): off is the default
+* `test/gui/crt_shader_widget_test.cpp` (44 rows, offscreen QPA): off is the default
   and builds nothing; the software path still presents frames; on-then-off leaves
   nothing behind; switching on either runs or falls back with exactly one message, and an injected overlay failure (live, and stale after a toggle) behaves as specified
   (on Linux offscreen gets its GL context from GLX, so the suite re-runs itself under `xvfb-run -d` when DISPLAY is empty; Mesa's llvmpipe then gives a context and CRT-W-07 prints OUTCOME=running. A shader build on a host with no GL at all fails with one clear line; the no-GL arm itself is covered by CRT-W-39 through the probe override); settings defaults, round trip, garbage and older
