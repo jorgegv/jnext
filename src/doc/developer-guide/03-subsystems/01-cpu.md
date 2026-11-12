@@ -210,8 +210,8 @@ matching RETN/RETI.
 
 The core has no NMOS `LD A,I` / `LD A,R` race (an interrupt accepted straight after
 either instruction clearing P/V). The T80N writes P/V from IFF2 at T3 of the instruction
-(`t80n.vhd:1175`, `:1193`, `:1206`) and an accepted interrupt clears IFF2 only at the end
-of the instruction (`:1768-1771`), so P/V always holds the IFF2 from before the
+(`t80n.vhd:1175`, `t80n.vhd:1193`, `t80n.vhd:1206`) and an accepted interrupt clears IFF2 only at the end
+of the instruction (`t80n.vhd:1768-1771`), so P/V always holds the IFF2 from before the
 acceptance, and the `LD A,I; DI; ... EI` save/restore idiom of the +3DOS ROM works. The
 FUSE core's NMOS P/V clear in `fuse_z80_interrupt()` is therefore not modelled (removed
 on 2026-11-12), while the rest of the core stays NMOS (`OUT (C),0` writes 0,

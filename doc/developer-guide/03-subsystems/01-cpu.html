@@ -3175,8 +3175,8 @@ suppresses the stack writes and substitutes the live NR 0xC3:0xC2 pair on the
 matching RETN/RETI.</p>
 <p>The core has no NMOS <code>LD A,I</code> / <code>LD A,R</code> race (an interrupt accepted straight after
 either instruction clearing P/V). The T80N writes P/V from IFF2 at T3 of the instruction
-(<code>t80n.vhd:1175</code>, <code>:1193</code>, <code>:1206</code>) and an accepted interrupt clears IFF2 only at the end
-of the instruction (<code>:1768-1771</code>), so P/V always holds the IFF2 from before the
+(<code>t80n.vhd:1175</code>, <code>t80n.vhd:1193</code>, <code>t80n.vhd:1206</code>) and an accepted interrupt clears IFF2 only at the end
+of the instruction (<code>t80n.vhd:1768-1771</code>), so P/V always holds the IFF2 from before the
 acceptance, and the <code>LD A,I; DI; ... EI</code> save/restore idiom of the +3DOS ROM works. The
 FUSE core's NMOS P/V clear in <code>fuse_z80_interrupt()</code> is therefore not modelled (removed
 on 2026-11-12), while the rest of the core stays NMOS (<code>OUT (C),0</code> writes 0,
