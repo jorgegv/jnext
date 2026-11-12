@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.21</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.21</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4262,9 +4262,10 @@ programs most often ask for:</p>
   for example, says it cannot read <code>NXTEL.CFG</code>.</li>
 </ul>
 <p>There are two ways round that. The first is
-<a href="08-host-files-for-a-loaded-program.html"><code>--esxdos-stub-root</code></a>, which hands a
-directly loaded program a real directory on your computer to read its files
-from — the quickest route while you are developing one. The second is to do
+<a href="08-host-files-for-a-loaded-program.html"><code>--esxdos-stub</code></a>, which hands a
+directly loaded program the directory it was loaded from (or, with
+<code>--esxdos-stub-root</code>, any directory on your computer) to read its files from —
+the quickest route while you are developing one. The second is to do
 what a real Next does: boot NextZXOS from the SD card image and start the
 program from the <strong>Browser</strong>, with its files next to it on the card. Many
 programs, games included, are already on the image JNEXT uses by default. To

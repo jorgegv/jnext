@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.21</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.21</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3173,6 +3173,14 @@ that never happens. The vector comes from
 a path of its own, including the Next's stackless mode (NR 0xC0 bit 3), which
 suppresses the stack writes and substitutes the live NR 0xC3:0xC2 pair on the
 matching RETN/RETI.</p>
+<p>The core has no NMOS <code>LD A,I</code> / <code>LD A,R</code> race (an interrupt accepted straight after
+either instruction clearing P/V). The T80N writes P/V from IFF2 at T3 of the instruction
+(<code>t80n.vhd:1175</code>, <code>t80n.vhd:1193</code>, <code>t80n.vhd:1206</code>) and an accepted interrupt clears IFF2 only at the end
+of the instruction (<code>t80n.vhd:1768-1771</code>), so P/V always holds the IFF2 from before the
+acceptance, and the <code>LD A,I; DI; ... EI</code> save/restore idiom of the +3DOS ROM works. The
+FUSE core's NMOS P/V clear in <code>fuse_z80_interrupt()</code> is therefore not modelled (removed
+on 2026-11-12), while the rest of the core stays NMOS (<code>OUT (C),0</code> writes 0,
+<code>t80n_mcode.vhd:2468-2479</code>).</p>
 <h2 id="the-im2-fabric">The IM2 fabric<a class="headerlink" href="#the-im2-fabric" title="Permanent link">&para;</a></h2>
 <p><code>Im2Controller</code> owns 14 device slots in VHDL priority order (<code>DevIdx</code>). Each
 slot carries the <code>im2_peripheral.vhd</code> wrapper state — request edge detect,

@@ -8,6 +8,7 @@
 #include "core/log.h"
 #include "core/esxdos_trace.h"
 #include "core/nex_loader.h"
+#include "core/program_archive.h"
 #include "core/sd_rom_extractor.h"
 #include "core/sdcard_provisioner.h"
 #include "core/warm_start_cache.h"
@@ -1219,6 +1220,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     "--esxdos-stub-writable: guest writes change host files "
                     "immediately; rewinding the emulator cannot undo them");
         }
+    } else {
+        // No explicit root: an implicit one (the loaded NEX's directory, set
+        // by load_nex()) does not outlive a re-init, like direct_nex_esxdos_.
+        esxdos_hostfs_.clear();
     }
     const bool esxdos_tracing = Log::esxdos()->should_log(spdlog::level::trace);
     bool direct_nex_load = false;
@@ -8280,6 +8285,35 @@ bool Emulator::load_nex(const std::string& path)
 
     if (!loader.apply(*this)) return false;
     active_nex_path_ = std::filesystem::absolute(path).lexically_normal().string();
+
+    // With --esxdos-stub and no --esxdos-stub-root, the NEX's own directory is
+    // the esxDOS root (read-only unless --esxdos-stub-writable). It follows
+    // every NEX load, and init() ends it. A NEX extracted from an archive has
+    // no directory of its own on disk.
+    if (config_.esxdos_stub && config_.esxdos_stub_root.empty()) {
+        std::string archive, member;
+        if (program_archive::extracted_from(path, archive, member)) {
+            Log::emulator()->info(
+                "esxdos host directory: none, '{}' was extracted from an archive", path);
+        } else {
+            const std::string dir =
+                std::filesystem::path(active_nex_path_).parent_path().string();
+            std::string why;
+            if (!esxdos_hostfs_.configure(dir, config_.esxdos_stub_writable, why)) {
+                Log::emulator()->error(
+                    "esxdos host directory: cannot serve '{}': {}", dir, why);
+            } else {
+                Log::emulator()->info(
+                    "esxdos host directory: {} ({})",
+                    esxdos_hostfs_.root().string(),
+                    config_.esxdos_stub_writable ? "read-write" : "read-only");
+                if (config_.esxdos_stub_writable)
+                    Log::emulator()->warn(
+                        "--esxdos-stub-writable: guest writes change host files "
+                        "immediately; rewinding the emulator cannot undo them");
+            }
+        }
+    }
 
     // nexload runs under NextZXOS, after its SD initialization handshake.
     // A direct load bypasses that code, so recreate the external card state

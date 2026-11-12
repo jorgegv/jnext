@@ -172,9 +172,10 @@ Everything else is refused with an error. In practice:
   for example, says it cannot read `NXTEL.CFG`.
 
 There are two ways round that. The first is
-[`--esxdos-stub-root`](08-host-files-for-a-loaded-program.md), which hands a
-directly loaded program a real directory on your computer to read its files
-from — the quickest route while you are developing one. The second is to do
+[`--esxdos-stub`](08-host-files-for-a-loaded-program.md), which hands a
+directly loaded program the directory it was loaded from (or, with
+`--esxdos-stub-root`, any directory on your computer) to read its files from —
+the quickest route while you are developing one. The second is to do
 what a real Next does: boot NextZXOS from the SD card image and start the
 program from the **Browser**, with its files next to it on the card. Many
 programs, games included, are already on the image JNEXT uses by default. To

@@ -616,11 +616,19 @@ without NextZXOS; a directly loaded NEX gets a fuller set automatically
 NextZXOS’s own esxDOS for those calls, and NextZXOS’s file commands stop
 working.
 
+With a NEX to load (**--load**, or a bare file name) and no
+**--esxdos-stub-root**, the directory the NEX is in is served to it as
+if it had been given as *DIR* (below): read-only unless
+**--esxdos-stub-writable** is also given, and in place of the in-memory
+file. To keep the in-memory file, load the NEX without
+**--esxdos-stub**.
+
 **--esxdos-stub-root** *DIR*  
 Serve the host directory *DIR* to the guest through the esxDOS file and
 directory calls, instead of the single in-memory file. Implies
 **--esxdos-stub**. Read-only unless **--esxdos-stub-writable** is also
-given.
+given. *DIR* replaces the default of **--esxdos-stub**, the directory of
+the loaded NEX.
 
 **Which programs see *DIR*, and which do not.** A NEX loaded with
 **--load** sees it, and so do dot commands: those reach the filesystem
@@ -654,10 +662,10 @@ programs jnext loads itself.
 
 **--esxdos-stub-writable**  
 Allow the guest to create, truncate and write files under
-**--esxdos-stub-root**. Off by default, and deliberately a separate
-flag: a guest write changes a real file on the host immediately, and
-rewinding the emulator cannot undo it. Reads are fully rewindable;
-writes are not.
+**--esxdos-stub-root**, or in the directory of the loaded NEX when no
+root is given. Off by default, and deliberately a separate flag: a guest
+write changes a real file on the host immediately, and rewinding the
+emulator cannot undo it. Reads are fully rewindable; writes are not.
 
 **--rtc** *“YYYY-MM-DD HH:MM:SS”*  
 Pin the RTC to a fixed date and time (a frozen clock) instead of
@@ -1734,7 +1742,9 @@ at the next reset or soft reset. It answers:
   file, including data appended after its banks (also through the
   block-streaming calls), and reading, never writing, other files in the
   same directory by name. Such a NEX gets the host files instead of the
-  in-memory file (unless **--esxdos-stub** is also given).
+  in-memory file (with **--esxdos-stub** it gets its directory through
+  the host directory below instead, which also lets it open several
+  files, list the directory and see names in any case).
 
 Every other call from `$80` to `$B1` returns an error (carry set,
 `A`=2), including calls NextZXOS does implement, such as reading the
@@ -1742,10 +1752,12 @@ current directory, listing a directory or reading the date. A program
 that needs one of those usually stops with its own error message. Codes
 above `$B1` are not esxDOS calls and go to the code at `$0008`.
 
-Without **--esxdos-stub-root** this is not a filesystem. Apart from the
-kept-open case above the program cannot see files on the host or on the
-SD card, so a program that needs data files has to be copied to the SD
-card with them and started from NextZXOS.
+Without **--esxdos-stub** or **--esxdos-stub-root** this is not a
+filesystem. Apart from the kept-open case above the program cannot see
+files on the host or on the SD card, so a program that needs data files
+has to be copied to the SD card with them and started from NextZXOS, or
+loaded with **--esxdos-stub**, which serves the directory the NEX is in
+(next section).
 
 ### A host directory for directly loaded programs
 
@@ -1797,6 +1809,23 @@ links are refused rather than followed.
 A *DIR* that does not exist, or is not a directory, is an error at
 start-up: jnext says so and exits non-zero rather than running with the
 option silently inert.
+
+**Without a *DIR*, the directory of the NEX.** **--esxdos-stub** alone,
+with a NEX to load (**--load**, or a bare file name), serves the
+directory the NEX is in, exactly as **--esxdos-stub-root** with that
+directory would: `jnext --esxdos-stub --load mygame/game.nex` lets the
+program open `mygame/data.bin` by name. It is read-only unless
+**--esxdos-stub-writable** is given, and it replaces the single
+in-memory file (a program that saves a file then gets an error instead
+of the in-memory copy; load it without **--esxdos-stub** to keep that).
+An explicit **--esxdos-stub-root** takes precedence. The directory is
+the one the path names (for a symbolic link, the link’s own directory).
+It lasts from the NEX load until the next reset, soft reset or load: a
+NEX loaded later, through **File \> Load NEX File…**, a recent file,
+`run NAME.nex` or the debugger, gets its own directory. A NEX taken out
+of a `.zip` has no directory on disk and gets none, and neither do a
+snapshot, a tape or a program injected with **--inject**. A `.jns` does
+not record it.
 
 And it is not for use alongside a booted NextZXOS. Implying
 **--esxdos-stub** means it inherits the same shadowing: with NextZXOS
