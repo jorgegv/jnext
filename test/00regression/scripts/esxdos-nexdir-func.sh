@@ -17,7 +17,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   B  the same as a bare relative name from d  -> 6789AB (the NEX's directory
 #      is the absolute path's parent, not the empty parent of "hostfs.nex")
 #   C  --esxdos-stub-root x overrides it        -> TSRQPO
-#   D  the NEX loaded from a .zip has no directory -> ERR
+#   D  the NEX loaded from a .zip has no directory -> ERR, and the log says so
+#      (its scratch directory holds no data.txt, so the data alone cannot tell)
 #   E  no --esxdos-stub: no root                -> ERR
 if want esxdos-nexdir-func; then
     begin_func esxdos-nexdir-func
@@ -56,14 +57,18 @@ PY
     b_slice=$(cnt 6789AB "$nd_b")
     c_x=$(cnt TSRQPO "$nd_c");     c_d=$(cnt 6789AB "$nd_c")
     d_err=$(cnt ERR "$nd_d");      d_d=$(cnt 6789AB "$nd_d")
+    # The member's scratch directory holds no data.txt either way, so the data
+    # alone cannot tell "no directory" from "the scratch directory": the log can.
+    d_none=$(grep -cF "was extracted from an archive" <<<"$nd_d" || true)
+    d_dir=$(grep -cF "esxdos host directory: /" <<<"$nd_d" || true)
     e_err=$(cnt ERR "$nd_e");      e_d=$(cnt 6789AB "$nd_e")
 
     if [[ "$a_rc" -eq 1 && "$a_slice" -ge 1 && "$a_ok" -ge 1 && "$a_err" -eq 0 \
           && "$a_esc" -eq 0 && "$b_slice" -ge 1 && "$c_x" -ge 1 && "$c_d" -eq 0 \
-          && "$d_err" -ge 1 && "$d_d" -eq 0 && "$e_err" -ge 1 && "$e_d" -eq 0 ]]; then
+          && "$d_err" -ge 1 && "$d_d" -eq 0 && "$d_none" -ge 1 && "$d_dir" -eq 0 && "$e_err" -ge 1 && "$e_d" -eq 0 ]]; then
         pass_row " (NEX directory served by default, absolute and bare relative; explicit root overrides; archive member and no stub get none)"
     else
-        fail_row " (A clean-exit=$a_rc want1 slice=$a_slice ok=$a_ok err=$a_err esc=$a_esc; B slice=$b_slice want>=1; C x=$c_x want>=1 d=$c_d want0; D err=$d_err want>=1 data=$d_d want0; E err=$e_err want>=1 data=$e_d want0)"
+        fail_row " (A clean-exit=$a_rc want1 slice=$a_slice ok=$a_ok err=$a_err esc=$a_esc; B slice=$b_slice want>=1; C x=$c_x want>=1 d=$c_d want0; D err=$d_err want>=1 data=$d_d want0 no-dir-log=$d_none want>=1 dir-log=$d_dir want0; E err=$e_err want>=1 data=$e_d want0)"
     fi
 fi
 
