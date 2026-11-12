@@ -194,7 +194,7 @@ slot for the whole body, and its internal jumps are not returns. `CallStack::not
 `PUSH IY`, Z80N `PUSH nn` or `EX (SP),HL/IX/IY` put `caller_pc + 3` above the slot of the newest
 `CALL` frame; the latest store wins. The copy is live (`CallStack::ret_copy_live_()`,
 `call_stack.cpp:69`) while it sits at or above SP and still holds that value. The words are read
-through a stack reader that `Emulator::Emulator()` (`emulator.cpp:43`) installs over `Mmu::peek()`
+through a stack reader that `Emulator::Emulator()` (`emulator.cpp:45`) installs over `Mmu::peek()`
 (`mmu.h:367`), which has no watchpoint or latch side effect. Without a reader (the bare tracker
 rows) nothing is recorded and clause B is "SP above the slot".
 
