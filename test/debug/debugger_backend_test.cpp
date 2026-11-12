@@ -3561,6 +3561,74 @@ static void b5_wire_verb_rows() {
                   std::to_string(r1.R) + " " + b5_state(dbg));
     }
     {
+        // DD 01 in CONTENDED memory inside the display window (48K: $6000): each of its two M1
+        // fetches stretches by the ULA contention, so a skipped DD 01 takes at least 8 T, and the
+        // CPU counter must advance by exactly what the clock does (the return value is the elapsed
+        // delta, not a flat 8). Oracle: the two fetches are M1s (t80n_mcode.vhd:1384-1387,
+        // t80n.vhd:493) under the same contention as any M1; FUSE contend_read(PC,4).
+        Emulator emu;
+        b5_build(emu, { 0x00 });
+        emu.cpu().on_magic_breakpoint = [](uint16_t) { return true; };
+        const uint8_t prog[] = { 0xDD, 0x01, 0x18, 0xFC };
+        for (int i = 0; i < 4; ++i) emu.mmu().write(static_cast<uint16_t>(0x6000 + i), prog[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x6000;
+        emu.cpu().set_registers(r);
+        const uint64_t div = static_cast<uint64_t>(emu.clock().cpu_divisor());
+        int slots = 0, contended = 0, mismatched = 0;
+        for (int i = 0; i < 6000; ++i) {
+            const uint64_t c0 = emu.clock().get();
+            const uint64_t t0 = emu.monotonic_tstates();
+            const bool dd01 = emu.cpu().pc() == 0x6000;
+            emu.execute_single_instruction();
+            const uint64_t dc = emu.clock().get() - c0;
+            const uint64_t dt = emu.monotonic_tstates() - t0;
+            if (!dd01) continue;
+            ++slots;
+            if (dc > 8 * div) ++contended;
+            if (dc != dt * div) ++mismatched;
+        }
+        check("WV-MAGIC-09", "DD 01 in contended memory (48K $6000): at every skipped DD 01 the CPU "
+                             "counter advanced by exactly the clock's delta, and at least one was "
+                             "stretched past 8 T",
+              slots > 0 && mismatched == 0 && contended > 0,
+              "slots=" + std::to_string(slots) + " contended=" + std::to_string(contended) +
+                  " mismatched=" + std::to_string(mismatched));
+    }
+    {
+        // A skipped DD 01 leaves the machine as a two-byte NOP does (both are two M1s: every opcode
+        // starts with Q = 0, FUSE opcodes_base.c; t80n.vhd:493): SCF after LD A,0 ; CP $28 ; <mid>
+        // takes its X/Y from Q, which CP left set, so the F after SCF is the check; and the slot
+        // delivers both M1 callbacks (the IM2 decoder and the M1 count see every M1).
+        uint8_t f_after[2] = { 0, 0 };
+        int m1_mid[2] = { 0, 0 };
+        for (int variant = 0; variant < 2; ++variant) {
+            Emulator emu;
+            const uint8_t mid0 = variant ? 0x00 : 0xDD, mid1 = variant ? 0x00 : 0x01;
+            b5_build(emu, { 0x3E, 0x00, 0xFE, 0x28, mid0, mid1, 0x37, 0x18, 0xFE });
+            emu.cpu().on_magic_breakpoint = [](uint16_t) { return true; };
+            auto prev = emu.cpu().on_m1_cycle;
+            int m1 = 0;
+            emu.cpu().on_m1_cycle = [&m1, prev](uint16_t a, uint8_t o) { ++m1; if (prev) prev(a, o); };
+            emu.execute_single_instruction();            // LD A,0
+            emu.execute_single_instruction();            // CP $28
+            int before = m1;
+            emu.execute_single_instruction();            // DD 01 (skipped) | NOP
+            if (variant) { m1_mid[variant] = m1 - before; before = m1; emu.execute_single_instruction(); }
+            m1_mid[variant] += m1 - before;
+            emu.execute_single_instruction();            // SCF
+            f_after[variant] = static_cast<uint8_t>(emu.cpu().get_registers().AF & 0xFF);
+        }
+        check("WV-MAGIC-10", "SCF after a skipped DD 01 gives the F that SCF after NOP NOP gives "
+                             "(Q is cleared by the skip)",
+              f_after[0] == f_after[1],
+              "DD01 F=" + hex(f_after[0]) + " NOP,NOP F=" + hex(f_after[1]));
+        check("WV-MAGIC-11", "a skipped DD 01 delivers two M1 callbacks, as the NOP NOP it stands "
+                             "for does",
+              m1_mid[0] == 2 && m1_mid[1] == 2,
+              "DD01 m1=" + std::to_string(m1_mid[0]) + " NOP,NOP m1=" + std::to_string(m1_mid[1]));
+    }
+    {
         // The FOREIGN producer: sjasmplus 1.23.1 `break` (z80.cpp:594-601), committed output.
         std::ifstream f(JNEXT_SJASMBREAK_DIR "/break.bin", std::ios::binary);
         const std::vector<uint8_t> bin((std::istreambuf_iterator<char>(f)),

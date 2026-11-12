@@ -1190,16 +1190,22 @@ int Z80Cpu::execute() {
 
     // Magic breakpoint: DD 01 (older CSpect / sjasmplus convention). The one magic form that is
     // NOT a hardware instruction (`01 nn nn` is LD BC,nn): the hook's return value says whether to
-    // skip the two bytes. Both were fetched as M1s, so charge them as the Z80N path does.
+    // skip the two bytes. Both were fetched as M1s, so the skip does what a two-byte NOP does and
+    // what the Z80N arm does: both M1 callbacks (the IM2 decoder and the M1 count see them), both
+    // fetches' contention (so the T-states are at least 8), R += 2, and Q = 0 for the next SCF/CCF.
     if (opcode == 0xDD) {
         uint8_t ext = chain_byte_(static_cast<uint16_t>(pc + 1));
         if (ext == 0x01 && on_magic_breakpoint) {
             if (on_magic_breakpoint(pc)) {
+                if (on_m1_cycle) on_m1_cycle(pc, opcode);
+                if (on_m1_cycle) on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), ext);
                 libspectrum_dword start_ts = tstates;
                 contend_read(pc, 4);
                 contend_read(static_cast<uint16_t>((pc + 1) & 0xFFFF), 4);
                 z80.pc.w = (pc + 2) & 0xFFFF;
                 z80.r = (z80.r + 2) & 0x7F;
+                z80.q = 0;
+                z80.iff2_read = 0;
                 sync_regs_from_fuse(regs_);
                 return static_cast<int>(tstates - start_ts);
             }

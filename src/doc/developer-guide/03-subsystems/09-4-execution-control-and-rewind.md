@@ -251,8 +251,8 @@ sjasmplus `break`) and `DD 01` (older CSpect and sjasmplus). With `--magic-break
 `Emulator::init` installs an `on_magic_breakpoint` callback that pauses and
 holds the stop (`hold_for_magic_stop()`); `ED FF` and `FD 00` run through the FUSE core as the
 8 T-state two-byte NOPs they are and the hook fires after them, while `DD 01`
-is intercepted before FUSE, advancing PC by two for the 8 T-states of its two
-M1 fetches. The hold exists because the hook fires on a machine nothing
+is intercepted before FUSE, advancing PC by two for its two M1 fetches (at
+least 8 T-states, more under contention). The hold exists because the hook fires on a machine nothing
 may arm — headless, SDL, a closed debugger window — and the hot loop honours a
 pause only inside its armed block. It arms nothing else, and the resume that
 ends the stop releases it. The stop's reason is `Magic`, which no client owns

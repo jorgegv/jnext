@@ -89,9 +89,10 @@ as `LD BC,nn` (the `DD` prefix ignored).
 8 T-states, no register change), so `execute()` runs them through FUSE like any
 other and fires the hook after the instruction, from the fetched prefix chain
 (never a second memory read). `DD 01` is not an instruction on the hardware, so
-`execute()` intercepts it before FUSE: it charges the two M1 fetches
-(`contend_read()`, R += 2), skips the two bytes when the hook returns true, and
-consumes no operand.
+`execute()` intercepts it before FUSE and, when the hook returns true, skips the
+two bytes like a two-byte NOP: both M1 callbacks, both fetches' contention
+(`contend_read()`, so the cost is at least 8 T-states), R += 2 and Q cleared.
+It consumes no operand.
 
 Z80N instructions account for their own time rather than quoting a table
 constant. The wrapper charges the two M1 fetches via `contend_read()`,
