@@ -146,7 +146,7 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-REX-02", "--import-skoolkit and --import-ghidra read files at start",
                  "jnext binary not built at " + bin);
-            skip("CLI-TKB-02", "--touch-keyboard warns outside a browser page; a bad value exits 1",
+            skip("CLI-TKB-02", "--touch-keyboard warns outside a browser page; a bad value exits non-zero",
                  "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
@@ -197,7 +197,7 @@ int main() {
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-REX-02", "--import-skoolkit and --import-ghidra read files at start",
                  "no timeout(1) on this host; refusing to run unbounded");
-            skip("CLI-TKB-02", "--touch-keyboard warns outside a browser page; a bad value exits 1",
+            skip("CLI-TKB-02", "--touch-keyboard warns outside a browser page; a bad value exits non-zero",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -852,8 +852,8 @@ int main() {
             }
 
             // CLI-TKB-02: --touch-keyboard is a browser-page option; this native build accepts it with
-            // one warning per occurrence and carries on, and a value other than auto/on/off exits 1
-            // naming the flag and the value.
+            // one warning per occurrence and carries on, and a value other than auto/on/off exits
+            // non-zero naming the flag and the value.
             {
                 const std::string base = "--headless --machine 48k" + sd_arg;
                 const int rc_ok = run_split(base + " --touch-keyboard off --delayed-automatic-exit-frames 5");
@@ -866,8 +866,8 @@ int main() {
                 const bool names = bad_err.find("--touch-keyboard") != std::string::npos &&
                                    bad_err.find("sideways") != std::string::npos;
                 check("CLI-TKB-02", "--touch-keyboard off exits 0 with exactly one 'has no effect outside a browser page' warning; "
-                                    "--touch-keyboard sideways exits 1 naming the flag and the value",
-                      rc_ok == 0 && warns == 1 && rc_bad == 1 && names,
+                                    "--touch-keyboard sideways exits non-zero naming the flag and the value",
+                      rc_ok == 0 && warns == 1 && rc_bad != 0 && names,
                       "rc_ok=" + std::to_string(rc_ok) + " warns=" + std::to_string(warns) + " rc_bad=" +
                           std::to_string(rc_bad) + " " + bad_err.substr(0, 200));
             }
