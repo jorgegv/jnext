@@ -57,10 +57,11 @@ some platforms need more:
 `package-test` matters more than its name suggests. It does not merely build
 each package: it then looks inside and checks what is there — that the rpm and
 deb carry `bin/jnext`, that the source zip carries the vendored submodule, that
-the Windows zip carries its DLLs and its platform plugin, that every package
-carries the 48K ROM symbol map `48rom.map` (`share/jnext` in the rpm and deb, the
-zip root in the Windows zips, `Contents/Resources` in the macOS bundle; the
-Flatpak build and `verify-macos-dmg` check it too), and that `jnext.exe`
+the Windows zip carries its DLLs and its platform plugin, that the source
+tarball and zip, the rpm, the deb and the Windows zips carry the 48K ROM symbol
+map `48rom.map` (`share/jnext` in the rpm and deb, the zip root in the Windows
+zips; the Flatpak build checks its `share/jnext` too, and `verify-macos-dmg`
+checks the macOS bundle's `Contents/Resources`), and that `jnext.exe`
 is a GUI-subsystem binary with no stray console window attached. Each row
 checks the artifact named for the current `version.yaml` version, after
 deleting earlier ones: a build directory keeps every previous version's

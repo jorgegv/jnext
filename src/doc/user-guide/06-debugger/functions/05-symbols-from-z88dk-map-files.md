@@ -71,7 +71,7 @@ its routines and system variables, taken from skoolkit's disassembly of the ROM.
 | Installed from | `48rom.map` is in |
 |---|---|
 | the rpm or the deb | `/usr/share/jnext/` |
-| the Flatpak | `/var/lib/flatpak/app/io.github.zxjogv.jnext/current/active/files/share/jnext/`; for a `--user` installation, `~/.local/share/flatpak/` instead of `/var/lib/flatpak/` |
+| the Flatpak | `/var/lib/flatpak/app/io.github.zxjogv.jnext/current/active/files/share/jnext/`; for a `--user` installation, `~/.local/share/flatpak/` instead of `/var/lib/flatpak/`; inside the sandbox it is `/app/share/jnext/48rom.map` |
 | a Windows zip | the folder you unzipped, next to `jnext.exe` |
 | the macOS `.dmg` | inside the application: `/Applications/jnext.app/Contents/Resources/` (in the file dialog, **Cmd+Shift+G** opens a folder by its path) |
 | the source | `data/` |
