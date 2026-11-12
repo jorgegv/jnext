@@ -47,9 +47,6 @@ BrowserCrt::~BrowserCrt() {
 
 void BrowserCrt::present(SDL_Renderer* renderer, const uint32_t* argb, int w, int h) {
     if (!argb || w <= 0 || h <= 0) return;
-    // SDL batches its draws: hand the context over with nothing pending, and forget its cached state.
-    SDL_FlushRenderer(renderer);
-
     const std::size_t n = static_cast<std::size_t>(w) * h;
     if (abgr_.size() != n) abgr_.resize(n);
     crt_shader::argb_to_abgr(argb, abgr_.data(), n);
@@ -61,10 +58,9 @@ void BrowserCrt::present(SDL_Renderer* renderer, const uint32_t* argb, int w, in
     const crt_shader::GlRect vp = crt_shader::gl_viewport(
         static_cast<int>(lr.x), static_cast<int>(lr.y), static_cast<int>(lr.w), static_cast<int>(lr.h), out_h);
 
-    // The state of the context crtemu does not set itself.
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    // The state of the context that crtemu does not set itself, and that SDL's renderer left
+    // different from WebGL's default: blending on, and attribute array 1 enabled with no buffer.
     glDisable(GL_BLEND);
-    glDisable(GL_SCISSOR_TEST);
     GLint max_attribs = 0;
     glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &max_attribs);
     for (GLint i = 1; i < max_attribs; ++i) glDisableVertexAttribArray(static_cast<GLuint>(i));

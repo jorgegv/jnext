@@ -110,7 +110,18 @@ const readBorder = async () => {
   const f = path.join(ORACLE, 'idle.png');
   return px(await decode(fs.readFileSync(f)), 0, 0);
 };
-const typeKeys = async (page, keys) => { for (const k of keys) { await page.keyboard.press(k, { delay: 60 }); await sleep(120); } };
+// Hold each key for 5 emulated frames and leave 5 between keys: with the effect on, a page can run
+// well below 50 frames a second, and a key held for a wall-clock 60 ms would then be gone before
+// the ROM's keyboard scan sees it.
+const frameNow = (page) => page.evaluate(() => window.jnextModule._jnext_web_frame());
+const typeKeys = async (page, keys) => {
+  for (const k of keys) {
+    await page.keyboard.down(k);
+    await waitFrame(page, (await frameNow(page)) + 5);
+    await page.keyboard.up(k);
+    await waitFrame(page, (await frameNow(page)) + 5);
+  }
+};
 // every pixel of rows [y0,y1], cols [x0,x1] satisfies ok(colour, x, y); returns the first violation
 function bandFirstBad(im, y0, y1, x0, x1, ok) {
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (!ok(px(im, x, y), x, y)) return `(${x},${y}) = ${px(im, x, y)}`;
