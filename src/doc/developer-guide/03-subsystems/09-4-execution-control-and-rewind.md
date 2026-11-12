@@ -245,12 +245,14 @@ Both are hooks a Z80 programmer puts in their own source; neither exists on
 real hardware.
 
 The **magic breakpoint** is an opcode that stops the machine where it executes.
-JNEXT intercepts it in `src/cpu/z80_cpu.cpp` before the FUSE core sees it, and
-recognises both community conventions: `ED FF` (ZEsarUX, Spectaculator) and
-`DD 01` (CSpect). With `--magic-breakpoint` set (or `set_magic_breakpoint(true)`),
+JNEXT recognises it in `src/cpu/z80_cpu.cpp`, in three community conventions:
+`ED FF` (ZEsarUX, Spectaculator), `FD 00` (CSpect 2.19.9.1 and later, the
+sjasmplus `break`) and `DD 01` (older CSpect and sjasmplus). With `--magic-breakpoint` set (or `set_magic_breakpoint(true)`),
 `Emulator::init` installs an `on_magic_breakpoint` callback that pauses and
-holds the stop (`hold_for_magic_stop()`); the opcode advances PC by two and
-costs 8 T-states. The hold exists because the hook fires on a machine nothing
+holds the stop (`hold_for_magic_stop()`); `ED FF` and `FD 00` run through the FUSE core as the
+8 T-state two-byte NOPs they are and the hook fires after them, while `DD 01`
+is intercepted before FUSE, advancing PC by two for its two M1 fetches (at
+least 8 T-states, more under contention). The hold exists because the hook fires on a machine nothing
 may arm — headless, SDL, a closed debugger window — and the hot loop honours a
 pause only inside its armed block. It arms nothing else, and the resume that
 ends the stop releases it. The stop's reason is `Magic`, which no client owns

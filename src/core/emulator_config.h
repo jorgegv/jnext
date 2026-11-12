@@ -249,7 +249,7 @@ struct EmulatorConfig {
     std::string export_skoolkit_dir;
     std::string export_ghidra_dir;
 
-    // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
+    // Magic breakpoint: ED FF (ZEsarUX), FD 00 (CSpect, sjasmplus break) and DD 01 (older CSpect) trigger debugger pause
     bool magic_breakpoint = false;
 
     // GH #219 (--persistent-breakpoints): keep breakpoints and watchpoints

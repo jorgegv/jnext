@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.26</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.27</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.26</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.27</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3056,13 +3056,21 @@ NextZXOS itself uses <code>NEXTREG</code>, <code>MUL</code> and the <code>ADD rr
 and consults <code>kZ80NOpcodeTable</code>, a 256-entry table built at static-init from the
 <code>Z80NOpcode</code> enum. A hit dispatches to <code>execute_z80n()</code> and never reaches FUSE,
 which would otherwise decode it as a NOP; a miss falls through untouched.</p>
-<p>Two encodings are checked before that table: <code>ED FF</code> and <code>DD 01</code>, the two magic
-breakpoints. A magic breakpoint is an instruction a program plants in its own
-code to stop the emulator at that exact spot and hand control to the debugger —
-the two encodings are the ones ZEsarUX and CSpect established, and JNEXT honours
-both. They only bite when <code>--magic-breakpoint</code> is given; otherwise they execute
-as on real silicon: <code>ED FF</code> as a two-byte NOP, <code>DD 01 nn nn</code> as <code>LD BC,nn</code>
-(the <code>DD</code> prefix ignored).</p>
+<p>Three encodings are magic breakpoints: <code>ED FF</code>, <code>FD 00</code> and <code>DD 01</code>. A magic
+breakpoint is an instruction a program plants in its own code to stop the
+emulator at that exact spot and hand control to the debugger — the encodings are
+the ones ZEsarUX, CSpect and sjasmplus's <code>break</code> established, and JNEXT honours
+all three. They only bite when <code>--magic-breakpoint</code> is given; otherwise they
+execute as on real silicon: <code>ED FF</code> and <code>FD 00</code> as two-byte NOPs, <code>DD 01 nn nn</code>
+as <code>LD BC,nn</code> (the <code>DD</code> prefix ignored).</p>
+<p><code>ED FF</code> and <code>FD 00</code> are real hardware instructions (two M1 fetches, R += 2,
+8 T-states, no register change), so <code>execute()</code> runs them through FUSE like any
+other and fires the hook after the instruction, from the fetched prefix chain
+(never a second memory read). <code>DD 01</code> is not an instruction on the hardware, so
+<code>execute()</code> intercepts it before FUSE and, when the hook returns true, skips the
+two bytes like a two-byte NOP: both M1 callbacks, both fetches' contention
+(<code>contend_read()</code>, so the cost is at least 8 T-states), R += 2 and Q cleared.
+It consumes no operand.</p>
 <p>Z80N instructions account for their own time rather than quoting a table
 constant. The wrapper charges the two M1 fetches via <code>contend_read()</code>,
 <code>execute_z80n()</code> charges every operand access through the same FUSE bus
