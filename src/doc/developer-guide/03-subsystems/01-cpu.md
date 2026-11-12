@@ -77,13 +77,21 @@ and consults `kZ80NOpcodeTable`, a 256-entry table built at static-init from the
 `Z80NOpcode` enum. A hit dispatches to `execute_z80n()` and never reaches FUSE,
 which would otherwise decode it as a NOP; a miss falls through untouched.
 
-Two encodings are checked before that table: `ED FF` and `DD 01`, the two magic
-breakpoints. A magic breakpoint is an instruction a program plants in its own
-code to stop the emulator at that exact spot and hand control to the debugger —
-the two encodings are the ones ZEsarUX and CSpect established, and JNEXT honours
-both. They only bite when `--magic-breakpoint` is given; otherwise they execute
-as on real silicon: `ED FF` as a two-byte NOP, `DD 01 nn nn` as `LD BC,nn`
-(the `DD` prefix ignored).
+Three encodings are magic breakpoints: `ED FF`, `FD 00` and `DD 01`. A magic
+breakpoint is an instruction a program plants in its own code to stop the
+emulator at that exact spot and hand control to the debugger — the encodings are
+the ones ZEsarUX, CSpect and sjasmplus's `break` established, and JNEXT honours
+all three. They only bite when `--magic-breakpoint` is given; otherwise they
+execute as on real silicon: `ED FF` and `FD 00` as two-byte NOPs, `DD 01 nn nn`
+as `LD BC,nn` (the `DD` prefix ignored).
+
+`ED FF` and `FD 00` are real hardware instructions (two M1 fetches, R += 2,
+8 T-states, no register change), so `execute()` runs them through FUSE like any
+other and fires the hook after the instruction, from the fetched prefix chain
+(never a second memory read). `DD 01` is not an instruction on the hardware, so
+`execute()` intercepts it before FUSE: it charges the two M1 fetches
+(`contend_read()`, R += 2), skips the two bytes when the hook returns true, and
+consumes no operand.
 
 Z80N instructions account for their own time rather than quoting a table
 constant. The wrapper charges the two M1 fetches via `contend_read()`,

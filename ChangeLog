@@ -8,6 +8,7 @@
 
 ### Developer Features
 - Source tab opens any file the source map names (File list), to browse it and set breakpoints in its gutter
+- Magic breakpoint recognises FD 00, the sjasmplus break opcode (CSpect 2.19.9.1+); ED FF now runs as the hardware NOP
 
 ### Bug Fixes
 - Programs loaded on the Next that print through the ROM (RST $10) no longer hang; the warm start records NextZXOS at its Command Line

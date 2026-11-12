@@ -164,7 +164,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Backwards execution (rewind): frame snapshot ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider
 - Rewind preserves the SD card's SPI protocol state, so streaming programs resume correctly
 - Save Snapshot while paused mid-frame completes the frame and saves at the boundary
-- Magic breakpoint: `ED FF` (ZEsarUX) / `DD 01` (CSpect) triggers debugger pause
+- Magic breakpoint: `ED FF` (ZEsarUX), `FD 00` (CSpect, sjasmplus `break`) and `DD 01` (older CSpect) trigger a debugger pause
 - **Which memory an address is in**: every debugger view names the memory behind an address (`P0E`, `ROM0`, `DIVROM`, ...)
 - Debug > Physical Addresses (`--set debugger.physical_addresses=true`) shows the byte's place in the Next's memory
 - **Your own labels and comments**: right-click to add, rename or remove labels and comments in the Disassembly or Source tab

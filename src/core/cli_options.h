@@ -781,7 +781,7 @@ inline constexpr Option OPTIONS[] = {
     // Debugging
     { "--magic-breakpoint", 0, Doc::Documented, OptId::MagicBreakpoint,
       "",
-      "Enable magic breakpoints (ED FF / DD 01 trigger debugger)" },
+      "Enable magic breakpoints (ED FF / FD 00 / DD 01 trigger debugger)" },
     // GH #219. Accepted by EVERY build, including --headless, the SDL-only
     // frontend and -DENABLE_DEBUGGER=OFF, where it is simply inert: nothing
     // outside src/debugger/ can add a breakpoint, so the armed check never

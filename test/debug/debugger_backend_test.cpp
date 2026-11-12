@@ -3431,6 +3431,156 @@ static void b5_wire_verb_rows() {
               "client=" + std::to_string(a) + " " + b5_state(dbg));
     }
     {
+        // GH #456: FD 00 (sjasmplus `break`, CSpect 2.19.9.1+) is the IY-prefixed NOP: it runs as
+        // the hardware runs it (8 T, R += 2, no register change; t80n_mcode.vhd:1384-1387, :231-233,
+        // t80n.vhd:493, :513-519; FUSE opcodes_base.c:1171-1176 + z80_ddfd.c:556-565) and then the
+        // machine pauses after it.
+        Emulator emu;
+        b5_build(emu, { 0xFD, 0x00, 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        dbg.set_magic_breakpoint(true);
+        const uint64_t c0 = emu.clock().get();
+        const uint64_t t0 = emu.monotonic_tstates();
+        const Z80Registers r0 = emu.cpu().get_registers();
+        emu.run_frame();
+        const Z80Registers r1 = emu.cpu().get_registers();
+        const uint64_t dt = emu.monotonic_tstates() - t0;
+        check("WV-MAGIC-02", "set_magic_breakpoint(true): FD 00 stops the machine after it "
+                             "(pc 0x8002, cycle c0+64), reason Magic{addr 0x8000}, UNOWNED, "
+                             "having run as the 8-T IY-prefixed NOP: counter +8, R += 2, no "
+                             "register change",
+              dbg.state().pause_reason.addr == 0x8000 && dt == 8 &&
+                  ((r1.R & 0x7F) == ((r0.R + 2) & 0x7F)) &&
+                  r1.AF == r0.AF && r1.BC == r0.BC && r1.DE == r0.DE && r1.HL == r0.HL &&
+                  r1.IX == r0.IX && r1.IY == r0.IY && r1.SP == r0.SP &&
+                  b5_stopped_at(emu, dbg, 0x8002, c0 + 64, K::Magic,
+                                jnext::dbg::CLIENT_NONE),
+              "client=" + std::to_string(a) + " dt=" + std::to_string(dt) + " R " +
+                  std::to_string(r0.R) + "->" + std::to_string(r1.R) + " " + b5_state(dbg));
+    }
+    {
+        // The switch set and then cleared (the Debug-menu untick): FD 00 is the plain NOP.
+        Emulator emu;
+        b5_build(emu, { 0xFD, 0x00, 0x18, 0xFE });
+        Debugger dbg(emu);
+        (void)dbg.attach(client("B5"));
+        dbg.set_magic_breakpoint(true);
+        dbg.set_magic_breakpoint(false);
+        const uint64_t c0 = emu.clock().get();
+        bool ever_paused = false;
+        for (int i = 0; i < 3; ++i) { emu.run_frame(); ever_paused |= dbg.state().paused; }
+        check("WV-MAGIC-03", "set_magic_breakpoint(true) then (false): FD 00 never pauses; the "
+                             "program runs the NOP and parks on its JR at 0x8002",
+              !ever_paused && emu.cpu().pc() == 0x8002 &&
+                  emu.clock().get() > c0 + 2 * emu.timing().master_cycles_per_frame,
+              b5_state(dbg));
+    }
+    {
+        // The switch never set: FD 00 is exactly the hardware's 8-T NOP (the FUSE dd00 case's twin).
+        Emulator emu;
+        b5_build(emu, { 0xFD, 0x00, 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        dbg.pause(a);
+        const uint64_t c0 = emu.clock().get();
+        const uint64_t t0 = emu.monotonic_tstates();
+        const Z80Registers r0 = emu.cpu().get_registers();
+        dbg.step_into(a);
+        const Z80Registers r1 = emu.cpu().get_registers();
+        const uint64_t dt = emu.monotonic_tstates() - t0;
+        check("WV-MAGIC-04", "switch never set: FD 00 is the 8-T NOP (one step: pc 0x8002, cycle "
+                             "c0+64, reason Step, counter +8, R += 2, no register change)",
+              dt == 8 && ((r1.R & 0x7F) == ((r0.R + 2) & 0x7F)) &&
+                  r1.AF == r0.AF && r1.BC == r0.BC && r1.DE == r0.DE && r1.HL == r0.HL &&
+                  r1.IX == r0.IX && r1.IY == r0.IY && r1.SP == r0.SP &&
+                  b5_stopped_at(emu, dbg, 0x8002, c0 + 64, K::Step, a),
+              "dt=" + std::to_string(dt) + " R " + std::to_string(r0.R) + "->" +
+                  std::to_string(r1.R) + " " + b5_state(dbg));
+    }
+    {
+        // Near misses with the switch on: FD + a non-00 byte is an ordinary IY instruction, DD 00
+        // is CSpect's `exit` (ReadMe.txt:30), not a jnext magic form.
+        Emulator emu;
+        b5_build(emu, { 0xFD, 0x21, 0x34, 0x12, 0xDD, 0x00, 0x18, 0xFE });
+        Debugger dbg(emu);
+        (void)dbg.attach(client("B5"));
+        dbg.set_magic_breakpoint(true);
+        bool ever_paused = false;
+        for (int i = 0; i < 3; ++i) { emu.run_frame(); ever_paused |= dbg.state().paused; }
+        check("WV-MAGIC-05", "switch on: FD 21 nn nn and DD 00 do not stop; LD IY,0x1234 ran and "
+                             "the program parks on its JR at 0x8006",
+              !ever_paused && emu.cpu().get_registers().IY == 0x1234 &&
+                  emu.cpu().pc() == 0x8006,
+              b5_state(dbg));
+    }
+    {
+        // ED FF is the hardware's two-byte NOP (t80n_mcode.vhd:2586 `others => null`, :231-233;
+        // t80n.vhd:493): the stop at it must leave the CPU's T-state counter and R advanced with
+        // the clock (FUSE opcodes_base.c:1070-1075 + z80_ed.c default NOPD).
+        Emulator emu;
+        b5_build(emu, { 0xED, 0xFF, 0x18, 0xFE });
+        Debugger dbg(emu);
+        (void)dbg.attach(client("B5"));
+        dbg.set_magic_breakpoint(true);
+        const uint64_t c0 = emu.clock().get();
+        const uint64_t t0 = emu.monotonic_tstates();
+        const Z80Registers r0 = emu.cpu().get_registers();
+        emu.run_frame();
+        const Z80Registers r1 = emu.cpu().get_registers();
+        const uint64_t dt = emu.monotonic_tstates() - t0;
+        check("WV-MAGIC-06", "ED FF stop: pc 0x8002, cycle c0+64, Magic{0x8000}, unowned, and the "
+                             "CPU counter advanced 8 T and R by 2 with the clock",
+              dbg.state().pause_reason.addr == 0x8000 && dt == 8 &&
+                  ((r1.R & 0x7F) == ((r0.R + 2) & 0x7F)) &&
+                  b5_stopped_at(emu, dbg, 0x8002, c0 + 64, K::Magic, jnext::dbg::CLIENT_NONE),
+              "dt=" + std::to_string(dt) + " R " + std::to_string(r0.R) + "->" +
+                  std::to_string(r1.R) + " " + b5_state(dbg));
+    }
+    {
+        // DD 01 is not a hardware instruction (01 nn nn is LD BC,nn): the convention skips both
+        // bytes. Both were fetched as M1s (t80n_mcode.vhd:1384-1387, t80n.vhd:493), so the counter
+        // and R advance 8 T / 2 with the clock; no operand is consumed.
+        Emulator emu;
+        b5_build(emu, { 0xDD, 0x01, 0x18, 0xFE });
+        Debugger dbg(emu);
+        (void)dbg.attach(client("B5"));
+        dbg.set_magic_breakpoint(true);
+        const uint64_t c0 = emu.clock().get();
+        const uint64_t t0 = emu.monotonic_tstates();
+        const Z80Registers r0 = emu.cpu().get_registers();
+        emu.run_frame();
+        const Z80Registers r1 = emu.cpu().get_registers();
+        const uint64_t dt = emu.monotonic_tstates() - t0;
+        check("WV-MAGIC-07", "DD 01 stop: pc 0x8002, cycle c0+64, Magic{0x8000}, unowned, BC "
+                             "untouched, and the CPU counter advanced 8 T and R by 2 with the clock",
+              dbg.state().pause_reason.addr == 0x8000 && dt == 8 && r1.BC == r0.BC &&
+                  ((r1.R & 0x7F) == ((r0.R + 2) & 0x7F)) &&
+                  b5_stopped_at(emu, dbg, 0x8002, c0 + 64, K::Magic, jnext::dbg::CLIENT_NONE),
+              "dt=" + std::to_string(dt) + " R " + std::to_string(r0.R) + "->" +
+                  std::to_string(r1.R) + " " + b5_state(dbg));
+    }
+    {
+        // The FOREIGN producer: sjasmplus 1.23.1 `break` (z80.cpp:594-601), committed output.
+        std::ifstream f(JNEXT_SJASMBREAK_DIR "/break.bin", std::ios::binary);
+        const std::vector<uint8_t> bin((std::istreambuf_iterator<char>(f)),
+                                       std::istreambuf_iterator<char>());
+        Emulator emu;
+        b5_build(emu, bin.empty() ? std::vector<uint8_t>{ 0x18, 0xFE } : bin);
+        Debugger dbg(emu);
+        (void)dbg.attach(client("B5"));
+        dbg.set_magic_breakpoint(true);
+        const uint64_t c0 = emu.clock().get();
+        emu.run_frame();
+        check("WV-MAGIC-08", "sjasmplus break.bin (3E 5A FD 00 18 FE): LD A,n then FD 00 stop at "
+                             "0x8004, cycle c0+120, Magic{0x8002}, unowned, A == 0x5A",
+              bin.size() == 6 && bin[2] == 0xFD && bin[3] == 0x00 &&
+                  dbg.state().pause_reason.addr == 0x8002 &&
+                  (emu.cpu().get_registers().AF >> 8) == 0x5A &&
+                  b5_stopped_at(emu, dbg, 0x8004, c0 + 120, K::Magic, jnext::dbg::CLIENT_NONE),
+              "size=" + std::to_string(bin.size()) + " " + b5_state(dbg));
+    }
+    {
         // THE CONTROL: the same program on the same ARMED machine (a client
         // attached — CTL-00-01 runs unarmed), no verb. It passes every stop point
         // above and never pauses.
