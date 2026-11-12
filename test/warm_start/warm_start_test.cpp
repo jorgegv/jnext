@@ -2267,8 +2267,9 @@ int main()
                 }
                 Digest j{}, out{};
                 warm_start::parse_sha256_hex(sdcard::sha256_hex(rec), j);
-                std::vector<uint8_t> both(base.begin(), base.end());
-                both.insert(both.end(), j.begin(), j.end());
+                std::vector<uint8_t> both;
+                for (uint8_t b : base) both.push_back(b);
+                for (uint8_t b : j) both.push_back(b);
                 warm_start::parse_sha256_hex(sdcard::sha256_hex(both), out);
                 return out;
             };
