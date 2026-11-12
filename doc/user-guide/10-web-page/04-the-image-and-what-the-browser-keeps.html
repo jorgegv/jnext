@@ -4518,13 +4518,15 @@ NextZXOS on every visit and records nothing.</p>
 <h3 id="keeping-the-saves">Keeping the saves<a class="headerlink" href="#keeping-the-saves" title="Permanent link">&para;</a></h3>
 <pre><code class="language-js">jnext.mount(el, { image: {...}, file: 'game.nex', keepWrites: true });
 </code></pre>
-<p>Whatever the program writes to the card is there at the next visit (a program loaded with
+<p>Whatever the program writes to the card is there at the next visit (a NEX loaded with
 <code>file</code> that saves through esxDOS file calls does not write the card: 10.3). <code>player.resetCard()</code> clears them (10.2).
 The saves belong to the image: a page that now names another image, even one that
-differs in one byte, starts with none. A record that does not match its image (damaged,
-or made by another version of the image) is refused with a message naming
-<code>--sdcard-writes-reset</code>: mount once with <code>args: ['--sdcard-writes-reset']</code>, or clear the
-site's data, to start again.</p>
+differs in one byte, starts with none. A record made for another image is refused with a message naming
+<code>--sdcard-writes-reset</code>: mount once with <code>args: ['--sdcard-writes-reset']</code> to discard it. A
+record that is not a valid record at all (damaged, or in a format this version does not
+read) is refused as "not a jnext SD-writes file" and the reset does not remove it: clear the
+site's data in the browser, or delete the record from the <code>jnext-card-writes</code> database
+(store <code>journals</code>) with the browser's developer tools.</p>
 <p>Browsers keep the storage of each origin (scheme, host and port) apart. Two pages of one
 origin share the image and the recording. A game inside an <code>iframe</code> of another site may
 or may not see the storage its own origin has: that depends on the browser, its version
@@ -4599,7 +4601,7 @@ their status line.</p>
 </tr>
 <tr>
 <td><code>&lt;file&gt; is not a jnext SD-writes file; not touching it</code></td>
-<td>The stored saves are damaged. Mount once with <code>args: ['--sdcard-writes-reset']</code>.</td>
+<td>The stored record is damaged, or in a format this version does not read; <code>--sdcard-writes-reset</code> does not remove it. Clear the site's data, or delete the record from the <code>jnext-card-writes</code> database.</td>
 </tr>
 <tr>
 <td><code>&lt;file&gt; was made for another image ...; run with --sdcard-writes-reset to discard them</code></td>

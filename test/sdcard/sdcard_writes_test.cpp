@@ -585,6 +585,50 @@ int main() {
         swj::forget_all_for_test();
     }
 
+    // SDW-17: the registry finds the bound image under another spelling.
+    {
+        const std::string d = scratch();
+        const std::string img = make_image("c" + std::to_string(n_dir) + ".img");
+        const std::string other = d + "/../" + fs::path(img).filename().string();
+        std::string why;
+        const bool bound = swj::bind(other, d + "/w.jsdw", digest_binding(0xAB), false, why);
+        const Bytes before = slurp(img);
+        const Bytes w = payload(24);
+        bool rb = false;
+        {
+            Card c(img);   // mounted under the plain spelling
+            (void)write_block(c.sd, 12, w);
+            rb = reads(c.sd, 12, w);
+        }
+        check("SDW-17",
+              "an image bound under one spelling of its path (dir/../x.img) and mounted "
+              "under another is still in journal mode: the write reads back and the image file "
+              "is byte-identical",
+              bound && rb && slurp(img) == before, why);
+        swj::forget_all_for_test();
+    }
+
+    // SDW-18: a byte-addressed write at an unaligned address is refused.
+    {
+        const std::string d = scratch();
+        const std::string img = make_image("c" + std::to_string(n_dir) + ".img");
+        const std::string jf = d + "/w.jsdw";
+        std::string why;
+        swj::bind(img, jf, digest_binding(0xAB), false, why);
+        uint8_t tok = 0;
+        {
+            Card c(img, false);
+            tok = write_block(c.sd, 7 * 512 + 8, payload(25));
+        }
+        check("SDW-18",
+              "SDSC card in journal mode: CMD24 at byte 7*512+8 (not a block boundary, "
+              "WRITE_BL_MISALIGN = 0) is refused at the command (R1 ADDRESS_ERROR 0x20, "
+              "SD spec 7.3.1.4) and adds no record",
+              tok == 0x20 && !exists(jf) && swj::for_image(img)->empty(),
+              "tok=" + std::to_string(tok));
+        swj::forget_all_for_test();
+    }
+
     fs::remove_all(g_dir);
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

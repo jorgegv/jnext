@@ -1,4 +1,4 @@
-// Browser rows WBW-01..10: the guest's writes to the SD card kept across page loads (keepWrites,
+// Browser rows WBW-01..12: the guest's writes to the SD card kept across page loads (keepWrites,
 // resetCard()), in headless Chromium (make wasm-browser-test, spec writes.mjs). Run by
 // browser-smoke.sh on the SDK's node.
 //
@@ -237,7 +237,7 @@ row('WBW-04', 'the same page with another image (the zipped card, another digest
 row('WBW-05', 'another page path on the same site, same image: SAVE 1 OK (its own saves); a record per (image, page)', async () => {
   await visit(main, [GUEST({ keepWrites: true })], 'SAVE 1 OK', { where: 'page2' });
   const K3 = keyOf(SHA, '/page2/api.html');
-  const s = await storedWithin(main, 5000, (s) => Object.keys(s).length === 3);
+  const s = await storedWithin(main, 5000, (s) => Object.keys(s).length === 3 && sameBytes(s[K3], W1));
   must(s && K3 !== K1 && Object.keys(s).includes(K3) && Object.keys(s).includes(K1), 'records ' + desc(s) + ' want ' + K3);
   must(sameBytes(s[K3], W1), 'the second page\'s record is not the first-run journal');
 });
@@ -312,6 +312,31 @@ row('WBW-10', 'destroy() right after the guest saved stores the writes before it
   must(s && sameBytes(s[K1], W1), `the record at the moment destroy() resolved: ${desc(s)}`);
   await visit(page, [GUEST({ keepWrites: true })], 'SAVE 2 OK');
   await page.ctx.close();
+});
+
+row('WBW-11', 'a --sdcard-writes-reset start that writes nothing (no program: the NextZXOS menu) still deletes the stored record', async () => {
+  const page = await newPage();
+  await visit(page, [GUEST({ keepWrites: true })], 'SAVE 1 OK');
+  const s1 = await storedWithin(page, 5000, (s) => sameBytes(s[K1], W1));
+  must(s1 && sameBytes(s1[K1], W1), 'no record to start from: ' + desc(s1));
+  await open(page, [{ machine: 'next', muted: true, keepWrites: true, args: ['--sdcard-writes-reset'] }]);
+  must(!(await rec(page)).mountError, 'mount: ' + (await rec(page)).mountError);
+  await click(page);
+  await waitFor(page, () => window.apiTest.players[0].ready >= 1 || window.apiTest.players[0].errors.length > 0, null, 300000);
+  const s2 = await storedWithin(page, 5000, (s) => !(K1 in s));
+  await page.ctx.close();
+  must(s2 && !(K1 in s2), 'the record is still there after the reset start: ' + desc(s2));
+});
+
+row('WBW-12', 'keepWrites:false is the documented boolean: mount() resolves, the command line has no --sdcard-writes, and no jnext-card-writes database appears', async () => {
+  const page = await newPage();
+  await open(page, [GUEST({ keepWrites: false })]);
+  const r = await rec(page);
+  must(!r.mountError, 'mount: ' + r.mountError);
+  must(r.argv && !r.argv.includes('--sdcard-writes'), 'argv ' + JSON.stringify(r.argv));
+  const names = await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name));
+  await page.ctx.close();
+  must(!names.includes('jnext-card-writes'), 'databases ' + JSON.stringify(names));
 });
 
 let pass = 0, fail = 0;

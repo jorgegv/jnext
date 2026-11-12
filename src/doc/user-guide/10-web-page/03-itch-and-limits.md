@@ -29,7 +29,7 @@ Game controllers are page-wide: give the other players
   with `keepWrites` (10.4); without it the card lives in memory for the session. Files JNEXT
   writes (screenshots, snapshots) live in memory in either case.
 - `keepWrites` keeps what reaches the card. A program started from the NextZXOS menu, or one
-  that drives the card itself, writes there. A program loaded with `file` is not started by
+  that drives the card itself, writes there. A NEX loaded with `file` is not started by
   NextZXOS, so its esxDOS file calls (`RST $08`) are answered by JNEXT's own stand-in, which
   keeps one file in memory and never touches the card (the man page, "esxDOS calls from a
   directly loaded NEX"): such a save is not kept across reloads, with or without

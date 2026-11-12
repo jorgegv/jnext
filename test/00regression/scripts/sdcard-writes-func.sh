@@ -28,7 +28,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #       from the format table, lays the journal over a copy of B; the copy is
 #       byte-identical to R, with the same sectors 60000 and 60001 and a FAT that mtools lists;
 #   (e) --sdcard-writes-reset with the journal: SAVE 1 OK, and the journal
-#       afterwards equals the one the first run of (c) left.
+#       afterwards equals the one the first run of (c) left; the run records the
+#       warm start again (it must not restore the recording of the written card);
+#   (f) a journal made against a card copy is refused (exit 1, naming the mtime,
+#       journal untouched) after `touch -d` moves that copy's modification time.
 # The cards are 40 MiB; mtools reads them at the partition offset 32256.
 if want sdcard-writes-func; then
     begin_func sdcard-writes-func
@@ -149,6 +152,28 @@ open(sys.argv[1], "wb").write(hdr + struct.pack("<I", 7) + bytes(512))' \
             [[ "$(sw_save "$sw_e")" == "SAVE 1 OK" ]] || sw_faults+=("e: the reset run said '$(sw_save "$sw_e")'")
             cmp -s "$sw_j" "$sw_dir/after1.jsdw" \
                 || sw_faults+=("e: after the reset the journal is not the one run 1 left")
+            # The recording of run 2 was taken on the WRITTEN card: the pristine card the reset left must
+            # not restore it, it records again (the key follows the journal, also after the recording).
+            grep -q "recorded a NextZXOS-resident machine" <<<"$sw_e" \
+                || sw_faults+=("e: the reset run did not record the warm start again (a recording of the written card was restored)")
+            grep -q "restored a recorded NextZXOS machine" <<<"$sw_e" \
+                && sw_faults+=("e: the reset run restored a recording of the written card")
+
+            # (f) a journal made against this card is refused once the card's modification time moves
+            # (the desktop binding is size + mtime), naming the mtime; the journal is left alone.
+            cp --reflink=auto "$sw_r" "$sw_dir/t.img"
+            sw_f1=$(sw_run "$sw_dir/t.img" --sdcard-writes "$sw_dir/t.jsdw")
+            [[ -s "$sw_dir/t.jsdw" ]] || sw_faults+=("f: the first run made no journal: $(sw_save "$sw_f1")")
+            sw_t_sha=$(sha256sum "$sw_dir/t.jsdw" | cut -d' ' -f1)
+            touch -d '2001-01-01 00:00' "$sw_dir/t.img"
+            sw_rc=0
+            sw_f2=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
+                --sdcard "$sw_dir/t.img" --sdcard-writes "$sw_dir/t.jsdw" 2>&1) || sw_rc=$?
+            [[ "$sw_rc" == 1 ]] || sw_faults+=("f: a journal of a card whose mtime moved exited $sw_rc, not 1")
+            grep -q "was made for another image.*mtime" <<<"$sw_f2" \
+                || sw_faults+=("f: no 'another image ... mtime' message")
+            [[ "$(sha256sum "$sw_dir/t.jsdw" | cut -d' ' -f1)" == "$sw_t_sha" ]] \
+                || sw_faults+=("f: the journal was changed by the refused run")
         fi
 
         if [[ ${#sw_faults[@]} -eq 0 ]]; then

@@ -4774,7 +4774,7 @@ prepare_warm_start</code> therefore treats the card as neither stale nor uncache
 <code>--sdcard-sha256</code> alone must (the digest describes the file only until jnext writes to it).
 Readers that go to the image directly (the ROM extractor, the card identity a <code>.jns</code> snapshot
 records) do not see the journal.</p>
-<p>The rows are <code>SDW-01..16</code> (<code>sdcard_writes_test</code>), <code>SDP-SDW-01</code> (a journal append that really
+<p>The rows are <code>SDW-01..18</code> (<code>sdcard_writes_test</code>), <code>SDP-SDW-01</code> (a journal append that really
 fails), <code>WSR-SDW-01..05</code> (the key) and the regression row <code>sdcard-writes-func</code>, whose guest is
 <code>test/fixtures/nex/save_counter.nex</code> (source <code>demo/save_counter</code>).</p>
 

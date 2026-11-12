@@ -79,13 +79,15 @@ NextZXOS on every visit and records nothing.
 jnext.mount(el, { image: {...}, file: 'game.nex', keepWrites: true });
 ```
 
-Whatever the program writes to the card is there at the next visit (a program loaded with
+Whatever the program writes to the card is there at the next visit (a NEX loaded with
 `file` that saves through esxDOS file calls does not write the card: 10.3). `player.resetCard()` clears them (10.2).
 The saves belong to the image: a page that now names another image, even one that
-differs in one byte, starts with none. A record that does not match its image (damaged,
-or made by another version of the image) is refused with a message naming
-`--sdcard-writes-reset`: mount once with `args: ['--sdcard-writes-reset']`, or clear the
-site's data, to start again.
+differs in one byte, starts with none. A record made for another image is refused with a message naming
+`--sdcard-writes-reset`: mount once with `args: ['--sdcard-writes-reset']` to discard it. A
+record that is not a valid record at all (damaged, or in a format this version does not
+read) is refused as "not a jnext SD-writes file" and the reset does not remove it: clear the
+site's data in the browser, or delete the record from the `jnext-card-writes` database
+(store `journals`) with the browser's developer tools.
 
 Browsers keep the storage of each origin (scheme, host and port) apart. Two pages of one
 origin share the image and the recording. A game inside an `iframe` of another site may
@@ -114,7 +116,7 @@ their status line.
 | `--load <file>: a browser page loads only .nex, .tap, .tzx programs` | The program has another extension. |
 | `--rzx-play: RZX is not available in a browser page` | RZX files cannot be played in a page (`--rzx-record` is refused the same way). |
 | `<flag>: not available in the browser build (...)` or `<flag>: not available in a browser page (...)` | An option that needs a process, a socket or a terminal was given. The reason is in the brackets, and the list is in the man page ("Not available in the browser"). |
-| `<file> is not a jnext SD-writes file; not touching it` | The stored saves are damaged. Mount once with `args: ['--sdcard-writes-reset']`. |
+| `<file> is not a jnext SD-writes file; not touching it` | The stored record is damaged, or in a format this version does not read; `--sdcard-writes-reset` does not remove it. Clear the site's data, or delete the record from the `jnext-card-writes` database. |
 | `<file> was made for another image ...; run with --sdcard-writes-reset to discard them` | The record under this key is for another image. Mount once with `args: ['--sdcard-writes-reset']`. |
 | `jnext: resetCard() needs the keepWrites option` | `resetCard()` was called on a player mounted without `keepWrites`. |
 | `option 'keepWrites' must be a boolean` | `keepWrites` is not `true` or `false`. Nothing has been downloaded yet. |

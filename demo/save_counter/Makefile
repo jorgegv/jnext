@@ -1,4 +1,4 @@
-# esxDOS needs NextZXOS, so there is no TAP target here: a 48K TAP has no esxDOS.
+# The program drives the Next's SPI ports (0xE7/0xEB), so it is a Next-only NEX: there is no TAP target.
 ZCC      = zcc
 ZCCFLAGS = +zxn -vn -startup=31 -clib=sdcc_ix -SO3
 

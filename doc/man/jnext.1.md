@@ -2828,7 +2828,7 @@ image is fetched from another origin, so that server must send an
     page has its own, and it holds only the sectors written, never the card.
     The page can clear it with `resetCard()`, or with `args:
     ['--sdcard-writes-reset']` for one start. Only what reaches the card is kept:
-    a program loaded with `file` that saves through esxDOS file calls is answered
+    a NEX loaded with `file` that saves through esxDOS file calls is answered
     by JNEXT's own stand-in (see **esxDOS calls from a directly loaded NEX**) and
     never writes the card.
 

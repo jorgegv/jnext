@@ -1621,6 +1621,6 @@ prepare_warm_start` therefore treats the card as neither stale nor uncacheable, 
 Readers that go to the image directly (the ROM extractor, the card identity a `.jns` snapshot
 records) do not see the journal.
 
-The rows are `SDW-01..16` (`sdcard_writes_test`), `SDP-SDW-01` (a journal append that really
+The rows are `SDW-01..18` (`sdcard_writes_test`), `SDP-SDW-01` (a journal append that really
 fails), `WSR-SDW-01..05` (the key) and the regression row `sdcard-writes-func`, whose guest is
 `test/fixtures/nex/save_counter.nex` (source `demo/save_counter`).

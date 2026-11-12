@@ -363,10 +363,9 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                                    sector, byte_addr, file_size_);
                 } else if (journal_) {
                     // The image is never written (--sdcard-writes): the block
-                    // goes to the journal. A byte-addressed card is only
-                    // written on a block boundary (WRITE_BL_MISALIGN = 0).
-                    if (byte_addr % kBlockLen == 0 &&
-                        journal_->commit(static_cast<uint32_t>(sector), data_block_)) {
+                    // goes to the journal. A misaligned byte address never gets
+                    // here: the command refused it with ADDRESS_ERROR.
+                    if (journal_->commit(static_cast<uint32_t>(sector), data_block_)) {
                         write_ok = true;
                         write_generation_.fetch_add(1, std::memory_order_relaxed);
                         sd_log()->debug("CMD24 journaled sector {}", sector);

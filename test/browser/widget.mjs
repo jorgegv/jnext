@@ -458,12 +458,13 @@ row('WIDGET-16', 'a page-side destroy(): the toolbar is disabled, the status say
   must(page.msgs.length === 0, page.msgs.join('; '));
 });
 
-row('WIDGET-17', 'data-keep-writes gives a widget player whose command line carries --sdcard-writes, and el.jnextPlayer.resetCard is a function; without the attribute neither', async () => {
+row('WIDGET-17', 'data-keep-writes gives a widget player whose command line carries --sdcard-writes, and el.jnextPlayer.resetCard is a function; without the attribute, and with data-keep-writes="false", neither', async () => {
   const one = `<div class="jnext-widget" data-image="${BURL}/card.img" data-sha256="${SHA}" data-file="${BURL}/red.nex"`;
-  pages['keep.html'] = `<!doctype html><body>${one} data-keep-writes></div>${one}></div><script src="jnext-widget.js"></script></body>`;
+  pages['keep.html'] = `<!doctype html><body>${one} data-keep-writes></div>${one}></div>${one} data-keep-writes="false"></div><script src="jnext-widget.js"></script></body>`;
   const page = await open(`${AURL}/keep.html`);
   await waitClickable(page, 0);
   await waitClickable(page, 1);
+  await waitClickable(page, 2);
   const r = await page.evaluate(() => [...document.querySelectorAll('.jnext-widget')].map((e) => ({
     argv: e.jnextPlayer.argv, fn: typeof e.jnextPlayer.resetCard })));
   await page.context().close();
@@ -471,6 +472,7 @@ row('WIDGET-17', 'data-keep-writes gives a widget player whose command line carr
   must(w >= 0 && /^\/jnext\/card-writes\/[0-9a-f]{64}-[0-9a-f]{16}\.jsdw$/.test(r[0].argv[w + 1]) && r[0].fn === 'function',
        'keep-writes widget: ' + JSON.stringify(r[0]));
   must(r[1].argv.indexOf('--sdcard-writes') < 0, 'plain widget argv: ' + JSON.stringify(r[1].argv));
+  must(r[2].argv.indexOf('--sdcard-writes') < 0, 'data-keep-writes="false" widget argv: ' + JSON.stringify(r[2].argv));
 });
 
 let pass = 0, fail = 0;
