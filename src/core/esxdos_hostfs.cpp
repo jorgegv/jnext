@@ -62,29 +62,80 @@ bool fits_8_3(const std::string& name) {
     return true;
 }
 
-/// One host directory entry, as every call that NAMES an entry sees it.
-struct Listed {
-    fs::path    path;
-    std::string lfn;      // the host name
-    std::string sfn;      // its synthesised 8.3 name
-    bool        is_dir = false;
+bool is_wild(const std::string& s) {
+    return s.find_first_of("*?") != std::string::npos;
+}
+
+/// A wildcard anywhere in a guest path, its drive qualifier ('*:' is the
+/// current drive, not a wildcard) excepted.
+bool path_has_wild(const std::string& p) {
+    std::size_t b = 0;
+    if (p.size() >= 2 && p[1] == ':' &&
+        (p[0] == '*' || p[0] == '$' || std::isalpha(static_cast<unsigned char>(p[0]))))
+        b = 2;
+    return is_wild(p.substr(b));
+}
+
+/// A guest path split into the part up to and including its last separator (or
+/// drive colon) and the final component.
+struct Leaf {
+    std::string prefix;
+    std::string leaf;
+    std::size_t drive = 0;   // length of the drive qualifier ("C:") at the start of prefix
 };
 
-/// The listing of `dir`: sorted by host name, symlinks and anything that is
-/// neither a file nor a directory left out, and each entry given its 8.3 name.
-///
-/// ONE function, because F_READDIR, F_GETCWD and resolve() must agree on what
-/// an entry's short name is (GH #301): NextZXOS answers F_GETCWD in 8.3 names
-/// (`C:/AAA/T/SUBDIR~1/`, measured) and accepts them in every path, so a short
-/// name one call shows and another cannot find is a name the guest was lied to
-/// about.
-///
-/// Sorted by host name so the entry order is identical on every run and on
-/// every host (directory_iterator order is unspecified). The 8.3 synthesis: a
-/// name that already IS 8.3 keeps itself (uppercased); anything else gets the
-/// FAT `~N` tail, with N chosen so the short names are unique within this
-/// listing — deterministic because the list is sorted.
-bool list_host_dir(const fs::path& dir, std::vector<Listed>& out) {
+Leaf split_leaf(const std::string& p) {
+    std::size_t b = 0;
+    if (p.size() >= 2 && p[1] == ':' &&
+        (p[0] == '*' || p[0] == '$' || std::isalpha(static_cast<unsigned char>(p[0]))))
+        b = 2;
+    const std::size_t cut = p.find_last_of("/\\");
+    const std::size_t at = (cut == std::string::npos || cut < b) ? b : cut + 1;
+    return Leaf{p.substr(0, at), p.substr(at), b};
+}
+
+/// Characters FAT does not allow in a name, refused by NextZXOS with esx_einval
+/// in EVERY call (F_STAT, F_OPEN, F_MKDIR, F_RENAME: measured). '*' and '?' are
+/// wildcards and are handled per call; ':' is refused in resolve().
+bool fat_forbidden(char c) { return c == '"' || c == '<' || c == '>' || c == '|'; }
+
+bool half_match(const std::string& p, const std::string& n) {
+    std::size_t j = 0;
+    for (std::size_t i = 0; i < p.size(); ++i) {
+        const char c = p[i];
+        if (c == '*' && i + 1 == p.size()) return true;
+        if (c == '?') {
+            if (j < n.size()) ++j;
+            continue;
+        }
+        if (j >= n.size() ||
+            std::toupper(static_cast<unsigned char>(c)) !=
+                std::toupper(static_cast<unsigned char>(n[j])))
+            return false;
+        ++j;
+    }
+    return j == n.size();
+}
+
+/// resolve()'s esx_epath is a bare '..' above the root. NextZXOS answers it as it
+/// does any missing last component, which for a call that looks a name up is
+/// esx_enoent (MEASURED, GH #457). Only F_STAT keeps the esx_epath it always
+/// gave (HFS-04, whose assertion is not changed here).
+uint8_t lookup_miss(uint8_t err) { return err == EsxdosHostFs::kEpath ? EsxdosHostFs::kEnoent : err; }
+
+/// A name a call that CREATES one can give an entry: no wildcard characters
+/// (NextZXOS answers esx_einval, measured), and no trailing space (NextZXOS keeps
+/// it, but a host may strip it, so a name that works on Linux would reach a
+/// different entry on Windows: refused on every host, a declared divergence).
+bool valid_new_name(const fs::path& host) {
+    const std::string n = host.filename().string();
+    return !is_wild(n) && (n.empty() || n.back() != ' ');
+}
+
+}  // namespace
+
+bool EsxdosHostFs::list_host_dir(const fs::path& dir, std::vector<Listed>& out) const
+{
     out.clear();
     std::error_code ec;
     std::vector<fs::directory_entry> raw;
@@ -98,40 +149,66 @@ bool list_host_dir(const fs::path& dir, std::vector<Listed>& out) {
                          b.path().filename().string();
               });
 
-    std::vector<std::string> used_short;
     for (const fs::directory_entry& de : raw) {
         std::error_code ec2;
         const fs::file_status dst = fs::symlink_status(de.path(), ec2);
         if (ec2) continue;
-        // A symlink is not traversed, so it is not listed either — listing it
+        // A symlink is not traversed, so it is not listed either: listing it
         // would advertise a name that every other call refuses.
         if (fs::is_symlink(dst)) continue;
         const bool is_dir = fs::is_directory(dst);
         if (!is_dir && !fs::is_regular_file(dst)) continue;
-
         Listed l;
         l.path = de.path();
         l.lfn = de.path().filename().string();
         l.is_dir = is_dir;
-        std::string sfn = EsxdosHostFs::short_name(l.lfn, 0);
-        const bool native = fits_8_3(l.lfn);
-        auto taken = [&used_short](const std::string& s) {
-            return std::find(used_short.begin(), used_short.end(), s) !=
-                   used_short.end();
-        };
-        if (!native || taken(sfn)) {
+        out.push_back(std::move(l));
+    }
+
+    // Aliases. A name that already IS an 8.3 name keeps itself (uppercased) and
+    // always wins; the others keep the alias they were given, or get the lowest
+    // free `~N` (the first listing walks the sorted order, so it numbers exactly
+    // as a fresh FAT volume filled in that order would).
+    std::map<std::string, std::string>& table = aliases_[dir.string()];
+    std::vector<std::string> used;
+    auto taken = [&used](const std::string& x) {
+        return std::find(used.begin(), used.end(), x) != used.end();
+    };
+    std::vector<bool> aliased(out.size(), false);
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        Listed& l = out[i];
+        const std::string sfn = EsxdosHostFs::short_name(l.lfn, 0);
+        if (fits_8_3(l.lfn) && !taken(sfn)) {
+            l.sfn = sfn;
+            used.push_back(sfn);
+        } else {
+            aliased[i] = true;
+        }
+    }
+    for (auto it = table.begin(); it != table.end();) {      // forget the vanished
+        bool there = false;
+        for (std::size_t i = 0; i < out.size(); ++i)
+            if (aliased[i] && out[i].lfn == it->first) { there = true; break; }
+        it = there ? std::next(it) : table.erase(it);
+    }
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        if (!aliased[i]) continue;
+        Listed& l = out[i];
+        const auto have = table.find(l.lfn);
+        if (have != table.end() && !taken(have->second)) {
+            l.sfn = have->second;
+        } else {
             unsigned n = 1;
+            std::string sfn;
             do { sfn = EsxdosHostFs::short_name(l.lfn, n++); }
             while (taken(sfn) && n < 1000);
+            l.sfn = sfn;
+            table[l.lfn] = sfn;
         }
-        used_short.push_back(sfn);
-        l.sfn = sfn;
-        out.push_back(std::move(l));
+        used.push_back(l.sfn);
     }
     return true;
 }
-
-}  // namespace
 
 // ── Configuration ────────────────────────────────────────────────────────
 
@@ -158,6 +235,7 @@ void EsxdosHostFs::clear()
     for (auto& f : files_) { if (f.stream.is_open()) f.stream.close(); f = FileHandle{}; }
     for (auto& d : dirs_)  d = DirHandle{};
     cwd_.clear();
+    aliases_.clear();
     active_ = false;
     writable_ = false;
     root_.clear();
@@ -284,21 +362,34 @@ uint8_t EsxdosHostFs::resolve(const std::string& guest_path, fs::path& out,
     const bool absolute = is_sep(s.front());
     std::vector<std::string> comps = absolute ? std::vector<std::string>{} : cwd_;
 
-    std::size_t i = 0;
-    while (i <= s.size()) {
+    std::vector<std::string> parts;
+    for (std::size_t i = 0; i <= s.size();) {
         std::size_t next = std::string::npos;
         for (std::size_t j = i; j < s.size(); ++j)
             if (is_sep(s[j])) { next = j; break; }
         const std::string part =
             s.substr(i, next == std::string::npos ? std::string::npos : next - i);
         i = (next == std::string::npos) ? s.size() + 1 : next + 1;
+        if (!part.empty() && part != ".") parts.push_back(part);
+    }
 
-        if (part.empty() || part == ".") continue;
+    for (std::size_t k = 0; k < parts.size(); ++k) {
+        std::string part = parts[k];
         if (part == "..") {
-            if (comps.empty()) return kEpath;   // would leave the root
+            // Above the root. NextZXOS treats it as a name that is not in the
+            // root directory (MEASURED, GH #457): esx_enotdir when more path
+            // follows, and for a bare '..' what it answers for any missing last
+            // component, which depends on the call. The first is answered here;
+            // the second is reported as esx_epath and each call maps it (see
+            // epath_as()). The escaping path is never formed either way.
+            if (comps.empty()) return k + 1 < parts.size() ? kEnotdir : kEpath;
             comps.pop_back();
             continue;
         }
+        // FAT drops trailing dots from a name: "dot." and "dot" are the same
+        // entry (MEASURED: F_MKDIR "dot." then F_STAT of both finds it).
+        while (!part.empty() && part.back() == '.') part.pop_back();
+        if (part.empty()) return kEinval;
         if (part.size() > 255) return kEinval;
         if (reserved_device_name(part)) return kEacces;
         // A ':' inside a component (the drive qualifier was stripped above)
@@ -312,6 +403,10 @@ uint8_t EsxdosHostFs::resolve(const std::string& guest_path, fs::path& out,
         // Windows reads "a:x" as a drive-relative path, `root / "a:x"` REPLACES
         // the root, and contained() then refused it with esx_eacces.
         if (part.find(':') != std::string::npos) return kEinval;
+        // '"', '<', '>' and '|' get the same answer in every call, F_STAT
+        // included (MEASURED, GH #457).
+        for (char c : part)
+            if (fat_forbidden(c)) return kEinval;
         comps.push_back(part);
     }
 
@@ -330,6 +425,16 @@ uint8_t EsxdosHostFs::resolve(const std::string& guest_path, fs::path& out,
     // esx_enotdir — MEASURED under NextZXOS (GH #301): "nonexist/x.txt" and
     // "T/README/x" (through a FILE) both get $11 from F_OPEN, F_STAT,
     // F_OPENDIR and F_CHDIR, and so does a create in a missing directory.
+    //
+    // A name counts as "exact" only when the directory LISTING holds it byte
+    // for byte, not when the host merely answers to it (GH #457): a
+    // case-insensitive host (Windows, macOS) answers to "SUB" for "sub", and an
+    // NTFS volume to its own 8.3 alias of a long name, numbered by its own
+    // creation order and not by this listing. Taking those would store the
+    // guest's spelling (which format_path() can then no longer find) or reach a
+    // different file than the one the listing shows under that name, and with
+    // F_UNLINK that file is destroyed. A name the host answers to that the
+    // listing does not know is refused.
     fs::path p = root_;
     std::vector<std::string> actual;
     for (const std::string& want : comps) {
@@ -339,25 +444,24 @@ uint8_t EsxdosHostFs::resolve(const std::string& guest_path, fs::path& out,
         std::error_code ec;
         const fs::path exact = p / want;
         const fs::file_status st = fs::symlink_status(exact, ec);
-        if (!ec && fs::exists(st)) {
-            if (fs::is_symlink(st)) return kEacces;
-            p = exact;
-            actual.push_back(want);
-            continue;
-        }
+        const bool host_has = !ec && fs::exists(st);
+        if (host_has && fs::is_symlink(st)) return kEacces;
+
+        std::vector<Listed> listed;
+        const bool have_list = list_host_dir(p, listed);
         std::string best;
-        for (fs::directory_iterator it(p, ec), end; !ec && it != end;
-             it.increment(ec)) {
-            const std::string have = it->path().filename().string();
-            if (!iequal(have, want)) continue;
-            if (best.empty() || have < best) best = have;
-        }
-        if (best.empty()) {
+        if (have_list) {
+            for (const Listed& l : listed)
+                if (l.lfn == want) { best = l.lfn; break; }
+            if (best.empty())
+                for (const Listed& l : listed) {
+                    if (!iequal(l.lfn, want)) continue;
+                    if (best.empty() || l.lfn < best) best = l.lfn;
+                }
             // The short names are unique within a listing, so at most one
             // entry can answer. list_host_dir() lists no symlink, so an 8.3
             // name never reaches one.
-            std::vector<Listed> listed;
-            if (list_host_dir(p, listed))
+            if (best.empty())
                 for (const Listed& l : listed)
                     if (iequal(l.sfn, want)) { best = l.lfn; break; }
         }
@@ -369,6 +473,7 @@ uint8_t EsxdosHostFs::resolve(const std::string& guest_path, fs::path& out,
             actual.push_back(best);
             continue;
         }
+        if (host_has) return kEacces;     // a host-only alias: see above
         // Missing. Fine as the last component; anything after it fails the
         // is-a-directory check at the top of the next pass.
         p /= want;
@@ -513,11 +618,19 @@ uint8_t EsxdosHostFs::open(const std::string& guest_path, uint8_t mode,
     if (!writable_ && (want_write || creat != 0)) return kErdonly;
 
     fs::path host;
-    if (const uint8_t err = resolve(guest_path, host)) return err;
+    if (uint8_t err = resolve(guest_path, host)) {
+        // A bare '..' above the root: a create is an invalid name for NextZXOS
+        // (esx_einval) and a plain open a missing one (esx_enoent): measured.
+        if (err == kEpath) err = creat != 0 ? kEinval : kEnoent;
+        return err;
+    }
 
     std::error_code ec;
     const fs::file_status st = fs::symlink_status(host, ec);
     const bool exists = !ec && fs::exists(st);
+    // A name a create cannot make: wildcard characters (esx_einval, measured)
+    // and a trailing space, which NextZXOS keeps and a host may not.
+    if (!exists && creat != 0 && !valid_new_name(host)) return kEinval;
     if (exists && fs::is_symlink(st)) return kEacces;
     // A directory opened as a file is esx_einval — measured under NextZXOS
     // (GH #301), which answers F_OPEN and F_STAT of a directory both that way.
@@ -532,6 +645,13 @@ uint8_t EsxdosHostFs::open(const std::string& guest_path, uint8_t mode,
         default: return kEinval;
     }
     if (!exists && creat == 0x00) return kEnoent;
+    // A read-only FILE refuses every mode that writes, truncates or may create
+    // over it (MEASURED, GH #457: $02 $03 $08 $0C $0D $0E -> esx_erdonly; $04
+    // answered esx_eexist above first; $01 opens). Decided from the file's
+    // permission bits, never from what the OS would let a write do.
+    if (exists && host_read_only(host) &&
+        (want_write || creat == kModeOpenCreat || creat == kModeCreatTrunc))
+        return kErdonly;
 
     int slot = -1;
     for (int i = 0; i < kFileHandles; ++i)
@@ -671,7 +791,7 @@ uint8_t EsxdosHostFs::fstat(uint8_t handle, StatInfo& out) const
     out.size = ec ? 0 : static_cast<uint32_t>(
         std::min<uint64_t>(size, 0xFFFFFFFFULL));
     out.attr = kAttrArchive;
-    if (!writable_) out.attr |= kAttrReadOnly;
+    if (!writable_ || host_read_only(p)) out.attr |= kAttrReadOnly;
     std::error_code ec2;
     const auto mtime = fs::last_write_time(p, ec2);
     if (!ec2) dos_timestamp(mtime, out.date, out.time);
@@ -705,7 +825,7 @@ uint8_t EsxdosHostFs::stat(const std::string& guest_path, StatInfo& out)
     } else {
         return kEacces;
     }
-    if (!writable_) out.attr |= kAttrReadOnly;
+    if (!writable_ || host_read_only(host)) out.attr |= kAttrReadOnly;
     if (!host.filename().empty() && host.filename().string().front() == '.')
         out.attr |= kAttrHidden;
     std::error_code ec3;
@@ -720,6 +840,373 @@ uint8_t EsxdosHostFs::sync(uint8_t handle)
     if (!f || !f->open) return kEbadf;
     f->stream.flush();
     return kOk;
+}
+
+// ── Calls that change the host folder (GH #457) ──────────────────────────
+//
+// Every answer below is NextZXOS 2.09's, MEASURED by the kept probe
+// (test/00regression/esxdos-write-probe.py, recorded in test/fixtures/
+// esxdos-write-probe/nextzxos.txt). The comments name the recorded group. Order
+// matters and is the measured one: every check that does not write first, then
+// the write-protected answer (esx_edevicebusy), then the host change.
+
+bool EsxdosHostFs::host_read_only(const fs::path& host)
+{
+    std::error_code ec;
+    const fs::file_status st = fs::symlink_status(host, ec);
+    if (ec || !fs::is_regular_file(st)) return false;
+    return (st.permissions() & fs::perms::owner_write) == fs::perms::none;
+}
+
+bool EsxdosHostFs::is_open_file(const fs::path& host) const
+{
+    for (const FileHandle& f : files_) {
+        if (!f.open) continue;
+        std::error_code ec;
+        if (fs::equivalent(fs::path(f.path), host, ec) && !ec) return true;
+    }
+    return false;
+}
+
+bool EsxdosHostFs::wildcard_match(const std::string& pattern, const std::string& name)
+{
+    auto split = [](const std::string& s, std::string& a, std::string& b) {
+        const std::size_t dot = s.rfind('.');
+        a = dot == std::string::npos ? s : s.substr(0, dot);
+        b = dot == std::string::npos ? std::string() : s.substr(dot + 1);
+    };
+    std::string pn, pe, nn, ne;
+    split(pattern, pn, pe);
+    split(name, nn, ne);
+    return half_match(pn, nn) && half_match(pe, ne);
+}
+
+bool EsxdosHostFs::wildcard_entries(const fs::path& dir, const std::string& leaf,
+                                    std::vector<Listed>& hits) const
+{
+    hits.clear();
+    std::vector<Listed> listed;
+    if (!list_host_dir(dir, listed)) return false;
+    if (dir != root_) {
+        for (const char* dots : {".", ".."}) {
+            Listed l;
+            l.path = dir / dots;
+            l.lfn = l.sfn = dots;
+            l.is_dir = true;
+            listed.insert(listed.begin() + (dots[1] ? 1 : 0), l);
+        }
+    }
+    for (const Listed& l : listed)
+        if (wildcard_match(leaf, l.lfn) || wildcard_match(leaf, l.sfn))
+            hits.push_back(l);
+    return true;
+}
+
+uint8_t EsxdosHostFs::wild_lookup(const std::string& guest, std::vector<Listed>& hits) const
+{
+    const Leaf lf = split_leaf(guest);
+    // A wildcard in a directory component finds nothing (measured: esx_enoent).
+    if (is_wild(lf.prefix.substr(lf.drive))) return kEnoent;
+    // The directory is resolved through a plain name in it, so the escape rules
+    // of resolve() decide first, exactly as for any other path.
+    fs::path probe;
+    if (const uint8_t err = resolve(lf.prefix + "x", probe)) return err;
+    if (!wildcard_entries(probe.parent_path(), lf.leaf, hits)) return kEio;
+    return hits.empty() ? kEnoent : kOk;
+}
+
+uint8_t EsxdosHostFs::unlink_file(const fs::path& host)
+{
+    // A file one of our handles has open: refused here, before any host call, so
+    // that a host which would refuse (Windows) or allow (POSIX) the delete never
+    // decides the answer (measured: esx_eacces, for a read or a write handle).
+    if (is_open_file(host)) return kEacces;
+    if (host_read_only(host)) return kErdonly;
+    if (!writable_) return kEdevicebusy;
+    std::error_code ec;
+    return fs::remove(host, ec) && !ec ? kOk : kEio;
+}
+
+uint8_t EsxdosHostFs::unlink(const std::string& guest_path)
+{
+    if (!active_) return kEnoent;
+    if (path_has_wild(guest_path)) {
+        // Every matching FILE goes, in name order, and the first refusal stops
+        // the walk (measured: group wildmix). Directories, and "." and "..", are
+        // matched and passed over; a pattern that matches nothing is esx_enoent.
+        std::vector<Listed> hits;
+        if (const uint8_t err = wild_lookup(guest_path, hits)) return err;
+        for (const Listed& h : hits) {
+            if (h.is_dir) continue;
+            if (const uint8_t err = unlink_file(h.path)) return err;
+        }
+        return kOk;
+    }
+    fs::path host;
+    if (const uint8_t err = resolve(guest_path, host)) return lookup_miss(err);
+    if (host == root_) return kEinval;                  // measured: "C:/" is esx_einval
+    std::error_code ec;
+    const fs::file_status st = fs::symlink_status(host, ec);
+    if (ec || !fs::exists(st)) return kEnoent;
+    // A directory: Fc=0 and nothing deleted, empty or not (measured, and
+    // odd: it is what NextZXOS does, and F_RMDIR is the call that removes one).
+    if (fs::is_directory(st)) return kOk;
+    return unlink_file(host);
+}
+
+void EsxdosHostFs::close_streams_under(const fs::path& dir)
+{
+    for (FileHandle& f : files_) {
+        if (!f.open) continue;
+        const fs::path fp(f.path);
+        const auto m = std::mismatch(dir.begin(), dir.end(), fp.begin(), fp.end());
+        if (m.first == dir.end() && f.stream.is_open()) f.stream.close();
+    }
+}
+
+void EsxdosHostFs::reopen_streams(const fs::path& from, const fs::path& to)
+{
+    for (FileHandle& f : files_) {
+        if (!f.open || f.stream.is_open()) continue;
+        fs::path fp(f.path);
+        if (!to.empty()) {
+            fs::path rel = fp.lexically_relative(from);
+            fp = to / rel;
+        }
+        std::ios::openmode om = std::ios::binary | std::ios::in;
+        if (f.writable) om |= std::ios::out;
+        f.stream.clear();
+        f.stream.open(fp, om);
+        if (!f.stream.is_open()) { f = FileHandle{}; continue; }
+        f.path = fp.string();
+    }
+    if (to.empty()) return;
+    for (DirHandle& d : dirs_) {
+        if (!d.open) continue;
+        const fs::path dp(d.path);
+        const auto m = std::mismatch(from.begin(), from.end(), dp.begin(), dp.end());
+        if (m.first == from.end()) d.path = (to / dp.lexically_relative(from)).string();
+    }
+}
+
+uint8_t EsxdosHostFs::rename(const std::string& from, const std::string& to)
+{
+    if (!active_) return kEnoent;
+    if (path_has_wild(from) || path_has_wild(to)) return kEinval;   // measured
+    fs::path src;
+    std::vector<std::string> scomps;
+    if (const uint8_t err = resolve(from, src, &scomps)) return lookup_miss(err);
+    // "." and ".." cannot be renamed (measured: esx_eacces; changelog 2.00).
+    const std::string sleaf = split_leaf(from).leaf;
+    if (sleaf == "." || sleaf == "..") return kEacces;
+    if (src == root_) return kEinval;
+    std::error_code ec;
+    const fs::file_status sst = fs::symlink_status(src, ec);
+    if (ec || !fs::exists(sst)) return kEnoent;
+    const bool src_dir = fs::is_directory(sst);
+    if (!src_dir && is_open_file(src)) return kEacces;
+
+    fs::path dst;
+    std::vector<std::string> dcomps;
+    // An empty destination is the current directory (measured: the source went
+    // into it), as "." is.
+    if (uint8_t err = resolve(to.empty() ? std::string(".") : to, dst, &dcomps))
+        return err == kEpath ? kEinval : err;           // measured: a bare '..' as destination
+    fs::path target = dst;
+    std::vector<std::string> tcomps = dcomps;
+    const fs::file_status dst_st = fs::symlink_status(dst, ec);
+    if (!ec && fs::exists(dst_st)) {
+        // An existing FILE is never replaced (POSIX rename(2) and MinGW's would
+        // replace it: refused here so the host does not decide): esx_eexist,
+        // also for a case variant of the source itself. An existing DIRECTORY
+        // receives the source inside it, and a name already there is
+        // esx_edevicebusy (measured).
+        if (!fs::is_directory(dst_st)) return kEexist;
+        target = dst / src.filename();
+        tcomps.push_back(src.filename().string());
+        const auto m = std::mismatch(src.begin(), src.end(), target.begin(), target.end());
+        if (src_dir && m.first == src.end()) return kEexist;     // into its own subtree
+        std::error_code ec2;
+        if (fs::exists(fs::symlink_status(target, ec2))) return kEdevicebusy;
+    } else {
+        if (!valid_new_name(dst)) return kEinval;
+        const auto m = std::mismatch(src.begin(), src.end(), target.begin(), target.end());
+        if (src_dir && m.first == src.end()) return kEexist;     // into its own subtree
+    }
+    if (!writable_) return kEdevicebusy;
+
+    if (src_dir) close_streams_under(src);
+    fs::rename(src, target, ec);
+    if (ec) {
+        if (src_dir) reopen_streams(src, fs::path());
+        return kEio;
+    }
+    if (src_dir) {
+        reopen_streams(src, target);
+        // Forget the aliases of the moved directories: they are looked up by host
+        // path, and the new path is listed afresh.
+        const std::string old_key = src.string();
+        for (auto it = aliases_.begin(); it != aliases_.end();) {
+            const bool under = it->first == old_key ||
+                (it->first.size() > old_key.size() &&
+                 it->first.compare(0, old_key.size(), old_key) == 0 &&
+                 (it->first[old_key.size()] == '/' || it->first[old_key.size()] == '\\'));
+            if (under) {
+                aliases_[(target / fs::path(it->first).lexically_relative(src)).string()] =
+                    std::move(it->second);
+                it = aliases_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    // The working directory follows its directory, as the volume's own would.
+    if (src_dir && cwd_.size() >= scomps.size() &&
+        std::equal(scomps.begin(), scomps.end(), cwd_.begin())) {
+        std::vector<std::string> next = tcomps;
+        next.insert(next.end(), cwd_.begin() + scomps.size(), cwd_.end());
+        cwd_ = next;
+    }
+    return kOk;
+}
+
+uint8_t EsxdosHostFs::mkdir(const std::string& guest_path)
+{
+    if (!active_) return kEnoent;
+    if (path_has_wild(guest_path)) return kEinval;      // measured
+    fs::path host;
+    if (uint8_t err = resolve(guest_path, host))
+        return err == kEpath ? kEinval : err;           // measured: "C:/.." is esx_einval
+    if (host == root_) return kEinval;                  // measured, not esx_eexist
+    std::error_code ec;
+    if (fs::exists(fs::symlink_status(host, ec))) return kEexist;
+    if (!valid_new_name(host)) return kEinval;
+    if (!writable_) return kEdevicebusy;
+    return fs::create_directory(host, ec) && !ec ? kOk : kEio;
+}
+
+uint8_t EsxdosHostFs::rmdir(const std::string& guest_path)
+{
+    if (!active_) return kEnoent;
+    if (path_has_wild(guest_path)) return kEinval;      // measured
+    fs::path host;
+    if (const uint8_t err = resolve(guest_path, host)) return lookup_miss(err);
+    if (host == root_) return kEinval;
+    const std::string leaf = split_leaf(guest_path).leaf;
+    if (leaf == "." || leaf == "..") return kEacces;    // measured
+    std::error_code ec;
+    const fs::file_status st = fs::symlink_status(host, ec);
+    if (ec || !fs::exists(st)) return kEnoent;
+    if (!fs::is_directory(st)) return kEnotdir;
+    fs::path cwdp = root_;
+    for (const std::string& c : cwd_) cwdp /= c;
+    if (host == cwdp) return kEacces;                   // the current directory
+    // Empty means NOTHING in it on the host, an unlisted symlink included.
+    if (fs::directory_iterator(host, ec) != fs::directory_iterator()) return kEnospc;
+    if (!writable_) return kEdevicebusy;
+    return fs::remove(host, ec) && !ec ? kOk : kEio;
+}
+
+uint8_t EsxdosHostFs::truncate_file(const fs::path& host, uint32_t size)
+{
+    if (is_open_file(host)) return kEacces;
+    if (host_read_only(host)) return kErdonly;
+    // NextZXOS answers Fc=0 on a write-protected card and loses the write
+    // (measured). A write that did not happen is not an answer to copy: refused
+    // with what every other write gets. A declared divergence.
+    if (!writable_) return kEdevicebusy;
+    std::error_code ec;
+    fs::resize_file(host, size, ec);      // the extension reads as zeroes
+    return ec ? kEio : kOk;
+}
+
+uint8_t EsxdosHostFs::truncate(const std::string& guest_path, uint32_t size)
+{
+    if (!active_) return kEnoent;
+    fs::path host;
+    if (path_has_wild(guest_path)) {
+        // A wildcard truncates the FIRST match only (measured).
+        std::vector<Listed> hits;
+        if (const uint8_t err = wild_lookup(guest_path, hits)) return err;
+        const Listed* first = nullptr;
+        for (const Listed& h : hits)
+            if (h.lfn != "." && h.lfn != "..") { first = &h; break; }
+        if (!first) return kEnoent;
+        if (first->is_dir) return kEinval;
+        return truncate_file(first->path, size);
+    }
+    if (const uint8_t err = resolve(guest_path, host)) return lookup_miss(err);
+    std::error_code ec;
+    const fs::file_status st = fs::symlink_status(host, ec);
+    if (ec || !fs::exists(st)) return kEnoent;
+    if (fs::is_directory(st)) return kEinval;           // measured
+    return truncate_file(host, size);
+}
+
+uint8_t EsxdosHostFs::ftruncate(uint8_t handle, uint32_t size)
+{
+    FileHandle* f = file_slot(handle);
+    if (!f || !f->open) return kEbadf;
+    if (!f->writable) return kErdonly;                  // measured: a read handle
+    // The stream is closed around the resize on every host (Windows will not
+    // resize a file another handle holds open); the position is jnext's own and
+    // is untouched, also past the new end (measured).
+    f->stream.close();
+    std::error_code ec;
+    fs::resize_file(fs::path(f->path), size, ec);
+    f->stream.clear();
+    f->stream.open(fs::path(f->path), std::ios::binary | std::ios::in | std::ios::out);
+    if (!f->stream.is_open()) { *f = FileHandle{}; return kEio; }
+    return ec ? kEio : kOk;
+}
+
+uint8_t EsxdosHostFs::chmod_file(const fs::path& host, uint8_t values, uint8_t mask)
+{
+    // Only what the host can store AND F_STAT/F_READDIR will then report as
+    // NextZXOS would: A_WRITE (the inverse of the read-only attribute; the host
+    // write permission), A_READ (inert, measured) and A_ARCH (always reported
+    // set here, so setting it is a no-op and clearing it is not storable).
+    // Anything else is refused, not faked: hidden and system, and the archive
+    // bit cleared, have no host form.
+    constexpr uint8_t kServed = kChmodWrite | kChmodRead | kChmodArch;
+    if (mask & ~kServed) return kEnosys;
+    if ((mask & kChmodArch) && !(values & kChmodArch)) return kEnosys;
+    std::error_code ec;
+    const fs::file_status st = fs::symlink_status(host, ec);
+    if (ec) return kEio;
+    // A directory has no stored attribute here, and NextZXOS reports a changed
+    // one through F_READDIR (measured), so only the inert bit is served.
+    if (fs::is_directory(st) && (mask & (kChmodWrite | kChmodArch))) return kEnosys;
+    if (!(mask & kChmodWrite)) return kOk;
+    const fs::perms w = fs::perms::owner_write | fs::perms::group_write | fs::perms::others_write;
+    if (values & kChmodWrite)
+        fs::permissions(host, fs::perms::owner_write, fs::perm_options::add, ec);
+    else
+        fs::permissions(host, w, fs::perm_options::remove, ec);
+    return ec ? kEio : kOk;
+}
+
+uint8_t EsxdosHostFs::chmod(const std::string& guest_path, uint8_t values, uint8_t mask)
+{
+    if (!active_) return kEnoent;
+    if (path_has_wild(guest_path)) {
+        // Every matching entry, "." and ".." excluded; the first refusal stops.
+        std::vector<Listed> hits;
+        if (const uint8_t err = wild_lookup(guest_path, hits)) return err;
+        if (!writable_) return kEdevicebusy;
+        for (const Listed& h : hits) {
+            if (h.lfn == "." || h.lfn == "..") continue;
+            if (const uint8_t err = chmod_file(h.path, values, mask)) return err;
+        }
+        return kOk;
+    }
+    fs::path host;
+    if (const uint8_t err = resolve(guest_path, host)) return lookup_miss(err);
+    if (host == root_) return kEinval;
+    std::error_code ec;
+    if (!fs::exists(fs::symlink_status(host, ec))) return kEnoent;
+    if (!writable_) return kEdevicebusy;                // measured: even for a mask of 0
+    return chmod_file(host, values, mask);
 }
 
 // ── Directory calls ──────────────────────────────────────────────────────
@@ -755,7 +1242,8 @@ uint8_t EsxdosHostFs::opendir(const std::string& guest_path, uint8_t mode,
         return kEinval;
 
     fs::path host;
-    if (const uint8_t err = resolve(guest_path, host)) return err;
+    if (const uint8_t err = resolve(guest_path, host))
+        return err == kEpath ? kEnotdir : err;    // a bare '..': measured esx_enotdir
 
     std::error_code ec;
     const fs::file_status st = fs::symlink_status(host, ec);
@@ -800,7 +1288,7 @@ uint8_t EsxdosHostFs::opendir(const std::string& guest_path, uint8_t mode,
         e.lfn = l.lfn;
         e.sfn = l.sfn;
         e.attr = l.is_dir ? kAttrDirectory : kAttrArchive;
-        if (!writable_) e.attr |= kAttrReadOnly;
+        if (!writable_ || (!l.is_dir && host_read_only(l.path))) e.attr |= kAttrReadOnly;
         if (!e.lfn.empty() && e.lfn.front() == '.') e.attr |= kAttrHidden;
         if (!l.is_dir) {
             std::error_code ec3;
@@ -957,7 +1445,8 @@ uint8_t EsxdosHostFs::chdir(const std::string& guest_path)
     if (!active_) return kEnoent;
     fs::path host;
     std::vector<std::string> comps;
-    if (const uint8_t err = resolve(guest_path, host, &comps)) return err;
+    if (const uint8_t err = resolve(guest_path, host, &comps))
+        return err == kEpath ? kEnotdir : err;    // a bare '..': measured esx_enotdir
 
     std::error_code ec;
     const fs::file_status st = fs::symlink_status(host, ec);

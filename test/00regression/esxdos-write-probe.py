@@ -184,6 +184,7 @@ class Gen:
         self.mode = mode
         self.steps = []
         self.group = ""
+        self.cur_tag = None      # a declared divergence covering the steps made while it is set
 
     # one raw step
     def T(self, desc, hook, a=STAR, ix=0, de=0, bc=0, kind=0, ln=0, addr=0,
@@ -197,7 +198,7 @@ class Gen:
         # A on success is whatever the register held (NextZXOS leaves junk there, measured):
         # masked, except for the calls whose A is an answer
         s.mask = mask if mask is not None else (hook not in ("M_GETERR", "F_READDIR"))
-        s.hdr = hdr; s.tag = tag
+        s.hdr = hdr; s.tag = tag or self.cur_tag
         self.steps.append(s)
         return s
 
@@ -245,6 +246,10 @@ def build(mode):
         build_rw(g)
     return g
 
+def chmod_unserved(v, m):
+    """True for a F_CHMOD request jnext refuses with esx_enosys (it has no host form)."""
+    return bool(m & ~0xA1) or bool((m & 0x20) and not (v & 0x20))
+
 def build_rw(g):
     T = g.T
     T("F_CHDIR C:/", "F_CHDIR", ix="C:/")
@@ -257,7 +262,8 @@ def build_rw(g):
     g.mkfile(W + "/a.txt", 17)
     esc = ["C:/..", "C:/../W457/a.txt", W + "/../../W457/a.txt", "C:/../esc.txt"]
     for p in esc:
-        g.T("F_STAT %s" % p, "F_STAT", ix=p, de=STAT, kind=3)
+        g.T("F_STAT %s" % p, "F_STAT", ix=p, de=STAT, kind=3,
+            tag="bare-dotdot-stat" if p == "C:/.." else None)
     for p in esc[1:]:
         g.open_probe(p, 0x01, "read")
     g.open_probe("C:/../esc.txt", 0x0E, "create")
@@ -299,7 +305,8 @@ def build_rw(g):
     # the same, relative, with the root as the CWD
     g.T("F_CHDIR C:/", "F_CHDIR", ix="C:/")
     for nm, p in [("..", ".."), ("../x", "../x"), ("../..", "../.."), ("W457/../..", "W457/../..")]:
-        g.T("F_STAT %s from the root" % nm, "F_STAT", ix=p, de=STAT, kind=3)
+        g.T("F_STAT %s from the root" % nm, "F_STAT", ix=p, de=STAT, kind=3,
+            tag="bare-dotdot-stat" if nm in ("..", "W457/../..") else None)
         g.T("F_OPENDIR %s from the root" % nm, "F_OPENDIR", ix=p, bc=0x1000, mask=True, close=True)
         g.T("F_CHDIR %s from the root" % nm, "F_CHDIR", ix=p)
         g.T("F_OPEN %s from the root, create" % nm, "F_OPEN", ix=p, bc=0x0E00, mask=True, close=True)
@@ -443,7 +450,9 @@ def build_rw(g):
     g.mkdir(d + "/cwd")
     g.T("F_CHDIR r/cwd", "F_CHDIR", ix=d + "/cwd")
     rn("the CWD", d + "/cwd", d + "/cwd2")
+    g.cur_tag = "cwd-follows-rename"
     g.cwd()
+    g.cur_tag = None
     g.mkfile("made.txt", 71, "(relative create after renaming the CWD)")
     g.exists(d + "/cwd2/made.txt"); g.exists(d + "/cwd/made.txt")
     g.T("F_CHDIR " + W, "F_CHDIR", ix=W)
@@ -482,10 +491,12 @@ def build_rw(g):
     g.exists(d + "/dot"); g.exists(d + "/dot.")
     g.T("F_OPENDIR dot.", "F_OPENDIR", ix=d + "/dot.", bc=0x1000, mask=True, close=True)
     g.T("F_OPENDIR dot", "F_OPENDIR", ix=d + "/dot", bc=0x1000, mask=True, close=True)
+    g.cur_tag = "trailing-space"
     g.mkdir(d + "/sp ", "(trailing space)")
     g.exists(d + "/sp"); g.exists(d + "/sp ")
     g.T("F_OPENDIR 'sp '", "F_OPENDIR", ix=d + "/sp ", bc=0x1000, mask=True, close=True)
     g.T("F_OPENDIR sp", "F_OPENDIR", ix=d + "/sp", bc=0x1000, mask=True, close=True)
+    g.cur_tag = None
     g.T("F_CHDIR into new", "F_CHDIR", ix=d + "/new"); g.cwd()
     g.T("F_CHDIR " + W, "F_CHDIR", ix=W)
 
@@ -579,15 +590,19 @@ def build_rw(g):
                      ("mask 0", 0x01, 0x00), ("all bits clear $FF", 0x00, 0xFF),
                      ("all bits set $FF", 0xFF, 0xFF), ("mask $26 clear", 0x00, 0x26),
                      ("mask $26 set", 0x26, 0x26)]:
+        g.cur_tag = "chmod-unserved" if chmod_unserved(v, m) else None
         g.chmod(d + "/f.txt", v, m, "(" + nm + ")")
         g.stat(d + "/f.txt")
+        g.cur_tag = None
     g.chmod(d + "/f.txt", 0x01, 0x01); g.chmod(d + "/f.txt", 0x20, 0x20)
     for nm, v, m in [("write+read clear", 0x00, 0x81), ("write+read set", 0x81, 0x81),
                      ("write set, read clear", 0x01, 0x81), ("write clear, read set", 0x80, 0x81),
                      ("write+arch clear", 0x00, 0x21), ("write+arch set", 0x21, 0x21),
                      ("write set, arch clear", 0x01, 0x21), ("write clear, arch set", 0x20, 0x21)]:
+        g.cur_tag = "chmod-unserved" if chmod_unserved(v, m) else None
         g.chmod(d + "/f.txt", v, m, "(" + nm + ")")
         g.stat(d + "/f.txt")
+        g.cur_tag = None
         g.chmod(d + "/f.txt", 0x01, 0x01); g.chmod(d + "/f.txt", 0x20, 0x20)
     g.mkdir(d + "/pd"); g.mkdir(d + "/pd/dd")
     def lsdir(why):
@@ -596,10 +611,12 @@ def build_rw(g):
             g.T("F_READDIR entry %d" % i, "F_READDIR", slot=2, ix=BUF, de=0, kind=8, addr=BUF)
         g.T("close", "F_CLOSE", slot=2)
     lsdir("(before)")
+    g.cur_tag = "chmod-dir"
     for nm, v, m in [("A_WRITE clear", 0x00, 0x01), ("A_HIDDEN set", 0x02, 0x02),
                      ("A_ARCH clear", 0x00, 0x20)]:
         g.chmod(d + "/pd/dd", v, m, "(directory, " + nm + ")")
         lsdir("after " + nm)
+    g.cur_tag = None
     g.chmod(d + "/f.txt", 0x01, 0x01)
     g.chmod(d + "/none", 0x00, 0x01, "(missing)")
     g.mkfile(d + "/w1.txt", 102); g.mkfile(d + "/w2.txt", 103)
@@ -625,7 +642,9 @@ def build_rw(g):
     g.mkdir(d)
     g.mkfile(d + "/ro.txt", 111); g.ro(d + "/ro.txt")
     for md in [0x01, 0x02, 0x03, 0x04, 0x08, 0x0C, 0x0D, 0x0E]:
+        g.cur_tag = "open-mode-no-rw" if md in (0x04, 0x08, 0x0C) else None
         g.open_probe(d + "/ro.txt", md)
+        g.cur_tag = None
         g.stat(d + "/ro.txt")
 
     # ── 8.3 alias stability ──────────────────────────────────────────────────
@@ -651,7 +670,9 @@ def build_rw(g):
     g.mkfile(d + "/LONGNA~1.TXT", 125, "(a native 8.3 name that is an alias)")
     for t in "1234":
         g.stat(d + "/LONGNA~%s.TXT" % t)
+    g.cur_tag = "alias-create"
     g.stat(d + "/Long Name d.txt")
+    g.cur_tag = None
 
     # ── M_GETERR ────────────────────────────────────────────────────────────
     g.group = "geterr"
@@ -707,17 +728,24 @@ def build_ro(g):
     for nm, p, sz in [("shrink", d + "/f.txt", 5), ("extend", d + "/f.txt", 100), ("same size", d + "/f.txt", 21),
                       ("read-only file", d + "/ro.txt", 5), ("directory", d + "/ed", 5),
                       ("missing", d + "/none", 5), ("wildcard", d + "/*.txt", 5)]:
+        g.cur_tag = "ro-truncate" if nm in ("shrink", "extend", "same size", "wildcard") else None
         T("F_TRUNCATE %s to %d (%s)" % (p, sz, nm), "F_TRUNCATE", ix=p, bc=0, de=sz)
+        g.cur_tag = None
     for nm, p, v, m in [("A_WRITE clear", d + "/f.txt", 0, 1), ("A_WRITE set", d + "/ro.txt", 1, 1),
                         ("A_ARCH set", d + "/f.txt", 0x20, 0x20), ("mask 0", d + "/f.txt", 1, 0),
                         ("missing", d + "/none", 0, 1), ("directory", d + "/ed", 0, 1),
                         ("wildcard", d + "/*.txt", 0, 1)]:
         g.chmod(p, v, m, "(" + nm + ")")
-    for md in [0x02, 0x03, 0x0C, 0x0E, 0x04, 0x08, 0x01]:
+    g.cur_tag = "ro-open-write"
+    for md in [0x02, 0x03, 0x0C, 0x0E, 0x04, 0x08]:
         g.open_probe(d + "/f.txt", md, "(f.txt)")
+    g.cur_tag = None
+    g.open_probe(d + "/f.txt", 0x01, "(f.txt)")
     g.open_probe(d + "/ro.txt", 0x02, "(read-only file)")
+    g.cur_tag = "ro-open-write"
     g.open_probe(d + "/new.txt", 0x0E, "(create)")
     g.open_probe(d + "/new.txt", 0x04, "(create, must not exist)")
+    g.cur_tag = None
     g.exists(d + "/new.txt")
     g.stat(d + "/f.txt"); g.stat(d + "/ro.txt"); g.exists(d + "/g.txt"); g.exists(d + "/newdir")
     g.exists(d + "/ed"); g.exists(d + "/ed2"); g.exists(d + "/nd/n.txt")
@@ -821,7 +849,25 @@ def read_transcript(path, mode=None):
 
 # Declared divergences: step description tag substring -> reason. Filled from the
 # measurement (see the fixture README); a step not listed here that differs is a failure.
-DIVERGE = {}
+DIVERGE = {
+    "bare-dotdot-stat": "F_STAT of a bare '..' above the root keeps the esx_epath (19) it has always answered (the "
+                        "HFS rows pin it); NextZXOS says esx_enoent (5)",
+    "cwd-follows-rename": "a renamed current directory shows its NEW name in F_GETCWD; NextZXOS keeps showing the old one",
+    "trailing-space": "a name ending in a space is refused with esx_einval: NextZXOS keeps the space, a host may strip it",
+    "chmod-unserved": "an F_CHMOD change the host cannot store (hidden, system, archive cleared) is refused with "
+                      "esx_enosys, refused and not faked; the state after it is the unchanged one",
+    "chmod-dir": "an F_CHMOD of a directory that would change an attribute is refused with esx_enosys: a host "
+                 "directory has no stored attribute for F_READDIR to show",
+    "alias-create": "creating through the 8.3 alias of an existing long-named file rewrites that FAT entry and loses "
+                    "the long name; jnext truncates the file it names and keeps its host name",
+    "open-mode-no-rw": "an F_OPEN mode with no read and no write bit is esx_einval here (existing behaviour); "
+                       "NextZXOS opens or creates",
+    "ro-truncate": "F_TRUNCATE on a read-only root is refused with esx_edevicebusy; NextZXOS answers Fc=0 and loses "
+                   "the write",
+    "ro-open-write": "F_OPEN for writing or creating on a read-only root is esx_erdonly (existing behaviour); "
+                     "NextZXOS opens a file for writing and refuses a create with esx_edevicebusy",
+}
+
 
 def main():
     a = sys.argv[1:]

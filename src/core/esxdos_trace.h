@@ -94,3 +94,27 @@ inline const char* esxdos_call_name(uint8_t code) {
     default:   return nullptr;
     }
 }
+
+/// The text M_GETERR ($93, B=1) copies for an error code, without the bit-7
+/// terminator the call puts on the last character. NOT from the two files above:
+/// MEASURED from real NextZXOS 2.09, one M_GETERR per code 1..31 plus out-of-range
+/// codes (recorded in test/fixtures/esxdos-write-probe/nextzxos.txt, group
+/// [geterr]). Codes 32 and up, and 0, answer "Unknown error" as NextZXOS does; a
+/// custom message for A=0 is the caller's, read from IX.
+inline const char* esxdos_error_message(uint8_t code) {
+    static const char* const kText[32] = {
+        "Unknown error",        // 0 (not measured with IX unset; same as the out-of-range ones)
+        "OK",                   "Not implemented",     "Stmt end err",
+        "Wrong file type",      "No such file or dir", "I/O error",
+        "Bad filename",         "Access denied",       "Drive full",
+        "Bad i/o request",      "No such drive",       "Too many files open",
+        "Bad handle",           "No such device",      "File ptr overflow",
+        "Is DIR",               "Not DIR",             "Already exists",
+        "Invalid path",         "No SYS",              "Path too long",
+        "No such command",      "In use",              "Read only",
+        "Bad verify",           "Sys load err",        "DIR in use",
+        "MAPRAM",               "Drive busy",          "Unknown filesystem",
+        "Device busy",
+    };
+    return code < 32 ? kText[code] : "Unknown error";
+}
