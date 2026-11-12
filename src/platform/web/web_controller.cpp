@@ -7,6 +7,7 @@
 #include "platform/web_api.h"
 #include "platform/sdl_app.h"
 #include "core/emulator.h"
+#include "peripheral/sd_write_journal.h"
 
 #include <SDL3/SDL.h>
 #include <emscripten.h>
@@ -158,6 +159,18 @@ extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_reset(int kind)
         arm_ready();
     }
     return 0;
+}
+
+// resetCard(): discard the writes kept for the card (the persist hook deletes the
+// stored record), then restart the program or hard-reset, as reset('program')
+// does. 2 = the card has no write journal (keepWrites was not given).
+extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_reset_card()
+{
+    if (!g_app) return 1;
+    const auto journal = sd_write_journal::for_image(g_app->emulator().config().sd_card_image);
+    if (!journal) return 2;
+    journal->clear();
+    return jnext_web_reset(0);
 }
 
 // nullptr = the load was started; else the reason it was refused. The program

@@ -67,7 +67,20 @@ SdCardDevice::~SdCardDevice() {
 bool SdCardDevice::mount(const std::string& path, bool read_only) {
     unmount();
 
-    if (read_only) {
+    // A bound image (--sdcard-writes) is never written: its file is opened
+    // read-only and the guest's writes live in the shared journal. The card
+    // still presents as writable unless the caller asked for write protection.
+    journal_ = sd_write_journal::for_image(path);
+    if (journal_) {
+        file_.open(path, std::ios::in | std::ios::binary);
+        if (!file_.is_open()) {
+            sd_log()->error("failed to open SD image: {}", path);
+            journal_.reset();
+            return false;
+        }
+        sd_log()->info("SD image opened with a write journal: {}", path);
+        read_only_ = read_only;
+    } else if (read_only) {
         // Deliberate, not a fallback: the caller asked for a card the guest
         // cannot write (GH #77). Logged at info because nothing went wrong —
         // the warn below means "you wanted RW and did not get it".
@@ -136,6 +149,7 @@ void SdCardDevice::unmount() {
     clear_read_overlay();
     file_size_ = 0;
     read_only_ = false;
+    journal_.reset();
     path_.clear();
 }
 
@@ -347,6 +361,19 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 } else if (byte_addr + kBlockLen > file_size_) {
                     sd_log()->warn("CMD24 write past end of image: sector={} byte={:#010x} size={} -> write-error response token",
                                    sector, byte_addr, file_size_);
+                } else if (journal_) {
+                    // The image is never written (--sdcard-writes): the block
+                    // goes to the journal. A byte-addressed card is only
+                    // written on a block boundary (WRITE_BL_MISALIGN = 0).
+                    if (byte_addr % kBlockLen == 0 &&
+                        journal_->commit(static_cast<uint32_t>(sector), data_block_)) {
+                        write_ok = true;
+                        write_generation_.fetch_add(1, std::memory_order_relaxed);
+                        sd_log()->debug("CMD24 journaled sector {}", sector);
+                    } else {
+                        sd_log()->warn("CMD24 not journaled: sector={} byte={:#010x} -> "
+                                       "write-error response token", sector, byte_addr);
+                    }
                 } else {
                     ++stream_write_attempts_;
                     file_.seekp(static_cast<std::streamoff>(byte_addr), std::ios::beg);
@@ -1567,6 +1594,17 @@ bool SdCardDevice::load_read_block(uint64_t byte_addr) {
     // incorrect one was relying on that `seekg` fallback to be safe.
     if (byte_addr > file_size_ || block_len_ > file_size_ - byte_addr)
         return false;
+    if (journal_) {
+        // A transfer never crosses a block (crosses_block_boundary), so the
+        // one journaled sector holding `byte_addr` covers all block_len_ bytes.
+        uint8_t sec[sd_write_journal::kSectorBytes];
+        const uint32_t off = static_cast<uint32_t>(byte_addr % kBlockLen);
+        if (off + block_len_ <= kBlockLen &&
+            journal_->lookup(static_cast<uint32_t>(byte_addr / kBlockLen), sec)) {
+            std::memcpy(data_block_, sec + off, block_len_);
+            return true;
+        }
+    }
     file_.clear();
     file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
     if (!file_) return false;

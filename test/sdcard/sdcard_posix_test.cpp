@@ -12,6 +12,7 @@
 //   Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d
 
 #include "peripheral/sd_card.h"
+#include "peripheral/sd_write_journal.h"
 #include "../row_id.h"
 #include "../dac_caps_dropped.h"
 #include "../test_portable.h"
@@ -20,6 +21,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -335,6 +337,59 @@ int main() {
               "unmounted=" + std::to_string(gone) + " remounted=" +
               std::to_string(remounted) + " read_ok=" + std::to_string(rd));
         std::remove(keep.c_str());
+    }
+
+    // SDP-SDW-01: a journal append that really fails. The limit sits 100 bytes
+    // past the file's whole records, so the write is torn, not just refused.
+    {
+        const std::string img = make_image(8);
+        const std::string jf = img + ".jsdw";
+        sd_write_journal::Binding b;
+        b.bytes = 8 * 512;
+        b.sha256.fill(0x5C);
+        std::string why;
+        sd_write_journal::bind(img, jf, b, false, why);
+        SdCardDevice sd;
+        sd.mount(img, false);
+        init_card(sd);
+        auto put = [&](uint32_t sector, uint8_t fill, FsizeLimit* lim) {
+            (void)send_cmd_r1(sd, 24, sector);
+            spi_write(sd, 0xFE);
+            for (int i = 0; i < 512; ++i) spi_write(sd, fill);
+            spi_write(sd, 0xFF);
+            if (lim) lim->lower(std::filesystem::file_size(jf) + 100);
+            spi_write(sd, 0xFF);                // final CRC byte: commit point
+            if (lim) lim->restore();
+            uint8_t resp = 0xFF;
+            for (int i = 0; i < 32; ++i) {
+                const uint8_t r = spi_read(sd);
+                if (r != 0xFF) { resp = r; break; }
+            }
+            sd.deselect();
+            return resp;
+        };
+        const uint8_t ok_tok = put(4, 0x11, nullptr);
+        const auto good_len = std::filesystem::file_size(jf);
+        FsizeLimit lim;
+        const uint8_t bad_tok = put(4, 0x22, &lim);
+        const auto len_after = std::filesystem::file_size(jf);
+        bool still = send_cmd_r1(sd, 17, 4) == 0x00;
+        bool tok = false;
+        for (int i = 0; still && i < 16 && !tok; ++i) tok = spi_read(sd) == 0xFE;
+        for (int i = 0; still && tok && i < 512; ++i) still = spi_read(sd) == 0x11;
+        sd.deselect();
+        sd.unmount();
+        check("SDP-SDW-01",
+              "a journal append that really fails (RLIMIT_FSIZE) answers 0x0D, the file keeps "
+              "its last whole length and the sector still reads its earlier content "
+              "(SD spec 7.3.3.1)",
+              ok_tok == 0x05 && bad_tok == 0x0D && good_len == 64 + 516u &&
+              len_after == good_len && tok && still,
+              "ok=" + std::to_string(ok_tok) + " bad=" + std::to_string(bad_tok) +
+              " len=" + std::to_string(good_len) + "/" + std::to_string(len_after));
+        sd_write_journal::forget_all_for_test();
+        std::remove(jf.c_str());
+        std::remove(img.c_str());
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

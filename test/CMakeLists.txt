@@ -440,6 +440,10 @@ add_executable(sdcard_test sdcard/sdcard_test.cpp)
 target_link_libraries(sdcard_test PRIVATE jnext_peripheral)
 target_include_directories(sdcard_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_tests COMMAND sdcard_test)
+add_executable(sdcard_writes_test sdcard/sdcard_writes_test.cpp)
+target_link_libraries(sdcard_writes_test PRIVATE jnext_peripheral)
+target_include_directories(sdcard_writes_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME sdcard_writes_tests COMMAND sdcard_writes_test)
 # Host write errors (GH #455): RLIMIT_FSIZE has no Windows equivalent, so the rows
 # live in a `# os: posix` suite.
 if(NOT WIN32 AND NOT EMSCRIPTEN)

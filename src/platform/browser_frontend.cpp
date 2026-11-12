@@ -5,6 +5,7 @@
 #include "core/emulator.h"
 #include "core/log.h"
 #include "core/warm_start_cache.h"
+#include "peripheral/sd_write_journal.h"
 
 #include <SDL3/SDL.h>
 #include <emscripten.h>
@@ -135,6 +136,13 @@ EM_JS(void, jnext_web_persist_warm_start, (), {
     }
 });
 
+// The write journal (--sdcard-writes) changed: tell the page, which keeps its
+// file in IndexedDB. Module.jnextPersistCardWrites is the page's coalesced
+// persist; a page that did not ask for keepWrites has none.
+EM_JS(void, jnext_web_persist_card_writes, (), {
+    if (Module.jnextPersistCardWrites) Module.jnextPersistCardWrites();
+});
+
 namespace browser_frontend {
 
 bool active() { return g_ctx.active; }
@@ -142,6 +150,7 @@ bool active() { return g_ctx.active; }
 void prepare()
 {
     warm_start::set_persist_hook(jnext_web_persist_warm_start);
+    sd_write_journal::set_persist_hook(jnext_web_persist_card_writes);
     // SDL's keyboard default is #window: it would capture every key of the
     // page. Follow the canvas selector instead (a page ENV value wins).
     const char* sel = SDL_GetHint(SDL_HINT_EMSCRIPTEN_CANVAS_SELECTOR);
