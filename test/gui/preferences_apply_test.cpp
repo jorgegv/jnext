@@ -1833,6 +1833,45 @@ void test_cpu_speed_only_when_changed()
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 
+// ── PA-38/PA-39: GH #489 - the saved Startup speed is the field's reference, also across a reboot ──
+void test_cpu_speed_saved_non_default()
+{
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    {
+        AppConfig ac(home.path() + QStringLiteral("/jnext.conf"));
+        ac.data().cpu_speed = CpuSpeed::MHZ_28;   // a saved, non-default Startup speed
+        ac.save();
+    }
+    {
+        Fixture f;
+        f.win.set_unattended(true);
+        f.emu.nextreg().write(0x07, static_cast<uint8_t>(CpuSpeed::MHZ_3_5));   // the program's choice
+        AppConfigData c;
+        c.machine_type = MachineType::ZX48K;
+        c.cpu_speed    = CpuSpeed::MHZ_28;      // the field shows the saved value, untouched
+        c.esp_enabled  = true;
+        f.win.apply_preferences(c);
+        check("PA-38", "with a saved Startup speed of 28 MHz, an OK that leaves the field alone does not reprogram the running machine (3.5 MHz stays) and does not reboot",
+              programmed_cpu_speed(f) == static_cast<uint8_t>(CpuSpeed::MHZ_3_5) && f.reboots.empty(),
+              "cpuspeed=" + std::to_string(programmed_cpu_speed(f)) + " reboots=" + std::to_string(f.reboots.size()));
+    }
+    {
+        Fixture f;
+        f.win.set_unattended(true);
+        f.answer = true;                        // the user confirms the restart
+        f.emu.nextreg().write(0x07, static_cast<uint8_t>(CpuSpeed::MHZ_7));
+        AppConfigData c;
+        c.machine_type = MachineType::ZX128K;   // changed: needs a cold boot
+        c.cpu_speed    = CpuSpeed::MHZ_28;      // the field: still the saved value
+        f.win.apply_preferences(c);
+        check("PA-39", "a confirmed machine-type restart with the speed field untouched programs the saved Startup speed on the rebooted machine (the callback's boot comes up at the reset speed)",
+              f.reboots.size() == 1 && programmed_cpu_speed(f) == static_cast<uint8_t>(CpuSpeed::MHZ_28),
+              "reboots=" + std::to_string(f.reboots.size()) + " cpuspeed=" + std::to_string(programmed_cpu_speed(f)));
+    }
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
 int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1870,6 +1909,7 @@ int main(int argc, char** argv)
     test_joy_menu_persists_only_the_pick();
     test_preferences_saves_saved_values();
     test_cpu_speed_only_when_changed();
+    test_cpu_speed_saved_non_default();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

@@ -183,7 +183,7 @@ change), where `n` is bounded to end before the next scheduler event (a scanline
 reload, the frame end), the next interrupt request, the next CTC event, the opening of the DMA prescaler gate (`Dma::cycles_to_prescaler_gate()`) and the next Copper
 action (`Copper::idle_cycles()` from the Copper's own position, the same
 `copper_position_at_()` the Copper loop uses). The batched slot then runs the device cluster
-once, from the same call as every other slot, over the whole window; with a debugger client attached the raster walk (`VideoTiming::advance()`, additive) is advanced over the absorbed repeats in the same step, and the call-stack tracker needs nothing, since a `HALT` repeat changes no frame and the real repeat has already recorded the newest frame's target space; the PSG and the mixer are not
+once, from the same call as every other slot, over the whole window; while the raster walk is live (a client asked for it) it (`VideoTiming::advance()`, additive) is advanced over the absorbed repeats in the same step, and the call-stack tracker needs nothing, since a `HALT` repeat changes no frame and the real repeat has already recorded the newest frame's target space; the PSG and the mixer are not
 split-invariant, so their part is replayed repeat by repeat in the same order first, and the cluster's
 own PSG and audio block is switched off for that one call. Nothing else about a batch is allowed into the
 loop or the cluster: a second caller of the cluster, or a flag the loop carries per slot, cost every slot of

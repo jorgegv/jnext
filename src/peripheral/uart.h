@@ -615,7 +615,6 @@ public:
         return !device_attached_ && channels_[0].tick_idle() && channels_[1].tick_idle();
     }
 
-
     /// GH #489 - a HALT repeat batch may span tick() when it would be a no-op for the bit engine
     /// AND for every attached device: both channels idle, and no attached device wants ticks
     /// (service_attached_device() calls a device only while tick_wanted() is true, so an idle
