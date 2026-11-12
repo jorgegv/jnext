@@ -3629,6 +3629,57 @@ static void b5_wire_verb_rows() {
               "DD01 m1=" + std::to_string(m1_mid[0]) + " NOP,NOP m1=" + std::to_string(m1_mid[1]));
     }
     {
+        // The skip delivers the right BYTES to the M1 callbacks, not just two calls: the IM2 RETI/RETN
+        // decoder (im2_control.vhd:158-209) follows the fetched bytes, so an ED 4D right after a
+        // skipped DD 01 is still decoded as RETI (as after NOP NOP). A second callback carrying DD
+        // instead of 01 would leave the decoder in its DD state and lose it.
+        Emulator emu;
+        b5_build(emu, { 0xDD, 0x01, 0xED, 0x4D });
+        emu.cpu().on_magic_breakpoint = [](uint16_t) { return true; };
+        emu.mmu().write(0x8010, 0x18); emu.mmu().write(0x8011, 0xFE);
+        Z80Registers r = emu.cpu().get_registers();
+        r.SP = static_cast<uint16_t>(r.SP - 2);
+        emu.cpu().set_registers(r);
+        emu.mmu().write(r.SP, 0x10); emu.mmu().write(static_cast<uint16_t>(r.SP + 1), 0x80);
+        const uint32_t n0 = emu.im2().reti_seen_count();
+        emu.execute_single_instruction();                // DD 01 (skipped)
+        emu.execute_single_instruction();                // ED 4D (RETI)
+        check("WV-MAGIC-12", "RETI right after a skipped DD 01 is decoded by the IM2 decoder "
+                             "(reti_seen +1) and returns to 0x8010",
+              emu.im2().reti_seen_count() - n0 == 1 && emu.cpu().pc() == 0x8010,
+              "reti_delta=" + std::to_string(emu.im2().reti_seen_count() - n0) + " pc=" + hex(emu.cpu().pc()));
+    }
+    {
+        // 28 MHz with the code in SRAM: every M1 carries the GH #92 SRAM wait (zxnext.vhd:3171-3181;
+        // contention_test: NOP at 28 MHz = 5 T), so the skipped DD 01 costs what NOP NOP costs (10 T).
+        uint64_t dt[2] = { 0, 0 }, dc[2] = { 0, 0 };
+        for (int variant = 0; variant < 2; ++variant) {
+            Emulator emu;
+            b5_build(emu, { 0x00 }, MachineType::ZXN_ISSUE2);
+            emu.cpu().on_magic_breakpoint = [](uint16_t) { return true; };
+            emu.nextreg().write(0x07, 3);
+            emu.clock().commit_pending_cpu_speed_on_bus_idle(true);
+            emu.contention().commit_pending_cpu_speed_on_bus_idle(true);
+            emu.nextreg().write(0x54, 0x20);
+            const uint8_t code[] = { static_cast<uint8_t>(variant ? 0x00 : 0xDD),
+                                     static_cast<uint8_t>(variant ? 0x00 : 0x01), 0x18, 0xFE };
+            for (int i = 0; i < 4; ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), code[i]);
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.halted = false;
+            emu.cpu().set_registers(r);
+            const uint64_t t0 = emu.monotonic_tstates(), c0 = emu.clock().get();
+            emu.execute_single_instruction();
+            if (variant) emu.execute_single_instruction();
+            dt[variant] = emu.monotonic_tstates() - t0;
+            dc[variant] = emu.clock().get() - c0;
+        }
+        check("WV-MAGIC-13", "28 MHz, code in SRAM: a skipped DD 01 costs 10 T, as NOP NOP does "
+                             "(each M1 carries the SRAM wait), counter and clock agreeing",
+              dt[0] == 10 && dt[0] == dt[1] && dc[0] == dc[1],
+              "DD01 dt=" + std::to_string(dt[0]) + " clock=" + std::to_string(dc[0]) +
+                  " NOP,NOP dt=" + std::to_string(dt[1]) + " clock=" + std::to_string(dc[1]));
+    }
+    {
         // The FOREIGN producer: sjasmplus 1.23.1 `break` (z80.cpp:594-601), committed output.
         std::ifstream f(JNEXT_SJASMBREAK_DIR "/break.bin", std::ios::binary);
         const std::vector<uint8_t> bin((std::istreambuf_iterator<char>(f)),
