@@ -529,7 +529,10 @@ if(APPLE AND MACOS_APP_BUNDLE)
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_ICON_FILE "jnext.icns"
-        MACOSX_BUNDLE_COPYRIGHT "GPLv3")
+        MACOSX_BUNDLE_COPYRIGHT "GPLv3"
+        # CMake's default template plus the document types the Finder may
+        # open with JNext (doc/design/MACOS-FINDER-OPEN.md).
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/packaging/macos/Info.plist.in")
     # The icon must be INSIDE the bundle for MACOSX_BUNDLE_ICON_FILE to resolve.
     target_sources(jnext PRIVATE ${CMAKE_SOURCE_DIR}/packaging/assets/jnext.icns)
     set_source_files_properties(${CMAKE_SOURCE_DIR}/packaging/assets/jnext.icns

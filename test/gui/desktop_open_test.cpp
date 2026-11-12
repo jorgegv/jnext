@@ -1,0 +1,271 @@
+// Files the desktop asks JNext to open (macOS Finder double-click, Open With,
+// a drop on the Dock icon), through the real filter and the real MainWindow.
+//
+// No VHDL oracle: host UI. The oracle is the feature design
+// (doc/design/MACOS-FINDER-OPEN.md):
+//   * a QFileOpenEvent sent to the QApplication reaches the handler with its
+//     file and is consumed; other events pass through untouched;
+//   * an open inside desktop_open::kLaunchWindowMs of the event loop starting
+//     (or before it) is the launch: it loads with no question;
+//   * after that it asks first; Cancel loads nothing, Open loads the file;
+//   * an unattended run neither asks nor loads;
+//   * the real question has Cancel as its default and Esc button.
+//
+// The load is observed at MainWindow's load callback, the same seam the
+// frontend's cold boot hangs off (QtApp::init). Offscreen QPA,
+// JNEXT_CONFIG_DIR in a temp dir.
+//
+// Run: ./build/test/desktop_open_test
+
+#include <QAbstractButton>
+#include <QApplication>
+#include <QFile>
+#include <QFileOpenEvent>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QTemporaryDir>
+#include <QTimer>
+
+#include <chrono>
+#include <cstdio>
+#include <fstream>
+#include <optional>
+#include <sstream>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "core/emulator.h"
+#include "core/emulator_config.h"
+#include "debug/debugger.h"
+#include "gui/desktop_open.h"
+#include "gui/main_window.h"
+#include "../row_id.h"
+
+namespace {
+
+int g_total = 0, g_pass = 0, g_fail = 0;
+
+void check(const char* id, const char* desc, bool cond, const std::string& detail = {})
+{
+    report_row_id(id);
+    ++g_total;
+    if (cond) {
+        ++g_pass;
+    } else {
+        ++g_fail;
+        std::printf("  FAIL %s: %s", id, desc);
+        if (!detail.empty()) std::printf(" [%s]", detail.c_str());
+        std::printf("\n");
+    }
+}
+
+std::string code_of(const char* path)   // a source file, line comments removed
+{
+    std::ifstream in(path);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    std::string code, line;
+    std::istringstream ls(ss.str());
+    while (std::getline(ls, line)) {
+        const size_t c = line.find("//");
+        code += (c == std::string::npos ? line : line.substr(0, c)) + "\n";
+    }
+    return code;
+}
+
+struct Fixture {
+    Emulator emu;
+    std::unique_ptr<jnext::dbg::Debugger> backend;
+    MainWindow win;
+    std::vector<std::string> loads;
+    std::vector<QString> asked;
+    bool answer = false;
+
+    explicit Fixture(bool inject_confirm = true)
+    {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        emu.init(cfg);
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        win.set_debugger(backend.get());
+        win.set_emulator(&emu);
+        win.set_load_file_callback([this](const std::string& f, bool) { loads.push_back(f); });
+        if (inject_confirm)
+            win.set_confirm_desktop_open_callback([this](const QString& p) {
+                asked.push_back(p);
+                return answer;
+            });
+    }
+};
+
+// Records the first modal QMessageBox, then answers it, so a wrongly opened
+// dialog can never hang the suite (idiom: nex_v13_dialog_test.cpp).
+struct DialogWatcher {
+    bool open_it;
+    bool saw_modal = false, cancel_default = false, cancel_escape = false;
+    QTimer timer;
+
+    explicit DialogWatcher(bool open) : open_it(open)
+    {
+        QObject::connect(&timer, &QTimer::timeout, [this]() {
+            auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+            if (!mb || saw_modal) return;
+            saw_modal = true;
+            QAbstractButton* cancel = mb->button(QMessageBox::Cancel);
+            cancel_default = cancel && static_cast<QAbstractButton*>(mb->defaultButton()) == cancel;
+            cancel_escape  = cancel && mb->escapeButton() == cancel;
+            if (open_it) {
+                for (QAbstractButton* b : mb->buttons())
+                    if (mb->buttonRole(b) == QMessageBox::AcceptRole) { b->click(); return; }
+                mb->done(QMessageBox::Cancel);
+            } else {
+                mb->close();   // the Esc path: the escape button
+            }
+        });
+        timer.start(1);
+    }
+};
+
+}  // namespace
+
+int main(int argc, char** argv)
+{
+    qputenv("QT_QPA_PLATFORM", "offscreen");
+    QTemporaryDir cfgdir;
+    qputenv("JNEXT_CONFIG_DIR", cfgdir.path().toUtf8());
+    QApplication app(argc, argv);
+
+    // A file handle_load_path() hands straight to the load callback.
+    const QString tap = cfgdir.filePath(QStringLiteral("game.tap"));
+    {
+        QFile f(tap);
+        if (!f.open(QIODevice::WriteOnly) || f.write("\x13\x00\x00\x00", 4) != 4) {
+            std::printf("cannot write the fixture %s\n", tap.toStdString().c_str());
+            return 2;
+        }
+    }
+    const std::string tap_s = tap.toStdString();
+
+    // DOP-01
+    check("DOP-01", "at_launch: before the loop (-1), at 0 and at window-1 ms is the launch; at the window it is not",
+          desktop_open::at_launch(-1) && desktop_open::at_launch(0) &&
+              desktop_open::at_launch(desktop_open::kLaunchWindowMs - 1) &&
+              !desktop_open::at_launch(desktop_open::kLaunchWindowMs));
+
+    {   // DOP-02, DOP-03
+        std::vector<QString> got;
+        desktop_open::FileOpenFilter filter([&](const QString& p) { got.push_back(p); });
+        app.installEventFilter(&filter);
+        QFileOpenEvent fe(tap);
+        const bool consumed = QApplication::sendEvent(&app, &fe);
+        check("DOP-02", "a QFileOpenEvent sent to the application reaches the handler with its file, consumed",
+              consumed && got.size() == 1 && got[0] == tap);
+        // A filter that wrongly ate every event would keep it from its target.
+        struct Target : QObject {
+            int seen = 0;
+            bool event(QEvent* e) override { if (e->type() == QEvent::User) ++seen; return QObject::event(e); }
+        } target;
+        QEvent other(QEvent::User);
+        QApplication::sendEvent(&target, &other);
+        check("DOP-03", "any other event passes the filter untouched: it reaches its target, handler not called",
+              target.seen == 1 && got.size() == 1);
+        app.removeEventFilter(&filter);
+    }
+    {   // DOP-04
+        Fixture f;
+        f.win.open_from_desktop(tap, /*at_launch=*/true);
+        check("DOP-04", "at launch: loads straight away, without asking",
+              f.asked.empty() && f.loads.size() == 1 && f.loads[0] == tap_s);
+    }
+    {   // DOP-05
+        Fixture f;
+        f.answer = false;
+        f.win.open_from_desktop(tap, false);
+        check("DOP-05", "running, the answer is Cancel: asked about this file, nothing loaded",
+              f.asked.size() == 1 && f.asked[0] == tap && f.loads.empty());
+    }
+    {   // DOP-06
+        Fixture f;
+        f.answer = true;
+        f.win.open_from_desktop(tap, false);
+        check("DOP-06", "running, the answer is Open: the file loads",
+              f.asked.size() == 1 && f.loads.size() == 1 && f.loads[0] == tap_s);
+    }
+    {   // DOP-07
+        Fixture f;
+        f.answer = true;
+        f.win.set_unattended(true);
+        f.win.open_from_desktop(tap, false);
+        check("DOP-07", "running unattended: asks nobody and loads nothing", f.asked.empty() && f.loads.empty());
+    }
+    {   // DOP-08
+        Fixture f(/*inject_confirm=*/false);
+        DialogWatcher w(/*open=*/false);
+        f.win.open_from_desktop(tap, false);
+        check("DOP-08", "the real question: Cancel is its default and Esc button; Esc loads nothing",
+              w.saw_modal && w.cancel_default && w.cancel_escape && f.loads.empty());
+    }
+    {   // DOP-09
+        Fixture f(false);
+        DialogWatcher w(/*open=*/true);
+        f.win.open_from_desktop(tap, false);
+        check("DOP-09", "the real question: Open loads the file", w.saw_modal && f.loads.size() == 1);
+    }
+
+    {   // DOP-10
+        Fixture f;
+        f.answer = true;
+        const QString other = cfgdir.filePath(QStringLiteral("other.tap"));
+        // A second open delivered while the first question is up (its event
+        // loop runs): the callback stands in for that nested delivery.
+        f.win.set_confirm_desktop_open_callback([&](const QString& p) {
+            f.asked.push_back(p);
+            if (f.asked.size() == 1) f.win.open_from_desktop(other, false);
+            return true;
+        });
+        f.win.open_from_desktop(tap, false);
+        f.win.open_from_desktop(tap, false);   // the question is over: asks again
+        check("DOP-10", "an open arriving while the question is up is dropped, not stacked; the next one asks",
+              f.asked.size() == 2 && f.asked[0] == tap && f.asked[1] == tap && f.loads.size() == 2,
+              std::to_string(f.asked.size()) + " asked, " + std::to_string(f.loads.size()) + " loaded");
+    }
+
+    // DOP-11
+    {
+        using clk = std::chrono::steady_clock;
+        const clk::time_point t0 = clk::time_point(std::chrono::seconds(100));
+        check("DOP-11", "ms_since_loop_start: unset is -1 (the launch); set is the elapsed milliseconds",
+              desktop_open::ms_since_loop_start(std::nullopt, t0) == -1 &&
+                  desktop_open::ms_since_loop_start(t0, t0) == 0 &&
+                  desktop_open::ms_since_loop_start(t0, t0 + std::chrono::milliseconds(2500)) == 2500);
+    }
+
+    // DOP-12..14: the QtApp wiring, reachable only through the Apple Event, so
+    // pinned by reading the source (as color_scheme_test CS-23 does).
+    {
+        const std::string code = code_of(JNEXT_QT_APP_CPP);
+        const size_t init = code.find("bool QtApp::init(");
+        const size_t inst = code.find("qapp_->installEventFilter(new desktop_open::FileOpenFilter(", init);
+        const size_t win = code.find("main_window_->show();", init);
+        const size_t run = code.find("int QtApp::run(");
+        const size_t stamp = code.find("loop_started_ = std::chrono::steady_clock::now();", run);
+        const size_t exec = code.find("return qapp_->exec();", run);
+        const size_t ms = code.find(
+            "const qint64 ms = desktop_open::ms_since_loop_start(loop_started_, std::chrono::steady_clock::now());", inst);
+        const size_t hand = code.find(
+            "main_window_->open_from_desktop(path, desktop_open::at_launch(ms));", inst);
+        check("DOP-12", "QtApp::init() installs the FileOpenFilter on the QApplication, before the window is shown (source check)",
+              init != std::string::npos && inst != std::string::npos && win != std::string::npos &&
+                  inst < win);
+        check("DOP-13", "QtApp::run() stamps loop_started_ before entering the event loop (source check)",
+              run != std::string::npos && stamp != std::string::npos && exec != std::string::npos &&
+                  stamp < exec);
+        check("DOP-14", "the FileOpenFilter handler passes at_launch() the time since loop_started_ (source check)",
+              ms != std::string::npos && hand != std::string::npos && ms < hand && hand < win);
+    }
+
+    std::printf("\n==============================================\n");
+    std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
+    return g_fail == 0 ? 0 : 1;
+}
