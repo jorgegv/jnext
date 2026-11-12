@@ -45,7 +45,7 @@ mentions them, so a test can no longer be absent from this document.
 | LoRes                                      |   101 |  101 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    94 |   94 |    0 |    0 |       0 |          0 |
 | Companion: sdcard_posix_test               |     6 |    6 |    0 |    0 |       0 |          0 |
-| Companion: sdcard_writes_test              |    16 |   16 |    0 |    0 |       0 |          0 |
+| Companion: sdcard_writes_test              |    18 |   18 |    0 |    0 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
@@ -70,9 +70,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6209 | 6209 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6211 | 6211 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6209**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5708**. Rows the 203 suites declared in `test/unit-tests.conf` run live: **16133**.
+Rows the sections above carry: **6211**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5710**. Rows the 203 suites declared in `test/unit-tests.conf` run live: **16135**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -4651,6 +4651,8 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | SDW-13 | in journal mode a write past the end of the image is refused at the command (R1 PARAMETER_ERROR 0x40, SD spec 7.3.1.4) and adds no record (the file is never created) | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:531 |
 | SDW-14 | two devices mounting the bound image share one journal: a write through one is read through the other | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:551 |
 | SDW-15 | a live SD change to another image mounts it without a journal (its writes reach its own file); remounting the bound image restores journal mode | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:580 |
+| SDW-17 | an image bound under one spelling of its path (dir/../x.img) and mounted under another is still in journal mode: the write reads back and the image file is byte-identical | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:603 |
+| SDW-18 | SDSC card in journal mode: CMD24 at byte 7*512+8 (not a block boundary, WRITE_BL_MISALIGN = 0) is refused at the command (R1 ADDRESS_ERROR 0x20, SD spec 7.3.1.4) and adds no record | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:623 |
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp`
 
