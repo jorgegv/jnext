@@ -777,16 +777,20 @@ int main() {
             }
             { std::ofstream o(jf, std::ios::binary | std::ios::trunc);
               o.write(reinterpret_cast<const char*>(f.data()), static_cast<std::streamsize>(f.size())); }
-            for (int reset = 0; reset < 2; ++reset) {
-                std::string why;
-                const bool r = swj::bind(img, jf, b, reset == 1, why);
-                all = all && !r && has(why, "is not a jnext SD-writes file") && slurp(jf) == f;
-                last = why;
-            }
+            std::string why;
+            const bool r = swj::bind(img, jf, b, false, why);
+            all = all && !r && has(why, "is not a jnext SD-writes file") && slurp(jf) == f;
+            last = why;
+            // --sdcard-writes-reset is the recovery: the header is a journal's, so it is discarded.
+            std::string why2;
+            const bool r2 = swj::bind(img, jf, b, true, why2);
+            all = all && r2 && !exists(jf);
+            swj::forget_all_for_test();
         }
         check("SDW-24",
               "a complete kept-file record with n > L-2, or with L < 2, refuses the bind as not an "
-              "SD-writes file, with and without reset, and leaves FILE untouched", all, last);
+              "SD-writes file and leaves FILE untouched; with reset (the file has a journal's "
+              "header) the bind discards it and succeeds", all, last);
         swj::forget_all_for_test();
     }
     {   // SDW-25: the hook, an identical re-commit, clear().

@@ -84,7 +84,7 @@ NEX loaded with `file` saves through esxDOS (10.3). `player.resetCard()` clears 
 The saves belong to the image: a page that now names another image, even one that
 differs in one byte, starts with none. A record made for another image is refused with a message naming
 `--sdcard-writes-reset`: mount once with `args: ['--sdcard-writes-reset']` to discard it. A
-record that is not a valid record at all (damaged, or in a format this version does not
+record whose header is not a valid one (damaged, or in a format this version does not
 read) is refused as "not a jnext SD-writes file" and the reset does not remove it: clear the
 site's data in the browser, or delete the record from the `jnext-card-writes` database
 (store `journals`) with the browser's developer tools.
