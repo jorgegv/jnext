@@ -3264,12 +3264,14 @@ and <code>RUN_BACK_TO_CYCLE</code> on a crossing refusal or a failed restore.</p
 <p>Both are hooks a Z80 programmer puts in their own source; neither exists on
 real hardware.</p>
 <p>The <strong>magic breakpoint</strong> is an opcode that stops the machine where it executes.
-JNEXT intercepts it in <code>src/cpu/z80_cpu.cpp</code> before the FUSE core sees it, and
-recognises both community conventions: <code>ED FF</code> (ZEsarUX, Spectaculator) and
-<code>DD 01</code> (CSpect). With <code>--magic-breakpoint</code> set (or <code>set_magic_breakpoint(true)</code>),
+JNEXT recognises it in <code>src/cpu/z80_cpu.cpp</code>, in three community conventions:
+<code>ED FF</code> (ZEsarUX, Spectaculator), <code>FD 00</code> (CSpect 2.19.9.1 and later, the
+sjasmplus <code>break</code>) and <code>DD 01</code> (older CSpect and sjasmplus). With <code>--magic-breakpoint</code> set (or <code>set_magic_breakpoint(true)</code>),
 <code>Emulator::init</code> installs an <code>on_magic_breakpoint</code> callback that pauses and
-holds the stop (<code>hold_for_magic_stop()</code>); the opcode advances PC by two and
-costs 8 T-states. The hold exists because the hook fires on a machine nothing
+holds the stop (<code>hold_for_magic_stop()</code>); <code>ED FF</code> and <code>FD 00</code> run through the FUSE core as the
+8 T-state two-byte NOPs they are and the hook fires after them, while <code>DD 01</code>
+is intercepted before FUSE, advancing PC by two for the 8 T-states of its two
+M1 fetches. The hold exists because the hook fires on a machine nothing
 may arm — headless, SDL, a closed debugger window — and the hot loop honours a
 pause only inside its armed block. It arms nothing else, and the resume that
 ends the stop releases it. The stop's reason is <code>Magic</code>, which no client owns

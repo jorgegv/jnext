@@ -1042,7 +1042,7 @@ with status 1.
 ## Debugging
 
 **--magic-breakpoint**
-:   Enable the magic-breakpoint opcodes (`ED FF` and `DD 01`).
+:   Enable the magic-breakpoint opcodes (`ED FF`, `FD 00` and `DD 01`).
 
 **--persistent-breakpoints**
 :   Keep breakpoints and watchpoints armed while the debugger window is

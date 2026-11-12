@@ -4130,21 +4130,28 @@
 <h1 id="the-magic-breakpoint-and-the-magic-port">The magic breakpoint and the magic port<a class="headerlink" href="#the-magic-breakpoint-and-the-magic-port" title="Permanent link">&para;</a></h1>
 <p>Two features for putting debugging hooks in your own code.</p>
 <p><strong>The magic breakpoint</strong> is an opcode that stops the emulator. JNEXT
-recognises both conventions:</p>
+recognises three conventions:</p>
 <ul>
 <li><code>ED FF</code> — the ZEsarUX / Spectaculator form</li>
-<li><code>DD 01</code> — the CSpect form</li>
+<li><code>FD 00</code> — the CSpect form since 2.19.9.1, and what the sjasmplus <code>break</code>
+  instruction assembles to (sjasmplus 1.21.0 and later, with <code>--zxnext=cspect</code>)</li>
+<li><code>DD 01</code> — the older CSpect and sjasmplus form</li>
 </ul>
 <p>Enable it with <code>--magic-breakpoint</code>, or <strong>Debug ▸ Magic Breakpoint</strong> in the
 emulator window; the menu item is ticked whenever it is enabled, whichever way
 you did it. When one executes, the machine pauses and the debugger opens
 itself if it was closed; execution then carries on right after its two bytes.</p>
-<p>When the feature is disabled — and on real hardware — the two forms differ.
-<code>ED FF</code> is a two-byte no-op, so you can leave it in the source. <code>DD 01</code> is not:
+<p>When the feature is disabled — and on real hardware — the forms differ.
+<code>ED FF</code> and <code>FD 00</code> are two-byte no-ops, so you can leave them in the source.
+<code>DD 01</code> is not:
 the <code>DD</code> prefix is ignored and <code>01 nn nn</code> runs as <code>LD BC,nn</code>, which takes the
 two bytes after it as its operand and overwrites <code>BC</code>.</p>
 <p>In C with z88dk:</p>
 <pre><code class="language-c">#define MAGIC_BP()  __asm__(&quot;defb 0xED, 0xFF&quot;)
+</code></pre>
+<p>In sjasmplus assembly:</p>
+<pre><code>        OPT --zxnext=cspect
+        break                   ; FD 00: stops here under --magic-breakpoint
 </code></pre>
 <p><strong>The magic port</strong> is a port that prints to the host. Writes to it are logged
 to stderr, which makes it a <code>printf</code> for code that has nowhere to print. Enable
