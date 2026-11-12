@@ -100,6 +100,7 @@ manifest() {
     ent licenses/nlohmann-json.txt "$ROOT/third_party/nlohmann-json/LICENSE.MIT"
     ent licenses/zot.txt "$ROOT/third_party/zot/LICENSE"
     ent licenses/fatfs.txt "$ROOT/third_party/fatfs/LICENSE.txt"
+    ent licenses/crtemu.txt "$ROOT/third_party/crtemu/LICENSE"
     return $bad
 }
 
