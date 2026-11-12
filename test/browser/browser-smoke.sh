@@ -8,8 +8,9 @@
 # (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:29`
 # (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
-# boots the example page), `widget.mjs:16` (rows WIDGET-01..16: the ready-made widget and the
-# guide's two embedding snippets, run verbatim) and `../bench/web/bench-stats-test.mjs:12` (rows
+# boots the example page), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
+# guide's two embedding snippets, run verbatim), `writes.mjs:12` (rows WBW-01..12: the guest's writes
+# kept across page loads, against a native journal oracle) and `../bench/web/bench-stats-test.mjs:12` (rows
 # WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser) and `crt.mjs:13` (rows
 # BCRT-01..13: the CRT effect, crtemu on SDL's WebGL context, and its fallbacks). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
@@ -36,7 +37,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:16" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "$@")
+SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -120,6 +121,42 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/beast.cfg" \
     --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/beast.nex" --benchmark 450 >"$O/beast.bench" 2>"$O/beast.err" \
     || die "oracle beast failed"
 rm -rf "$O/beast.card" "$O/beast.cfg"
+
+# The write journal oracle (writes.mjs WBW-01..03): the save_counter program natively, twice, on a
+# clone of the card with --sdcard-writes. The journal after each run (w1.jsdw, w2.jsdw) and the
+# guest's magic-port lines are what the page's stored record must equal byte for byte. The clone
+# is deleted; the journals hold only the sectors the guest wrote.
+cp --reflink=auto "$SCRATCH/card.img" "$O/w.card"
+for n in 1 2; do
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/w.cfg" \
+        timeout --foreground --kill-after=5s 300s "$NATIVE" --headless --sdcard "$O/w.card" --silent --machine next \
+        --sdcard-sha256 "$CARD_SHA256" --sdcard-writes "$O/w.jsdw" \
+        --rtc 2026-07-10T08:55:00 --magic-port 0xCAFE --magic-port-mode line \
+        --load "$ROOT/test/fixtures/nex/save_counter.nex" --delayed-automatic-exit-frames 400 \
+        >"$O/w$n.log" 2>&1 || { cat "$O/w$n.log" >&2; die "oracle writes run $n failed"; }
+    cp "$O/w.jsdw" "$O/w$n.jsdw"
+    grep -a "^SAVE $n OK\$" "$O/w$n.log" >/dev/null || { cat "$O/w$n.log" >&2; die "oracle writes run $n did not save"; }
+done
+rm -rf "$O/w.card" "$O/w.cfg" "$O/w.jsdw"
+
+# The esxDOS stand-in's kept file (writes.mjs WBW-13..17): esx_save_counter.nex natively, twice
+# (e1.jsdw, e2.jsdw), then the same program built with another constant byte (e3.jsdw: it reads the
+# old save, as a changed NEX does on a real Next), then the original again (e4.jsdw), always on one
+# journal of one clone of the card. The clone is deleted; each journal holds only the kept file.
+cp --reflink=auto "$SCRATCH/card.img" "$O/e.card"
+n=0
+for nex in esx_save_counter esx_save_counter esx_save_counter_b esx_save_counter; do
+    n=$((n + 1))
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy JNEXT_CONFIG_DIR="$O/e.cfg" \
+        timeout --foreground --kill-after=5s 300s "$NATIVE" --headless --sdcard "$O/e.card" --silent --machine next \
+        --sdcard-sha256 "$CARD_SHA256" --sdcard-writes "$O/e.jsdw" \
+        --rtc 2026-07-10T08:55:00 --magic-port 0xCAFE --magic-port-mode line \
+        --load "$ROOT/test/fixtures/nex/$nex.nex" --delayed-automatic-exit-frames 400 \
+        >"$O/e$n.log" 2>&1 || { cat "$O/e$n.log" >&2; die "oracle esx run $n failed"; }
+    cp "$O/e.jsdw" "$O/e$n.jsdw"
+    grep -a "^ESX $n OK\$" "$O/e$n.log" >/dev/null || { cat "$O/e$n.log" >&2; die "oracle esx run $n did not save"; }
+done
+rm -rf "$O/e.card" "$O/e.cfg" "$O/e.jsdw"
 
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
        SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg"

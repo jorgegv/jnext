@@ -160,6 +160,16 @@ extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_reset(int kind)
     return 0;
 }
 
+// resetCard(): discard the writes kept for the card (the persist hook deletes the
+// stored record), then restart the program or hard-reset, as reset('program')
+// does. 2 = the card has no write journal (keepWrites was not given).
+extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_reset_card()
+{
+    if (!g_app) return 1;
+    if (!g_app->emulator().forget_card_writes()) return 2;
+    return jnext_web_reset(0);
+}
+
 // nullptr = the load was started; else the reason it was refused. The program
 // is in the machine when the next "ready" event arrives.
 extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_load(const char* path)

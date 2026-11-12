@@ -22,6 +22,16 @@ independent once one of them has written.
 Add `--sdcard-readonly` when a run must not disturb the image: the emulated
 machine then sees a write-protected card and the host file is never touched.
 
+To keep the image pristine and still let the machine save, use
+`--sdcard-writes FILE`: the image is opened read-only and what the machine writes
+goes to *FILE*, which is laid over the image every time the card is mounted, so the
+saves survive the next run. *FILE* belongs to that image (its `--sdcard-sha256`, else
+its size and modification time) and is refused for another one; delete it, or add
+`--sdcard-writes-reset`, to start from the image again. It holds only the sectors the
+machine wrote, so it stays small, plus the one file that JNEXT's esxDOS stand-in keeps
+for a NEX loaded directly (see "Running programs"): that file is stored when the
+program closes it and is there at the next run.
+
 ## Changing the card while JNEXT runs
 
 **File > Insert SD Card Image** puts a different card in the running machine,

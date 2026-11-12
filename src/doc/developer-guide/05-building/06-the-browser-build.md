@@ -201,11 +201,11 @@ digest, because the page rewrites the card on every visit and its modification
 time would never match. A zipped image is extracted in `main()` with the
 program-archive reader (exactly one `.img` member; the zip's digest stands for
 it) and the extracted card is removed when the run ends. The recording is the
-one thing kept between visits: IndexedDB (IDBFS) is mounted on the warm-start
+only thing kept between visits by default: IndexedDB (IDBFS) is mounted on the warm-start
 directory only (`JNEXT_CONFIG_DIR=/jnext`, so `/jnext/warm-start`), and
 `warm_start::store()` calls a persist hook, installed by the browser frontend,
 that flushes it. Guest writes to the card live in memory and are gone at
-reload. A first NEX load records the NextZXOS machine in steps: `SdlApp::tick()`
+reload unless the page asks for `keepWrites` (below). A first NEX load records the NextZXOS machine in steps: `SdlApp::tick()`
 calls `Emulator::prepare_warm_start()` for a time budget per tick and reports
 `Module.jnextProgress(phase, fraction)` (`'warm-start'` while recording,
 `'restore'` for a cached recording; the page adds `'download'`), so the page can
@@ -241,6 +241,38 @@ objects with the context alive. A lost WebGL context is not handled, as for SDL'
 renderer. crtemu's WebGL arm needed two patches in the host-loader mode (8: the wrap enums, 9:
 the viewport size), listed in `third_party/crtemu/README.jnext.md`.
 
+*Keeping the guest's writes.* `keepWrites: true` makes the page pass
+`--sdcard-writes <path>`, the SD write journal of
+[3.8](../03-subsystems/08-media-and-loaders.md), with a file in the in-memory filesystem
+(`/jnext/card-writes/<key>.jsdw`) that `web/jnext-image.js` brings in from, and stores back
+to, its own IndexedDB database `jnext-card-writes` (store `journals`, one record per key).
+The key is the image's SHA-256 and the first 16 hex digits of the SHA-256 of
+`location.pathname` (`cardWritesKey`), so one image has one record per page and a changed
+image never reuses the old one. A second IDBFS mount was rejected: it would create a database
+at mount, and the warm-start database is the only one a plain page makes; the store is
+written whole (the file is a few KB) and the database is created only for a page that uses
+the option. The option is opt-in: it adds a flag to the command line the API documents.
+`jnext_api.js` hands `keepWrites` to the emulator as the file's path (false is dropped) and
+rejects a non-boolean itself, before anything is fetched. The core's journal calls a persist
+hook after every committed write (`browser_frontend.cpp`, which calls
+`Module.jnextPersistCardWrites`); `persistCardWrites` runs one store at a time, and a write
+that arrives during one sets a flag that makes the same chain store once more, so the last
+write is the one kept. One store also runs after `callMain` returns, because a bind-time
+`--sdcard-writes-reset` happens before the hook exists (the file is then absent and the record
+is deleted), a best-effort one on `pagehide`, and a final one that `destroy()` awaits before it
+resolves. `player.resetCard()` calls `jnext_web_reset_card()` (`web_controller.cpp`), which
+runs `Emulator::forget_card_writes()` (the journal's `clear()`, whose hook deletes the record,
+and the stand-in's in-memory file, which a cold boot would otherwise carry over) and then the
+same restart as `reset('program')`. A NEX loaded with `file` is answered by the esxDOS stand-in (3.8), which keeps one file; the
+journal stores it as a second kind of record, when the program closes the file, so it travels in
+the same record, needs no other flag or store, and is reset with the card. The record has no
+program in its key: a changed NEX on the same page and image reads the old save. The stand-in's
+file is not card state, so a save through it leaves the warm-start key alone and the next visit
+restores the recording instead of making it again. Files in a host directory a page names with
+`--esxdos-stub-root` are in memory only. Two `keepWrites` players of one image on one page share
+a key; the last store wins. A visit after the program saved records the warm start again, because the card
+the recording was made on is not the one it now boots from.
+
 ## How it is tested
 
 | target | tree | what runs | rows or suites | CI leg |
@@ -248,7 +280,7 @@ the viewport size), listed in `third_party/crtemu/README.jnext.md`.
 | `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..15 | with `regression-wasm` |
 | `make unit-test-wasm` | `build/wasm-unit-test` | the SDL-only unit suites under node, through `test/node-run.sh`; suites marked `# os: native` are absent by name | the manifest | `unit-wasm` |
 | `make regression-wasm` | `build/wasm-core` | the regression suite's screenshot rows, each pixel-equal to the native reference, plus the functional rows whose `os=` names `emscripten` | `regression_tests.conf` | `regression-wasm` |
-| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-16, WBENCH-01 to WBENCH-12, BCRT-01 to BCRT-13 (the CRT effect: `test/browser/crt.mjs`, structure derived from the vendored shaders, not reference images) (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
+| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-17, WBW-01 to WBW-17 (the kept writes, `writes.mjs`: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), BCRT-01 to BCRT-13 (the CRT effect: `test/browser/crt.mjs`, structure derived from the vendored shaders, not reference images), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
 
 - `make wasm-core` proves the module starts, imports no shared memory, catches an exception,
   refuses what the browser cannot do, and hashes correctly on the portable SHA-256.

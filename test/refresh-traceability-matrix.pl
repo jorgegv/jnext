@@ -290,6 +290,9 @@ my @SUBSYS = (
     # GH #455). Filed under their parent's scope.
     ['### Companion POSIX-only suite — `test/sdcard/sdcard_posix_test.cpp`',
      'sdcard_posix_test'],
+    # SDW rows: the SD card's write journal (--sdcard-writes, GH #470).
+    ['### Companion write-journal suite — `test/sdcard/sdcard_writes_test.cpp`',
+     'sdcard_writes_test'],
     ['## NMI Source Pipeline — `test/nmi/nmi_test.cpp`', 'nmi_test'],
     # GH #22 — the debugger's raster/ULA-fetch indicator. Its own `##` section
     # rather than a companion of `## VideoTiming`: it derives from BOTH
@@ -440,6 +443,7 @@ my %TOMBSTONE = (
     'rewind_test'   => '(jnext-internal)',
     'sdcard_test'   => '(SD SPI spec)',
     'sdcard_posix_test' => '(SD SPI spec)',
+    'sdcard_writes_test' => '(SD SPI spec; journal format: developer guide)',
     # The ESP-01 is a THIRD-PARTY module hanging off the Next's UART 0 header.
     # The Next-side wire is VHDL (`zxnext.vhd:1611-1612` drives o_UART0_TX from
     # uart0_tx_esp; `:3381` labels the channel "uart 0 (esp)"), but nothing

@@ -241,6 +241,32 @@ emulated machine sees a write-protected card: writes are rejected with
 the SD write-error token rather than silently discarded. Use it when a
 run must not disturb an image other runs share.
 
+**--sdcard-writes** *FILE*  
+Keep the writes the emulated machine makes to the SD card in *FILE*, not
+in the image: the image is opened read-only and never changes, and
+*FILE*’s sectors are laid over it whenever the card is mounted, so the
+writes survive the next run. *FILE* belongs to one image, identified by
+its **--sdcard-sha256** digest or else by its size and modification
+time: a *FILE* made against another image is refused (exit status 1),
+and so is a file that is not a **jnext** SD-writes file. It is created
+at the first write and holds only the sectors the machine wrote (516
+bytes each) and the one file jnext’s esxDOS stand-in keeps for a
+directly loaded NEX (see **esxDOS calls from a directly loaded NEX**),
+stored when the program closes it and handed back to the stand-in at the
+next start, whatever the program: it belongs to the card, not to the NEX
+that wrote it. Excludes **--sdcard-readonly** and **--sdcard-file-add**.
+A recording of the warm start is keyed on the image and on *FILE*’s
+sectors, so it is taken again after the machine has written one; the
+stand-in’s file is not card state and does not change it. Files read
+from the image by the host (the ROMs, a snapshot’s card identity) do not
+see the writes. See **SD CARD AND ROMS**.
+
+**--sdcard-writes-reset**  
+Discard the writes kept in the **--sdcard-writes** *FILE* before the
+card is mounted, the stand-in’s file included, so the run starts on the
+image as it is. Requires **--sdcard-writes**. A file that is not a
+**jnext** SD-writes file is refused, never removed.
+
 **--sdcard-file-add** *FILE*  
 Copy host *FILE* — a file, or a directory with everything in it — into
 the SD-card image and **exit without starting emulation**. Without
@@ -1546,7 +1572,9 @@ runs sharing one image are therefore not independent: a run that boots
 NextZXOS mutates the image the next run reads. For a reproducible run,
 either pass **--sdcard-readonly**, or give it a private copy
 (`cp --reflink=auto` is instant and costs no space on a copy-on-write
-filesystem).
+filesystem). A third way is **--sdcard-writes** *FILE*: the image is
+then never written, and the machine’s writes are kept in *FILE* and laid
+over it on every run.
 
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
@@ -1743,8 +1771,10 @@ at the next reset or soft reset. It answers:
   that keeps its own file open (below);
 - one file kept in memory: the program can create it, write it, and read
   it back under the same name, which is enough for a high-score or
-  settings file. It is never written to disk and is gone when jnext
-  exits;
+  settings file. It is never written to a host file and is gone when
+  jnext exits, unless **--sdcard-writes** is given: the file is then
+  kept in that file when the program closes it, and the next run starts
+  with it;
 - `run NAME.nex` (`M_EXECCMD`), which loads another NEX file from the
   same directory;
 - for a NEX whose header asks for its file to stay open: reading that
@@ -3026,6 +3056,21 @@ fetched and checked the image.
 **--load**. The program to run (`.nex`, `.tap` or `.tzx`); without it
 the machine boots to the NextZXOS menu.
 
+`keepWrites` *boolean*  
+**--sdcard-writes**, with a file the page manages: what the program
+writes to the card (saves, high scores) is kept in the visitor’s browser
+(IndexedDB) and is there at the next visit. Off by default. The record
+is keyed by the image’s SHA-256 and the page’s path, so another image or
+another page has its own, and it holds only the sectors written, never
+the card. The page can clear it with `resetCard()`, or with
+`args: ['--sdcard-writes-reset']` for one start. The file a NEX loaded
+with `file` saves through esxDOS is kept too: JNEXT’s own stand-in
+answers those calls (see **esxDOS calls from a directly loaded NEX**)
+and keeps one file, which belongs to the page’s card and the file name,
+not to the program, so a changed NEX on the same page reads the old
+save, as on a real Next. Files written to a host directory a page names
+with `args: ['--esxdos-stub-root', ...]` live in the page’s memory only.
+
 `machine` *string*  
 **--machine**.
 
@@ -3060,7 +3105,10 @@ program (`'program'`, the default; with no program it powers on again),
 powers the machine on again (`'hard'`) or resets it (`'soft'`).
 `load(file)` loads another program while the machine runs.
 `setVolume(v)` sets the master output level, `0` to `1`. `destroy()`
-stops the machine and removes the player.
+stops the machine and removes the player (it waits until the saves of
+**keepWrites** are stored). `resetCard()` discards the saves kept by
+`keepWrites` (the saved file included) and restarts the program; it
+needs that option, and resolves when the program is running again.
 
 ### Not available in the browser
 

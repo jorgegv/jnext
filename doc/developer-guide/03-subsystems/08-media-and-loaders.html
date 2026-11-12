@@ -1202,6 +1202,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The SD card is two independent things">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-sd-cards-write-journal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The SD card's write journal
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -3175,7 +3192,7 @@ the guest's own driver talks to. Both are called out below.</p>
 </tbody>
 </table>
 <p>Format selection is by <strong>file extension</strong>: for <code>--load</code> in <code>src/main.cpp</code>
-(the <code>ext</code> chain, <code>src/main.cpp:2763-2821</code>), and again in the GUI's file dialogs and in the headless
+(the <code>ext</code> chain, <code>src/main.cpp:2795-2853</code>), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -3851,6 +3868,17 @@ host directory instead; see the section below.</p>
 write creates it empty under the given name, and opening for read succeeds only
 under that same name. <code>emulator_cold_boot()</code> carries it across a power reset,
 and a <code>.RUN</code> chain-load is a cold boot, so a chain of NEX files shares it.</p>
+<p>When a write journal is bound to the card (<code>--sdcard-writes</code>, "The SD card's write journal"
+below) the file also outlives the session. <code>F_CLOSE</code> of a file that was open for write
+calls <code>Journal::commit_file()</code>, which appends the name and bytes as a kept-file record; a
+host write that fails answers the guest <code>A</code>=6 (EIO) and the in-memory file stays for the
+session. A read-open close keeps nothing, and neither <code>F_OPEN</code> nor <code>F_WRITE</code> does (a
+half-written file is never stored). At the end of <code>Emulator::init()</code> the journal's kept file
+becomes the stand-in's file when the stand-in holds none: a reload, or a second run on the
+card, starts with it, whatever the program (the record is keyed by the card and the name, so a
+changed NEX reads the old save, as on hardware). An <code>init()</code> of a live session never replaces
+a file the guest has not closed. <code>Emulator::forget_card_writes()</code> clears the journal and the
+in-memory file together, because the cold boot carries the latter.</p>
 <p><strong>The oracle.</strong> The <code>M_GETSETDRV</code> replies, the <code>esx_enonsense</code> reply to
 unassigned numbers (<code>$80</code>, <code>$8A</code>, <code>$96</code>, <code>$97</code>) and the fact that <code>$B2</code> and
 <code>$E0</code> never return (NextZXOS raises a BASIC error report) were measured on
@@ -4676,6 +4704,140 @@ a server that answers after 8 s. What no row can show is the NextPi archive's ow
 display being wired in <code>main.cpp</code>: its download needs 22 GB free, which the
 regression suite cannot assume, so that one assignment is covered only by the
 classes it uses.</p>
+<h3 id="the-sd-cards-write-journal">The SD card's write journal<a class="headerlink" href="#the-sd-cards-write-journal" title="Permanent link">&para;</a></h3>
+<p><code>--sdcard-writes FILE</code> keeps the guest's writes out of the image. <code>src/peripheral/sd_write_journal.*</code>
+holds a copy-on-write journal: <code>SdCardDevice</code> opens the image <code>ios::in</code> only, answers CMD24 by
+appending the block to the journal, and answers CMD17/CMD18 from the journal when it holds the
+sector, from the image when it does not. The card still presents as writable (the
+write-protect path is <code>--sdcard-readonly</code>, which excludes the flag). <code>main()</code> binds the journal
+after the card is resolved and any browser zip is extracted, so the identity is the card that
+will be mounted, and <code>--sdcard-writes-reset</code> discards the journal there, before any mount.</p>
+<p><strong>One journal per image, process-wide.</strong> The warm-start recorder is a second <code>Emulator</code>, a cold
+boot a third, and <code>change_sd_card</code> can mount the image again, so the writes cannot belong to a
+device. <code>sd_write_journal::bind()</code> registers the journal under the image's canonical path;
+<code>SdCardDevice::mount()</code> asks <code>for_image()</code> and, for a bound image, runs in journal mode. Any
+other image mounts as before, so a live SD change to an unbound card writes that card.</p>
+<p><strong>The file.</strong> All integers are little-endian.</p>
+<table>
+<thead>
+<tr>
+<th>offset</th>
+<th>size</th>
+<th>field</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>magic <code>JNEXTSDW</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>4</td>
+<td>format version, 1</td>
+</tr>
+<tr>
+<td>12</td>
+<td>4</td>
+<td>record payload size, 512</td>
+</tr>
+<tr>
+<td>16</td>
+<td>8</td>
+<td>image size in bytes</td>
+</tr>
+<tr>
+<td>24</td>
+<td>8</td>
+<td>image mtime, raw <code>file_clock</code> ticks (0 when bound by digest)</td>
+</tr>
+<tr>
+<td>32</td>
+<td>32</td>
+<td>image SHA-256 (all zero: bound by size and mtime)</td>
+</tr>
+<tr>
+<td>64</td>
+<td>records</td>
+<td>in commit order, each a sector record or a kept-file record (below); a later record supersedes an earlier one of the same sector, or an earlier kept-file record</td>
+</tr>
+</tbody>
+</table>
+<p>A <strong>sector record</strong> is 516 bytes: the sector number (u32, always below <code>0xFFFFFFFF</code>) and its 512
+bytes. A <strong>kept-file record</strong> holds the file the esxDOS stand-in keeps:</p>
+<table>
+<thead>
+<tr>
+<th>offset in the record</th>
+<th>size</th>
+<th>field</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>4</td>
+<td><code>0xFFFFFFFF</code>, where a sector record has its sector number</td>
+</tr>
+<tr>
+<td>4</td>
+<td>4</td>
+<td>L, the count of bytes after this field</td>
+</tr>
+<tr>
+<td>8</td>
+<td>2</td>
+<td>n, the length of the file name</td>
+</tr>
+<tr>
+<td>10</td>
+<td>n</td>
+<td>the file name, as the guest spelled it</td>
+</tr>
+<tr>
+<td>10 + n</td>
+<td>L - 2 - n</td>
+<td>the file's bytes</td>
+</tr>
+</tbody>
+</table>
+<p>There is one kept file per journal (the stand-in keeps one file), so a later record replaces an
+earlier one whatever its name. A bind refuses a complete kept-file record whose L is below 2 or
+whose n exceeds L - 2 as "not a jnext SD-writes file" (the reset flag discards such a file, as it does any file with a journal's header), and drops a trailing record that runs past
+the end of the file like a partial sector record. Compaction writes the sector records in
+ascending order, then the kept-file record. A card of 2^32 sectors (2 TiB) or more is refused at
+bind, so that no sector number can be the marker. The kept file is not card state:
+<code>empty()</code> and <code>for_each_sorted()</code> mean sectors only, and the warm-start key below never sees it.</p>
+<p>The header is the binding. The image identity follows the warm-start key's own rule: the
+<code>--sdcard-sha256</code> digest when one is given for that path, else size and mtime. A journal made for
+another image, or a file with another magic or version, is refused with a message (the
+refusal for a foreign image names <code>--sdcard-writes-reset</code>; a file that is not a journal is never
+removed, with or without reset). At bind a trailing partial record (an interrupted append) is
+dropped, and a file with superseded records is rewritten compacted and sorted. The file and its
+header are created at the first commit; a commit that fails on the host answers the guest with
+the write-error token and truncates the file back to its last whole record.
+<code>test/00regression/sdcard-writes-apply.py</code> reads the same table independently and is what the
+regression row uses to lay a journal over a copy of the image (it skips the kept-file record);
+<code>test/00regression/sdcard-writes-files.py</code> reads the kept-file records.</p>
+<p><strong>The warm-start key follows the journal.</strong> NextZXOS keeps FAT and directory state in RAM, so a
+recording made on the pristine card, restored over one that holds writes, can make a later save
+corrupt the card. With a non-empty journal the key's digest field (header offset 40) is
+<code>SHA-256(base || J)</code>: <code>base</code> is the image's own digest (all zero on the desktop size and mtime
+key) and <code>J</code> is the SHA-256 over every journaled sector, ascending, as sector (u32) and bytes. An
+empty journal leaves the key as it was. In journal mode the key is exact, because the image
+is never written and the journal is read live after the recording: <code>Emulator::
+prepare_warm_start</code> therefore treats the card as neither stale nor uncacheable, where
+<code>--sdcard-sha256</code> alone must (the digest describes the file only until jnext writes to it).
+Readers that go to the image directly (the ROM extractor, the card identity a <code>.jns</code> snapshot
+records) do not see the journal.</p>
+<p>The rows are <code>SDW-01..28</code> (<code>sdcard_writes_test</code>), <code>SDP-SDW-01..02</code> (a sector append and a
+kept-file append that really fail), <code>WSR-SDW-01..06</code> (the key; <code>06</code>: a kept file does not move
+it), <code>ESXK-01..08</code> (<code>esxdos_stub_test</code>: the stand-in keeps and adopts its file) and the regression
+rows <code>sdcard-writes-func</code>, whose guest is <code>test/fixtures/nex/save_counter.nex</code> (source
+<code>demo/save_counter</code>), and <code>sdcard-writes-esx-func</code>, whose guests are
+<code>test/fixtures/nex/esx_save_counter.nex</code> and <code>esx_save_counter_b.nex</code> (source
+<code>demo/esx_save_counter</code>, one source built with two constants).</p>
 
 
 

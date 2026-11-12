@@ -12,6 +12,8 @@
 #include "core/sdcard_provisioner.h"
 #include "core/program_archive.h"
 #include "core/warm_start_cache.h"
+#include "core/sha256.h"
+#include "peripheral/sd_write_journal.h"
 #include "core/sna_saver.h"
 #include "core/snapshot_machine.h"
 #include "core/sna_loader.h"
@@ -141,6 +143,29 @@ bool digest_for_image(const EmulatorConfig& cfg, std::array<uint8_t, 32>& d)
     // All zeros is the cache header's "no digest": a caller that fills the
     // config directly must not get a silent size-only key from it.
     return d != std::array<uint8_t, 32>{};
+}
+
+/// The warm-start key of a card with a write journal: the digest field becomes
+/// SHA-256(base || J), `base` the image's own digest (all zero on the desktop
+/// key) and J the SHA-256 over every journaled sector, ascending, as
+/// (sector u32 LE, 512 bytes). NextZXOS keeps FAT and directory state in RAM,
+/// so a recording is only valid on the card contents it was taken on. An empty
+/// journal leaves the key as it is.
+void fold_journal_into_key(const sd_write_journal::Journal& j,
+                           std::array<uint8_t, 32>& digest)
+{
+    if (j.empty()) return;
+    std::vector<uint8_t> all;
+    j.for_each_sorted([&](uint32_t sector, const uint8_t* data) {
+        for (int i = 0; i < 4; ++i) all.push_back(static_cast<uint8_t>(sector >> (8 * i)));
+        all.insert(all.end(), data, data + sd_write_journal::kSectorBytes);
+    });
+    std::array<uint8_t, 32> jd{};
+    if (!warm_start::parse_sha256_hex(sdcard::sha256_hex(all), jd)) return;
+    std::vector<uint8_t> both(digest.begin(), digest.end());
+    both.insert(both.end(), jd.begin(), jd.end());
+    std::array<uint8_t, 32> out{};
+    if (warm_start::parse_sha256_hex(sdcard::sha256_hex(both), out)) digest = out;
 }
 
 }  // namespace
@@ -1908,10 +1933,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     }
                     return true;
                 }
-                case 0x9B:  // F_CLOSE
+                case 0x9B: { // F_CLOSE
+                    // A write-open file is kept in the card's write journal (when one is
+                    // bound), so it outlives the session: a failed host write is EIO.
+                    const bool was_write = esxdos_stub_file_open_ && esxdos_stub_file_write_;
                     esxdos_stub_file_open_ = false;
+                    if (was_write) {
+                        const auto journal = sd_write_journal::for_image(config_.sd_card_image);
+                        if (journal && !journal->commit_file(esxdos_stub_filename_, esxdos_stub_file_)) {
+                            Log::emulator()->error("esxdos stub: could not keep '{}' in the SD "
+                                                   "write journal", esxdos_stub_filename_);
+                            set_a_and_carry(0x06, true); // EIO
+                            return true;
+                        }
+                    }
                     set_a_and_carry(0x00, false); // success
                     return true;
+                }
                 case 0x9D: { // F_READ
                     const uint8_t handle = static_cast<uint8_t>(r.AF >> 8);
                     if (!esxdos_stub_file_open_ || esxdos_stub_file_write_ ||
@@ -7511,6 +7549,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         profiler_.init();
     }
 
+    // The file the esxDOS stand-in kept in the card's write journal in an earlier
+    // session (a page reload, a second run) is the stand-in's file again. A live
+    // session's own file, closed or not, is never replaced.
+    if (esxdos_stub_filename_.empty()) {
+        const auto journal = sd_write_journal::for_image(cfg.sd_card_image);
+        if (journal) {
+            if (auto kept = journal->kept_file()) {
+                esxdos_stub_filename_ = std::move(kept->name);
+                esxdos_stub_file_ = std::move(kept->data);
+                esxdos_stub_file_pos_ = 0;
+                esxdos_stub_file_open_ = false;
+                esxdos_stub_file_write_ = false;
+            }
+        }
+    }
+
     // GH #276 B2 — a RESET is a machine transition too. `soft_reset()` routes
     // through here, so the debugger's stop evidence (both `DebugState`'s and, via
     // the hook, `Debugger::Impl`'s) is reconciled for it exactly as for a restore.
@@ -8041,17 +8095,24 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
     // The key of the mounted card: size + mtime, or - in digest mode
     // (`--sdcard-sha256`, bound to this very path) - size + the caller's
     // digest, with the mtime never read.
+    // A card with a write journal (--sdcard-writes) is never written itself:
+    // its key is exact (the journal is read live) and folds the journal in.
+    const auto journal = sd_write_journal::for_image(config_.sd_card_image);
     auto read_key = [&](warm_start::Identity& k) {
+        bool ok;
         if (digest_for_image(config_, digest)) {
             std::error_code ec;
             k.sd_image_bytes = std::filesystem::file_size(config_.sd_card_image, ec);
             k.sd_image_mtime = 0;
             k.sd_image_sha256 = digest;
-            return !ec;
+            ok = !ec;
+        } else {
+            k.sd_image_sha256 = {};
+            ok = stat_sd_image_key(config_.sd_card_image, k.sd_image_bytes,
+                                   k.sd_image_mtime);
         }
-        k.sd_image_sha256 = {};
-        return stat_sd_image_key(config_.sd_card_image, k.sd_image_bytes,
-                                 k.sd_image_mtime);
+        if (ok && journal) fold_journal_into_key(*journal, k.sd_image_sha256);
+        return ok;
     };
     auto fail_stat = [&]() {
         Log::emulator()->error("warm start: cannot stat SD image '{}' - this load "
@@ -8131,7 +8192,7 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
         }
 
         const uint64_t gen_now = SdCardDevice::host_write_generation();
-        const bool digest_mode = id.has_sha256();
+        const bool digest_mode = id.has_sha256() && !journal;
         const bool baseline_ok = digest_mode && g_digest_baseline.valid &&
                                  g_digest_baseline.path == config_.sd_card_image &&
                                  g_digest_baseline.digest == digest;
@@ -8145,7 +8206,7 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
             Log::emulator()->info("warm start: jnext has written to the SD card since "
                                   "its SHA-256 was checked - recording again, and not "
                                   "caching the result");
-        } else if (g_warm_start_memo.valid &&
+        } else if (!journal && g_warm_start_memo.valid &&
                    g_warm_start_memo.path == config_.sd_card_image &&
                    g_warm_start_memo.bytes == id.sd_image_bytes &&
                    g_warm_start_memo.mtime == id.sd_image_mtime &&
@@ -8651,6 +8712,15 @@ void Emulator::restore_esxdos_stub_state(EsxdosStubState state)
     esxdos_stub_file_pos_ = 0;
     esxdos_stub_file_open_ = false;
     esxdos_stub_file_write_ = false;
+}
+
+bool Emulator::forget_card_writes()
+{
+    const auto journal = sd_write_journal::for_image(config_.sd_card_image);
+    if (!journal) return false;
+    journal->clear();
+    restore_esxdos_stub_state({});
+    return true;
 }
 
 void Emulator::restore_ay_registers(const uint8_t regs[16], uint8_t selected)

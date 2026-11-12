@@ -58,6 +58,8 @@ enum class OptId {
     SdcardFileForce,
     WarmStartRegenerate,
     SdcardSha256,
+    SdcardWrites,
+    SdcardWritesReset,
     DelayedScreenshot,
     DelayedScreenshotTime,
     DelayedScreenshotFrames,
@@ -316,6 +318,24 @@ inline constexpr Option OPTIONS[] = {
       "card into memory on every visit and has already checked the\n"
       "hash. Needs --sdcard. A recording taken after jnext has\n"
       "written to the card in this run is used, but not cached." },
+    { "--sdcard-writes", 1, Doc::Documented, OptId::SdcardWrites,
+      "FILE",
+      "Keep the guest's writes to the SD card in FILE instead of\n"
+      "the image: the image is opened read-only and never changes,\n"
+      "and FILE's sectors are laid over it whenever the card is\n"
+      "mounted, so the writes survive the next run. FILE belongs to\n"
+      "one image (its --sdcard-sha256, else its size and\n"
+      "modification time): one made against another image is\n"
+      "refused. Created at the first write. Also keeps the one\n"
+      "file the esxDOS stand-in holds for a directly loaded NEX,\n"
+      "stored when the program closes it. Excludes\n"
+      "--sdcard-readonly and --sdcard-file-add." },
+    { "--sdcard-writes-reset", 0, Doc::Documented, OptId::SdcardWritesReset,
+      "",
+      "Discard the writes kept in the --sdcard-writes FILE (the\n"
+      "stand-in's file included) before the card is mounted. Needs\n"
+      "--sdcard-writes. A file that is\n"
+      "not a jnext SD-writes file is refused, never removed." },
     // GH #417 - the three Startup settings that have a menu of their own
     // (Machine > CPU Speed, View > Scale, View > CRT) and so get a flag; every
     // other jnext.conf setting is reached with --set.

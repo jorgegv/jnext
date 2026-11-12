@@ -1,6 +1,8 @@
 // The SD-card image in the browser: fetch it cross-origin, check its SHA-256 on
 // every visit, keep it in the Cache API, put it in the in-memory filesystem, and
-// persist the warm-start recording (and nothing else) in IndexedDB.
+// persist two things in IndexedDB: the warm-start recording and, for a page that
+// asks (keepWrites), the sectors the guest wrote to the card and the file JNEXT's
+// esxDOS stand-in keeps for it (one journal file holds both).
 //
 // Plain script, no dependencies: it defines window.JnextImage (and
 // module.exports under a CommonJS loader). Program text is ASCII.
@@ -8,18 +10,26 @@
 //   JnextImage.fetchImage({url, sha256}, onProgress) -> Promise<{bytes, sha256, zipped}>
 //   JnextImage.installImage(Module, image)           -> ['--sdcard', path, '--sdcard-sha256', hex]
 //   JnextImage.mountWarmStartStore(Module)           -> Promise
+//   JnextImage.cardWritesKey(sha256, pathname)       -> Promise<string>
+//   JnextImage.loadCardWrites(Module, key)           -> Promise<path>  (the writes file's in-memory path)
+//   JnextImage.saveCardWrites(Module, key)           -> Promise
 //
 // onProgress(phase, fraction) is the same seam the C++ side reports through
 // Module.jnextProgress(phase, fraction): this file sends 'download'; the core
 // sends 'warm-start' and 'restore'. The image {url, sha256} is input only.
 //
 // The card is copyrighted NextZXOS content: it is never logged, traced or
-// stored anywhere but the Cache API entry and the in-memory filesystem.
+// stored anywhere but the Cache API entry and the in-memory filesystem. What
+// keepWrites stores is only the sectors the guest wrote and that one file (a few KB), in the
+// visitor's own IndexedDB; the card itself is never written.
 (function (root) {
   'use strict';
 
   var CACHE_NAME = 'jnext-sdcard-v1';
   var WARM_START_DIR = '/jnext/warm-start';
+  var WRITES_DIR = '/jnext/card-writes';
+  var WRITES_DB = 'jnext-card-writes';
+  var WRITES_STORE = 'journals';
 
   function hex(buf) {
     var b = new Uint8Array(buf), s = '';
@@ -120,8 +130,8 @@
     return ['--sdcard', path, '--sdcard-sha256', image.sha256];
   }
 
-  // IndexedDB on the warm-start directory ONLY: the card stays in memory, so guest
-  // writes to it are gone at reload. The page sets ENV.JNEXT_CONFIG_DIR = '/jnext'
+  // IndexedDB on the warm-start directory ONLY: the card itself stays in memory, and the
+  // guest's writes to it are kept apart (keepWrites, below). The page sets ENV.JNEXT_CONFIG_DIR = '/jnext'
   // before callMain so that the core's cache directory is this one.
   function mountWarmStartStore(Module) {
     var FS = Module.FS;
@@ -134,7 +144,68 @@
     });
   }
 
+  // ---- keepWrites: the guest's sector writes, one record per (image, page) ----------------
+  //
+  // The core keeps them in a journal file (--sdcard-writes) in the in-memory filesystem. This
+  // side stores that file whole in its own database, and puts it back before the next start.
+  // A database of its own, created only for a page that uses keepWrites: the warm-start store
+  // stays the only one a plain page ever makes.
+
+  // <image sha256>-<first 16 hex digits of SHA-256(page path)>: a page and an image each get
+  // their own saves; the query string is not part of it, so a tracking parameter loses nothing.
+  function cardWritesKey(sha256, pathname) {
+    return digest(new TextEncoder().encode(pathname)).then(function (h) {
+      return sha256.toLowerCase() + '-' + h.substring(0, 16);
+    });
+  }
+
+  function writesPath(key) { return WRITES_DIR + '/' + key + '.jsdw'; }
+
+  function openWritesDb() {
+    return new Promise(function (res, rej) {
+      var r = indexedDB.open(WRITES_DB, 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore(WRITES_STORE); };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error); };
+    });
+  }
+
+  // One request on the store, the database closed afterwards.
+  function writesRequest(mode, make) {
+    return openWritesDb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction(WRITES_STORE, mode);
+        var req = make(tx.objectStore(WRITES_STORE));
+        tx.oncomplete = function () { db.close(); res(req.result); };
+        tx.onerror = tx.onabort = function () { db.close(); rej(tx.error || req.error); };
+      });
+    });
+  }
+
+  function loadCardWrites(Module, key) {
+    var path = writesPath(key);
+    return writesRequest('readonly', function (st) { return st.get(key); }).then(function (rec) {
+      if (rec) {
+        Module.FS.mkdirTree(WRITES_DIR);
+        Module.FS.writeFile(path, rec instanceof Uint8Array ? rec : new Uint8Array(rec));
+      }
+      return path;
+    });
+  }
+
+  // The writes file as it is now: stored when it exists, the record deleted when it does not
+  // (the core removes it for --sdcard-writes-reset and for resetCard()). The file is read
+  // before anything is awaited, so what is stored is what the core had at the call.
+  function saveCardWrites(Module, key) {
+    var path = writesPath(key), bytes = null;
+    if (Module.FS.analyzePath(path).exists) bytes = Module.FS.readFile(path);
+    return writesRequest('readwrite', function (st) {
+      return bytes ? st.put(bytes, key) : st.delete(key);
+    });
+  }
+
   var api = { fetchImage: fetchImage, installImage: installImage, mountWarmStartStore: mountWarmStartStore,
+              cardWritesKey: cardWritesKey, loadCardWrites: loadCardWrites, saveCardWrites: saveCardWrites,
               CACHE_NAME: CACHE_NAME, WARM_START_DIR: WARM_START_DIR };
   root.JnextImage = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

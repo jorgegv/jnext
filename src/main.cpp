@@ -4,6 +4,7 @@
 #include "core/log.h"
 #include "core/program_archive.h"
 #include "core/warm_start_cache.h"
+#include "peripheral/sd_write_journal.h"
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
 #include "core/esxdos_hostfs.h"
 #include "core/rzx_recorder.h"
@@ -303,6 +304,8 @@ int main(int argc, char* argv[]) {
     bool        warm_start_regenerate = false;
     std::string sdcard_sha256_arg;     // --sdcard-sha256 as given
     bool        sdcard_sha256_given = false;
+    std::string sdcard_writes_file;    // --sdcard-writes FILE
+    bool        sdcard_writes_reset = false;
     bool        sdcard_download_force   = false;
     // GH #269 — the copy-and-exit SD-card mode.
     std::string sdcard_file_add;       // host file or directory to copy onto the card
@@ -737,6 +740,12 @@ int main(int argc, char* argv[]) {
             case cli::OptId::SdcardSha256:
                 sdcard_sha256_arg = v[0];
                 sdcard_sha256_given = true;
+                break;
+            case cli::OptId::SdcardWrites:
+                sdcard_writes_file = v[0];
+                break;
+            case cli::OptId::SdcardWritesReset:
+                sdcard_writes_reset = true;
                 break;
             case cli::OptId::DelayedScreenshot:
                 screenshot_file = v[0];
@@ -1704,6 +1713,12 @@ int main(int argc, char* argv[]) {
                     "it exists to write the image.\n");
             return 1;
         }
+        if (!sdcard_writes_file.empty()) {
+            fprintf(stderr,
+                    "--sdcard-file-add cannot be combined with --sdcard-writes: "
+                    "it writes the image itself.\n");
+            return 1;
+        }
         // The closed set is "the program to run": --load, the bare file name
         // (already folded into load_file above) and --inject. Every OTHER flag
         // is inert here simply because no machine starts, and enumerating
@@ -1947,6 +1962,44 @@ int main(int argc, char* argv[]) {
                 sd_card_image.c_str());
         return 1;
 #endif
+    }
+
+    // --sdcard-writes: the guest's writes go to FILE and the image is never
+    // written. Bound here, after resolution and after a browser zip has been
+    // extracted, so it is the card that will be mounted; FILE records that
+    // card's identity: the --sdcard-sha256 digest when given, else size + mtime.
+    if (sdcard_writes_reset && sdcard_writes_file.empty()) {
+        fprintf(stderr, "--sdcard-writes-reset needs --sdcard-writes FILE\n");
+        return 1;
+    }
+    if (!sdcard_writes_file.empty()) {
+        if (sdcard_readonly) {
+            fprintf(stderr, "--sdcard-writes cannot be combined with --sdcard-readonly: "
+                            "a write-protected card has no writes to keep.\n");
+            return 1;
+        }
+        sd_write_journal::Binding binding;
+        std::error_code bind_ec;
+        binding.bytes = std::filesystem::file_size(sd_card_image, bind_ec);
+        if (!bind_ec && !sdcard_sha256_norm.empty()) {
+            warm_start::parse_sha256_hex(sdcard_sha256_norm, binding.sha256);
+        } else if (!bind_ec) {
+            const auto t = std::filesystem::last_write_time(sd_card_image, bind_ec);
+            binding.mtime = static_cast<int64_t>(t.time_since_epoch().count());
+        }
+        if (bind_ec) {
+            fprintf(stderr, "--sdcard-writes: cannot stat the SD image %s: %s\n",
+                    sd_card_image.c_str(), bind_ec.message().c_str());
+            return 1;
+        }
+        std::string why;
+        if (!sd_write_journal::bind(sd_card_image, sdcard_writes_file, binding,
+                                    sdcard_writes_reset, why)) {
+            fprintf(stderr, "--sdcard-writes: %s\n", why.c_str());
+            return 1;
+        }
+        Log::emulator()->info("SD card writes are kept in {}; the image is not written",
+                              sdcard_writes_file);
     }
 
     // ---------------------------------------------------------------------
