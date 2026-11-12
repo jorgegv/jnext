@@ -36,7 +36,7 @@ if want esxdos-write-oracle-func; then
     if [[ $m_rc -eq 0 && $rw_rc -eq 0 && $ro_rc -eq 0 ]]; then
         pass_row " (the probe, run under real NextZXOS 2.09 on a writable and on a write-protected card, reproduces the recorded transcript exactly)"
     else
-        fail_row " (measure rc=$m_rc: '$(tail -n 2 "$W/measure.log" 2>/dev/null | tr '\n' ' ')'; rw compare rc=$rw_rc '$(head -n 2 <<<"$rw" | tr '\n' ' ')'; ro compare rc=$ro_rc '$(head -n 2 <<<"$ro" | tr '\n' ' ')')"
+        fail_row " (measure rc=$m_rc: '$(tail -n 2 "$W/measure.log" 2>/dev/null | tr '\n' ' ')'; rw compare rc=$rw_rc '$(grep -E -m2 '^(DIFFERS|no END)' <<<"$rw" | tr '\n' ' ' || true)'; ro compare rc=$ro_rc '$(grep -E -m2 '^(DIFFERS|no END)' <<<"$ro" | tr '\n' ' ' || true)')"
     fi
 fi
 

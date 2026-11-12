@@ -57,7 +57,7 @@ if want esxdos-write-func; then
           && "$before" == "$after" && "$before" == *"W457/RO/nd/n.txt F "* ]]; then
         pass_row " (the probe NEX matches its recording; every write-call answer on a writable root and on a write-protected one equals NextZXOS 2.09's except the declared divergences; the write-protected tree is untouched)"
     else
-        fail_row " (verify rc=$ver_rc '${ver:0:200}'; rw rc=$rw_rc compare rc=$cmp_rw_rc '$(head -n 3 <<<"$cmp_rw" | tr '\n' ' ')'; ro rc=$ro_rc compare rc=$cmp_ro_rc '$(head -n 3 <<<"$cmp_ro" | tr '\n' ' ')'; tree unchanged=$([[ "$before" == "$after" ]] && echo yes || echo no))"
+        fail_row " (verify rc=$ver_rc '${ver:0:200}'; rw rc=$rw_rc compare rc=$cmp_rw_rc '$(grep -E -m3 '^(DIFFERS|no END)' <<<"$cmp_rw" | tr '\n' ' ' || true)'; ro rc=$ro_rc compare rc=$cmp_ro_rc '$(grep -E -m3 '^(DIFFERS|no END)' <<<"$cmp_ro" | tr '\n' ' ' || true)'; tree unchanged=$([[ "$before" == "$after" ]] && echo yes || echo no))"
     fi
 fi
 
