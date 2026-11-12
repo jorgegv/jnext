@@ -4295,6 +4295,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#letting-a-visitor-clear-the-saves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letting a visitor clear the saves
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#keyboard" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4442,6 +4453,11 @@
 <td>The SD-card image, as <code>--sdcard</code> and <code>--sdcard-sha256</code>.</td>
 </tr>
 <tr>
+<td><code>keepWrites</code></td>
+<td>boolean</td>
+<td><code>--sdcard-writes</code>, with a file the page manages: what the program writes to the card (saves, high scores) is kept in the visitor's browser and is there at the next visit. Off by default; what it keeps, and what it cannot, is in 10.3 and 10.4.</td>
+</tr>
+<tr>
 <td><code>file</code></td>
 <td>URL, <code>{url}</code> or <code>{data, name}</code></td>
 <td>The program to run, as <code>--load</code>. <code>.nex</code>, <code>.tap</code> and <code>.tzx</code> only. Without it the machine boots to the NextZXOS menu.</td>
@@ -4530,11 +4546,22 @@
 <td>Master level, 0 (silent) to 1; anything else throws a <code>RangeError</code>. A player started <code>muted</code> has no audio device.</td>
 </tr>
 <tr>
+<td><code>resetCard()</code></td>
+<td>Forget the writes kept by <code>keepWrites</code> and restart the program, as <code>reset('program')</code> does. Needs <code>keepWrites</code> (it rejects without it). Resolves when the program is in the machine again.</td>
+</tr>
+<tr>
 <td><code>destroy()</code></td>
-<td>Stop the machine and remove the player. Afterwards every method throws.</td>
+<td>Stop the machine and remove the player; with <code>keepWrites</code> it first waits until the writes are stored. Afterwards every method throws.</td>
 </tr>
 </tbody>
 </table>
+<h2 id="letting-a-visitor-clear-the-saves">Letting a visitor clear the saves<a class="headerlink" href="#letting-a-visitor-clear-the-saves" title="Permanent link">&para;</a></h2>
+<p>A page that uses <code>keepWrites</code> can offer a button for <code>resetCard()</code>:</p>
+<pre><code class="language-html">&lt;button onclick=&quot;player.resetCard()&quot;&gt;Clear saves&lt;/button&gt;
+</code></pre>
+<p>where <code>player</code> is what <code>jnext.mount()</code> resolved to (or <code>el.jnextPlayer</code> of a widget).
+<code>args: ['--sdcard-writes-reset']</code> does the same for one start, when the page is
+loaded.</p>
 <h2 id="keyboard">Keyboard<a class="headerlink" href="#keyboard" title="Permanent link">&para;</a></h2>
 <p>The player takes the keys while its canvas has focus (the click focuses it). The
 host modifier for JNEXT's own shortcuts is Alt (Option on a Mac); Ctrl+W, Ctrl+T,

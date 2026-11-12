@@ -79,7 +79,8 @@ NextZXOS on every visit and records nothing.
 jnext.mount(el, { image: {...}, file: 'game.nex', keepWrites: true });
 ```
 
-The program's saves are there at the next visit. `player.resetCard()` clears them (10.2).
+Whatever the program writes to the card is there at the next visit (a program loaded with
+`file` that saves through esxDOS file calls does not write the card: 10.3). `player.resetCard()` clears them (10.2).
 The saves belong to the image: a page that now names another image, even one that
 differs in one byte, starts with none. A record that does not match its image (damaged,
 or made by another version of the image) is refused with a message naming

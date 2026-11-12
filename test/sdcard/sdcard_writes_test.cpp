@@ -160,9 +160,10 @@ bool wait_token(SdCardDevice& sd) {
 }
 
 // CMD24 of `arg` (a block number on SDHC, a byte address on SDSC); returns the
-// data response token.
+// data response token, or the R1 when the command itself was refused.
 uint8_t write_block(SdCardDevice& sd, uint32_t arg, const Bytes& data) {
-    if (send_cmd_r1(sd, 24, arg) != 0x00) return 0xEE;
+    const uint8_t r1 = send_cmd_r1(sd, 24, arg);
+    if (r1 != 0x00) { sd.deselect(); return r1; }
     spi_write(sd, 0xFE);
     for (int i = 0; i < 512; ++i) spi_write(sd, data[i]);
     spi_write(sd, 0xFF);
@@ -503,8 +504,8 @@ int main() {
         }
         check("SDW-12",
               "the persist hook runs once per committed write and never for a refused write "
-              "(past the end) or a read",
-              after3 == 3 && past == 0x0D && rd && g_hook_count == 3,
+              "(past the end: R1 PARAMETER_ERROR 0x40, no data phase) or a read",
+              after3 == 3 && past == 0x40 && rd && g_hook_count == 3,
               "after3=" + std::to_string(after3) + " past=" + std::to_string(past) +
               " hooks=" + std::to_string(g_hook_count));
         check("SDW-16",
@@ -528,9 +529,9 @@ int main() {
             tok = write_block(c.sd, kSectors + 9, payload(18));
         }
         check("SDW-13",
-              "in journal mode a write past the end of the image is answered 0x0D and adds no "
-              "record (the file is never created)",
-              tok == 0x0D && !exists(jf) && swj::for_image(img)->empty(),
+              "in journal mode a write past the end of the image is refused at the command (R1 "
+              "PARAMETER_ERROR 0x40, SD spec 7.3.1.4) and adds no record (the file is never created)",
+              tok == 0x40 && !exists(jf) && swj::for_image(img)->empty(),
               "tok=" + std::to_string(tok));
         swj::forget_all_for_test();
     }

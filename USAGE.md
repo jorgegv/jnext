@@ -241,6 +241,27 @@ emulated machine sees a write-protected card: writes are rejected with
 the SD write-error token rather than silently discarded. Use it when a
 run must not disturb an image other runs share.
 
+**--sdcard-writes** *FILE*  
+Keep the writes the emulated machine makes to the SD card in *FILE*, not
+in the image: the image is opened read-only and never changes, and
+*FILE*’s sectors are laid over it whenever the card is mounted, so the
+writes survive the next run. *FILE* belongs to one image, identified by
+its **--sdcard-sha256** digest or else by its size and modification
+time: a *FILE* made against another image is refused (exit status 1),
+and so is a file that is not a **jnext** SD-writes file. It is created
+at the first write and holds only the sectors the machine wrote (516
+bytes each). Excludes **--sdcard-readonly** and **--sdcard-file-add**. A
+recording of the warm start is keyed on the image and on *FILE*’s
+content, so it is taken again after the machine has written. Files read
+from the image by the host (the ROMs, a snapshot’s card identity) do not
+see the writes. See **SD CARD AND ROMS**.
+
+**--sdcard-writes-reset**  
+Discard the writes kept in the **--sdcard-writes** *FILE* before the
+card is mounted, so the run starts on the image as it is. Requires
+**--sdcard-writes**. A file that is not a **jnext** SD-writes file is
+refused, never removed.
+
 **--sdcard-file-add** *FILE*  
 Copy host *FILE* — a file, or a directory with everything in it — into
 the SD-card image and **exit without starting emulation**. Without
@@ -1545,7 +1566,9 @@ runs sharing one image are therefore not independent: a run that boots
 NextZXOS mutates the image the next run reads. For a reproducible run,
 either pass **--sdcard-readonly**, or give it a private copy
 (`cp --reflink=auto` is instant and costs no space on a copy-on-write
-filesystem).
+filesystem). A third way is **--sdcard-writes** *FILE*: the image is
+then never written, and the machine’s writes are kept in *FILE* and laid
+over it on every run.
 
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
@@ -3015,6 +3038,18 @@ fetched and checked the image.
 **--load**. The program to run (`.nex`, `.tap` or `.tzx`); without it
 the machine boots to the NextZXOS menu.
 
+`keepWrites` *boolean*  
+**--sdcard-writes**, with a file the page manages: what the program
+writes to the card (saves, high scores) is kept in the visitor’s browser
+(IndexedDB) and is there at the next visit. Off by default. The record
+is keyed by the image’s SHA-256 and the page’s path, so another image or
+another page has its own, and it holds only the sectors written, never
+the card. The page can clear it with `resetCard()`, or with
+`args: ['--sdcard-writes-reset']` for one start. Only what reaches the
+card is kept: a program loaded with `file` that saves through esxDOS
+file calls is answered by JNEXT’s own stand-in (see **esxDOS calls from
+a directly loaded NEX**) and never writes the card.
+
 `machine` *string*  
 **--machine**.
 
@@ -3049,7 +3084,10 @@ program (`'program'`, the default; with no program it powers on again),
 powers the machine on again (`'hard'`) or resets it (`'soft'`).
 `load(file)` loads another program while the machine runs.
 `setVolume(v)` sets the master output level, `0` to `1`. `destroy()`
-stops the machine and removes the player.
+stops the machine and removes the player (it waits until the saves of
+**keepWrites** are stored). `resetCard()` discards the saves kept by
+`keepWrites` and restarts the program; it needs that option, and
+resolves when the program is running again.
 
 ### Not available in the browser
 

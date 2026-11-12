@@ -8,8 +8,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
 # sdcard-writes-func (GH #470): --sdcard-writes keeps the guest's writes in a
 # side file and never writes the image. The guest is test/fixtures/nex/
-# save_counter.nex (source: demo/save_counter): it keeps a one-byte run counter
-# in /JNSAVE.DAT on the card and prints "SAVE <n> OK" on the magic port.
+# save_counter.nex (source: demo/save_counter): it keeps a run counter in raw
+# sector 60000 of the card, over the SPI ports, and prints "SAVE <n> OK" on the
+# magic port. (Not an esxDOS file: a directly loaded NEX's RST $08 calls are
+# answered by jnext's own stand-in and never reach the card.)
 #
 # Two private minimal NextZXOS cards (tools/make-minimal-sdcard-image.sh, built
 # here, deleted at the end, never kept): R takes the writes itself (the
@@ -18,13 +20,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #       --sdcard-writes with --sdcard-readonly; with --sdcard-file-add; a FILE
 #       that is not a journal (left untouched); a journal made for another
 #       digest (built here from the format table), naming --sdcard-writes-reset;
-#   (b) R, two runs: SAVE 1 OK, SAVE 2 OK, and mtools reads JNSAVE.DAT = 2;
+#   (b) R, two runs: SAVE 1 OK, SAVE 2 OK, and `dd` reads "JNSV" and 2 in sector 60000;
 #   (c) B + a journal, two runs: SAVE 1 OK, SAVE 2 OK; B's SHA-256 is the same
 #       after both runs; the second run records the warm start again (the key
 #       follows the journal);
 #   (d) the FOREIGN reader: test/00regression/sdcard-writes-apply.py, written
 #       from the format table, lays the journal over a copy of B; the copy is
-#       byte-identical to R, and mtools reads JNSAVE.DAT = 2 from it;
+#       byte-identical to R, with the same sector 60000 and a FAT that mtools lists;
 #   (e) --sdcard-writes-reset with the journal: SAVE 1 OK, and the journal
 #       afterwards equals the one the first run of (c) left.
 # The cards are 40 MiB; mtools reads them at the partition offset 32256.
@@ -33,7 +35,7 @@ if want sdcard-writes-func; then
 
     sw_faults=()
     sw_missing=()
-    for tool in mformat mcopy mtype mdir minfo mmd sfdisk truncate sha256sum realpath python3 cmp od; do
+    for tool in mformat mcopy mdir minfo mmd sfdisk truncate sha256sum realpath python3 cmp od dd; do
         command -v "$tool" &>/dev/null || sw_missing+=("$tool")
     done
 
@@ -59,8 +61,8 @@ if want sdcard-writes-func; then
                 --load "$sw_nex" --delayed-automatic-exit-frames 400 "$@" 2>&1 || true
         }
         sw_save() { grep -a '^SAVE ' <<<"$1" | head -1 || true; }
-        sw_file_byte() {   # the first byte of /JNSAVE.DAT on a card, in hex
-            mtype -i "$1@@$sw_off" ::JNSAVE.DAT 2>/dev/null | od -An -tx1 -N1 | tr -d ' \n' || true
+        sw_counter() {     # "JNSV" + the counter byte of raw sector 60000, in hex ("4a4e535602" = run 2)
+            dd if="$1" bs=512 skip=60000 count=1 2>/dev/null | od -An -tx1 -N5 | tr -d ' \n' || true
         }
 
         sw_rc=0
@@ -112,7 +114,7 @@ open(sys.argv[1], "wb").write(hdr + struct.pack("<I", 7) + bytes(512))' \
             sw_b2=$(sw_run "$sw_r")
             [[ "$(sw_save "$sw_b1")" == "SAVE 1 OK" ]] || sw_faults+=("b: run 1 said '$(sw_save "$sw_b1")'")
             [[ "$(sw_save "$sw_b2")" == "SAVE 2 OK" ]] || sw_faults+=("b: run 2 said '$(sw_save "$sw_b2")'")
-            [[ "$(sw_file_byte "$sw_r")" == "02" ]] || sw_faults+=("b: mtools reads JNSAVE.DAT = '$(sw_file_byte "$sw_r")', not 02")
+            [[ "$(sw_counter "$sw_r")" == "4a4e535602" ]] || sw_faults+=("b: sector 60000 of R is '$(sw_counter "$sw_r")', not 4a4e535602")
 
             # (c) the journal
             rm -rf "$JNEXT_CONFIG_DIR/warm-start"
@@ -131,8 +133,10 @@ open(sys.argv[1], "wb").write(hdr + struct.pack("<I", 7) + bytes(512))' \
             if python3 -I "$PROJECT_DIR/test/00regression/sdcard-writes-apply.py" "$sw_dir/applied.img" "$sw_j"; then
                 cmp -s "$sw_dir/applied.img" "$sw_r" \
                     || sw_faults+=("d: the journal laid over the pristine card differs from the read-write card")
-                [[ "$(sw_file_byte "$sw_dir/applied.img")" == "02" ]] \
-                    || sw_faults+=("d: mtools reads JNSAVE.DAT = '$(sw_file_byte "$sw_dir/applied.img")' from the applied card")
+                [[ "$(sw_counter "$sw_dir/applied.img")" == "4a4e535602" ]] \
+                    || sw_faults+=("d: sector 60000 of the applied card is '$(sw_counter "$sw_dir/applied.img")'")
+                mdir -i "$sw_dir/applied.img@@$sw_off" :: >/dev/null 2>&1 \
+                    || sw_faults+=("d: mtools cannot list the applied card")
             else
                 sw_faults+=("d: the foreign reader refused the journal")
             fi

@@ -5,7 +5,7 @@
 | option | type | what it is |
 |---|---|---|
 | `image` | `{url, sha256}`, required | The SD-card image, as `--sdcard` and `--sdcard-sha256`. |
-| `keepWrites` | boolean | `--sdcard-writes`, with a file the page manages: what the program writes to the card (saves, high scores) is kept in the visitor's browser and is there at the next visit. Off by default (10.4). |
+| `keepWrites` | boolean | `--sdcard-writes`, with a file the page manages: what the program writes to the card (saves, high scores) is kept in the visitor's browser and is there at the next visit. Off by default; what it keeps, and what it cannot, is in 10.3 and 10.4. |
 | `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. `.nex`, `.tap` and `.tzx` only. Without it the machine boots to the NextZXOS menu. |
 | `machine` | string | `--machine`. |
 | `muted` | boolean | `--set startup.silent`: no audio device for the session. |

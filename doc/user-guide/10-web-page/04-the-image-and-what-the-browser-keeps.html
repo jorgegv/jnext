@@ -4359,6 +4359,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="What the browser keeps, and where">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keeping-the-saves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping the saves
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -4486,12 +4503,28 @@ NextZXOS on every visit and records nothing.</p>
 <ul>
 <li>The image is kept in the browser's Cache Storage, under its URL.</li>
 <li>The warm-start recording is kept in IndexedDB.</li>
-<li>Nothing else is kept: no settings, and none of the writes the program makes to the
-  card, nor screenshots or snapshots (10.3).</li>
+<li>With <code>keepWrites</code>, the sectors the program writes to the card are kept in IndexedDB, in
+  a database of their own (<code>jnext-card-writes</code>) that exists only for a page that uses it.
+  There is one record per image and page: its name is the image's SHA-256 and a short
+  digest of the page's path, so another image, or another page of the same site, has
+  its own saves, and a changed image never reuses the old ones. Only the written sectors
+  are stored (516 bytes each; the card itself is never written), and they stay in the
+  visitor's browser: nothing is sent anywhere.</li>
+<li>Nothing else is kept: no settings, nor screenshots or snapshots (10.3).</li>
 <li>Several players on one page share the recording.</li>
 <li>If the browser's storage is full, the session still runs and the next visit downloads
   the image again.</li>
 </ul>
+<h3 id="keeping-the-saves">Keeping the saves<a class="headerlink" href="#keeping-the-saves" title="Permanent link">&para;</a></h3>
+<pre><code class="language-js">jnext.mount(el, { image: {...}, file: 'game.nex', keepWrites: true });
+</code></pre>
+<p>Whatever the program writes to the card is there at the next visit (a program loaded with
+<code>file</code> that saves through esxDOS file calls does not write the card: 10.3). <code>player.resetCard()</code> clears them (10.2).
+The saves belong to the image: a page that now names another image, even one that
+differs in one byte, starts with none. A record that does not match its image (damaged,
+or made by another version of the image) is refused with a message naming
+<code>--sdcard-writes-reset</code>: mount once with <code>args: ['--sdcard-writes-reset']</code>, or clear the
+site's data, to start again.</p>
 <p>Browsers keep the storage of each origin (scheme, host and port) apart. Two pages of one
 origin share the image and the recording. A game inside an <code>iframe</code> of another site may
 or may not see the storage its own origin has: that depends on the browser, its version
@@ -4563,6 +4596,22 @@ their status line.</p>
 <tr>
 <td><code>&lt;flag&gt;: not available in the browser build (...)</code> or <code>&lt;flag&gt;: not available in a browser page (...)</code></td>
 <td>An option that needs a process, a socket or a terminal was given. The reason is in the brackets, and the list is in the man page ("Not available in the browser").</td>
+</tr>
+<tr>
+<td><code>&lt;file&gt; is not a jnext SD-writes file; not touching it</code></td>
+<td>The stored saves are damaged. Mount once with <code>args: ['--sdcard-writes-reset']</code>.</td>
+</tr>
+<tr>
+<td><code>&lt;file&gt; was made for another image ...; run with --sdcard-writes-reset to discard them</code></td>
+<td>The record under this key is for another image. Mount once with <code>args: ['--sdcard-writes-reset']</code>.</td>
+</tr>
+<tr>
+<td><code>jnext: resetCard() needs the keepWrites option</code></td>
+<td><code>resetCard()</code> was called on a player mounted without <code>keepWrites</code>.</td>
+</tr>
+<tr>
+<td><code>option 'keepWrites' must be a boolean</code></td>
+<td><code>keepWrites</code> is not <code>true</code> or <code>false</code>. Nothing has been downloaded yet.</td>
 </tr>
 <tr>
 <td><code>jnext exited with code N</code></td>

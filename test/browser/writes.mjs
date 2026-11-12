@@ -3,7 +3,8 @@
 // browser-smoke.sh on the SDK's node.
 //
 // Guest: test/fixtures/nex/save_counter.nex (source demo/save_counter): it keeps a one-byte run
-// counter in /JNSAVE.DAT on the card and prints "SAVE <n> OK" on the magic port, which reaches the
+// counter in raw sector 60000 of the card, over the SPI ports (an esxDOS file would be answered by
+// JNEXT's stand-in and never reach the card), and prints "SAVE <n> OK" on the magic port, which reaches the
 // page's console. The page is the API fixture (page/api.html, mounted with the options a row gives
 // it); the card comes from a real server on 127.0.0.1 with CORS, as in api.mjs.
 //

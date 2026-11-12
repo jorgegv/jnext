@@ -4409,6 +4409,13 @@ exactly as they would on a real card, so two runs sharing one image are not
 independent once one of them has written.</p>
 <p>Add <code>--sdcard-readonly</code> when a run must not disturb the image: the emulated
 machine then sees a write-protected card and the host file is never touched.</p>
+<p>To keep the image pristine and still let the machine save, use
+<code>--sdcard-writes FILE</code>: the image is opened read-only and what the machine writes
+goes to <em>FILE</em>, which is laid over the image every time the card is mounted, so the
+saves survive the next run. <em>FILE</em> belongs to that image (its <code>--sdcard-sha256</code>, else
+its size and modification time) and is refused for another one; delete it, or add
+<code>--sdcard-writes-reset</code>, to start from the image again. It holds only the sectors the
+machine wrote, so it stays small.</p>
 <h2 id="changing-the-card-while-jnext-runs">Changing the card while JNEXT runs<a class="headerlink" href="#changing-the-card-while-jnext-runs" title="Permanent link">&para;</a></h2>
 <p><strong>File &gt; Insert SD Card Image</strong> puts a different card in the running machine,
 and <strong>File &gt; Eject SD Card</strong> takes it out. Nothing is reset, so you keep what
