@@ -43,7 +43,7 @@ enum class Type : uint8_t {
 };
 
 /// Where a key takes effect (a bit set).
-enum Frontend : uint8_t { QT = 1, SDL = 2, HEADLESS = 4 };
+enum Frontend : uint8_t { QT = 1, SDL = 2, HEADLESS = 4, WEB = 8 };
 
 /// Which module reads and writes the key in jnext.conf.
 enum class Owner : uint8_t { AppConfig, DebuggerWindow };
@@ -133,13 +133,13 @@ inline constexpr Key KEYS[] = {
       "1..3", "--scale", QT, false, Owner::AppConfig, nullptr,
       "Window scale factor" },
     { KeyId::StartupCrtFilter, "startup", "crt_filter", Type::Bool, 0, 0,
-      "true|false", "--crt", QT, false, Owner::AppConfig, nullptr,
+      "true|false", "--crt", QT | WEB, false, Owner::AppConfig, nullptr,
       "CRT scanlines effect" },
     { KeyId::StartupCrtShader, "startup", "crt_shader", Type::Bool, 0, 0,
-      "true|false", "--crt", QT, false, Owner::AppConfig, nullptr,
+      "true|false", "--crt", QT | WEB, false, Owner::AppConfig, nullptr,
       "OpenGL CRT shader effect" },
     { KeyId::StartupCrtShaderStyle, "startup", "crt_shader_style", Type::Int, 0, 2,
-      "0..2", "--crt", QT, false, Owner::AppConfig, nullptr,
+      "0..2", "--crt", QT | WEB, false, Owner::AppConfig, nullptr,
       "CRT shader style: 0 = tv, 1 = pc, 2 = soft" },
     { KeyId::StartupSilent, "startup", "silent", Type::Bool, 0, 0,
       "true|false", "--silent", QT | SDL | HEADLESS, false, Owner::AppConfig, nullptr,

@@ -42,5 +42,8 @@ each started on its own and left to run for 600 frames:
   three heaviest programs at half speed (`shift`, `blue` and `menu`) showed 95% to 98% of
   the pictures.
 
+The CRT effect (10.2) is extra drawing work on the graphics chip of every frame, which is why it is off
+by default; the figures above are without it.
+
 This is what one machine did, not a promise for another: a slower computer, a busy
 one or another browser will differ.

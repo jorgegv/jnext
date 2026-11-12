@@ -40,6 +40,27 @@
 | `setVolume(v)` | Master level, 0 (silent) to 1; anything else throws a `RangeError`. A player started `muted` has no audio device. |
 | `destroy()` | Stop the machine and remove the player. Afterwards every method throws. |
 
+## The CRT effect
+
+The desktop window's CRT effect (5.3) runs in the page too, off by default, with the same five
+looks and the same parameters. There is no extra option: use `args` with `--crt` and one of
+`off`, `scanlines`, `soft`, `tv` or `pc`, or the three settings it stands for in `set`:
+
+```js
+jnext.mount(el, { image: img, args: ['--crt', 'tv'] });
+
+jnext.mount(el, { image: img, set: { 'startup.crt_shader': true, 'startup.crt_shader_style': 1 } });
+// style 0 is tv, 1 is pc, 2 is soft; 'startup.crt_filter': true is the plain scanlines
+```
+
+- The effect is chosen for the whole run: there is no call to switch it while the player runs.
+- It draws on the page's WebGL, so it needs a browser with WebGL.
+- *Soft scanlines* show their lines only when the picture is at least twice 640x512 device pixels
+  (a larger box or a high-density screen), as on the desktop; at 640x512 they only dim the picture.
+- If the shader cannot run, the player writes one line starting `CRT effect:` to the browser console
+  and carries on: with the plain scanlines for *Soft scanlines* (or when `scanlines` was also asked),
+  with the plain picture otherwise.
+
 ## Keyboard
 
 The player takes the keys while its canvas has focus (the click focuses it). The

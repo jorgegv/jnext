@@ -2047,6 +2047,8 @@ int main(int argc, char* argv[]) {
         using config_keys::KeyId;
 #ifdef ENABLE_QT_UI
         const uint8_t running = headless ? config_keys::HEADLESS : config_keys::QT;
+#elif defined(JNEXT_BROWSER)
+        const uint8_t running = headless ? config_keys::HEADLESS : static_cast<uint8_t>(config_keys::SDL | config_keys::WEB);
 #else
         const uint8_t running = headless ? config_keys::HEADLESS : config_keys::SDL;
 #endif
@@ -2732,6 +2734,25 @@ int main(int argc, char* argv[]) {
             app.set_when_slow_prefer(when_slow_prefer);
             app.set_mouse_release_method(mouse_release);   // GH #365
             if (speed_percent_set) app.set_speed_percent(speed_percent);
+#ifdef JNEXT_BROWSER
+            // The CRT effect (--crt, startup.crt_*): the three values in the order given, the
+            // later one winning; off unless asked. One line when the shader cannot run.
+            bool crt_filter = false, crt_shader_on = false;
+            int crt_style = static_cast<int>(crt_shader::STYLE_DEFAULT);
+            for (const config_keys::Assignment& a : qt_assignments) {
+                if (a.id == config_keys::KeyId::StartupCrtFilter) crt_filter = a.text == "true";
+                else if (a.id == config_keys::KeyId::StartupCrtShader) crt_shader_on = a.text == "true";
+                else if (a.id == config_keys::KeyId::StartupCrtShaderStyle) crt_style = std::atoi(a.text.c_str());
+            }
+            if (crt_filter || crt_shader_on) {
+                std::string why;
+                const crt_shader::Style style = crt_shader::style_from_int(crt_style);
+                const crt_shader::Effect e = app.display().set_crt(crt_filter, crt_shader_on, style, why);
+                if (!why.empty())
+                    Log::platform()->warn("CRT effect: {}; the display continues {}.", why,
+                                          e == crt_shader::Effect::Scanlines ? "with the scanlines" : "without it");
+            }
+#endif
         }
 #endif
 

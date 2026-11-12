@@ -16,6 +16,10 @@
 //   CRT-POL-05..07  fullscreen_scale() using max instead of min   -> fails
 //   CRT-POL-10..13  argb_to_abgr() reduced to a plain copy         -> fails
 //   CRT-POL-14  the upstream crop expressions put back into crtemu.h -> fails
+//   CRT-POL-15  resolve() testing the scanlines before the shader  -> fails
+//   CRT-POL-16  resolve() falling back to Off for the Soft style   -> fails
+//   CRT-POL-17  resolve() ignoring the scanlines when no shader is asked -> fails
+//   CRT-POL-18  gl_viewport() without the y flip                   -> fails
 //
 // Run: ./build/test/crt_shader_policy_test
 // ===========================================================================
@@ -161,6 +165,44 @@ int main() {
               !has("float scale = 0.04;") &&
               !has("scale/2.0+vec2(0.003, -0.001)"),
               h.empty() ? "header not readable" : "");
+    }
+
+    // The start-up rule shared by the Qt window and the browser build. Oracle: the Qt rule it
+    // replaced (MainWindow::apply_startup_config and the crt_shader_failed lambda) as
+    // doc/design/CRT-GL-FILTER.md "Functionality" describes it: the shader wins over the
+    // scanlines; Soft scanlines are a shader style that falls back to the software scanlines.
+    {
+        using crt_shader::Effect;
+        using crt_shader::Style;
+        const Style styles[] = { Style::Tv, Style::Pc, Style::Lite };
+        bool shader_wins = true;
+        for (bool f : { false, true })
+            for (Style st : styles)
+                if (crt_shader::resolve(f, true, st, true) != Effect::Shader) shader_wins = false;
+        check("CRT-POL-15", "resolve(): a shader that was asked for and can run wins over the scanlines, in every style",
+              shader_wins);
+
+        check("CRT-POL-16", "resolve(): a shader that cannot run falls back to the scanlines for Soft or with the scanlines also asked, else to plain",
+              crt_shader::resolve(false, true, Style::Lite, false) == Effect::Scanlines &&
+              crt_shader::resolve(false, true, Style::Tv, false) == Effect::Off &&
+              crt_shader::resolve(false, true, Style::Pc, false) == Effect::Off &&
+              crt_shader::resolve(true, true, Style::Tv, false) == Effect::Scanlines);
+
+        bool no_shader = true;
+        for (Style st : styles)
+            for (bool ok : { false, true})
+                if (crt_shader::resolve(true, false, st, ok) != Effect::Scanlines ||
+                    crt_shader::resolve(false, false, st, ok) != Effect::Off) no_shader = false;
+        check("CRT-POL-17", "resolve(): with no shader asked the scanlines setting alone decides, whatever the style or the shader's state",
+              no_shader);
+
+        const crt_shader::GlRect a = crt_shader::gl_viewport(25, 0, 750, 600, 600);
+        const crt_shader::GlRect b = crt_shader::gl_viewport(0, 10, 640, 512, 600);
+        const crt_shader::GlRect c = crt_shader::gl_viewport(0, 0, 640, 512, 512);
+        check("CRT-POL-18", "gl_viewport(): SDL's top-left letterbox rectangle becomes a bottom-left GL viewport (the y flip)",
+              a.x == 25 && a.y == 0 && a.w == 750 && a.h == 600 &&
+              b.x == 0 && b.y == 78 && b.w == 640 && b.h == 512 &&
+              c.x == 0 && c.y == 0 && c.w == 640 && c.h == 512);
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

@@ -345,7 +345,8 @@ MainWindow::MainWindow(QWidget* parent)
     // Soft scanlines were asked for scanlines: they continue as the software Scanlines.
     connect(emulator_widget_, &EmulatorWidget::crt_shader_failed, this,
             [this](const QString& why) {
-        const bool soft = emulator_widget_->crt_shader_style() == crt_shader::Style::Lite;
+        const bool soft = crt_shader::resolve(false, true, emulator_widget_->crt_shader_style(), false)
+                          == crt_shader::Effect::Scanlines;
         if (soft) set_crt_filter(true);
         sync_crt_actions();
         auto* box = new QMessageBox(QMessageBox::Warning, tr("CRT Effect"),
@@ -2941,13 +2942,13 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
     // One effect: resolve the exclusivity before touching the widget. The shader
     // (any style, Lite = Soft Scanlines) wins over the software Scanlines. In a build
     // without it a saved Soft Scanlines choice is the nearest thing it has: Scanlines.
-    const bool soft = cfg.crt_shader && cfg.crt_shader_style == crt_shader::Style::Lite;
     emulator_widget_->set_crt_shader_style(cfg.crt_shader_style);
     if (cfg.crt_shader && set_crt_shader(true)) {
         // on; also cleared the scanline mode
     } else {
         set_crt_shader(false);
-        set_crt_filter(cfg.crt_filter || soft);
+        set_crt_filter(crt_shader::resolve(cfg.crt_filter, cfg.crt_shader, cfg.crt_shader_style, false)
+                       == crt_shader::Effect::Scanlines);
     }
 
     if (speed_callback_) speed_callback_(cfg.emulator_speed_percent / 100.0);
