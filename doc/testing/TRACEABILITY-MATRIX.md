@@ -69,7 +69,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6201 | 6201 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6201**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5700**. Rows the 193 suites declared in `test/unit-tests.conf` run live: **16055**.
+Rows the sections above carry: **6201**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5700**. Rows the 195 suites declared in `test/unit-tests.conf` run live: **16079**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -81,7 +81,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 145 suites (10439 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 147 suites (10463 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -143,6 +143,7 @@ These 145 suites (10439 live rows) have no VHDL-derived plan row to map, so they
 | `program_archive_test` | 71 | ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart |
 | `halt_batch_equiv_test` | 23 | cycle-batching equivalence (GH #452): the oracle is the unbatched path of the same emulator, held to the VHDL by the other suites; each row cites the hardware behaviour a batch span must not move in its own source (jnext-internal) |
 | `halt_batch_periph_test` | 38 | cycle-batching equivalence on peripheral, observer and host-input fixtures (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
+| `halt_batch_observer_test` | 16 | cycle-batching equivalence with an ESP-01 or a debugger client attached (GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_boot_test` | 2 | cycle-batching equivalence on the NextZXOS cold boot (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_corpus_1_test` | 6 | cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_corpus_2_test` | 6 | cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal) |
@@ -214,11 +215,12 @@ These 145 suites (10439 live rows) have no VHDL-derived plan row to map, so they
 | `sdcard_dialog_test` | 9 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
 | `quit_cleanup_test` | 12 | host shutdown ordering (GUI lifecycle) |
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
-| `preferences_apply_test` | 96 | Preferences dialog wiring (host GUI) |
+| `preferences_apply_test` | 100 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 122 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 17 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 11 | debugger quit gating (host GUI lifecycle) |
 | `debugger_persistent_bp_test` | 14 | debugger window raise-on-hit (host GUI lifecycle, GH #219) |
+| `debugger_halt_batch_test` | 4 | debugger window open vs the HALT batch (host GUI lifecycle, GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `debugger_inspect_watchpoint_test` | 18 | debugger INSPECTION reads vs watchpoints (jnext-internal); the T80N core has no panels reading its bus |
 | `debugger_window_size_test` | 42 | debugger window geometry (host GUI) |
 | `debugger_window_grow_test` | 14 | debugger window geometry (host GUI) |
