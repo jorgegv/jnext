@@ -2439,6 +2439,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Symbols from MAP files
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="05-symbols-from-z88dk-map-files.html" class="md-nav__link md-nav__link--active">
         
   
@@ -2455,6 +2473,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-48k-rom-by-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The 48K ROM by name
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -4156,7 +4204,8 @@
   second is shown as <code>_inc</code>. The disassembly <em>copy</em> writes the assembler
   name (<code>LD HL,_counter</code>), so the pasted text still assembles.</li>
 <li><strong>Simple Format (48K ROM)…</strong> — plain <code>NAME = $ADDR</code> lines, one per line,
-  <code>;</code> for comments.</li>
+  <code>;</code> for comments. JNEXT comes with one: see
+  <a href="#the-48k-rom-by-name">The 48K ROM by name</a>.</li>
 <li><strong>sjasmplus Format (--sym, --exp)…</strong> — the symbol file sjasmplus writes with
   <code>--sym=FILE</code> or <code>--exp=FILE</code>, lines such as <code>main.loop: EQU 0x00008006</code>.
   <code>--sym</code> lists every label (sorted by name from sjasmplus 1.21.1, in another
@@ -4185,6 +4234,53 @@ Call Stack names call targets, the Breakpoints panel gains a Symbol column, and
 the disassembly right-click menu offers to watch the symbol by name. The open
 panels show the names as soon as the file is loaded.</p>
 <p>Where two symbols share an address, the first one in the file wins.</p>
+<h2 id="the-48k-rom-by-name">The 48K ROM by name<a class="headerlink" href="#the-48k-rom-by-name" title="Permanent link">&para;</a></h2>
+<p>Every JNEXT package includes <code>48rom.map</code>, a symbol map of the 48K Spectrum ROM: 395 names for
+its routines and system variables, taken from skoolkit's disassembly of the ROM. Load it with
+<strong>Map ▸ Load MAP File ▸ Simple Format (48K ROM)…</strong>. It is in:</p>
+<table>
+<thead>
+<tr>
+<th>Installed from</th>
+<th><code>48rom.map</code> is in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>the rpm or the deb</td>
+<td><code>/usr/share/jnext/</code></td>
+</tr>
+<tr>
+<td>the Flatpak</td>
+<td><code>/var/lib/flatpak/app/io.github.zxjogv.jnext/current/active/files/share/jnext/</code>; for a <code>--user</code> installation, <code>~/.local/share/flatpak/</code> instead of <code>/var/lib/flatpak/</code></td>
+</tr>
+<tr>
+<td>a Windows zip</td>
+<td>the folder you unzipped, next to <code>jnext.exe</code></td>
+</tr>
+<tr>
+<td>the macOS <code>.dmg</code></td>
+<td>inside the application: <code>/Applications/jnext.app/Contents/Resources/</code> (in the file dialog, <strong>Cmd+Shift+G</strong> opens a folder by its path)</td>
+</tr>
+<tr>
+<td>the source</td>
+<td><code>data/</code></td>
+</tr>
+</tbody>
+</table>
+<p>With it loaded, stepping through code that calls the ROM reads like a ROM listing:</p>
+<ul>
+<li>the Disassembly names what the code calls and reads: <code>CALL $03B5</code> reads <code>CALL BEEPER</code>,
+  <code>LD HL,($5C5D)</code> reads <code>LD HL,(CH_ADD)</code>, and the Label column names each routine where it
+  starts (a long name is cut short there);</li>
+<li>step into a <code>RST $10</code> and the Call Stack shows an <code>RST</code> frame whose target is
+  <code>PRINT_A_CHARACTER</code>;</li>
+<li>a breakpoint can be set by name: <code>BEEPER</code> in the Breakpoints panel's <strong>Add</strong> dialog stops
+  where the ROM starts a beep, and the Symbol column says <code>BEEPER</code>.</li>
+</ul>
+<p>The names are not tied to a memory: they name those addresses whatever is paged in there, so
+they describe the code only while the 48K ROM is (on a 48K machine, for one). <code>--map</code> does not
+read this format: load the file from the Map menu.</p>
 <p>On the command line, <code>--map FILE</code> loads a z88dk <code>.map</code> or an sjasmplus <code>--sym</code>
 or <code>--exp</code> file. It tells them apart by the file's first line, not by its name
 (z88dk's assembler also writes a <code>.sym</code>, in the map format). A file sjasmplus
