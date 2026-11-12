@@ -3132,9 +3132,9 @@ every repeat: most of the frame of a program that idles on <code>EI; HALT</code>
 slot that was such a repeat, <code>halt_batch_after_slot_()</code> asks whether each further repeat would do
 exactly what this one did. The first repeat is always real, so every M1 hook, the fetch and
 the T-states come from the real path and no contention or wait formula is restated. The
-answer is yes only if the CPU actually ran the slot (not a DMA slot, a parked CPU or a boot hold), nothing observes the machine (no debugger, trace, rewind, RZX, tape),
+answer is yes only if the CPU actually ran the slot (not a DMA slot, a parked CPU or a boot hold), nothing observes the machine instruction by instruction (no breakpoint, watchpoint, event subscription, step mode or coverage; trace, rewind, RZX and tape; a debugger client that is merely attached does not count),
 nothing is waiting for an instruction boundary (an <code>/INT</code>, an <code>/NMI</code>, a pending host NMI
-press, a CPU speed or contention commit), the DMA is idle or only waiting out its burst prescaler with the bus released, the UART and NMI source are idle and the IM2 fabric
+press, a CPU speed or contention commit), the DMA is idle or only waiting out its burst prescaler with the bus released, the UART channels are idle, no attached UART device (the ESP-01, the NextPi link) wants ticks (<code>Uart::batch_quiescent()</code>) and the NMI source is idle, and the IM2 fabric
 is quiescent (in either mode: with a device in <code>S_REQ</code> the <code>/INT</code> line is asserted and a request is pending, which refuses), the HALT page is not contended (with the NR 0x08 bit-6 contention shadow
 settled, since a page is uncontended only while the disable is in force) and the PC is not
 one the DivMMC automap, the esxDOS shim or the NMI vector react to. Then the slot absorbs <code>n - 1</code> more repeats (<code>Z80Cpu::repeat_halt()</code>: the
@@ -3143,7 +3143,7 @@ change), where <code>n</code> is bounded to end before the next scheduler event 
 reload, the frame end), the next interrupt request, the next CTC event, the opening of the DMA prescaler gate (<code>Dma::cycles_to_prescaler_gate()</code>) and the next Copper
 action (<code>Copper::idle_cycles()</code> from the Copper's own position, the same
 <code>copper_position_at_()</code> the Copper loop uses). The batched slot then runs the device cluster
-once, from the same call as every other slot, over the whole window; the PSG and the mixer are not
+once, from the same call as every other slot, over the whole window; while the raster walk is live (a client asked for it) it (<code>VideoTiming::advance()</code>, additive) is advanced over the absorbed repeats in the same step, and the call-stack tracker needs nothing, since a <code>HALT</code> repeat changes no frame and the real repeat has already recorded the newest frame's target space; the PSG and the mixer are not
 split-invariant, so their part is replayed repeat by repeat in the same order first, and the cluster's
 own PSG and audio block is switched off for that one call. Nothing else about a batch is allowed into the
 loop or the cluster: a second caller of the cluster, or a flag the loop carries per slot, cost every slot of
@@ -3152,8 +3152,8 @@ audio chain are kept byte-different from the originals (a counter) so that the l
 them back into one function with two callers. Every bound, and every gate whose absence changes what the machine
 does, is pinned by a row of <code>halt_batch_equiv_test</code> or <code>halt_batch_periph_test</code> whose mutation
 turns it red. A few gates are redundant with another and stay as explicit statements of the
-contract (an <code>/INT</code> pending implies a non-quiescent IM2 fabric; an armed debugger implies the
-memory gate). The DivMMC and Multiface flip-flop states are NOT gates: at a PC the automap
+contract (an <code>/INT</code> pending implies a non-quiescent IM2 fabric; the coverage terms of the debugger
+predicate repeat what each coverage set already does). The DivMMC and Multiface flip-flop states are NOT gates: at a PC the automap
 does not react to by address, every transition of either converges within one M1 edge, which
 the real repeat already is, so a gate on their state was removed as provably redundant.</p>
 <p>Around that choice it also records the trace entry, notes what the end-of-slot
@@ -3206,7 +3206,7 @@ the interrupt-status NextREGs, the tape EAR bit — first brings them up to the
 edge its bus cycle latches or commits on (<code>Emulator::sync_io_devices_to()</code>),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.</p>
-<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:13497</code>) renders nothing at all. What it does is
+<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:13505</code>) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 <code>snapshot_row_render_state()</code> — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

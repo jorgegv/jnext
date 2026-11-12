@@ -3076,7 +3076,7 @@ magic-stop or verify hold, a pause, a step mode, a pending data-breakpoint hit, 
 coverage set; and, while a client arms the machine, on any breakpoint or watchpoint in the model
 (enabled or not, the one-shot included), on any live event subscription of any kind, and on a
 pending boundary drain. It also refuses on the trace log (rewind turns the trace on, so a machine
-with rewind never batches), the profiler and a rewind replay. This is deliberately conservative:
+with rewind never batches) and the profiler. This is deliberately conservative:
 one breakpoint anywhere keeps the batch off, even when nothing covers the <code>HALT</code>'s address. A
 client that is merely attached (the debugger window open on an idle program, a remote client with
 nothing set) does NOT refuse: with no breakpoint, subscription or step, the armed block, the
