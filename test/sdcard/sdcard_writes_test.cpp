@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -643,6 +644,10 @@ int main() {
     const Bytes kd1 = {0x01};
     const Bytes kd2 = {0x02, 0x03};
     const std::string kname = "/JNHI.DAT";
+    auto kept_of = [](const std::string& img) {
+        const auto j = swj::for_image(img);
+        return j ? j->kept_file() : std::optional<swj::KeptFile>{};
+    };
     {   // SDW-19 / SDW-20: the first commit creates the file; a reload gets it back.
         const std::string d = scratch();
         const std::string img = make_image("c" + std::to_string(n_dir) + ".img");
@@ -659,7 +664,7 @@ int main() {
               c1 && slurp(jf) == want && want.size() == 64 + 4 + 4 + 2 + 9 + 1);
         swj::forget_all_for_test();
         const bool rebound = swj::bind(img, jf, b, false, why);
-        const auto kf = swj::for_image(img)->kept_file();
+        const auto kf = kept_of(img);
         bool blob = false;
         {
             Card c(img);
@@ -688,7 +693,7 @@ int main() {
         }
         swj::forget_all_for_test();
         const bool rebound = swj::bind(img, jf, b, false, why);
-        const auto kf = swj::for_image(img)->kept_file();
+        const auto kf = kept_of(img);
         bool sect = false;
         {
             Card c(img);
@@ -705,7 +710,7 @@ int main() {
         (void)swj::for_image(img)->commit_file("/OTHER.DAT", kd1);
         swj::forget_all_for_test();
         swj::bind(img, jf, b, false, why);
-        const auto kf2 = swj::for_image(img)->kept_file();
+        const auto kf2 = kept_of(img);
         Bytes compact = expected_header(b);
         add_record(compact, 9, payload(31));
         add_kept(compact, "/OTHER.DAT", kd1);
@@ -733,7 +738,7 @@ int main() {
             o.write(reinterpret_cast<const char*>(torn.data()), static_cast<std::streamsize>(torn.size()));
         }
         const bool b1 = swj::bind(img, jf, b, false, why);
-        const auto kf = swj::for_image(img)->kept_file();
+        const auto kf = kept_of(img);
         const bool cut = slurp(jf) == whole;
         // A tail cut inside the 8-byte head (marker + half of L).
         Bytes head = whole;
@@ -746,7 +751,8 @@ int main() {
         swj::forget_all_for_test();
         const bool b2 = swj::bind(img, jf, b, false, why);
         const bool cut2 = slurp(jf) == whole;
-        const bool c3 = swj::for_image(img)->commit_file("/NEXT.DAT", kd2);
+        const auto jn = swj::for_image(img);
+        const bool c3 = jn && jn->commit_file("/NEXT.DAT", kd2);
         Bytes after = expected_header(b);
         add_kept(after, kname, kd1);
         add_kept(after, "/NEXT.DAT", kd2);
@@ -842,7 +848,7 @@ int main() {
         check("SDW-26",
               "bind(reset) on a FILE holding a sector record and a kept-file record discards both: "
               "FILE is gone, no kept file, the image's bytes are served",
-              ok && !exists(jf) && !swj::for_image(img)->kept_file() && blob, why);
+              ok && !exists(jf) && !kept_of(img) && blob, why);
         swj::forget_all_for_test();
     }
     {   // SDW-27: a kept file is not card state.

@@ -1175,10 +1175,17 @@ int main() {
             e->init(cfg_for("/tmp/a.nex", card));
             const bool s1 = k_save(*e, nm, v3);
             const int h1 = hooks;
-            const auto len1 = std::filesystem::file_size(jf);
             const auto r = k_open(*e, nm, 0x0100);
             const auto rc = k_close(*e, r.second);
-            const bool unchanged = hooks == h1 && std::filesystem::file_size(jf) == len1;
+            const bool unchanged = hooks == h1 && std::filesystem::exists(jf);
+            // The journal forgets the file behind the session's back; a read-open close must not
+            // put the in-memory copy back.
+            swj::for_image(card)->clear();
+            const int h2 = hooks;
+            const auto r2 = k_open(*e, nm, 0x0100);
+            const auto rc2 = k_close(*e, r2.second);
+            const bool not_back = hooks == h2 && !std::filesystem::exists(jf) &&
+                                  !swj::for_image(card)->kept_file();
             // create + close with no write keeps an empty file a new Emulator can open
             const auto o = k_open(*e, "/EMPTY.DAT", 0x0E00);
             const auto oc = k_close(*e, o.second);
@@ -1186,10 +1193,11 @@ int main() {
             e2->init(cfg_for("/tmp/a.nex", card));
             const auto again = k_open(*e2, "/EMPTY.DAT", 0x0100);
             check("ESXK-08",
-                  "closing a read-open file keeps nothing (no hook, FILE unchanged); create + close "
-                  "with no write keeps an empty file that a new Emulator opens",
-                  s1 && h1 == 1 && !r.first && !rc.first && unchanged && !o.first && !oc.first &&
-                  !again.first,
+                  "closing a read-open file keeps nothing (no hook; after the journal was cleared the "
+                  "in-memory copy is not put back); create + close with no write keeps an empty file "
+                  "that a new Emulator opens",
+                  s1 && h1 == 1 && !r.first && !rc.first && unchanged && !r2.first && !rc2.first &&
+                  not_back && !o.first && !oc.first && !again.first,
                   "hooks=" + std::to_string(hooks));
             swj::set_persist_hook(nullptr);
         }
