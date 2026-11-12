@@ -63,12 +63,22 @@ The hot path pays nothing for any of this: `Mmu::read` and `Mmu::write` compile
 to the same instructions they did without it, every difference being a
 structure offset.
 
-**The HALT batch stands aside for all of it.** `Emulator::halt_batch_after_slot_()` refuses while a
-client is attached, breakpoints or watchpoints are live, the raster walk, the coverage sets,
-the trace log, the call stack or the profiler is on, or a rewind replay runs: rewind turns the
-trace on, so a machine with rewind never batches. Stepping is untouched by construction:
-`step_frame_slot()` and `execute_single_instruction()` call the shared slot body without
-asking for a batch, so a Step over a `HALT` is one repeat.
+**The HALT batch stands aside for what observes instructions, not for an attached client.**
+`Emulator::halt_batch_after_slot_()` asks `DebugState::halt_batch_blocked()`, one predicate that
+lists every contributor together. It refuses on `--persistent-breakpoints`, a rewind replay, a
+magic-stop or verify hold, a pause, a step mode, a pending data-breakpoint hit, and on either
+coverage set; and, while a client arms the machine, on any breakpoint or watchpoint in the model
+(enabled or not, the one-shot included), on any live event subscription of any kind, and on a
+pending boundary drain. It also refuses on the trace log (rewind turns the trace on, so a machine
+with rewind never batches), the profiler and a rewind replay. This is deliberately conservative:
+one breakpoint anywhere keeps the batch off, even when nothing covers the `HALT`'s address. A
+client that is merely attached (the debugger window open on an idle program, a remote client with
+nothing set) does NOT refuse: with no breakpoint, subscription or step, the armed block, the
+watch gates and the boundary drain of an absorbed repeat are no-ops, the raster walk is advanced
+over the window in one call, and the call-stack tracker learns nothing from a `HALT` repeat. A
+closed window whose breakpoints stay in the backend arms nothing and never refuses. Stepping is
+untouched by construction: `step_frame_slot()` and `execute_single_instruction()` call the shared
+slot body without asking for a batch, so a Step over a `HALT` is one repeat.
 
 ## The step modes
 

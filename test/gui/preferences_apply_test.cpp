@@ -1788,6 +1788,51 @@ void test_joy_menu_persists_only_the_pick()
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 
+// ── PA-36/PA-37: GH #489 - a Preferences OK programs the CPU speed only when the field changed ──
+// The machine's speed is whatever the program (NextZXOS sets 28 MHz) or the CPU Speed menu made it.
+// Apply used to write the dialog's value into NR 0x07 on every OK, whatever the user touched: an
+// OK that only toggled the ESP box dropped a 28 MHz session to the Startup speed (3.5 MHz by
+// default), which is what made "disable the ESP, the CPU use falls at once" true for the wrong
+// reason. The oracle is the dialog's own contract (issue #40, same function): Apply applies what the
+// user changed. The saved speed is the default (3.5 MHz) in a scratch config directory.
+void test_cpu_speed_only_when_changed()
+{
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    {
+        Fixture f;
+        f.win.set_unattended(true);
+        f.emu.nextreg().write(0x07, static_cast<uint8_t>(CpuSpeed::MHZ_28));   // the program's choice
+        AppConfigData c;
+        c.machine_type = MachineType::ZX48K;
+        c.cpu_speed    = CpuSpeed::MHZ_3_5;     // the field: untouched, still the saved value
+        c.esp_enabled  = true;                  // what the user did change
+        f.win.apply_preferences(c);
+        check("PA-36", "Preferences OK with the CPU-speed field untouched leaves the running machine's speed alone (28 MHz stays) and does not reboot",
+              programmed_cpu_speed(f) == static_cast<uint8_t>(CpuSpeed::MHZ_28) && f.reboots.empty(),
+              "cpuspeed=" + std::to_string(programmed_cpu_speed(f)) + " reboots=" + std::to_string(f.reboots.size()));
+    }
+    {
+        Fixture f;
+        f.win.set_unattended(true);
+        f.emu.nextreg().write(0x07, static_cast<uint8_t>(CpuSpeed::MHZ_28));
+        AppConfigData c;
+        c.machine_type = MachineType::ZX48K;
+        c.cpu_speed    = CpuSpeed::MHZ_14;      // the user changed the field
+        f.win.apply_preferences(c);
+        const uint8_t after_change = programmed_cpu_speed(f);
+        // The field is now the dialog's last value: a second OK with it unchanged programs nothing,
+        // so a speed the user then picked from the menu survives.
+        f.emu.nextreg().write(0x07, static_cast<uint8_t>(CpuSpeed::MHZ_7));
+        f.win.apply_preferences(c);
+        check("PA-37", "Preferences OK with the CPU-speed field changed programs it (14 MHz), and a second OK with the field unchanged programs nothing",
+              after_change == static_cast<uint8_t>(CpuSpeed::MHZ_14) &&
+                  programmed_cpu_speed(f) == static_cast<uint8_t>(CpuSpeed::MHZ_7),
+              "after_change=" + std::to_string(after_change) + " after_second=" + std::to_string(programmed_cpu_speed(f)));
+    }
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
 int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1824,6 +1869,7 @@ int main(int argc, char** argv)
     test_session_paths_not_persisted();
     test_joy_menu_persists_only_the_pick();
     test_preferences_saves_saved_values();
+    test_cpu_speed_only_when_changed();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

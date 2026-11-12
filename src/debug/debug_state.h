@@ -554,15 +554,23 @@ public:
     /// watch or subscription latches nothing, the raster walk is advanced over the window in one
     /// piece and the call-stack tracker learns nothing from a HALT repeat.
     ///
-    /// DELIBERATELY CONSERVATIVE: any breakpoint (the MODEL: enabled or not, legacy PC, memory and
-    /// I/O watchpoints, the one-shot), any live subscription of any kind and
-    /// --persistent-breakpoints refuse, even when nothing covers the HALT's PC.
+    /// The breakpoint, subscription and event terms count only while a client ARMS the machine
+    /// (clients_attached_): unarmed, the hot loop never reads them (a closed window keeps the
+    /// user's breakpoints in the backend, dead), and refusing on them would take the batch away
+    /// from every session that closed its window with a breakpoint set. The other armed()
+    /// contributors (persistent_, replay_armed_, magic_hold_, verify_hold_) arm the machine with
+    /// whatever breakpoints exist, so they refuse on their own. Coverage works unarmed too.
+    ///
+    /// DELIBERATELY CONSERVATIVE: with a client attached, any breakpoint (the MODEL: enabled or
+    /// not, legacy PC, memory and I/O watchpoints, the one-shot), any live subscription of any
+    /// kind and --persistent-breakpoints refuse, even when nothing covers the HALT's PC.
     bool halt_batch_blocked() const {
         return persistent_ || replay_armed_ || magic_hold_ || verify_hold_ ||
                paused_ || step_off_pending_ || step_mode_ != StepMode::NONE ||
-               data_bp_hit_ || event_boundary_work_ || execute_armed_ || nextreg_armed_ ||
-               events_live_ || coverage_ != nullptr || mem_cov_sink_ != nullptr ||
-               !breakpoints_.empty();
+               data_bp_hit_ || coverage_ != nullptr || mem_cov_sink_ != nullptr ||
+               (clients_attached_ &&
+                (event_boundary_work_ || execute_armed_ || nextreg_armed_ || events_live_ ||
+                 !breakpoints_.empty()));
     }
 
     /// Is there anything for the boundary drain to do? A single cached bool:
