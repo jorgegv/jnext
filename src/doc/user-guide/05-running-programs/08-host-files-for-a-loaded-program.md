@@ -24,7 +24,13 @@ on the real files in that directory, including files in subdirectories. Edit a
 file on the host, re-run, and the program reads the new version — nothing to
 copy.
 
-It is read-only unless you also pass `--esxdos-stub-writable`.
+It is read-only unless you also pass `--esxdos-stub-writable`. With that flag
+the program can also delete (`F_UNLINK`, wildcards too), rename (`F_RENAME`),
+make and remove directories (`F_MKDIR`, `F_RMDIR`), truncate files
+(`F_TRUNCATE`, `F_FTRUNCATE`) and change their read-only bit (`F_CHMOD`), and
+ask for the text of an error code (`M_GETERR`): the calls a program uses to
+manage its save slots, its data directory or a log, answered the way NextZXOS
+answers them.
 
 A few things about the short form, `--esxdos-stub` with no directory:
 
@@ -101,13 +107,20 @@ Inside the directory, paths behave like FAT paths rather than host paths:
 - lookup ignores case, so a program asking for `LEVEL1.BIN` finds `level1.bin`
 - the esxDOS drive prefixes `*:`, `$:` and `c:` all mean the same directory
 - long names get a synthesised 8.3 short name, the way FAT does, for programs
-  that ask for short names, and a path can use either name
+  that ask for short names, and a path can use either name. A short name keeps
+  naming the same file for as long as it exists, so deleting `LONGNA~1.TXT`
+  does not make `LONGNA~2.TXT` mean another file, as on a FAT card
+- a name your host answers to that the directory does not list (an NTFS short
+  name, a differently normalised spelling of an accented name) is refused,
+  never handed to another file
+- a trailing dot is dropped from a name, as FAT does (`save.` is `save`)
 - the current directory reads back the way NextZXOS reports it: `C:/`, then
   each directory's 8.3 name followed by `/`, such as `C:/MYGAME~1/DATA/`
 
-Anything that would leave the directory is refused, and so is any symbolic
-link — links are not listed either, so a program is never offered a name it
-would then be refused.
+Anything that would leave the directory is refused (`esx_enotdir`, as
+NextZXOS answers a path that does not exist), and so is any symbolic link —
+links are not listed either, so a program is never offered a name it would then
+be refused.
 
 ## Things it will not do
 
@@ -125,6 +138,22 @@ wrong answer is worse than a clear refusal:
   fiction
 - `M_P3DOS`, which calls NextZXOS ROM routines directly, including raw sector
   reads. A directory has no sectors to give.
+- `F_CHMOD` of the hidden and system attributes, of the archive attribute
+  cleared, and of a directory's attributes: a host file or directory has no
+  such attribute for the next `F_STAT` or `F_READDIR` to show, so the call is
+  refused with `esx_enosys` instead of answering success and showing something
+  else. Setting or clearing the read-only bit works, and means the host write
+  permission
+- a name that ends in a space (a card keeps it, a host may strip it). A name
+  with `"`, `<`, `>` or `|` in it is refused with `esx_einval`, as on the card,
+  and so is a wildcard in a name that is being created
+- `F_RENAME` never replaces a file that is already there (`esx_eexist`), as on
+  the card
+
+A few answers differ in small ways from the card, on purpose: a renamed current
+directory shows its new name in `F_GETCWD`; `F_TRUNCATE` on a write-protected
+folder is refused (the card answers success and loses the write); and
+`F_OPEN` for writing on a write-protected folder is `esx_erdonly`.
 
 ## Writing, and rewind
 
@@ -134,7 +163,15 @@ it back — the emulator's timeline goes backwards, your filesystem does not.
 
 Reads are fully rewindable: an open file's position travels in the rewind
 snapshot and is restored with it, so rewinding and re-running re-reads exactly
-the same bytes.
+the same bytes. Deletions, renames, new and removed directories, truncations and
+read-only changes are writes too, and are not undone: a handle that a rewind
+finds pointing at a file that has since been deleted or renamed is closed, not
+reopened.
+
+Without `--esxdos-stub-writable` the folder answers like a write-protected
+card: every call that would change something is refused with `esx_edevicebusy`,
+after the checks that do not write (a missing name is still `esx_enoent`, an
+existing directory `esx_eexist`), and nothing on the host changes.
 
 ## Timestamps
 

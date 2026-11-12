@@ -78,7 +78,8 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - esxDOS answers for a directly loaded NEX: default drive, `run NAME.nex` chain-loading, in-memory file I/O, errors for other calls
 - `--esxdos-stub` gives the same esxDOS answers to programs loaded any other way
 - Host directory for a directly loaded program: `--esxdos-stub-root DIR`, or with `--esxdos-stub` the NEX's own directory by default, serves real host files through the esxDOS file and directory calls
-- `--esxdos-stub-writable` allows guest writes to that host directory (read-only by default)
+- `--esxdos-stub-writable` allows guest writes to that host directory (read-only by default): create, write, truncate, delete (wildcards), rename, make and remove directories, set the read-only bit, answered as NextZXOS 2.09 does (a kept probe NEX and its recording are the oracle)
+- `M_GETERR` gives the text of an esxDOS error code to a directly loaded NEX
 - The host directory is for NEX programs and dot commands only, not for a booted NextZXOS (user guide: Host files for a directly loaded program)
 - Warm start (Next only, the default for `--load` of a `.nex`): the program runs on a cached recording of a real firmware boot
 - `--warm-start-regenerate` forces a fresh warm-start recording after the card's firmware changes

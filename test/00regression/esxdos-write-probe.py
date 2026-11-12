@@ -12,6 +12,9 @@
 #                                                         diff a run against the recording
 #                                                         (exit 0: equal except declared divergences)
 #   esxdos-write-probe.py steps    --mode rw|ro           list the step table
+#   esxdos-write-probe.py compare --exact ...             no declared divergences (the NextZXOS re-measure)
+#   esxdos-write-probe.py verify   --recorded FILE        the NEX files match the recording's header sha256
+#   esxdos-write-probe.py tree     DIR                    a fingerprint of a directory tree
 #
 # Transcript line:  S<step hex4> F<carry> A<hex8 | **> [ extra ]
 #   `A**` : the A register is a handle number (NextZXOS and jnext number handles
@@ -869,10 +872,47 @@ DIVERGE = {
 }
 
 
+def tree(root):
+    """A fingerprint of a directory: every path with its type, size, write bits and sha256."""
+    import os
+    rows = []
+    for d, dirs, files in os.walk(root):
+        for n in dirs + files:
+            p = os.path.join(d, n)
+            st = os.lstat(p)
+            rel = os.path.relpath(p, root)
+            if os.path.isdir(p):
+                rows.append("%s/ D" % rel)
+            else:
+                h = hashlib.sha256(open(p, "rb").read()).hexdigest()
+                rows.append("%s F %d %o %s" % (rel, st.st_size, st.st_mode & 0o222, h))
+    return "\n".join(sorted(rows)) + "\n"
+
 def main():
     a = sys.argv[1:]
     cmd = a.pop(0)
-    mode = a[a.index("--mode") + 1]; i = a.index("--mode"); del a[i:i + 2]
+    if cmd == "tree":
+        sys.stdout.write(tree(a[0]))
+        return
+    mode = a[a.index("--mode") + 1] if "--mode" in a else None
+    if mode: i = a.index("--mode"); del a[i:i + 2]
+    exact = "--exact" in a
+    if exact: a.remove("--exact")
+    if cmd == "verify":
+        # the probe NEX files this generator writes are the ones the recording was made with
+        i = a.index("--recorded"); rec = a[i + 1]
+        want = {}
+        for ln in open(rec):
+            if ln.startswith("# probe NEX sha256 "):
+                h, n = ln.split()[-2:]
+                want[n] = h
+        bad = 0
+        for m, n in (("rw", "W457RW.NEX"), ("ro", "W457RO.NEX")):
+            have = hashlib.sha256(make_nex(m)[1]).hexdigest()
+            if want.get(n) != have:
+                print("%s: generated %s, recorded %s: re-measure the probe" % (n, have, want.get(n)))
+                bad += 1
+        sys.exit(1 if bad else 0)
     rec = None
     if "--recorded" in a:
         i = a.index("--recorded"); rec = a[i + 1]; del a[i:i + 2]
@@ -898,7 +938,7 @@ def main():
         for n, s in enumerate(g.steps):
             if s.hdr: continue
             if want.get(n) != got.get(n):
-                key = [k for k in DIVERGE if k == s.tag or k in s.desc]
+                key = [] if exact else [k for k in DIVERGE if k == s.tag or k in s.desc]
                 if key:
                     print("declared  S%04X %s: recorded '%s' jnext '%s' (%s)" % (n, s.desc, want.get(n), got.get(n), DIVERGE[key[0]]))
                 else:
