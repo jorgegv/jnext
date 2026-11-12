@@ -7,7 +7,7 @@
 //
 // Rows: janko's four scenarios (HBQ-60/63/64: ESP at boot, disabled and enabled by a cold boot
 // during the run; HBQ-65: the debugger window open) and the observers a client can still hold
-// (HBQ-61/62: a UART device that wants ticks, channel 0 and 1; HBQ-66..74: Execute and Mem
+// (HBQ-61/62: a UART device that wants ticks, channel 0 and 1; HBQ-66..75: Execute and Mem
 // subscriptions, run-to-cycle, a Cycle subscription, coverage).
 //
 // No ROM, no SD image: a bare Next with a program written straight into RAM.
@@ -590,6 +590,30 @@ int main() {
         const Pair p = run_pair(s);
         check("HBQ-74", "a legacy I/O watchpoint with a client attached: identical per frame, the HALT batch never engaged",
               p.diff.empty() && p.on.run.halt_batched == 0, detail_of(p));
+    }
+
+    // HBQ-75: a Mem subscription elsewhere (no per-kind gate of its own covers it before it latches):
+    // the batch stays off while it is live (D3: any live subscription refuses), engaged once it is
+    // disabled at frame 20 (a disabled subscription is not live and cannot fire).
+    {
+        Spec s = with_window("window-mem-subscription-elsewhere", 40);
+        s.watch_debug = false;
+        s.setup = [](Rig& r) {
+            install_calls(*r.emu);
+            attach_window(r);
+            jnext::dbg::Subscription w;
+            w.kind = jnext::dbg::EventKind::Mem;
+            w.filter.lo = w.filter.hi = 0x9000;
+            w.access = jnext::dbg::Access::ReadWrite;
+            w.action = jnext::dbg::Action::Stop;
+            r.id = r.dbg->subscribe(r.client, w).value;
+        };
+        s.before = [](Rig& r, int f) {
+            if (f == 20) r.dbg->set_enabled(r.client, r.id, false);
+        };
+        const Pair p = run_pair(s);
+        check("HBQ-75", "a Mem subscription elsewhere: identical per frame and the HALT batch refused while it is live, engaged once it is disabled at frame 20",
+              p.diff.empty() && p.on.counter[19] == 0 && grew(p, 20, 39), detail_of(p));
     }
 
     // HBQ-72: the window CLOSED with the user's breakpoints kept: a non-arming observer client (the Qt
