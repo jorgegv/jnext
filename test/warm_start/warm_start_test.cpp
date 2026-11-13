@@ -63,7 +63,7 @@
 //                 Command Line, statement)
 //   WSR-RDY-01..05, 17  the recipe drives on the machine's state: a slow welcome, 60 Hz,
 //                 a disabled welcome, a machine that never arrives, a custom menu
-//   WSR-CMT-01..06  the recipe waits (to frame 800) for the firmware's machine-type commit
+//   WSR-CMT-01..08  the recipe waits (to frame 800) for the firmware's machine-type commit
 //                 before it looks at the machine: a loading machine gets no checkpoint and no
 //                 key, the give-up is counted from the checkpoint, 60 Hz, the boundary
 //   WSR-RCP-01..04  the recording recipe tick (GH #481): SPACE only over a
@@ -1265,6 +1265,30 @@ int main()
         }
     }
 
+    {   // the refusal line at the commit deadline names the wait, in emulated time
+        auto never = [&](bool hz60) {
+            Emulator e;
+            make_next(e);
+            e.mmu().set_boot_rom_enabled(false);
+            e.nextreg().apply_nr_03_config_mode_transition(7);
+            const uint32_t step = Emulator::warm_start_frame_units(hz60);
+            for (uint32_t u = 2400 - step; u < 5000; u += step) Emulator::warm_start_recipe_tick(e, u, u + step);
+            return e.warm_start_refusal_message(800, "why");
+        };
+        Emulator plain;
+        make_next(plain);
+        const std::string m50 = never(false);
+        const std::string none = plain.warm_start_refusal_message(400, "why");
+        check("WSR-CMT-08",
+              "when the recipe gave up waiting for the commit the refusal line says the "
+              "recorder waited from frame 400 (50 Hz) and no clause appears otherwise",
+              m50 == "warm start: after 800 frames of boot, why (the recorder waited from "
+                     "frame 400 for the firmware to commit one). Not recording; this load "
+                     "falls back to the synthetic machine." &&
+                  none.find("waited") == std::string::npos,
+              m50 + " | " + none);
+    }
+
     // ── GH #481 follow-up: the recipe drives on the machine's state ──
     {
         auto K = [](int r, int c) { return r * 8 + c; };
@@ -1669,6 +1693,12 @@ int main()
                   tap.count("could not be brought to its Command Line") == 0,
               det("at-400=%d capture-criterion=%d", tap.count("after 400 frames of boot"),
                   tap.count("could not be brought to its Command Line")));
+
+        check("WSR-CMT-07",
+              "the zero card's frame-400 refusal (overlay still active, nothing was "
+              "waited for) carries no 'the recorder waited' clause",
+              tap.count("waited from frame") == 0 && tap.count("after 400 frames of boot") == 1,
+              det("clause=%d", tap.count("waited from frame")));
 
         // The per-IMAGE failure latch, which is the opposite of WSR-RES-05's
         // claim and deliberately so: "no SD image" is not a verdict about a

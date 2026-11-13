@@ -445,6 +445,11 @@ public:
     /// waiting: stop stepping and run warm_start_capture_ready().
     bool warm_start_recipe_done() const { return ws_recipe_.phase == WsPhase::kDone || ws_recipe_.phase == WsPhase::kGaveUp; }
 
+    /// The error line the recorder logs when the checkpoint's residency check
+    /// refuses. When the checkpoint was the commit deadline (the recipe gave up in
+    /// kCommit) the line says the recorder had waited from T0 for the firmware.
+    std::string warm_start_refusal_message(uint32_t frames, const std::string& why) const;
+
     /// What the recipe was last waiting for, for a refusal message.
     std::string warm_start_recipe_waiting_for() const;
 

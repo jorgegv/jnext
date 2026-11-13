@@ -7745,8 +7745,8 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
 
     // The commit wait. Before T0 nothing is looked at. From T0 the recipe stays in
     // kCommit while the firmware is loading (overlay off, config mode still set:
-    // zxnext.vhd, any NR 0x03 write clears the overlay and a value in 1..4 clears
-    // config mode), up to T0 + one per-state budget. The first frame that is not
+    // zxnext.vhd:5681-5711, any NR 0x03 write clears the overlay and any value in
+    // bits 2:0 other than 000 and 111 clears config mode), up to T0 + one per-state budget. The first frame that is not
     // loading, or the deadline, is the checkpoint, reported once. `calm` is NOT
     // reset here: it has been counting through the wait, as it counted from T0 on.
     bool checkpoint = false;
@@ -7839,6 +7839,21 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
         r.phase = WsPhase::kGaveUp;
     }
     return checkpoint;
+}
+
+std::string Emulator::warm_start_refusal_message(uint32_t frames, const std::string& why) const
+{
+    // At the commit deadline the recorder had been waiting since T0 (frame 400 at
+    // 50 Hz, 480 at 60 Hz: T0 is emulated time): say so.
+    std::string waited;
+    if (ws_recipe_.phase == WsPhase::kGaveUp && ws_recipe_.stuck == WsPhase::kCommit) {
+        const uint32_t per = video_timing().refresh_60hz() ? kWarmStartUnitsPer60HzFrame
+                                                           : kWarmStartUnitsPer50HzFrame;
+        waited = fmt::format(" (the recorder waited from frame {} for the firmware to commit one)",
+                             kWarmStartT0Units / per);
+    }
+    return fmt::format("warm start: after {} frames of boot, {}{}. Not recording; this load "
+                       "falls back to the synthetic machine.", frames, why, waited);
 }
 
 std::string Emulator::warm_start_recipe_waiting_for() const
@@ -7995,15 +8010,7 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
         units += warm_start_frame_units(rec->video_timing().refresh_60hz());
         if (warm_start_recipe_tick(*rec, before, units) &&
             !rec->nextzxos_resident(why)) {
-            // At the commit deadline the recorder had been waiting since T0: say so.
-            Log::emulator()->error(
-                "warm start: after {} frames of boot, {}{}. Not recording; this load "
-                "falls back to the synthetic machine.",
-                frames, why,
-                rec->warm_start_recipe_done()
-                    ? fmt::format(" (the recorder waited from frame {} for the firmware to commit one)",
-                                  kWarmStartT0Units / kWarmStartUnitsPer50HzFrame)
-                    : std::string());
+            Log::emulator()->error("{}", rec->warm_start_refusal_message(frames, why));
             return false;
         }
     }
