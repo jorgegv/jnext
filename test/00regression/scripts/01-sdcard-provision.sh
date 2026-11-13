@@ -136,7 +136,7 @@ sd_derive_as() {
     sd_rederive || rc=$?
     case $rc in 0) sd_state=$1 ;; 2) sd_state=wrongrecipe ;; *) sd_state=failed ;; esac
 }
-# sd_seam_raw_ok — 0 when the seam dir holds the raw distribution image and its sidecar
+# sd_seam_raw_ok: 0 when the seam dir holds the raw distribution image and its sidecar
 # names that image's sha256 (what jnext itself checks before it reuses a raw).
 sd_seam_raw_ok() {
     local raw="$SD_DIR/cspect-next-1gb.img" side="$SD_DIR/cspect-next-1gb.img.sha256" want
