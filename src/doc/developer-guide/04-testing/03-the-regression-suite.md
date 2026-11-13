@@ -114,6 +114,11 @@ seconds. `test-functions.inc` has the helper:
 - `bf_keys <frame key>...` fills `BF_KEYS` with `--delayed-keypress-frames`
   arguments; `bf_jds <template> <out>` expands `{{bf N}}` and `{{bf N K}}` in a
   script template and refuses an output that keeps a `{{`.
+- `menu_index <image> <mode> <rom>` is not a timing helper but belongs with them: the
+  `config.ini` `default=` value of the card's own menu line with that mode and ROM, counted
+  as the firmware counts (it reads `menu.ini`, else `menu.def`, and counts only `menu=` lines
+  with a ROM field). A distribution may insert menu lines, so the machine-personality rows ask
+  the card instead of carrying a number; it fails when the key matches no line or more than one.
 - A screenshot row in `regression_tests.conf` writes `@bf:N` (or `@bf:N:K`) in its
   frame field or among its extra arguments.
 

@@ -77,11 +77,8 @@ public:
             border_per_line_.fill(0);
         // The flash counter has no reset: zxula.vhd:474-480 only ever
         // increments flash_cnt, once a frame, and the zxula entity has no
-        // reset input at all. A soft reset leaves the flash phase running.
-        if (hard) {
-            flash_counter_ = 0;
-            flash_phase_ = false;
-        }
+        // reset input at all, so neither a soft nor a hard reset touches the
+        // flash phase: it runs on from power-on (see flash_counter_ below).
         screen_mode_reg_ = 0;
         mode_ = TimexScreenMode::STANDARD;
 
@@ -817,6 +814,13 @@ public:
     /// Advance flash state (call once per frame after all scanlines rendered).
     void advance_flash();
 
+    /// flash_cnt(4:0) as (flash_cnt(3:0), flash_cnt(4)). A hard reset reconstructs the whole
+    /// machine, but the FPGA's flash counter has no reset (zxula.vhd:472-480), so the cold-boot
+    /// path carries it across with these two.
+    int  flash_counter() const { return flash_counter_; }
+    bool flash_phase() const { return flash_phase_; }
+    void set_flash(int counter, bool phase) { flash_counter_ = counter; flash_phase_ = phase; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -844,8 +848,13 @@ private:
     uint8_t          clip_y2_        = 191;
     uint8_t          border_colour_   = 7;     ///< ZX colour index 0–7 (white = 7)
     std::array<uint8_t, FB_HEIGHT> border_per_line_; ///< Per-scanline border colour snapshots
-    int              flash_counter_   = 0;     ///< Incremented once per frame
-    bool             flash_phase_     = false; ///< Toggles every 16 frames
+    /// flash_cnt(3:0), flash_cnt(4) = flash_phase_. flash_cnt increments at the START of a
+    /// frame's display (hc_ula = vc_ula = 0, zxula.vhd:472-480), and the first of those is
+    /// in frame 0 (the timing counters power up at raw (0,0), zxula_timing.vhd:111-125), so
+    /// frame F displays count F + 1: the counter starts at 1 and advance_flash() runs after
+    /// each frame. flash_cnt(4) is then 1 for frames 15-30, 47-62, ...
+    int              flash_counter_   = 1;     ///< flash_cnt(3:0): incremented once per frame
+    bool             flash_phase_     = false; ///< flash_cnt(4): toggles every 16 frames
     uint8_t          screen_mode_reg_ = 0;     ///< Raw value last written to port 0xFF
     TimexScreenMode  mode_            = TimexScreenMode::STANDARD;
 

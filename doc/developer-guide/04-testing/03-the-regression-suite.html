@@ -3158,6 +3158,11 @@ seconds. <code>test-functions.inc</code> has the helper:</p>
 <li><code>bf_keys &lt;frame key&gt;...</code> fills <code>BF_KEYS</code> with <code>--delayed-keypress-frames</code>
   arguments; <code>bf_jds &lt;template&gt; &lt;out&gt;</code> expands <code>{{bf N}}</code> and <code>{{bf N K}}</code> in a
   script template and refuses an output that keeps a <code>{{</code>.</li>
+<li><code>menu_index &lt;image&gt; &lt;mode&gt; &lt;rom&gt;</code> is not a timing helper but belongs with them: the
+  <code>config.ini</code> <code>default=</code> value of the card's own menu line with that mode and ROM, counted
+  as the firmware counts (it reads <code>menu.ini</code>, else <code>menu.def</code>, and counts only <code>menu=</code> lines
+  with a ROM field). A distribution may insert menu lines, so the machine-personality rows ask
+  the card instead of carrying a number; it fails when the key matches no line or more than one.</li>
 <li>A screenshot row in <code>regression_tests.conf</code> writes <code>@bf:N</code> (or <code>@bf:N:K</code>) in its
   frame field or among its extra arguments.</li>
 </ul>
