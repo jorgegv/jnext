@@ -72,6 +72,22 @@ survive 46 tags unnoticed. It now runs as its own parallel CI job,
 and its hermetic half, `package-contract-test`, is a prerequisite of
 `make unit-test`.
 
+## Licence texts
+
+Every package carries a `licenses/` folder with the licence of the third-party
+code compiled into jnext. The list is one file, `packaging/licenses.list`
+(shipped name, source file); a new vendored library under `third_party/` needs
+a line there and a stanza in `packaging/debian/copyright`, and the contract row
+`licenses` of `make package-contract-test` fails until both exist. CMake
+installs the list under `share/doc/jnext/licenses` (rpm, deb, tarball, Flatpak)
+and at the root of the macOS image; the Ubuntu deb that links a vendored SDL3
+adds its licence (`sdl3.txt`). The Windows zips get the folder from
+`packaging/windows/bundle-dlls.sh`, which also copies the licence files of the
+Fedora package that owns each bundled DLL into `licenses/bundled/<package>/`
+(a package with none uses `packaging/windows/license-fallbacks/`) and refuses
+to bundle when a DLL has no licence at all. The Homebrew libraries that
+macdeployqt copies into the macOS bundle are not covered by this folder.
+
 ## `version.yaml` is the single source of truth
 
 No other file carries a copy of the version: everything that needs it reads

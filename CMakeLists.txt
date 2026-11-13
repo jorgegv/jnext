@@ -652,6 +652,23 @@ jnext_apply_pgo(jnext)
 # `make gui-release` / `make unit-test` / plain `cmake --build`.
 include(GNUInstallDirs)
 
+# Licence texts of the third-party code in every binary (packaging/licenses.list),
+# installed under <dest>/licenses by every package layout; the vendored SDL3 of
+# the Ubuntu .deb adds its own (build-sdl3.sh puts it in the prefix).
+function(jnext_install_licenses dest)
+    file(STRINGS "${CMAKE_SOURCE_DIR}/packaging/licenses.list" _lic REGEX "^[^#].*\\|")
+    foreach(_e IN LISTS _lic)
+        string(REPLACE "|" ";" _p "${_e}")
+        list(GET _p 0 _name)
+        list(GET _p 1 _src)
+        install(FILES "${CMAKE_SOURCE_DIR}/${_src}" DESTINATION "${dest}/licenses" RENAME "${_name}")
+    endforeach()
+    if(JNEXT_SDL3_VENDORED)
+        install(FILES "${CMAKE_PREFIX_PATH}/share/licenses/SDL3-LICENSE.txt"
+            DESTINATION "${dest}/licenses" RENAME sdl3.txt)
+    endif()
+endfunction()
+
 # macdeployqt lives next to qmake in the Qt installation, which is not on PATH
 # for a Homebrew qt@6. Resolve it from the imported Qt6::qmake target so the
 # lookup follows CMAKE_PREFIX_PATH rather than a hard-coded brew path.
@@ -684,6 +701,7 @@ if(APPLE AND MACOS_APP_BUNDLE)
 # Info.plist and Contents/Resources/jnext.icns do that job) and are not shipped.
 install(TARGETS jnext BUNDLE DESTINATION .)
 install(FILES LICENSE README.md ChangeLog USAGE.md DESTINATION .)
+jnext_install_licenses(.)
 install(DIRECTORY doc/user-guide DESTINATION .)
 
 # Deploy the dependency closure INTO the bundle and prove it worked.
@@ -809,6 +827,7 @@ endif()
 
 install(FILES LICENSE README.md ChangeLog USAGE.md
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
+jnext_install_licenses(${CMAKE_INSTALL_DOCDIR})
 
 # The 48K ROM symbol map: load it with Map > Load MAP File > Simple Format.
 install(FILES data/48rom.map

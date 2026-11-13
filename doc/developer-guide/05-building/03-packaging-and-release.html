@@ -2030,6 +2030,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#licence-texts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Licence texts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#versionyaml-is-the-single-source-of-truth" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3057,6 +3068,20 @@ actually invoked it, which is how a permanently-failing packaging row managed to
 survive 46 tags unnoticed. It now runs as its own parallel CI job,
 and its hermetic half, <code>package-contract-test</code>, is a prerequisite of
 <code>make unit-test</code>.</p>
+<h2 id="licence-texts">Licence texts<a class="headerlink" href="#licence-texts" title="Permanent link">&para;</a></h2>
+<p>Every package carries a <code>licenses/</code> folder with the licence of the third-party
+code compiled into jnext. The list is one file, <code>packaging/licenses.list</code>
+(shipped name, source file); a new vendored library under <code>third_party/</code> needs
+a line there and a stanza in <code>packaging/debian/copyright</code>, and the contract row
+<code>licenses</code> of <code>make package-contract-test</code> fails until both exist. CMake
+installs the list under <code>share/doc/jnext/licenses</code> (rpm, deb, tarball, Flatpak)
+and at the root of the macOS image; the Ubuntu deb that links a vendored SDL3
+adds its licence (<code>sdl3.txt</code>). The Windows zips get the folder from
+<code>packaging/windows/bundle-dlls.sh</code>, which also copies the licence files of the
+Fedora package that owns each bundled DLL into <code>licenses/bundled/&lt;package&gt;/</code>
+(a package with none uses <code>packaging/windows/license-fallbacks/</code>) and refuses
+to bundle when a DLL has no licence at all. The Homebrew libraries that
+macdeployqt copies into the macOS bundle are not covered by this folder.</p>
 <h2 id="versionyaml-is-the-single-source-of-truth"><code>version.yaml</code> is the single source of truth<a class="headerlink" href="#versionyaml-is-the-single-source-of-truth" title="Permanent link">&para;</a></h2>
 <p>No other file carries a copy of the version: everything that needs it reads
 <code>version.yaml</code> when it is built.</p>

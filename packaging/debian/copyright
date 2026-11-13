@@ -10,6 +10,10 @@ Files: third_party/fuse-z80/*
 Copyright: The FUSE development team
 License: GPL-2
 
+Files: SDL3 (vendored static build in the Ubuntu 24.04 package only)
+Copyright: Sam Lantinga and SDL contributors
+License: Zlib
+
 Files: third_party/spdlog/*
 Copyright: Gabi Melman and spdlog contributors
 License: MIT
@@ -18,6 +22,19 @@ Files: third_party/zot/*
 Copyright: Salvatore Sanfilippo
 License: MIT
 
+Files: third_party/crtemu/*
+Copyright: 2016 Mattias Gustavsson
+License: MIT
+Comment: dual licensed MIT or Unlicense (public domain); taken here under the MIT terms.
+
+Files: third_party/nlohmann-json/*
+Copyright: 2013-2022 Niels Lohmann
+License: MIT
+
+Files: third_party/fatfs/*
+Copyright: 2025 ChaN
+License: FatFs
+
 License: GPL-3
  On Debian systems, the complete text of the GNU General Public License
  version 3 can be found in "/usr/share/common-licenses/GPL-3".
@@ -25,6 +42,23 @@ License: GPL-3
 License: GPL-2
  On Debian systems, the complete text of the GNU General Public License
  version 2 can be found in "/usr/share/common-licenses/GPL-2".
+
+License: Zlib
+ This software is provided 'as-is', without any express or implied
+ warranty.  In no event will the authors be held liable for any damages
+ arising from the use of this software.
+ .
+ Permission is granted to anyone to use this software for any purpose,
+ including commercial applications, and to alter it and redistribute it
+ freely, subject to the following restrictions:
+ .
+ 1. The origin of this software must not be misrepresented; you must not
+    claim that you wrote the original software. If you use this software
+    in a product, an acknowledgment in the product documentation would be
+    appreciated but is not required.
+ 2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+ 3. This notice may not be removed or altered from any source distribution.
 
 License: MIT
  Permission is hereby granted, free of charge, to any person obtaining a
@@ -36,3 +70,16 @@ License: MIT
  the following conditions: the above copyright notice and this
  permission notice shall be included in all copies or substantial
  portions of the Software.
+
+License: FatFs
+ FatFs module is an open source software. Redistribution and use of FatFs in
+ source and binary forms, with or without modification, are permitted provided
+ that the following condition is met:
+ .
+ 1. Redistributions of source code must retain the above copyright notice,
+    this condition and the following disclaimer.
+ .
+ This software is provided by the copyright holder and contributors "AS IS"
+ and any warranties related to this software are DISCLAIMED.
+ The copyright owner or contributors be NOT LIABLE for any damages caused
+ by use of this software.
