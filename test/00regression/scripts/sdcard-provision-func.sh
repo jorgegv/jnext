@@ -58,7 +58,8 @@ STUB
     # how many times the stub was called.
     run_row() {
         : > "$W/calls"
-        HOME="$1" JNEXT="$W/bin/jnext-stub" bash "$ROW" >"$W/out" 2>&1 || true
+        # The candidate-card seam is emptied: the row's master is the scratch HOME's.
+        JNEXT_REGRESSION_SD_STATE_DIR="" HOME="$1" JNEXT="$W/bin/jnext-stub" bash "$ROW" >"$W/out" 2>&1 || true
         wc -l < "$W/calls" | tr -d ' '
     }
 

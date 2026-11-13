@@ -18,6 +18,10 @@ set -uo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HARNESS="$PROJECT_DIR/test/run-unit-tests.sh"
 export LC_ALL=C
+# The candidate-card seams belong to the run that sets them (HS-171 sets them itself):
+# inherited from the regression run that executes this self-test, they would turn
+# every nested regression.sh below into a refusal or a run on another card.
+unset JNEXT_REGRESSION_SD_STATE_DIR JNEXT_REGRESSION_SHOTS_DIR
 
 pass=0; fail=0; total=0
 
