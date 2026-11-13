@@ -308,9 +308,15 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     // appends to it.
     boot_cfg.tape_save_file = emu.config().tape_save_file;
 
+    // The ULA's flash counter has no reset in the FPGA (zxula.vhd:472-480): the new machine
+    // carries the old one's flash phase on, as a reset button does not restart it.
+    const int  saved_flash_counter = emu.ula().flash_counter();
+    const bool saved_flash_phase   = emu.ula().flash_phase();
+
     emu.~Emulator();
     new (&emu) Emulator();
     emu.init(boot_cfg);
+    emu.ula().set_flash(saved_flash_counter, saved_flash_phase);
 
     // ── GH #276 B3: THE BACKEND'S SHARE OF THIS RECONSTRUCT ─────────────────
     //
