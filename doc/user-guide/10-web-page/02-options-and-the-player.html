@@ -4314,6 +4314,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Keyboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phones-and-tablets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phones and tablets
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -4468,6 +4485,11 @@
 <td><code>--machine</code>.</td>
 </tr>
 <tr>
+<td><code>touchKeyboard</code></td>
+<td><code>'auto'</code>, <code>'on'</code> or <code>'off'</code></td>
+<td><code>--touch-keyboard</code>: the on-screen keyboard. <code>'auto'</code> (default) shows it on a phone or tablet, <code>'on'</code> always, <code>'off'</code> never. See "Keyboard", below.</td>
+</tr>
+<tr>
 <td><code>muted</code></td>
 <td>boolean</td>
 <td><code>--set startup.silent</code>: no audio device for the session.</td>
@@ -4550,6 +4572,14 @@
 <td>Forget the writes kept by <code>keepWrites</code> and restart the program, as <code>reset('program')</code> does. Needs <code>keepWrites</code> (it rejects without it). Resolves when the program is in the machine again.</td>
 </tr>
 <tr>
+<td><code>showKeyboard(on)</code></td>
+<td>Show (<code>true</code>) or hide (<code>false</code>) the on-screen keyboard, whatever <code>touchKeyboard</code> says: the page's call wins, before or after the start. Anything but a boolean throws a <code>TypeError</code>.</td>
+</tr>
+<tr>
+<td><code>keyboardVisible</code></td>
+<td>Whether the on-screen keyboard is shown now.</td>
+</tr>
+<tr>
 <td><code>destroy()</code></td>
 <td>Stop the machine and remove the player; with <code>keepWrites</code> it first waits until the writes are stored. Afterwards every method throws.</td>
 </tr>
@@ -4566,6 +4596,25 @@ loaded.</p>
 <p>The player takes the keys while its canvas has focus (the click focuses it). The
 host modifier for JNEXT's own shortcuts is Alt (Option on a Mac); Ctrl+W, Ctrl+T,
 Ctrl+N and Ctrl+Q belong to the browser.</p>
+<h3 id="phones-and-tablets">Phones and tablets<a class="headerlink" href="#phones-and-tablets" title="Permanent link">&para;</a></h3>
+<p>On a device whose main pointer is a finger (<code>touchKeyboard: 'auto'</code>, the default) the player
+shows an on-screen Spectrum Next keyboard at the bottom of its box, and the screen above it
+shrinks by the keyboard's height; <code>'on'</code> shows it everywhere, <code>'off'</code> nowhere, and
+<code>player.showKeyboard(true)</code> or <code>false</code> decides while the page runs. Its keys type exactly what
+the keys of a PC keyboard do, and the screen keeps the focus while you type.</p>
+<ul>
+<li>A key goes down when a finger lands on it and up when the finger lifts, so a held key is held;
+  two fingers hold two keys, for chords and for games.</li>
+<li>Below 504 CSS pixels of width it shows the 40 keys of a 48K keyboard, in four rows; every
+  other key of the Next is Caps Shift or Symbol Shift plus a key, as on a 48K. From 504 pixels
+  on (a tablet, or a phone turned sideways) it shows the Next's 58 keys, in five rows, with
+  the extra keys: Delete, Edit, Break, Graph, Extend, True and Inverse video, Caps Lock, the
+  cursor keys, and the semicolon, quote, period and comma.</li>
+<li>Caps Shift and Symbol Shift latch. A quick tap (under half a second, with no other key
+  pressed meanwhile) leaves the shift waiting, drawn highlighted, and the next key is typed with
+  it; tapping the waiting shift cancels it. A shift held longer, or held while another key goes
+  down, is an ordinary hold (Symbol Shift as a fire button works).</li>
+</ul>
 
 
 

@@ -128,6 +128,7 @@ enum class OptId {
     Joy1Device,
     Joy2Device,
     MouseRelease,
+    TouchKeyboard,
     JoyUartRx,
     JoyUartRxDelayFrames,
     JoyUartConnector,
@@ -387,6 +388,11 @@ inline constexpr Option OPTIONS[] = {
       "Alt+Cmd in the Qt GUI on macOS), 'middle-click' or 'esc'.\n"
       "The middle click or Esc is not passed to the program.\n"
       "Wins over the saved GUI preference for this run" },
+    { "--touch-keyboard", 1, Doc::Documented, OptId::TouchKeyboard,
+      "MODE",
+      "Browser page: the on-screen Spectrum keyboard. 'auto'\n"
+      "(default): shown on a phone or tablet; 'on': always;\n"
+      "'off': never. No effect outside a browser page" },
     // GH #251 — a serial cable in a joystick socket, whose bytes reach the guest
     // through the NR 0x0B I/O-mode mux rather than either UART header. It exists
     // because nothing on the command line could put a byte on that pin, so a
@@ -1015,6 +1021,17 @@ inline const Option* find(const char* name) {
         if (std::strcmp(o.name, name) == 0) return &o;
     }
     return nullptr;
+}
+
+// --touch-keyboard (browser page only): when the on-screen keyboard is shown. The page reads the
+// numbers (jnext_web_touch_keyboard), so they are fixed: 0 auto, 1 on, 2 off.
+enum class TouchKeyboard : int { Auto = 0, On = 1, Off = 2 };
+inline bool parse_touch_keyboard(const char* s, TouchKeyboard& out) {
+    if (!s) return false;
+    if (std::strcmp(s, "auto") == 0) { out = TouchKeyboard::Auto; return true; }
+    if (std::strcmp(s, "on") == 0)   { out = TouchKeyboard::On;   return true; }
+    if (std::strcmp(s, "off") == 0)  { out = TouchKeyboard::Off;  return true; }
+    return false;
 }
 
 // Why a spelling is refused by the BROWSER (WebAssembly) build, or nullptr when

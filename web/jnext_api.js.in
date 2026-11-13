@@ -140,6 +140,7 @@
     box.appendChild(canvas);
     box.appendChild(overlay);
     container.appendChild(box);
+    var kb = JnextTouchKeyboard.create(box, canvas);   // builds nothing until the keyboard is shown
 
     // ---- state ----
     var state = 'waiting';
@@ -177,6 +178,7 @@
         startedSeen = true;
         state = 'running';
         if (volume !== null) mod._jnext_web_set_volume(volume);
+        kb.started(mod._jnext_web_touch_keyboard());
       } else if (type === 'ready') {
         readyDone = true;
         readyResolve();
@@ -254,6 +256,7 @@
     }
     function onPageHide() { persistCardWrites(); }
 
+    Object.defineProperty(player, 'keyboardVisible', { get: function () { return kb.visible; }, enumerable: true });
     Object.defineProperty(player, '_module', { get: function () { return mod; }, enumerable: false });
 
     player.pause = function () {
@@ -267,6 +270,12 @@
       if (state !== 'paused') return;
       mod._jnext_web_resume();
       state = 'running';
+    };
+    // The on-screen keyboard, shown or hidden by the page: that wins over --touch-keyboard.
+    player.showKeyboard = function (on) {
+      live();
+      if (typeof on !== 'boolean') throw new TypeError('jnext: showKeyboard() takes a boolean');
+      kb.show(on, true);
     };
     player.reset = function (kind) {
       live();
@@ -324,6 +333,7 @@
       live();
       var wasUp = machineUp();
       var finish = function () {
+        kb.destroy();
         // SDL closes its AudioContext only with the playback device, and the loop's exit leaves it
         // running: close it here, after the machine has exited, so a destroyed player holds no audio.
         var ac = mod && mod.SDL3 && mod.SDL3.audioContext;
@@ -346,6 +356,7 @@
 
     // ---- the module, the image, the program ----
     function failMount(e) {
+      kb.destroy();
       if (box.parentNode) box.parentNode.removeChild(box);
       state = 'destroyed';
       throw fail(e && e.message ? e.message : String(e));

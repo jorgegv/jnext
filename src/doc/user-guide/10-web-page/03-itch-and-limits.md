@@ -44,6 +44,8 @@ Game controllers are page-wide: give the other players
   card is no longer the one the recording was made on), which takes as long as a first visit's
   `warm-start` step; a visit that follows one that saved nothing is restored as usual.
 - Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q and the operating system's own keys never reach the page.
+- The on-screen keyboard (10.2) is tested under a browser's touch-device emulation, not on real
+  phones or tablets, and the emulation speed on a phone has not been measured.
 
 ## How fast it runs
 

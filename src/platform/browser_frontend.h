@@ -19,4 +19,8 @@ void prepare();
 /// Module.onExit.
 void run(SdlApp& app, std::function<int()> finish);
 
+/// --touch-keyboard: 0 auto, 1 on, 2 off (cli::TouchKeyboard). The last call wins; the page reads
+/// it back through jnext_web_touch_keyboard().
+void set_touch_keyboard(int mode);
+
 }  // namespace browser_frontend

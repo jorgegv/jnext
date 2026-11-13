@@ -97,14 +97,14 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Host key minimum-hold latch |      182 |      182 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SdlApp tick (frame loop) |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Browser frame gate and refusals |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Browser JavaScript API |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Browser JavaScript API |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL Pointer Release (GH #365) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL window title (version) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SIGINT/SIGTERM quit request |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CLI options / docs    |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CLI options (real binary) |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options / docs    |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options (real binary) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | jnext.conf key table (GH #417) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (child process) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -209,6 +209,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      271 |      271 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16155**| **16155**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16159**| **16159**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
