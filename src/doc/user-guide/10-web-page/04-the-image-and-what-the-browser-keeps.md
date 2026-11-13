@@ -113,7 +113,8 @@ their status line.
 | `Failed to fetch` | The browser's own text (Chromium's is shown; Firefox words it differently) for a program file it could not read: the program is on another site whose server does not send `Access-Control-Allow-Origin` (make it send the header, or give `{data, name}` to avoid the network), or its server cannot be reached. |
 | `SHA-256 mismatch for <url>: got ..., expected ...` | The file served is not the one the digest names. Recompute the digest with `sha256sum`. |
 | `the SD-card image needs a secure context (https, or http://localhost): ...` | The page is not served over `https://`, `http://localhost` or `http://127.0.0.1`. |
-| `--load <file>: a browser page loads only .nex, .tap, .tzx programs` | The program has another extension. |
+| `--load <file>: a browser page loads only .nex, .tap, .tzx, .jns, .sna, .szx, .z80 programs` | The program has another extension. |
+| `failed to load '<file>'`, and in the console `the mounted SD card is not the one the snapshot was taken on` | A `.jns` was taken on another SD card. Mount the card it was taken on, or pass `args: ['--snapshot-mode', 'force']`. |
 | `--rzx-play: RZX is not available in a browser page` | RZX files cannot be played in a page (`--rzx-record` is refused the same way). |
 | `<flag>: not available in the browser build (...)` or `<flag>: not available in a browser page (...)` | An option that needs a process, a socket or a terminal was given. The reason is in the brackets, and the list is in the man page ("Not available in the browser"). |
 | `<file> is not a jnext SD-writes file; not touching it` | The stored record's header is damaged, or in a format this version does not read; `--sdcard-writes-reset` does not remove it. Clear the site's data, or delete the record from the `jnext-card-writes` database. (A record with a valid header whose saved-file entry is inconsistent is refused the same way, but `--sdcard-writes-reset` does discard it.) |

@@ -3077,8 +3077,8 @@ the output of <code>git grep -n EMSCRIPTEN</code> over the CMake files.</p>
 </tr>
 <tr>
 <td><code>src/platform/CMakeLists.txt</code></td>
-<td><code>if(NOT EMSCRIPTEN)</code> (twice)</td>
-<td><code>jnext_platform</code> does not link <code>jnext_remote</code> or <code>jnext_script</code>; and the sources <code>browser_crt.cpp</code> and <code>crtemu_browser_impl.cpp</code> (the CRT effect) are left out of every other build.</td>
+<td><code>if(NOT EMSCRIPTEN)</code></td>
+<td><code>jnext_platform</code> does not link <code>jnext_remote</code> or <code>jnext_script</code>.</td>
 </tr>
 <tr>
 <td><code>src/esp01/CMakeLists.txt</code></td>
@@ -3109,10 +3109,8 @@ the output of <code>git grep -n EMSCRIPTEN</code> over the CMake files.</p>
   when the browser ends the pointer lock itself; <code>take_audio_fill_stats()</code>, the bench's
   audio fill-events seam.</li>
 <li><code>src/platform/headless_app.cpp</code> and <code>headless_app.h</code>: no script host.</li>
-<li><code>src/platform/sdl_display.cpp</code> and <code>sdl_display.h</code>: the canvas is created as an OpenGL window and the
-  page owns its size (window scale does nothing); <code>set_crt()</code> and the CRT draw (below).</li>
-<li><code>src/platform/browser_crt.cpp</code>, <code>browser_crt.h</code> and <code>crtemu_browser_impl.cpp</code>: the CRT
-  effect, whole files.</li>
+<li><code>src/platform/sdl_display.cpp</code>: the canvas is created as an OpenGL window and the
+  page owns its size (window scale does nothing).</li>
 <li><code>src/platform/debug_servers.cpp</code> and <code>debug_servers.h</code>: no protocol servers (the three servers are neither declared nor started).</li>
 <li><code>src/core/nextpi_provisioner.cpp</code>: compiled out.</li>
 <li><code>src/core/video_recorder.cpp</code>: no process to run ffmpeg, so the call fails as a
@@ -3160,8 +3158,8 @@ runs <code>web_api::build_argv</code> over the <code>web_api::WEB_OPTIONS</code>
 the man page's browser section is diffed against the table and the refusal
 functions by <code>web_api_test</code> (run by <code>make cli-check</code>). The controller
 (<code>web_controller.cpp</code>, a source of <code>jnext_web</code> only) holds the exported calls
-(<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_set_volume</code>,
-<code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
+(<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_save_snapshot</code>,
+<code>jnext_web_set_volume</code>, <code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
 the page when the program is in the machine and a frame has followed (the <code>ready</code>
 event, <code>Module.jnextEvent</code>). <code>jnext_web_load_applied</code>, <code>jnext_web_gain_db</code>,
 <code>jnext_web_frame_period_ms</code> and <code>jnext_web_cpu_mhz</code> (the frame period and the
@@ -3218,6 +3216,13 @@ working silently. Browsers will not resume it without a gesture on the page:
 start the module from a click. Mouse capture is the pointer lock; when the
 browser ends the lock itself (Escape) jnext's capture is released too. A pad
 appears after its first button press (browser policy).</p>
+<p><em>Snapshots.</em> A snapshot rides the desktop's own load path: <code>program_refusal()</code> is the only gate, and
+<code>jnext_web_load</code> hands the file to <code>SdlApp::cold_boot</code>, which boots the machine the snapshot names
+(and keeps it for later resets, as the desktop frontends do). It never touches the warm start: that is
+a NEX-only route (<code>emulator_load_routes_to_nex</code> gates the tick's recording, and <code>load_sna</code>, <code>load_szx</code>,
+<code>load_z80</code> and <code>load_jns_file</code> build or restore the whole machine on their own). <code>saveSnapshot()</code> calls
+<code>jnext_web_save_snapshot</code>, which writes a <code>.jns</code> with <code>Emulator::save_jns_file</code> to a scratch file of the
+in-memory file system; the JavaScript reads it back and deletes it.</p>
 <p><em>The touch keyboard.</em> <code>web/jnext-touch-keyboard.js</code> (<code>JnextTouchKeyboard.create</code>) builds the
 on-screen keyboard inside the player's box the first time it is shown, with inline styles only
 (no stylesheet is added to the page). A touch key is a synthetic DOM <code>KeyboardEvent</code>, with only
@@ -3241,7 +3246,7 @@ canvas shrinks by its height (<code>FULL_MIN_WIDTH</code> chooses the layout; a 
 follows the page), then a window <code>resize</code> event makes SDL resize its drawing buffer.</p>
 <p><em>Refused and absent.</em> The build's own flag and <code>--set</code> key refusals apply, and
 the page also refuses <code>--headless</code> (it would block the tab for ever), the RZX
-flags, and any program that is not a <code>.nex</code>, <code>.tap</code> or <code>.tzx</code> (<code>browser_page.h</code>),
+flags, and any program that is not a <code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code> (<code>browser_page.h</code>),
 each with a message that says "browser page". The browser reserves Ctrl+W, T and
 N (and Ctrl+Q in some browsers), so Symbol Shift plus those letters cannot be
 typed with Ctrl; the operating system keeps Alt+Tab and Alt+F4. Files the
@@ -3277,33 +3282,6 @@ calls <code>Emulator::prepare_warm_start()</code> for a time budget per tick and
 repaint and show progress instead of freezing for the length of the boot. With no
 image the provisioner declines the download without reading stdin (a stdin read
 is <code>window.prompt()</code> in a browser).</p>
-<p><em>The CRT effect.</em> <code>--crt</code> and the three <code>startup.crt_*</code> keys (the <code>WEB</code> frontend bit in
-<code>config_keys.h</code>; the native SDL-only build still warns that they have no effect) turn on
-the desktop's crtemu shader, off by default. The SDL renderer of the page is a WebGL 1
-context (SDL's GLES2 driver), and a canvas holds one context, so crtemu draws on SDL's own:
-<code>BrowserCrt</code> (<code>platform/browser_crt.cpp</code>) owns a <code>crtemu_t</code> built right after the renderer, in
-the same host-loader mode as the Qt overlay (GL entry points from <code>SDL_GL_GetProcAddress</code>,
-<code>crtemu_browser_impl.cpp</code> being the one translation unit with crtemu's implementation, which
-carries patch 4: the vertex buffer and attribute are stated again at every present). With the
-shader on, <code>SdlDisplay::upload_frame</code> calls <code>BrowserCrt::present</code> instead of drawing: the
-framebuffer is swapped to ABGR into the object's own buffer, the viewport is SDL's letterbox
-rectangle (<code>SDL_GetRenderLogicalPresentationRect</code>, in output pixels, from the top;
-<code>SDL_GetRenderOutputSize</code> gives the height: the Current form returns the logical size under a
-logical presentation) turned into a GL viewport by <code>crt_shader::gl_viewport</code>, every vertex
-attribute array but 0 is disabled (SDL's GLES2 renderer enables arrays 0 and 1 and binds a buffer
-to neither until its first draw, which it never makes now, and WebGL 1 refuses a draw while an
-enabled array has no buffer), and <code>crtemu_present</code> draws, its own clear painting the letterbox
-bars. SDL's own state needs no care, because it draws nothing while the shader runs. No SDL
-present is needed: the page shows the drawing buffer at the end of the frame. The effect is chosen
-once, after <code>SdlApp::init</code> (<code>main.cpp</code>; the rule is
-<code>crt_shader::resolve</code>, the one the Qt window uses too), and fixed for the run. The software scanlines are 25% black on the odd rows of the
-640x512 logical screen, as the Qt overlay's. A shader that cannot be built (no WebGL renderer,
-a compile or link failure) leaves the run going: one <code>CRT effect:</code> warning, then the
-scanlines for the soft style (or when <code>startup.crt_filter</code> is also set) and the plain picture
-otherwise. <code>BrowserCrt</code> is destroyed before the renderer, because crtemu deletes its GL
-objects with the context alive. A lost WebGL context is not handled, as for SDL's own
-renderer. crtemu's WebGL arm needed two patches in the host-loader mode (8: the wrap enums, 9:
-the viewport size), listed in <code>third_party/crtemu/README.jnext.md</code>.</p>
 <p><em>Keeping the guest's writes.</em> <code>keepWrites: true</code> makes the page pass
 <code>--sdcard-writes &lt;path&gt;</code>, the SD write journal of
 <a href="../03-subsystems/08-media-and-loaders.html">3.8</a>, with a file in the in-memory filesystem
@@ -3372,7 +3350,7 @@ the recording was made on is not the one it now boots from.</p>
 <td><code>make wasm-browser-test</code></td>
 <td><code>build/wasm-core</code></td>
 <td>the browser frontend in the pinned Chromium headless shell</td>
-<td>BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-17, TKB-01 to TKB-17 (the on-screen keyboard, <code>touch.mjs</code>: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's <code>keymaps.vhd</code>, <code>membrane.vhd</code> and <code>zxnext.vhd</code>, with <code>demo/key_matrix_demo</code>, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run <code>kmx.log</code> as oracle), WBW-01 to WBW-17 (the kept writes, <code>writes.mjs</code>: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BCRT-01 to BCRT-13 (the CRT effect: <code>test/browser/crt.mjs</code>, structure derived from the vendored shaders, not reference images), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, <code>test/bench/web/bench-stats-test.mjs</code>), and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
+<td>BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-17, TKB-01 to TKB-17 (the on-screen keyboard, <code>touch.mjs</code>: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's <code>keymaps.vhd</code>, <code>membrane.vhd</code> and <code>zxnext.vhd</code>, with <code>demo/key_matrix_demo</code>, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run <code>kmx.log</code> as oracle), WBW-01 to WBW-17 (the kept writes, <code>writes.mjs</code>: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BSN-01 to BSN-11 (snapshots, <code>snapshots.mjs</code>: a <code>.sna</code>, <code>.z80</code>, <code>.szx</code> and <code>.jns</code> loaded in the page equal the native run of the same file, and <code>saveSnapshot()</code> is read back by the page and by the native jnext), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, <code>test/bench/web/bench-stats-test.mjs</code>), and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
 <td><code>browser</code></td>
 </tr>
 </tbody>
@@ -3394,7 +3372,6 @@ the recording was made on is not the one it now boots from.</p>
   only its colours are set from the theme variables). The WIDGET rows (<code>widget.mjs</code>)
   include the two code blocks of the user guide's section 10.5, extracted from its
   source and run verbatim, so the guide's snippets cannot drift from what is tested.</li>
-<li><code>crt_shader_policy_test</code> (CRT-POL-15 to 18: the start-up rule and the GL viewport) and <code>config_keys_test</code> (SETK-CRT-01: the <code>WEB</code> bit) cover the CRT effect's rules natively.</li>
 <li>Native suites test the browser's policy without a browser: <code>web_api_test</code> (the option
   table, the argv and the man page's browser section; <code>make cli-check</code> runs it),
   <code>browser_policy_test</code> (the frame-callback gate and the page's refusals),

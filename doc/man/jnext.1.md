@@ -2817,7 +2817,8 @@ one global, `jnext`; **jnext.mount**(*container*, *options*) puts a player in a 
 element and returns a promise for it. Every option of **mount** is a command-line
 flag or a **\--set** key, so what the page asks for is what the command line would
 ask for; the player's `argv` property shows that command line. A browser page loads
-only `.nex`, `.tap` and `.tzx` programs.
+`.nex`, `.tap` and `.tzx` programs and `.jns`, `.sna`, `.szx` and `.z80` snapshots; a
+snapshot runs on the machine it was saved on.
 
 The page supplies the SD-card image by URL and SHA-256 (the browser fetches it,
 checks it on every visit and keeps it in its cache); the machine starts when the
@@ -2842,8 +2843,8 @@ asked), with the plain picture otherwise.
     and checked the image.
 
 `file` *URL | {url} | {data, name}*
-:   **\--load**. The program to run (`.nex`, `.tap` or `.tzx`); without it the
-    machine boots to the NextZXOS menu.
+:   **\--load**. The program to run (`.nex`, `.tap`, `.tzx`, or a `.jns`, `.sna`,
+    `.szx` or `.z80` snapshot); without it the machine boots to the NextZXOS menu.
 
 `keepWrites` *boolean*
 :   **\--sdcard-writes**, with a file the page manages: what the program writes
@@ -2894,7 +2895,9 @@ asked), with the plain picture otherwise.
 `ready` is a promise for the first ready. `pause()` and `resume()` stop and restart
 the frame loop. `reset(kind)` restarts the program (`'program'`, the default; with no program it powers on again),
 powers the machine on again (`'hard'`) or resets it (`'soft'`). `load(file)` loads
-another program while the machine runs. `setVolume(v)` sets the master output
+another program while the machine runs. `saveSnapshot()` resolves to the bytes of a
+`.jns` snapshot of the running machine (**\--snapshot-compression** applies), for the page
+to offer as a download or give back to `load()` as `{data, name}`. `setVolume(v)` sets the master output
 level, `0` to `1`. `destroy()` stops the machine and removes the player (it waits until the saves
 of **keepWrites** are stored). `resetCard()` discards the saves kept by
 `keepWrites` (the saved file included) and restarts the program; it needs that option, and resolves when

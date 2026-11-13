@@ -24,10 +24,11 @@ Game controllers are page-wide: give the other players
 
 - Flags and `--set` keys that need a process, a socket or a terminal are refused with
   a message; the list is in the man page ("Not available in the browser").
-- Only `.nex`, `.tap` and `.tzx` programs load. `--headless` and RZX are refused.
+- Programs load as `.nex`, `.tap` or `.tzx`, snapshots as `.jns`, `.sna`, `.szx` or `.z80`. `--headless` and RZX are refused.
 - Writes the guest makes to the SD card are kept across reloads only when the page asks
   with `keepWrites` (10.4); without it the card lives in memory for the session. Files JNEXT
-  writes (screenshots, snapshots) live in memory in either case.
+  writes (screenshots, snapshots) live in memory in either case; `saveSnapshot()` hands a snapshot
+  to the page.
 - `keepWrites` keeps what reaches the card (a program started from the NextZXOS menu, or one
   that drives the card itself, writes there) and the file a NEX loaded with `file` saves
   through esxDOS. Such a NEX is not started by NextZXOS, so JNEXT's own stand-in answers its

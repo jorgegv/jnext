@@ -4588,8 +4588,12 @@ their status line.</p>
 <td>The page is not served over <code>https://</code>, <code>http://localhost</code> or <code>http://127.0.0.1</code>.</td>
 </tr>
 <tr>
-<td><code>--load &lt;file&gt;: a browser page loads only .nex, .tap, .tzx programs</code></td>
+<td><code>--load &lt;file&gt;: a browser page loads only .nex, .tap, .tzx, .jns, .sna, .szx, .z80 programs</code></td>
 <td>The program has another extension.</td>
+</tr>
+<tr>
+<td><code>failed to load '&lt;file&gt;'</code>, and in the console <code>the mounted SD card is not the one the snapshot was taken on</code></td>
+<td>A <code>.jns</code> was taken on another SD card. Mount the card it was taken on, or pass <code>args: ['--snapshot-mode', 'force']</code>.</td>
 </tr>
 <tr>
 <td><code>--rzx-play: RZX is not available in a browser page</code></td>

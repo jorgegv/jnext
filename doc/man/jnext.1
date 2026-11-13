@@ -3751,8 +3751,10 @@ Every option of \f[B]mount\f[R] is a command\-line flag or a
 \f[B]\-\-set\f[R] key, so what the page asks for is what the command
 line would ask for; the player\(cqs \f[CR]argv\f[R] property shows that
 command line.
-A browser page loads only \f[CR].nex\f[R], \f[CR].tap\f[R] and
-\f[CR].tzx\f[R] programs.
+A browser page loads \f[CR].nex\f[R], \f[CR].tap\f[R] and
+\f[CR].tzx\f[R] programs and \f[CR].jns\f[R], \f[CR].sna\f[R],
+\f[CR].szx\f[R] and \f[CR].z80\f[R] snapshots; a snapshot runs on the
+machine it was saved on.
 .PP
 The page supplies the SD\-card image by URL and SHA\-256 (the browser
 fetches it, checks it on every visit and keeps it in its cache); the
@@ -3783,8 +3785,10 @@ has fetched and checked the image.
 .TP
 \f[CR]file\f[R] \f[I]URL | {url} | {data, name}\f[R]
 \f[B]\-\-load\f[R].
-The program to run (\f[CR].nex\f[R], \f[CR].tap\f[R] or
-\f[CR].tzx\f[R]); without it the machine boots to the NextZXOS menu.
+The program to run (\f[CR].nex\f[R], \f[CR].tap\f[R], \f[CR].tzx\f[R],
+or a \f[CR].jns\f[R], \f[CR].sna\f[R], \f[CR].szx\f[R] or
+\f[CR].z80\f[R] snapshot); without it the machine boots to the NextZXOS
+menu.
 .TP
 \f[CR]keepWrites\f[R] \f[I]boolean\f[R]
 \f[B]\-\-sdcard\-writes\f[R], with a file the page manages: what the
@@ -3846,6 +3850,10 @@ loop.
 the default; with no program it powers on again), powers the machine on
 again (\f[CR]\(aqhard\(aq\f[R]) or resets it (\f[CR]\(aqsoft\(aq\f[R]).
 \f[CR]load(file)\f[R] loads another program while the machine runs.
+\f[CR]saveSnapshot()\f[R] resolves to the bytes of a \f[CR].jns\f[R]
+snapshot of the running machine (\f[B]\-\-snapshot\-compression\f[R]
+applies), for the page to offer as a download or give back to
+\f[CR]load()\f[R] as \f[CR]{data, name}\f[R].
 \f[CR]setVolume(v)\f[R] sets the master output level, \f[CR]0\f[R] to
 \f[CR]1\f[R].
 \f[CR]destroy()\f[R] stops the machine and removes the player (it waits

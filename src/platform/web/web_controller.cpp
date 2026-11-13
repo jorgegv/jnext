@@ -183,6 +183,18 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_load(const char* path)
     return nullptr;
 }
 
+// saveSnapshot(): write a .jns of the running machine to `path` (the page reads the
+// bytes back). nullptr = written; else the reason (valid until the next call).
+extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_save_snapshot(const char* path)
+{
+    static std::string why;
+    if (!g_app) return "the machine is not running";
+    if (g_app->emulator().save_jns_file(path ? path : "")) return nullptr;
+    why = g_app->emulator().last_jns_error();
+    if (why.empty()) why = "the snapshot could not be written";
+    return why.c_str();
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE void jnext_web_set_volume(double v)
 {
     if (!g_app) return;
