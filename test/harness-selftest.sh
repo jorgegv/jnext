@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=324  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=328  # 324 -> 328: HS-69p, HS-69q..s (a row's bound= tag overrides the driver's kill bound; the tag parser refuses a malformed or doubled one).  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2007,6 +2007,7 @@ prow slow2-func  'begin_func slow2-func' 'sleep 2' 'pass_row " (slow)"'
 prow twice-func  'begin_func twice-func' 'pass_row' 'pass_row'
 prow silent-func ':'
 prow crash-func  'begin_func crash-func' 'exit 3'
+prow slowtag-func 'begin_func slowtag-func' 'sleep 4' 'pass_row " (slow, own bound)"'
 prow hang-func   'begin_func hang-func' 'sleep 60' 'pass_row'
 prow intruder-func 'mkdir -p "$TMP_DIR/../victim-func"' 'begin_func intruder-func' 'pass_row'
 prow victim-func 'begin_func victim-func' 'pass_row'
@@ -2023,7 +2024,7 @@ par_probe() {   # par_probe <bash snippet> — the real scheduler, stub rows, fa
         "set -euo pipefail
          source '$PROJECT_DIR/test/00regression/test-functions.inc'
          source '$PROJECT_DIR/test/00regression/parallel-rows.inc'
-         SCRIPTS_DIR='$T/prows'; JNEXT=/bin/false; declare -A IS_PRIVATE_SD=()
+         SCRIPTS_DIR='$T/prows'; JNEXT=/bin/false; declare -A IS_PRIVATE_SD=() ROW_BOUND_OF=()
          $1" 2>&1
 }
 phase() {   # phase <lanes> <row...> — one phase, then the end-of-run checks and the tally
@@ -2056,6 +2057,12 @@ el=$(grep -oE 'elapsed=[0-9]+' <<<"$out" | cut -d= -f2)
 out+=$'\n'"bounded=$(( ${el:-99} < 15 ? 1 : 0 ))"
 check "HS-69e" "a row that hangs is killed at its bound and FAILs naming it; the others still run (GH #295)" 0 $rc "$out" \
     "outlived its 2 s bound" "after: 1/1/0 [hang-func ok-func]" "bounded=1"
+
+out=$(par_probe "ROW_BOUND=2; ROW_BOUND_OF[slowtag-func]=30; $(phase 2 slowtag-func hang-func)"); rc=$?
+el=$(grep -oE 'elapsed=[0-9]+' <<<"$out" | cut -d= -f2)
+out+=$'\n'"bounded=$(( ${el:-99} < 15 ? 1 : 0 ))"
+check "HS-69p" "a row's bound= tag replaces the driver bound for that row only: it outlives ROW_BOUND and passes, the untagged hang is still killed" 0 $rc "$out" \
+    "(slow, own bound)" "outlived its 2 s bound" "after: 1/1/0 [slowtag-func hang-func]" "bounded=1"
 
 out=$(par_probe "$(phase 1 intruder-func victim-func)"); rc=$?
 check "HS-69f" "a row that writes into a later row's directory is refused when that row starts (GH #295)" 2 $rc "$out" \
@@ -2843,6 +2850,16 @@ check "HS-90c" "an os= list without linux is a refusal (a Linux run runs every r
 retag "$T/fx-b.conf" magic-bp-func "os=linux,,macos,windows"
 out=$(run_preflight "$REG_CONF" "$T/fx-b.conf"); rc=$?
 check "HS-90d" "a malformed os= list (empty element) is a refusal that says so" 2 $rc "$out" "HARNESS FAULT" "carries a malformed"
+# bound= tag grammar (the driver's per-row kill bound): refused like any malformed tag
+retag "$T/bd-a.conf" magic-bp-func "bound=0"
+out=$(run_preflight "$REG_CONF" "$T/bd-a.conf"); rc=$?
+check "HS-69q" "bound=0 is a harness fault (positive integer only)" 2 $rc "$out" "HARNESS FAULT" "carries a malformed"
+retag "$T/bd-b.conf" magic-bp-func "bound=x"
+out=$(run_preflight "$REG_CONF" "$T/bd-b.conf"); rc=$?
+check "HS-69r" "a non-numeric bound= is a harness fault" 2 $rc "$out" "HARNESS FAULT" "carries a malformed"
+retag "$T/bd-c.conf" magic-bp-func "bound=5 bound=6"
+out=$(run_preflight "$REG_CONF" "$T/bd-c.conf"); rc=$?
+check "HS-69s" "two bound= tags on one row are a harness fault" 2 $rc "$out" "HARNESS FAULT" "carries two"
 # retagged rows change the per-OS counts, so the pins refuse them: the tags themselves are valid.
 retag "$T/os-ok.conf" magic-bp-func "os=linux,macos,windows"
 if ! grep -q '^magic-bp-func\([[:space:]]\|$\)' "$REG_FUNC"; then   # a renamed fixture row would make this control vacuous

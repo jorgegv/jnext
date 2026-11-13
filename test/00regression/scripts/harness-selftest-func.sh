@@ -18,8 +18,9 @@ if want harness-selftest-func; then
     # moderate load (other agents running); as a row 353 s, 455 s and 457 s
     # solo (load 17 -> 6). The old 480 s bound failed it at 484 s (load 24-28),
     # 488 s and 567 s (load 16-29). 900 s leaves headroom over the worst pass
-    # and stays under the driver's per-row bound (ROW_BOUND, parallel-rows.inc,
-    # 1200 s), which must remain the larger of the two. The row runs in the
+    # and stays under the driver's per-row bound for THIS row, the `bound=1200` tag
+    # in functional_tests.conf (the default ROW_BOUND is 600 s), which must
+    # remain the larger of the two. The row runs in the
     # quiet phase (functional_tests.conf).
     if hs_out=$(timeout --foreground --kill-after=5s 900s bash "$PROJECT_DIR/test/harness-selftest.sh" 2>&1); then
         hs_line=$(echo "$hs_out" | grep -E '^Total:' | tail -1)

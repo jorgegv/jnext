@@ -34,7 +34,7 @@
 #      ../test-functions.inc relative to their own directory and die loudly.
 #      JNEXT_TEST_JOBS caps the screenshot and parallel functional lanes
 #      (default: every CPU), JNEXT_TEST_QUIET_JOBS the quiet phase (default
-#      1); JNEXT_REGRESSION_ROW_TIMEOUT bounds one row (1200 s);
+#      1); JNEXT_REGRESSION_ROW_TIMEOUT bounds one row (600 s; a row's bound= tag overrides it);
 #      JNEXT_REGRESSION_STAMP=1 (set by `make regression`) stamps a green run;
 #      =confirm (set by `make regression-confirm`) re-runs a full run's
 #      loaded-host FAILs solo and, if they pass, stamps it;
@@ -402,10 +402,12 @@ done
 # runs: `quiet` — in the quiet phase after the parallel one, a lane at a time
 # (rows that pace against real time and fail under contention); `serial` —
 # alone, after everything else; `private-sd` — on a copy of the SD card of its
-# own (rows that write to the card). Untagged rows run in the parallel phase on
+# own (rows that write to the card); `bound=<seconds>` — this row's own kill
+# bound in place of the 600 s default (a row whose measured pass is slower).
+# Untagged rows run in the parallel phase on
 # the run's shared clone. An unknown tag is refused, not ignored.
 DECLARED_FUNC=()
-declare -A IS_PRIVATE_SD IS_QUIET IS_SERIAL FUNC_OS
+declare -A IS_PRIVATE_SD IS_QUIET IS_SERIAL FUNC_OS ROW_BOUND_OF
 FUNC_HAS_OS_TAG=false
 while read -r name tags; do
     [[ -z "$name" || "$name" == \#* ]] && continue
@@ -415,6 +417,15 @@ while read -r name tags; do
             quiet)      IS_QUIET["$name"]=1 ;;
             serial)     IS_SERIAL["$name"]=1 ;;
             private-sd) IS_PRIVATE_SD["$name"]=1 ;;
+            bound=*)
+                # `bound=<seconds>`: this row's kill bound (ROW_BOUND otherwise).
+                [[ -z "${ROW_BOUND_OF[$name]:-}" ]] \
+                    || harness_fault "functional test ${BOLD}$name${RESET} carries two ${BOLD}bound=${RESET} tags"
+                [[ ${tag#bound=} =~ ^[1-9][0-9]*$ ]] \
+                    || harness_fault "functional test ${BOLD}$name${RESET} carries a malformed ${BOLD}$tag${RESET}" \
+                                     "bound=<seconds> takes a positive integer."
+                ROW_BOUND_OF["$name"]=${tag#bound=}
+                ;;
             os=*)
                 # `os=<list>` (GH #319): the OSes whose run includes this row.
                 # A closed set, comma-separated; linux is mandatory, so a Linux
@@ -441,7 +452,7 @@ while read -r name tags; do
                 FUNC_HAS_OS_TAG=true
                 ;;
             *) harness_fault "functional test ${BOLD}$name${RESET} carries an unknown tag ${BOLD}$tag${RESET}" \
-                             "Known tags: quiet, serial, private-sd, os=<linux[,macos][,windows]>." ;;
+                             "Known tags: quiet, serial, private-sd, bound=<seconds>, os=<linux[,macos][,windows]>." ;;
         esac
     done
     [[ -z "${IS_QUIET[$name]:-}" || -z "${IS_SERIAL[$name]:-}" ]] \
