@@ -205,6 +205,10 @@ fi
 # would do the same.
 REG_STAMP_MODE=${JNEXT_REGRESSION_STAMP:-}
 export -n JNEXT_REGRESSION_STAMP JNEXT_REGRESSION_LOCK 2>/dev/null || true
+# The boot anchor (test-functions.inc) is measured by THIS run's [sdcard-provision] row and exported
+# to its rows; one inherited from an enclosing run (the harness self-test runs this driver inside
+# harness-selftest-func) would hide an unmeasurable boot.
+unset BOOT_COMMIT_MEASURED
 
 # Shared helpers/constants and the one-time environment setup (locale, jnext
 # binary resolution, SD args, manifest paths, TMP_DIR + EXIT trap, counters,
