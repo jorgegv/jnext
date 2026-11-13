@@ -410,7 +410,7 @@ row('TKB-09', 'a lone SS held 800 ms is a real hold: SS is down in the guest dur
   must(pOut === '', 'the next P: ' + pOut);
 });
 
-row('TKB-10', 'two fingers: CS held and 5 tapped give exactly CS+5, and releasing CS does not latch it; Q and P held together are both down, releasing Q leaves P down', async () => {
+row('TKB-10', 'two fingers: CS held and 5 tapped give exactly CS+5, and releasing CS does not latch it; Q and P held together are both down, releasing Q leaves P down; a latched SS stays down under a second held key when the first lifts', async () => {
   const page = await kmxPage(PORTRAIT);
   await touchDown(page, 'caps-shift', 1);
   await sleep(150);
@@ -430,7 +430,21 @@ row('TKB-10', 'two fingers: CS held and 5 tapped give exactly CS+5, and releasin
   await until(() => lastIs(page, new Set([POS.p])), 6000, 'P alone');
   await touchUp(page, 2);
   await until(() => released(page), 6000, 'all released');
+  // (c) a latched SS shared by two held keys: finger 1 holds P, finger 2 holds O (both typed with the
+  // latched SS); finger 1 lifts while O is held: SS must stay down under O (one down per shared code).
+  await touchTap(page, 'symbol-shift'); await until(() => released(page), 6000, 'SS tapped'); await sleep(150);
+  await touchDown(page, 'p', 1);
+  await until(() => lastIs(page, new Set([POS.symbol, POS.p])), 6000, 'SS+P');
+  await touchDown(page, 'o', 2);
+  await until(() => lastIs(page, new Set([POS.symbol, POS.p, POS.o])), 6000, 'SS+P+O');
+  await touchUp(page, 1);
+  await until(() => lastIs(page, new Set([POS.symbol, POS.o])), 6000, 'SS+O after P lifts');
+  await sleep(300);
+  const stillSsO = lastIs(page, new Set([POS.symbol, POS.o]));
+  await touchUp(page, 2);
+  await until(() => released(page), 6000, 'all released after the shared SS');
   await close(page);
+  must(stillSsO, '(c) SS dropped under the held O: ' + last(page));
   must(ls.some((s) => same(s, cs5)), 'no CS+5 line: ' + JSON.stringify(ls.map((s) => [...s])));
   must(aria === 'false', 'CS latched after a hold with another key: ' + aria);
 });
@@ -481,7 +495,7 @@ row('TKB-12', 'focus and gestures: the canvas keeps the focus through touch taps
   must(g.scroll === 0 && g.ta === 'none' && g.kta === 'none' && g.prevented, JSON.stringify(g));
 });
 
-row('TKB-13', 'showKeyboard(): a call before the start wins over the mode; true shows and shrinks the canvas; hiding releases a held key and clears the latches; a non-boolean throws a TypeError; after destroy() it throws', async () => {
+row('TKB-13', 'showKeyboard(): a call before the start wins over the mode; true shows and shrinks the canvas; hiding releases a held key and clears the latches; a non-boolean throws a TypeError; after destroy() it throws; a keyboard shown before the start lies under the start overlay', async () => {
   const page = await newPage(PORTRAIT);
   await open(page, [GUEST()]);
   await page.evaluate(() => window.player0.showKeyboard(false));
@@ -514,14 +528,29 @@ row('TKB-13', 'showKeyboard(): a call before the start wins over the mode; true 
   await page.evaluate(() => window.player0.destroy());
   const after = await page.evaluate(() => { try { window.player0.showKeyboard(true); return 'no throw'; } catch (e) { return e.message; } });
   await close(page);
+  // (e) a keyboard shown before the start lies BELOW the "click to start" overlay, and above the canvas after it
+  const pre = await newPage(PORTRAIT);
+  await open(pre, [GUEST()]);
+  await pre.evaluate(() => window.player0.showKeyboard(true));
+  const top = () => pre.evaluate(() => {
+    const k = document.querySelector('#p0 [data-key="q"]').getBoundingClientRect();
+    const e = document.elementFromPoint(k.left + k.width / 2, k.top + k.height / 2);
+    return e && (e.classList.contains('jnext-overlay') ? 'overlay' : e.getAttribute('data-key') || e.tagName);
+  });
+  const before = await top();
+  await click(pre);
+  await until(() => pre.kmxReady && pre.kmx.length > 0, 300000, 'the program');
+  const afterStart = await top();
+  await close(pre);
   must(hidden.vis === false && hidden.n === 0, '(a) before the start: ' + JSON.stringify(hidden));
   must(shown.vis === true && shown.kbH > 0 && Math.abs(shown.cvH + shown.kbH - shown.boxH) <= 1 && shown.buf[1] === Math.round(shown.cvCss[1]), '(a) shown: ' + JSON.stringify(shown));
   must(zOut === '', '(b) Z after a hide cleared the latch: ' + zOut);
   must(/^TypeError: .*showKeyboard\(\) takes a boolean/.test(thrown) && back.vis === true, '(c) ' + thrown);
   must(after === 'jnext: this player was destroyed', '(d) ' + after);
+  must(before === 'overlay' && afterStart === 'q', '(e) element at a key centre before the start: ' + before + ', after: ' + afterStart);
 });
 
-row('TKB-14', 'layout follows the width: 390x844 shows the compact layout (40 keys in 4 rows), 844x390 the full one (58 keys in 5 rows, ENTER two rows tall); the landscape keyboard is at most 45% of the box; every key is at least 24 px tall', async () => {
+row('TKB-14', 'layout follows the width: 390x844 shows the compact layout (40 keys in 4 rows), 844x390 the full one (58 keys in 5 rows, ENTER two rows tall); the landscape keyboard is at most 45% of the box; every key is at least 24 px tall; no legend is clipped at 390 or 360 px', async () => {
   const page = await plainPage(PORTRAIT);
   const probe = () => page.evaluate(() => {
     const k = document.querySelector('#p0 .jnext-keyboard'), box = document.querySelector('#p0 .jnext-player');
@@ -533,6 +562,12 @@ row('TKB-14', 'layout follows the width: 390x844 shows the compact layout (40 ke
              enterH: enter.r.height, qH: q.r.height };
   });
   const p = await probe();
+  const clipped = (w) => page.evaluate(() => [...document.querySelectorAll('#p0 .jnext-keyboard [data-key]')]
+    .filter((e) => e.scrollWidth > e.clientWidth || e.scrollHeight > e.clientHeight).map((e) => e.getAttribute('data-key')));
+  const clip390 = await clipped();
+  await page.setViewportSize({ width: 360, height: 740 });
+  await until(async () => (await probe()).n === 40 && (await page.evaluate(() => document.querySelector('#p0 .jnext-keyboard').getBoundingClientRect().width)) === 360, 15000, '360 px width');
+  const clip360 = await clipped();
   await page.setViewportSize({ width: 844, height: 390 });
   await until(async () => (await probe()).n === 58, 15000, 'the full layout');
   const l = await probe();
@@ -544,6 +579,7 @@ row('TKB-14', 'layout follows the width: 390x844 shows the compact layout (40 ke
   must(l.enterH > 1.8 * l.qH, 'ENTER spans two rows: ' + l.enterH + ' vs Q ' + l.qH);
   must(l.kbH <= 0.45 * l.boxH + 1, 'landscape keyboard ' + l.kbH + ' of box ' + l.boxH);
   must(p.minH >= 24 && l.minH >= 24, 'key heights ' + p.minH + ' ' + l.minH);
+  must(clip390.length === 0 && clip360.length === 0, 'legends clipped at 390 px: ' + clip390 + ', at 360 px: ' + clip360);
 });
 
 row('TKB-15', 'accessibility: a labelled group, role=button keys with the spec\'s 58 names, aria-pressed on the shifts, a hidden keyboard display:none + aria-hidden; click() types the key once, a touch tap once, a mouse click once', async () => {

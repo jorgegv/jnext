@@ -52,6 +52,9 @@
     KEYS[c] = [c.toUpperCase(), 'Key ' + c.toUpperCase(), ['Key' + c.toUpperCase()]];
   });
 
+  var LEGEND_LEN = {};
+  Object.keys(KEYS).forEach(function (id) { LEGEND_LEN[id] = Math.max(1, KEYS[id][0].length); });
+
   // The two logical modifiers; the left and right key of each share one latch.
   var MODS = {
     'caps-shift': 'cs', 'caps-shift-r': 'cs', 'symbol-shift': 'ss', 'symbol-shift-r': 'ss'
@@ -210,7 +213,7 @@
           k.setAttribute('aria-label', def[1]);
           if (MODS[it.id]) k.setAttribute('aria-pressed', 'false');
           k.style.cssText = 'all:initial;position:absolute;box-sizing:border-box;display:flex;' +
-            'align-items:center;justify-content:center;overflow:hidden;cursor:pointer;' +
+            'align-items:center;justify-content:center;overflow:hidden;white-space:nowrap;cursor:pointer;' +
             'background:#3a3a3a;color:' + (MODS[it.id] === 'ss' ? '#ff6b6b' : '#f2f2f2') + ';' +
             'border-radius:4px;font-family:sans-serif;font-weight:600;touch-action:none;' +
             'user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;' +
@@ -244,7 +247,8 @@
             s.top = (ri * h + gap) + 'px';
             s.width = (w - 2 * gap) + 'px';
             s.height = ((it.span || 1) * h - 2 * gap) + 'px';
-            s.fontSize = Math.round(0.36 * h) + 'px';
+            // The legend must fit the key's width as well as its height ('SPACE' on a 34 px key).
+            s.fontSize = Math.max(6, Math.floor(Math.min(0.36 * h, 0.9 * (w - 2 * gap) / (LEGEND_LEN[it.id] * 0.7)))) + 'px';
           }
           x += w;
         });
