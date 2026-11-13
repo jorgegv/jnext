@@ -3080,8 +3080,10 @@ adds its licence (<code>sdl3.txt</code>). The Windows zips get the folder from
 <code>packaging/windows/bundle-dlls.sh</code>, which also copies the licence files of the
 Fedora package that owns each bundled DLL into <code>licenses/bundled/&lt;package&gt;/</code>
 (a package with none uses <code>packaging/windows/license-fallbacks/</code>) and refuses
-to bundle when a DLL has no licence at all. The Homebrew libraries that
-macdeployqt copies into the macOS bundle are not covered by this folder.</p>
+to bundle when a DLL has no licence at all. On macOS,
+<code>packaging/macos/bundle-licenses.sh</code> does the same for the Homebrew libraries
+macdeployqt copies into the bundle (<code>licenses/bundled/&lt;formula&gt;/</code>, from the
+formula's keg) and fails the package when a library's formula has no licence.</p>
 <h2 id="versionyaml-is-the-single-source-of-truth"><code>version.yaml</code> is the single source of truth<a class="headerlink" href="#versionyaml-is-the-single-source-of-truth" title="Permanent link">&para;</a></h2>
 <p>No other file carries a copy of the version: everything that needs it reads
 <code>version.yaml</code> when it is built.</p>

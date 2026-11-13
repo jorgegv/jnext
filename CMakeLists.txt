@@ -778,6 +778,16 @@ install(CODE "
             message(FATAL_ERROR \"complete-closure failed or timed out (result: \${_rc})\")
         endif()
 
+        # Licence texts of the Homebrew libraries now in the bundle, next to the
+        # project ones (jnext_install_licenses(.) installs those at the image root).
+        execute_process(
+            COMMAND bash \"${CMAKE_SOURCE_DIR}/packaging/macos/bundle-licenses.sh\" \"\${_app}\" \"\${CMAKE_INSTALL_PREFIX}/licenses\"
+            TIMEOUT 300
+            RESULT_VARIABLE _rc)
+        if(NOT _rc EQUAL 0)
+            message(FATAL_ERROR \"bundle-licenses failed or timed out (result: \${_rc}) — see above\")
+        endif()
+
         # NOTE (GH #57): there used to be a bundle-dlopen-deps.sh step here,
         # copying in libSDL3 because Homebrew's `sdl2` was sdl2-compat and
         # dlopen()ed it by leaf name — invisible to every dependency walk, so

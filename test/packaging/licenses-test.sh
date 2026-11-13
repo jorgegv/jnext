@@ -62,5 +62,30 @@ n=$(grep -c 'bash packaging/windows/bundle-dlls.sh' Makefile)
 [ -z "$msg" ] && ok licenses-windows "bundle-dlls.sh ships licenses/ ($n bundle-dlls.sh calls in the Makefile)" \
               || bad licenses-windows "$msg"
 
+# 5. macOS: bundle-licenses.sh on a fake bundle and Homebrew prefix: a library's
+#    formula licences are shipped (also a LICENSES/ dir), and an unowned library
+#    or a licence-less formula is refused
+msg=""
+grep -q 'packaging/macos/bundle-licenses.sh' CMakeLists.txt || msg="$msg not called by the macOS install;"
+W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+mkdir -p "$W/app/Contents/Frameworks/QtCore.framework" "$W/brew/opt/qtbase/lib/QtCore.framework" \
+         "$W/brew/opt/qtbase/LICENSES" "$W/brew/opt/libfoo/lib"
+touch "$W/app/Contents/Frameworks/libfoo.1.dylib" "$W/brew/opt/libfoo/lib/libfoo.1.dylib" \
+      "$W/brew/opt/libfoo/COPYING" "$W/brew/opt/qtbase/LICENSES/LGPL-3.0-only.txt"
+if ! HOMEBREW_PREFIX="$W/brew" bash packaging/macos/bundle-licenses.sh "$W/app" "$W/out" >/dev/null 2>&1; then
+    msg="$msg script failed on a complete fake bundle;"
+else
+    [ -f "$W/out/bundled/libfoo/COPYING" ] || msg="$msg libfoo licence not shipped;"
+    [ -f "$W/out/bundled/qtbase/LGPL-3.0-only.txt" ] || msg="$msg qtbase LICENSES/ not shipped;"
+fi
+touch "$W/app/Contents/Frameworks/libbar.dylib"
+HOMEBREW_PREFIX="$W/brew" bash packaging/macos/bundle-licenses.sh "$W/app" "$W/out2" >/dev/null 2>&1 \
+    && msg="$msg unowned library accepted;"
+mkdir -p "$W/brew/opt/libbar/lib"; touch "$W/brew/opt/libbar/lib/libbar.dylib"
+HOMEBREW_PREFIX="$W/brew" bash packaging/macos/bundle-licenses.sh "$W/app" "$W/out3" >/dev/null 2>&1 \
+    && msg="$msg licence-less formula accepted;"
+[ -z "$msg" ] && ok licenses-macos "bundle-licenses.sh ships per-formula licences, refuses unowned/licence-less" \
+              || bad licenses-macos "$msg"
+
 printf "\nTotal: %d  Pass: %d  Fail: %d\n" $((pass+fail)) "$pass" "$fail"
 [ "$fail" -eq 0 ]

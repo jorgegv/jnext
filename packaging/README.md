@@ -21,7 +21,7 @@ launcher, the AppStream metainfo, a scalable SVG + 512×512 PNG icon under
 `hicolor`, `LICENSE`/`README.md`/`ChangeLog`/`USAGE.md` under `share/doc/jnext`, the 48K ROM
 symbol map `48rom.map` under `share/jnext`,
 the licence texts of the third-party code in the binary (`packaging/licenses.list`) under
-`share/doc/jnext/licenses` (the `licenses/` folder at the root of the macOS .dmg, installed by the same rule; the Ubuntu .deb with a vendored SDL3 adds `sdl3.txt`; the rpm lists the folder with `%license`; the Windows zips get the same folder from `bundle-dlls.sh`, which adds the licences of the bundled DLLs' Fedora packages under `licenses/bundled/`),
+`share/doc/jnext/licenses` (the `licenses/` folder at the root of the macOS .dmg, installed by the same rule; the Ubuntu .deb with a vendored SDL3 adds `sdl3.txt`; the rpm lists the folder with `%license`; the Windows zips get the same folder from `bundle-dlls.sh`, which adds the licences of the bundled DLLs' Fedora packages under `licenses/bundled/`; on macOS `packaging/macos/bundle-licenses.sh` adds the Homebrew formulae's licences of the libraries bundled into the app, to `licenses/bundled/` at the image root),
 and the man page at `share/man/man1/jnext.1` (pre-generated and committed, so
 installing needs no doc toolchain — the formats compress it themselves, hence
 the `jnext.1*` glob in the RPM `%files`). `include(CPack)`
