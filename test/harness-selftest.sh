@@ -85,7 +85,7 @@ tool_runnable() {   # tool_runnable <name>
     [[ $rc -ne 126 && $rc -ne 127 ]]
 }
 missing_tools=""
-for tool in awk basename bash c++ cat chmod comm cp cut date dirname env find flock git grep \
+for tool in awk basename bash c++ cat chmod cmp comm cp cut date dirname env find flock git grep \
             head ln ls make mkdir mktemp mv nproc perl rg rm rmdir sed seq sh sha256sum sleep \
             sort stat tail test timeout touch tr true uname uniq wc xargs; do
     tool_runnable "$tool" || missing_tools+=" $tool"
@@ -3543,14 +3543,17 @@ cp "$PROJECT_DIR/test/00regression/scripts/01-sdcard-provision.sh" "$PROJECT_DIR
 cp "$PROJECT_DIR/test/regression-stamp.sh" "$SQ/test/"
 printf 'const int kFixedImageRecipe = 2;\n' > "$SQ/src/core/sdcard_provisioner.cpp"
 printf '# expect: 1\nshot-x 48k BOOT 5\n' > "$SQT/regression_tests.conf"
-printf '# expect: 0\n' > "$SQT/functional_tests.conf"
+printf '# expect: 1\nok-func\n' > "$SQT/functional_tests.conf"
+printf 'if want ok-func; then begin_func ok-func; pass_row; fi\n' > "$SQT/scripts/ok-func.sh"
 printf 'for lint_n in 1 2 3 4 5 6 7; do CURRENT_ROW="lint-$lint_n"; pass_row; done\n' > "$SQT/scripts/00-preflight-lint.sh"
 printf '#!/bin/sh\nexit 0\n' > "$SQ/build/test/rewind_test"
 chmod +x "$SQ/build/test/rewind_test"
 cp "$SQ/build/test/rewind_test" "$SQ/build/sdl-release/jnext"
 # the fake jnext: provisions a card + recipe in $JNEXT_CONFIG_DIR, logs that dir, and writes the
 # screenshot it is asked for (shot-a.png) so the row compares it against its reference
-convert -size 4x4 xc:red "$T/shot-a.png"; convert -size 4x4 xc:blue "$T/shot-b.png"
+# (the screenshot row itself needs ImageMagick: magick, else convert)
+if command -v magick &>/dev/null; then seam_im=(magick); else seam_im=(convert); fi
+"${seam_im[@]}" -size 4x4 xc:red "$T/shot-a.png" 2>/dev/null; "${seam_im[@]}" -size 4x4 xc:blue "$T/shot-b.png" 2>/dev/null
 cat > "$T/seam-jnext" <<FAKE
 #!/bin/sh
 echo "cfg=\$JNEXT_CONFIG_DIR" >> "$T/seam-jnext.log"

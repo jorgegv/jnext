@@ -27,7 +27,7 @@ if want sdcard-inventory-func; then
 
     faults=()
     missing=()
-    for tool in mcopy mdir mformat minfo mmd sha256sum convert; do
+    for tool in mcopy mdir mformat minfo mmd sha256sum; do
         command -v "$tool" &>/dev/null || missing+=("$tool")
     done
 
