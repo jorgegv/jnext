@@ -793,18 +793,14 @@ rp_art() {
     [ -f "$f" ] && printf '%s\n' "$f"
 }
 # rp_extras_ok <zip> <top-dir> — the copy's file list (recorded by the stub) minus the zip's
-# members must be the test plugin (and DLLs only it needs), nothing else: a file the zip
+# members must be exactly the test plugin, nothing else: a file the zip
 # lacks must NOT be put back. Sets rp_extras_why.
 rp_extras_ok() {
     local members extras e
     members=$(unzip -Z1 "$1" | sed -n "s|^$2/||p" | sed '/\/$/d;/^$/d' | sort)
     extras=$(comm -13 <(printf '%s\n' "$members") "$LOGDIR/rp-record.files")
     [[ -n "$extras" ]] || { rp_extras_why="nothing was added"; return 1; }
-    [[ $'\n'"$extras"$'\n' == *$'\nplatforms/qoffscreen.dll\n'* ]] || { rp_extras_why="no platforms/qoffscreen.dll among: $extras"; return 1; }
-    while IFS= read -r e; do
-        case "$e" in platforms/*.dll|*.dll) ;; *) rp_extras_why="unexpected addition: $e"; return 1 ;; esac
-        [[ "$e" == */* && "$e" != platforms/* ]] && { rp_extras_why="unexpected addition: $e"; return 1; }
-    done <<<"$extras"
+    [[ "$extras" == platforms/qoffscreen.dll ]] || { rp_extras_why="more than the plugin was added: $extras"; return 1; }
     return 0
 }
 rp_field() { sed -n "s/^$1=//p" "$LOGDIR/rp-record"; }

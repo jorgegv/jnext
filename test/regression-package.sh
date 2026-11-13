@@ -22,8 +22,8 @@
 #                   regression.sh with JNEXT=<scratch>/usr/bin/jnext.
 #   win*            unzip into the scratch dir, record a sha256 manifest of every
 #                   member, add Qt's offscreen platform plugin to the scratch COPY only
-#                   (and only what that plugin alone needs: bundle-dlls.sh stages twice, with
-#                   and without it, and the DIFFERENCE is copied, so a file the zip lacks is
+#                   (and nothing else: bundle-dlls.sh stages twice, with
+#                   and without it, and the DIFFERENCE, which must be exactly that file, is copied, so a file the zip lacks is
 #                   never put back from the MinGW sysroot), never clobbering a member and never
 #                   touching the zip, then run `regression.sh --platform` with the copy as the
 #                   Qt tree (its target OS is read from jnext.exe's PE header: there is no
@@ -151,9 +151,13 @@ case "$pkg" in
         added=0
         while IFS= read -r -d '' f; do
             [[ ! -e "$stage_plain/$f" ]] || continue
+            # EXACTLY the plugin: measured on the x64 Qt6, x64 Qt5 and i686 Qt5 zips, the plugin
+            # needs no DLL the plain bundle lacks. If a future Qt does, this refuses until the new
+            # file is vetted: search every zip member for its name (ASCII and UTF-16LE, a DLL name
+            # appears as either), and only if the zip's exe/DLLs really import it, whitelist it here.
             case "$f" in
-                ./platforms/*.dll|./*.dll) ;;
-                *) fault "the plugin's difference holds something that is not a DLL: $f" ;;
+                ./platforms/qoffscreen.dll) ;;
+                *) fault "staging with the plugin added more than platforms/qoffscreen.dll: $f (see the comment in regression-package.sh before whitelisting it)" ;;
             esac
             added=$(( added + 1 ))
             [[ -e "$dir/$f" ]] && continue

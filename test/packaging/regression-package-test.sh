@@ -85,10 +85,15 @@ if [ "$rc" -eq 0 ] && [ "$left" = "keep.me" ]; then
 else
     bad "RP-02: --clear (rc=$rc) left: $left"
 fi
-if grep -qF 'bash test/regression-package.sh --clear $(PACKAGE)' "$repo/Makefile"; then
-    ok "RP-02: the make regression-package recipe clears before it builds (text pin of the Makefile line)"
+# Scope: the order of two lines of the recipe text (the clear must come BEFORE the package build, or the
+# build leaves two versions behind for the selection to refuse); it does not run make.
+rpk=$(awk '/^regression-package:/ { on = 1; next } on && /^$/ { exit } on { print }' "$repo/Makefile")
+n_clear=$(grep -nF 'bash test/regression-package.sh --clear $(PACKAGE)' <<<"$rpk" | head -n1 | cut -d: -f1)
+n_build=$(grep -nF 'package-$(PACKAGE) $$pre' <<<"$rpk" | head -n1 | cut -d: -f1)
+if [ -n "$n_clear" ] && [ -n "$n_build" ] && [ "$n_clear" -lt "$n_build" ]; then
+    ok "RP-02: the make regression-package recipe clears (line $n_clear) before it builds (line $n_build)"
 else
-    bad "RP-02: the make regression-package recipe no longer calls --clear"
+    bad "RP-02: the recipe does not clear before it builds (clear line '${n_clear:-none}', build line '${n_build:-none}')"
 fi
 
 # RP-03: a pin that disagrees with the rows is refused; the real manifest is accepted.

@@ -37,7 +37,7 @@ packages' own binaries are tested where they are built, by
 | `PACKAGE` | artifact | how the binary under test is obtained |
 |-----------|----------|---------------------------------------|
 | `rpm`, `deb` | the `.rpm` / `.deb` | extracted (`rpm2cpio`, `dpkg-deb -x`) into `build/regression-package/<p>/`; `regression.sh` runs with `JNEXT=<dir>/usr/bin/jnext` |
-| `win`, `win-qt5`, `win32-qt5` | the three published zips | unzipped; only Qt's offscreen platform plugin (the difference between two `bundle-dlls.sh` stagings, with and without it) is added to that scratch copy, never over a zip member and never a file the zip lacks; `regression.sh --platform` runs with the copy as its Qt tree under wine, whose `PATH` carries no MinGW sysroot, so a DLL missing from the zip fails the run |
+| `win`, `win-qt5`, `win32-qt5` | the three published zips | unzipped; only Qt's offscreen platform plugin (the difference between two `bundle-dlls.sh` stagings, with and without it, which must be exactly that one file) is added to that scratch copy, never over a zip member and never a file the zip lacks; `regression.sh --platform` runs with the copy as its Qt tree under wine, whose `PATH` carries no MinGW sysroot, so a DLL missing from the zip fails the run |
 
 The rows are every screenshot row of `regression_tests.conf` plus the 17
 functional rows listed once in the script (exit paths and CLI, Qt offscreen

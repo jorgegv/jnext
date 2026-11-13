@@ -3068,7 +3068,7 @@ packages' own binaries are tested where they are built, by
 <tr>
 <td><code>win</code>, <code>win-qt5</code>, <code>win32-qt5</code></td>
 <td>the three published zips</td>
-<td>unzipped; only Qt's offscreen platform plugin (the difference between two <code>bundle-dlls.sh</code> stagings, with and without it) is added to that scratch copy, never over a zip member and never a file the zip lacks; <code>regression.sh --platform</code> runs with the copy as its Qt tree under wine, whose <code>PATH</code> carries no MinGW sysroot, so a DLL missing from the zip fails the run</td>
+<td>unzipped; only Qt's offscreen platform plugin (the difference between two <code>bundle-dlls.sh</code> stagings, with and without it, which must be exactly that one file) is added to that scratch copy, never over a zip member and never a file the zip lacks; <code>regression.sh --platform</code> runs with the copy as its Qt tree under wine, whose <code>PATH</code> carries no MinGW sysroot, so a DLL missing from the zip fails the run</td>
 </tr>
 </tbody>
 </table>

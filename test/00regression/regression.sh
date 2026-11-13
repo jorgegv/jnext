@@ -652,11 +652,8 @@ if $PLATFORM_MODE; then
         wine_capture_selfcheck "$plat_qt_abs"
         mkdir -p "$TMP_DIR/platform"
         for plat_pair in "jnext:$plat_qt_abs" "jnext-sdl:$plat_sdl_abs"; do
-            # An unpacked package (no CMakeCache.txt) must not see the MinGW sysroot's DLLs (GH #487).
-            plat_nosys=""
-            [[ -f "${plat_pair#*:}/CMakeCache.txt" ]] || plat_nosys="export JNEXT_WINE_NO_SYSROOT=1"
-            printf '#!/bin/bash\nexport WINEPREFIX=%q\n%s\nexec /bin/bash %q --jnext %q "$@"\n' \
-                "$WINEPREFIX" "$plat_nosys" "$PROJECT_DIR/test/wine-run.sh" "${plat_pair#*:}/jnext.exe" \
+            printf '#!/bin/bash\nexport WINEPREFIX=%q\nexec /bin/bash %q --jnext %q "$@"\n' \
+                "$WINEPREFIX" "$PROJECT_DIR/test/wine-run.sh" "${plat_pair#*:}/jnext.exe" \
                 > "$TMP_DIR/platform/${plat_pair%%:*}"
             chmod +x "$TMP_DIR/platform/${plat_pair%%:*}"
         done
