@@ -3678,7 +3678,7 @@ int main(int argc, char** argv) {
               "NextPi's sound reaches the Next's mixer over I2S on every OS: QEMU's wav back-end writes "
               "it to the FIFO (a named pipe on Windows) PiQemu serves, and NR 0xA2 gates it (0x00 "
               "silent, 0xC0 the square wave, left +-1024 and right +-512) (i2s.vhd:177-180, "
-              "zxnext.vhd:2358-2359)",
+              "zxnext.vhd:2674-2675)",
               started && arrived && argv_ok && audio_rec == "opened\n" && closed.first <= 16 &&
                   closed.second <= 16 && open.n > 0 && open.lo_l == -1024 && open.hi_l == 1024 &&
                   open.lo_r == -512 && open.hi_r == 512,

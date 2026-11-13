@@ -3478,7 +3478,7 @@ static void g_mixer() {
         check("MX-07", "I2S min (0,0) is a full-NEGATIVE excursion about the "
               "0x200 midpoint, not silence",
               s[0] == -2048 && s[1] == -2048,
-              fmt("L=%d R=%d VHDL i2s.vhd:179, zxnext.vhd:2358-2359, "
+              fmt("L=%d R=%d VHDL i2s.vhd:179, zxnext.vhd:2674-2675, "
                   "audio_mixer.vhd:89-90", s[0], s[1]));
     }
 
@@ -3513,7 +3513,7 @@ static void g_mixer() {
         }
         check("MX-48", "NR 0xA2 bit 0's EAR comparator rises at L(9:8) OR R(9:8) = 11, falls at "
               "00 and holds in between, on the raw samples, either channel driving it "
-              "(zxnext.vhd:2361-2373)",
+              "(zxnext.vhd:2677-2688)",
               ok, fmt("first wrong step: %s", ok ? "-" : where.c_str()));
     }
     {
@@ -3536,7 +3536,7 @@ static void g_mixer() {
         const bool cleared_by_reset = !i2s.fe_ear();
         check("MX-49", "NR 0xA2 bit 0's EAR comparator is forced to 0 unless I2S is enabled "
               "(b7 or b6) and bit 0 is set, re-evaluated on each NR 0xA2 write; with bit 0 set "
-              "the Pi leaves the mixer (0x200); reset clears it (zxnext.vhd:2358-2373)",
+              "the Pi leaves the mixer (0x200); reset clears it (zxnext.vhd:2674-2688)",
               reset_0 && no_bit0 && no_en && on_l && on_r && muted_mix && off_again &&
                   cleared_by_reset,
               fmt("reset=%d bit0=%d en=%d onL=%d onR=%d mix=%d off=%d reset2=%d", reset_0, no_bit0,
@@ -3554,7 +3554,7 @@ static void g_mixer() {
         const bool not_level = routed(0xC1) && !i2s.fe_ear();   // the route, not the comparator
         check("MX-58", "NR 0xA2 sends the Pi's audio to EAR (I2s::ear_routed) exactly when I2S "
               "is enabled (b7 or b6) and bit 0 is set, independent of the comparator's level "
-              "(zxnext.vhd:2361-2373)",
+              "(zxnext.vhd:2677-2688)",
               on && off && not_level, fmt("on=%d off=%d not_level=%d", on, off, not_level));
     }
 
@@ -3622,7 +3622,7 @@ static void g_mixer() {
         check("MX-16", "silence with the Pi I2S input wired and idle is digital "
               "ZERO, not its 0x200 midpoint",
               s[0] == 0 && s[1] == 0,
-              fmt("L=%d R=%d VHDL zxnext.vhd:2358-2359, i2s.vhd:179, "
+              fmt("L=%d R=%d VHDL zxnext.vhd:2674-2675, i2s.vhd:179, "
                   "audio_mixer.vhd:89-90", s[0], s[1]));
     }
 

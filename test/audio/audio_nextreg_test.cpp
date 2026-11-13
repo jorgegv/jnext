@@ -498,7 +498,7 @@ static void test_nr_dac(Emulator& emu) {
         check("NR-33",
               "NR 0x2C/0x2E read returns pi_audio_L/R(9..2) and latches "
               "pi_audio_L/R(1..0) into nr_2d_i2s_sample "
-              "[zxnext.vhd:6006-6015, :2358-2359]",
+              "[zxnext.vhd:6006-6015, :2674-2675]",
               l_byte == 0xE9 && l_latch == 0x40 &&
               r_byte == 0x4B && r_latch == 0x00,
               fmt("L byte=0x%02X latch=0x%02X (want 0xE9/0x40); "
@@ -566,7 +566,7 @@ static void test_nr_a2(Emulator& emu) {
         const uint8_t got = emu.i2s().nr_a2_ctl();
         check("NR-40",
               "NR 0xA2 write handler stores nr_a2_pi_i2s_ctl into I2s "
-              "[zxnext.vhd:5564, :2283-2290]",
+              "[zxnext.vhd:5564, :2593-2600]",
               got == 0xCD,
               fmt("i2s.nr_a2_ctl()=0x%02X (want 0xCD)", got));
     }
@@ -589,7 +589,7 @@ static void test_nr_a2(Emulator& emu) {
         const uint8_t muted   = nr_read(emu, 0x2C);
         check("NR-41",
               "NR 0xA2 fan-out reaches I2s gate (mute drops gated read "
-              "to silence midpoint) [zxnext.vhd:2283-2290, :2358]",
+              "to silence midpoint) [zxnext.vhd:2593-2600, :2674]",
               enabled == 0xFF && muted == 0x80,
               fmt("enabled=0x%02X muted=0x%02X (want 0xFF/0x80)",
                   enabled, muted));
@@ -673,7 +673,7 @@ static void test_nr_a2(Emulator& emu) {
         const int delta = static_cast<int>(pcm_L_on) - static_cast<int>(pcm_L_off);
         check("NR-43",
               "Mixer gates Pi I2S contribution by NR 0xA2 enable/mute "
-              "(audio_mixer.vhd:91-92, zxnext.vhd:2358-2359)",
+              "(audio_mixer.vhd:91-92, zxnext.vhd:2674-2675)",
               got_on == 1 && got_off == 1 &&
               pcm_L_on == 2044 && pcm_L_off == 0 && delta == 2044,
               fmt("pcm_L on=%d off=%d delta=%d (want 2044/0/2044)",
@@ -983,7 +983,7 @@ static void test_nr_mixer(Emulator& emu) {
               "an assembled power-on machine emits DIGITAL ZERO — silence is "
               "0, so a zero-padded device seam is inaudible [GH #116]",
               nonzero == 0,
-              fmt("%d/16 samples non-zero (worst=%d) VHDL zxnext.vhd:2358-2359, "
+              fmt("%d/16 samples non-zero (worst=%d) VHDL zxnext.vhd:2674-2675, "
                   "i2s.vhd:179, audio_mixer.vhd:89-90,99-100", nonzero, worst));
     }
 }

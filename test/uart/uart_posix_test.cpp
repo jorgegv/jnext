@@ -1545,7 +1545,7 @@ static void test_nextpi_audio() {
               "NextPi's sound reaches the Next's mixer over I2S: QEMU writes it to a FIFO "
               "PiQemu reads, the emulator latches it per sample, and NR 0xA2 gates it "
               "(0x00 silent, 0xC0 the Pi's square wave, each channel on its own side at its "
-              "exact level: left +-1024 and right +-512) (i2s.vhd:177-180, zxnext.vhd:2358-2359)",
+              "exact level: left +-1024 and right +-512) (i2s.vhd:177-180, zxnext.vhd:2674-2675)",
               started && args_ok && closed.first <= 16 && closed.second <= 16 && open.n > 0 &&
                   open.lo_l == -1024 && open.hi_l == 1024 && open.lo_r == -512 && open.hi_r == 512,
               fmt("started=%d (%s) args=%d swing closed L=%d R=%d (want <=16) open n=%d L %d..%d "
@@ -1663,7 +1663,7 @@ static void test_nextpi_audio() {
         check("PI-65",
               "the emulator puts the Pi's audio in tape mode exactly while NR 0xA2 sends it to "
               "EAR (I2S enabled and bit 0 set: 0xC1, 0x41 on; 0x01, 0xC0 off), re-evaluated as "
-              "it pops each mixer sample (zxnext.vhd:2361-2373; the buffering is jnext-only)",
+              "it pops each mixer sample (zxnext.vhd:2677-2688; the buffering is jnext-only)",
               start_off && on_c1 && off_01 && on_41 && off_c0,
               fmt("start_off=%d on(0xC1)=%d off(0x01)=%d on(0x41)=%d off(0xC0)=%d", start_off ? 1 : 0,
                   on_c1 ? 1 : 0, off_01 ? 1 : 0, on_41 ? 1 : 0, off_c0 ? 1 : 0));
@@ -1735,7 +1735,7 @@ static void test_nextpi_audio() {
         check("PI-66",
               "in tape mode (NR 0xA2 sends the Pi's audio to EAR) each Pi audio underrun logs "
               "exactly one warning, not one per silent pop after it; an underrun outside tape "
-              "mode logs none (jnext-only warning; zxnext.vhd:2361-2373 for the EAR route)",
+              "mode logs none (jnext-only warning; zxnext.vhd:2677-2688 for the EAR route)",
               opened && wrote && tape1 == 1 && under_tape == 1 && tape2 == 2 && under_music >= 1 && music == 0,
               fmt("opened=%d wrote=%d tape underruns=%llu warnings after the first=%d (want 1) after the second=%d "
                   "(want 2); music underruns=%llu warnings=%d (want 0)",
@@ -2019,7 +2019,7 @@ static void test_nextpi_audio() {
         check("PI-56",
               "with NR 0xA2 bit 0 set, port 0xFE bit 6 reads the Pi's EAR comparator, toggling "
               "with a Pi square wave; with bit 0 clear, and during a rewind replay, it reads 0 "
-              "(zxnext.vhd:2361-2373, :3459)",
+              "(zxnext.vhd:2677-2688, :3459)",
               started && on.reads == 200 && on.mismatches == 0 && on.ones > 0 && on.zeros > 0 &&
                   off_ones == 0 && replay_ok,
               fmt("started=%d (%s) reads=%d mismatches=%d ones=%d zeros=%d bit0-clear ones=%d "
@@ -2211,7 +2211,7 @@ static void test_nextpi_audio() {
         check("PI-61",
               "setting NR 0xA2 bit 0 while the Pi's sample is already at t = 11 raises the EAR "
               "comparator at the write: port 0xFE bit 6 reads 1 at once and 30000 master cycles "
-              "later, and has relaxed 34000 after it (zxnext.vhd:2361-2373, "
+              "later, and has relaxed 34000 after it (zxnext.vhd:2677-2688, "
               "zxnext_top_issue2.vhd:663-677)",
               started && latched && was_clear && at_write == 1 && at_30000 == 1 && at_34000 == 0,
               fmt("started=%d (%s) latched=%d clear-before=%d bit6 at write=%d +30000=%d +34000=%d",
@@ -2255,7 +2255,7 @@ static void test_nextpi_audio() {
         check("PI-62",
               "restoring a snapshot taken while the Pi's EAR comparator was 1 leaves it 0 (it is "
               "not in the stream), and port 0xFE bit 6 then reads the relaxed issue-2 MIC level "
-              "at once (zxnext.vhd:2361-2373; jnext-only: snapshots have no VHDL counterpart)",
+              "at once (zxnext.vhd:2677-2688; jnext-only: snapshots have no VHDL counterpart)",
               started && was_one && !ear_after && bit6_after == 1,
               fmt("started=%d (%s) was_one=%d fe_ear after load=%d bit6 after load=%d (want 0, 1)",
                   started ? 1 : 0, error.c_str(), was_one ? 1 : 0, ear_after ? 1 : 0, bit6_after));
