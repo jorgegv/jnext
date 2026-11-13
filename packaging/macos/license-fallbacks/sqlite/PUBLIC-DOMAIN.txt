@@ -1,0 +1,2 @@
+SQLite is in the public domain (https://www.sqlite.org/copyright.html).
+Homebrew formula "sqlite" ships no licence file; this notice stands in for it.

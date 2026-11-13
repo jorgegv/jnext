@@ -1,0 +1,5 @@
+win_iconv licence (Fedora's mingw-win-iconv package ships no licence file; its readme states it, applying to iconv.dll)
+
+win_iconv is placed in the public domain.
+
+Yukihiro Nakadaira <yukihiro.nakadaira@gmail.com>

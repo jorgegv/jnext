@@ -1,0 +1,10 @@
+# Licence texts of the third-party code compiled into every jnext binary:
+# <name shipped under licenses/>|<source file in the tree>. Read by the install
+# rules in CMakeLists.txt and by packaging/windows/bundle-dlls.sh; checked by
+# test/packaging/licenses-test.sh.
+fuse-z80.txt|third_party/fuse-z80/COPYING.GPL2
+spdlog.txt|third_party/spdlog/LICENSE
+zot.txt|third_party/zot/LICENSE
+nlohmann-json.txt|third_party/nlohmann-json/LICENSE.MIT
+fatfs.txt|third_party/fatfs/LICENSE.txt
+crtemu.txt|third_party/crtemu/LICENSE
