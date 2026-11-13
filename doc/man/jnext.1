@@ -3866,8 +3866,9 @@ it is now (not on a ZX Spectrum Next: give the player another
 to the file\(cqs bytes, for the page to offer as a download or give back
 to \f[CR]load()\f[R] as \f[CR]{data, name}\f[R].
 A reset or a \f[CR]load()\f[R] ends the recording early, and
-\f[CR]stopRzxRecording()\f[R] still returns it; \f[CR]destroy()\f[R]
-drops one that was not stopped.
+\f[CR]stopRzxRecording()\f[R] still returns it, and until it is called
+no new recording can start; \f[CR]destroy()\f[R] drops one that was not
+stopped.
 While a recording plays, every port read comes from the file: the keys
 do nothing until it ends.
 \f[CR]setVolume(v)\f[R] sets the master output level, \f[CR]0\f[R] to

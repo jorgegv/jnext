@@ -4604,7 +4604,7 @@
 </tr>
 <tr>
 <td><code>startRzxRecording()</code></td>
-<td>Starts an RZX recording of the machine as it is now. Rejects if the machine is not running, if one is already running, or if it cannot start (a ZX Spectrum Next, an RZX playing: the console says which).</td>
+<td>Starts an RZX recording of the machine as it is now. Rejects if the machine is not running, if the last recording has not been collected with <code>stopRzxRecording()</code> (one running, or ended by a <code>reset()</code> or a <code>load()</code>), or if it cannot start (a ZX Spectrum Next, an RZX playing, <code>--tape-save</code>: the console says which).</td>
 </tr>
 <tr>
 <td><code>stopRzxRecording()</code></td>
@@ -4690,7 +4690,7 @@ a.click();
 </code></pre>
 <p>A recording is refused on a ZX Spectrum Next, which is the default machine: give the player
 <code>machine: '48k'</code>, <code>'128k'</code>, <code>'plus3'</code> or <code>'pentagon'</code>. While recording, a tape loads in real
-time. A <code>reset()</code> or a <code>load()</code> ends the recording early; <code>stopRzxRecording()</code> still returns it.
+time. A <code>reset()</code> or a <code>load()</code> ends the recording early; <code>stopRzxRecording()</code> still returns it, and until it is called no new recording can start.
 A recording plays on the machine it was made on: given as <code>file</code>, an explicit <code>machine</code> wins at
 the start, and later <code>load()</code> and <code>reset()</code> use the recording's. While it plays, every port read
 comes from the file, so the visitor's keys do nothing until the console says <code>RZX: playback

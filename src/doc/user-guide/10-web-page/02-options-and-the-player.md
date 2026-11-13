@@ -42,7 +42,7 @@
 | `reset(kind)` | `'program'` (default): restart the program; with no program, the same as `'hard'`. `'hard'`: power on again. `'soft'`: reset. Returns a promise. |
 | `load(file)` | Load another program (same forms as `file`) while the machine runs. Resolves when it is in the machine. |
 | `saveSnapshot()` | Resolves to a `Uint8Array` holding a `.jns` snapshot of the running machine (`args: ['--snapshot-compression', 'off']` stores it uncompressed). Rejects if the machine is not running. |
-| `startRzxRecording()` | Starts an RZX recording of the machine as it is now. Rejects if the machine is not running, if one is already running, or if it cannot start (a ZX Spectrum Next, an RZX playing: the console says which). |
+| `startRzxRecording()` | Starts an RZX recording of the machine as it is now. Rejects if the machine is not running, if the last recording has not been collected with `stopRzxRecording()` (one running, or ended by a `reset()` or a `load()`), or if it cannot start (a ZX Spectrum Next, an RZX playing, `--tape-save`: the console says which). |
 | `stopRzxRecording()` | Ends the recording and resolves to a `Uint8Array` holding the `.rzx` file. Rejects if none is running. |
 | `setVolume(v)` | Master level, 0 (silent) to 1; anything else throws a `RangeError`. A player started `muted` has no audio device. |
 | `resetCard()` | Forget the writes kept by `keepWrites` and restart the program, as `reset('program')` does. Needs `keepWrites` (it rejects without it). Resolves when the program is in the machine again. |
@@ -128,7 +128,7 @@ a.click();
 
 A recording is refused on a ZX Spectrum Next, which is the default machine: give the player
 `machine: '48k'`, `'128k'`, `'plus3'` or `'pentagon'`. While recording, a tape loads in real
-time. A `reset()` or a `load()` ends the recording early; `stopRzxRecording()` still returns it.
+time. A `reset()` or a `load()` ends the recording early; `stopRzxRecording()` still returns it, and until it is called no new recording can start.
 A recording plays on the machine it was made on: given as `file`, an explicit `machine` wins at
 the start, and later `load()` and `reset()` use the recording's. While it plays, every port read
 comes from the file, so the visitor's keys do nothing until the console says `RZX: playback

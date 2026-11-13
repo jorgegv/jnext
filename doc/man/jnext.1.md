@@ -2904,7 +2904,7 @@ to offer as a download or give back to `load()` as `{data, name}`. `startRzxReco
 an RZX recording of the machine as it is now (not on a ZX Spectrum Next: give the player another
 `machine`); `stopRzxRecording()` ends it and resolves to the file's bytes, for the page to offer as a
 download or give back to `load()` as `{data, name}`. A reset or a `load()` ends the recording early, and
-`stopRzxRecording()` still returns it; `destroy()` drops one that was not stopped. While a recording
+`stopRzxRecording()` still returns it, and until it is called no new recording can start; `destroy()` drops one that was not stopped. While a recording
 plays, every port read comes from the file: the keys do nothing until it ends. `setVolume(v)` sets the master output
 level, `0` to `1`. `destroy()` stops the machine and removes the player (it waits until the saves
 of **keepWrites** are stored). `resetCard()` discards the saves kept by
