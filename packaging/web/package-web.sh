@@ -33,7 +33,8 @@
 #
 # LINK SET of jnext_web, measured 2026-11-08 (verbose wasm-ld line of the
 # `jnext_web` relink; emcc -v): jnext's own libraries; libspdlog, libzot_tzx,
-# FatFs (in jnext_core), nlohmann-json (header only); the ports SDL3, zlib and
+# FatFs (in jnext_core), nlohmann-json (header only), crtemu (header only, in
+# jnext_platform, compiled into the browser build only); the ports SDL3, zlib and
 # libpng; musl and Emscripten's own libraries (-lc -lhtml5 -lGL-getprocaddr -lal
 # -lsockets -lstubs -lnoexit -ldlmalloc, covered by Emscripten's LICENSE;
 # dlmalloc is public domain); LLVM's libc++, libc++abi, libunwind and
