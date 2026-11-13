@@ -80,9 +80,13 @@ public:
         // reset input at all, so a soft reset leaves the flash phase running.
         // A hard `reset()` here is Emulator::init() building a machine, i.e.
         // POWER-ON: the counter takes its power-on value (see flash_counter_
-        // below). emulator_cold_boot() (reset button, NR 0x02 bit 1, File >
-        // Load) is a power-on boot of the whole machine in jnext (EB-14b), so
-        // it restarts the phase too, which the FPGA would not.
+        // below). That is also what the FPGA does on a HARD reset: NR 0x02
+        // bit 1 or the hotkey assert o_RESET_HARD (zxnext.vhd:6959), and
+        // zxnext_top_issue2.vhd:1236-1241 answers it with flashboot_start, a
+        // multiboot RELOAD of the core from flash, so every register, flash_cnt
+        // and the timing counters included, takes its power-on value again
+        // (zxula.vhd:473-480 itself has no reset input). Only a soft reset
+        // leaves the flash phase running.
         if (hard) {
             flash_counter_ = 1;
             flash_phase_ = false;

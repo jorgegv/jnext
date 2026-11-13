@@ -1822,6 +1822,37 @@ static void test_flash_power_on(Emulator&) {
               "(zxula.vhd:470-480 + zxula_timing.vhd:111-125)",
               ok, "frames 0..32: " + seq);
     }
+
+    // INT-FLASH-02: a HARD reset reloads the core, so flash_cnt restarts. NR 0x02 bit 1 asserts
+    // o_RESET_HARD (zxnext.vhd:6959) and zxnext_top_issue2.vhd:1236-1241 answers it with a
+    // flashboot (multiboot reload of the core from flash): every register and the timing counters
+    // return to their power-on values. (zxula.vhd:473-480 has no reset input of its own; only a
+    // SOFT reset leaves the phase running, which compositor_integration_test SRST-17 pins.)
+    // Ten frames, a cold boot, then the count restarts: normal for post-reset frames 0-14,
+    // inverted for 15-19.
+    {
+        Emulator e;
+        std::string seq;
+        bool ok = build_next_emulator(e);
+        if (ok) {
+            flash_stage(e);
+            for (int f = 0; f < 10; ++f) e.run_frame();
+            EmulatorConfig cfg = e.config();
+            emulator_cold_boot(e, cfg);
+            flash_stage(e);
+            for (int f = 0; f < 20; ++f) {
+                e.run_frame();
+                const bool inv = flash_inverted(e);
+                seq += inv ? 'I' : 'n';
+                if (inv != (f >= 15)) ok = false;
+            }
+        }
+        check("INT-FLASH-02",
+              "a hard reset reloads the core (zxnext.vhd:6959 -> zxnext_top_issue2.vhd:1236-1241), so "
+              "the flash counter restarts from its power-on value: normal for the first 15 frames "
+              "after the reset, inverted for the next 16",
+              ok, "frames 0..19 after the reset: " + seq);
+    }
 }
 
 int main() {

@@ -54,7 +54,7 @@ mentions them, so a test can no longer be absent from this document.
 | ESP-01 AT engine                           |   499 |  499 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: mmu_integration_test            |   137 |  137 |    0 |    0 |       0 |          0 |
-| Companion: ula_integration_test            |    19 |   19 |    0 |    0 |       0 |          0 |
+| Companion: ula_integration_test            |    20 |   19 |    1 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |    32 |   32 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
@@ -67,9 +67,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6202 | 6202 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6203 | 6202 |    1 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6202**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5701**. Rows the 195 suites declared in `test/unit-tests.conf` run live: **16234**.
+Rows the sections above carry: **6203**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5702**. Rows the 195 suites declared in `test/unit-tests.conf` run live: **16235**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -5856,6 +5856,7 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 | INT-STANDARD-ALT-01 | OUT 0xFF=0x01 → STANDARD_1 alt-file routes ULA to 0x6000 base (zxula.vhd:191,218,235; zxnext.vhd:2397; emulator.cpp:1187-1192) | zxula.vhd:191,218,235, zxnext.vhd:2397 | pass | test/ula/ula_integration_test.cpp:1697 |
 | INT-BORDER-RST-01 | Power-on and a hard reset leave the border black, port_fe_reg's reset value (zxnext.vhd:3587-3593,3601-3605; zxula.vhd:543-553) | zxnext.vhd:3587-3593,3601-3605, zxula.vhd:543-553 | pass | test/ula/ula_integration_test.cpp:1758 |
 | INT-FLASH-01 | flash_cnt counts frames from power-on and shows count F + 1 at frame F: a FLASH cell is normal for frames 0-14, inverted for 15-30, normal at 31 (zxula.vhd:470-480 + zxula_timing.vhd:111-125) | zxula.vhd:470-480, zxula_timing.vhd:111-125 | pass | test/ula/ula_integration_test.cpp:1819 |
+| INT-FLASH-02 | a hard reset reloads the core (zxnext.vhd:6959 -> zxnext_top_issue2.vhd:1236-1241), so the flash counter restarts from its power-on value: normal for the first 15 frames after the reset, inverted for the next 16 | zxnext.vhd:6959, zxnext_top_issue2.vhd:1236-1241 | fail | test/ula/ula_integration_test.cpp:1850 |
 
 ### Companion integration suite — `test/compositor/compositor_integration_test.cpp`
 
