@@ -31,9 +31,13 @@ export MTOOLS_SKIP_CHECK=1
 
 die() { echo "sdcard-inventory: $*" >&2; exit 2; }
 
-for tool in mcopy mdir od sha256sum diff mktemp wc awk sort tr; do
+for tool in mcopy mdir od sha256sum diff mktemp wc awk sort tr cmp stat head tail cut rm; do
     command -v "$tool" >/dev/null 2>&1 || die "'$tool' is required (mtools / coreutils / diffutils)"
 done
+
+# One scratch directory for the whole run, removed on every exit (a die included).
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
 
 # u <image> <byte offset> <length>: a little-endian unsigned integer.
 u() {
@@ -73,9 +77,7 @@ inventory() {
     echo "fat32-valid $valid"
     echo "bpb serial=$serial"
 
-    w=$(mktemp -d)
-    # shellcheck disable=SC2064  # $w is expanded now on purpose
-    trap "rm -rf '$w'" RETURN
+    w=$(mktemp -d -p "$TMP")
     # fetch <name-on-card> <local>: 0 when present.
     fetch() { mcopy -n -i "$img@@$off" "::/$1" "$2" </dev/null >/dev/null 2>&1; }
 
@@ -149,7 +151,7 @@ inventory() {
 case "${1:-}" in
     --diff)
         [[ $# -eq 3 ]] || die "usage: $0 --diff <a.img> <b.img>"
-        t=$(mktemp -d); trap 'rm -rf "$t"' EXIT
+        t=$TMP
         inventory "$2" > "$t/a"
         inventory "$3" > "$t/b"
         rc=0

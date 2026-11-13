@@ -107,7 +107,14 @@ sd_rederive() {
     # JNEXT_NATIVE (GH #319): a platform run for Windows derives the image with a
     # jnext of the HOST (the download is a network job, not worth running through
     # wine); unset, the binary under test does it, as before.
-    JNEXT_CONFIG_DIR="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}" \
+    # With the candidate-card seam the derive is offline by construction: it only runs
+    # from a raw the sidecar verifies (sd_seam_raw_ok), and a download address that
+    # cannot be fetched makes any other path fail instead of fetching the default
+    # distribution into the candidate's directory.
+    local sd_env=("JNEXT_CONFIG_DIR=${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}")
+    [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] \
+        || sd_env+=(JNEXT_SDCARD_DISTRO_URL=file:///nonexistent-candidate-card-never-download)
+    env "${sd_env[@]}" \
         "${JNEXT_NATIVE:-$JNEXT}" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
     [[ -f "$FALLBACK_SD_IMAGE" ]] || return 1
     # No witness for an image of the wrong recipe: the next run re-derives it
@@ -129,10 +136,44 @@ sd_derive_as() {
     sd_rederive || rc=$?
     case $rc in 0) sd_state=$1 ;; 2) sd_state=wrongrecipe ;; *) sd_state=failed ;; esac
 }
+# sd_seam_raw_ok — 0 when the seam dir holds the raw distribution image and its sidecar
+# names that image's sha256 (what jnext itself checks before it reuses a raw).
+sd_seam_raw_ok() {
+    local raw="$SD_DIR/cspect-next-1gb.img" side="$SD_DIR/cspect-next-1gb.img.sha256" want
+    [[ -f "$raw" && -f "$side" ]] || return 1
+    want=$(awk '{print $1; exit}' "$side")
+    [[ -n "$want" && "$(sd_hash "$raw")" == "$want" ]]
+}
+sd_seam_why=""
+# The candidate-card gate (JNEXT_REGRESSION_SD_STATE_DIR set). The candidate is the thing
+# under evaluation, so unlike the default master it is never deleted unless a verified raw
+# can rebuild it, and nothing is downloaded. Without a verified raw: a card with no
+# witness is adopted as it is (and witnessed); a missing card, or one that drifted from
+# its witness, FAILS the row and says why.
+sd_seam_gate() {
+    local have_raw=1
+    sd_seam_raw_ok || have_raw=0
+    if [[ ! -f "$FALLBACK_SD_IMAGE" ]]; then
+        if [[ $have_raw == 1 ]]; then sd_derive_as provisioned
+        else sd_state=seamfail; sd_seam_why="no card in the seam dir and no raw whose sidecar verifies, so it cannot be derived (nothing is downloaded)"; fi
+    elif [[ ! -f "$SD_WITNESS" ]]; then
+        printf '%s  %s\n' "$(sd_hash "$FALLBACK_SD_IMAGE")" "$(basename "$FALLBACK_SD_IMAGE")" > "$SD_WITNESS"
+        sd_state=adopted
+    elif [[ "$(sd_hash "$FALLBACK_SD_IMAGE")" != "$(awk '{print $1}' "$SD_WITNESS")" ]]; then
+        if [[ $have_raw == 1 ]]; then sd_derive_as repaired
+        else sd_state=seamfail; sd_seam_why="the card drifted from its witness and there is no raw whose sidecar verifies to rebuild it from (the card is left as it is)"; fi
+    elif [[ "$(sd_recipe)" != "$sd_want_recipe" && $have_raw == 1 ]]; then
+        sd_old_recipe=$(sd_recipe); sd_derive_as recipe
+    else
+        sd_state=pristine
+    fi
+}
 {
     flock 9 2>/dev/null || true
     if [[ -z "$sd_want_recipe" ]]; then
         sd_state="norecipe"
+    elif [[ -n "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]]; then
+        sd_seam_gate
     elif [[ ! -f "$FALLBACK_SD_IMAGE" || ! -f "$SD_WITNESS" ]]; then
         sd_derive_as provisioned
     elif [[ "$(sd_recipe)" != "$sd_want_recipe" ]]; then
@@ -162,6 +203,8 @@ case "$sd_state" in
     provisioned) sd_verdict=pass; sd_text=": derived $FALLBACK_SD_IMAGE" ;;
     repaired)    sd_verdict=pass; sd_text=": WAS MODIFIED — re-derived from the verified distribution image" ;;
     recipe)      sd_verdict=pass; sd_text=": made by image recipe ${sd_old_recipe:-(none recorded)} — re-derived with recipe $sd_want_recipe" ;;
+    adopted)     sd_verdict=pass; sd_text=": candidate card used as it is and witnessed (no raw to rebuild it from)" ;;
+    seamfail)    sd_verdict=fail; sd_text=": candidate card: $sd_seam_why" ;;
     wrongrecipe) sd_verdict=fail; sd_text=": jnext derived an image of recipe '${sd_got_recipe:-}', expected '$sd_want_recipe' — $JNEXT is not built from this tree" ;;
     norecipe)    sd_verdict=fail; sd_text=": cannot read kFixedImageRecipe from src/core/sdcard_provisioner.cpp" ;;
     *)           sd_verdict=fail; sd_text=": provisioning failed — $FALLBACK_SD_IMAGE was not produced" ;;

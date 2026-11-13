@@ -48,9 +48,12 @@ if want sdcard-inventory-func; then
         printf '\x41\x80\x01\x00' | dd of="$1" bs=1 seek=$((0x1BE + 12)) conv=notrunc status=none
         printf '\x55\xaa' | dd of="$1" bs=1 seek=510 conv=notrunc status=none
     }
-    # mkcard <img> <cluster-sectors> <fw-size> <fw-magic-escape> <tbu-core-major-escape> <tbu-core-minor-escape> <zx81-file> [mf]
+    # rec <type> <boardid> <core_major> <core_minor>: one 15-byte TBU record
+    rec() { printf "$(printf '\\x%02x' 15 "$1" "$2" "$3" "$4")"; head -c 10 /dev/zero; }
+    # mkcard <img> <cluster-sectors> <fw-size> <fw-magic-escape> <zx81-file> <mf-file|-> <dot names|-> <tbu record args...>
+    # (each TBU record is "type boardid core_major core_minor" in decimal, one argument each)
     mkcard() {
-        local img=$1 cl=$2 fwsize=$3 magic=$4 cmaj=$5 cmin=$6 zx=$7 mf=${8:-}
+        local img=$1 cl=$2 fwsize=$3 magic=$4 zx=$5 mf=$6 dots=$7 r; shift 7
         rm -f "$img"; truncate -s "$SIZE" "$img"
         mbr "$img"
         LANG=C mformat -i "$img@@$OFF" -F -T $(( (SIZE - OFF) / 512 )) -h 255 -s 63 -c "$cl" -N 01020304 \
@@ -59,24 +62,40 @@ if want sdcard-inventory-func; then
         head -c 16384 /dev/zero | tr '\0' 'H' > "$W/48.rom"
         { printf "$magic"; head -c $((fwsize - 4)) /dev/zero; } > "$W/TBBLUE.FW"
         { printf 'TBUFILE\0ZX SPECTRUM NEXT\0'
-          printf '\x0f\x01\x02'"$cmaj$cmin"; head -c 10 /dev/zero
-          printf '\xff'; head -c 471 /dev/zero; } > "$W/TBBLUE.TBU"
+          for r in "$@"; do rec $r; done
+          printf '\xff'; head -c 400 /dev/zero; } | head -c 512 > "$W/TBBLUE.TBU"
         LANG=C mcopy -i "$img@@$OFF" "$W/48.rom" ::/machines/next/48.rom </dev/null || return 1
         LANG=C mcopy -i "$img@@$OFF" "$zx" ::/machines/next/zx81.rom </dev/null || return 1
         LANG=C mcopy -i "$img@@$OFF" "$W/TBBLUE.FW" ::/TBBLUE.FW </dev/null || return 1
         LANG=C mcopy -i "$img@@$OFF" "$W/TBBLUE.TBU" ::/TBBLUE.TBU </dev/null || return 1
-        [[ -z "$mf" ]] || LANG=C mcopy -i "$img@@$OFF" "$mf" ::/machines/next/enNextMf.rom </dev/null
+        [[ "$mf" == - ]] || LANG=C mcopy -i "$img@@$OFF" "$mf" ::/machines/next/enNextMf.rom </dev/null || return 1
+        if [[ "$dots" != - ]]; then
+            LANG=C mmd -i "$img@@$OFF" ::/dot </dev/null 2>/dev/null || return 1
+            for r in $dots; do LANG=C mcopy -i "$img@@$OFF" "$W/48.rom" "::/dot/$r" </dev/null || return 1; done
+        fi
+        return 0
     }
+    # mkbare <img> <sectors>: an empty FAT32 volume of exactly that many sectors, 512-byte clusters
+    mkbare() {
+        rm -f "$1"; truncate -s $(( OFF + $2 * 512 )) "$1"
+        mbr "$1"
+        LANG=C mformat -i "$1@@$OFF" -F -T "$2" -h 255 -s 63 -c 1 -N 01020304 :: </dev/null >/dev/null 2>&1
+    }
+    # clusters_of <img>: the data-cluster count the tool reports
+    clusters_of() { "$INV" "$1" 2>/dev/null | sed -n 's/^bpb data-clusters=//p'; }
+
 
     head -c 16384 /dev/zero | tr '\0' 'Z' > "$W/zx-a.rom"
     cat "$W/zx-a.rom" "$W/zx-a.rom" > "$W/zx-b.rom"
     { head -c 16384 /dev/zero | tr '\0' 'Z'; head -c 16384 /dev/zero | tr '\0' 'Y'; } > "$W/zx-c.rom"
     head -c 8192 /dev/zero | tr '\0' 'M' > "$W/mf.rom"
+    dot_digest=$(printf '::/dot/%s\n' ls cat zz | sort | sha256sum | cut -d' ' -f1)
     zx_sha=$(sha256sum < "$W/zx-a.rom" | cut -d' ' -f1)
     zx_c_sha=$(sha256sum < "$W/zx-c.rom" | cut -d' ' -f1)
 
-    if ! mkcard "$W/a.img" 1 304640 '\x00\x00\x36\x00' '\x32' '\x01' "$W/zx-a.rom" \
-       || ! mkcard "$W/b.img" 4 635904 '\x00\x00\x40\x00' '\x33' '\x00' "$W/zx-b.rom" "$W/mf.rom"; then
+    if ! mkcard "$W/a.img" 1 304640 '\x00\x00\x36\x00' "$W/zx-a.rom" - "LS Cat zz" "1 2 50 1" \
+       || ! mkcard "$W/b.img" 4 635904 '\x00\x00\x40\x00' "$W/zx-b.rom" "$W/mf.rom" "ls CAT ZZ" \
+            "1 3 51 0" "1 32 51 0" "1 18 51 0" "3 0 50 4"; then
         faults+=("harness: could not build the scratch FAT32 cards with mtools")
     else
         fw_a_sha=$(sha256sum < <({ printf '\x00\x00\x36\x00'; head -c 304636 /dev/zero; }) | cut -d' ' -f1)
@@ -92,6 +111,7 @@ if want sdcard-inventory-func; then
             "file TBBLUE.FW size=304640 sha256=$fw_a_sha" \
             "fw-magic 00003600" \
             "tbu type=1 board=2 display=0 core=3.02.01" \
+            "dot names=3 digest=$dot_digest" \
             "file MACHINES/NEXT/enNextMf.rom absent" \
             "bpb serial=01020304" \
             "bpb bytes-per-sector=512 sectors-per-cluster=1 reserved=32 fats=2 fat-size=$(od -An -tu4 -j $((OFF + 0x24)) -N4 "$W/a.img" | tr -d ' ') total-sectors=$(( (SIZE - OFF) / 512 ))"; do
@@ -109,13 +129,16 @@ if want sdcard-inventory-func; then
         [[ $rc == 1 ]] || faults+=("c: --diff A B exited $rc, wanted 1")
         keys=$(awk '{k=$2; if ($2 == "bpb" || $2 == "file") k=$2 " " $3; sub(/=.*/, "", k); print k}' <<< "$out" | sort -u | tr '\n' ';')
         want_keys="bpb bytes-per-sector;bpb data-clusters;fat32-valid;file MACHINES/NEXT/enNextMf.rom;file TBBLUE.FW;file TBBLUE.TBU;fw-magic;tbu;zx81;"
+        # (no "dot" key: card B's /dot holds the same names as A's in other letter case)
         [[ "$keys" == "$want_keys" ]] || faults+=("c: --diff A B names '$keys', wanted '$want_keys'")
         grep -qFx -- "A: fat32-valid yes" <<< "$out" && grep -qFx -- "B: fat32-valid no" <<< "$out" \
             || faults+=("c: --diff A B does not say A is FAT32-valid and B is not")
         grep -qFx -- "B: zx81 32768 halves-identical half-sha256=$zx_sha" <<< "$out" \
             || faults+=("c: --diff A B does not report B's zx81.rom as A's file twice")
-        grep -qFx -- "B: tbu type=1 board=2 display=0 core=3.03.00" <<< "$out" \
-            || faults+=("c: --diff A B does not report B's core 3.03.00 record")
+        for want_line in "B: tbu type=1 board=3 display=0 core=3.03.00" "B: tbu type=1 board=0 display=2 core=3.03.00" \
+                         "B: tbu type=1 board=2 display=1 core=3.03.00" "B: tbu type=3 board=0 display=0 core=3.02.04"; do
+            grep -qFx -- "$want_line" <<< "$out" || faults+=("c: --diff A B lacks '$want_line' (TBU board/display/type decode)")
+        done
         grep -qFx -- "B: fw-magic 00004000" <<< "$out" || faults+=("c: --diff A B does not report B's firmware magic")
 
         # (c2) a 32 KB zx81.rom whose halves differ is not reported as doubled
@@ -125,6 +148,29 @@ if want sdcard-inventory-func; then
         out=$("$INV" "$W/c.img" 2>&1) || true
         grep -qFx -- "zx81 32768 halves-differ sha256=$zx_c_sha" <<< "$out" \
             || faults+=("c2: a 32 KB zx81.rom with different halves is not reported as halves-differ")
+
+        # (f) the FAT32 validity boundary (65525 data clusters) and every ABSENT branch, on bare cards
+        t=66583; i=0
+        while (( i < 12 )); do
+            mkbare "$W/edge.img" "$t" || break
+            n=$(clusters_of "$W/edge.img"); [[ -n "$n" ]] || break
+            (( n == 65525 )) && break
+            t=$(( t + 65525 - n )); i=$((i + 1))
+        done
+        if [[ "$(clusters_of "$W/edge.img")" != 65525 ]]; then
+            faults+=("f: could not size a bare card to exactly 65525 data clusters")
+        else
+            "$INV" "$W/edge.img" > "$W/edge.inv" 2>/dev/null || faults+=("f: the inventory of the 65525-cluster card failed")
+            for want_line in "bpb data-clusters=65525" "fat32-valid yes" "file TBBLUE.FW absent" "file TBBLUE.TBU absent" \
+                             "file MACHINES/NEXT/menu.def absent" "fw-magic absent" "zx81 absent" "tbu absent" "dot absent"; do
+                grep -qFx -- "$want_line" "$W/edge.inv" || faults+=("f: the 65525-cluster empty card lacks the line '$want_line'")
+            done
+            mkbare "$W/edge1.img" $(( t - 1 )) || faults+=("f: could not build the 65524-cluster card")
+            "$INV" "$W/edge1.img" > "$W/edge1.inv" 2>/dev/null || true
+            for want_line in "bpb data-clusters=65524" "fat32-valid no"; do
+                grep -qFx -- "$want_line" "$W/edge1.inv" || faults+=("f: the 65524-cluster card lacks the line '$want_line'")
+            done
+        fi
 
         # (d) bad input: exit 2 on a non-FAT file, a missing file, and missing arguments
         head -c 65536 /dev/zero > "$W/junk.img"

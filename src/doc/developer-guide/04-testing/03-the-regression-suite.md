@@ -131,17 +131,40 @@ the same tree twice (the same non-PGO `jnext`, master A = the default, master B
 4. **Run the unit suites on B**: `JNEXT_TEST_SD_IMAGE=<a reflinked copy of B's
    fixed card> make unit-test`. The harness honours a preset image; rows that pin
    file sizes or magic bytes of the default distribution turn red by design.
-5. **Run the full regression twice, bare**, A and then B. B adds two
-   environment variables, both validated by the driver:
+5. **Run the full regression twice, bare**, A and then B, with the same
+   non-PGO binary (bare `regression.sh` would otherwise pick the PGO build
+   first):
+
+   ```bash
+   JNEXT=$PWD/build/gui-release-non-pgo/jnext bash test/00regression/regression.sh
+   JNEXT=$PWD/build/gui-release-non-pgo/jnext \
+   JNEXT_REGRESSION_SD_STATE_DIR=$HOME/tmp/cand/state \
+   JNEXT_REGRESSION_SHOTS_DIR=$HOME/tmp/cand/shots \
+       bash test/00regression/regression.sh
+   ```
+
+   (`make regression-rows` pins that binary itself and is not refused under the
+   seam.) The two variables are validated by the driver:
    `JNEXT_REGRESSION_SD_STATE_DIR` (the state directory whose `sdcard/` holds
    the master, in place of `~/.jnext`) and `JNEXT_REGRESSION_SHOTS_DIR` (where a
    failing screenshot row leaves its actual PNG, which is otherwise deleted with
-   the run directory). Both must be absolute paths outside the checkout, and a
+   the run directory; the driver creates it). Both must be absolute paths
+   without a `..` component, outside the checkout (`//` and `/./` are
+   collapsed before that test; a symlink into the checkout is not detected). A
    run that sets the state directory is refused if it is stamped
    (`JNEXT_REGRESSION_STAMP`, so `make regression` and `make regression-confirm`)
    or asked to regenerate references (`--update`): the stamp and the references
    certify the default card. Such a run is bare `regression.sh`, never stamped.
    The `[sdcard-provision]` row names the master in use.
+
+   **What the seam directory must hold.** A candidate card is never deleted
+   and never replaced by a download. `sdcard/cspect-next-1gb-fixed.img` is the
+   card under test. With no witness beside it, the card is used as it is and a
+   witness is written. If the card is missing, or no longer matches its
+   witness, the row can only rebuild it from `sdcard/cspect-next-1gb.img` plus
+   `cspect-next-1gb.img.sha256` (what step 1 leaves behind) and fails, saying
+   why, when that raw does not verify. A card with the wrong recipe sidecar is
+   re-derived only from such a raw.
 
 The card, the distribution zip and anything derived from them (an MBR or BPB
 dump, a ROM, a screenshot of a candidate screen that is going to be posted) are

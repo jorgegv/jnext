@@ -295,7 +295,15 @@ for seam_var in JNEXT_REGRESSION_SD_STATE_DIR JNEXT_REGRESSION_SHOTS_DIR; do
     # checkout is not detected.
     [[ "/$seam_val/" != *"/../"* ]] || harness_fault "${BOLD}$seam_var${RESET} must not contain a '..' component" \
                                                     "Got '$seam_val'."
-    [[ "$seam_val" != "$PROJECT_DIR" && "$seam_val" != "$PROJECT_DIR"/* ]] \
+    # '//' and '/./' (an easy product of "$DIR/" concatenation) are collapsed first, so
+    # they cannot hide the checkout prefix.
+    seam_norm="$seam_val/"
+    while [[ "$seam_norm" == *"//"* || "$seam_norm" == *"/./"* ]]; do
+        seam_norm=${seam_norm//\/\//\/}
+        seam_norm=${seam_norm//\/.\//\/}
+    done
+    seam_norm=${seam_norm%/}
+    [[ "$seam_norm" != "$PROJECT_DIR" && "$seam_norm" != "$PROJECT_DIR"/* ]] \
         || harness_fault "${BOLD}$seam_var${RESET} is inside the checkout ($PROJECT_DIR)" \
                          "Card images and their screens never go where git add can see them."
 done
