@@ -4785,6 +4785,12 @@ the saved GUI preference for this run. Interactive (SDL/Qt)
 frontends only; inert under <strong>--headless</strong>. The GUI equivalent is
 <em>Release captured mouse with</em> under <strong>Settings &gt; Preferences &gt;
 Input</strong>, which applies live.</dd>
+<dt><strong>--touch-keyboard</strong> <em>MODE</em></dt>
+<dd>Browser build only: when the on-screen Spectrum keyboard is shown.
+<code>auto</code> (default) shows it on a phone or tablet (a device whose main
+pointer is a finger), <code>on</code> always, <code>off</code> never. A page can also show
+or hide it while it runs (see <strong>The touch keyboard</strong>). Accepted,
+with a warning, and ignored by every other build.</dd>
 <dt><strong>--joy-uart-rx</strong> <em>FILE</em></dt>
 <dd>
 <p>Attach <em>FILE</em> as a serial byte source on the joystick-port UART RX

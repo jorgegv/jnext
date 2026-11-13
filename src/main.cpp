@@ -1246,6 +1246,21 @@ int main(int argc, char* argv[]) {
                 mouse_release_set = true;
                 note_given(config_keys::KeyId::InputMouseRelease, arg);
                 break;
+            case cli::OptId::TouchKeyboard: {
+                cli::TouchKeyboard tk;
+                if (!cli::parse_touch_keyboard(v[0], tk)) {
+                    std::fprintf(stderr,
+                        "Unknown --touch-keyboard value: %s (valid: auto, on, off)\n", v[0]);
+                    return 1;
+                }
+#ifdef JNEXT_BROWSER
+                browser_frontend::set_touch_keyboard(static_cast<int>(tk));
+#else
+                std::fprintf(stderr,
+                    "warning: --touch-keyboard has no effect outside a browser page; ignoring.\n");
+#endif
+                break;
+            }
             case cli::OptId::JoyUartRx:
                 joy_uart_rx_file = v[0];
                 break;

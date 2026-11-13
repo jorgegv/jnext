@@ -346,6 +346,13 @@ naming the option and the value, and exits with status 1.
     captured mouse with* under **Settings > Preferences > Input**, which applies
     live.
 
+**\--touch-keyboard** *MODE*
+:   Browser build only: when the on-screen Spectrum keyboard is shown. `auto`
+    (default) shows it on a phone or tablet (a device whose main pointer is a
+    finger), `on` always, `off` never. A page can also show or hide it while it
+    runs (see **The touch keyboard**). Accepted, with a warning, and ignored by
+    every other build.
+
 **\--joy-uart-rx** *FILE*
 :   Attach *FILE* as a serial byte source on the joystick-port UART RX pin — the
     "PC" end of a joy-port serial cable, as used by a dezogif / DeZog serial rig.
@@ -2856,6 +2863,10 @@ asked), with the plain picture otherwise.
 `machine` *string*
 :   **\--machine**.
 
+`touchKeyboard` *string*
+:   **\--touch-keyboard**: `'auto'` (default; the on-screen keyboard is shown on a
+    phone or tablet), `'on'` or `'off'`.
+
 `muted` *boolean*
 :   `startup.silent`: no audio device for the session.
 
@@ -2887,7 +2898,32 @@ another program while the machine runs. `setVolume(v)` sets the master output
 level, `0` to `1`. `destroy()` stops the machine and removes the player (it waits until the saves
 of **keepWrites** are stored). `resetCard()` discards the saves kept by
 `keepWrites` (the saved file included) and restarts the program; it needs that option, and resolves when
-the program is running again.
+the program is running again. `showKeyboard(on)` shows (`true`) or hides (`false`) the
+on-screen keyboard, whatever **\--touch-keyboard** says; the page's call wins, before or after the
+start, and anything but a boolean throws. `keyboardVisible` tells whether it is shown.
+
+## The touch keyboard
+
+The on-screen Spectrum Next keyboard is for devices with no keyboard. It sits at the bottom of the
+player's box, which keeps the size the page gave it; the screen above it shrinks by the
+keyboard's height. It is built on the first time it is shown, so a page that never shows it has
+the DOM it would have without it.
+
+Its keys are typed as the keys of a PC keyboard are: through the same path, so what the program sees
+is what a physical keyboard gives. A key goes down when a finger lands on it and up when the finger
+lifts; several fingers hold several keys, for chords and for games. Tapping a key never moves the
+keyboard focus off the screen.
+
+There are two layouts, chosen by the width of the box and followed when it changes: below 504 CSS
+pixels the 40 keys of the 48K keyboard, in four rows (every other key of the Next is Caps Shift or
+Symbol Shift plus a key, as on a 48K), and from 504 pixels on the Next's 58 keys, in five rows, with
+the sixteen extra keys (Delete, Edit, Break, Graph, Extend, the cursor keys and the rest). Its height
+is at most 45% of the box.
+
+Caps Shift and Symbol Shift latch: a quick tap (under half a second, with no other key pressed
+meanwhile) leaves the shift waiting, shown as pressed, and the next key is typed with it; a tap on a
+waiting shift cancels it. A shift held longer, or held while another key is pressed, is an ordinary
+hold and does not wait. Each key has an accessible name, and the shifts report `aria-pressed`.
 
 ## Not available in the browser
 

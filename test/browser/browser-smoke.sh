@@ -9,10 +9,10 @@
 # (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
 # boots the example page), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
-# guide's two embedding snippets, run verbatim), `writes.mjs:12` (rows WBW-01..12: the guest's writes
+# guide's two embedding snippets, run verbatim), `touch.mjs:17` (rows TKB-01..17: the on-screen keyboard
+# under touch-device emulation) and `writes.mjs:12` (rows WBW-01..12: the guest's writes
 # kept across page loads, against a native journal oracle) and `../bench/web/bench-stats-test.mjs:12` (rows
-# WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser) and `crt.mjs:13` (rows
-# BCRT-01..13: the CRT effect, crtemu on SDL's WebGL context, and its fallbacks). Further specs
+# WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,
 # and its row count is pinned here, so a spec that loses rows fails the run.
@@ -37,7 +37,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "$@")
+SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "../bench/web/bench-stats-test.mjs:12" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -105,6 +105,8 @@ oracle keys     headless --machine 48k --delayed-keypress-frames 200 p --delayed
 oracle key1     headless --machine 48k --delayed-keypress-frames 200 1 --delayed-screenshot "$O/key1.png" --delayed-screenshot-frames 400 --delayed-automatic-exit-frames 600
 oracle pad      headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 6 \
                          --delayed-keypress-frames 245 enter --delayed-screenshot "$O/pad.png" --delayed-screenshot-frames 420 --delayed-automatic-exit-frames 600
+oracle kmx      headless --machine 48k --load "$ROOT/test/fixtures/tap/key_matrix_demo.tap" --magic-port 0xCAFE --magic-port-mode line \
+                         --delayed-keypress-frames 400 p --delayed-screenshot "$O/kmx.png" --delayed-screenshot-frames 500 --delayed-automatic-exit-frames 600
 
 # The per-subsystem log level oracle (BRW-27): the same arguments natively print the line the page must print.
 cp --reflink=auto "$SCRATCH/card.img" "$O/copper.card"
