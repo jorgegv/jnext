@@ -84,11 +84,14 @@ and at the root of the macOS image; the Ubuntu deb that links a vendored SDL3
 adds its licence (`sdl3.txt`). The Windows zips get the folder from
 `packaging/windows/bundle-dlls.sh`, which also copies the licence files of the
 Fedora package that owns each bundled DLL into `licenses/bundled/<package>/`
-(a package with none uses `packaging/windows/license-fallbacks/`) and refuses
-to bundle when a DLL has no licence at all. On macOS,
+(Fedora's bzip2, win-iconv and zlib ship none: the texts in
+`packaging/windows/license-fallbacks/` stand in) and refuses to bundle when a
+DLL has no licence at all. On macOS,
 `packaging/macos/bundle-licenses.sh` does the same for the Homebrew libraries
 macdeployqt copies into the bundle (`licenses/bundled/<formula>/`, from the
-formula's keg) and fails the package when a library's formula has no licence.
+formula's keg) and fails the package when a library's formula has no licence. Homebrew copies only
+top-level licence files into a keg, so the Qt and glib kegs get texts from
+`packaging/macos/license-fallbacks/`.
 
 ## `version.yaml` is the single source of truth
 

@@ -203,10 +203,13 @@ fi
 # --- licences ----------------------------------------------------------------
 # licenses/: jnext's third-party texts (packaging/licenses.list) and, per bundled
 # sysroot DLL, the licence files of the Fedora package that owns it
-# (licenses/bundled/<package>/). A package without licence files falls back to
-# packaging/windows/license-fallbacks/<name>.txt, then to its readme; none of
-# these = the bundle is refused.
+# (licenses/bundled/<package>/). A package without licence files (Fedora's
+# mingw bzip2, win-iconv and zlib) uses packaging/windows/license-fallbacks/
+# <name>.txt; no fallback either = the bundle is refused. %doc files are never
+# used: the CI containers install none.
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+FALLBACKS=${LICENSE_FALLBACKS:-$ROOT/packaging/windows/license-fallbacks}
+rm -rf "$DEST/licenses"
 mkdir -p "$DEST/licenses/bundled"
 while IFS='|' read -r name src; do
     case "$name" in ''|'#'*) continue ;; esac
@@ -221,9 +224,8 @@ for f in "${BUNDLED[@]}"; do
     mkdir -p "$out"
     rpm -qL "$pkg" | while read -r l; do if [ -f "$l" ]; then cp -f "$l" "$out/"; fi; done
     if [ -z "$(ls -A "$out")" ]; then
-        fb="$ROOT/packaging/windows/license-fallbacks/${pkg#mingw??-}.txt"
-        if [ -f "$fb" ]; then cp -f "$fb" "$out/"
-        else rpm -qd "$pkg" | { grep -i '/readme' || true; } | while read -r l; do cp -f "$l" "$out/"; done; fi
+        fb="$FALLBACKS/${pkg#mingw??-}.txt"
+        if [ -f "$fb" ]; then cp -f "$fb" "$out/"; fi
     fi
     [ -n "$(ls -A "$out")" ] || { echo "error: no licence file for package $pkg ($f)" >&2; exit 1; }
 done
