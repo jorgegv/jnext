@@ -128,8 +128,10 @@ function bandFirstBad(im, y0, y1, x0, x1, ok) {
   return null;
 }
 const plainBand = (im, border) => bandFirstBad(im, 0, 62, 0, 639, (c) => eq(c, border, 1));
-const scanBand = (im, border) => bandFirstBad(im, 0, 62, 0, 639, (c, x, y) =>
-  eq(c, (y & 1) ? border.map((v) => Math.round(v * 191 / 255)) : border, 1));
+// The scanlines cover the whole height: the top band, and the left border (cols 0..60) down all 512 rows.
+const scanOk = (border) => (c, x, y) => eq(c, (y & 1) ? border.map((v) => Math.round(v * 191 / 255)) : border, 1);
+const scanBand = (im, border) => bandFirstBad(im, 0, 62, 0, 639, scanOk(border)) ||
+                                 bandFirstBad(im, 0, im.h - 1, 0, 60, scanOk(border));
 const noEffectWarning = (lines) => !lines.some((l) => /has no effect|CRT effect:/.test(l));
 const effectLines = (lines) => lines.filter((l) => /CRT effect:/.test(l));
 const corners = (im) => [[0, 0], [im.w - 1, 0], [0, im.h - 1], [im.w - 1, im.h - 1]];
@@ -138,7 +140,8 @@ const mean = (im, pts) => pts.reduce((a, [x, y]) => a + (px(im, x, y).reduce((s,
 // ---- rows ------------------------------------------------------------------------------------
 row('BCRT-01', 'off by default and with --crt off: no crtemu shader is built, the top border band is the plain border colour, no GL error', async () => {
   const border = await readBorder();
-  for (const args of [[], ['--crt', 'off']]) {
+  // the last CRT setting wins: tv (or scanlines) then off is off
+  for (const args of [[], ['--crt', 'off'], ['--crt', 'tv', '--crt', 'off'], ['--crt', 'scanlines', '--crt', 'off']]) {
     const page = await open(args);
     await waitFrame(page, 60);
     const im = await shot(page);
@@ -155,14 +158,18 @@ row('BCRT-01', 'off by default and with --crt off: no crtemu shader is built, th
 
 row('BCRT-02', '--crt scanlines: no crtemu, odd logical rows darkened by 25% (alpha 64), even rows untouched, no "has no effect" warning', async () => {
   const border = await readBorder();
-  const page = await open(['--crt', 'scanlines']);
-  await waitFrame(page, 60);
-  const im = await shot(page);
-  must(!(await built(page)), 'crtemu was built');
-  const bad = scanBand(im, border);
-  must(!bad, `band pixel ${bad}, border ${border}`);
-  must(noEffectWarning(await stderr(page)), 'a CRT or has-no-effect line was printed');
-  must((await glError(page)) === 0, 'GL error');
+  // the last CRT setting wins: the shader set first, then scanlines, is scanlines
+  for (const args of [['--crt', 'scanlines'], ['--set', 'startup.crt_shader=true', '--crt', 'scanlines']]) {
+    const page = await open(args);
+    await waitFrame(page, 60);
+    const im = await shot(page);
+    must(!(await built(page)), `${args}: crtemu was built`);
+    const bad = scanBand(im, border);
+    must(!bad, `${args}: pixel ${bad}, border ${border}`);
+    must(noEffectWarning(await stderr(page)), `${args}: a CRT or has-no-effect line was printed`);
+    must((await glError(page)) === 0, `${args}: GL error`);
+    await page.ctx.close();
+  }
 });
 
 async function tvGeometry(page, who, edgeBlack, edgeLit) {
@@ -179,6 +186,11 @@ async function tvGeometry(page, who, edgeBlack, edgeLit) {
 }
 
 row('BCRT-03', '--crt tv: crtemu runs on SDL\'s context with no GL error; exact black outside the curved glass (middle row x 0..9, the four corners), lit inside, centre lit', async () => {
+  // the last CRT setting wins: off then tv is tv
+  const later = await open(['--crt', 'off', '--crt', 'tv']);
+  await waitFrame(later, 100);
+  must(await built(later), 'off then tv: crtemu was not built');
+  await later.ctx.close();
   const page = await open(['--crt', 'tv']);
   await tvGeometry(page, { name: 'tv', id: 'BCRT-03' }, 9, [13, 14, 15, 16, 17, 18, 19, 20]);
   const err = await glError(page);
