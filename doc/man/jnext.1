@@ -920,8 +920,8 @@ to +24 dB.
 .TP
 \f[B]\-\-rzx\-play\f[R] \f[I]FILE\f[R]
 Play back an RZX recording from the start of the run.
-Works the same in the GUI, the SDL\-only build and under
-\f[B]\-\-headless\f[R].
+Works the same in the GUI, the SDL\-only build, under
+\f[B]\-\-headless\f[R] and in a browser page.
 A recording that fails to load is logged, and \f[B]jnext\f[R] then exits
 non\-zero.
 The machine starts exactly as it does for \f[B]\-\-load\f[R]
@@ -954,6 +954,8 @@ The file is written when \f[B]jnext\f[R] exits (or, in the GUI, at
 \f[B]File > Stop RZX Recording\f[R]).
 Works the same in the GUI, the SDL\-only build and under
 \f[B]\-\-headless\f[R].
+A browser page refuses it and records from JavaScript (see THE BROWSER
+BUILD).
 While recording, a tape loads in real time: a fast load skips the ROM
 loader, which a recording cannot replay.
 The snapshot is an SZX on the 128K, Pentagon and +3 and a 48K SNA on the
@@ -3753,9 +3755,9 @@ Every option of \f[B]mount\f[R] is a command\-line flag or a
 line would ask for; the player\(cqs \f[CR]argv\f[R] property shows that
 command line.
 A browser page loads \f[CR].nex\f[R], \f[CR].tap\f[R], \f[CR].tzx\f[R]
-and \f[CR].wav\f[R] programs and \f[CR].jns\f[R], \f[CR].sna\f[R],
-\f[CR].szx\f[R] and \f[CR].z80\f[R] snapshots; a snapshot runs on the
-machine it was saved on.
+and \f[CR].wav\f[R] programs, \f[CR].rzx\f[R] recordings and
+\f[CR].jns\f[R], \f[CR].sna\f[R], \f[CR].szx\f[R] and \f[CR].z80\f[R]
+snapshots; a snapshot or a recording runs on the machine it was made on.
 A \f[CR].wav\f[R] plays in real time, as from a cassette, and only while
 the machine runs: \f[CR]pause()\f[R] or a hidden tab stops the tape
 where it is.
@@ -3790,9 +3792,9 @@ has fetched and checked the image.
 \f[CR]file\f[R] \f[I]URL | {url} | {data, name}\f[R]
 \f[B]\-\-load\f[R].
 The program to run (\f[CR].nex\f[R], \f[CR].tap\f[R], \f[CR].tzx\f[R],
-\f[CR].wav\f[R], or a \f[CR].jns\f[R], \f[CR].sna\f[R], \f[CR].szx\f[R]
-or \f[CR].z80\f[R] snapshot); without it the machine boots to the
-NextZXOS menu.
+\f[CR].wav\f[R], a \f[CR].rzx\f[R] recording, or a \f[CR].jns\f[R],
+\f[CR].sna\f[R], \f[CR].szx\f[R] or \f[CR].z80\f[R] snapshot); without
+it the machine boots to the NextZXOS menu.
 .TP
 \f[CR]keepWrites\f[R] \f[I]boolean\f[R]
 \f[B]\-\-sdcard\-writes\f[R], with a file the page manages: what the
@@ -3858,6 +3860,16 @@ again (\f[CR]\(aqhard\(aq\f[R]) or resets it (\f[CR]\(aqsoft\(aq\f[R]).
 snapshot of the running machine (\f[B]\-\-snapshot\-compression\f[R]
 applies), for the page to offer as a download or give back to
 \f[CR]load()\f[R] as \f[CR]{data, name}\f[R].
+\f[CR]startRzxRecording()\f[R] starts an RZX recording of the machine as
+it is now (not on a ZX Spectrum Next: give the player another
+\f[CR]machine\f[R]); \f[CR]stopRzxRecording()\f[R] ends it and resolves
+to the file\(cqs bytes, for the page to offer as a download or give back
+to \f[CR]load()\f[R] as \f[CR]{data, name}\f[R].
+A reset or a \f[CR]load()\f[R] ends the recording early, and
+\f[CR]stopRzxRecording()\f[R] still returns it; \f[CR]destroy()\f[R]
+drops one that was not stopped.
+While a recording plays, every port read comes from the file: the keys
+do nothing until it ends.
 \f[CR]setVolume(v)\f[R] sets the master output level, \f[CR]0\f[R] to
 \f[CR]1\f[R].
 \f[CR]destroy()\f[R] stops the machine and removes the player (it waits
@@ -3915,7 +3927,8 @@ a message that says so: \f[B]\-\-nextpi\f[R], \f[B]\-\-nextpi\-dir\f[R],
 \f[B]\-\-record\-script\f[R], \f[B]\-\-map\f[R],
 \f[B]\-\-annotations\f[R], \f[B]\-\-import\-skoolkit\f[R],
 \f[B]\-\-import\-ghidra\f[R], \f[B]\-\-headless\f[R] (it would block the
-tab for ever), \f[B]\-\-rzx\-play\f[R] and \f[B]\-\-rzx\-record\f[R].
+tab for ever) and \f[B]\-\-rzx\-record\f[R] (a page records from
+JavaScript, see The player).
 The settings of the refused flags are refused when given as set entries
 too: \f[CR]esp.enabled\f[R], \f[CR]esp.allowed_hosts\f[R],
 \f[CR]nextpi.enabled\f[R], \f[CR]nextpi.dir\f[R],

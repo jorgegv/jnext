@@ -191,6 +191,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - An on-screen Spectrum Next keyboard for phones and tablets (`touchKeyboard`, `--touch-keyboard`, `data-touch-keyboard`, `player.showKeyboard()`): the 40 keys of a 48K or the Next's 58, latching Caps and Symbol Shift, several fingers at once, typed through the same path as a PC keyboard.
 - `.wav` tapes load in a page (in real time, as from a cassette).
 - Snapshots load in a page (`.jns`, `.sna`, `.szx`, `.z80`, on the machine they were saved on), and `player.saveSnapshot()` returns a `.jns` of the running machine for the page to download.
+- `.rzx` recordings play in a page, and a page records one from JavaScript (`player.startRzxRecording()` / `stopRzxRecording()` return the file for download).
 
 ## CLI
 - `--machine`, `--load`, `--headless`, `--tape-realtime`, `--tape-save`, `--esxdos-stub`

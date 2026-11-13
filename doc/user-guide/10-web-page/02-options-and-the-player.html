@@ -4328,6 +4328,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#recording-a-game" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recording a game
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#keyboard" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4499,7 +4510,7 @@
 <tr>
 <td><code>file</code></td>
 <td>URL, <code>{url}</code> or <code>{data, name}</code></td>
-<td>The program to run, as <code>--load</code>. <code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code>, or a <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code> snapshot, which runs on the machine it was saved on (see "Saving the game" below). Without it the machine boots to the NextZXOS menu.</td>
+<td>The program to run, as <code>--load</code>. <code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code>, an <code>.rzx</code> recording, or a <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code> snapshot, which runs on the machine it was saved on (see "Saving the game" below; recordings: "Recording a game"). Without it the machine boots to the NextZXOS menu.</td>
 </tr>
 <tr>
 <td><code>machine</code></td>
@@ -4592,6 +4603,14 @@
 <td>Resolves to a <code>Uint8Array</code> holding a <code>.jns</code> snapshot of the running machine (<code>args: ['--snapshot-compression', 'off']</code> stores it uncompressed). Rejects if the machine is not running.</td>
 </tr>
 <tr>
+<td><code>startRzxRecording()</code></td>
+<td>Starts an RZX recording of the machine as it is now. Rejects if the machine is not running, if one is already running, or if it cannot start (a ZX Spectrum Next, an RZX playing: the console says which).</td>
+</tr>
+<tr>
+<td><code>stopRzxRecording()</code></td>
+<td>Ends the recording and resolves to a <code>Uint8Array</code> holding the <code>.rzx</code> file. Rejects if none is running.</td>
+</tr>
+<tr>
 <td><code>setVolume(v)</code></td>
 <td>Master level, 0 (silent) to 1; anything else throws a <code>RangeError</code>. A player started <code>muted</code> has no audio device.</td>
 </tr>
@@ -4658,6 +4677,24 @@ reason in the browser console). <code>args: ['--snapshot-mode', 'force']</code> 
 page's risk. A <code>.jns</code> that had a tape attached remembers the tape by its path; one saved in a
 page names a file of the page's memory, so on another JNEXT it restores without the tape.
 A snapshot never uses the stored NextZXOS recording (10.4): it starts at once.</p>
+<h2 id="recording-a-game">Recording a game<a class="headerlink" href="#recording-a-game" title="Permanent link">&para;</a></h2>
+<p><code>startRzxRecording()</code> records the machine from the moment it is called, input included, and
+<code>stopRzxRecording()</code> gives the page the <code>.rzx</code> file, to offer as a download:</p>
+<pre><code class="language-js">await player.startRzxRecording();
+// ... the visitor plays ...
+const bytes = await player.stopRzxRecording();
+const a = document.createElement('a');
+a.href = URL.createObjectURL(new Blob([bytes]));
+a.download = 'game.rzx';
+a.click();
+</code></pre>
+<p>A recording is refused on a ZX Spectrum Next, which is the default machine: give the player
+<code>machine: '48k'</code>, <code>'128k'</code>, <code>'plus3'</code> or <code>'pentagon'</code>. While recording, a tape loads in real
+time. A <code>reset()</code> or a <code>load()</code> ends the recording early; <code>stopRzxRecording()</code> still returns it.
+A recording plays on the machine it was made on: given as <code>file</code>, an explicit <code>machine</code> wins at
+the start, and later <code>load()</code> and <code>reset()</code> use the recording's. While it plays, every port read
+comes from the file, so the visitor's keys do nothing until the console says <code>RZX: playback
+complete</code>; then the machine runs on, live. <code>load()</code> takes a recording back like any program.</p>
 <h2 id="keyboard">Keyboard<a class="headerlink" href="#keyboard" title="Permanent link">&para;</a></h2>
 <p>The player takes the keys while its canvas has focus (the click focuses it). The
 host modifier for JNEXT's own shortcuts is Alt (Option on a Mac); Ctrl+W, Ctrl+T,

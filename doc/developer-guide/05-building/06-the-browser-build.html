@@ -3122,7 +3122,7 @@ the output of <code>git grep -n EMSCRIPTEN</code> over the CMake files.</p>
   conditional.</li>
 </ul>
 <p><code>src/platform/browser_page.h</code> has no arm of its own: <code>main.cpp</code> includes it only under
-<code>JNEXT_BROWSER</code>, and it holds the page's own refusals (<code>--headless</code>, RZX, program
+<code>JNEXT_BROWSER</code>, and it holds the page's own refusals (<code>--headless</code>, <code>--rzx-record</code>, program
 formats).</p>
 <h2 id="at-run-time">At run time<a class="headerlink" href="#at-run-time" title="Permanent link">&para;</a></h2>
 <p>The browser frontend is a second target of the same tree, <code>jnext_web</code>: the same
@@ -3161,7 +3161,7 @@ the man page's browser section is diffed against the table and the refusal
 functions by <code>web_api_test</code> (run by <code>make cli-check</code>). The controller
 (<code>web_controller.cpp</code>, a source of <code>jnext_web</code> only) holds the exported calls
 (<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_save_snapshot</code>,
-<code>jnext_web_set_volume</code>, <code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
+<code>jnext_web_rzx_record</code>, <code>jnext_web_rzx_stop</code>, <code>jnext_web_set_volume</code>, <code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
 the page when the program is in the machine and a frame has followed (the <code>ready</code>
 event, <code>Module.jnextEvent</code>). <code>jnext_web_load_applied</code>, <code>jnext_web_gain_db</code>,
 <code>jnext_web_frame_period_ms</code> and <code>jnext_web_cpu_mhz</code> (the frame period and the
@@ -3224,7 +3224,10 @@ appears after its first button press (browser policy).</p>
 a NEX-only route (<code>emulator_load_routes_to_nex</code> gates the tick's recording, and <code>load_sna</code>, <code>load_szx</code>,
 <code>load_z80</code> and <code>load_jns_file</code> build or restore the whole machine on their own). <code>saveSnapshot()</code> calls
 <code>jnext_web_save_snapshot</code>, which writes a <code>.jns</code> with <code>Emulator::save_jns_file</code> to a scratch file of the
-in-memory file system; the JavaScript reads it back and deletes it.</p>
+in-memory file system; the JavaScript reads it back and deletes it. <code>startRzxRecording()</code> and
+<code>stopRzxRecording()</code> do the same with <code>jnext_web_rzx_record</code> (<code>Emulator::start_rzx_recording</code>, which refuses and logs
+why on a Next, during a playback and so on) and <code>jnext_web_rzx_stop</code> (<code>stop_rzx_recording</code> when that path is still
+recording; a reset or a load has written it already) into <code>/tmp/jnext-page-&lt;n&gt;-&lt;seq&gt;.rzx</code>.</p>
 <p><em>The touch keyboard.</em> <code>web/jnext-touch-keyboard.js</code> (<code>JnextTouchKeyboard.create</code>) builds the
 on-screen keyboard inside the player's box the first time it is shown, with inline styles only
 (no stylesheet is added to the page). A touch key is a synthetic DOM <code>KeyboardEvent</code>, with only
@@ -3252,16 +3255,16 @@ hidden tab move it exactly as far as the machine runs, never in wall time. It ne
 (<code>fastload_active()</code> excludes it) and the core runs it per instruction (batch gate G4), like a
 real-time <code>.tap</code> or <code>.tzx</code>.</p>
 <p><em>Refused and absent.</em> The build's own flag and <code>--set</code> key refusals apply, and
-the page also refuses <code>--headless</code> (it would block the tab for ever), the RZX
-flags, and any program that is not a <code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, <code>.jns</code>, <code>.sna</code>, <code>.szx</code>, <code>.z80</code> or <code>.wav</code> (<code>browser_page.h</code>),
+the page also refuses <code>--headless</code> (it would block the tab for ever), <code>--rzx-record</code> (a
+page records with the player's methods), and any program that is not a <code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, <code>.jns</code>, <code>.sna</code>, <code>.szx</code>, <code>.z80</code>, <code>.wav</code> or <code>.rzx</code> (<code>browser_page.h</code>),
 each with a message that says "browser page". The browser reserves Ctrl+W, T and
 N (and Ctrl+Q in some browsers), so Symbol Shift plus those letters cannot be
 typed with Ctrl; the operating system keeps Alt+Tab and Alt+F4. Files the
-emulator writes (screenshots, WAV, quick snapshots) live in the in-memory file
-system for the session. <code>--rzx-play</code> is started by a pre-step at the top of
-<code>SdlApp::run()</code>, which the page does not call (<code>--rzx-record</code> starts from <code>tick()</code>);
-a later RZX implementation must move that pre-step into something the loop can call
-before it enables RZX. Two things
+emulator writes (screenshots, WAV, quick snapshots, RZX recordings, which <code>stopRzxRecording()</code> hands to the page) live in the in-memory file
+system for the session. On the desktop <code>--rzx-play</code> is started by a pre-step at the top of
+<code>SdlApp::run()</code>, which the page does not call. In a page an RZX playback (<code>file</code>, <code>--load x.rzx</code>,
+<code>--rzx-play</code>) is the page's pending load (<code>main.cpp</code>) instead: so it fires <code>ready</code>, is what
+<code>reset('program')</code> restarts, and a file that fails rejects <code>ready</code>. Two things
 the browser link carries but never runs: the ESP-01's worker thread and the
 NextPi audio thread sleep in their own thread bodies, and neither is reachable
 from <code>tick()</code>: the flags that start them are refused, and a thread cannot start
@@ -3384,7 +3387,7 @@ the recording was made on is not the one it now boots from.</p>
 <td><code>make wasm-browser-test</code></td>
 <td><code>build/wasm-core</code></td>
 <td>the browser frontend in the pinned Chromium headless shell</td>
-<td>BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-31 (WEBAPI-30 and 31 load a WAV, made at run time from <code>demo/beeper_demo</code>'s TAP by <code>tap2wav.py</code> beside <code>tap2tzx.py</code>, and compare the page with a native run and with <code>tap-demo-reference.png</code>), WIDGET-01 to WIDGET-17, TKB-01 to TKB-17 (the on-screen keyboard, <code>touch.mjs</code>: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's <code>keymaps.vhd</code>, <code>membrane.vhd</code> and <code>zxnext.vhd</code>, with <code>demo/key_matrix_demo</code>, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run <code>kmx.log</code> as oracle), WBW-01 to WBW-17 (the kept writes, <code>writes.mjs</code>: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BSN-01 to BSN-11 (snapshots, <code>snapshots.mjs</code>: a <code>.sna</code>, <code>.z80</code>, <code>.szx</code> and <code>.jns</code> loaded in the page equal the native run of the same file, and <code>saveSnapshot()</code> is read back by the page and by the native jnext), BCRT-01 to BCRT-13 (the CRT effect: <code>test/browser/crt.mjs</code>, structure derived from the vendored shaders, not reference images), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, <code>test/bench/web/bench-stats-test.mjs</code>), and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
+<td>BRW-01 to BRW-34, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-31 (WEBAPI-30 and 31 load a WAV, made at run time from <code>demo/beeper_demo</code>'s TAP by <code>tap2wav.py</code> beside <code>tap2tzx.py</code>, and compare the page with a native run and with <code>tap-demo-reference.png</code>), WIDGET-01 to WIDGET-17, TKB-01 to TKB-17 (the on-screen keyboard, <code>touch.mjs</code>: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's <code>keymaps.vhd</code>, <code>membrane.vhd</code> and <code>zxnext.vhd</code>, with <code>demo/key_matrix_demo</code>, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run <code>kmx.log</code> as oracle), WBW-01 to WBW-17 (the kept writes, <code>writes.mjs</code>: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BRZ-01 to BRZ-09 (RZX in a page, <code>rzx.mjs</code>: <code>keys48.rzx</code> and <code>s128.rzx</code> are recorded at run time by the native jnext from our own inputs; a page's replay equals the native replay, and <code>stopRzxRecording()</code>'s file replays natively), BSN-01 to BSN-11 (snapshots, <code>snapshots.mjs</code>: a <code>.sna</code>, <code>.z80</code>, <code>.szx</code> and <code>.jns</code> loaded in the page equal the native run of the same file, and <code>saveSnapshot()</code> is read back by the page and by the native jnext), BCRT-01 to BCRT-13 (the CRT effect: <code>test/browser/crt.mjs</code>, structure derived from the vendored shaders, not reference images), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, <code>test/bench/web/bench-stats-test.mjs</code>), and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
 <td><code>browser</code></td>
 </tr>
 </tbody>

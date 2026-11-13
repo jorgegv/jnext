@@ -745,7 +745,7 @@ naming the option and the value, and exits with status 1.
 
 **\--rzx-play** *FILE*
 :   Play back an RZX recording from the start of the run. Works the same in the
-    GUI, the SDL-only build and under **\--headless**. A recording that fails
+    GUI, the SDL-only build, under **\--headless** and in a browser page. A recording that fails
     to load is logged, and **jnext** then exits non-zero. The machine starts
     exactly as it does for **\--load** *FILE*, so the two spellings replay
     identically, and so do **File > Load NEX File...** and **File > Play RZX
@@ -769,7 +769,8 @@ naming the option and the value, and exits with status 1.
     snapshot the file carries is the program, and playback replays it. The
     file is written when **jnext** exits (or, in the GUI, at **File > Stop RZX
     Recording**). Works the same in the GUI, the SDL-only build and under
-    **\--headless**. While recording, a tape loads in real time: a fast load
+    **\--headless**. A browser page refuses it and records from JavaScript (see
+    THE BROWSER BUILD). While recording, a tape loads in real time: a fast load
     skips the ROM loader, which a recording cannot replay. The snapshot is an
     SZX on the 128K, Pentagon and +3 and a 48K SNA on the 48K. The file names the machine
     it was recorded on, which **\--rzx-play** then uses.
@@ -2817,8 +2818,8 @@ one global, `jnext`; **jnext.mount**(*container*, *options*) puts a player in a 
 element and returns a promise for it. Every option of **mount** is a command-line
 flag or a **\--set** key, so what the page asks for is what the command line would
 ask for; the player's `argv` property shows that command line. A browser page loads
-`.nex`, `.tap`, `.tzx` and `.wav` programs and `.jns`, `.sna`, `.szx` and `.z80` snapshots; a
-snapshot runs on the machine it was saved on. A `.wav` plays in real time, as from a
+`.nex`, `.tap`, `.tzx` and `.wav` programs, `.rzx` recordings and `.jns`, `.sna`, `.szx` and `.z80` snapshots; a
+snapshot or a recording runs on the machine it was made on. A `.wav` plays in real time, as from a
 cassette, and only while the machine runs: `pause()` or a hidden tab stops the tape
 where it is.
 
@@ -2845,7 +2846,7 @@ asked), with the plain picture otherwise.
     and checked the image.
 
 `file` *URL | {url} | {data, name}*
-:   **\--load**. The program to run (`.nex`, `.tap`, `.tzx`, `.wav`, or a `.jns`, `.sna`,
+:   **\--load**. The program to run (`.nex`, `.tap`, `.tzx`, `.wav`, a `.rzx` recording, or a `.jns`, `.sna`,
     `.szx` or `.z80` snapshot); without it the machine boots to the NextZXOS menu.
 
 `keepWrites` *boolean*
@@ -2899,7 +2900,12 @@ the frame loop. `reset(kind)` restarts the program (`'program'`, the default; wi
 powers the machine on again (`'hard'`) or resets it (`'soft'`). `load(file)` loads
 another program while the machine runs. `saveSnapshot()` resolves to the bytes of a
 `.jns` snapshot of the running machine (**\--snapshot-compression** applies), for the page
-to offer as a download or give back to `load()` as `{data, name}`. `setVolume(v)` sets the master output
+to offer as a download or give back to `load()` as `{data, name}`. `startRzxRecording()` starts
+an RZX recording of the machine as it is now (not on a ZX Spectrum Next: give the player another
+`machine`); `stopRzxRecording()` ends it and resolves to the file's bytes, for the page to offer as a
+download or give back to `load()` as `{data, name}`. A reset or a `load()` ends the recording early, and
+`stopRzxRecording()` still returns it; `destroy()` drops one that was not stopped. While a recording
+plays, every port read comes from the file: the keys do nothing until it ends. `setVolume(v)` sets the master output
 level, `0` to `1`. `destroy()` stops the machine and removes the player (it waits until the saves
 of **keepWrites** are stored). `resetCard()` discards the saves kept by
 `keepWrites` (the saved file included) and restarts the program; it needs that option, and resolves when
@@ -2940,8 +2946,8 @@ that says so: **\--nextpi**, **\--nextpi-dir**, **\--nextpi-release**,
 **\--esp-ip-address-after**, **\--record**, **\--dzrp-port**, **\--gdb-port**,
 **\--zrcp-port**, **\--debug-listen-address**, **\--script**, **\--script-key**,
 **\--record-script**, **\--map**, **\--annotations**, **\--import-skoolkit**,
-**\--import-ghidra**, **\--headless** (it would block the tab for ever),
-**\--rzx-play** and **\--rzx-record**. The settings of the refused flags are refused
+**\--import-ghidra**, **\--headless** (it would block the tab for ever)
+and **\--rzx-record** (a page records from JavaScript, see The player). The settings of the refused flags are refused
 when given as set entries too: `esp.enabled`, `esp.allowed_hosts`, `nextpi.enabled`, `nextpi.dir`,
 `nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args`.
 
