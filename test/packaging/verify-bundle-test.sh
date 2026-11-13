@@ -287,5 +287,21 @@ bash "$SCRIPT" >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 2 ]; then ok VB-07 "no argument exits 2"
 else bad VB-07 "expected 2, got $rc"; fi
 
+# --- VB-17/VB-18: a failed stderr write never changes the verdict ------------
+# GH CI run 43387706584: an informational `echo >&2` hit EINTR on the runner's
+# pipe and `set -e` turned a passing check into exit 1. stderr is made to FAIL
+# every write (/dev/full: ENOSPC; `2>&-`: EBADF); the exit status must be what
+# it is with a healthy stderr: 0 on the stale-id bundle (VB-08, which prints
+# notes), 1 on the Homebrew one (VB-02).
+rc_full=0; bash "$SCRIPT" "$WORK/staleid.app" >/dev/null 2>/dev/full || rc_full=$?
+rc_closed=0; bash "$SCRIPT" "$WORK/staleid.app" >/dev/null 2>&- || rc_closed=$?
+if [ "$rc_full" -eq 0 ] && [ "$rc_closed" -eq 0 ]; then ok VB-17 "stale-id bundle accepted with stderr unwritable"
+else bad VB-17 "expected 0/0, got /dev/full=$rc_full closed=$rc_closed"; fi
+
+rc_full=0; bash "$SCRIPT" "$WORK/homebrew.app" >/dev/null 2>/dev/full || rc_full=$?
+rc_closed=0; bash "$SCRIPT" "$WORK/homebrew.app" >/dev/null 2>&- || rc_closed=$?
+if [ "$rc_full" -eq 1 ] && [ "$rc_closed" -eq 1 ]; then ok VB-18 "bad bundle rejected (exit 1) with stderr unwritable"
+else bad VB-18 "expected 1/1, got /dev/full=$rc_full closed=$rc_closed"; fi
+
 printf "\n${BOLD}Total: %d pass, %d fail${RESET}\n" "$pass" "$fail"
 [ "$fail" -eq 0 ]

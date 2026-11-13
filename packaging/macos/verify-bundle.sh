@@ -24,15 +24,20 @@
 #
 set -euo pipefail
 
+# note <text> — diagnostic line on stderr. A failed write (EINTR on a CI
+# runner's pipe, a closed stderr) must never change the verdict: the counters
+# and exit codes below do not depend on it. Hence the `|| true` under set -e.
+note() { printf '%s\n' "$*" >&2 || true; }
+
 if [ "$#" -ne 1 ]; then
-    echo "usage: $0 <jnext.app>" >&2
+    note "usage: $0 <jnext.app>"
     exit 2
 fi
 
 APP=$1
 
-[ -d "$APP" ] || { echo "error: bundle not found: $APP" >&2; exit 1; }
-command -v otool >/dev/null 2>&1 || { echo "error: otool not found (Xcode command line tools)" >&2; exit 1; }
+[ -d "$APP" ] || { note "error: bundle not found: $APP"; exit 1; }
+command -v otool >/dev/null 2>&1 || { note "error: otool not found (Xcode command line tools)"; exit 1; }
 
 # Dependency paths that are fine to keep: bundle-relative, or part of macOS.
 # The ^ anchors are load-bearing: without them a path merely CONTAINING
@@ -82,12 +87,12 @@ while IFS= read -r macho; do
                 @*)
                     if ref_is_broken "$dep" "$macho" "$rplist"; then
                         if [ "$dangling" -eq 0 ]; then
-                            echo "FAIL: these bundle-relative references do not resolve to a" >&2
-                            echo "      file inside the bundle — dyld will fail on them at" >&2
-                            echo "      launch (GH #46):" >&2
-                            echo >&2
+                            note "FAIL: these bundle-relative references do not resolve to a"
+                            note "      file inside the bundle — dyld will fail on them at"
+                            note "      launch (GH #46):"
+                            note
                         fi
-                        printf '  %s\n      -> %s (MISSING)\n' "${macho#"$APP"/}" "$dep" >&2
+                        note "  ${macho#"$APP"/}"$'\n'"      -> $dep (MISSING)"
                         dangling=$((dangling + 1))
                     fi
                     ;;
@@ -98,22 +103,22 @@ while IFS= read -r macho; do
         if [ -n "$own_id" ] && [ "$dep" = "$own_id" ]; then
             # The file's own install name, not something it loads.
             if [ "$stale_ids" -eq 0 ]; then
-                echo "note: these bundled files kept their original install name" >&2
-                echo "      (LC_ID_DYLIB). Cosmetic — dyld loads them via the" >&2
-                echo "      referring binary's path, which is checked below:" >&2
+                note "note: these bundled files kept their original install name"
+                note "      (LC_ID_DYLIB). Cosmetic — dyld loads them via the"
+                note "      referring binary's path, which is checked below:"
             fi
-            printf '  %s\n      id -> %s\n' "${macho#"$APP"/}" "$dep" >&2
+            note "  ${macho#"$APP"/}"$'\n'"      id -> $dep"
             stale_ids=$((stale_ids + 1))
             continue
         fi
 
         if [ "$violations" -eq 0 ]; then
-            echo "FAIL: jnext.app is not self-contained — these references" >&2
-            echo "      point outside the bundle and will abort in dyld on a" >&2
-            echo "      machine that does not have them (GH #46):" >&2
-            echo >&2
+            note "FAIL: jnext.app is not self-contained — these references"
+            note "      point outside the bundle and will abort in dyld on a"
+            note "      machine that does not have them (GH #46):"
+            note
         fi
-        printf '  %s\n      -> %s\n' "${macho#"$APP"/}" "$dep" >&2
+        note "  ${macho#"$APP"/}"$'\n'"      -> $dep"
         violations=$((violations + 1))
     # Keep only tab-indented lines. `tail -n +2` alone is wrong for a
     # universal binary: otool re-prints a "<path> (architecture x):" header per
@@ -137,14 +142,14 @@ done < <(macho_files "$APP")
 # named here explicitly — no walk will find it.
 
 if [ "$checked" -eq 0 ]; then
-    echo "error: no Mach-O files found in $APP — the bundle is empty or malformed" >&2
+    note "error: no Mach-O files found in $APP — the bundle is empty or malformed"
     exit 1
 fi
 
 if [ "$violations" -gt 0 ] || [ "$dangling" -gt 0 ]; then
-    echo >&2
-    echo "$violations external LOAD reference(s) and $dangling unresolved" >&2
-    echo "bundle-relative reference(s) across $checked Mach-O file(s)." >&2
+    note
+    note "$violations external LOAD reference(s) and $dangling unresolved"
+    note "bundle-relative reference(s) across $checked Mach-O file(s)."
     exit 1
 fi
 
@@ -156,17 +161,17 @@ fi
 # macdeployqt rewrote are never exercised until a real user double-clicks.
 if command -v codesign >/dev/null 2>&1; then
     if ! codesign --verify --deep --strict "$APP" 2>/tmp/vb-codesign.$$; then
-        echo "FAIL: code signature is not valid — the app will be killed at launch" >&2
-        echo "      on Apple Silicon (Qt QTBUG-138019):" >&2
-        sed 's/^/  /' /tmp/vb-codesign.$$ >&2
+        note "FAIL: code signature is not valid — the app will be killed at launch"
+        note "      on Apple Silicon (Qt QTBUG-138019):"
+        sed 's/^/  /' /tmp/vb-codesign.$$ >&2 || true
         rm -f /tmp/vb-codesign.$$
         exit 1
     fi
     rm -f /tmp/vb-codesign.$$
 else
-    echo "note: codesign not available — signature validity NOT checked" >&2
+    note "note: codesign not available — signature validity NOT checked"
 fi
 
 echo "verify-bundle: OK — $checked Mach-O file(s); no external load references," \
      "every bundle-relative reference resolves, signature valid" \
-     "($stale_ids cosmetic install-name(s) left unrewritten)"
+     "($stale_ids cosmetic install-name(s) left unrewritten)" || true
