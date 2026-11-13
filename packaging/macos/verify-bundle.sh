@@ -24,7 +24,7 @@
 #
 set -euo pipefail
 
-# note <text> — diagnostic line on stderr. A failed write (EINTR on a CI
+# note <text> - diagnostic line on stderr. A failed write (EINTR on a CI
 # runner's pipe, a closed stderr) must never change the verdict: the counters
 # and exit codes below do not depend on it. Hence the `|| true` under set -e.
 note() { printf '%s\n' "$*" >&2 || true; }
@@ -88,7 +88,7 @@ while IFS= read -r macho; do
                     if ref_is_broken "$dep" "$macho" "$rplist"; then
                         if [ "$dangling" -eq 0 ]; then
                             note "FAIL: these bundle-relative references do not resolve to a"
-                            note "      file inside the bundle — dyld will fail on them at"
+                            note "      file inside the bundle - dyld will fail on them at"
                             note "      launch (GH #46):"
                             note
                         fi
@@ -104,7 +104,7 @@ while IFS= read -r macho; do
             # The file's own install name, not something it loads.
             if [ "$stale_ids" -eq 0 ]; then
                 note "note: these bundled files kept their original install name"
-                note "      (LC_ID_DYLIB). Cosmetic — dyld loads them via the"
+                note "      (LC_ID_DYLIB). Cosmetic - dyld loads them via the"
                 note "      referring binary's path, which is checked below:"
             fi
             note "  ${macho#"$APP"/}"$'\n'"      id -> $dep"
@@ -113,7 +113,7 @@ while IFS= read -r macho; do
         fi
 
         if [ "$violations" -eq 0 ]; then
-            note "FAIL: jnext.app is not self-contained — these references"
+            note "FAIL: jnext.app is not self-contained - these references"
             note "      point outside the bundle and will abort in dyld on a"
             note "      machine that does not have them (GH #46):"
             note
@@ -142,7 +142,7 @@ done < <(macho_files "$APP")
 # named here explicitly — no walk will find it.
 
 if [ "$checked" -eq 0 ]; then
-    note "error: no Mach-O files found in $APP — the bundle is empty or malformed"
+    note "error: no Mach-O files found in $APP - the bundle is empty or malformed"
     exit 1
 fi
 
@@ -161,7 +161,7 @@ fi
 # macdeployqt rewrote are never exercised until a real user double-clicks.
 if command -v codesign >/dev/null 2>&1; then
     if ! codesign --verify --deep --strict "$APP" 2>/tmp/vb-codesign.$$; then
-        note "FAIL: code signature is not valid — the app will be killed at launch"
+        note "FAIL: code signature is not valid - the app will be killed at launch"
         note "      on Apple Silicon (Qt QTBUG-138019):"
         sed 's/^/  /' /tmp/vb-codesign.$$ >&2 || true
         rm -f /tmp/vb-codesign.$$
@@ -169,9 +169,9 @@ if command -v codesign >/dev/null 2>&1; then
     fi
     rm -f /tmp/vb-codesign.$$
 else
-    note "note: codesign not available — signature validity NOT checked"
+    note "note: codesign not available - signature validity NOT checked"
 fi
 
-echo "verify-bundle: OK — $checked Mach-O file(s); no external load references," \
+echo "verify-bundle: OK - $checked Mach-O file(s); no external load references," \
      "every bundle-relative reference resolves, signature valid" \
      "($stale_ids cosmetic install-name(s) left unrewritten)" || true

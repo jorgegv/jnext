@@ -287,21 +287,46 @@ bash "$SCRIPT" >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 2 ]; then ok VB-07 "no argument exits 2"
 else bad VB-07 "expected 2, got $rc"; fi
 
-# --- VB-17/VB-18: a failed stderr write never changes the verdict ------------
-# GH CI run 43387706584: an informational `echo >&2` hit EINTR on the runner's
-# pipe and `set -e` turned a passing check into exit 1. stderr is made to FAIL
-# every write (/dev/full: ENOSPC; `2>&-`: EBADF); the exit status must be what
-# it is with a healthy stderr: 0 on the stale-id bundle (VB-08, which prints
-# notes), 1 on the Homebrew one (VB-02).
-rc_full=0; bash "$SCRIPT" "$WORK/staleid.app" >/dev/null 2>/dev/full || rc_full=$?
-rc_closed=0; bash "$SCRIPT" "$WORK/staleid.app" >/dev/null 2>&- || rc_closed=$?
-if [ "$rc_full" -eq 0 ] && [ "$rc_closed" -eq 0 ]; then ok VB-17 "stale-id bundle accepted with stderr unwritable"
-else bad VB-17 "expected 0/0, got /dev/full=$rc_full closed=$rc_closed"; fi
+# --- VB-17/VB-18: a failed diagnostic write never changes the verdict -------
+# CI run 43387706584: an informational `echo >&2` hit EINTR on the runner's pipe
+# and `set -e` turned a passing check into exit 1. Streams are made to FAIL
+# every write (/dev/full: ENOSPC; `>&-`: EBADF) and the verdict must be what it
+# is with healthy streams.
+# VB-17: the stale-id bundle (VB-08) prints notes yet passes: exit 0 with
+# stderr unwritable, and with stdout and stderr both unwritable (the OK line is
+# on stdout). Control: with healthy streams the note is on stderr only and the
+# OK line on stdout only.
+rc_a=0; bash "$SCRIPT" "$WORK/staleid.app" >/dev/null 2>/dev/full || rc_a=$?
+rc_b=0; bash "$SCRIPT" "$WORK/staleid.app" >/dev/null 2>&- || rc_b=$?
+rc_c=0; bash "$SCRIPT" "$WORK/staleid.app" >/dev/full 2>/dev/full || rc_c=$?
+rc_d=0; bash "$SCRIPT" "$WORK/staleid.app" >&- 2>&- || rc_d=$?
+bash "$SCRIPT" "$WORK/staleid.app" >"$WORK/c.out" 2>"$WORK/c.err" || true
+ctl=0
+grep -q 'id ->' "$WORK/c.err" && ! grep -q 'id ->' "$WORK/c.out" \
+    && grep -q 'verify-bundle: OK' "$WORK/c.out" && ! grep -q 'verify-bundle: OK' "$WORK/c.err" && ctl=1
+if [ "$rc_a$rc_b$rc_c$rc_d" = "0000" ] && [ "$ctl" -eq 1 ]; then
+    ok VB-17 "stale-id bundle accepted with stderr/stdout unwritable; streams split as before"
+else bad VB-17 "expected 0/0/0/0 + control, got /dev/full-err=$rc_a closed-err=$rc_b full-both=$rc_c closed-both=$rc_d control=$ctl"; fi
 
-rc_full=0; bash "$SCRIPT" "$WORK/homebrew.app" >/dev/null 2>/dev/full || rc_full=$?
-rc_closed=0; bash "$SCRIPT" "$WORK/homebrew.app" >/dev/null 2>&- || rc_closed=$?
-if [ "$rc_full" -eq 1 ] && [ "$rc_closed" -eq 1 ]; then ok VB-18 "bad bundle rejected (exit 1) with stderr unwritable"
-else bad VB-18 "expected 1/1, got /dev/full=$rc_full closed=$rc_closed"; fi
+# VB-18: every FAILING verdict keeps its exact exit code with stderr unwritable
+# (a note that failed open would turn FAIL into PASS). It passes on main's
+# script by design: it pins that a write failure never turns FAIL into PASS.
+vb18=""
+for case_ in "homebrew.app:1" "dangling.app:1" "badsig.app:1" "empty.app:1" \
+             "no-such.app:1" ":2"; do
+    app=${case_%%:*}; want=${case_##*:}
+    for redir in /dev/full closed; do
+        if [ "$redir" = closed ]; then
+            if [ -n "$app" ]; then bash "$SCRIPT" "$WORK/$app" >/dev/null 2>&-; else bash "$SCRIPT" >/dev/null 2>&-; fi
+        else
+            if [ -n "$app" ]; then bash "$SCRIPT" "$WORK/$app" >/dev/null 2>/dev/full; else bash "$SCRIPT" >/dev/null 2>/dev/full; fi
+        fi
+        got=$?
+        [ "$got" -eq "$want" ] || vb18="$vb18 ${app:-noarg}/$redir=$got(want $want)"
+    done
+done
+if [ -z "$vb18" ]; then ok VB-18 "every failing verdict keeps its exit code with stderr unwritable"
+else bad VB-18 "wrong exit code(s):$vb18"; fi
 
 printf "\n${BOLD}Total: %d pass, %d fail${RESET}\n" "$pass" "$fail"
 [ "$fail" -eq 0 ]
