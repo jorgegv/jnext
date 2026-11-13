@@ -2977,7 +2977,15 @@ int main(int argc, char* argv[]) {
         // Set up RZX playback or recording. Every frontend starts them at the
         // top of run(), not in init() — see platform/rzx_startup.h.
         if (!rzx_play_file.empty()) {
+#ifdef JNEXT_BROWSER
+            // A page has no run() (browser_frontend runs tick() from the page's loop), and its
+            // program is the pending load: that is what fires ready, counts as applied, is what
+            // reset('program') restarts, and makes a file that fails to load reject ready. Delay
+            // 0 = before the first frame, where the desktop's run() pre-step plays it.
+            app.set_pending_load(rzx_play_file, 0);
+#else
             app.set_rzx_play(rzx_play_file);
+#endif
         }
         if (!rzx_record_file.empty()) {
             app.set_rzx_record(rzx_record_file);
