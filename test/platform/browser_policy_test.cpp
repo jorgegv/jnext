@@ -381,8 +381,11 @@ int main()
             const char* why = browser_page::program_refusal(b);
             if (!why) { ok = false; continue; }
             for (const char* e : exts) if (std::strstr(why, e) == nullptr) ok = false;
+            // The order is user-visible (the guide quotes it): ".nex, .tap, .tzx, " stays the prefix, later formats append.
+            const char kPrefix[] = "a browser page loads only .nex, .tap, .tzx, ";
+            if (std::strncmp(why, kPrefix, sizeof(kPrefix) - 1) != 0) ok = false;
         }
-        check("BRR-05", "program_refusal: null for .jns .sna .szx .z80 in any case; a refusal names every loadable extension",
+        check("BRR-05", "program_refusal: null for .jns .sna .szx .z80 in any case; a refusal names every loadable extension, after the prefix \"a browser page loads only .nex, .tap, .tzx, \"",
               ok);
     }
     // BRR-04: the page-only table is disjoint from the build's own.

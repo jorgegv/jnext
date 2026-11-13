@@ -10,7 +10,7 @@
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
 # boots the example page), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
 # guide's two embedding snippets, run verbatim), `touch.mjs:17` (rows TKB-01..17: the on-screen keyboard
-# under touch-device emulation) and `writes.mjs:12` (rows WBW-01..12: the guest's writes
+# under touch-device emulation) and `writes.mjs:17` (rows WBW-01..17: the guest's writes
 # kept across page loads, against a native journal oracle), `snapshots.mjs:11` (rows BSN-01..11: .sna, .z80,
 # .szx and .jns loaded in the page and compared with native runs, and player.saveSnapshot()) and `../bench/web/bench-stats-test.mjs:12` (rows
 # WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser). Further specs

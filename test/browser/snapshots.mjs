@@ -137,6 +137,8 @@ function methods(buf) {
   }
   return out;
 }
+// The scratch files saveSnapshot() leaves in the page's /tmp (there must be none).
+const leftover = (page) => page.evaluate(() => { const m = window.player0._module; return m && m.FS && m.FS.analyzePath('/tmp').exists ? m.FS.readdir('/tmp').filter((n) => /^jnext-page-.*\.jns$/.test(n)) : []; });
 // Mount one snapshot player (no `machine`: the file names it), start it, and compare its screenshot to the oracle.
 async function snapshotRow(file, name, ownMachine) {
   const page = await newPage();
@@ -277,6 +279,7 @@ row('BSN-08', 'saveSnapshot() on a running Next: a ZIP with manifest.json; load(
   await waitFrame(page, 0, f0 + 100);
   const bytes = await saved(page);
   defaultBytes = bytes;
+  must((await leftover(page)).length === 0, 'scratch files left after saveSnapshot: ' + JSON.stringify(await leftover(page)));
   must(bytes.slice(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04])), 'not a ZIP: ' + bytes.slice(0, 4).toString('hex'));
   must(methods(bytes).some((m) => m.name === 'manifest.json'), 'no manifest.json: ' + JSON.stringify(methods(bytes).map((m) => m.name)));
   await page.evaluate(() => window.player0.load('/nex/red.nex'));
@@ -326,6 +329,7 @@ row('BSN-10', '--snapshot-compression off: every member is stored (method 0); th
   const f = await frame(page);
   await waitFrame(page, 0, f + 60);
   const b = await saved(page);
+  must((await leftover(page)).length === 0, 'scratch files left after two saves: ' + JSON.stringify(await leftover(page)));
   const ma = methods(a), mb = methods(b);
   must(ma.length > 0 && ma.every((m) => m.method === 0) && mb.every((m) => m.method === 0), 'methods ' + JSON.stringify(ma.map((m) => m.method)));
   must(!a.equals(b), 'two saves 60 frames apart are identical');
@@ -338,7 +342,7 @@ row('BSN-11', 'saveSnapshot() before the start click rejects (machine not runnin
   const out = await page.evaluate(() => window.player0.saveSnapshot().then(() => 'resolved', (e) => e.message));
   must(/the machine is not running/.test(out), 'rejection: ' + out);
   must((await rec(page)).errors.length === 0, 'onError fired for a call made before the start: ' + JSON.stringify((await rec(page)).errors));
-  const left = await page.evaluate(() => { const m = window.player0._module; return m && m.FS && m.FS.analyzePath('/tmp').exists ? m.FS.readdir('/tmp').filter((n) => /^jnext-page-.*\.jns$/.test(n)) : []; });
+  const left = await leftover(page);
   must(left.length === 0, 'scratch files ' + JSON.stringify(left));
   await click(page); await waitReady(page, 0, 1);
   await page.evaluate(() => window.player0.destroy());

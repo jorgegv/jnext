@@ -22,8 +22,10 @@ inline const char* option_refusal(cli::OptId id)
 }
 
 /// nullptr when `path` is a format the browser page loads (.nex .tap .tzx programs,
-/// .jns .sna .szx .z80 snapshots, any case), else the reason. Keep `.nex, .tap, .tzx`
-/// as the reason's prefix: the rows that pin a refusal match it.
+/// .jns .sna .szx .z80 snapshots, any case), else the reason. The reason starts
+/// "a browser page loads only .nex, .tap, .tzx, " (BRR-05 pins that prefix; the guide quotes
+/// the text); later formats are appended. BRR-03, WEBAPI-11 and BRW-23 match the
+/// ".nex, .tap, .tzx" substring.
 inline const char* program_refusal(const std::string& path)
 {
     const auto dot = path.rfind('.');
