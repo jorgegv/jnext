@@ -93,7 +93,7 @@ harness fault):
   copy of its own. Every other row boots the run's clone through a hard link.
 - **`bound=<seconds>`** — this row's own kill bound, in place of the 600 s
   default, for a row whose measured pass is slower than that
-  (`harness-selftest-func`, `bound=1200`). A positive integer, at most one per
+  (`harness-selftest-func`, `bound=1500`). A positive integer, at most one per
   row; anything else is a harness fault.
 
 What the driver checks, beyond the end-of-run accounting below: a row reports

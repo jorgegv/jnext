@@ -2871,7 +2871,7 @@ inner=$(grep -oE 'timeout --foreground --kill-after=5s [0-9]+s' "$PROJECT_DIR/te
 tagged=$(grep -oE 'harness-selftest-func=[0-9]+s' <<<"$out" | grep -oE '[0-9]+' )
 out+=$'\n'"exceeds-inner=$(( ${tagged:-0} > ${inner:-99999} ? 1 : 0 )) inner=${inner:-none}"
 check "HS-69u" "the real conf's bound= tag on harness-selftest-func reaches the driver's per-row bounds and exceeds the row's inner bound" 0 $rc "$out" \
-    "row bounds: harness-selftest-func=1200s" "exceeds-inner=1 inner=900"
+    "row bounds: harness-selftest-func=1500s" "exceeds-inner=1 inner=1200"
 # retagged rows change the per-OS counts, so the pins refuse them: the tags themselves are valid.
 retag "$T/os-ok.conf" magic-bp-func "os=linux,macos,windows"
 if ! grep -q '^magic-bp-func\([[:space:]]\|$\)' "$REG_FUNC"; then   # a renamed fixture row would make this control vacuous
