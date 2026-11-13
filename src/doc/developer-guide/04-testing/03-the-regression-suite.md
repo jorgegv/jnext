@@ -312,6 +312,12 @@ are printed by name; a named row the OS does not run is refused; an absent row
 that reports is a harness fault. A platform run's total is 1 provision + the
 screenshots + the admitted rows (no lints, no stamp).
 
+**Where the target OS comes from.** The OS is read from the binary's own tree, never
+from the caller: `JNEXT_TARGET_OS` in the tree's `CMakeCache.txt` or, for a dir with
+no cache (an unpacked Windows package, `make regression-package`), the PE header of
+its `jnext.exe` (`MZ`, then `PE\0\0` at the `e_lfanew` offset). A dir with neither
+is a harness fault.
+
 **The Windows runner.** `test/wine-run.sh --jnext` runs `jnext.exe` as `$JNEXT`
 (two one-line shims in the run's `$TMP_DIR` call it, so rows keep invoking
 `"$JNEXT"` as one word). Each of these was measured to be necessary under wine
@@ -346,7 +352,7 @@ screenshots + the admitted rows (no lints, no stamp).
 7. wine cannot `CreateProcess` an ELF, so the `--record` rows (ffmpeg) are absent
    on Windows; the Windows spawn path is covered by the unit rows SF-*.
 8. The prefix is ~1.7 GB and lives under the build tree
-   (`build/win-release-non-pgo/wine-prefix`), never in `/tmp`.
+   (`build/win-release/wine-prefix`, or inside the unpacked package under `build/regression-package/`), never in `/tmp`.
 9. `dzrp-paused-headless-func` measures jnext's own CPU: under a wrapper
    "the first child" is a shell, so the row finds the process named `jnext` /
    `jnext.exe` among the descendants (deepest one) and reads its CPU from `/proc`

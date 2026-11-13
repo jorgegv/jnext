@@ -150,16 +150,17 @@ subset of this one. `regression.sh --platform` runs the screenshots and the
 functional rows against another OS's binaries, taken from the build trees named
 by `JNEXT_TARGET_BUILD` (the Qt build) and `JNEXT_TARGET_SDL_BUILD` (the SDL-only
 build). The target OS is read from their `CMakeCache.txt` (`JNEXT_TARGET_OS`),
-never from the caller, and the two trees must agree. Use the make targets:
+never from the caller (a dir with no cache, an unpacked Windows package, is read
+from its `jnext.exe`'s PE header; GH #487), and the two trees must agree. Use the make targets:
 
 ```console
 $ make regression-win      # Linux host: MinGW exes under wine
 $ make regression-macos    # macOS host (CI: macos-regression)
 ```
 
-`regression-win` builds the Qt exe as the shipped build minus PGO (Release +
-LTO, `build/win-release-non-pgo`) with Qt's `qoffscreen.dll` bundled into that
-test tree only, and the SDL-only exe (`build/win-sdl-release`); the native helper
+`regression-win` builds the Qt exe as `package-win` zips it (the PGO tree,
+`build/win-release`; GH #487) with Qt's `qoffscreen.dll` bundled into that
+test tree only (the zip's staging never copies it), and the SDL-only exe (`build/win-sdl-release`); the native helper
 tools (`rewind_test`, `sdfile_tool`, the probes) come from the SDL unit-test
 tree (`TEST_BIN_DIR`). A full run takes the host lock like `make regression`.
 `ROWS="a-func b-func"` runs named rows. Platform runs are never stamped.
@@ -180,6 +181,25 @@ Rows reach the binaries through `$JNEXT` and `$JNEXT_SDL`, the helpers through
 `$TEST_BIN_DIR`, and read `$JNEXT_TARGET_OS` where a row must differ (offscreen
 instead of Xvfb off Linux, `core=-1@0kHz` in `--benchmark`, a failing-write file
 instead of `/dev/full` on macOS).
+
+### Package runs: each package's own binary (GH #487)
+
+`make regression` and `make regression-win` test build trees, not the files the
+release publishes (each package has its own PGO tree and profile, and the debs are
+built by Ubuntu's toolchain). `make regression-package PACKAGE=rpm|deb|win|win-qt5|win32-qt5`
+(`test/regression-package.sh`) builds one package, unpacks the artifact without
+installing it, and runs the harness against the binary inside:
+
+- `rpm`, `deb`: extracted under `build/regression-package/<p>/`, run with
+  `JNEXT=<dir>/usr/bin/jnext`.
+- `win*`: unzipped into a scratch copy that alone gets Qt's offscreen plugin (its
+  DLL closure staged through `bundle-dlls.sh`, only files absent from the copy), then
+  `regression.sh --platform` with the copy as `JNEXT_TARGET_BUILD`; a sha256 manifest of
+  the zip's members proves none changed, and the scratch copy is removed after a green run.
+- Rows: every screenshot row plus 17 functional rows named in the script. Green needs exit 0,
+  no FAIL, no SKIP and exactly lints (7 on Linux, 0 on Windows) + 1 SD provision + 68 + 17.
+- Never stamped, not in the batch gate; `release.yml` runs it after each package, before the upload.
+  The Flatpak is a documented gap.
 
 ### nextsync-func under wine: self-diagnosing (GH #319)
 
