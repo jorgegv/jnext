@@ -4306,6 +4306,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-crt-effect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The CRT effect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#saving-the-game" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4607,6 +4618,24 @@
 <p>where <code>player</code> is what <code>jnext.mount()</code> resolved to (or <code>el.jnextPlayer</code> of a widget).
 <code>args: ['--sdcard-writes-reset']</code> does the same for one start, when the page is
 loaded.</p>
+<h2 id="the-crt-effect">The CRT effect<a class="headerlink" href="#the-crt-effect" title="Permanent link">&para;</a></h2>
+<p>The desktop window's CRT effect (5.3) runs in the page too, off by default, with the same five
+looks and the same parameters. There is no extra option: use <code>args</code> with <code>--crt</code> and one of
+<code>off</code>, <code>scanlines</code>, <code>soft</code>, <code>tv</code> or <code>pc</code>, or the three settings it stands for in <code>set</code>:</p>
+<pre><code class="language-js">jnext.mount(el, { image: img, args: ['--crt', 'tv'] });
+
+jnext.mount(el, { image: img, set: { 'startup.crt_shader': true, 'startup.crt_shader_style': 1 } });
+// style 0 is tv, 1 is pc, 2 is soft; 'startup.crt_filter': true is the plain scanlines
+</code></pre>
+<ul>
+<li>The effect is chosen for the whole run: there is no call to switch it while the player runs.</li>
+<li>It draws on the page's WebGL, so it needs a browser with WebGL.</li>
+<li><em>Soft scanlines</em> show their lines only when the picture is at least twice 640x512 device pixels
+  (a larger box or a high-density screen), as on the desktop; at 640x512 they only dim the picture.</li>
+<li>If the shader cannot run, the player writes one line starting <code>CRT effect:</code> to the browser console
+  and carries on: with the plain scanlines for <em>Soft scanlines</em> (or when <code>scanlines</code> was also asked),
+  with the plain picture otherwise.</li>
+</ul>
 <h2 id="saving-the-game">Saving the game<a class="headerlink" href="#saving-the-game" title="Permanent link">&para;</a></h2>
 <p><code>saveSnapshot()</code> gives the page a snapshot of the whole machine, to offer as a download:</p>
 <pre><code class="language-js">const bytes = await player.saveSnapshot();

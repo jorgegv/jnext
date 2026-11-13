@@ -4725,8 +4725,8 @@ the choices of the <strong>Preferences</strong> CRT effect pop-up. The same as
 setting <code>startup.crt_filter</code>, <code>startup.crt_shader</code> and
 <code>startup.crt_shader_style</code> together. <code>soft</code>, <code>tv</code> and <code>pc</code> need the
 GPU shader; a build without it refuses them (exit status 1) and
-offers <code>off</code> and <code>scanlines</code>. Qt window only: elsewhere <strong>jnext</strong>
-warns and ignores it.</dd>
+offers <code>off</code> and <code>scanlines</code>. The Qt window and the browser build:
+elsewhere <strong>jnext</strong> warns and ignores it.</dd>
 <dt><strong>--speed</strong> <em>PERCENT</em></dt>
 <dd>Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
 Clamped to 10..1000. Works in the GUI and the SDL-only build;
@@ -5678,12 +5678,13 @@ The Qt window and the SDL-only build.</dd>
 <dt><code>startup.window_scale</code> <em>1..3</em></dt>
 <dd>The window scale; <strong>--scale</strong>. The Qt window.</dd>
 <dt><code>startup.crt_filter</code> <em>true|false</em></dt>
-<dd>The software scanlines effect; <strong>--crt scanlines</strong>. The Qt window.</dd>
+<dd>The software scanlines effect; <strong>--crt scanlines</strong>. The Qt window
+and the browser build.</dd>
 <dt><code>startup.crt_shader</code> <em>true|false</em></dt>
-<dd>The GPU CRT shader; <strong>--crt</strong>. The Qt window.</dd>
+<dd>The GPU CRT shader; <strong>--crt</strong>. The Qt window and the browser build.</dd>
 <dt><code>startup.crt_shader_style</code> <em>0..2</em></dt>
 <dd>The shader’s look: 0 is <code>tv</code>, 1 is <code>pc</code>, 2 is <code>soft</code>; <strong>--crt</strong>. The
-Qt window.</dd>
+Qt window and the browser build.</dd>
 <dt><code>startup.silent</code> <em>true|false</em></dt>
 <dd>Start with the sound muted; <strong>--silent</strong>. All frontends.</dd>
 <dt><code>startup.tape_fast_load</code> <em>true|false</em></dt>

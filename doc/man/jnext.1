@@ -352,7 +352,8 @@ together.
 \f[CR]soft\f[R], \f[CR]tv\f[R] and \f[CR]pc\f[R] need the GPU shader; a
 build without it refuses them (exit status 1) and offers \f[CR]off\f[R]
 and \f[CR]scanlines\f[R].
-Qt window only: elsewhere \f[B]jnext\f[R] warns and ignores it.
+The Qt window and the browser build: elsewhere \f[B]jnext\f[R] warns and
+ignores it.
 .TP
 \f[B]\-\-speed\f[R] \f[I]PERCENT\f[R]
 Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
@@ -1586,16 +1587,16 @@ The Qt window.
 .TP
 \f[CR]startup.crt_filter\f[R] \f[I]true|false\f[R]
 The software scanlines effect; \f[B]\-\-crt scanlines\f[R].
-The Qt window.
+The Qt window and the browser build.
 .TP
 \f[CR]startup.crt_shader\f[R] \f[I]true|false\f[R]
 The GPU CRT shader; \f[B]\-\-crt\f[R].
-The Qt window.
+The Qt window and the browser build.
 .TP
 \f[CR]startup.crt_shader_style\f[R] \f[I]0..2\f[R]
 The shader\(cqs look: 0 is \f[CR]tv\f[R], 1 is \f[CR]pc\f[R], 2 is
 \f[CR]soft\f[R]; \f[B]\-\-crt\f[R].
-The Qt window.
+The Qt window and the browser build.
 .TP
 \f[CR]startup.silent\f[R] \f[I]true|false\f[R]
 Start with the sound muted; \f[B]\-\-silent\f[R].
@@ -3763,6 +3764,18 @@ The image is fetched from another origin, so that server must send an
 \f[CR]Access\-Control\-Allow\-Origin\f[R] header.
 The page must be a secure context: \f[CR]https://\f[R],
 \f[CR]http://localhost\f[R] or \f[CR]http://127.0.0.1\f[R].
+.PP
+The CRT effect of the desktop window is available too, off by default: a
+page asks for it with the option \f[B]\-\-crt\f[R] \f[I]EFFECT\f[R] (in
+\f[CR]args\f[R]) or the three \f[CR]startup.crt_*\f[R] settings (in
+\f[CR]set\f[R]), and gets the same five looks with the same parameters.
+It runs on the page\(cqs WebGL, so it needs a browser with WebGL, and
+the soft scanlines show their lines only when the picture is at least
+twice 640x512 device pixels, as on the desktop.
+If the shader cannot run, the player logs one line starting
+\f[CR]CRT effect:\f[R] and carries on: with the software scanlines for
+\f[CR]soft\f[R] (or when \f[CR]scanlines\f[R] was also asked), with the
+plain picture otherwise.
 .SS JavaScript options
 .TP
 \f[CR]image\f[R] \f[I]{url, sha256}\f[R]

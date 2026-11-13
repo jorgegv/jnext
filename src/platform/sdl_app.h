@@ -41,6 +41,7 @@ public:
     void shutdown();
 
     Emulator& emulator() { return emulator_; }
+    SdlDisplay& display() { return display_; }
 
 #ifdef __EMSCRIPTEN__
     /// The browser ended the pointer lock itself (Escape): follow it.

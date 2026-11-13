@@ -297,8 +297,8 @@ with status 1.
     setting `startup.crt_filter`, `startup.crt_shader` and
     `startup.crt_shader_style` together. `soft`, `tv` and `pc` need the
     GPU shader; a build without it refuses them (exit status 1) and
-    offers `off` and `scanlines`. Qt window only: elsewhere **jnext**
-    warns and ignores it.
+    offers `off` and `scanlines`. The Qt window and the browser build:
+    elsewhere **jnext** warns and ignores it.
 
 **--speed** *PERCENT*
 :   Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
@@ -1369,14 +1369,15 @@ use the key: the Qt window, the SDL-only build (both interactive) or
 :   The window scale; **--scale**. The Qt window.
 
 `startup.crt_filter` *true\|false*
-:   The software scanlines effect; **--crt scanlines**. The Qt window.
+:   The software scanlines effect; **--crt scanlines**. The Qt window
+    and the browser build.
 
 `startup.crt_shader` *true\|false*
-:   The GPU CRT shader; **--crt**. The Qt window.
+:   The GPU CRT shader; **--crt**. The Qt window and the browser build.
 
 `startup.crt_shader_style` *0..2*
 :   The shader’s look: 0 is `tv`, 1 is `pc`, 2 is `soft`; **--crt**. The
-    Qt window.
+    Qt window and the browser build.
 
 `startup.silent` *true\|false*
 :   Start with the sound muted; **--silent**. All frontends.

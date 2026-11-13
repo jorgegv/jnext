@@ -203,7 +203,7 @@ references.
 
 `make package-web` zips the output of `make wasm-web` as
 `build/wasm-core/jnext-<ver>-web.zip`, through `packaging/web/package-web.sh`. The
-zip has one top directory, `jnext-<ver>-web/`, and 23 files:
+zip has one top directory, `jnext-<ver>-web/`, and 24 files:
 
 - `jnext-<ver>.js` and `jnext-<ver>.wasm`: two files, not one, because a page
   author hosts them and GitHub serves a release asset as `octet-stream`, so the
@@ -216,7 +216,7 @@ zip has one top directory, `jnext-<ver>-web/`, and 23 files:
   of exactly that version), `LICENSE` and `CREDITS.md`;
 - `licenses/`: the licence texts of the libraries linked into `jnext_web`
   (Emscripten, musl, libc++, libc++abi, libunwind, compiler-rt, SDL3, zlib, libpng
-  from the Emscripten SDK; spdlog, nlohmann-json, zot, FatFs from `third_party`).
+  from the Emscripten SDK; spdlog, nlohmann-json, zot, FatFs, crtemu from `third_party`).
   The script's header records the link set and when it was measured; a library
   linked later needs a line in the `manifest` function, and no test can see that.
 

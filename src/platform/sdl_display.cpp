@@ -1,6 +1,14 @@
 #include "sdl_display.h"
+#include <algorithm>
 #include "core/log.h"
 #include "platform/window_title.h"
+#ifdef __EMSCRIPTEN__
+#include "platform/browser_crt.h"
+#endif
+
+// Out of line: BrowserCrt is incomplete in the header.
+SdlDisplay::SdlDisplay() = default;
+SdlDisplay::~SdlDisplay() { shutdown(); }
 
 bool SdlDisplay::init(int native_w, int native_h, int display_h) {
     native_w_ = native_w;
@@ -89,13 +97,47 @@ bool SdlDisplay::init(int native_w, int native_h, int display_h) {
     return true;
 }
 
+crt_shader::Effect SdlDisplay::set_crt(bool filter, bool shader, crt_shader::Style style, std::string& why) {
+    bool built = false;
+#ifdef __EMSCRIPTEN__
+    if (shader) {
+        crt_ = BrowserCrt::create(renderer_, style, why);
+        built = crt_ != nullptr;
+    }
+#else
+    if (shader) why = "the shader is not available in this build";
+#endif
+    crt_effect_ = crt_shader::resolve(filter, shader, style, built);
+    return crt_effect_;
+}
+
 void SdlDisplay::upload_frame(const uint32_t* pixels, int w, int h) {
+#ifdef __EMSCRIPTEN__
+    if (crt_effect_ == crt_shader::Effect::Shader) {
+        crt_->present(renderer_, pixels, w, h);   // draws the frame itself: nothing for SDL to do
+        return;
+    }
+#endif
     SDL_UpdateTexture(texture_, nullptr, pixels, w * sizeof(uint32_t));
     SDL_RenderClear(renderer_);
     SDL_RenderTexture(renderer_, texture_, nullptr, nullptr);
+    if (crt_effect_ == crt_shader::Effect::Scanlines) {
+        // The Qt overlay's rule: 25% black on the odd rows of the 640x512 logical screen.
+        constexpr int MAX_ROWS = 256;
+        SDL_FRect rows[MAX_ROWS];
+        const int n = std::min(display_h_ / 2, MAX_ROWS);
+        for (int k = 0; k < n; ++k)
+            rows[k] = SDL_FRect{ 0.f, static_cast<float>(2 * k + 1), static_cast<float>(native_w_), 1.f };
+        SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 64);
+        SDL_RenderFillRects(renderer_, rows, n);
+    }
 }
 
 void SdlDisplay::present() {
+#ifdef __EMSCRIPTEN__
+    if (crt_effect_ == crt_shader::Effect::Shader) return;   // the browser shows the buffer itself
+#endif
     SDL_RenderPresent(renderer_);
 }
 
@@ -126,6 +168,9 @@ void SdlDisplay::set_scale(int scale) {
 }
 
 void SdlDisplay::shutdown() {
+#ifdef __EMSCRIPTEN__
+    crt_.reset();   // crtemu's GL objects go while the context (the renderer's) is alive
+#endif
     if (texture_)  { SDL_DestroyTexture(texture_);   texture_  = nullptr; }
     if (renderer_) { SDL_DestroyRenderer(renderer_); renderer_ = nullptr; }
     if (window_)   { SDL_DestroyWindow(window_);     window_   = nullptr; }

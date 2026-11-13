@@ -353,7 +353,7 @@ inline constexpr Option OPTIONS[] = {
       "EFFECT",
       "CRT effect for this run: off, scanlines, soft, tv or pc\n"
       "(the Preferences pop-up's choices; soft, tv and pc need\n"
-      "the GPU shader). Qt window only" },
+      "the GPU shader). Qt window and browser build" },
     { "--speed", 1, Doc::Documented, OptId::Speed,
       "PERCENT",
       "Emulator speed as % (50=half, 100=normal, 200=2x, 400=4x)" },

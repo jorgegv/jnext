@@ -3225,7 +3225,7 @@ references.</p>
 <h2 id="the-browser-package">The browser package<a class="headerlink" href="#the-browser-package" title="Permanent link">&para;</a></h2>
 <p><code>make package-web</code> zips the output of <code>make wasm-web</code> as
 <code>build/wasm-core/jnext-&lt;ver&gt;-web.zip</code>, through <code>packaging/web/package-web.sh</code>. The
-zip has one top directory, <code>jnext-&lt;ver&gt;-web/</code>, and 23 files:</p>
+zip has one top directory, <code>jnext-&lt;ver&gt;-web/</code>, and 24 files:</p>
 <ul>
 <li><code>jnext-&lt;ver&gt;.js</code> and <code>jnext-&lt;ver&gt;.wasm</code>: two files, not one, because a page
   author hosts them and GitHub serves a release asset as <code>octet-stream</code>, so the
@@ -3238,7 +3238,7 @@ zip has one top directory, <code>jnext-&lt;ver&gt;-web/</code>, and 23 files:</p
   of exactly that version), <code>LICENSE</code> and <code>CREDITS.md</code>;</li>
 <li><code>licenses/</code>: the licence texts of the libraries linked into <code>jnext_web</code>
   (Emscripten, musl, libc++, libc++abi, libunwind, compiler-rt, SDL3, zlib, libpng
-  from the Emscripten SDK; spdlog, nlohmann-json, zot, FatFs from <code>third_party</code>).
+  from the Emscripten SDK; spdlog, nlohmann-json, zot, FatFs, crtemu from <code>third_party</code>).
   The script's header records the link set and when it was measured; a library
   linked later needs a line in the <code>manifest</code> function, and no test can see that.</li>
 </ul>
