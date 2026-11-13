@@ -89,20 +89,15 @@ if want soft-reset-shadow-screen-func; then
     fi
 
     if [[ -z "$verdict" ]]; then
-        JNEXT_DELAYED_RESET_FRAMES=1300 JNEXT_DELAYED_RESET_TYPE=f4 \
+        # boot-timeline frames (bf); the soft reset does not run the firmware again (K=1)
+        shsc_reset=$(bf 1300); shsc_shot=$(bf 1800); shsc_exit=$(bf 1820)
+        bf_keys 400 space 500 enter 730 down 745 down 760 enter 790 down 805 down 820 down 835 enter
+        JNEXT_DELAYED_RESET_FRAMES=$shsc_reset JNEXT_DELAYED_RESET_TYPE=f4 \
         timeout --foreground --kill-after=5s 300s "$JNEXT" --headless --machine next \
             "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \
-            --delayed-keypress-frames 400 space \
-            --delayed-keypress-frames 500 enter \
-            --delayed-keypress-frames 730 down \
-            --delayed-keypress-frames 745 down \
-            --delayed-keypress-frames 760 enter \
-            --delayed-keypress-frames 790 down \
-            --delayed-keypress-frames 805 down \
-            --delayed-keypress-frames 820 down \
-            --delayed-keypress-frames 835 enter \
-            --delayed-screenshot "$shsc_png" --delayed-screenshot-frames 1800 \
-            --delayed-automatic-exit-frames 1820 >/dev/null 2>&1 || true
+            "${BF_KEYS[@]}" \
+            --delayed-screenshot "$shsc_png" --delayed-screenshot-frames "$shsc_shot" \
+            --delayed-automatic-exit-frames "$shsc_exit" >/dev/null 2>&1 || true
 
         shsc_diff=999999
         if [[ -f "$shsc_png" ]]; then

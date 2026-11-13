@@ -17,11 +17,12 @@ if want tape-save-boot-func; then
     ts_tap="$TMP_DIR/jnext_test_tapesave_boot.tap"
     ts_png="$TMP_DIR/jnext_test_tapesave_boot.png"
     rm -f "$ts_tap" "$ts_png"
+    ts_shot=$(bf 400); ts_exit=$(bf 420)   # boot-timeline frames (bf)
     ts_out=$(timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
         "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \
         --tape-save "$ts_tap" \
-        --delayed-screenshot "$ts_png" --delayed-screenshot-frames 400 \
-        --delayed-automatic-exit-frames 420 2>&1) || true
+        --delayed-screenshot "$ts_png" --delayed-screenshot-frames "$ts_shot" \
+        --delayed-automatic-exit-frames "$ts_exit" 2>&1) || true
     ts_blocks=$(echo "$ts_out" | grep -c "TAP save: block" || true)
     ts_size=$(stat -c%s "$ts_tap" 2>/dev/null || echo missing)
     ts_diff=999999

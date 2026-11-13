@@ -16,11 +16,14 @@ if want reset-to-nextzxos-func; then
     begin_func reset-to-nextzxos-func
     rst_png="$TMP_DIR/jnext_test_reset_nextzxos.png"
     rm -f "$rst_png"
-    JNEXT_DELAYED_RESET_FRAMES=450 JNEXT_DELAYED_RESET_TYPE=hard \
+    # boot-timeline frames (bf): the reset after the first boot's commit, and the capture and
+    # exit after the SECOND boot, which runs the firmware again (K=2)
+    rst_reset=$(bf 450); rst_shot=$(bf 900 2); rst_exit=$(bf 920 2)
+    JNEXT_DELAYED_RESET_FRAMES=$rst_reset JNEXT_DELAYED_RESET_TYPE=hard \
     timeout --foreground --kill-after=5s 150s "$JNEXT" --headless --machine next \
         "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \
-        --delayed-screenshot "$rst_png" --delayed-screenshot-frames 900 \
-        --delayed-automatic-exit-frames 920 >/dev/null 2>&1 || true
+        --delayed-screenshot "$rst_png" --delayed-screenshot-frames "$rst_shot" \
+        --delayed-automatic-exit-frames "$rst_exit" >/dev/null 2>&1 || true
     rst_diff=999999
     if [[ -f "$rst_png" ]]; then
         rst_diff=$(png_diff "$rst_png" "$WELCOME_REF")

@@ -336,6 +336,17 @@ bf_expand() {
         echo "$w"
     fi
 }
+# bf_keys <frame key>... — set BF_KEYS to the --delayed-keypress-frames arguments of those pairs, every
+# frame a boot-timeline frame (bf). Not a subshell: the array is the caller's.
+bf_keys() {
+    local v
+    BF_KEYS=()
+    while (( $# >= 2 )); do
+        v=$(bf "$1") || exit 2
+        BF_KEYS+=(--delayed-keypress-frames "$v" "$2")
+        shift 2
+    done
+}
 # bf_jds <template> <out> — expand {{bf N}} and {{bf N K}} in a .jds.in template; a placeholder
 # left over is a harness fault.
 bf_jds() {

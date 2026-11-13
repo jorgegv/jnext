@@ -42,9 +42,10 @@ if want beam-replay-func; then
 
     br_dir="$TMP_DIR/beam-replay"
     br_halt="$br_dir/halt.bin"
-    br_delay=160          # frames before the 4-byte halt program is injected
-    br_setup_f=170        # frame whose start sets the lane up
-    br_poke_f=200         # frame whose scanline 230 carries the write
+    # boot-timeline frames (bf), so they keep their distance to the firmware's commit on any card
+    br_delay=$(bf 160)    # frames before the 4-byte halt program is injected
+    br_setup_f=$(bf 170)  # frame whose start sets the lane up
+    br_poke_f=$(bf 200)   # frame whose scanline 230 carries the write
     mkdir -p "$br_dir"
     printf '\xf3\x76\x18\xfd' > "$br_halt"
 

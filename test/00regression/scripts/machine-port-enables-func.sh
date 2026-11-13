@@ -55,14 +55,17 @@ on frame 100 once do
     $state_line
 end
 JDS
-        cat >"$jds_fw" <<JDS
+        # the firmware-boot script: its frame is a boot-timeline frame (bf), expanded from a template
+        cat >"$jds_fw.in" <<JDS
 on nextreg 0x03 do
     log "NRW 03 = \${VALUE:x2}"
 end
-on frame 700 once do
+on frame {{bf 700}} once do
     $state_line
 end
 JDS
+        bf_jds "$jds_fw.in" "$jds_fw"
+        mpe_exit=$(bf 710)
     fi
 
     field() {   # $1 = log, $2 = key: the value of `key=` on its STATE line, upper-cased
@@ -95,7 +98,7 @@ JDS
             fi
             LANG=C timeout --foreground --kill-after=5s 240s "$JNEXT" --headless --machine next \
                 "${SD_CARD_ARGS[@]}" --script "$jds_fw" \
-                --delayed-automatic-exit-frames 710 >"$log_b" 2>&1 || true
+                --delayed-automatic-exit-frames "$mpe_exit" >"$log_b" 2>&1 || true
 
             a03=$(field "$log_a" nr03); a82=$(field "$log_a" nr82); a83=$(field "$log_a" nr83)
             a84=$(field "$log_a" nr84); a85=$(field "$log_a" nr85)

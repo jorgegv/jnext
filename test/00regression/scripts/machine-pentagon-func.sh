@@ -36,7 +36,7 @@ if want machine-pentagon-func; then
     cfg_out="$TMP_DIR/machine_pentagon_config_14.ini"
     io_log="$TMP_DIR/machine_pentagon_io.log"
     verdict=""
-    rm -f "$jds" "$jds_fw" "$log_a" "$log_b" "$cfg_in" "$cfg_out" "$io_log"
+    rm -f "$jds" "$jds_fw" "$jds_fw.in" "$log_a" "$log_b" "$cfg_in" "$cfg_out" "$io_log"
 
     if [[ ! -f "$sd_image" ]]; then
         skip_row " (no SD-card image clone for this run)"
@@ -68,14 +68,17 @@ JDS
             "${SD_CARD_ARGS[@]}" --script "$jds" \
             --delayed-automatic-exit-frames 160 >"$log_a" 2>&1 || true
 
-        cat >"$jds_fw" <<JDS
+        # the firmware-boot script: its frame is a boot-timeline frame (bf), expanded from a template
+        cat >"$jds_fw.in" <<JDS
 on nextreg 0x03 do
     log "NRW 03 = \${VALUE:x2}"
 end
-on frame 600 once do
+on frame {{bf 600}} once do
     $state_line
 end
 JDS
+        bf_jds "$jds_fw.in" "$jds_fw"
+        pen_exit=$(bf 610)
         if ! "$sdfile" get "$sd_image" machines/next/config.ini "$cfg_in" >"$io_log" 2>&1; then
             fail_row " (could not read config.ini from the SD clone: $(tr -d '\n' <"$io_log"))"
             verdict=settled
@@ -91,7 +94,7 @@ JDS
     if [[ -z "$verdict" ]]; then
         LANG=C timeout --foreground --kill-after=5s 240s "$JNEXT" --headless --machine next \
             "${SD_CARD_ARGS[@]}" --script "$jds_fw" \
-            --delayed-automatic-exit-frames 610 >"$log_b" 2>&1 || true
+            --delayed-automatic-exit-frames "$pen_exit" >"$log_b" 2>&1 || true
 
         field() {   # $1 = log, $2 = key: the value of `key=` on its STATE line, upper-cased
             local line
