@@ -639,10 +639,11 @@ Turn automatic tape play/stop on (the default) or off for this run,
 overriding the saved GUI preference. While on, the tape deck stops in
 the silent gap between two blocks when no program is reading the tape,
 and resumes when one does, so tapes whose BASIC loader is slow between
-blocks load in real time. It does nothing in fast load mode. Off, the
-deck runs straight through, as a real one does (a TZX “stop the tape if
-in 48K mode” block now stops only on a 48K machine, as the TZX
-specification says, whatever this setting is).
+blocks load in real time. It does nothing in fast load mode. A `.wav`
+has no blocks and is never paused. Off, the deck runs straight through,
+as a real one does (a TZX “stop the tape if in 48K mode” block now stops
+only on a 48K machine, as the TZX specification says, whatever this
+setting is).
 
 **--tape-save** *FILE*  
 Save to tape, appending to *FILE*; its extension picks the format. A
@@ -3033,9 +3034,11 @@ beside it), which defines one global, `jnext`;
 and returns a promise for it. Every option of **mount** is a
 command-line flag or a **--set** key, so what the page asks for is what
 the command line would ask for; the player’s `argv` property shows that
-command line. A browser page loads `.nex`, `.tap` and `.tzx` programs
-and `.jns`, `.sna`, `.szx` and `.z80` snapshots; a snapshot runs on the
-machine it was saved on.
+command line. A browser page loads `.nex`, `.tap`, `.tzx` and `.wav`
+programs and `.jns`, `.sna`, `.szx` and `.z80` snapshots; a snapshot
+runs on the machine it was saved on. A `.wav` plays in real time, as
+from a cassette, and only while the machine runs: `pause()` or a hidden
+tab stops the tape where it is.
 
 The page supplies the SD-card image by URL and SHA-256 (the browser
 fetches it, checks it on every visit and keeps it in its cache); the
@@ -3062,9 +3065,9 @@ Required. **--sdcard** and **--sdcard-sha256**, after the page has
 fetched and checked the image.
 
 `file` *URL \| {url} \| {data, name}*  
-**--load**. The program to run (`.nex`, `.tap`, `.tzx`, or a `.jns`,
-`.sna`, `.szx` or `.z80` snapshot); without it the machine boots to the
-NextZXOS menu.
+**--load**. The program to run (`.nex`, `.tap`, `.tzx`, `.wav`, or a
+`.jns`, `.sna`, `.szx` or `.z80` snapshot); without it the machine boots
+to the NextZXOS menu.
 
 `keepWrites` *boolean*  
 **--sdcard-writes**, with a file the page manages: what the program

@@ -4499,7 +4499,7 @@
 <tr>
 <td><code>file</code></td>
 <td>URL, <code>{url}</code> or <code>{data, name}</code></td>
-<td>The program to run, as <code>--load</code>. <code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, or a <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code> snapshot, which runs on the machine it was saved on (see "Saving the game" below). Without it the machine boots to the NextZXOS menu.</td>
+<td>The program to run, as <code>--load</code>. <code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code>, or a <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code> snapshot, which runs on the machine it was saved on (see "Saving the game" below). Without it the machine boots to the NextZXOS menu.</td>
 </tr>
 <tr>
 <td><code>machine</code></td>
@@ -4551,7 +4551,9 @@
 <li><code>onReady()</code>: after the mount's click, after <code>load()</code> and after <code>reset()</code>: the
   program is in the machine and a frame has been shown. A load the program itself
   asks for (a NEX that runs another) is not the page's: it fires no <code>onReady</code> and
-  <code>reset()</code> still restarts the page's program.</li>
+  <code>reset()</code> still restarts the page's program. For a <code>.wav</code>, <code>onReady</code> comes when the
+  tape is in the deck; the program then loads as the tape plays, in real time (a 48K game
+  takes minutes), and the tape stops while the player is paused or the tab is hidden.</li>
 <li><code>onError(message)</code>: on every failure (a refused option, a bad image, a program that
   does not load, an exit with an error). The promise of the call that failed rejects
   with the same message.</li>

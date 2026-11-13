@@ -580,9 +580,10 @@ with status 1.
     in the silent gap between two blocks when no program is reading the
     tape, and resumes when one does, so tapes whose BASIC loader is slow
     between blocks load in real time. It does nothing in fast load mode.
-    Off, the deck runs straight through, as a real one does (a TZX “stop
-    the tape if in 48K mode” block now stops only on a 48K machine, as
-    the TZX specification says, whatever this setting is).
+    A `.wav` has no blocks and is never paused. Off, the deck runs
+    straight through, as a real one does (a TZX “stop the tape if in 48K
+    mode” block now stops only on a 48K machine, as the TZX
+    specification says, whatever this setting is).
 
 **--tape-save** *FILE*
 :   Save to tape, appending to *FILE*; its extension picks the format. A
