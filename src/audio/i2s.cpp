@@ -13,7 +13,7 @@ void I2s::reset()
     // on the way out, so the value the mixer sees is 0x200, not 0.
     left_       = 0x200;
     right_      = 0x200;
-    // VHDL zxnext.vhd:5564 — nr_a2_pi_i2s_ctl resets to 0x00 (no Pi I2S
+    // VHDL zxnext.vhd:5642 — nr_a2_pi_i2s_ctl resets to 0x00 (no Pi I2S
     // path enabled). With NR 0xA2 = 0, pi_audio_L/R are forced to the
     // 10-bit DC midpoint (0x200) per zxnext.vhd:2674-2675.
     nr_a2_ctl_  = 0;
@@ -22,7 +22,7 @@ void I2s::reset()
 
 void I2s::update_fe_ear()
 {
-    // zxnext.vhd:2677-2688, clocked at 28 MHz on the raw received samples.
+    // zxnext.vhd:2677-2690, clocked at 28 MHz on the raw received samples.
     const bool en  = (nr_a2_ctl_ & 0xC0) != 0;   // pi_i2s_en = enL or enR
     const bool ear = (nr_a2_ctl_ & 0x01) != 0;   // pi_i2s_ear
     if (!en || !ear) { fe_ear_ = false; return; }

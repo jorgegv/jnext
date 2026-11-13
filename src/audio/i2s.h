@@ -15,7 +15,7 @@ namespace jnext { namespace save { class StateDesc; } }
 /// signal width).
 ///
 /// G113 / G73: NR 0xA2 control byte (`nr_a2_pi_i2s_ctl` per
-/// `zxnext.vhd:5564`) is stored here; the gated 10-bit `pi_audio_L/R`
+/// `zxnext.vhd:6127`) is stored here; the gated 10-bit `pi_audio_L/R`
 /// signals (per `zxnext.vhd:2674-2675`) are exposed via `pi_audio_L()`
 /// and `pi_audio_R()` so the Mixer and the NR 0x2C/0x2E read handlers
 /// consume the same VHDL-correct gated value.
@@ -41,7 +41,7 @@ public:
     /// Current latched right channel, 0..1023 (raw, ungated).
     uint16_t right() const { return right_; }
 
-    /// NR 0xA2 control byte (`nr_a2_pi_i2s_ctl`, VHDL zxnext.vhd:5564).
+    /// NR 0xA2 control byte (`nr_a2_pi_i2s_ctl`, VHDL zxnext.vhd:6127).
     /// Bit layout (per zxnext.vhd:2593-2600):
     ///   b7 = pi_i2s_enL
     ///   b6 = pi_i2s_enR
@@ -65,7 +65,7 @@ public:
     /// (mirror of pi_audio_L with R/L swapped).
     uint16_t pi_audio_R() const;
 
-    /// `pi_fe_ear` (zxnext.vhd:2677-2688): the Pi's audio as an EAR signal,
+    /// `pi_fe_ear` (zxnext.vhd:2677-2690): the Pi's audio as an EAR signal,
     /// for NR 0xA2 bit 0 ("direct i2s audio to EAR on port 0xFE"). A
     /// comparator with hysteresis on the RAW received samples (not the gated
     /// pi_audio_L/R): with t = L(9:8) OR R(9:8), it goes to 1 at t = 11, back
@@ -75,7 +75,7 @@ public:
     bool fe_ear() const { return fe_ear_; }
 
     /// NR 0xA2 sends the Pi's audio to EAR: I2S enabled (b7 or b6) and b0 set,
-    /// the condition `pi_fe_ear` needs (zxnext.vhd:2677-2688), whatever the
+    /// the condition `pi_fe_ear` needs (zxnext.vhd:2677-2690), whatever the
     /// current sample. jnext uses it to put PiAudio in tape mode.
     bool ear_routed() const { return (nr_a2_ctl_ & 0xC0) != 0 && (nr_a2_ctl_ & 0x01) != 0; }
 

@@ -1663,7 +1663,7 @@ static void test_nextpi_audio() {
         check("PI-65",
               "the emulator puts the Pi's audio in tape mode exactly while NR 0xA2 sends it to "
               "EAR (I2S enabled and bit 0 set: 0xC1, 0x41 on; 0x01, 0xC0 off), re-evaluated as "
-              "it pops each mixer sample (zxnext.vhd:2677-2688; the buffering is jnext-only)",
+              "it pops each mixer sample (zxnext.vhd:2677-2690; the buffering is jnext-only)",
               start_off && on_c1 && off_01 && on_41 && off_c0,
               fmt("start_off=%d on(0xC1)=%d off(0x01)=%d on(0x41)=%d off(0xC0)=%d", start_off ? 1 : 0,
                   on_c1 ? 1 : 0, off_01 ? 1 : 0, on_41 ? 1 : 0, off_c0 ? 1 : 0));
@@ -1735,7 +1735,7 @@ static void test_nextpi_audio() {
         check("PI-66",
               "in tape mode (NR 0xA2 sends the Pi's audio to EAR) each Pi audio underrun logs "
               "exactly one warning, not one per silent pop after it; an underrun outside tape "
-              "mode logs none (jnext-only warning; zxnext.vhd:2677-2688 for the EAR route)",
+              "mode logs none (jnext-only warning; zxnext.vhd:2677-2690 for the EAR route)",
               opened && wrote && tape1 == 1 && under_tape == 1 && tape2 == 2 && under_music >= 1 && music == 0,
               fmt("opened=%d wrote=%d tape underruns=%llu warnings after the first=%d (want 1) after the second=%d "
                   "(want 2); music underruns=%llu warnings=%d (want 0)",
@@ -1864,7 +1864,7 @@ static void test_nextpi_audio() {
     }
 
     // ── PI-55 — the guest's view of the Pi's sample (NR 0x2C/0x2D/0x2E,
-    // zxnext.vhd:6006-6015) is live in a live run and the rest value 0x200
+    // zxnext.vhd:6594-6603) is live in a live run and the rest value 0x200
     // whenever the run must be reproducible: a rewind replay, an RZX playback
     // or an RZX recording, none of which can reproduce a host-timed sample. A
     // restored snapshot also puts the latch back at rest. The tone is left
@@ -1934,7 +1934,7 @@ static void test_nextpi_audio() {
               "the guest reads the Pi's live sample on NR 0x2C/0x2E in a live run and during an RZX "
               "recording (the recorder stores IN values), and the rest value 0x200 (0x80, NR 0x2D 0) "
               "in a rewind replay and an RZX playback; a restored snapshot puts the latch at rest "
-              "(zxnext.vhd:6006-6015)",
+              "(zxnext.vhd:6594-6603)",
               started && live_ok && is_rest(replay) && is_rest(rzx_play) && rec_live &&
                   rest_after_load,
               fmt("started=%d (%s) live 2C=%02X 2E=%02X; replay %02X/%02X/%02X; rzx play "
@@ -1946,7 +1946,7 @@ static void test_nextpi_audio() {
     }
 
     // ── PI-56..59 — NR 0xA2 bit 0: the Pi's audio as the EAR input, read on
-    // port 0xFE bit 6 (zxnext.vhd:2677-2688, :3459; zxnext_top_issue2.vhd:
+    // port 0xFE bit 6 (zxnext.vhd:2677-2690, :3459; zxnext_top_issue2.vhd:
     // 663-677). The stand-in plays a square wave with BOTH channels in phase at
     // ±24576 (10-bit 0x380 / 0x080: t = 11 / 00), flipping every 20 samples
     // (0.45 ms, well inside the ~1.17 ms relaxation), so the comparator
@@ -2019,7 +2019,7 @@ static void test_nextpi_audio() {
         check("PI-56",
               "with NR 0xA2 bit 0 set, port 0xFE bit 6 reads the Pi's EAR comparator, toggling "
               "with a Pi square wave; with bit 0 clear, and during a rewind replay, it reads 0 "
-              "(zxnext.vhd:2677-2688, :3459)",
+              "(zxnext.vhd:2677-2690, :3459)",
               started && on.reads == 200 && on.mismatches == 0 && on.ones > 0 && on.zeros > 0 &&
                   off_ones == 0 && replay_ok,
               fmt("started=%d (%s) reads=%d mismatches=%d ones=%d zeros=%d bit0-clear ones=%d "
@@ -2176,7 +2176,7 @@ static void test_nextpi_audio() {
     }
 
     // PI-61 — setting NR 0xA2 bit 0 is itself an edge (R3-1). With bit 0 clear
-    // the comparator is held at 0 whatever the Pi sends (zxnext.vhd:2677-2688);
+    // the comparator is held at 0 whatever the Pi sends (zxnext.vhd:2677-2690);
     // a sample already at t = 11 therefore raises pi_fe_ear AT the NR 0xA2
     // write, and ear_relax passes that edge through: bit 6 reads 1 at once and
     // still 30000 master cycles later, instead of the relaxed level.
@@ -2211,7 +2211,7 @@ static void test_nextpi_audio() {
         check("PI-61",
               "setting NR 0xA2 bit 0 while the Pi's sample is already at t = 11 raises the EAR "
               "comparator at the write: port 0xFE bit 6 reads 1 at once and 30000 master cycles "
-              "later, and has relaxed 34000 after it (zxnext.vhd:2677-2688, "
+              "later, and has relaxed 34000 after it (zxnext.vhd:2677-2690, "
               "zxnext_top_issue2.vhd:663-677)",
               started && latched && was_clear && at_write == 1 && at_30000 == 1 && at_34000 == 0,
               fmt("started=%d (%s) latched=%d clear-before=%d bit6 at write=%d +30000=%d +34000=%d",
@@ -2255,7 +2255,7 @@ static void test_nextpi_audio() {
         check("PI-62",
               "restoring a snapshot taken while the Pi's EAR comparator was 1 leaves it 0 (it is "
               "not in the stream), and port 0xFE bit 6 then reads the relaxed issue-2 MIC level "
-              "at once (zxnext.vhd:2677-2688; jnext-only: snapshots have no VHDL counterpart)",
+              "at once (zxnext.vhd:2677-2690; jnext-only: snapshots have no VHDL counterpart)",
               started && was_one && !ear_after && bit6_after == 1,
               fmt("started=%d (%s) was_one=%d fe_ear after load=%d bit6 after load=%d (want 0, 1)",
                   started ? 1 : 0, error.c_str(), was_one ? 1 : 0, ear_after ? 1 : 0, bit6_after));
