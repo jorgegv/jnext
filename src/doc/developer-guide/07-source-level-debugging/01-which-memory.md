@@ -125,7 +125,8 @@ opcode byte of every instruction fetch; `Mmu::last_m1()` returns it, and
   fetch. `target_space` is recorded by the first fetch *at* `target_pc` and stays
   `cpu()` until then (and forever if none happens: a debugger moved the PC, or
   the esxDOS shim serviced the call). An `INT` or `NMI` frame has no fetch to
-  record: its `caller_space` is the prediction at the interrupted PC, captured by
+  record: its `caller_space` is the prediction at the interrupted PC, taken before
+  the slot (only when an interrupt may be accepted in it) and handed to
   `CallStack::on_instruction_pre()`.
 - **Slots that fetch nothing.** An accepted `INT`, an accepted `NMI` and the
   esxDOS shim fetch no opcode, so `last_m1()` still holds the previous

@@ -119,7 +119,8 @@ split (`Emulator::predict_instruction_()`: each M1 byte under the overlay its ow
 M1 selects, the DivMMC hold chained from one M1 to the next with
 `DivMmc::active_on_m1()` / `hold_after_m1()`, the rest under
 `DivMmc::active_with_hold()`), pure, through `route_with()`.
-`Debugger::memory_reader()` reads the instruction at the PC through that
+The call-stack tracker no longer uses it per instruction: it reads the CPU's own
+fetch buffer after execution. `Debugger::memory_reader()` reads the instruction at the PC through that
 prediction (`Emulator::predict_instruction_bytes()`), and every other address
 through `peek()`: at a DivMMC instant entry the M1 itself maps DivMMC, so a peek
 of the PC line shows the bytes of the map before the M1 while the CPU executes
