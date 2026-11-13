@@ -4306,6 +4306,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#saving-the-game" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Saving the game
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#keyboard" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4477,7 +4488,7 @@
 <tr>
 <td><code>file</code></td>
 <td>URL, <code>{url}</code> or <code>{data, name}</code></td>
-<td>The program to run, as <code>--load</code>. <code>.nex</code>, <code>.tap</code> and <code>.tzx</code> only. Without it the machine boots to the NextZXOS menu.</td>
+<td>The program to run, as <code>--load</code>. <code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, or a <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code> snapshot, which runs on the machine it was saved on (see "Saving the game" below). Without it the machine boots to the NextZXOS menu.</td>
 </tr>
 <tr>
 <td><code>machine</code></td>
@@ -4564,6 +4575,10 @@
 <td>Load another program (same forms as <code>file</code>) while the machine runs. Resolves when it is in the machine.</td>
 </tr>
 <tr>
+<td><code>saveSnapshot()</code></td>
+<td>Resolves to a <code>Uint8Array</code> holding a <code>.jns</code> snapshot of the running machine (<code>args: ['--snapshot-compression', 'off']</code> stores it uncompressed). Rejects if the machine is not running.</td>
+</tr>
+<tr>
 <td><code>setVolume(v)</code></td>
 <td>Master level, 0 (silent) to 1; anything else throws a <code>RangeError</code>. A player started <code>muted</code> has no audio device.</td>
 </tr>
@@ -4592,6 +4607,26 @@
 <p>where <code>player</code> is what <code>jnext.mount()</code> resolved to (or <code>el.jnextPlayer</code> of a widget).
 <code>args: ['--sdcard-writes-reset']</code> does the same for one start, when the page is
 loaded.</p>
+<h2 id="saving-the-game">Saving the game<a class="headerlink" href="#saving-the-game" title="Permanent link">&para;</a></h2>
+<p><code>saveSnapshot()</code> gives the page a snapshot of the whole machine, to offer as a download:</p>
+<pre><code class="language-js">const bytes = await player.saveSnapshot();
+const a = document.createElement('a');
+a.href = URL.createObjectURL(new Blob([bytes]));
+a.download = 'game.jns';
+a.click();
+</code></pre>
+<p>and <code>load()</code> takes it back, for instance from an <code>&lt;input type="file"&gt;</code>:</p>
+<pre><code class="language-js">await player.load({ data: new Uint8Array(await file.arrayBuffer()), name: file.name });
+</code></pre>
+<p>A snapshot runs on the machine it was saved on, whatever the player's <code>machine</code> option says,
+and that machine stays for later <code>reset('hard')</code>, <code>reset('program')</code> and
+<code>load()</code> of a program; a page that mixes snapshots of other machines with NEX programs gives
+each its own player. A <code>.jns</code> restores only on the SD card it was taken on: the same card
+image gives a snapshot that loads, another one is refused (<code>failed to load '&lt;file&gt;'</code>, the
+reason in the browser console). <code>args: ['--snapshot-mode', 'force']</code> loads it anyway, at the
+page's risk. A <code>.jns</code> that had a tape attached remembers the tape by its path; one saved in a
+page names a file of the page's memory, so on another JNEXT it restores without the tape.
+A snapshot never uses the stored NextZXOS recording (10.4): it starts at once.</p>
 <h2 id="keyboard">Keyboard<a class="headerlink" href="#keyboard" title="Permanent link">&para;</a></h2>
 <p>The player takes the keys while its canvas has focus (the click focuses it). The
 host modifier for JNEXT's own shortcuts is Alt (Option on a Mac); Ctrl+W, Ctrl+T,

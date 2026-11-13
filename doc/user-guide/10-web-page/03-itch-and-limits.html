@@ -4447,10 +4447,11 @@ Game controllers are page-wide: give the other players
 <ul>
 <li>Flags and <code>--set</code> keys that need a process, a socket or a terminal are refused with
   a message; the list is in the man page ("Not available in the browser").</li>
-<li>Only <code>.nex</code>, <code>.tap</code> and <code>.tzx</code> programs load. <code>--headless</code> and RZX are refused.</li>
+<li>Programs load as <code>.nex</code>, <code>.tap</code> or <code>.tzx</code>, snapshots as <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code>. <code>--headless</code> and RZX are refused.</li>
 <li>Writes the guest makes to the SD card are kept across reloads only when the page asks
   with <code>keepWrites</code> (10.4); without it the card lives in memory for the session. Files JNEXT
-  writes (screenshots, snapshots) live in memory in either case.</li>
+  writes (screenshots, snapshots) live in memory in either case; <code>saveSnapshot()</code> hands a snapshot
+  to the page.</li>
 <li><code>keepWrites</code> keeps what reaches the card (a program started from the NextZXOS menu, or one
   that drives the card itself, writes there) and the file a NEX loaded with <code>file</code> saves
   through esxDOS. Such a NEX is not started by NextZXOS, so JNEXT's own stand-in answers its

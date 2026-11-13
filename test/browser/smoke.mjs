@@ -376,7 +376,7 @@ row('BRW-22', 'the teardown runs after main() returned: exit 0 on --delayed-auto
 });
 
 row('BRW-23', 'a browser page refuses --headless, --rzx-play, an unsupported --load and a bare unsupported FILE: exit 1, no loop', async () => {
-  const cases = [['--headless'], ['--rzx-play', 'x.rzx'], ['--load', '/media/x.sna'], ['/media/x.sna']];
+  const cases = [['--headless'], ['--rzx-play', 'x.rzx'], ['--load', '/media/x.scr'], ['/media/x.scr']];
   const wants = [/--headless/, /--rzx-play/, /\.nex, \.tap, \.tzx/, /\.nex, \.tap, \.tzx/];
   for (let i = 0; i < cases.length; i++) {
     const page = await open({ args: cases[i], canvas: '640x512' });

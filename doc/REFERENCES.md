@@ -103,6 +103,13 @@ Cited by tool, version and file path in [SOURCE-LEVEL-DEBUGGING.md](design/SOURC
 | crtemu — Mattias Gustavsson's CRT-emulation shader (MIT / Unlicense), vendored and patched in `third_party/crtemu/` | <https://github.com/mattiasgustavsson/libs> |
 
 
+## Snapshot formats
+
+| Reference | URL |
+|---|---|
+| The `.z80` snapshot format (v1 header the browser tests' converter `test/browser/sna2z80.py` writes) | <https://worldofspectrum.org/faq/reference/z80format.htm> |
+
+
 ## Adding to this file
 
 Add the URL here **and** link to this file rather than pasting the URL again
