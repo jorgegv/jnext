@@ -37,10 +37,10 @@
 # same moment — that row's own cleanup then removes the evidence. Keep a row's
 # paths under its own $TMP_DIR / $RUN_DIR.
 
-# Seconds a row may run before it is killed and FAILed. 10x the slowest row
-# (qt-keypress-burst-func, ~56 s on a quiet host): a bound for a hang, not a
-# performance budget.
-ROW_BOUND=${JNEXT_REGRESSION_ROW_TIMEOUT:-600}
+# Seconds a row may run before it is killed and FAILed: a bound for a hang, not
+# a performance budget. Must stay above harness-selftest-func's own 900 s
+# bound (its measured worst pass is 607 s), else this kills it first.
+ROW_BOUND=${JNEXT_REGRESSION_ROW_TIMEOUT:-1200}
 ROW_RUNNER="$SCRIPT_DIR/row-runner.sh"
 ROW_RUNNING_PIDS=""
 

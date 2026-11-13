@@ -95,7 +95,7 @@ harness fault):
 What the driver checks, beyond the end-of-run accounting below: a row reports
 exactly one result under its own name (twice, or none, is a harness fault); a
 harness fault inside a row process is one of the run; a row that dies without a
-result or outlives `JNEXT_REGRESSION_ROW_TIMEOUT` (600 s) is a FAIL naming it,
+result or outlives `JNEXT_REGRESSION_ROW_TIMEOUT` (1200 s) is a FAIL naming it,
 and the run goes on; a row that exits with its directories still there (its
 own trap replaced the library's) is a harness fault; a row directory that
 exists before its row starts, or is left over at the end, means some row wrote

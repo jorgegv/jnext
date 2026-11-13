@@ -34,7 +34,7 @@
 #      ../test-functions.inc relative to their own directory and die loudly.
 #      JNEXT_TEST_JOBS caps the screenshot and parallel functional lanes
 #      (default: every CPU), JNEXT_TEST_QUIET_JOBS the quiet phase (default
-#      1); JNEXT_REGRESSION_ROW_TIMEOUT bounds one row (600 s);
+#      1); JNEXT_REGRESSION_ROW_TIMEOUT bounds one row (1200 s);
 #      JNEXT_REGRESSION_STAMP=1 (set by `make regression`) stamps a green run;
 #      =confirm (set by `make regression-confirm`) re-runs a full run's
 #      loaded-host FAILs solo and, if they pass, stamps it;
