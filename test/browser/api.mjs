@@ -634,6 +634,7 @@ row('WEBAPI-31', 'player.load({data, name: Beeper.WAV}) at run time: resolves, o
   must(page.msgs.some((m) => /WAV: loaded '\/media\/[^']*-Beeper\.WAV'/.test(m)), 'log: ' + JSON.stringify(page.msgs.slice(-8)));
   await waitFrame(page, 0, (await frame(page)) + WAV_F - 100 + 50, 240000);
   const fbi = await decode(fs.readFileSync(path.join(ORACLE, 'wav.png')));
+  await page.evaluate(() => { document.getElementById('textbox').style.display = 'none'; });   // the fixture's input box lies over a 640x512 canvas
   const cv = await decode(await page.locator('#p0 canvas').screenshot());
   must(cv.w === 640 && cv.h === 512 && fbi.w === 640 && fbi.h === 512, `sizes ${cv.w}x${cv.h} ${fbi.w}x${fbi.h}`);
   const P = (im, x, y) => [im.d[(y * im.w + x) * 4], im.d[(y * im.w + x) * 4 + 1], im.d[(y * im.w + x) * 4 + 2]];

@@ -24,7 +24,8 @@ Game controllers are page-wide: give the other players
 
 - Flags and `--set` keys that need a process, a socket or a terminal are refused with
   a message; the list is in the man page ("Not available in the browser").
-- Programs load as `.nex`, `.tap` or `.tzx`, snapshots as `.jns`, `.sna`, `.szx` or `.z80`. `--headless` and RZX are refused.
+- Programs load as `.nex`, `.tap`, `.tzx` or `.wav` (a tape, in real time), snapshots as `.jns`, `.sna`, `.szx` or `.z80`. `--headless` and RZX are refused.
+  A WAV is large and stays in the page's memory for the session; give the `.tap` or `.tzx` of a game when there is one.
 - Writes the guest makes to the SD card are kept across reloads only when the page asks
   with `keepWrites` (10.4); without it the card lives in memory for the session. Files JNEXT
   writes (screenshots, snapshots) live in memory in either case; `saveSnapshot()` hands a snapshot

@@ -6,7 +6,7 @@
 |---|---|---|
 | `image` | `{url, sha256}`, required | The SD-card image, as `--sdcard` and `--sdcard-sha256`. |
 | `keepWrites` | boolean | `--sdcard-writes`, with a file the page manages: what the program writes to the card, and the file a NEX saves through esxDOS (saves, high scores), is kept in the visitor's browser and is there at the next visit. Off by default; what it keeps, and what it cannot, is in 10.3 and 10.4. |
-| `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. `.nex`, `.tap`, `.tzx`, or a `.jns`, `.sna`, `.szx` or `.z80` snapshot, which runs on the machine it was saved on (see "Saving the game" below). Without it the machine boots to the NextZXOS menu. |
+| `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. `.nex`, `.tap`, `.tzx`, `.wav`, or a `.jns`, `.sna`, `.szx` or `.z80` snapshot, which runs on the machine it was saved on (see "Saving the game" below). Without it the machine boots to the NextZXOS menu. |
 | `machine` | string | `--machine`. |
 | `touchKeyboard` | `'auto'`, `'on'` or `'off'` | `--touch-keyboard`: the on-screen keyboard. `'auto'` (default) shows it on a phone or tablet, `'on'` always, `'off'` never. See "Keyboard", below. |
 | `muted` | boolean | `--set startup.silent`: no audio device for the session. |
@@ -25,7 +25,9 @@
 - `onReady()`: after the mount's click, after `load()` and after `reset()`: the
   program is in the machine and a frame has been shown. A load the program itself
   asks for (a NEX that runs another) is not the page's: it fires no `onReady` and
-  `reset()` still restarts the page's program.
+  `reset()` still restarts the page's program. For a `.wav`, `onReady` comes when the
+  tape is in the deck; the program then loads as the tape plays, in real time (a 48K game
+  takes minutes), and the tape stops while the player is paused or the tab is hidden.
 - `onError(message)`: on every failure (a refused option, a bad image, a program that
   does not load, an exit with an error). The promise of the call that failed rejects
   with the same message.
