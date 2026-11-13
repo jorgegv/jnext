@@ -656,16 +656,22 @@ include(GNUInstallDirs)
 # installed under <dest>/licenses by every package layout; the vendored SDL3 of
 # the Ubuntu .deb adds its own (build-sdl3.sh puts it in the prefix).
 function(jnext_install_licenses dest)
+    # "." + "/licenses" would make DESTINATION "./licenses", which CMP0177 (CMake 3.31+) warns about.
+    if("${dest}" STREQUAL ".")
+        set(_dir "licenses")
+    else()
+        set(_dir "${dest}/licenses")
+    endif()
     file(STRINGS "${CMAKE_SOURCE_DIR}/packaging/licenses.list" _lic REGEX "^[^#].*\\|")
     foreach(_e IN LISTS _lic)
         string(REPLACE "|" ";" _p "${_e}")
         list(GET _p 0 _name)
         list(GET _p 1 _src)
-        install(FILES "${CMAKE_SOURCE_DIR}/${_src}" DESTINATION "${dest}/licenses" RENAME "${_name}")
+        install(FILES "${CMAKE_SOURCE_DIR}/${_src}" DESTINATION "${_dir}" RENAME "${_name}")
     endforeach()
     if(JNEXT_SDL3_VENDORED)
         install(FILES "${CMAKE_PREFIX_PATH}/share/licenses/SDL3-LICENSE.txt"
-            DESTINATION "${dest}/licenses" RENAME sdl3.txt)
+            DESTINATION "${_dir}" RENAME sdl3.txt)
     endif()
 endfunction()
 
