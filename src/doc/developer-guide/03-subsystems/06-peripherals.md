@@ -340,10 +340,14 @@ while jnext runs neither starts nor stops it. Three pieces:
   Without `port=`, QEMU inserts its own 8-port hub there, and the guest keeps a
   transfer queued on the hub's interrupt endpoint, so QEMU's idle CPU at the
   `SUP>` prompt is 6-8 times higher (measured on Linux; jnext's own work is the
-  same with or without the Pi). When `PiQemu::extra_args_add_usb_device` finds a
-  USB device in the extras (`-device`/`--device` with a `usb-` driver, bare or
-  `driver=`, or `-usbdevice`), `port=1` is left off so QEMU's hub supplies the
-  ports, since QEMU refuses a second USB device on a bus with no free port.
+  same with or without the Pi). `PiQemu::extra_args_may_add_device` keeps the hub (no
+  `port=`) whenever the extras contain a `-device`, `--device`, `-usbdevice`,
+  `--usbdevice`, `-readconfig` or `--readconfig` argument, a trailing one with no
+  value included. It deliberately does not parse the value: QEMU's `-device`
+  grammar (`driver=` anywhere, JSON, escaped commas, USB names without the
+  `usb-` prefix such as `u2f-passthru`) is not worth reproducing, because a
+  wrong "yes" costs only CPU (today's behaviour) while a wrong "no" makes QEMU
+  refuse to start ("no free ports" in `qemu.log`) where it started before.
 * **`core/nextpi_provisioner.{h,cpp}`** makes the NextPi directory exist, on
   the SD provisioner's seams (`DownloadFn`, `ConfirmFn`, `ProgressFn`,
   `BusyFn`, so the same GUI dialogs and terminal prompts serve both): it asks,

@@ -654,11 +654,19 @@ listed in Group 17 moved here in GH #331, and PIT-16..23 cover the Pi audio path
 | PIT-64 | `nextpi::given_flags` with no flag, with `--nextpi-dir` and an empty `--nextpi-audio`, and with all five | none; `--nextpi-dir`, `--nextpi-audio` in that order; all five in the fixed order, each once, an empty value included (main.cpp warns about each when NextPi is not enabled) (GH #407). jnext-only, no VHDL counterpart |
 | PIT-65 | `nextpi::start_request` with the startup machine: GUI preference on for ZX Next, 48K, 128K, +3, Pentagon; preference off on 48K; `--nextpi` on 48K and Pentagon (preference off and on); `--no-nextpi` on 48K; headless `--nextpi`; headless preference on | the preference alone starts it only on the ZX Next and is `held_for_machine` on every other machine; `--nextpi` starts it on any machine (asked_on_cli); `--no-nextpi`, a headless session and a cleared preference are never held (GH #419). jnext-only, no VHDL counterpart: the Pi header's UART is decoded in every personality (NR 0x83 bit 4, zxnext.vhd:2420) |
 | PIT-66 | `build_args` for the FIFO and the socket transport with no extras and with `{-serial, telnet:..., -name, my pi}` | exactly one `-device` of jnext's own, value `usb-audio,audiodev=snd0,buffer=16384,port=1` (QEMU 10.2.2 measured: without `port=` it inserts an 8-port hub that costs 6-8x idle CPU; GH #489). jnext-only, no VHDL counterpart |
-| PIT-67a | extras `{-device, usb-net,netdev=n0, -netdev, user,id=n0}` | `-device` value has no `port=` (QEMU refuses a second USB device without the hub's free ports), extras last in order, `extra_args_add_usb_device` true (GH #489) |
+| PIT-67a | extras `{-device, usb-net,netdev=n0, -netdev, user,id=n0}` | any device option keeps QEMU's hub: `-device` value has no `port=` (QEMU 10.2.2 refuses a USB device with no free port; the rule is deliberately coarse, a wrong "yes" only costs CPU), extras last in order, `extra_args_may_add_device` true (GH #489) |
 | PIT-67b | extras `{-device, driver=usb-kbd}` | as PIT-67a |
 | PIT-67c | extras `{-usbdevice, keyboard}` | as PIT-67a |
 | PIT-67d | extras `{--device, usb-hub}` | as PIT-67a |
-| PIT-67e | extras `{-device, loader,file=x}` | not USB: `port=1` kept, `extra_args_add_usb_device` false |
+| PIT-67e | extras `{-name, x}` | no device option: `port=1`, extras last, helper false |
+| PIT-67f | extras `{-device, id=k,driver=usb-kbd}` | QEMU 10.2.2: `port=1` exits 1 ("no free ports"), hub starts; hub kept |
+| PIT-67g | extras `{-device, {"driver":"usb-kbd"}}` (JSON) | as PIT-67f |
+| PIT-67h | extras `{-device, u2f-passthru}` | USB device without the `usb-` prefix; as PIT-67f |
+| PIT-67i | extras `{--usbdevice, keyboard}` | as PIT-67a |
+| PIT-67j | extras `{-readconfig, x.cfg}` | a file JNEXT cannot read; hub kept |
+| PIT-67k | extras `{-name, x, -device}` | trailing bare option, no value: hub kept, no out-of-range read |
+| PIT-67l | extras `{-name, x, --device}` | as PIT-67k |
+| PIT-67m | extras `{-device, loader,file=x}` | not USB, hub still kept (coarse rule) |
 
 Functional row `nextpi-link-func`: the real binary starts the stand-in QEMU, the
 launcher's link is attached to UART 1 over the platform's transport (the FIFO pair,

@@ -173,10 +173,13 @@ public:
     /// `pipe_base` is the chardev path whose `.in` / `.out` are the FIFOs.
     static std::vector<std::string> build_args(const Spec& spec, const std::string& pipe_base);
 
-    /// True when the extra arguments add a USB device: `-device`/`--device` whose driver
-    /// (bare or `driver=`) starts with `usb-`, or `-usbdevice`/`--usbdevice`. Pure; exposed
-    /// for tests. Then the Pi's sound card keeps QEMU's USB hub (it needs the free ports).
-    static bool extra_args_add_usb_device(const std::vector<std::string>& extra);
+    /// True when the extra arguments MAY add a device: any argument that is exactly `-device`,
+    /// `--device`, `-usbdevice`, `--usbdevice`, `-readconfig` or `--readconfig` (a trailing one
+    /// with no value counts too). Pure; exposed for tests. It does not parse the value, so it
+    /// cannot tell a USB device from another one. Then the Pi's sound card keeps QEMU's USB hub
+    /// (a USB device needs its free ports; without them QEMU refuses to start); otherwise the
+    /// card is attached directly with `port=1`.
+    static bool extra_args_may_add_device(const std::vector<std::string>& extra);
 
     /// Split the user's extra-arguments text into argv entries. Pure; exposed for tests.
     /// Runs of space/tab/CR/LF separate; '...' and "..." are literal (no escapes) and

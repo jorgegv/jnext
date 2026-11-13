@@ -15,14 +15,14 @@ void I2s::reset()
     right_      = 0x200;
     // VHDL zxnext.vhd:5564 — nr_a2_pi_i2s_ctl resets to 0x00 (no Pi I2S
     // path enabled). With NR 0xA2 = 0, pi_audio_L/R are forced to the
-    // 10-bit DC midpoint (0x200) per zxnext.vhd:2358-2359.
+    // 10-bit DC midpoint (0x200) per zxnext.vhd:2674-2675.
     nr_a2_ctl_  = 0;
     fe_ear_     = false;
 }
 
 void I2s::update_fe_ear()
 {
-    // zxnext.vhd:2361-2373, clocked at 28 MHz on the raw received samples.
+    // zxnext.vhd:2677-2688, clocked at 28 MHz on the raw received samples.
     const bool en  = (nr_a2_ctl_ & 0xC0) != 0;   // pi_i2s_en = enL or enR
     const bool ear = (nr_a2_ctl_ & 0x01) != 0;   // pi_i2s_ear
     if (!en || !ear) { fe_ear_ = false; return; }
@@ -42,7 +42,7 @@ void I2s::set_sample(uint16_t left_10bit, uint16_t right_10bit)
 
 uint16_t I2s::pi_audio_L() const
 {
-    // VHDL zxnext.vhd:2358:
+    // VHDL zxnext.vhd:2674:
     //   pi_audio_L <= ("10" & X"00")
     //                  when (pi_i2s_en='0' or pi_i2s_muteL='1'
     //                        or pi_i2s_ear='1')
@@ -63,7 +63,7 @@ uint16_t I2s::pi_audio_L() const
 
 uint16_t I2s::pi_audio_R() const
 {
-    // VHDL zxnext.vhd:2359 — mirror of pi_audio_L with R/L swapped.
+    // VHDL zxnext.vhd:2675 — mirror of pi_audio_L with R/L swapped.
     constexpr uint16_t SILENCE = 0x200;
     const bool enL   = (nr_a2_ctl_ & 0x80) != 0;   // b7
     const bool enR   = (nr_a2_ctl_ & 0x40) != 0;   // b6

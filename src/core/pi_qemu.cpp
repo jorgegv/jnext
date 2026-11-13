@@ -106,10 +106,10 @@ std::vector<std::string> PiQemu::build_args_with_chardev(const Spec& spec,
     // `port=1` plugs the sound card straight into the Pi's only USB port. Without it QEMU
     // inserts its own 8-port hub there and the guest services the hub's interrupt endpoint
     // without pause: QEMU's idle CPU at the NextPi prompt is 6-8x higher with the hub
-    // (measured, GH #489). A user USB device in the extras needs the hub's free ports (QEMU
+    // (measured, GH #489). A device in the extras (possibly USB) needs the hub's free ports (QEMU
     // refuses to start otherwise), so then the card is left without `port=`.
     const std::string sound_card =
-        extra_args_add_usb_device(spec.extra_args)
+        extra_args_may_add_device(spec.extra_args)
             ? "usb-audio,audiodev=snd0,buffer=16384"
             : "usb-audio,audiodev=snd0,buffer=16384,port=1";
     std::vector<std::string> args{
@@ -135,16 +135,14 @@ std::vector<std::string> PiQemu::build_args_with_chardev(const Spec& spec,
     return args;
 }
 
-bool PiQemu::extra_args_add_usb_device(const std::vector<std::string>& extra) {
-    for (std::size_t i = 0; i < extra.size(); ++i) {
-        const std::string& a = extra[i];
-        if (a == "-usbdevice" || a == "--usbdevice") return true;
-        if ((a == "-device" || a == "--device") && i + 1 < extra.size()) {
-            std::string drv = extra[i + 1].substr(0, extra[i + 1].find(','));
-            if (drv.rfind("driver=", 0) == 0) drv.erase(0, 7);
-            if (drv.rfind("usb-", 0) == 0) return true;
-        }
-    }
+bool PiQemu::extra_args_may_add_device(const std::vector<std::string>& extra) {
+    // Deliberately coarse: QEMU's `-device` grammar (driver= anywhere, JSON, escaped commas,
+    // non-"usb-" USB names such as u2f-passthru) is not parsed. A wrong "yes" costs only CPU
+    // (the hub, as before); a wrong "no" stops QEMU from starting ("no free ports").
+    for (const std::string& a : extra)
+        if (a == "-device" || a == "--device" || a == "-usbdevice" || a == "--usbdevice" ||
+            a == "-readconfig" || a == "--readconfig")
+            return true;
     return false;
 }
 

@@ -2694,25 +2694,34 @@ void test_nextpi_extra_args_rows() {
         const Strs no_usb = {"-serial", "telnet:127.0.0.1:2357,server,nowait", "-name", "my pi"};
         const bool p66 = all_eq(cards(none), direct) && all_eq(cards(no_usb), direct) &&
                          count_devices_own(none) == 1 && count_devices_own(no_usb) == 1 &&
-                         !PiQemu::extra_args_add_usb_device(none) &&
-                         !PiQemu::extra_args_add_usb_device(no_usb);
+                         !PiQemu::extra_args_may_add_device(none) &&
+                         !PiQemu::extra_args_may_add_device(no_usb);
         check("PIT-66",
-              "build_args, on the FIFO and the socket transport, with no extras and with non-USB extras, "
+              "build_args, on the FIFO and the socket transport, with no extras and with extras that add no device, "
               "has exactly one -device of its own and it attaches the sound card with port=1 "
               "(QEMU adds no USB hub)",
               p66, fmt("p66=%d", p66 ? 1 : 0));
 
         auto usb_case = [&](const Strs& extras) {
             return all_eq(cards(extras), hub) && tail_ok(extras) &&
-                   PiQemu::extra_args_add_usb_device(extras);
+                   PiQemu::extra_args_may_add_device(extras);
         };
         const bool a = usb_case({"-device", "usb-net,netdev=n0", "-netdev", "user,id=n0"});
         const bool b = usb_case({"-device", "driver=usb-kbd"});
         const bool c = usb_case({"-usbdevice", "keyboard"});
         const bool d = usb_case({"--device", "usb-hub"});
-        const Strs loader = {"-device", "loader,file=x"};
-        const bool e = all_eq(cards(loader), direct) && tail_ok(loader) &&
-                       !PiQemu::extra_args_add_usb_device(loader);
+        const bool e = all_eq(cards({"-name", "x"}), direct) && tail_ok({"-name", "x"}) &&
+                       !PiQemu::extra_args_may_add_device({"-name", "x"});
+        // The coarse rule: any device option keeps the hub, whatever the value (QEMU's grammar is
+        // not parsed; a wrong "yes" costs CPU, a wrong "no" stops QEMU: "no free ports").
+        const bool f = usb_case({"-device", "id=k,driver=usb-kbd"});
+        const bool g = usb_case({"-device", "{\"driver\":\"usb-kbd\"}"});
+        const bool h = usb_case({"-device", "u2f-passthru"});
+        const bool i = usb_case({"--usbdevice", "keyboard"});
+        const bool j = usb_case({"-readconfig", "x.cfg"}) && usb_case({"--readconfig", "x.cfg"});
+        const bool k = usb_case({"-name", "x", "-device"});    // trailing, no value: no out-of-range read
+        const bool l = usb_case({"-name", "x", "--device"});
+        const bool m = usb_case({"-device", "loader,file=x"}); // not USB, still keeps the hub (coarse rule)
         check("PIT-67a", "extras -device usb-net,... -netdev ...: the sound card keeps QEMU's hub (no port=), extras last",
               a, fmt("a=%d", a ? 1 : 0));
         check("PIT-67b", "extras -device driver=usb-kbd: the sound card keeps QEMU's hub (no port=), extras last",
@@ -2721,8 +2730,24 @@ void test_nextpi_extra_args_rows() {
               c, fmt("c=%d", c ? 1 : 0));
         check("PIT-67d", "extras --device usb-hub (double dash): the sound card keeps QEMU's hub (no port=), extras last",
               d, fmt("d=%d", d ? 1 : 0));
-        check("PIT-67e", "extras -device loader,file=x (not USB): the sound card still gets port=1",
+        check("PIT-67e", "extras -name x (no device option): the sound card gets port=1, extras last",
               e, fmt("e=%d", e ? 1 : 0));
+        check("PIT-67f", "extras -device id=k,driver=usb-kbd (driver= not first): the hub is kept (no port=)",
+              f, fmt("f=%d", f ? 1 : 0));
+        check("PIT-67g", "extras -device with a JSON value {\"driver\":\"usb-kbd\"}: the hub is kept (no port=)",
+              g, fmt("g=%d", g ? 1 : 0));
+        check("PIT-67h", "extras -device u2f-passthru (a USB device without the usb- prefix): the hub is kept",
+              h, fmt("h=%d", h ? 1 : 0));
+        check("PIT-67i", "extras --usbdevice keyboard (double dash): the hub is kept",
+              i, fmt("i=%d", i ? 1 : 0));
+        check("PIT-67j", "extras -readconfig x.cfg and --readconfig x.cfg (a file JNEXT cannot read): the hub is kept",
+              j, fmt("j=%d", j ? 1 : 0));
+        check("PIT-67k", "extras ending in a bare -device: the hub is kept, no out-of-range read",
+              k, fmt("k=%d", k ? 1 : 0));
+        check("PIT-67l", "extras ending in a bare --device: the hub is kept, no out-of-range read",
+              l, fmt("l=%d", l ? 1 : 0));
+        check("PIT-67m", "extras -device loader,file=x (not USB): the hub is still kept (coarse rule)",
+              m, fmt("m=%d", m ? 1 : 0));
     }
 
     // PIT-62 - end to end through the real spawn (POSIX watchdog + posix_spawn; Windows CreateProcessW +
