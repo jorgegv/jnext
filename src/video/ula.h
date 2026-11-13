@@ -826,7 +826,6 @@ public:
     /// Advance flash state (call once per frame after all scanlines rendered).
     void advance_flash();
 
-
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 

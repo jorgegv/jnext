@@ -1850,7 +1850,7 @@ static void test_flash_power_on(Emulator&) {
         check("INT-FLASH-02",
               "a hard reset reloads the core (zxnext.vhd:6959 -> zxnext_top_issue2.vhd:1236-1241), so "
               "the flash counter restarts from its power-on value: normal for the first 15 frames "
-              "after the reset, inverted for the next 16",
+              "after the reset, inverted from frame 15 (frames 0-19 are checked)",
               ok, "frames 0..19 after the reset: " + seq);
     }
 }
