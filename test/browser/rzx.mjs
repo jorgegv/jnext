@@ -325,7 +325,7 @@ row('BRZ-08', 'on the default machine (a Next) startRzxRecording() rejects, onEr
   const page = await boot({ file: '/nex/red.nex' });
   await waitReady(page, 0, 1);
   const out = await rejection(page, 'startRzxRecording');
-  must(/jnext: the RZX recording did not start \(the log says why\)/.test(out), 'rejection: ' + out);
+  must(/^the RZX recording did not start \(the log says why\)$/.test(out), 'rejection: ' + out);
   must((await rec(page)).errors.length === 1, 'errors ' + JSON.stringify((await rec(page)).errors));
   must(logHas(page, /cannot record on a ZX Spectrum Next/), 'the log does not say why');
   must((await leftover(page)).length === 0, 'scratch files left');
