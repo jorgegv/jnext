@@ -536,6 +536,13 @@ done
 # guards are what make the denominator trustworthy.
 if $PREFLIGHT_ONLY; then
     echo -e "${GREEN}preflight OK${RESET}: $(declared_count "$CONF") screenshot + ${#DECLARED_FUNC[@]} functional tests declared, pins agree"
+    # The per-row kill bounds the driver will apply (the array it reads), so the
+    # self-test can pin the conf tag -> driver link.
+    rb=""
+    for name in "${DECLARED_FUNC[@]}"; do
+        [[ -z "${ROW_BOUND_OF[$name]:-}" ]] || rb+=" $name=${ROW_BOUND_OF[$name]}s"
+    done
+    [[ -z "$rb" ]] || echo "  row bounds:$rb"
     ! $PLATFORM_MODE || echo "  platform $TARGET_OS: ${#RUN_FUNC[@]} functional rows run, ${#ABSENT_FUNC[@]} declared absent"
     exit 0
 fi

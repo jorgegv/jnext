@@ -300,13 +300,17 @@ rc_a=0; bash "$SCRIPT" "$WORK/staleid.app" >/dev/null 2>/dev/full || rc_a=$?
 rc_b=0; bash "$SCRIPT" "$WORK/staleid.app" >/dev/null 2>&- || rc_b=$?
 rc_c=0; bash "$SCRIPT" "$WORK/staleid.app" >/dev/full 2>/dev/full || rc_c=$?
 rc_d=0; bash "$SCRIPT" "$WORK/staleid.app" >&- 2>&- || rc_d=$?
+# ...and the "codesign not available" note path (a PATH without codesign;
+# assumes the host has none outside the stub dir, true on the Linux dev host).
+mkdir -p "$WORK/bin-nocs"; ln -sf "$WORK/bin/otool" "$WORK/bin/file" "$WORK/bin-nocs/"
+rc_e=0; PATH="$WORK/bin-nocs:/usr/bin:/bin" bash "$SCRIPT" "$WORK/staleid.app" >/dev/null 2>/dev/full || rc_e=$?
 bash "$SCRIPT" "$WORK/staleid.app" >"$WORK/c.out" 2>"$WORK/c.err" || true
 ctl=0
 grep -q 'id ->' "$WORK/c.err" && ! grep -q 'id ->' "$WORK/c.out" \
     && grep -q 'verify-bundle: OK' "$WORK/c.out" && ! grep -q 'verify-bundle: OK' "$WORK/c.err" && ctl=1
-if [ "$rc_a$rc_b$rc_c$rc_d" = "0000" ] && [ "$ctl" -eq 1 ]; then
+if [ "$rc_a$rc_b$rc_c$rc_d$rc_e" = "00000" ] && [ "$ctl" -eq 1 ]; then
     ok VB-17 "stale-id bundle accepted with stderr/stdout unwritable; streams split as before"
-else bad VB-17 "expected 0/0/0/0 + control, got /dev/full-err=$rc_a closed-err=$rc_b full-both=$rc_c closed-both=$rc_d control=$ctl"; fi
+else bad VB-17 "expected 0/0/0/0/0 + control, got /dev/full-err=$rc_a closed-err=$rc_b full-both=$rc_c closed-both=$rc_d no-codesign=$rc_e control=$ctl"; fi
 
 # VB-18: every FAILING verdict keeps its exact exit code with stderr unwritable
 # (a note that failed open would turn FAIL into PASS). It passes on main's
