@@ -4497,7 +4497,7 @@ otherwise <code>onProgress</code> reports only 0 and 1.</p>
 time, and a copy that no longer matches the digest is deleted and fetched again.</p>
 <p>For a <code>.nex</code> program the recorded machine is brought back (<code>restore</code>) instead of booting
 NextZXOS again. A corrupted recording is made again. A <code>.tap</code>, a <code>.tzx</code> or a <code>.wav</code> starts directly in 48K
-BASIC, without NextZXOS, so there is nothing to record. A Next page with no program boots
+BASIC, and an <code>.rzx</code> on the machine it was recorded on, without NextZXOS, so there is nothing to record. A Next page with no program boots
 NextZXOS on every visit and records nothing.</p>
 <h2 id="what-the-browser-keeps-and-where">What the browser keeps, and where<a class="headerlink" href="#what-the-browser-keeps-and-where" title="Permanent link">&para;</a></h2>
 <ul>
@@ -4588,7 +4588,7 @@ their status line.</p>
 <td>The page is not served over <code>https://</code>, <code>http://localhost</code> or <code>http://127.0.0.1</code>.</td>
 </tr>
 <tr>
-<td><code>--load &lt;file&gt;: a browser page loads only .nex, .tap, .tzx, .jns, .sna, .szx, .z80, .wav programs</code></td>
+<td><code>--load &lt;file&gt;: a browser page loads only .nex, .tap, .tzx, .jns, .sna, .szx, .z80, .wav, .rzx programs</code></td>
 <td>The program has another extension.</td>
 </tr>
 <tr>
@@ -4596,8 +4596,12 @@ their status line.</p>
 <td>A <code>.jns</code> was taken on another SD card. Mount the card it was taken on, or pass <code>args: ['--snapshot-mode', 'force']</code>.</td>
 </tr>
 <tr>
-<td><code>--rzx-play: RZX is not available in a browser page</code></td>
-<td>RZX files cannot be played in a page (<code>--rzx-record</code> is refused the same way).</td>
+<td><code>--rzx-record: not available in a browser page (record from JavaScript: ...)</code></td>
+<td>A page cannot start a recording from the command line: record with <code>startRzxRecording()</code> and <code>stopRzxRecording()</code>.</td>
+</tr>
+<tr>
+<td><code>the RZX recording did not start (the log says why)</code></td>
+<td><code>startRzxRecording()</code> was refused: the machine is a ZX Spectrum Next, an RZX is playing, or <code>--tape-save</code> is on. The console line before it says which.</td>
 </tr>
 <tr>
 <td><code>&lt;flag&gt;: not available in the browser build (...)</code> or <code>&lt;flag&gt;: not available in a browser page (...)</code></td>

@@ -1,4 +1,4 @@
-// Browser smoke rows BRW-01..33 (make wasm-browser-test), run by browser-smoke.sh
+// Browser smoke rows BRW-01..34 (make wasm-browser-test), run by browser-smoke.sh
 // on the SDK's node. Each row prints PASS|FAIL <ID> <text>; the run ends with the
 // suite's `Total:` line and exits non-zero on any FAIL. Oracles are NATIVE runs
 // of the same arguments, made by browser-smoke.sh into $SMOKE_ORACLE (build/
@@ -375,9 +375,9 @@ row('BRW-22', 'the teardown runs after main() returned: exit 0 on --delayed-auto
   must(c2 === 1 && /NO screenshot was written/.test(err), `second exit ${c2}`);
 });
 
-row('BRW-23', 'a browser page refuses --headless, --rzx-play, an unsupported --load and a bare unsupported FILE: exit 1, no loop', async () => {
-  const cases = [['--headless'], ['--rzx-play', 'x.rzx'], ['--load', '/media/x.scr'], ['/media/x.scr']];
-  const wants = [/--headless/, /--rzx-play/, /\.nex, \.tap, \.tzx/, /\.nex, \.tap, \.tzx/];
+row('BRW-23', 'a browser page refuses --headless, --rzx-record, an unsupported --load and a bare unsupported FILE: exit 1, no loop', async () => {
+  const cases = [['--headless'], ['--rzx-record', 'x.rzx'], ['--load', '/media/x.scr'], ['/media/x.scr']];
+  const wants = [/--headless/, /--rzx-record/, /\.nex, \.tap, \.tzx/, /\.nex, \.tap, \.tzx/];
   for (let i = 0; i < cases.length; i++) {
     const page = await open({ args: cases[i], canvas: '640x512' });
     await start(page);
@@ -490,6 +490,17 @@ row('BRW-33', 'a page\'s ENV SDL_AUDIO_DEVICE_SAMPLE_FRAMES wins over the defaul
   const line = (await stderr(page)).find((l) => /Audio device buffer: \d+ sample frames/.test(l));
   const n = Number(/Audio device buffer: (\d+) sample frames/.exec(line)[1]);
   must(n === 2048, line);
+});
+
+row('BRW-34', '--rzx-play with no machine: the 48K recording plays (the --rzx-play spelling, where --load is empty); the frame-320 screenshot equals the native replay (0 px)', async () => {
+  const page = await open({ args: ['--sdcard', '/media/card.img', '--silent', '--rzx-play', '/media/keys48.rzx', ...shotArgs(320)],
+                            files: [CARD, ['/scratch/keys48.rzx', '/media/keys48.rzx']], canvas: '640x512' });
+  await start(page); await waitLog(page, /screenshot saved/, 200000);
+  await shotEquals(page, '/media/s.png', orc('rzxplay48.png'), 'native replay');
+  const log = (await stderr(page)).join('\n');
+  must(/RZX: playback started/.test(log), 'no "playback started" line');
+  const inits = log.split('\n').filter((l) => /Initializing emulator: machine_type=/.test(l));
+  must(inits.length > 0 && /\[48K\]/.test(inits[inits.length - 1]), 'last init line ' + inits[inits.length - 1]);
 });
 
 row('BRW-26', 'every request the page made is in the allow-list; no image or ROM except the run\'s own card was fetched', async () => {

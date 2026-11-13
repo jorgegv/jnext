@@ -195,6 +195,29 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_save_snapshot(const char* 
     return why.c_str();
 }
 
+// nullptr = an RZX recording to `path` started (it embeds the machine as it is now); else why
+// not (start_rzx_recording() logs the reason: a Next, a playback, a recording, --tape-save).
+extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_rzx_record(const char* path)
+{
+    if (!g_app) return "the machine is not running";
+    if (!g_app->emulator().start_rzx_recording(path ? path : ""))
+        return "the RZX recording did not start (the log says why)";
+    return nullptr;
+}
+
+// nullptr = the recording to `path` is in that file: stopped (and written) now, or ended earlier
+// by a reset, a load or an RZX playback, which write it; else why not.
+extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_rzx_stop(const char* path)
+{
+    if (!g_app) return "the machine is not running";
+    Emulator& emu = g_app->emulator();
+    const std::string p = path ? path : "";
+    if (emu.rzx_recorder().is_recording() && emu.rzx_recorder().output_path() == p)
+        emu.stop_rzx_recording();
+    if (emu.rzx_output_failed(p)) return "the RZX recording could not be written";
+    return nullptr;
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE void jnext_web_set_volume(double v)
 {
     if (!g_app) return;

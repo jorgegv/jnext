@@ -6,7 +6,7 @@
 |---|---|---|
 | `image` | `{url, sha256}`, required | The SD-card image, as `--sdcard` and `--sdcard-sha256`. |
 | `keepWrites` | boolean | `--sdcard-writes`, with a file the page manages: what the program writes to the card, and the file a NEX saves through esxDOS (saves, high scores), is kept in the visitor's browser and is there at the next visit. Off by default; what it keeps, and what it cannot, is in 10.3 and 10.4. |
-| `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. `.nex`, `.tap`, `.tzx`, `.wav`, or a `.jns`, `.sna`, `.szx` or `.z80` snapshot, which runs on the machine it was saved on (see "Saving the game" below). Without it the machine boots to the NextZXOS menu. |
+| `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. `.nex`, `.tap`, `.tzx`, `.wav`, an `.rzx` recording, or a `.jns`, `.sna`, `.szx` or `.z80` snapshot, which runs on the machine it was saved on (see "Saving the game" below; recordings: "Recording a game"). Without it the machine boots to the NextZXOS menu. |
 | `machine` | string | `--machine`. |
 | `touchKeyboard` | `'auto'`, `'on'` or `'off'` | `--touch-keyboard`: the on-screen keyboard. `'auto'` (default) shows it on a phone or tablet, `'on'` always, `'off'` never. See "Keyboard", below. |
 | `muted` | boolean | `--set startup.silent`: no audio device for the session. |
@@ -42,6 +42,8 @@
 | `reset(kind)` | `'program'` (default): restart the program; with no program, the same as `'hard'`. `'hard'`: power on again. `'soft'`: reset. Returns a promise. |
 | `load(file)` | Load another program (same forms as `file`) while the machine runs. Resolves when it is in the machine. |
 | `saveSnapshot()` | Resolves to a `Uint8Array` holding a `.jns` snapshot of the running machine (`args: ['--snapshot-compression', 'off']` stores it uncompressed). Rejects if the machine is not running. |
+| `startRzxRecording()` | Starts an RZX recording of the machine as it is now. Rejects if the machine is not running, if the last recording has not been collected with `stopRzxRecording()` (one running, or ended by a `reset()` or a `load()`), or if it cannot start (a ZX Spectrum Next, an RZX playing, `--tape-save`: the console says which). |
+| `stopRzxRecording()` | Ends the recording and resolves to a `Uint8Array` holding the `.rzx` file. Rejects if none is running. |
 | `setVolume(v)` | Master level, 0 (silent) to 1; anything else throws a `RangeError`. A player started `muted` has no audio device. |
 | `resetCard()` | Forget the writes kept by `keepWrites` and restart the program, as `reset('program')` does. Needs `keepWrites` (it rejects without it). Resolves when the program is in the machine again. |
 | `showKeyboard(on)` | Show (`true`) or hide (`false`) the on-screen keyboard, whatever `touchKeyboard` says: the page's call wins, before or after the start. Anything but a boolean throws a `TypeError`. |
@@ -108,6 +110,29 @@ reason in the browser console). `args: ['--snapshot-mode', 'force']` loads it an
 page's risk. A `.jns` that had a tape attached remembers the tape by its path; one saved in a
 page names a file of the page's memory, so on another JNEXT it restores without the tape.
 A snapshot never uses the stored NextZXOS recording (10.4): it starts at once.
+
+## Recording a game
+
+`startRzxRecording()` records the machine from the moment it is called, input included, and
+`stopRzxRecording()` gives the page the `.rzx` file, to offer as a download:
+
+```js
+await player.startRzxRecording();
+// ... the visitor plays ...
+const bytes = await player.stopRzxRecording();
+const a = document.createElement('a');
+a.href = URL.createObjectURL(new Blob([bytes]));
+a.download = 'game.rzx';
+a.click();
+```
+
+A recording is refused on a ZX Spectrum Next, which is the default machine: give the player
+`machine: '48k'`, `'128k'`, `'plus3'` or `'pentagon'`. While recording, a tape loads in real
+time. A `reset()` or a `load()` ends the recording early; `stopRzxRecording()` still returns it, and until it is called no new recording can start.
+A recording plays on the machine it was made on: given as `file`, an explicit `machine` wins at
+the start, and later `load()` and `reset()` use the recording's. While it plays, every port read
+comes from the file, so the visitor's keys do nothing until the console says `RZX: playback
+complete`; then the machine runs on, live. `load()` takes a recording back like any program.
 
 ## Keyboard
 

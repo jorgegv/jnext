@@ -344,6 +344,44 @@
         return Promise.reject(fail('jnext: the snapshot could not be read back: ' + (x && x.message ? x.message : String(x))));
       }
     };
+    // An RZX recording of the machine as it is now (not on a Next). stopRzxRecording() resolves to
+    // the file's bytes (a Uint8Array) for the page to offer as a download or give back to load() as
+    // {data, name}. The file is a scratch one of the page's in-memory file system, read back and
+    // deleted. A reset or a load() ends a recording early; the bytes are still returned.
+    var rzxPath = null, rzxSeq = 0;
+    player.startRzxRecording = function () {
+      live();
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      if (rzxPath) return Promise.reject(new Error('jnext: the last RZX recording has not been collected; call stopRzxRecording() first'));
+      var path = '/tmp/jnext-page-' + (++rzxSeq) + '.rzx';
+      var p = mod.stringToNewUTF8(path);
+      var why = mod._jnext_web_rzx_record(p);
+      mod._free(p);
+      if (why) return Promise.reject(fail(mod.UTF8ToString(why)));
+      rzxPath = path;
+      return Promise.resolve();
+    };
+    player.stopRzxRecording = function () {
+      live();
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      if (!rzxPath) return Promise.reject(new Error('jnext: no RZX recording is running'));
+      var path = rzxPath;
+      rzxPath = null;
+      var p = mod.stringToNewUTF8(path);
+      var why = mod._jnext_web_rzx_stop(p);
+      mod._free(p);
+      var gone = function () { try { mod.FS.unlink(path); } catch (x) { /* not there */ } };
+      if (why) { gone(); return Promise.reject(fail(mod.UTF8ToString(why))); }
+      if (!mod.FS.analyzePath(path).exists) return Promise.reject(fail('jnext: the RZX recording was not written'));
+      try {
+        var bytes = mod.FS.readFile(path);
+        gone();
+        return Promise.resolve(bytes);
+      } catch (x) {
+        gone();
+        return Promise.reject(fail('jnext: the RZX recording could not be read back: ' + (x && x.message ? x.message : String(x))));
+      }
+    };
     player.setVolume = function (v) {
       live();
       if (typeof v !== 'number' || !isFinite(v) || v < 0 || v > 1) {

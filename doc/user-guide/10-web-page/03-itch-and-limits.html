@@ -4447,7 +4447,7 @@ Game controllers are page-wide: give the other players
 <ul>
 <li>Flags and <code>--set</code> keys that need a process, a socket or a terminal are refused with
   a message; the list is in the man page ("Not available in the browser").</li>
-<li>Programs load as <code>.nex</code>, <code>.tap</code>, <code>.tzx</code> or <code>.wav</code> (a tape, in real time), snapshots as <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code>. <code>--headless</code> and RZX are refused.
+<li>Programs load as <code>.nex</code>, <code>.tap</code>, <code>.tzx</code> or <code>.wav</code> (a tape, in real time), recordings as <code>.rzx</code>, snapshots as <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code>. <code>--headless</code> and <code>--rzx-record</code> are refused (a page records with <code>startRzxRecording()</code> and <code>stopRzxRecording()</code>).
   A WAV is large and stays in the page's memory for the session; give the <code>.tap</code> or <code>.tzx</code> of a game when there is one.</li>
 <li>Writes the guest makes to the SD card are kept across reloads only when the page asks
   with <code>keepWrites</code> (10.4); without it the card lives in memory for the session. Files JNEXT
