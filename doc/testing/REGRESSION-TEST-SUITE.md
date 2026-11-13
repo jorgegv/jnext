@@ -192,10 +192,12 @@ installing it, and runs the harness against the binary inside:
 
 - `rpm`, `deb`: extracted under `build/regression-package/<p>/`, run with
   `JNEXT=<dir>/usr/bin/jnext`.
-- `win*`: unzipped into a scratch copy that alone gets Qt's offscreen plugin (its
-  DLL closure staged through `bundle-dlls.sh`, only files absent from the copy), then
-  `regression.sh --platform` with the copy as `JNEXT_TARGET_BUILD`; a sha256 manifest of
-  the zip's members proves none changed, and the scratch copy is removed after a green run.
+- `win*`: unzipped into a scratch copy that alone gets Qt's offscreen plugin: `bundle-dlls.sh`
+  stages the exe twice (with and without the plugin) and only the difference is copied, so a
+  file the zip lacks is never put back from the MinGW sysroot; then `regression.sh --platform`
+  with the copy as `JNEXT_TARGET_BUILD`. A package dir's wine runs get no sysroot on `PATH`
+  (`JNEXT_WINE_NO_SYSROOT=1` in the shim), so a DLL missing from the zip fails the run. A sha256
+  manifest of the zip's members proves none changed, and the scratch copy is removed after a green run.
 - Rows: every screenshot row plus 17 functional rows named in the script. Green needs exit 0,
   no FAIL, no SKIP and exactly lints (7 on Linux, 0 on Windows) + 1 SD provision + 68 + 17.
 - Never stamped, not in the batch gate; `release.yml` runs it after each package, before the upload.

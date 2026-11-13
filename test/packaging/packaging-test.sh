@@ -755,6 +755,7 @@ cat > "$rp_stub" <<'STUB'
             unzip -p "$STUB_ZIP" "$m" | cmp -s - "$(dirname "$JNEXT_TARGET_BUILD")/$m" || diffs=$((diffs+1))
         done < <(unzip -Z1 "$STUB_ZIP")
         echo "MEMBER_DIFFS=$diffs"
+        (cd "$JNEXT_TARGET_BUILD" && find . -type f | sed 's|^\./||' | sort) > "$STUB_RECORD.files"
     fi
 } > "$STUB_RECORD"
 echo "  Pass: ${STUB_PASS:-0}  Fail: ${STUB_FAIL:-0}  Skip: ${STUB_SKIP:-0}"
@@ -790,6 +791,21 @@ rp_art() {
         *)   f=build/$(rp_tree "$1")/$(rp_zipname "$1") ;;
     esac
     [ -f "$f" ] && printf '%s\n' "$f"
+}
+# rp_extras_ok <zip> <top-dir> — the copy's file list (recorded by the stub) minus the zip's
+# members must be the test plugin (and DLLs only it needs), nothing else: a file the zip
+# lacks must NOT be put back. Sets rp_extras_why.
+rp_extras_ok() {
+    local members extras e
+    members=$(unzip -Z1 "$1" | sed -n "s|^$2/||p" | sed '/\/$/d;/^$/d' | sort)
+    extras=$(comm -13 <(printf '%s\n' "$members") "$LOGDIR/rp-record.files")
+    [[ -n "$extras" ]] || { rp_extras_why="nothing was added"; return 1; }
+    [[ $'\n'"$extras"$'\n' == *$'\nplatforms/qoffscreen.dll\n'* ]] || { rp_extras_why="no platforms/qoffscreen.dll among: $extras"; return 1; }
+    while IFS= read -r e; do
+        case "$e" in platforms/*.dll|*.dll) ;; *) rp_extras_why="unexpected addition: $e"; return 1 ;; esac
+        [[ "$e" == */* && "$e" != platforms/* ]] && { rp_extras_why="unexpected addition: $e"; return 1; }
+    done <<<"$extras"
+    return 0
 }
 rp_field() { sed -n "s/^$1=//p" "$LOGDIR/rp-record"; }
 
@@ -836,6 +852,8 @@ for rp_p in win win-qt5 win32-qt5; do
         bad "$rp_row" "the scratch copy has no platforms/qoffscreen.dll"
     elif [ "$(rp_field MEMBER_DIFFS)" != 0 ]; then
         bad "$rp_row" "$(rp_field MEMBER_DIFFS) zip member(s) differ in the scratch copy"
+    elif ! rp_extras_ok "$rp_z" "$rp_top"; then
+        bad "$rp_row" "the scratch copy is not the zip's members plus the offscreen plugin: $rp_extras_why"
     elif [ "$(sha256sum "$rp_z")" != "$rp_sha" ]; then
         bad "$rp_row" "the zip itself changed"
     elif [ -d "build/regression-package/$rp_p" ]; then
@@ -844,6 +862,35 @@ for rp_p in win win-qt5 win32-qt5; do
         ok "$rp_row" "--platform on a scratch copy = every zip member unchanged + the offscreen plugin; zip untouched; scratch removed"
     fi
 done
+
+# A zip with files MISSING must stay that way in the scratch copy: bundle-dlls.sh stages a whole
+# bundle, and putting back whatever the zip lacks (Qt6Svg.dll, SDL3.dll, qwindows.dll, qt.conf here)
+# would let a broken package pass. Fixture = the real x64 zip minus those four members.
+if rp_zw=$(rp_art win) && command -v zip >/dev/null 2>&1; then
+    rp_top=$(rp_zipname win); rp_top=${rp_top%.zip}
+    rp_fx=$LOGDIR/missing-files.zip
+    cp "$rp_zw" "$rp_fx"
+    zip -q -d "$rp_fx" "$rp_top/Qt6Svg.dll" "$rp_top/SDL3.dll" "$rp_top/platforms/qwindows.dll" "$rp_top/qt.conf" >/dev/null 2>&1
+    rm -f "$LOGDIR/rp-record" "$LOGDIR/rp-record.files"
+    if JNEXT_REGRESSION_PACKAGE_ARTIFACT=$rp_fx JNEXT_REGRESSION_PACKAGE_RUNNER=$rp_stub STUB_RECORD=$LOGDIR/rp-record STUB_ZIP=$rp_fx \
+           STUB_PASS=$((1 + rp_nargs)) bash test/regression-package.sh win >"$LOGDIR/rp-missing.log" 2>&1; then
+        rp_back=""
+        for rp_m in Qt6Svg.dll SDL3.dll platforms/qwindows.dll qt.conf; do
+            [[ -z "$(grep -Fx -- "$rp_m" "$LOGDIR/rp-record.files")" ]] || rp_back="$rp_back $rp_m"
+        done
+        if [ -n "$rp_back" ]; then
+            bad regression-package-win-missing "files the zip lacks were put back into the scratch copy:$rp_back"
+        elif [ "$(rp_field MEMBER_DIFFS)" != 0 ]; then
+            bad regression-package-win-missing "a remaining member differs in the scratch copy"
+        else
+            ok regression-package-win-missing "a zip without Qt6Svg.dll, SDL3.dll, qwindows.dll and qt.conf still lacks them in the scratch copy"
+        fi
+    else
+        bad regression-package-win-missing "regression-package.sh failed on the fixture zip" "$LOGDIR/rp-missing.log"
+    fi
+else
+    skp regression-package-win-missing "package-win not built here, or zip not installed"
+fi
 
 # The script's verdict follows the harness: its exit status, Fail and Skip counts,
 # and a total of exactly lints + 1 + rows (a filtered run has no completeness check).

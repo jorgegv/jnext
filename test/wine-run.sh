@@ -106,7 +106,12 @@ export WINEDLLOVERRIDES="mscoree,mshtml=" WINEDEBUG=-all LC_ALL=C.UTF-8 LANG=C.U
 # JNEXT_EXTRA_WINEPATH: directories a row wants on the Windows PATH of what it runs
 # (wine does not import the Unix PATH: nextpi-link-func puts its stand-in QEMU's
 # directory here, GH #316). Unix or DOS form; appended after the two above.
-export WINEPATH="$SYSROOT/bin;$BUILD/third_party/spdlog${JNEXT_EXTRA_WINEPATH:+;$JNEXT_EXTRA_WINEPATH}"
+# JNEXT_WINE_NO_SYSROOT=1 (GH #487) drops the MinGW sysroot from it: the shim regression.sh
+# writes for an UNPACKED PACKAGE sets it, so a DLL the zip lacks is not found in the sysroot
+# at run time (the loader falls back from the exe's directory to PATH) and the run fails.
+WINEPATH_SYS="$SYSROOT/bin;"
+[[ -z "${JNEXT_WINE_NO_SYSROOT:-}" ]] || WINEPATH_SYS=
+export WINEPATH="${WINEPATH_SYS}$BUILD/third_party/spdlog${JNEXT_EXTRA_WINEPATH:+;$JNEXT_EXTRA_WINEPATH}"
 unset DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR
 # Test-environment isolation (GH #383), the same kind as the line above: a Windows process
 # under the developer's session inherited its D-Bus. SDL's WASAPI init makes wine load

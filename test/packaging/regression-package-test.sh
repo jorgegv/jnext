@@ -67,6 +67,30 @@ else
     bad "RP-02: stale artifact (rc=$rc): $out"
 fi
 
+# RP-02 (continued): two versions in the build dir are refused naming BOTH (the reason, not
+# "build it"), and --clear removes every version's artifact and nothing else.
+mkdir -p "$fake/build/rpm-release"
+: > "$fake/build/rpm-release/jnext-9.9.9-1.x86_64.rpm"; : > "$fake/build/rpm-release/jnext-9.9.10-1.x86_64.rpm"
+: > "$fake/build/rpm-release/keep.me"
+out=$(run rpm); rc=$?
+if [ "$rc" -eq 2 ] && grep -qF "jnext-9.9.9-1.x86_64.rpm" <<<"$out" && grep -qF "2 candidates" <<<"$out"; then
+    ok "RP-02: two versions of an artifact are refused, listing the candidates"
+else
+    bad "RP-02: two versions (rc=$rc): $out"
+fi
+run --clear rpm >/dev/null; rc=$?
+left=$(ls "$fake/build/rpm-release")
+if [ "$rc" -eq 0 ] && [ "$left" = "keep.me" ]; then
+    ok "RP-02: --clear removes every version's artifact and nothing else"
+else
+    bad "RP-02: --clear (rc=$rc) left: $left"
+fi
+if grep -qF 'bash test/regression-package.sh --clear $(PACKAGE)' "$repo/Makefile"; then
+    ok "RP-02: the make regression-package recipe clears before it builds (text pin of the Makefile line)"
+else
+    bad "RP-02: the make regression-package recipe no longer calls --clear"
+fi
+
 # RP-03: a pin that disagrees with the rows is refused; the real manifest is accepted.
 mkdir -p "$fake/build/deb-release"
 printf 'not a deb\n' > "$fake/build/deb-release/jnext_9.9.10_amd64.deb"

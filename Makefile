@@ -535,13 +535,15 @@ regression-win: unit-test-sdl-build unit-test-win-build win-sdl-release z88dk-gd
 
 # Regression-test one package's OWN binary, unpacked from the artifact (PACKAGE=rpm|deb|win|win-qt5|win32-qt5)
 regression-package:
-	@# GH #487. Builds the package (package-$(PACKAGE), so the artifact is this tree's),
+	@# GH #487. Clears the package's earlier-version artifacts (a build dir keeps them), builds
+	@# the package (package-$(PACKAGE), so the artifact is this tree's),
 	@# unpacks it into build/regression-package/$(PACKAGE) and runs every screenshot row
 	@# plus a declared set of functional rows against that binary
 	@# (test/regression-package.sh). release.yml runs it after each package build,
 	@# before the upload. Never stamped, never the batch gate's.
 	@case "$(PACKAGE)" in rpm|deb) pre="";; win|win-qt5|win32-qt5) pre="unit-test-sdl-build win-sdl-release sdcard-image";; \
 	 *) printf "$(BADGE_FAIL) FAIL $(RESET) name the package: make regression-package PACKAGE=rpm|deb|win|win-qt5|win32-qt5\n"; exit 2;; esac; \
+	 bash test/regression-package.sh --clear $(PACKAGE) || exit $$?; \
 	 $(MAKE) --no-print-directory package-$(PACKAGE) $$pre || exit $$?; \
 	 bash test/regression-package.sh $(PACKAGE)
 

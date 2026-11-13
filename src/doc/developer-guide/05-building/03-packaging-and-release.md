@@ -31,13 +31,13 @@ packages (same source, flags class and PGO method) but a different file: each
 package builds its own tree, trains its own profile, and the debs are compiled
 by Ubuntu's gcc against Ubuntu's Qt, which no Fedora host can execute. So the
 packages' own binaries are tested where they are built, by
-`make regression-package PACKAGE=<p>` (`test/regression-package.sh`), which
+`make regression-package PACKAGE=<p>` (`test/regression-package.sh`; it first deletes the package's earlier-version artifacts), which
 `release.yml` runs after each package step and before the upload:
 
 | `PACKAGE` | artifact | how the binary under test is obtained |
 |-----------|----------|---------------------------------------|
 | `rpm`, `deb` | the `.rpm` / `.deb` | extracted (`rpm2cpio`, `dpkg-deb -x`) into `build/regression-package/<p>/`; `regression.sh` runs with `JNEXT=<dir>/usr/bin/jnext` |
-| `win`, `win-qt5`, `win32-qt5` | the three published zips | unzipped; Qt's offscreen platform plugin (and its DLL closure) is added to that scratch copy only, never over a zip member; `regression.sh --platform` runs with the copy as its Qt tree under wine |
+| `win`, `win-qt5`, `win32-qt5` | the three published zips | unzipped; only Qt's offscreen platform plugin (the difference between two `bundle-dlls.sh` stagings, with and without it) is added to that scratch copy, never over a zip member and never a file the zip lacks; `regression.sh --platform` runs with the copy as its Qt tree under wine, whose `PATH` carries no MinGW sysroot, so a DLL missing from the zip fails the run |
 
 The rows are every screenshot row of `regression_tests.conf` plus the 17
 functional rows listed once in the script (exit paths and CLI, Qt offscreen
