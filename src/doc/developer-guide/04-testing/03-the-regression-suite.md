@@ -158,7 +158,7 @@ the same tree twice (the same non-PGO `jnext`, master A = the default, master B
    The `[sdcard-provision]` row names the master in use.
 
    **What the seam directory must hold.** A candidate card is never deleted
-   and never replaced by a download. `sdcard/cspect-next-1gb-fixed.img` is the
+   unless a verified raw rebuilds it, and never replaced by a download. `sdcard/cspect-next-1gb-fixed.img` is the
    card under test. With no witness beside it, the card is used as it is and a
    witness is written. If the card is missing, or no longer matches its
    witness, the row can only rebuild it from `sdcard/cspect-next-1gb.img` plus

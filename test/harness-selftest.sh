@@ -29,7 +29,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=342  # 332 -> 342: HS-171i..r (a candidate card is never deleted or replaced by a download; ".." and "//" "/./" path refusals; the kept-PNG directory is created by the driver; the two leak guards).  # 324 -> 332: HS-171a..h (the candidate-card seams JNEXT_REGRESSION_SD_STATE_DIR and JNEXT_REGRESSION_SHOTS_DIR: refusals, the master in the seam dir, kept failing screenshots).  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=344  # 342 -> 344: HS-171s..t (the seam gate keeps a witnessed card with a missing or wrong recipe sidecar; a raw with a mismatching sidecar is not verified).  # 332 -> 342: HS-171i..r (a candidate card is never deleted or replaced by a download; ".." and "//" "/./" path refusals; the kept-PNG directory is created by the driver; the two leak guards).  # 324 -> 332: HS-171a..h (the candidate-card seams JNEXT_REGRESSION_SD_STATE_DIR and JNEXT_REGRESSION_SHOTS_DIR: refusals, the master in the seam dir, kept failing screenshots).  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -3562,9 +3562,13 @@ if command -v magick &>/dev/null; then seam_im=(magick); else seam_im=(convert);
 cat > "$T/seam-jnext" <<FAKE
 #!/bin/sh
 echo "cfg=\$JNEXT_CONFIG_DIR url=\$JNEXT_SDCARD_DISTRO_URL" >> "$T/seam-jnext.log"
-mkdir -p "\$JNEXT_CONFIG_DIR/sdcard"
-[ -f "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img" ] || printf card > "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img"
-[ -f "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img.recipe" ] || printf '2\n' > "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img.recipe"
+# a real jnext provisions only when asked to download/derive; the screenshot call must not touch the card dir
+case " \$* " in *" --sdcard-download-confirm "*)
+    mkdir -p "\$JNEXT_CONFIG_DIR/sdcard"
+    [ -f "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img" ] || printf card > "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img"
+    [ -f "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img.recipe" ] || printf '2\n' > "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img.recipe"
+    ;;
+esac
 while [ \$# -gt 0 ]; do
     [ "\$1" = --delayed-screenshot ] && cp "$T/shot-a.png" "\$2"
     shift
@@ -3640,7 +3644,7 @@ check "HS-171i" "a candidate card with no raw and no witness is used as it is an
 seam_state "$T/seam-j"
 out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-j" -- shot-x); rc=$?
 out+=" calls=$(grep -c "cfg=$T/seam-j " "$T/seam-jnext.log" || true)"
-check "HS-171j" "a candidate dir with no card and no verified raw FAILS the row saying so, and runs no jnext (nothing is downloaded); with no card the run has no clone either, which is a harness fault (exit 2)" 2 $rc "$out" \
+check "HS-171j" "a candidate dir with no card and no verified raw FAILS the row saying so, and runs no jnext to derive or download (nothing is downloaded)" 1 $rc "$out" \
     "no card in the seam dir and no raw whose sidecar verifies" "calls=0"
 seam_state "$T/seam-k"; printf DRIFT > "$T/seam-k/sdcard/cspect-next-1gb-fixed.img"; printf 'deadbeef  cspect-next-1gb-fixed.img\n' > "$T/seam-k/sdcard/cspect-next-1gb-fixed.img.sha256"
 out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-k" -- shot-x); rc=$?
@@ -3661,17 +3665,38 @@ out=$(seam_run JNEXT_REGRESSION_SHOTS_DIR="$T/x/../y" -- shot-x); rc=$?
 check "HS-171n" "a '..' component in the kept-screenshot path is a harness fault naming the variable" 2 $rc "$out" \
     "HARNESS FAULT" "JNEXT_REGRESSION_SHOTS_DIR" "'..' component"
 out=""; worst=2
-for v in "$SQ//state" "/$SQ/state" "$SQ/./state" "$SQ/."; do
+for v in "$SQ//state" "/$SQ/state" "$SQ/./state" "$SQ/." "${SQ%/*}/./${SQ##*/}/state"; do
     o=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$v" -- shot-x); r=$?
     [[ $r == 2 ]] || worst=$r
     out+="$o"$'\n'
 done
 out+="refused=$(grep -c 'inside the checkout' <<< "$out")"
-check "HS-171o" "a doubled slash, a '/./' or a trailing '/.' does not hide the checkout prefix of the candidate-card path (4 spellings, all refused)" 2 $worst "$out" \
-    "refused=4"
+check "HS-171o" "a doubled slash, a '/./' or a trailing '/.' does not hide the checkout prefix of the candidate-card path (5 spellings, all refused, one with the "/./" BEFORE the checkout prefix)" 2 $worst "$out" \
+    "refused=5"
 out=$(seam_run JNEXT_REGRESSION_SHOTS_DIR="$SQ//shots" -- shot-x); rc=$?
 check "HS-171p" "a doubled slash does not hide the checkout prefix of the kept-screenshot path" 2 $rc "$out" \
     "HARNESS FAULT" "JNEXT_REGRESSION_SHOTS_DIR" "inside the checkout"
+# s, t: the gate's two quiet guards (R2). s: a WITNESSED card whose recipe sidecar is absent or
+# wrong, with no raw, is kept (a fix-sdcard-image.sh or minimal card): no jnext call, PASS. t: a raw
+# whose sidecar does NOT match its sha is not a verified raw: next to a drifted card the row FAILS.
+out=""; worst=0
+for rc_variant in none 9; do
+    seam_state "$T/seam-s"; printf STAYS > "$T/seam-s/sdcard/cspect-next-1gb-fixed.img"
+    printf '%s  cspect-next-1gb-fixed.img\n' "$(printf STAYS | sha256sum | cut -d' ' -f1)" > "$T/seam-s/sdcard/cspect-next-1gb-fixed.img.sha256"
+    [[ "$rc_variant" == none ]] || printf '%s\n' "$rc_variant" > "$T/seam-s/sdcard/cspect-next-1gb-fixed.img.recipe"
+    o=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-s" -- shot-x); r=$?
+    [[ $r == 0 ]] || worst=$r
+    out+="$o recipe=$rc_variant calls=$(grep -c "cfg=$T/seam-s " "$T/seam-jnext.log" || true) card=$(cat "$T/seam-s/sdcard/cspect-next-1gb-fixed.img")"$'\n'
+done
+check "HS-171s" "a witnessed candidate card whose recipe sidecar is absent or wrong, with no raw, is kept as it is: no jnext call, the row passes" 0 $worst "$out" \
+    "candidate card unchanged since it was witnessed" "recipe=none calls=0 card=STAYS" "recipe=9 calls=0 card=STAYS"
+seam_state "$T/seam-t"; printf DRIFT > "$T/seam-t/sdcard/cspect-next-1gb-fixed.img"; printf 'deadbeef  cspect-next-1gb-fixed.img\n' > "$T/seam-t/sdcard/cspect-next-1gb-fixed.img.sha256"
+printf RAWX > "$T/seam-t/sdcard/cspect-next-1gb.img"; printf '%s  cspect-next-1gb.img\n' "$(printf OTHER | sha256sum | cut -d' ' -f1)" > "$T/seam-t/sdcard/cspect-next-1gb.img.sha256"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-t" -- shot-x); rc=$?
+out+=" calls=$(grep -c "cfg=$T/seam-t " "$T/seam-jnext.log" || true) card=$(cat "$T/seam-t/sdcard/cspect-next-1gb-fixed.img")"
+check "HS-171t" "a raw whose sidecar does not match its sha is not a verified raw: next to a drifted card the row FAILS, the card is kept, no jnext call" 1 $rc "$out" \
+    "no raw whose sidecar verifies" "calls=0" "card=DRIFT"
+
 # q: the leak guards. The REAL sdcard-provision-func row, with the seam exported, must pass
 # (its stub run keeps the scratch HOME's master); and the self-test's own preamble must drop
 # both seams before anything nested runs.

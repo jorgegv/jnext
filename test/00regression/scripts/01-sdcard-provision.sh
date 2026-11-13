@@ -199,7 +199,8 @@ sd_clone_for_run || true
 SD_MASTER_STAMP=$(stat -c '%i:%Y:%s' "$FALLBACK_SD_IMAGE" 2>/dev/null || echo "absent")
 
 case "$sd_state" in
-    pristine)    sd_verdict=pass; sd_text=": unchanged since it was derived" ;;
+    pristine)    sd_verdict=pass; sd_text=": unchanged since it was derived"
+                 [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] || sd_text=": candidate card unchanged since it was witnessed" ;;
     provisioned) sd_verdict=pass; sd_text=": derived $FALLBACK_SD_IMAGE" ;;
     repaired)    sd_verdict=pass; sd_text=": WAS MODIFIED — re-derived from the verified distribution image" ;;
     recipe)      sd_verdict=pass; sd_text=": made by image recipe ${sd_old_recipe:-(none recorded)} — re-derived with recipe $sd_want_recipe" ;;

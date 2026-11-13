@@ -81,8 +81,16 @@ if want sdcard-inventory-func; then
         mbr "$1"
         LANG=C mformat -i "$1@@$OFF" -F -T "$2" -h 255 -s 63 -c 1 -N 01020304 :: </dev/null >/dev/null 2>&1
     }
-    # clusters_of <img>: the data-cluster count the tool reports
-    clusters_of() { "$INV" "$1" 2>/dev/null | sed -n 's/^bpb data-clusters=//p'; }
+    # clusters_of <img>: the data-cluster count of an EMPTY 512-byte-cluster card, from mtools'
+    # own free-space report, NOT from the tool under test: free bytes / 512 plus the one
+    # cluster the root directory occupies.
+    clusters_of() {
+        local free
+        free=$(LANG=C mdir -i "$1@@$OFF" :: </dev/null 2>/dev/null | awk '/bytes free/ {gsub(/[^0-9]/, "", $0); print; exit}')
+        [[ -n "$free" ]] && echo $(( free / 512 + 1 ))
+    }
+    # tool_clusters <img>: what the tool reports
+    tool_clusters() { "$INV" "$1" 2>/dev/null | sed -n 's/^bpb data-clusters=//p'; }
 
 
     head -c 16384 /dev/zero | tr '\0' 'Z' > "$W/zx-a.rom"
@@ -160,12 +168,16 @@ if want sdcard-inventory-func; then
         if [[ "$(clusters_of "$W/edge.img")" != 65525 ]]; then
             faults+=("f: could not size a bare card to exactly 65525 data clusters")
         else
+            [[ "$(tool_clusters "$W/edge.img")" == 65525 ]] \
+                || faults+=("f: mtools says the card has 65525 data clusters, the tool reports '$(tool_clusters "$W/edge.img")'")
             "$INV" "$W/edge.img" > "$W/edge.inv" 2>/dev/null || faults+=("f: the inventory of the 65525-cluster card failed")
             for want_line in "bpb data-clusters=65525" "fat32-valid yes" "file TBBLUE.FW absent" "file TBBLUE.TBU absent" \
                              "file MACHINES/NEXT/menu.def absent" "fw-magic absent" "zx81 absent" "tbu absent" "dot absent"; do
                 grep -qFx -- "$want_line" "$W/edge.inv" || faults+=("f: the 65525-cluster empty card lacks the line '$want_line'")
             done
             mkbare "$W/edge1.img" $(( t - 1 )) || faults+=("f: could not build the 65524-cluster card")
+            [[ "$(clusters_of "$W/edge1.img")" == 65524 && "$(tool_clusters "$W/edge1.img")" == 65524 ]] \
+                || faults+=("f: mtools says $(clusters_of "$W/edge1.img") data clusters on the second card, the tool reports '$(tool_clusters "$W/edge1.img")', wanted 65524 from both")
             "$INV" "$W/edge1.img" > "$W/edge1.inv" 2>/dev/null || true
             for want_line in "bpb data-clusters=65524" "fat32-valid no"; do
                 grep -qFx -- "$want_line" "$W/edge1.inv" || faults+=("f: the 65524-cluster card lacks the line '$want_line'")
