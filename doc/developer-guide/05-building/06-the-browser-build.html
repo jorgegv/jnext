@@ -3158,8 +3158,8 @@ runs <code>web_api::build_argv</code> over the <code>web_api::WEB_OPTIONS</code>
 the man page's browser section is diffed against the table and the refusal
 functions by <code>web_api_test</code> (run by <code>make cli-check</code>). The controller
 (<code>web_controller.cpp</code>, a source of <code>jnext_web</code> only) holds the exported calls
-(<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_set_volume</code>,
-<code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
+(<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_save_snapshot</code>,
+<code>jnext_web_set_volume</code>, <code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
 the page when the program is in the machine and a frame has followed (the <code>ready</code>
 event, <code>Module.jnextEvent</code>). <code>jnext_web_load_applied</code>, <code>jnext_web_gain_db</code>,
 <code>jnext_web_frame_period_ms</code> and <code>jnext_web_cpu_mhz</code> (the frame period and the
@@ -3216,9 +3216,16 @@ working silently. Browsers will not resume it without a gesture on the page:
 start the module from a click. Mouse capture is the pointer lock; when the
 browser ends the lock itself (Escape) jnext's capture is released too. A pad
 appears after its first button press (browser policy).</p>
+<p><em>Snapshots.</em> A snapshot rides the desktop's own load path: <code>program_refusal()</code> is the only gate, and
+<code>jnext_web_load</code> hands the file to <code>SdlApp::cold_boot</code>, which boots the machine the snapshot names
+(and keeps it for later resets, as the desktop frontends do). It never touches the warm start: that is
+a NEX-only route (<code>emulator_load_routes_to_nex</code> gates the tick's recording, and <code>load_sna</code>, <code>load_szx</code>,
+<code>load_z80</code> and <code>load_jns_file</code> build or restore the whole machine on their own). <code>saveSnapshot()</code> calls
+<code>jnext_web_save_snapshot</code>, which writes a <code>.jns</code> with <code>Emulator::save_jns_file</code> to a scratch file of the
+in-memory file system; the JavaScript reads it back and deletes it.</p>
 <p><em>Refused and absent.</em> The build's own flag and <code>--set</code> key refusals apply, and
 the page also refuses <code>--headless</code> (it would block the tab for ever), the RZX
-flags, and any program that is not a <code>.nex</code>, <code>.tap</code> or <code>.tzx</code> (<code>browser_page.h</code>),
+flags, and any program that is not a <code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code> (<code>browser_page.h</code>),
 each with a message that says "browser page". The browser reserves Ctrl+W, T and
 N (and Ctrl+Q in some browsers), so Symbol Shift plus those letters cannot be
 typed with Ctrl; the operating system keeps Alt+Tab and Alt+F4. Files the
@@ -3322,7 +3329,7 @@ the recording was made on is not the one it now boots from.</p>
 <td><code>make wasm-browser-test</code></td>
 <td><code>build/wasm-core</code></td>
 <td>the browser frontend in the pinned Chromium headless shell</td>
-<td>BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-17, WBW-01 to WBW-17 (the kept writes, <code>writes.mjs</code>: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, <code>test/bench/web/bench-stats-test.mjs</code>), and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
+<td>BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-17, WBW-01 to WBW-17 (the kept writes, <code>writes.mjs</code>: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BSN-01 to BSN-11 (snapshots, <code>snapshots.mjs</code>: a <code>.sna</code>, <code>.z80</code>, <code>.szx</code> and <code>.jns</code> loaded in the page equal the native run of the same file, and <code>saveSnapshot()</code> is read back by the page and by the native jnext), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, <code>test/bench/web/bench-stats-test.mjs</code>), and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
 <td><code>browser</code></td>
 </tr>
 </tbody>

@@ -6,7 +6,7 @@
 |---|---|---|
 | `image` | `{url, sha256}`, required | The SD-card image, as `--sdcard` and `--sdcard-sha256`. |
 | `keepWrites` | boolean | `--sdcard-writes`, with a file the page manages: what the program writes to the card, and the file a NEX saves through esxDOS (saves, high scores), is kept in the visitor's browser and is there at the next visit. Off by default; what it keeps, and what it cannot, is in 10.3 and 10.4. |
-| `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. `.nex`, `.tap` and `.tzx` only. Without it the machine boots to the NextZXOS menu. |
+| `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. `.nex`, `.tap`, `.tzx`, or a `.jns`, `.sna`, `.szx` or `.z80` snapshot, which runs on the machine it was saved on (see "Saving the game" below). Without it the machine boots to the NextZXOS menu. |
 | `machine` | string | `--machine`. |
 | `muted` | boolean | `--set startup.silent`: no audio device for the session. |
 | `set` | `{"section.key": value}` | One `--set` each, sorted by key. |
@@ -38,6 +38,7 @@
 | `pause()`, `resume()` | Stop and restart the frame loop. |
 | `reset(kind)` | `'program'` (default): restart the program; with no program, the same as `'hard'`. `'hard'`: power on again. `'soft'`: reset. Returns a promise. |
 | `load(file)` | Load another program (same forms as `file`) while the machine runs. Resolves when it is in the machine. |
+| `saveSnapshot()` | Resolves to a `Uint8Array` holding a `.jns` snapshot of the running machine (`args: ['--snapshot-compression', 'off']` stores it uncompressed). Rejects if the machine is not running. |
 | `setVolume(v)` | Master level, 0 (silent) to 1; anything else throws a `RangeError`. A player started `muted` has no audio device. |
 | `resetCard()` | Forget the writes kept by `keepWrites` and restart the program, as `reset('program')` does. Needs `keepWrites` (it rejects without it). Resolves when the program is in the machine again. |
 | `destroy()` | Stop the machine and remove the player; with `keepWrites` it first waits until the writes are stored. Afterwards every method throws. |
@@ -53,6 +54,34 @@ A page that uses `keepWrites` can offer a button for `resetCard()`:
 where `player` is what `jnext.mount()` resolved to (or `el.jnextPlayer` of a widget).
 `args: ['--sdcard-writes-reset']` does the same for one start, when the page is
 loaded.
+
+## Saving the game
+
+`saveSnapshot()` gives the page a snapshot of the whole machine, to offer as a download:
+
+```js
+const bytes = await player.saveSnapshot();
+const a = document.createElement('a');
+a.href = URL.createObjectURL(new Blob([bytes]));
+a.download = 'game.jns';
+a.click();
+```
+
+and `load()` takes it back, for instance from an `<input type="file">`:
+
+```js
+await player.load({ data: new Uint8Array(await file.arrayBuffer()), name: file.name });
+```
+
+A snapshot runs on the machine it was saved on, whatever the player's `machine` option says
+(the log notes it), and that machine stays for later `reset('hard')`, `reset('program')` and
+`load()` of a program; a page that mixes snapshots of other machines with NEX programs gives
+each its own player. A `.jns` restores only on the SD card it was taken on: the same card
+image gives a snapshot that loads, another one is refused (`failed to load '<file>'`, the
+reason in the browser console). `args: ['--snapshot-mode', 'force']` loads it anyway, at the
+page's risk. A `.jns` that had a tape attached remembers the tape by its path; one saved in a
+page names a file of the page's memory, so on another JNEXT it restores without the tape.
+A snapshot never uses the stored NextZXOS recording (10.4): it starts at once.
 
 ## Keyboard
 
