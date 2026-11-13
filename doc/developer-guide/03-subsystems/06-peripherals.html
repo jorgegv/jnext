@@ -3352,7 +3352,16 @@ while jnext runs neither starts nor stops it. Three pieces:</p>
   <code>[nextpi] qemu_args</code> preference, split by <code>PiQemu::split_extra_args</code>: spaces,
   <code>'...'</code> and <code>"..."</code> literal, backslash ordinary, no expansion) goes after
   jnext's own arguments as argv entries: through the watchdog's <code>"$@"</code> on POSIX
-  and a per-argument <code>quote_arg</code> on Windows, never a shell.</li>
+  and a per-argument <code>quote_arg</code> on Windows, never a shell.
+  <code>PiQemu::build_args_with_chardev</code> attaches the sound card as
+  <code>usb-audio,...,port=1</code>, straight onto the raspi0's single dwc2 root port.
+  Without <code>port=</code>, QEMU inserts its own 8-port hub there, and the guest keeps a
+  transfer queued on the hub's interrupt endpoint, so QEMU's idle CPU at the
+  <code>SUP&gt;</code> prompt is 6-8 times higher (measured on Linux; jnext's own work is the
+  same with or without the Pi). When <code>PiQemu::extra_args_add_usb_device</code> finds a
+  USB device in the extras (<code>-device</code>/<code>--device</code> with a <code>usb-</code> driver, bare or
+  <code>driver=</code>, or <code>-usbdevice</code>), <code>port=1</code> is left off so QEMU's hub supplies the
+  ports, since QEMU refuses a second USB device on a bus with no free port.</li>
 <li>
 <p><strong><code>core/nextpi_provisioner.{h,cpp}</code></strong> makes the NextPi directory exist, on
   the SD provisioner's seams (<code>DownloadFn</code>, <code>ConfirmFn</code>, <code>ProgressFn</code>,

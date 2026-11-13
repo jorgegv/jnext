@@ -146,6 +146,12 @@ waits for a client to connect before it boots the Pi. NextPi as shipped runs
 nothing on `ttyS0`, so the port accepts a connection but stays silent until you
 set up a login (a `getty`) on it inside NextPi.
 
+The Pi's sound card is plugged into the Pi's only USB port. If your arguments add
+a USB device of their own (`-device usb-...` or `-usbdevice`), JNEXT lets QEMU add
+a USB hub so both fit; an idle Pi then costs noticeably more CPU in QEMU. Without
+one, QEMU uses much less. Either way an idle NextPi still keeps QEMU busy a little
+(it emulates a whole Raspberry Pi Zero), while JNEXT itself does no extra work.
+
 JNEXT does not check the arguments. One that conflicts with JNEXT's own (a
 second `-M` or `-kernel`, a `-chardev` with the id `pi`) can stop NextPi, and
 QEMU's reason is in `qemu.log`. Like every NextPi setting, the box is read only
