@@ -5,8 +5,8 @@
 #   bash test/browser/browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]
 #
 # Specs default to `smoke.mjs:33` (rows BRW-01..33, this directory) and `image.mjs:8`
-# (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:29`
-# (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
+# (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:31`
+# (rows WEBAPI-01..31, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
 # boots the example page), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
 # guide's two embedding snippets, run verbatim), `touch.mjs:17` (rows TKB-01..17: the on-screen keyboard
@@ -29,6 +29,7 @@
 #                 request handler, and it is never committed, uploaded or traced
 #                 (Playwright tracing, HAR and video stay off).
 #   beeper_demo.tzx   the TAP of the regression suite re-wrapped as TZX.
+#   beeper_demo.wav   the same TAP as a 44.1 kHz 8-bit mono cassette recording (tap2wav.py).
 #   oracle/*.png  native runs of the same arguments (build/sdl-release on the dummy
 #                 SDL drivers; keyed screens by the headless typist, which SdlApp lacks).
 # The browser is the pinned headless shell of test/provision-playwright.sh, the node
@@ -39,7 +40,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "$@")
+SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:31" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -81,6 +82,7 @@ ZIP_SHA256=$(sha256sum "$SCRATCH/card.img.zip" | cut -d' ' -f1)
 # The shipped zip, extracted by a FOREIGN reader: package.mjs serves only this directory.
 mkdir "$SCRATCH/pkg" && python3 -I -m zipfile -e "$PKGZIP" "$SCRATCH/pkg" || die "cannot extract $PKGZIP"
 python3 -I "$HERE/tap2tzx.py" "$ROOT/test/00regression/tap/beeper_demo.tap" "$SCRATCH/beeper_demo.tzx" || die "tap2tzx failed"
+python3 -I "$HERE/tap2wav.py" "$ROOT/test/00regression/tap/beeper_demo.tap" "$SCRATCH/beeper_demo.wav" || die "tap2wav failed"
 
 # Native oracle: oracle <name> <sdl|headless> <jnext args...>; the card is a throwaway clone.
 oracle() {
@@ -100,6 +102,7 @@ oracle boot     sdl      --machine 48k --delayed-screenshot "$O/boot.png"  --del
 oracle idle     sdl      --machine 48k --delayed-screenshot "$O/idle.png"  --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 500
 oracle tap      sdl      --machine 48k --load "$TAPF" --delayed-screenshot "$O/tap.png" --delayed-screenshot-frames 300 --delayed-automatic-exit-frames 600
 oracle tzx      sdl      --machine 48k --load "$SCRATCH/beeper_demo.tzx" --delayed-screenshot "$O/tzx.png" --delayed-screenshot-frames 400 --delayed-automatic-exit-frames 700
+oracle wav      sdl      --machine 48k --load "$SCRATCH/beeper_demo.wav" --delayed-screenshot "$O/wav.png" --delayed-screenshot-frames 1500 --delayed-automatic-exit-frames 1600
 oracle tilemap  sdl      --machine next --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/tilemap_demo.nex" \
                          --delayed-screenshot "$O/tilemap.png" --delayed-screenshot-frames 150 --delayed-automatic-exit-frames 400
 oracle keys     headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \

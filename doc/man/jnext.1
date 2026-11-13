@@ -679,6 +679,7 @@ While on, the tape deck stops in the silent gap between two blocks when
 no program is reading the tape, and resumes when one does, so tapes
 whose BASIC loader is slow between blocks load in real time.
 It does nothing in fast load mode.
+A \f[CR].wav\f[R] has no blocks and is never paused.
 Off, the deck runs straight through, as a real one does (a TZX \(lqstop
 the tape if in 48K mode\(rq block now stops only on a 48K machine, as
 the TZX specification says, whatever this setting is).
@@ -3751,10 +3752,13 @@ Every option of \f[B]mount\f[R] is a command\-line flag or a
 \f[B]\-\-set\f[R] key, so what the page asks for is what the command
 line would ask for; the player\(cqs \f[CR]argv\f[R] property shows that
 command line.
-A browser page loads \f[CR].nex\f[R], \f[CR].tap\f[R] and
-\f[CR].tzx\f[R] programs and \f[CR].jns\f[R], \f[CR].sna\f[R],
+A browser page loads \f[CR].nex\f[R], \f[CR].tap\f[R], \f[CR].tzx\f[R]
+and \f[CR].wav\f[R] programs and \f[CR].jns\f[R], \f[CR].sna\f[R],
 \f[CR].szx\f[R] and \f[CR].z80\f[R] snapshots; a snapshot runs on the
 machine it was saved on.
+A \f[CR].wav\f[R] plays in real time, as from a cassette, and only while
+the machine runs: \f[CR]pause()\f[R] or a hidden tab stops the tape
+where it is.
 .PP
 The page supplies the SD\-card image by URL and SHA\-256 (the browser
 fetches it, checks it on every visit and keeps it in its cache); the
@@ -3786,9 +3790,9 @@ has fetched and checked the image.
 \f[CR]file\f[R] \f[I]URL | {url} | {data, name}\f[R]
 \f[B]\-\-load\f[R].
 The program to run (\f[CR].nex\f[R], \f[CR].tap\f[R], \f[CR].tzx\f[R],
-or a \f[CR].jns\f[R], \f[CR].sna\f[R], \f[CR].szx\f[R] or
-\f[CR].z80\f[R] snapshot); without it the machine boots to the NextZXOS
-menu.
+\f[CR].wav\f[R], or a \f[CR].jns\f[R], \f[CR].sna\f[R], \f[CR].szx\f[R]
+or \f[CR].z80\f[R] snapshot); without it the machine boots to the
+NextZXOS menu.
 .TP
 \f[CR]keepWrites\f[R] \f[I]boolean\f[R]
 \f[B]\-\-sdcard\-writes\f[R], with a file the page manages: what the

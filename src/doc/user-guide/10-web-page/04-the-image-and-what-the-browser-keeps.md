@@ -53,7 +53,7 @@ A later visit makes no request for the image. The cached copy is hashed again ev
 time, and a copy that no longer matches the digest is deleted and fetched again.
 
 For a `.nex` program the recorded machine is brought back (`restore`) instead of booting
-NextZXOS again. A corrupted recording is made again. A `.tap` or a `.tzx` starts directly in 48K
+NextZXOS again. A corrupted recording is made again. A `.tap`, a `.tzx` or a `.wav` starts directly in 48K
 BASIC, without NextZXOS, so there is nothing to record. A Next page with no program boots
 NextZXOS on every visit and records nothing.
 
@@ -113,7 +113,7 @@ their status line.
 | `Failed to fetch` | The browser's own text (Chromium's is shown; Firefox words it differently) for a program file it could not read: the program is on another site whose server does not send `Access-Control-Allow-Origin` (make it send the header, or give `{data, name}` to avoid the network), or its server cannot be reached. |
 | `SHA-256 mismatch for <url>: got ..., expected ...` | The file served is not the one the digest names. Recompute the digest with `sha256sum`. |
 | `the SD-card image needs a secure context (https, or http://localhost): ...` | The page is not served over `https://`, `http://localhost` or `http://127.0.0.1`. |
-| `--load <file>: a browser page loads only .nex, .tap, .tzx, .jns, .sna, .szx, .z80 programs` | The program has another extension. |
+| `--load <file>: a browser page loads only .nex, .tap, .tzx, .jns, .sna, .szx, .z80, .wav programs` | The program has another extension. |
 | `failed to load '<file>'`, and in the console `the mounted SD card is not the one the snapshot was taken on` | A `.jns` was taken on another SD card. Mount the card it was taken on, or pass `args: ['--snapshot-mode', 'force']`. |
 | `--rzx-play: RZX is not available in a browser page` | RZX files cannot be played in a page (`--rzx-record` is refused the same way). |
 | `<flag>: not available in the browser build (...)` or `<flag>: not available in a browser page (...)` | An option that needs a process, a socket or a terminal was given. The reason is in the brackets, and the list is in the man page ("Not available in the browser"). |

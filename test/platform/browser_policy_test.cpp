@@ -9,7 +9,7 @@
 // burst). A fake clock is advanced by a fake tick of a given cost that reports
 // a given sleep, so no row depends on the host's speed. The refusal rows are
 // derived from the plan: the page refuses exactly --headless, --rzx-play and
-// --rzx-record, and loads exactly .nex, .tap, .tzx programs and .jns, .sna, .szx, .z80 snapshots.
+// --rzx-record, and loads exactly .nex, .tap, .tzx, .wav programs and .jns, .sna, .szx, .z80 snapshots.
 
 #include "platform/browser_pacing.h"
 #include "platform/browser_page.h"
@@ -359,7 +359,7 @@ int main()
     // BRR-03: program_refusal.
     {
         const char* good[] = {"a.nex", "A.NEX", "b.tap", "B.TAP", "c.tzx", "/x/y z/c.TzX", "./g.tap", "/media/v1.2/a.nex"};
-        const char* bad[] = {"x.rzx", "x.wav", "x.zip", "noext", "game.nex.bak", "", "/media/v1.nex/noext"};
+        const char* bad[] = {"x.rzx", "x.zip", "noext", "game.nex.bak", "", "/media/v1.nex/noext"};
         bool ok = true;
         for (const char* g : good) if (browser_page::program_refusal(g) != nullptr) ok = false;
         for (const char* b : bad) {
@@ -386,6 +386,19 @@ int main()
             if (std::strncmp(why, kPrefix, sizeof(kPrefix) - 1) != 0) ok = false;
         }
         check("BRR-05", "program_refusal: null for .jns .sna .szx .z80 in any case; a refusal names every loadable extension, after the prefix \"a browser page loads only .nex, .tap, .tzx, \"",
+              ok);
+    }
+    // BRR-06: .wav tapes load, in any case; only an exact extension (GH #472).
+    {
+        const char* good[] = {"x.wav", "X.WAV", "a.Wav", "/media/0-game.v2.wav", "./t/y z/tape.wAv"};
+        const char* bad[] = {"x.wave", "game.wav.bak", "x.wav.zip"};
+        bool ok = true;
+        for (const char* g : good) if (browser_page::program_refusal(g) != nullptr) ok = false;
+        for (const char* b : bad) {
+            const char* why = browser_page::program_refusal(b);
+            if (!why || std::strstr(why, ".wav") == nullptr || std::strstr(why, ".nex, .tap, .tzx") == nullptr) ok = false;
+        }
+        check("BRR-06", "program_refusal: null for .wav in any case; .wave, .wav.bak, .wav.zip refused with a reason naming .wav",
               ok);
     }
     // BRR-04: the page-only table is disjoint from the build's own.

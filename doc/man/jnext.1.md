@@ -544,7 +544,7 @@ naming the option and the value, and exits with status 1.
     overriding the saved GUI preference. While on, the tape deck stops in the
     silent gap between two blocks when no program is reading the tape, and
     resumes when one does, so tapes whose BASIC loader is slow between blocks
-    load in real time. It does nothing in fast load mode. Off, the deck runs
+    load in real time. It does nothing in fast load mode. A `.wav` has no blocks and is never paused. Off, the deck runs
     straight through, as a real one does (a TZX "stop the tape if in 48K mode"
     block now stops only on a 48K machine, as the TZX specification says,
     whatever this setting is).
@@ -2817,8 +2817,10 @@ one global, `jnext`; **jnext.mount**(*container*, *options*) puts a player in a 
 element and returns a promise for it. Every option of **mount** is a command-line
 flag or a **\--set** key, so what the page asks for is what the command line would
 ask for; the player's `argv` property shows that command line. A browser page loads
-`.nex`, `.tap` and `.tzx` programs and `.jns`, `.sna`, `.szx` and `.z80` snapshots; a
-snapshot runs on the machine it was saved on.
+`.nex`, `.tap`, `.tzx` and `.wav` programs and `.jns`, `.sna`, `.szx` and `.z80` snapshots; a
+snapshot runs on the machine it was saved on. A `.wav` plays in real time, as from a
+cassette, and only while the machine runs: `pause()` or a hidden tab stops the tape
+where it is.
 
 The page supplies the SD-card image by URL and SHA-256 (the browser fetches it,
 checks it on every visit and keeps it in its cache); the machine starts when the
@@ -2843,7 +2845,7 @@ asked), with the plain picture otherwise.
     and checked the image.
 
 `file` *URL | {url} | {data, name}*
-:   **\--load**. The program to run (`.nex`, `.tap`, `.tzx`, or a `.jns`, `.sna`,
+:   **\--load**. The program to run (`.nex`, `.tap`, `.tzx`, `.wav`, or a `.jns`, `.sna`,
     `.szx` or `.z80` snapshot); without it the machine boots to the NextZXOS menu.
 
 `keepWrites` *boolean*
