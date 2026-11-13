@@ -292,7 +292,7 @@ sd_expected_recipe() {
 BOOT_REF_COMMIT=295
 BOOT_DEFAULT_COMMIT=295
 
-# boot_commit_measure — run the probe on this run's card clone; print the commit frame, or fail.
+# boot_commit_measure: run the probe on this run's card clone; print the commit frame, or fail.
 boot_commit_measure() {
     local out
     out=$(LANG=C timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
@@ -302,7 +302,7 @@ boot_commit_measure() {
     [[ -n "$out" ]] || return 1
     echo "$out"
 }
-# boot_commit — the measured commit frame: $BOOT_COMMIT_MEASURED (exported by the provision row),
+# boot_commit: the measured commit frame: $BOOT_COMMIT_MEASURED (exported by the provision row),
 # else the cache in $RUN_DIR, else a fresh measurement. Unmeasurable = harness fault.
 boot_commit() {
     local f="${RUN_DIR:-$TMP_DIR}/boot-commit" m
@@ -314,7 +314,7 @@ boot_commit() {
     echo "$m"
 }
 boot_shift() { local c; c=$(boot_commit) || exit 2; echo $(( c - BOOT_REF_COMMIT )); }
-# bf N [K] — see above. A bad N or K is a harness fault, never a pass-through.
+# bf N [K]: see above. A bad N or K is a harness fault, never a pass-through.
 bf() {
     local n=${1:-} k=${2:-1} sh v
     [[ "$n" =~ ^[0-9]+$ && "$k" =~ ^[0-9]+$ ]] \
@@ -324,7 +324,7 @@ bf() {
     (( v >= 0 )) || { harness_fault "bf $n $k: shift $sh gives a negative frame" >&2; }
     echo "$v"
 }
-# bf_expand <word> — expand a conf token @bf:N or @bf:N:K; any other word passes unchanged.
+# bf_expand <word>: expand a conf token @bf:N or @bf:N:K; any other word passes unchanged.
 bf_expand() {
     local w=$1
     if [[ "$w" == @bf:* ]]; then
@@ -336,7 +336,7 @@ bf_expand() {
         echo "$w"
     fi
 }
-# bf_keys <frame key>... — set BF_KEYS to the --delayed-keypress-frames arguments of those pairs, every
+# bf_keys <frame key>...: set BF_KEYS to the --delayed-keypress-frames arguments of those pairs, every
 # frame a boot-timeline frame (bf). Not a subshell: the array is the caller's.
 bf_keys() {
     local v
@@ -347,7 +347,7 @@ bf_keys() {
         shift 2
     done
 }
-# bf_jds <template> <out> — expand {{bf N}} and {{bf N K}} in a .jds.in template; a placeholder
+# bf_jds <template> <out>: expand {{bf N}} and {{bf N K}} in a .jds.in template; a placeholder
 # left over is a harness fault.
 bf_jds() {
     local in=$1 out=$2 line pre rest spec n k v
