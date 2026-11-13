@@ -752,7 +752,7 @@ cat > "$rp_stub" <<'STUB'
         diffs=0
         while IFS= read -r m; do
             case "$m" in */) continue ;; esac
-            unzip -p "$STUB_ZIP" "$m" | cmp -s - "$JNEXT_TARGET_BUILD/$m" || diffs=$((diffs+1))
+            unzip -p "$STUB_ZIP" "$m" | cmp -s - "$(dirname "$JNEXT_TARGET_BUILD")/$m" || diffs=$((diffs+1))
         done < <(unzip -Z1 "$STUB_ZIP")
         echo "MEMBER_DIFFS=$diffs"
     fi

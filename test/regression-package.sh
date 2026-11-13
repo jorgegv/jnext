@@ -116,16 +116,21 @@ case "$pkg" in
         # beside the copy; only files ABSENT from the copy are added (Qt5's qoffscreen
         # needs libfreetype, which a bare cp of the plugin would miss, and a clobbering
         # copy would replace the zip's own DLLs with the sysroot's).
+        # bundle-dlls.sh looks for libspdlog.dll under <exe dir>/third_party/spdlog, as in
+        # a build tree, so the exe is staged from a dir laid out that way with the zip's own copy.
         stage=$scratch/plugin-stage
-        mkdir -p "$stage"
-        BUNDLE_EXTRA_QT_PLUGINS=platforms/qoffscreen.dll bash packaging/windows/bundle-dlls.sh "$dir/jnext.exe" "$stage" \
+        stage_src=$scratch/plugin-stage-src
+        mkdir -p "$stage" "$stage_src/third_party/spdlog"
+        cp "$dir/jnext.exe" "$stage_src/"
+        for f in "$dir"/libspdlog*.dll; do [[ ! -f "$f" ]] || cp "$f" "$stage_src/third_party/spdlog/"; done
+        BUNDLE_EXTRA_QT_PLUGINS=platforms/qoffscreen.dll bash packaging/windows/bundle-dlls.sh "$stage_src/jnext.exe" "$stage" \
             || fault "cannot stage platforms/qoffscreen.dll for the scratch copy"
         while IFS= read -r -d '' f; do
             [[ -e "$dir/$f" ]] && continue
             mkdir -p "$dir/$(dirname "$f")"
             cp "$stage/$f" "$dir/$f"
         done < <(cd "$stage" && find . -type f -print0)
-        rm -rf "$stage"
+        rm -rf "$stage" "$stage_src"
         [[ -f "$dir/platforms/qoffscreen.dll" ]] || fault "the scratch copy has no platforms/qoffscreen.dll after staging"
         (cd "$dir" && sha256sum --check --quiet "$manifest") || fault "a member of the zip changed in the scratch copy"
         [[ "$(sha256sum "$art")" == "$zip_sha  $art" ]] || fault "the zip itself changed"
