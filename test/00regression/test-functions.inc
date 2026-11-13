@@ -471,7 +471,10 @@ regression_lib_init() {
     # The MASTER SD image — machine-wide, shared, and the only copy the suite
     # ever writes. 01-sdcard-provision.sh gates it on a hash and re-derives it
     # if a stray interactive session drifted it.
-    SD_MASTER_DIR="$HOME/.jnext/sdcard"
+    # JNEXT_REGRESSION_SD_STATE_DIR (regression.sh validates it) points the
+    # master at another jnext state dir, to evaluate a candidate card without
+    # touching the shared one; unset, the master is exactly what it always was.
+    SD_MASTER_DIR="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}/sdcard"
     SD_MASTER_IMAGE="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
     SD_MASTER_WITNESS="$SD_MASTER_IMAGE.sha256"
     # Written by jnext itself when it derives the image: the number of the

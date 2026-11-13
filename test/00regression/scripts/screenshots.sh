@@ -133,6 +133,9 @@ for test_name in "${ORDERED_TESTS[@]}"; do
         else
             fail_row " (${diff_pixels} pixels differ)"
             compare "$out_img" "$ref_img" "$IMG_DIR/${test_name}-diff.png" 2>/dev/null || true
+            # JNEXT_REGRESSION_SHOTS_DIR (validated by regression.sh): keep the
+            # actual PNG of a failing row; $TMP_DIR is deleted on exit.
+            [[ -z "${JNEXT_REGRESSION_SHOTS_DIR:-}" ]] || cp "$out_img" "$JNEXT_REGRESSION_SHOTS_DIR/${test_name}.png" || true
             continue
         fi
     else

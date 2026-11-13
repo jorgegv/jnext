@@ -107,7 +107,7 @@ sd_rederive() {
     # JNEXT_NATIVE (GH #319): a platform run for Windows derives the image with a
     # jnext of the HOST (the download is a network job, not worth running through
     # wine); unset, the binary under test does it, as before.
-    JNEXT_CONFIG_DIR="$HOME/.jnext" \
+    JNEXT_CONFIG_DIR="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}" \
         "${JNEXT_NATIVE:-$JNEXT}" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
     [[ -f "$FALLBACK_SD_IMAGE" ]] || return 1
     # No witness for an image of the wrong recipe: the next run re-derives it
@@ -175,6 +175,9 @@ case "$SD_CLONE_MODE" in
     copy)    sd_text+="; run image COPIED (no reflink on this filesystem) to $RUN_DIR/sdcard" ;;
     *)       sd_verdict=fail; sd_text+="; per-run clone $SD_CLONE_MODE — this run would share the master" ;;
 esac
+
+# A run on a candidate card (JNEXT_REGRESSION_SD_STATE_DIR) says so in its row.
+[[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] || sd_text+="; master in use $FALLBACK_SD_IMAGE (JNEXT_REGRESSION_SD_STATE_DIR)"
 
 CURRENT_ROW=sdcard-provision
 printf "  "
