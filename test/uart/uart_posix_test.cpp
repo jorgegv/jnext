@@ -801,7 +801,7 @@ static void test_pi_qemu() {
             && contains(a, "-serial", "chardev:pi")
             && contains(a, "-monitor", "none")
             && contains(a, "-display", "none")
-            && contains(a, "-device", "usb-audio,audiodev=snd0,buffer=16384");
+            && contains(a, "-device", "usb-audio,audiodev=snd0,buffer=16384,port=1");
         const std::string wav  = PiQemu::audiodev_arg("wav:/x,y.wav");
         const std::string none = PiQemu::audiodev_arg("none");
         const std::string dflt = PiQemu::audiodev_arg("host");
