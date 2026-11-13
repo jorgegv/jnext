@@ -40,6 +40,25 @@ public:
     // ConfirmFn seam: modal Yes/No. Returns true if the user accepts.
     bool confirm(const std::string& message);
 
+    // UpgradeFn seam: the offer of a newer NextZXOS distribution. A modal box with the
+    // provisioner's text (it names both versions and says replacing the card DELETES
+    // what the user saved on it), the buttons "Download and replace" and "Keep my card"
+    // (the default, and what closing or Escape means) and a "Do not ask me again" check
+    // box. Keep with the box ticked is KeepDontAskAgain; the box means nothing for Replace.
+    sdcard::UpgradeChoice offer_upgrade(const std::string& from, const std::string& to,
+                                        const std::string& message);
+    // The box offer_upgrade() runs, not yet shown, with the check box handed back for the
+    // caller (the tests) to read. `replace` and `keep` are the two buttons.
+    struct UpgradeBox {
+        std::unique_ptr<QMessageBox> box;
+        class QCheckBox*             dont_ask = nullptr;
+        class QAbstractButton*       replace  = nullptr;
+        class QAbstractButton*       keep     = nullptr;
+    };
+    static UpgradeBox upgrade_box(const std::string& to, const std::string& message);
+    // The answer for the button the user pressed (nullptr = the box was closed) and the check box.
+    static sdcard::UpgradeChoice upgrade_answer(const UpgradeBox& b, const class QAbstractButton* pressed);
+
     // ProgressFn seam: shows/updates a modal QProgressDialog with a bar.
     // Returns false when the user cancels (which aborts the download). The
     // backends call it at least every tick whatever the network does (the

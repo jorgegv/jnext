@@ -21,8 +21,11 @@ const char* const kDistroUrl =
     "https://www.specnext.com/distro/24.11/sn-emulator-24.11.zip";
 const char* const kImageFileName = "cspect-next-1gb.img";
 const char* const kFixedImageFileName = "cspect-next-1gb-fixed.img";
-const int kFixedImageRecipe = 2;
+const int kFixedImageRecipe = 3;
 const char* const kFixedImageRecipeSuffix = ".recipe";
+const char* const kDistroSuffix = ".distro";
+const char* const kLegacyDistribution = "sn-emulator-24.11.zip";
+const char* const kDeclinedSuffix = ".distro-declined";
 const char* const kZx81Rom16kSha256 =
     "c294e4b60a0eba85c02a3d8b37f77de6c4516d873682dcf333813bd392d82aac";
 
@@ -117,7 +120,53 @@ std::string read_stored_sha256(const std::string& path) {
     for (char& c : tok) c = static_cast<char>(std::tolower((unsigned char)c));
     return tok;
 }
+// First line of a small text sidecar with surrounding white space removed; "" when absent.
+std::string read_text_line(const std::string& path) {
+    std::ifstream f(path);
+    std::string line;
+    if (!f || !std::getline(f, line)) return {};
+    const char* ws = " \t\r\n";
+    const size_t b = line.find_first_not_of(ws);
+    if (b == std::string::npos) return {};
+    return line.substr(b, line.find_last_not_of(ws) - b + 1);
+}
+bool write_text_line(const std::string& path, const std::string& text) {
+    std::ofstream f(path, std::ios::trunc);
+    f << text << "\n";
+    f.close();
+    return static_cast<bool>(f);
+}
 } // namespace
+
+std::string distribution_of_url(const std::string& url) {
+    std::string u = url;
+    const size_t q = u.find_first_of("?#");
+    if (q != std::string::npos) u.resize(q);
+    const size_t slash = u.find_last_of('/');
+    return slash == std::string::npos ? u : u.substr(slash + 1);
+}
+
+std::string distribution_title(const std::string& distribution) {
+    static const char pre[] = "sn-emulator-", post[] = ".zip";
+    const size_t lp = sizeof pre - 1, lq = sizeof post - 1;
+    if (distribution.size() > lp + lq && distribution.compare(0, lp, pre) == 0 &&
+        distribution.compare(distribution.size() - lq, lq, post) == 0) {
+        const std::string v = distribution.substr(lp, distribution.size() - lp - lq);
+        if (v.find_first_not_of("0123456789.") == std::string::npos) return "NextZXOS " + v;
+    }
+    return distribution;
+}
+
+uint32_t volume_id_from_sha256(const std::string& hex) {
+    if (hex.size() < 8) return 0;
+    uint32_t v = 0;
+    for (int i = 0; i < 8; ++i) {
+        const char c = hex[static_cast<size_t>(i)];
+        if (!std::isxdigit(static_cast<unsigned char>(c))) return 0;
+        v = (v << 4) | static_cast<uint32_t>(c <= '9' ? c - '0' : (std::tolower(c) - 'a' + 10));
+    }
+    return v;
+}
 
 bool regular_file_exists(const std::string& path) {
     std::error_code ec;
@@ -817,7 +866,7 @@ bool double_known_zx81_rom(Fat32Tree& tree, const std::string& known_sha256) {
 // FAT32 patch orchestration
 // ---------------------------------------------------------------------------
 bool patch_image_fat32(const std::string& image_path, std::string& err,
-                       const std::string& zx81_known_sha256) {
+                       const std::string& zx81_known_sha256, uint32_t volume_id) {
     uint32_t part_lba = 0;
     if (!fat32_find_partition(image_path, part_lba)) {
         err = "no FAT32 partition found in " + image_path;
@@ -861,6 +910,19 @@ bool patch_image_fat32(const std::string& image_path, std::string& err,
     if (!fat32_format_and_populate(image_path, part_lba, total_sectors, tree, err)) {
         return false;
     }
+    // Recipe 3: the volume serial is the distribution's own (BS_VolID32 at VBR + 0x43, and
+    // its copy in the backup boot sector at VBR + 6 sectors, where f_mkfs puts it).
+    if (volume_id != 0) {
+        std::fstream f(image_path, std::ios::in | std::ios::out | std::ios::binary);
+        const uint8_t id[4] = { static_cast<uint8_t>(volume_id), static_cast<uint8_t>(volume_id >> 8),
+                                static_cast<uint8_t>(volume_id >> 16), static_cast<uint8_t>(volume_id >> 24) };
+        for (uint64_t sec : {uint64_t{0}, uint64_t{6}}) {
+            f.seekp(static_cast<std::streamoff>((static_cast<uint64_t>(part_lba) + sec) * 512 + 0x43));
+            f.write(reinterpret_cast<const char*>(id), 4);
+        }
+        f.flush();
+        if (!f) { err = "cannot write the volume serial into " + image_path; return false; }
+    }
     Log::emulator()->info(
         "sdcard: patched {} -> FAT32 with 8 KB clusters ({} partition sectors)",
         image_path, total_sectors);
@@ -893,13 +955,102 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     const std::string raw   = default_sdcard_raw_image_path();   // pristine
     const std::string fixed = default_sdcard_image_path();       // patched
 
-    // The FIXED (patched) image is what jnext boots from. If it is already
-    // present, use it — unless a re-provision is forced.
-    if (!opts.force_download && regular_file_exists(fixed)) {
+    // Distro URL: $JNEXT_SDCARD_DISTRO_URL overrides kDistroUrl when set
+    // and non-empty. A TEST SEAM in the same spirit as $JNEXT_CONFIG_DIR
+    // above (GH #108 Phase B): it lets a harness point the REAL download
+    // path (libcurl / WinHTTP) at a local fixture server instead of the
+    // multi-hundred-MB specnext.com zip — e.g. the wine packaging smoke,
+    // which proves the Windows WinHTTP backend end-to-end against a
+    // loopback HTTP server. Not a user feature; deliberately absent from
+    // --help and the man page.
+    const char* env_url = std::getenv("JNEXT_SDCARD_DISTRO_URL");
+    const std::string distro_url =
+        (env_url && *env_url) ? std::string(env_url) : std::string(kDistroUrl);
+    // Which distribution that address is (the zip's file name), and the sidecars that
+    // record it beside the images.
+    const std::string current_dist = distribution_of_url(distro_url);
+    const std::string fixed_distro = fixed + kDistroSuffix;
+    const std::string raw_distro   = raw + kDistroSuffix;
+    const std::string declined     = fixed + kDeclinedSuffix;
+    auto dist_of = [](const std::string& sidecar) {
+        const std::string d = read_text_line(sidecar);
+        return d.empty() ? std::string(kLegacyDistribution) : d;
+    };
+
+    // A card that exists is replaced ATOMICALLY when it is rebuilt (--sdcard-download-force,
+    // or an upgrade the user accepted): everything is made beside it as "<name>.new" and
+    // moved over it only when it all worked, so a failed download or patch leaves the
+    // user's card exactly as it was.
+    bool replacing = false;
+    bool upgrade_accepted = false;
+    std::string kept_note;   // a failed upgrade that left the old card in use
+    auto use_existing = [&]() {
         r.status = ProvisionStatus::Ok;
         r.path   = fixed;
         Log::emulator()->info("sdcard: using default image {}", fixed);
         return r;
+    };
+
+    if (regular_file_exists(fixed)) {
+        if (opts.force_download) {
+            replacing = true;
+        } else {
+            const std::string have = dist_of(fixed_distro);
+            if (ieq(have, current_dist)) return use_existing();
+
+            // The card is of an older (or other) distribution than the one jnext
+            // downloads now. It holds the user's own files, so it is never replaced
+            // without their yes, and Keep always goes on with it.
+            if (opts.upgrade_mode == UpgradeMode::Ask) std::remove(declined.c_str());
+            const std::string new_title = distribution_title(current_dist);
+            const std::string old_title = distribution_title(have);
+            switch (opts.upgrade_mode) {
+            case UpgradeMode::Never:
+                if (!write_text_line(declined, current_dist))
+                    Log::emulator()->warn("sdcard: cannot write {}", declined);
+                Log::emulator()->info("sdcard: {} is available; this card is {}; not offering it again",
+                                      new_title, old_title);
+                return use_existing();
+            case UpgradeMode::No:
+                Log::emulator()->info("sdcard: {} is available; this card is {}; keeping it this run",
+                                      new_title, old_title);
+                return use_existing();
+            case UpgradeMode::Yes:
+                upgrade_accepted = true;
+                break;
+            case UpgradeMode::Default:
+            case UpgradeMode::Ask:
+                if (ieq(read_text_line(declined), current_dist)) return use_existing();
+                if (!opts.upgrade) {
+                    Log::emulator()->info(
+                        "sdcard: {} is available; this card is {}. Run jnext --sdcard-upgrade yes to "
+                        "replace it (everything saved on the card is lost).", new_title, old_title);
+                    return use_existing();
+                }
+                {
+                    const std::string msg =
+                        new_title + " is available. The SD card image jnext uses is " + old_title + ".\n\n"
+                        "Replacing it downloads " + new_title + " and DELETES everything you saved on the "
+                        "current card: your programs, files and NextZXOS settings are lost.\n\n"
+                        "Keep my card goes on using " + old_title + ", and nothing is changed; you can "
+                        "upgrade later with jnext --sdcard-upgrade yes.";
+                    switch (opts.upgrade(have, current_dist, msg)) {
+                    case UpgradeChoice::Replace:
+                        upgrade_accepted = true;
+                        break;
+                    case UpgradeChoice::KeepDontAskAgain:
+                        if (!write_text_line(declined, current_dist))
+                            Log::emulator()->warn("sdcard: cannot write {}", declined);
+                        return use_existing();
+                    case UpgradeChoice::Keep:
+                    default:
+                        return use_existing();
+                    }
+                }
+                break;
+            }
+            replacing = true;
+        }
     }
 
     std::string err;
@@ -908,8 +1059,10 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     // Optimization: if the raw official image is already present (and we are
     // not force-re-downloading), skip the large download and produce the fixed
     // image from it — but ONLY if the raw's SHA256 matches its `.sha256`
-    // sidecar. A missing/unreadable sidecar or a mismatch marks the raw
-    // untrusted (stale/corrupt) and forces the full download cycle.
+    // sidecar AND it is of the distribution being installed. A missing/unreadable
+    // sidecar or a mismatch marks the raw untrusted (stale/corrupt) and forces the
+    // full download cycle; a raw of another distribution is never re-derived into a
+    // card that says it is this one.
     bool raw_trusted = false;
     if (!opts.force_download && regular_file_exists(raw)) {
         const std::string stored = read_stored_sha256(raw_sha_path);
@@ -917,6 +1070,10 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             Log::emulator()->warn(
                 "sdcard: raw image {} has no readable SHA256 sidecar; "
                 "re-downloading", raw);
+        } else if (!ieq(dist_of(raw_distro), current_dist)) {
+            Log::emulator()->info(
+                "sdcard: raw image {} is {}, not {}; downloading", raw,
+                dist_of(raw_distro), current_dist);
         } else {
             const std::string actual = sha256_file(raw);
             if (!actual.empty() && ieq(actual, stored)) {
@@ -931,22 +1088,40 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
         }
     }
 
+    // The raw lands in "<raw>.new" when it replaces an existing one; the old raw (and the
+    // old card) stay until the new card is complete.
+    const std::string raw_new   = raw + ".new";
+    const std::string fixed_new = fixed + ".new";
+    const std::string raw_out   = replacing ? raw_new : raw;
+    const std::string fixed_out = replacing ? fixed_new : fixed;
+    bool raw_downloaded = false;
+    std::string raw_digest;
+
+    // A failed replacement leaves the old card in use. An upgrade the user accepted
+    // reports that and goes on with the old card (Ok + a note); --sdcard-download-force
+    // was asked to recover a card, so it fails.
+    auto fail = [&](const std::string& why) {
+        if (replacing) {
+            std::remove(raw_new.c_str());
+            std::remove(fixed_new.c_str());
+        }
+        if (replacing && upgrade_accepted) {
+            r.status = ProvisionStatus::Ok;
+            r.path   = fixed;
+            r.error.clear();
+            r.warning = "The upgrade to " + distribution_title(current_dist) + " failed, so the "
+                        "current SD card image stays in use and nothing was changed.\n\n" + why;
+        } else {
+            r.status = ProvisionStatus::Failed;
+            r.error  = why;
+        }
+        return r;
+    };
+
     if (!raw_trusted) {
         ConfirmFn confirm = opts.confirm ? opts.confirm : ConfirmFn(cli_confirm);
         DownloadFn download = opts.download ? opts.download
                                             : DownloadFn(default_http_download);
-
-        // Distro URL: $JNEXT_SDCARD_DISTRO_URL overrides kDistroUrl when set
-        // and non-empty. A TEST SEAM in the same spirit as $JNEXT_CONFIG_DIR
-        // above (GH #108 Phase B): it lets a harness point the REAL download
-        // path (libcurl / WinHTTP) at a local fixture server instead of the
-        // multi-hundred-MB specnext.com zip — e.g. the wine packaging smoke,
-        // which proves the Windows WinHTTP backend end-to-end against a
-        // loopback HTTP server. Not a user feature; deliberately absent from
-        // --help and the man page.
-        const char* env_url = std::getenv("JNEXT_SDCARD_DISTRO_URL");
-        const std::string distro_url =
-            (env_url && *env_url) ? std::string(env_url) : std::string(kDistroUrl);
 
         // The download is resumable (GH #358): the backend keeps `<zip>.part` when
         // a transfer stops, and --sdcard-download-force means start over.
@@ -960,9 +1135,10 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             return std::string(t);
         };
 
-        if (!opts.auto_confirm) {
+        if (!opts.auto_confirm && !upgrade_accepted) {
             std::string msg =
-                std::string("No SD-card image was found at ~/.jnext/.") +
+                std::string(replacing ? "The SD-card image in ~/.jnext/ will be replaced." :
+                                        "No SD-card image was found at ~/.jnext/.") +
                 (resuming ? " (continuing a download that stopped at " + mb(part_have) + " of " +
                                 mb(part_total) + ")"
                           : std::string()) + "\n\n"
@@ -984,37 +1160,40 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
         // A failed fetch names the address, the reason in plain words and what
         // happens next (GH #385); the sandbox note, when there is one, comes last.
         if (!download(distro_url, zip_tmp, opts.progress, err)) {
-            r.status = ProvisionStatus::Failed;
             uint64_t h2 = 0, t2 = 0;
             const PartialState ps = partial_state(zip_tmp, distro_url, h2, t2);
             const char* next =
                 ps == PartialState::Resumable ? "the part fetched so far is kept and the next start continues it"
               : ps == PartialState::Complete  ? "the complete download is kept and the next start uses it"
               : "nothing was kept, so the next start downloads it from the beginning";
-            r.error  = fetch_failure("download failed", distro_url, err, next) + sandbox_network_note(opts);
-            return r;
+            return fail(fetch_failure("download failed", distro_url, err, next) + sandbox_network_note(opts));
         }
 
         // Extract the OFFICIAL image to the raw path and keep it pristine.
-        if (!unzip_entry(zip_tmp, kImageFileName, raw, err)) {
+        if (!unzip_entry(zip_tmp, kImageFileName, raw_out, err)) {
             std::remove(zip_tmp.c_str());
-            std::remove(raw.c_str()); // never trust a partial raw
-            r.status = ProvisionStatus::Failed;
-            r.error  = fetch_failure("unzip failed", distro_url, err,
-                                     "the download was removed, so the next start downloads it from the beginning");
-            return r;
+            std::remove(raw_out.c_str()); // never trust a partial raw
+            return fail(fetch_failure("unzip failed", distro_url, err,
+                                      "the download was removed, so the next start downloads it from the beginning"));
         }
         std::remove(zip_tmp.c_str());
+        raw_downloaded = true;
 
         // Record the SHA256 of the freshly-downloaded pristine raw, so a later
         // skip-redownload can prove the raw is intact. Written only AFTER a
-        // fully successful download+unzip.
-        const std::string digest = sha256_file(raw);
-        if (!digest.empty()) {
+        // fully successful download+unzip (for a replacement: once the new card is
+        // complete, below). The raw's distribution is recorded with it.
+        raw_digest = sha256_file(raw_out);
+        if (!replacing && !raw_digest.empty()) {
             std::ofstream sf(raw_sha_path, std::ios::trunc);
-            if (sf) sf << digest << "  " << kImageFileName << "\n";
+            if (sf) sf << raw_digest << "  " << kImageFileName << "\n";
+            sf.close();
+            write_text_line(raw_distro, current_dist);
         }
+    } else {
+        raw_digest = read_stored_sha256(raw_sha_path);
     }
+    const std::string& raw_src = raw_downloaded ? raw_out : raw;
 
     // Produce the fixed image from the pristine raw one: copy, then FAT32
     // recluster the COPY in place (the raw official image is left untouched).
@@ -1025,30 +1204,49 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     // run the work inline unchanged.
     CopyFn copy = opts.copy ? opts.copy : CopyFn(default_copy_file);
     // The recipe sidecar says which kFixedImageRecipe produced the fixed
-    // image. Removed first, so a failed derive never leaves one describing an
-    // image that no longer exists; written last, only after the patch worked.
-    // Best effort, like the raw's .sha256 above: a missing sidecar only means
-    // "recipe unknown", never an unusable image.
+    // image. Removed first (when the card is made in place), so a failed derive never
+    // leaves one describing an image that no longer exists; written last, only after
+    // the patch worked. Best effort, like the raw's .sha256 above: a missing sidecar
+    // only means "recipe unknown", never an unusable image.
     const std::string recipe_path = fixed + kFixedImageRecipeSuffix;
+    const uint32_t volume_id = volume_id_from_sha256(raw_digest);
     auto do_fix = [&]() -> bool {
-        std::remove(recipe_path.c_str());
-        if (!copy(raw, fixed, err)) { err = "cannot produce fixed image: " + err; return false; }
-        if (!patch_image_fat32(fixed, err)) { err = "patch failed: " + err;       return false; }
-        std::ofstream rf(recipe_path, std::ios::trunc);
-        rf << kFixedImageRecipe << "\n";
-        rf.close();
-        if (!rf)
-            Log::emulator()->warn("sdcard: cannot write recipe sidecar {}", recipe_path);
+        if (!replacing) std::remove(recipe_path.c_str());
+        if (!copy(raw_src, fixed_out, err)) { err = "cannot produce fixed image: " + err; return false; }
+        if (!patch_image_fat32(fixed_out, err, kZx81Rom16kSha256, volume_id)) {
+            err = "patch failed: " + err;
+            return false;
+        }
         return true;
     };
     const bool fixed_ok = opts.busy ? opts.busy("Fixing downloaded image", do_fix)
                                      : do_fix();
     if (!fixed_ok) {
-        std::remove(fixed.c_str()); // never leave a truncated / half-patched image
-        r.status = ProvisionStatus::Failed;
-        r.error  = err;             // do_fix() already prefixed the failing step
-        return r;
+        std::remove(fixed_out.c_str()); // never leave a truncated / half-patched image
+        return fail(err);               // do_fix() already prefixed the failing step
     }
+
+    // The new card is complete. A replacement moves it (and the new raw) over the old ones
+    // only now.
+    if (replacing) {
+        std::error_code ec;
+        if (raw_downloaded) {
+            std::filesystem::rename(raw_new, raw, ec);
+            if (ec) return fail("cannot move the new raw image into place: " + ec.message());
+        }
+        std::filesystem::rename(fixed_new, fixed, ec);
+        if (ec) return fail("cannot move the new SD card image into place: " + ec.message());
+        if (raw_downloaded && !raw_digest.empty()) {
+            std::ofstream sf(raw_sha_path, std::ios::trunc);
+            if (sf) sf << raw_digest << "  " << kImageFileName << "\n";
+            sf.close();
+            write_text_line(raw_distro, current_dist);
+        }
+    }
+    if (!write_text_line(recipe_path, std::to_string(kFixedImageRecipe)))
+        Log::emulator()->warn("sdcard: cannot write recipe sidecar {}", recipe_path);
+    write_text_line(fixed_distro, current_dist);
+    std::remove(declined.c_str());   // a new card of this distribution: the old "do not ask" is moot
 
     r.status = ProvisionStatus::Ok;
     r.path   = fixed;

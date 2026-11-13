@@ -52,6 +52,7 @@ enum class OptId {
     Sdcard,
     SdcardDownloadConfirm,
     SdcardDownloadForce,
+    SdcardUpgrade,
     SdcardReadonly,
     SdcardFileAdd,
     SdcardFileDest,
@@ -278,6 +279,15 @@ inline constexpr Option OPTIONS[] = {
       "Force re-download + re-patch of the default-location\n"
       "image (~/.jnext/sdcard/) to recover a corrupted one. Ignored\n"
       "when --sdcard is given (an explicit path always wins)." },
+    { "--sdcard-upgrade", 1, Doc::Documented, OptId::SdcardUpgrade,
+      "MODE",
+      "What to do when the default-location card is of an older\n"
+      "NextZXOS distribution than the one jnext downloads: ask (the\n"
+      "default in the GUI; forgets a \"do not ask again\"), yes\n"
+      "(replace it, losing what is saved on it), no (keep it this\n"
+      "run) or never (keep it and do not offer this distribution\n"
+      "again). Refused with --sdcard (an explicit card is never\n"
+      "offered an upgrade)." },
     { "--sdcard-readonly", 0, Doc::Documented, OptId::SdcardReadonly,
       "",
       "Open the SD image read-only; the host file is never written" },

@@ -50,3 +50,29 @@ browser to see whether the file can be reached at all.
 
 Answering no leaves JNEXT with nothing to boot from, so it explains the problem
 and exits.
+
+## When a newer distribution is available
+
+JNEXT remembers which distribution each image came from. When a version of JNEXT
+downloads a newer distribution than the one your image came from, it tells you so
+and, in the graphical version, asks what to do:
+
+- **Download and replace** downloads the new distribution and replaces your image
+  with it. **Everything you saved on the old image is lost**: your programs, your
+  files and NextZXOS's settings. Nothing is changed until the new image is
+  complete, so a download or a preparation that fails leaves your image exactly as
+  it was.
+- **Keep my card** (also what closing the question means) goes on with your image
+  and asks again the next time.
+- Ticking **Do not ask me again** with Keep stops the question for this
+  distribution. The question comes back once for the next one.
+
+Without a window (`--headless`, or `--sdcard-file-add`) JNEXT never asks. It keeps
+your image and writes one line to the log saying how to upgrade. You can answer
+without the dialog with `--sdcard-upgrade`: `yes` replaces the image, `no` keeps
+it for this run, `never` keeps it and records "do not ask again", and `ask`
+forgets that record and asks.
+
+An image you name yourself (`--sdcard FILE`, or an image path in Preferences) is
+never offered an upgrade, and `--sdcard-upgrade` is refused with `--sdcard`. Each
+distribution's image also has its own FAT32 volume serial.

@@ -157,6 +157,21 @@ Also discards a half\-finished download.
 Ignored when \f[B]\-\-sdcard\f[R] is given: an explicit path always
 wins.
 .TP
+\f[B]\-\-sdcard\-upgrade\f[R] \f[I]MODE\f[R]
+What to do when the default\-location card is of an older NextZXOS
+distribution than the one jnext downloads now.
+\f[I]MODE\f[R] is \f[B]ask\f[R] (the default in the GUI: forget any
+\(lqdo not ask again\(rq and ask), \f[B]yes\f[R] (replace the card
+without asking: everything saved on it is lost), \f[B]no\f[R] (keep the
+card for this run, no question) or \f[B]never\f[R] (keep it and do not
+offer this distribution again).
+Without the option, the GUI asks (once, unless \(lqDo not ask me
+again\(rq was ticked) and \f[B]\-\-headless\f[R] keeps the card and logs
+one line.
+Refused together with \f[B]\-\-sdcard\f[R]: an explicit card is never
+offered an upgrade.
+See \f[B]SD CARD AND ROMS\f[R].
+.TP
 \f[B]\-\-sdcard\-readonly\f[R]
 Open the SD image read\-only, so the host file is never modified.
 The emulated machine sees a write\-protected card: writes are rejected
@@ -1761,6 +1776,25 @@ An interrupted download (Cancel, a dropped connection, or 30 seconds
 without data) is kept (\f[CR]sn\-emulator.zip.part\f[R]) and continues
 on the next run.
 An explicit \f[B]\-\-sdcard\f[R] always wins over both.
+.PP
+When the default card is of an older NextZXOS distribution than the one
+jnext downloads now, jnext tells you a newer one is available, and in
+the GUI asks what to do.
+\f[B]Download and replace\f[R] downloads the new image and replaces the
+card: \f[B]everything you saved on the old card is lost\f[R], and the
+old card stays untouched until the new one is complete, so a failed
+download or patch changes nothing.
+\f[B]Keep my card\f[R] goes on using the old one, and asks again next
+time; ticking \f[B]Do not ask me again\f[R] stops the offer for this
+distribution (a later one asks once more).
+A terminal or scripted run (\f[B]\-\-headless\f[R],
+\f[B]\-\-sdcard\-file\-add\f[R]) never asks: it keeps the card and logs
+one line.
+The choice can be made without the GUI with
+\f[B]\-\-sdcard\-upgrade\f[R].
+A card you name yourself, with \f[B]\-\-sdcard\f[R] or in Preferences,
+is never offered an upgrade.
+Each distribution\(cqs card has its own FAT32 volume serial.
 .PP
 Note that jnext opens the image \f[B]read\-write\f[R] by default, and
 writes the emulated machine makes to the SD card are persisted to the
@@ -3978,6 +4012,18 @@ The default SD\-card image, used when \f[B]\-\-sdcard\f[R] is not given.
 .TP
 \f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb.img\f[R]
 The canonical distribution image the patched one above is produced from.
+.TP
+\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img.distro\f[R], \f[CR]cspect\-next\-1gb.img.distro\f[R]
+The distribution (the zip file name,
+e.g.\ \f[CR]sn\-emulator\-24.11.zip\f[R]) each of the two images came
+from.
+Without one, the image is taken to be 24.11.
+.TP
+\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img.distro\-declined\f[R]
+The distribution whose upgrade offer you turned down with \(lqDo not ask
+me again\(rq (or \f[B]\-\-sdcard\-upgrade\f[R] \f[CR]never\f[R]).
+Delete it, or use \f[B]\-\-sdcard\-upgrade\f[R] \f[CR]ask\f[R], to be
+asked again.
 .TP
 \f[CR]\(ti/.jnext/nextpi/\f[R]
 The NextPi directory: \f[CR]nextpi.img\f[R] (the release\(cqs SD\-card

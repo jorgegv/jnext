@@ -49,6 +49,9 @@
 #include <QPushButton>
 #include <QString>
 #include <QStyle>
+#include <QAbstractButton>
+#include <QCheckBox>
+#include <QMessageBox>
 #include <QTimer>
 #include <QWidget>
 
@@ -488,6 +491,53 @@ void test_short_fetch_through_the_backend() {
 
 }  // namespace
 
+// -- SDD-UPG-01..04: the offer of a newer distribution -----------------------------
+// The helper's real box, driven the way a user drives it: a timer fires while the modal
+// box runs its event loop and clicks the named button (after ticking the check box).
+struct OfferRun {
+    sdcard::UpgradeChoice choice = sdcard::UpgradeChoice::Keep;
+    std::string text, buttons;
+    bool clicked = false, has_checkbox = false;
+};
+OfferRun run_offer(const char* button, bool tick, const std::string& message) {
+    OfferRun r;
+    SdcardGuiProvisioner gui;
+    QTimer::singleShot(0, [&] {
+        auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        if (!mb) return;
+        r.text = (mb->text() + " | " + mb->informativeText()).toStdString();
+        QAbstractButton* want = nullptr;
+        for (QAbstractButton* b : mb->buttons()) {
+            r.buttons += b->text().toStdString() + ";";
+            if (button && b->text() == button) want = b;
+        }
+        r.has_checkbox = mb->checkBox() && mb->checkBox()->text() == "Do not ask me again";
+        if (tick && mb->checkBox()) mb->checkBox()->setChecked(true);
+        if (want) { r.clicked = true; want->click(); } else mb->close();   // closing = the escape button
+    });
+    r.choice = gui.offer_upgrade("sn-emulator-24.11.zip", "sn-emulator-99.99.zip", message);
+    return r;
+}
+
+void test_upgrade_offer() {
+    const std::string msg = "NextZXOS 99.99 is available. The SD card image jnext uses is NextZXOS 24.11.\n\n"
+                            "Replacing it DELETES everything you saved on the current card.";
+    const OfferRun a = run_offer("Download and replace", false, msg);
+    check("SDD-UPG-01", "'Download and replace' answers Replace",
+          a.clicked && a.choice == sdcard::UpgradeChoice::Replace, a.buttons);
+    const OfferRun b = run_offer("Keep my card", false, msg);
+    check("SDD-UPG-02", "'Keep my card' answers Keep, and so does closing the box",
+          b.clicked && b.choice == sdcard::UpgradeChoice::Keep &&
+              run_offer(nullptr, false, msg).choice == sdcard::UpgradeChoice::Keep, b.buttons);
+    const OfferRun c = run_offer("Keep my card", true, msg);
+    check("SDD-UPG-03", "'Do not ask me again' ticked with Keep answers KeepDontAskAgain, and means nothing for Replace",
+          c.has_checkbox && c.choice == sdcard::UpgradeChoice::KeepDontAskAgain &&
+              run_offer("Download and replace", true, msg).choice == sdcard::UpgradeChoice::Replace);
+    check("SDD-UPG-04", "the box names both versions' offer text and warns that the card's contents are deleted",
+          has(a.text, "NextZXOS 99.99 is available") && has(a.text, "NextZXOS 24.11") &&
+              has(a.text, "DELETES everything you saved"), a.text);
+}
+
 int main(int argc, char** argv) {
     // The helper builds its dialogs on a QApplication it finds; give it one, on
     // the offscreen platform (no display needed).
@@ -506,6 +556,7 @@ int main(int argc, char** argv) {
     test_short_fetch_dialog_and_stall();
     test_short_fetch_cancel_is_local();
     test_short_fetch_through_the_backend();
+    test_upgrade_offer();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n", g_total, g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

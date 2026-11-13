@@ -1441,6 +1441,28 @@ That recipe is versioned (`kFixedImageRecipe`, recorded in a `.recipe` sidecar
 next to the image). jnext never rebuilds an existing image because its recipe
 is old: the image holds the user's own files.
 
+A distribution is identified by the file name of its zip (`sn-emulator-24.11.zip`),
+the basename of the effective download address. `provision_sd_card` records it in
+`<fixed>.distro` and `<raw>.distro`; an image with no such sidecar predates them,
+from when the address only ever named 24.11, so it is 24.11. A raw image is
+reused only when its sha sidecar verifies AND its `.distro` is the current one.
+When the default card exists and is of another distribution, the provisioner makes
+one offer through the `UpgradeFn` seam (Qt: a box with "Download and replace",
+"Keep my card" and a "Do not ask me again" check box; SDL: a three-button message
+box; no seam, as in `--headless` and `--sdcard-file-add`: no offer, one log line).
+The text names both versions and says the card's contents are lost. Keep goes on
+with the card, and "do not ask again" writes `<fixed>.distro-declined` with the
+current distribution, so only a later one asks again. `--sdcard-upgrade
+ask|yes|no|never` makes each choice without the dialog. An explicit card, from
+`--sdcard` or the Preferences path, returns before any of this and is never offered
+an upgrade. A card is replaced atomically: the new raw and card are made as
+`<name>.new` and moved over the old ones only when the derive worked, so a failed
+download or patch leaves the old card byte-identical (an accepted upgrade then
+goes on with it and reports a warning; `--sdcard-download-force`, which was asked to
+recover a card, fails). Recipe 3 gives each distribution's card its own FAT32 volume
+serial, the first 4 bytes of the raw image's SHA-256, written into the boot sector
+and its backup copy after the format.
+
 Downloads are resumable, by one contract for every caller of
 `DownloadFn` (the SD distro zip, the NextPi archive, its `.md5`, the mirror
 listing). The default backends (libcurl, WinHTTP) write `<dest>.part`, beside a

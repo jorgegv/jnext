@@ -904,6 +904,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Letting JNEXT fetch one
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="02-letting-jnext-fetch-one.html" class="md-nav__link md-nav__link--active">
         
   
@@ -920,6 +938,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-newer-distribution-is-available" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a newer distribution is available
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -4172,6 +4220,29 @@ fetched was kept. The address can be selected and copied from the message: try i
 browser to see whether the file can be reached at all.</p>
 <p>Answering no leaves JNEXT with nothing to boot from, so it explains the problem
 and exits.</p>
+<h2 id="when-a-newer-distribution-is-available">When a newer distribution is available<a class="headerlink" href="#when-a-newer-distribution-is-available" title="Permanent link">&para;</a></h2>
+<p>JNEXT remembers which distribution each image came from. When a version of JNEXT
+downloads a newer distribution than the one your image came from, it tells you so
+and, in the graphical version, asks what to do:</p>
+<ul>
+<li><strong>Download and replace</strong> downloads the new distribution and replaces your image
+  with it. <strong>Everything you saved on the old image is lost</strong>: your programs, your
+  files and NextZXOS's settings. Nothing is changed until the new image is
+  complete, so a download or a preparation that fails leaves your image exactly as
+  it was.</li>
+<li><strong>Keep my card</strong> (also what closing the question means) goes on with your image
+  and asks again the next time.</li>
+<li>Ticking <strong>Do not ask me again</strong> with Keep stops the question for this
+  distribution. The question comes back once for the next one.</li>
+</ul>
+<p>Without a window (<code>--headless</code>, or <code>--sdcard-file-add</code>) JNEXT never asks. It keeps
+your image and writes one line to the log saying how to upgrade. You can answer
+without the dialog with <code>--sdcard-upgrade</code>: <code>yes</code> replaces the image, <code>no</code> keeps
+it for this run, <code>never</code> keeps it and records "do not ask again", and <code>ask</code>
+forgets that record and asks.</p>
+<p>An image you name yourself (<code>--sdcard FILE</code>, or an image path in Preferences) is
+never offered an upgrade, and <code>--sdcard-upgrade</code> is refused with <code>--sdcard</code>. Each
+distribution's image also has its own FAT32 volume serial.</p>
 
 
 

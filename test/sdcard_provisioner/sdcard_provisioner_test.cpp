@@ -117,11 +117,20 @@
 //                  matches case-insensitively; and patch_image_fat32 writes
 //                  the doubled file to disk. The ROM itself cannot be shipped,
 //                  so every row uses a 16 KB stand-in and passes its hash.
+//   PROV-DIST-00..11  the offer of a newer distribution: one offer naming both versions
+//                  and the loss, Keep / "do not ask again" / a later distribution asks
+//                  again, Replace is atomic (a failed download or patch leaves the old
+//                  card byte-identical, also for --sdcard-download-force), an explicit
+//                  path is never offered, no UI means no offer, a raw of another
+//                  distribution is not reused, --sdcard-upgrade ask|never|no|yes
+//   PROV-SER-01..03  recipe 3: the volume serial (boot sector and backup) is the first 4
+//                  bytes of the raw's SHA-256, deterministic, and --sdcard-download-force
+//                  re-derives it
 //   PROV-RECIPE-01..04  GH #284 — a derive records kFixedImageRecipe in the
 //                  "<fixed>.recipe" sidecar (replacing a stale one); a failed
 //                  derive leaves no sidecar; an EXISTING fixed image with no
 //                  sidecar or an old one is used as-is and never rebuilt (it
-//                  holds the user's files); the zx81 recipe is number 2.
+//                  holds the user's files); the serial recipe is number 3.
 
 #include "core/fat32_image.h"
 #include "core/sdcard_provisioner.h"
@@ -2064,6 +2073,314 @@ void test_console_rows() {
 
 } // namespace
 
+
+// ---------------------------------------------------------------------------
+// The offer of a newer distribution, and the distribution's own volume serial.
+// Everything here is offline: the download is a seam, the "zip" is a stand-in the
+// rows build, and no row touches the network or a real NextZXOS image.
+// ---------------------------------------------------------------------------
+
+// A stored single-entry zip of the file `src` named `name`, streamed (the FAT32 source is
+// ~600 MB of mostly zeros, which make_zip's in-memory vector would copy).
+bool make_zip_file(const std::string& zip, const std::string& name, const std::string& src) {
+    std::ifstream in(src, std::ios::binary);
+    if (!in) return false;
+    uint32_t crc = static_cast<uint32_t>(crc32(0L, Z_NULL, 0));
+    uint64_t size = 0;
+    std::vector<char> buf(1 << 20);
+    while (in) {
+        in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+        const auto n = in.gcount();
+        if (n <= 0) break;
+        crc = static_cast<uint32_t>(crc32(crc, reinterpret_cast<const Bytef*>(buf.data()), static_cast<uInt>(n)));
+        size += static_cast<uint64_t>(n);
+    }
+    std::vector<uint8_t> head;
+    put32(head, 0x04034b50); put16(head, 20); put16(head, 0); put16(head, 0); put16(head, 0); put16(head, 0);
+    put32(head, crc); put32(head, static_cast<uint32_t>(size)); put32(head, static_cast<uint32_t>(size));
+    put16(head, static_cast<uint16_t>(name.size())); put16(head, 0);
+    head.insert(head.end(), name.begin(), name.end());
+    std::vector<uint8_t> tail;
+    put32(tail, 0x02014b50); put16(tail, 20); put16(tail, 20); put16(tail, 0); put16(tail, 0); put16(tail, 0); put16(tail, 0);
+    put32(tail, crc); put32(tail, static_cast<uint32_t>(size)); put32(tail, static_cast<uint32_t>(size));
+    put16(tail, static_cast<uint16_t>(name.size())); put16(tail, 0); put16(tail, 0); put16(tail, 0); put16(tail, 0);
+    put32(tail, 0); put32(tail, 0);
+    tail.insert(tail.end(), name.begin(), name.end());
+    const uint32_t cd_size = static_cast<uint32_t>(tail.size());
+    const uint32_t cd_off  = static_cast<uint32_t>(head.size() + size);
+    put32(tail, 0x06054b50); put16(tail, 0); put16(tail, 0); put16(tail, 1); put16(tail, 1);
+    put32(tail, cd_size); put32(tail, cd_off); put16(tail, 0);
+    std::ofstream out(zip, std::ios::binary | std::ios::trunc);
+    out.write(reinterpret_cast<const char*>(head.data()), static_cast<std::streamsize>(head.size()));
+    std::ifstream in2(src, std::ios::binary);
+    while (in2) {
+        in2.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+        if (in2.gcount() > 0) out.write(buf.data(), in2.gcount());
+    }
+    out.write(reinterpret_cast<const char*>(tail.data()), static_cast<std::streamsize>(tail.size()));
+    return static_cast<bool>(out);
+}
+
+// BS_VolID32 of the FAT32 volume at LBA `part_lba`, from the boot sector (`sector` 0) or its
+// backup copy (`sector` 6).
+uint32_t volume_serial(const std::string& img, uint32_t part_lba, uint32_t sector) {
+    std::ifstream f(img, std::ios::binary);
+    uint8_t b[4] = {0, 0, 0, 0};
+    f.seekg(static_cast<std::streamoff>((static_cast<uint64_t>(part_lba) + sector) * 512 + 0x43));
+    f.read(reinterpret_cast<char*>(b), 4);
+    return static_cast<uint32_t>(b[0]) | static_cast<uint32_t>(b[1]) << 8 |
+           static_cast<uint32_t>(b[2]) << 16 | static_cast<uint32_t>(b[3]) << 24;
+}
+
+void test_upgrade_rows() {
+    const std::string cfg = g_tmpdir + "/upg";
+    jtp::set_env("JNEXT_CONFIG_DIR", cfg.c_str());
+    jtp::make_dir(cfg.c_str());
+    jtp::make_dir((cfg + "/sdcard").c_str());
+    const std::string dir = sdcard::default_sdcard_dir();
+    const std::string raw = sdcard::default_sdcard_raw_image_path();
+    const std::string fixed = sdcard::default_sdcard_image_path();
+    const std::string raw_sha = raw + ".sha256";
+    const std::string fixed_distro = fixed + sdcard::kDistroSuffix;
+    const std::string raw_distro = raw + sdcard::kDistroSuffix;
+    const std::string declined = fixed + sdcard::kDeclinedSuffix;
+    const std::string recipe = fixed + sdcard::kFixedImageRecipeSuffix;
+    const std::string kNew = "sn-emulator-99.99.zip", kNewer = "sn-emulator-99.98.zip";
+    const std::string url_new = "http://127.0.0.1:1/" + kNew, url_newer = "http://127.0.0.1:1/" + kNewer;
+    const std::vector<uint8_t> user_card = {'m', 'y', 'c', 'a', 'r', 'd'};
+
+    auto clean = [&] {
+        for (const std::string& f : {raw, raw_sha, raw_distro, fixed, fixed_distro, declined, recipe,
+                                     raw + ".new", fixed + ".new", dir + "/sn-emulator.zip"})
+            std::remove(f.c_str());
+    };
+    auto user_card_only = [&] { clean(); write_file(fixed, user_card); };
+
+    // The FAT32 source every derive row starts from, and the "download" of it.
+    const std::string src = g_tmpdir + "/upg-src.img", big_zip = g_tmpdir + "/upg-big.zip";
+    std::string serr;
+    const bool src_ok = make_fat32_source(src, 63, 1228800, serr) &&
+                        make_zip_file(big_zip, "cspect-next-1gb.img", src);
+    check("PROV-DIST-00", "the offline fixtures (a FAT32 source image and its zip) are built", src_ok, serr);
+    if (!src_ok) { jtp::unset_env("JNEXT_CONFIG_DIR"); return; }
+
+    int downloads = 0;
+    std::string seen_url;
+    auto zip_dl = [&](const std::string& url, const std::string& dst, const sdcard::ProgressFn&, std::string&) {
+        ++downloads; seen_url = url;
+        std::error_code ec;
+        std::filesystem::copy_file(big_zip, dst, std::filesystem::copy_options::overwrite_existing, ec);
+        return !ec;
+    };
+    auto junk_zip_dl = [&](const std::string& url, const std::string& dst, const sdcard::ProgressFn&, std::string&) {
+        ++downloads; seen_url = url;
+        write_file(dst, make_zip("cspect-next-1gb.img", std::vector<uint8_t>(4096, 0xEE), 0));
+        return true;
+    };
+    auto failing_dl = [&](const std::string& url, const std::string&, const sdcard::ProgressFn&, std::string& err) {
+        ++downloads; seen_url = url; err = "stub: no network"; return false;
+    };
+    struct Spy { int calls = 0; std::string from, to, msg; sdcard::UpgradeChoice answer = sdcard::UpgradeChoice::Keep; };
+    auto spy_fn = [](Spy& sp) {
+        return sdcard::UpgradeFn([&sp](const std::string& f, const std::string& t, const std::string& m) {
+            ++sp.calls; sp.from = f; sp.to = t; sp.msg = m; return sp.answer; });
+    };
+
+    // -- DIST-01..04: the offer ------------------------------------------------
+    jtp::set_env("JNEXT_SDCARD_DISTRO_URL", url_new.c_str());
+    {
+        user_card_only(); downloads = 0;
+        Spy sp; sp.answer = sdcard::UpgradeChoice::Keep;
+        sdcard::ProvisionOptions o; o.download = zip_dl; o.upgrade = spy_fn(sp);
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-DIST-01", "a default card with no .distro (24.11) and a current distribution 99.99 gets exactly one "
+              "offer, naming both versions and the loss of what is saved on the card",
+              sp.calls == 1 && sp.from == sdcard::kLegacyDistribution && sp.to == kNew &&
+              sp.msg.find("NextZXOS 24.11") != std::string::npos && sp.msg.find("NextZXOS 99.99") != std::string::npos &&
+              sp.msg.find("DELETES everything you saved") != std::string::npos,
+              "calls=" + std::to_string(sp.calls) + " from=" + sp.from + " to=" + sp.to);
+        check("PROV-DIST-02", "Keep: the card is untouched, the download is not called, nothing is recorded",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == fixed && read_file(fixed) == user_card &&
+              downloads == 0 && !file_exists(declined) && !file_exists(fixed_distro), r.error);
+    }
+    {
+        user_card_only(); downloads = 0;
+        Spy sp; sp.answer = sdcard::UpgradeChoice::KeepDontAskAgain;
+        sdcard::ProvisionOptions o; o.download = zip_dl; o.upgrade = spy_fn(sp);
+        (void)sdcard::provision_sd_card(o);
+        const bool wrote = slurp_text(declined) == kNew + "\n";
+        auto r2 = sdcard::provision_sd_card(o);
+        check("PROV-DIST-03", "Keep + do not ask again writes <fixed>.distro-declined (99.99) and the next start makes no offer",
+              wrote && sp.calls == 1 && r2.status == sdcard::ProvisionStatus::Ok && read_file(fixed) == user_card,
+              "declined='" + slurp_text(declined) + "' calls=" + std::to_string(sp.calls));
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", url_newer.c_str());
+        auto r3 = sdcard::provision_sd_card(o);
+        check("PROV-DIST-04", "a decline of 99.99 does not suppress the offer of 99.98",
+              sp.calls == 2 && sp.to == kNewer && r3.status == sdcard::ProvisionStatus::Ok, std::to_string(sp.calls));
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", url_new.c_str());
+    }
+
+    // -- DIST-05, 06: Replace is atomic -----------------------------------------
+    {
+        user_card_only(); write_file(raw, {'o', 'l', 'd', 'r', 'a', 'w'});
+        downloads = 0; seen_url.clear();
+        Spy sp; sp.answer = sdcard::UpgradeChoice::Replace;
+        write_file(declined, std::vector<uint8_t>{'x', '\n'});
+        sdcard::ProvisionOptions o; o.download = zip_dl; o.upgrade = spy_fn(sp);
+        auto r = sdcard::provision_sd_card(o);
+        const bool replaced = file_exists(fixed) && read_file(fixed) != user_card;
+        check("PROV-DIST-05", "Replace: the download is called with the current URL, the card is replaced (not the user's "
+              "bytes), .distro is the current distribution, .recipe is 3, the declined sidecar and the .new files are gone",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == fixed && r.warning.empty() && downloads == 1 &&
+              seen_url == url_new && replaced && slurp_text(fixed_distro) == kNew + "\n" &&
+              slurp_text(recipe) == "3\n" && slurp_text(raw_distro) == kNew + "\n" && !file_exists(declined) &&
+              !file_exists(fixed + ".new") && !file_exists(raw + ".new"),
+              r.error + r.warning + " url=" + seen_url);
+        // the same card, rebuilt from its (now trusted, same distribution) raw: no second download
+        clean();
+    }
+    {
+        // 06a: a failing download after "Replace": the old card and its raw are byte-identical, the run goes on
+        // with it and says so (Ok + a warning)
+        user_card_only(); write_file(raw, {'o', 'l', 'd', 'r', 'a', 'w'}); write_file(fixed_distro, {'o', 'l', 'd', '\n'});
+        downloads = 0;
+        Spy sp; sp.answer = sdcard::UpgradeChoice::Replace;
+        sdcard::ProvisionOptions o; o.download = failing_dl; o.upgrade = spy_fn(sp);
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-DIST-06", "Replace with a failing download: the old card is byte-identical, the run goes on with it "
+              "(Ok) and reports the failure as a warning; nothing '.new' is left",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == fixed && read_file(fixed) == user_card &&
+              read_file(raw) == std::vector<uint8_t>{'o', 'l', 'd', 'r', 'a', 'w'} &&
+              !r.warning.empty() && r.warning.find("stays in use") != std::string::npos &&
+              slurp_text(fixed_distro) == "old\n" && !file_exists(fixed + ".new") && !file_exists(raw + ".new"),
+              r.warning);
+        // 06b: a download that works but a raw the patch cannot read: the same
+        user_card_only(); write_file(fixed_distro, {'o', 'l', 'd', '\n'});
+        downloads = 0;
+        sdcard::ProvisionOptions o2; o2.download = junk_zip_dl; o2.upgrade = spy_fn(sp);
+        auto r2 = sdcard::provision_sd_card(o2);
+        check("PROV-DIST-06b", "Replace with a failing patch: the old card is byte-identical, Ok + a warning naming the patch",
+              r2.status == sdcard::ProvisionStatus::Ok && read_file(fixed) == user_card && downloads == 1 &&
+              r2.warning.find("patch failed") != std::string::npos && !file_exists(fixed + ".new") &&
+              !file_exists(raw + ".new"), r2.warning);
+        // 06c: --sdcard-download-force with a failing patch keeps the old card too (it used to delete it)
+        user_card_only(); write_file(raw, {'o', 'l', 'd', 'r', 'a', 'w'});
+        downloads = 0;
+        sdcard::ProvisionOptions o3; o3.download = junk_zip_dl; o3.force_download = true; o3.auto_confirm = true;
+        auto r3 = sdcard::provision_sd_card(o3);
+        check("PROV-DIST-06c", "--sdcard-download-force with a failing patch fails but KEEPS the old card and raw (it deleted the card)",
+              r3.status == sdcard::ProvisionStatus::Failed && read_file(fixed) == user_card &&
+              read_file(raw) == std::vector<uint8_t>{'o', 'l', 'd', 'r', 'a', 'w'} && !file_exists(fixed + ".new"),
+              r3.error);
+    }
+
+    // -- DIST-07..10 ------------------------------------------------------------------
+    {
+        user_card_only(); downloads = 0;
+        Spy sp; sp.answer = sdcard::UpgradeChoice::Replace;
+        sdcard::ProvisionOptions o; o.explicit_path = "/some/explicit/card.img"; o.download = zip_dl; o.upgrade = spy_fn(sp);
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-DIST-07", "an explicit path is never offered an upgrade, even with an older default card present",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == "/some/explicit/card.img" && sp.calls == 0 && downloads == 0);
+    }
+    {
+        user_card_only(); downloads = 0;
+        sdcard::ProvisionOptions o; o.download = zip_dl;   // no UpgradeFn: a terminal or scripted run
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-DIST-08", "without an UpgradeFn there is no offer: the card is kept, nothing is downloaded or recorded",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == fixed && read_file(fixed) == user_card &&
+              downloads == 0 && !file_exists(declined) && r.warning.empty());
+    }
+    {
+        // 09: a trusted raw of ANOTHER distribution is not re-derived into this one's card
+        clean();
+        write_file(raw, {'r', 'a', 'w'}); write_sha256_sidecar(raw, sdcard::sha256_file(raw));   // no .distro: 24.11
+        downloads = 0;
+        sdcard::ProvisionOptions o; o.download = failing_dl; o.auto_confirm = true;
+        (void)sdcard::provision_sd_card(o);
+        check("PROV-DIST-09", "a trusted 24.11 raw is NOT reused for distribution 99.99: the download is called",
+              downloads == 1 && seen_url == url_new, std::to_string(downloads));
+        clean();
+    }
+    {
+        user_card_only(); write_file(fixed_distro, std::vector<uint8_t>(kNew.begin(), kNew.end()));
+        downloads = 0;
+        Spy sp;
+        sdcard::ProvisionOptions o; o.download = zip_dl; o.upgrade = spy_fn(sp);
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-DIST-10", "a card already of the current distribution gets no offer and no download",
+              r.status == sdcard::ProvisionStatus::Ok && sp.calls == 0 && downloads == 0 && read_file(fixed) == user_card);
+    }
+
+    // -- DIST-11: --sdcard-upgrade -------------------------------------------------
+    {
+        user_card_only(); write_file(declined, std::vector<uint8_t>(kNew.begin(), kNew.end()));
+        Spy sp; sp.answer = sdcard::UpgradeChoice::Keep;
+        sdcard::ProvisionOptions o; o.download = zip_dl; o.upgrade = spy_fn(sp); o.upgrade_mode = sdcard::UpgradeMode::Ask;
+        (void)sdcard::provision_sd_card(o);
+        check("PROV-DIST-11", "ask forgets a 'do not ask again' and asks again",
+              sp.calls == 1 && !file_exists(declined));
+        user_card_only(); sp.calls = 0;
+        o.upgrade_mode = sdcard::UpgradeMode::Never;
+        (void)sdcard::provision_sd_card(o);
+        check("PROV-DIST-11b", "never writes the declined sidecar and calls no UI",
+              sp.calls == 0 && slurp_text(declined) == kNew + "\n" && read_file(fixed) == user_card);
+        user_card_only();
+        o.upgrade_mode = sdcard::UpgradeMode::No;
+        (void)sdcard::provision_sd_card(o);
+        check("PROV-DIST-11c", "no keeps the card for this run: no UI, nothing recorded",
+              sp.calls == 0 && !file_exists(declined) && read_file(fixed) == user_card);
+        user_card_only(); downloads = 0;
+        o.upgrade_mode = sdcard::UpgradeMode::Yes; o.download = failing_dl;
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-DIST-11d", "yes replaces without asking (the UI is not called, the download is)",
+              sp.calls == 0 && downloads == 1 && r.status == sdcard::ProvisionStatus::Ok && !r.warning.empty());
+    }
+    jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+
+    // -- SER-01..03: each distribution's card has its own serial -----------------
+    {
+        clean();
+        write_file(raw, read_file(src)); write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        sdcard::ProvisionOptions o; o.download = failing_dl; o.confirm = [](const std::string&) { return true; };
+        auto r = sdcard::provision_sd_card(o);
+        const uint32_t want = sdcard::volume_id_from_sha256(sdcard::sha256_file(raw));
+        const uint32_t got = volume_serial(fixed, 63, 0), bak = volume_serial(fixed, 63, 6);
+        check("PROV-SER-01", "the derived card's BS_VolID32 and its backup boot sector copy equal the first 4 bytes of the raw's SHA-256",
+              r.status == sdcard::ProvisionStatus::Ok && want != 0 && got == want && bak == want,
+              r.error + " want=" + std::to_string(want) + " got=" + std::to_string(got) + " backup=" + std::to_string(bak));
+        const uint32_t first = got;
+        clean();
+        // the same raw again: the same serial; another raw (one boot-code byte differs): another serial
+        write_file(raw, read_file(src)); write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        (void)sdcard::provision_sd_card(o);
+        const uint32_t again = volume_serial(fixed, 63, 0);
+        clean();
+        std::vector<uint8_t> other = read_file(src); other[0x10] ^= 0x5A;
+        write_file(raw, other); write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        (void)sdcard::provision_sd_card(o);
+        const uint32_t different = volume_serial(fixed, 63, 0);
+        check("PROV-SER-02", "the same raw gives the same serial twice; a different raw gives a different one",
+              first == again && different != first && different == sdcard::volume_id_from_sha256(sdcard::sha256_file(raw)),
+              std::to_string(first) + " " + std::to_string(again) + " " + std::to_string(different));
+        clean();
+    }
+    {
+        // 03: --sdcard-download-force re-derives with the serial of the raw it downloaded
+        user_card_only(); downloads = 0;
+        sdcard::ProvisionOptions o; o.download = zip_dl; o.force_download = true; o.auto_confirm = true;
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-SER-03", "--sdcard-download-force replaces the card and gives it the downloaded raw's serial",
+              r.status == sdcard::ProvisionStatus::Ok && downloads == 1 &&
+              volume_serial(fixed, 63, 0) == sdcard::volume_id_from_sha256(sdcard::sha256_file(raw)) &&
+              volume_serial(fixed, 63, 0) != 0, r.error);
+        clean();
+    }
+    std::remove(src.c_str());
+    std::remove(big_zip.c_str());
+    jtp::unset_env("JNEXT_CONFIG_DIR");
+}
+
 int main() {
     // Isolated HOME so path/default-location tests are hermetic.
     g_tmpdir = jtp::make_temp_dir("jnext_prov_");
@@ -2605,8 +2922,8 @@ int main() {
     // one above Task 27's recipe 1). The sidecars written to disk and the
     // regression suite's master gate both key off this constant, so changing
     // it is a deliberate act that must edit this row too.
-    check("PROV-RECIPE-04", "kFixedImageRecipe is 2 and the sidecar suffix is .recipe",
-          sdcard::kFixedImageRecipe == 2 &&
+    check("PROV-RECIPE-04", "kFixedImageRecipe is 3 and the sidecar suffix is .recipe",
+          sdcard::kFixedImageRecipe == 3 &&
           std::string(sdcard::kFixedImageRecipeSuffix) == ".recipe");
 
     // -- PROV-SHA-MISMATCH-01: a raw that no longer matches its .sha256 is
@@ -2955,6 +3272,7 @@ int main() {
     test_reason_rows();
     test_failure_message_rows();
     test_console_rows();
+    test_upgrade_rows();
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
