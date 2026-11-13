@@ -80,9 +80,9 @@ public:
         // reset input at all, so a soft reset leaves the flash phase running.
         // A hard `reset()` here is Emulator::init() building a machine, i.e.
         // POWER-ON: the counter takes its power-on value (see flash_counter_
-        // below). The guest-visible hard reset (reset button, NR 0x02 bit 1)
-        // reconstructs through emulator_cold_boot(), which carries the phase
-        // across, as the FPGA does.
+        // below). emulator_cold_boot() (reset button, NR 0x02 bit 1, File >
+        // Load) is a power-on boot of the whole machine in jnext (EB-14b), so
+        // it restarts the phase too, which the FPGA would not.
         if (hard) {
             flash_counter_ = 1;
             flash_phase_ = false;
@@ -822,12 +822,6 @@ public:
     /// Advance flash state (call once per frame after all scanlines rendered).
     void advance_flash();
 
-    /// flash_cnt(4:0) as (flash_cnt(3:0), flash_cnt(4)). A hard reset reconstructs the whole
-    /// machine, but the FPGA's flash counter has no reset (zxula.vhd:472-480), so the cold-boot
-    /// path carries it across with these two.
-    int  flash_counter() const { return flash_counter_; }
-    bool flash_phase() const { return flash_phase_; }
-    void set_flash(int counter, bool phase) { flash_counter_ = counter; flash_phase_ = phase; }
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);

@@ -1822,32 +1822,6 @@ static void test_flash_power_on(Emulator&) {
               "(zxula.vhd:470-480 + zxula_timing.vhd:111-125)",
               ok, "frames 0..32: " + seq);
     }
-
-    // INT-FLASH-02 — a hard reset does not clear the counter: the FPGA's flash_cnt has
-    // no reset and the timing counters free-run (zxula.vhd:472-480). Ten frames, a
-    // cold boot, then the cell inverts at overall frame 15, five frames after it.
-    {
-        Emulator e;
-        std::string seq;
-        bool ok = build_next_emulator(e);
-        if (ok) {
-            flash_stage(e);
-            for (int f = 0; f < 10; ++f) e.run_frame();
-            EmulatorConfig cfg = e.config();
-            emulator_cold_boot(e, cfg);
-            flash_stage(e);
-            for (int f = 10; f < 20; ++f) {
-                e.run_frame();
-                const bool inv = flash_inverted(e);
-                seq += inv ? 'I' : 'n';
-                if (inv != (f >= 15)) ok = false;
-            }
-        }
-        check("INT-FLASH-02",
-              "a hard reset does not clear the flash counter (zxula.vhd:472-480, no reset): the "
-              "cell is still normal at overall frames 10-14 and inverted from frame 15",
-              ok, "frames 10..19 after the reset: " + seq);
-    }
 }
 
 int main() {
