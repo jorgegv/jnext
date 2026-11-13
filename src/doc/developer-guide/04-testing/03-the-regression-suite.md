@@ -120,7 +120,16 @@ seconds. `test-functions.inc` has the helper:
 Compute every `bf` into a variable first (`shot=$(bf 400)`): a failure inside an
 argument position would not stop the row. Only frames on the boot timeline AFTER
 the commit are adopted. A frame inside a program loaded by `--load` (the warm
-start rebases those to frame 500) and a wall-clock bound stay literals.
+start rebases those to frame 500), a wall-clock bound, and a row that needs no
+NextZXOS (`beam-replay-func` injects a halt program at frame 160, before the
+firmware commits, and a shift does not help it) stay literals.
+
+There is one deliberate exception, `boot-nextzxos-splash`: its frame 252 is before the
+commit (295 on the 24.11 card), but it captures the firmware's own splash and the
+screen must be taken at the same stage of that boot on every card. It is adopted
+(`@bf:252`); measured on the 26.11 card (commit 472) the shifted frame 429 shows the
+same splash stage, and the only difference from the 24.11 reference is the firmware
+version text, so the shift keeps its distance to the commit there.
 
 On the reference card the shift is 0, so every adopted row's command line, and every
 script it generates, is byte-identical to the literal row's and no reference
