@@ -341,6 +341,12 @@ public:
     /// last_slot_kind() == Opcode). A HALT repeat is a slot whose opcode was 0x76.
     uint8_t last_opcode() const;
 
+    /// GH #489 - the i-th M1 byte the last execute() fetched: 0 = the opcode, 1 = the byte after a
+    /// CB/ED/DD/FD prefix (after a DD/FD chain, the next prefix or the opcode that ends it). 0xFF
+    /// past the bytes fetched (an accepted INT, or a slot that fetched no opcode, has none).
+    /// Read from the fetch buffer execute() fills anyway: no per-slot bookkeeping.
+    uint8_t last_m1_byte(unsigned i) const;
+
     /// GH #452 - account `count` MORE HALT repeats after one the caller has just run for
     /// real, each costing `each` T-states, without executing them. What `count` further
     /// execute() calls on opcode 0x76 do to the CPU is exactly this: FUSE's HALT leaves

@@ -1443,6 +1443,10 @@ uint8_t Z80Cpu::last_opcode() const {
     return s_fetch_buf[0];
 }
 
+uint8_t Z80Cpu::last_m1_byte(unsigned i) const {
+    return i < s_fetch_n ? s_fetch_buf[i] : 0xFF;
+}
+
 void Z80Cpu::repeat_halt(uint32_t count, uint32_t each) {
     // The FUSE T-state counter and the R register (low 7 bits count; bit 7 is r7).
     tstates += count * each;
