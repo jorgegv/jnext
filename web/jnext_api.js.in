@@ -312,6 +312,29 @@
         return w;
       }, function (e) { throw fail(e.message); });
     };
+    // A .jns snapshot of the running machine, as a Uint8Array: for the page to keep, offer as a
+    // download, or give back to load() as {data, name}. Written to a scratch file of the page's
+    // in-memory file system, read back, deleted.
+    var snapshotSeq = 0;
+    player.saveSnapshot = function () {
+      live();
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      var path = '/tmp/jnext-page-' + (++snapshotSeq) + '.jns';
+      var p = mod.stringToNewUTF8(path);
+      var why = mod._jnext_web_save_snapshot(p);
+      mod._free(p);
+      if (why) {
+        var e = fail(mod.UTF8ToString(why));
+        return Promise.reject(e);
+      }
+      try {
+        var bytes = mod.FS.readFile(path);
+        mod.FS.unlink(path);
+        return Promise.resolve(bytes);
+      } catch (x) {
+        return Promise.reject(fail('jnext: the snapshot could not be read back: ' + x.message));
+      }
+    };
     player.setVolume = function (v) {
       live();
       if (typeof v !== 'number' || !isFinite(v) || v < 0 || v > 1) {

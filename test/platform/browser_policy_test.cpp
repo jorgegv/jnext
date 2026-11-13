@@ -9,7 +9,7 @@
 // burst). A fake clock is advanced by a fake tick of a given cost that reports
 // a given sleep, so no row depends on the host's speed. The refusal rows are
 // derived from the plan: the page refuses exactly --headless, --rzx-play and
-// --rzx-record, and loads exactly .nex, .tap and .tzx.
+// --rzx-record, and loads exactly .nex, .tap, .tzx programs and .jns, .sna, .szx, .z80 snapshots.
 
 #include "platform/browser_pacing.h"
 #include "platform/browser_page.h"
@@ -359,7 +359,7 @@ int main()
     // BRR-03: program_refusal.
     {
         const char* good[] = {"a.nex", "A.NEX", "b.tap", "B.TAP", "c.tzx", "/x/y z/c.TzX", "./g.tap", "/media/v1.2/a.nex"};
-        const char* bad[] = {"x.sna", "x.szx", "x.z80", "x.jns", "x.rzx", "x.wav", "x.zip", "noext", "game.nex.bak", "", "/media/v1.nex/noext"};
+        const char* bad[] = {"x.rzx", "x.wav", "x.zip", "noext", "game.nex.bak", "", "/media/v1.nex/noext"};
         bool ok = true;
         for (const char* g : good) if (browser_page::program_refusal(g) != nullptr) ok = false;
         for (const char* b : bad) {
@@ -367,6 +367,22 @@ int main()
             if (!why || std::strstr(why, ".nex, .tap, .tzx") == nullptr) ok = false;
         }
         check("BRR-03", "program_refusal: null for .nex .tap .tzx in any case; else a reason naming \".nex, .tap, .tzx\"",
+              ok);
+    }
+    // BRR-05: the four snapshot formats load, in any case; a refusal names every loadable extension.
+    {
+        const char* good[] = {"a.jns", "A.JNS", "b.sna", "B.Sna", "c.szx", "C.SZX", "d.z80", "D.Z80",
+                              "/media/0-game.v2.sna", "./x/y z/s.jns"};
+        const char* bad[] = {"x.scr", "game.sna.bak"};
+        const char* exts[] = {".nex", ".tap", ".tzx", ".jns", ".sna", ".szx", ".z80"};
+        bool ok = true;
+        for (const char* g : good) if (browser_page::program_refusal(g) != nullptr) ok = false;
+        for (const char* b : bad) {
+            const char* why = browser_page::program_refusal(b);
+            if (!why) { ok = false; continue; }
+            for (const char* e : exts) if (std::strstr(why, e) == nullptr) ok = false;
+        }
+        check("BRR-05", "program_refusal: null for .jns .sna .szx .z80 in any case; a refusal names every loadable extension",
               ok);
     }
     // BRR-04: the page-only table is disjoint from the build's own.

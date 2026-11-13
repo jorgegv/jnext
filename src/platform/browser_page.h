@@ -21,17 +21,19 @@ inline const char* option_refusal(cli::OptId id)
     }
 }
 
-/// nullptr when `path` is a format the browser page loads (.nex .tap .tzx,
-/// any case), else the reason.
+/// nullptr when `path` is a format the browser page loads (.nex .tap .tzx programs,
+/// .jns .sna .szx .z80 snapshots, any case), else the reason. Keep `.nex, .tap, .tzx`
+/// as the reason's prefix: the rows that pin a refusal match it.
 inline const char* program_refusal(const std::string& path)
 {
     const auto dot = path.rfind('.');
     if (dot != std::string::npos) {
         std::string ext = path.substr(dot);
         for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (ext == ".nex" || ext == ".tap" || ext == ".tzx") return nullptr;
+        if (ext == ".nex" || ext == ".tap" || ext == ".tzx" ||
+            ext == ".jns" || ext == ".sna" || ext == ".szx" || ext == ".z80") return nullptr;
     }
-    return "a browser page loads only .nex, .tap, .tzx programs";
+    return "a browser page loads only .nex, .tap, .tzx, .jns, .sna, .szx, .z80 programs";
 }
 
 }  // namespace browser_page

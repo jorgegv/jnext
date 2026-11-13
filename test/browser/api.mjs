@@ -277,9 +277,9 @@ row('WEBAPI-10', 'load() of 16 random bytes named bad.nex rejects, onError gets 
   await waitColour(main, 0, isBlue);
 });
 
-row('WEBAPI-11', 'load(x.sna) rejects with the format refusal (.nex, .tap, .tzx); no cold boot: frames keep counting, the canvas stays blue', async () => {
+row('WEBAPI-11', 'load(x.scr) rejects with the format refusal (.nex, .tap, .tzx); no cold boot: frames keep counting, the canvas stays blue', async () => {
   const f = await frame(main);
-  const out = await main.evaluate(() => window.player0.load({ data: new Uint8Array(8), name: 'x.sna' }).then(() => 'resolved', (e) => e.message));
+  const out = await main.evaluate(() => window.player0.load({ data: new Uint8Array(8), name: 'x.scr' }).then(() => 'resolved', (e) => e.message));
   await sleep(300);
   const f2 = await frame(main);
   must(/\.nex, \.tap, \.tzx/.test(out), 'rejection: ' + out);
