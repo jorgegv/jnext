@@ -162,10 +162,12 @@ row('BSN-01', 'a .sna mounted with no machine option: ready resolves, argv has -
   await snapshotRow('/scratch/s48.sna', 'sna', '48K');
 });
 
-row('BSN-02', 'a .z80 (converted from the .sna by a foreign writer): the screenshot equals the native .z80 run (0 px), which equals the native .sna run', async () => {
+row('BSN-02', 'a .z80 (converted from the .sna by a foreign writer): the screenshot equals the native .z80 run (0 px), which equals the native .sna run, and loading it leaves the same machine as the .sna', async () => {
   await snapshotRow('/scratch/s48.z80', 'z80', '48K');
   const d = diff(await oracle('z80'), await oracle('sna'));
   must(d === 0, `native z80.png vs sna.png: ${d} px differ`);
+  const a = fs.readFileSync(path.join(SCRATCH, 'rtsna.sna')), b = fs.readFileSync(path.join(SCRATCH, 'rtz80.sna'));
+  must(a.length === b.length && a.equals(b), 'the native .z80 load and the native .sna load do not leave the same machine');
 });
 
 row('BSN-03', 'a 128K .szx whose bank-7 shadow screen shows: the screenshot equals the native run (0 px), the 128K was initialised', async () => {
@@ -224,7 +226,7 @@ row('BSN-05', 'one 48K player loads .sna, .Z80 (data), .szx, .JnS (data) in turn
   await page.ctx.close();
 });
 
-row('BSN-06', 'after a .szx: reset(hard) re-initialises the 128K, not the Next; reset(program) comes back to the snapshot (centre green)', async () => {
+row('BSN-06', 'after a .szx: reset(hard) re-initialises the 128K, not the Next; reset(program) comes back to the snapshot (centre green); a later .tzx boots the kept 128K', async () => {
   const page = await newPage();
   await open(page, [{ muted: true, machine: 'next' }]);
   await click(page); await waitReady(page, 0, 1);
@@ -240,6 +242,9 @@ row('BSN-06', 'after a .szx: reset(hard) re-initialises the 128K, not the Next; 
   await waitFrame(page, 0, f0 + 100);
   const c = await centre(page), want = px(await oracle('szx'));
   must(near(c, want), `centre ${JSON.stringify(c)} vs szx.png ${JSON.stringify(want)}`);
+  // The snapshot's machine is kept for a later load of a tape too: the page's own 'next' is not booted again.
+  await page.evaluate(() => window.player0.load('/scratch/beeper_demo.tzx'));
+  must(lastMachine(page) === '128K', 'after load(.tzx): ' + lastMachine(page));
   await page.ctx.close();
 });
 
@@ -327,11 +332,12 @@ row('BSN-10', '--snapshot-compression off: every member is stored (method 0); th
   await page.ctx.close();
 });
 
-row('BSN-11', 'saveSnapshot() before the start click rejects (machine not running) and leaves no scratch file; after destroy() it throws', async () => {
+row('BSN-11', 'saveSnapshot() before the start click rejects (machine not running, no onError) and leaves no scratch file; after destroy() it throws', async () => {
   const page = await newPage();
   await open(page, [{ muted: true, machine: '48k' }]);
   const out = await page.evaluate(() => window.player0.saveSnapshot().then(() => 'resolved', (e) => e.message));
   must(/the machine is not running/.test(out), 'rejection: ' + out);
+  must((await rec(page)).errors.length === 0, 'onError fired for a call made before the start: ' + JSON.stringify((await rec(page)).errors));
   const left = await page.evaluate(() => { const m = window.player0._module; return m && m.FS && m.FS.analyzePath('/tmp').exists ? m.FS.readdir('/tmp').filter((n) => /^jnext-page-.*\.jns$/.test(n)) : []; });
   must(left.length === 0, 'scratch files ' + JSON.stringify(left));
   await click(page); await waitReady(page, 0, 1);

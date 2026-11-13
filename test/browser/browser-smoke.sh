@@ -179,6 +179,11 @@ fixture() {
 printf '\xF3\x3E\x0F\x01\xFD\x7F\xED\x79\x21\x00\xC0\x11\x01\xC0\x01\xFF\x17\x36\x00\xED\xB0\x21\x00\xD8\x11\x01\xD8\x01\xFF\x02\x36\x20\xED\xB0\x18\xFE' >"$SCRATCH/shadow.bin"
 fixture s48      no   --machine 48k --load "$TAPF" --delayed-snapshot "$SCRATCH/s48.sna" --delayed-snapshot-frames 300 --delayed-automatic-exit-frames 320
 python3 -I "$HERE/sna2z80.py" "$SCRATCH/s48.sna" "$SCRATCH/s48.z80" || die "sna2z80 failed"
+# The state both loaders build, as the SAME writer sees it: the .sna and the converted .z80 each loaded,
+# run one frame and saved again as .sna; the two files must be byte-identical (BSN-02). A picture
+# cannot tell a wrong SP or PC from a right one, this can.
+fixture rtsna    no   --load "$SCRATCH/s48.sna" --delayed-snapshot "$SCRATCH/rtsna.sna" --delayed-snapshot-frames 1 --delayed-automatic-exit-frames 10
+fixture rtz80    no   --load "$SCRATCH/s48.z80" --delayed-snapshot "$SCRATCH/rtz80.sna" --delayed-snapshot-frames 1 --delayed-automatic-exit-frames 10
 fixture s128     no   --machine 128k --inject "$SCRATCH/shadow.bin" --inject-org 8000 --inject-delay 250 \
                       --delayed-snapshot "$SCRATCH/s128.szx" --delayed-snapshot-frames 300 --delayed-automatic-exit-frames 320
 fixture tilemap  no   --machine next --rtc 2026-07-10T08:55:00 --load "$ROOT/test/00regression/nex/tilemap_demo.nex" \

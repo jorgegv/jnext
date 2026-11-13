@@ -332,7 +332,7 @@
         mod.FS.unlink(path);
         return Promise.resolve(bytes);
       } catch (x) {
-        return Promise.reject(fail('jnext: the snapshot could not be read back: ' + x.message));
+        return Promise.reject(fail('jnext: the snapshot could not be read back: ' + (x && x.message ? x.message : String(x))));
       }
     };
     player.setVolume = function (v) {
