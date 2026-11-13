@@ -14,7 +14,7 @@
 # kept across page loads, against a native journal oracle), `snapshots.mjs:11` (rows BSN-01..11: .sna, .z80,
 # .szx and .jns loaded in the page and compared with native runs, and player.saveSnapshot()) and `../bench/web/bench-stats-test.mjs:12` (rows
 # WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser) and `crt.mjs:13` (rows
-# BCRT-01..13: the CRT effect, crtemu on SDL's WebGL context, and its fallbacks) and `rzx.mjs:9` (rows BRZ-01..09:
+# BCRT-01..13: the CRT effect, crtemu on SDL's WebGL context, and its fallbacks) and `rzx.mjs:12` (rows BRZ-01..12:
 # .rzx recordings played and recorded in the page). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,
@@ -42,7 +42,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:34" "image.mjs:8" "api.mjs:31" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:9" "$@")
+SPECS=("smoke.mjs:34" "image.mjs:8" "api.mjs:31" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -213,6 +213,8 @@ oracle rzxrec48  headless --machine 48k --rzx-record "$SCRATCH/keys48.rzx" \
                           --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \
                           --delayed-keypress-frames 245 enter --delayed-screenshot "$O/rzxrec48.png" --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 400
 oracle rzxplay48 sdl      --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxplay48.png" --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 420
+oracle rzxplay48f200 sdl  --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxplay48f200.png" --delayed-screenshot-frames 200 --delayed-automatic-exit-frames 210
+oracle rzxplay48f201 sdl  --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxplay48f201.png" --delayed-screenshot-frames 201 --delayed-automatic-exit-frames 210
 oracle rzxend48  sdl      --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxend48.png" --delayed-screenshot-frames 500 --delayed-automatic-exit-frames 520
 oracle rzxrec128 headless --machine 128k --load "$SCRATCH/s128.szx" --rzx-record "$SCRATCH/s128.rzx" \
                           --delayed-screenshot "$O/rzxrec128.png" --delayed-screenshot-frames 60 --delayed-automatic-exit-frames 120

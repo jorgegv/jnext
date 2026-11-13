@@ -352,7 +352,7 @@
     player.startRzxRecording = function () {
       live();
       if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
-      if (rzxPath) return Promise.reject(new Error('jnext: an RZX recording is already running; stop it first'));
+      if (rzxPath) return Promise.reject(new Error('jnext: the last RZX recording has not been collected; call stopRzxRecording() first'));
       var path = '/tmp/jnext-page-' + (++rzxSeq) + '.rzx';
       var p = mod.stringToNewUTF8(path);
       var why = mod._jnext_web_rzx_record(p);

@@ -1,4 +1,4 @@
-// Browser rows BRZ-01..09: RZX recordings in a page (played at start-up, by load() and by reset();
+// Browser rows BRZ-01..12: RZX recordings in a page (played at start-up, by load() and by reset();
 // recorded with player.startRzxRecording() / stopRzxRecording()), in headless Chromium
 // (make wasm-browser-test, spec rzx.mjs). Run by browser-smoke.sh on the SDK's node.
 //
@@ -7,7 +7,7 @@
 // native jnext from our own inputs (the `keys` typing from power-on on a 48K; #471's bank-7 shadow
 // screen snapshot on a 128K); nothing is committed. Oracles: the native SDL jnext replaying the SAME
 // file (oracle/rzxplay48.png, rzxend48.png, rzxplay128.png) and its own recording run
-// (rzxrec48.png, rzxrec128.png); keys.png / keys352.png are the native typist; idle.png the native
+// (rzxrec48.png, rzxrec128.png), and the native replay's frames 200 and 201 (rzxplay48f200.png, rzxplay48f201.png: the first key's echo, so a one-frame offset shows); keys.png / keys352.png are the native typist; idle.png the native
 // untyped 48K. The card is copyrighted: it lives in the scratch directory and in the page's storage only.
 import { Harness, waitFor, sleep } from './harness.mjs';
 import { spawnSync } from 'child_process';
@@ -304,7 +304,7 @@ row('BRZ-07', 'the methods\' contract: both reject before the start click; stop 
   must(/jnext: no RZX recording is running/.test(s), 'stop with none: ' + s);
   await a.evaluate(() => window.player0.startRzxRecording());
   const twice = await rejection(a, 'startRzxRecording');
-  must(/already running/.test(twice), 'second start: ' + twice);
+  must(/the last RZX recording has not been collected; call stopRzxRecording\(\) first/.test(twice), 'second start: ' + twice);
   await a.evaluate(() => window.player0.destroy());
   for (const m of ['startRzxRecording', 'stopRzxRecording']) {
     const thrown = await a.evaluate((m) => { try { window.player0[m](); return 'no throw'; } catch (e) { return e.message; } }, m);
@@ -348,6 +348,53 @@ row('BRZ-09', 'a reset ends the recording and keeps it: the log says the reset e
   must((await leftover(page)).length === 0, 'scratch files left');
   const m = /RZX: playback started - (\d+) frames/.exec(nativeReplay(bytes, 0).log);
   must(m && Number(m[1]) >= 90, 'native replay: ' + (m ? m[0] : 'no "playback started" line'));
+  await page.ctx.close();
+});
+
+row('BRZ-10', 'the replay is aligned with the native one frame by frame: at frame 201, where the native screen differs from frame 200, the page equals the native frame 201 (0 px)', async () => {
+  const f200 = await oracle('rzxplay48f200'), f201 = await oracle('rzxplay48f201');
+  const dn = diff(f200, f201);
+  must(typeof dn === 'number' && dn > 0, `the native frames 200 and 201 are the same picture (${dn} px): the row would not see an offset`);
+  const page = await boot({ file: '/scratch/keys48.rzx', args: shot(201) });
+  await waitReady(page, 0, 1);
+  await waitFor(page, () => window.player0._module.FS.analyzePath('/tmp/s.png').exists, null, 120000);
+  const got = await grabPng(page, 0, '/tmp/s.png');
+  const d = diff(got, f201);
+  must(d === 0, `frame-201 screenshot vs native frame 201: ${d} px differ (vs native 200: ${diff(got, f200)} px)`);
+  await page.ctx.close();
+});
+
+row('BRZ-11', 'two recordings in one player: start, 50 frames, stop, start, 50 frames, stop: both files are RZX! and no scratch file is left', async () => {
+  const page = await boot({ machine: '48k' });
+  await waitReady(page, 0, 1);
+  await waitFrame(page, 0, 100);
+  for (let n = 1; n <= 2; n++) {
+    await page.evaluate(() => window.player0.startRzxRecording());
+    const f = await frame(page);
+    await waitFrame(page, 0, f + 50);
+    const bytes = Buffer.from(await page.evaluate(() => window.player0.stopRzxRecording().then((b) => Array.from(b))));
+    must(bytes.length > 4 && bytes.slice(0, 4).equals(MAGIC), `recording ${n}: not an RZX file: ${bytes.slice(0, 4).toString('hex')}`);
+  }
+  must((await leftover(page)).length === 0, 'scratch files left: ' + JSON.stringify(await leftover(page)));
+  must((await rec(page)).errors.length === 0, 'errors ' + JSON.stringify((await rec(page)).errors));
+  await page.ctx.close();
+});
+
+row('BRZ-12', 'a recording ended by reset() waits to be collected: startRzxRecording() rejects "has not been collected", stopRzxRecording() returns the file, and a start after that resolves', async () => {
+  const page = await boot({ machine: '48k' });
+  await waitReady(page, 0, 1);
+  await waitFrame(page, 0, 100);
+  await page.evaluate(() => window.player0.startRzxRecording());
+  const f = await frame(page);
+  await waitFrame(page, 0, f + 50);
+  await page.evaluate(() => window.player0.reset('hard'));
+  must(logHas(page, /RZX: .*ends the recording to '\/tmp\/jnext-page-/), 'the reset did not end the recording');
+  const out = await rejection(page, 'startRzxRecording');
+  must(out === 'jnext: the last RZX recording has not been collected; call stopRzxRecording() first', 'start after the reset: ' + out);
+  const bytes = Buffer.from(await page.evaluate(() => window.player0.stopRzxRecording().then((b) => Array.from(b))));
+  must(bytes.length > 4 && bytes.slice(0, 4).equals(MAGIC), 'not an RZX file: ' + bytes.slice(0, 4).toString('hex'));
+  await page.evaluate(() => window.player0.startRzxRecording());
+  must((await rec(page)).errors.length === 0, 'errors ' + JSON.stringify((await rec(page)).errors));
   await page.ctx.close();
 });
 

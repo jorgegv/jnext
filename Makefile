@@ -666,7 +666,7 @@ web-package-test:
 
 # Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
 wasm-browser-test: wasm-web package-web playwright sdl-release sdcard-image
-	@# BRW-01..34, WBI-PW-01..08, WEBAPI-01..31, WEBPKG-BR-01, WIDGET-01..17, TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..09 (RZX in a page) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# BRW-01..34, WBI-PW-01..08, WEBAPI-01..31, WEBPKG-BR-01, WIDGET-01..17, TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core
