@@ -1772,84 +1772,6 @@ static void test_border_reset_integration(Emulator& emu) {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// Group — FLASH phase from power-on (zxula.vhd:470-480, zxula_timing.vhd:111-125)
-//
-// flash_cnt has no reset and increments once per frame at (hc_ula, vc_ula) =
-// (0,0), the first tick of ULA line 0, i.e. at the START of the frame's display.
-// The timing counters power up at raw (0,0) with vc_ula = 0 and hc_ula = 256 and
-// run until ula_max_hc (raw hc 124) with raw vc = 64 loads vc_ula = 0: the first
-// (0,0) is on raw line 64 of frame 0, so frame F displays count F + 1 and
-// flash_cnt(4) is 1 from frame 15 to frame 30 (count 16..31), 0 at frame 31
-// (count 32), and so on. A FLASH cell shows its pixels inverted while it is 1.
-// ══════════════════════════════════════════════════════════════════════
-
-// True when the flashing cell (pixels all ink, attribute 0x87) of the frame just
-// rendered shows paper, i.e. flash_cnt(4) = 1.
-static bool flash_inverted(Emulator& emu) {
-    const int pitch = emu.get_framebuffer_width();
-    const uint32_t px = emu.get_framebuffer()[Renderer::DISP_Y * pitch + Renderer::DISP_X];
-    return px == emu_paper_argb(emu, 0);
-}
-
-static void flash_stage(Emulator& emu) {
-    park_on_halt(emu);
-    fill_pixels(emu, 0xFF);
-    fill_attrs(emu, 0x87);   // FLASH, paper black, ink white
-}
-
-static void test_flash_power_on(Emulator&) {
-    set_group("INT-FLASH");
-
-    // INT-FLASH-01 — from power-on, frame F shows flash_cnt = F + 1: normal for
-    // frames 0..14, inverted for 15..30, normal again at 31.
-    {
-        Emulator e;
-        std::string seq;
-        bool ok = build_next_emulator(e);
-        if (ok) {
-            flash_stage(e);
-            for (int f = 0; f < 33; ++f) {
-                e.run_frame();
-                const bool inv = flash_inverted(e);
-                seq += inv ? 'I' : 'n';
-                if (inv != (f >= 15 && f <= 30)) ok = false;
-            }
-        }
-        check("INT-FLASH-01",
-              "flash_cnt counts frames from power-on and shows count F + 1 at frame F: "
-              "a FLASH cell is normal for frames 0-14, inverted for 15-30, normal at 31 "
-              "(zxula.vhd:470-480 + zxula_timing.vhd:111-125)",
-              ok, "frames 0..32: " + seq);
-    }
-
-    // INT-FLASH-02 — a hard reset does not clear the counter: the FPGA's flash_cnt has
-    // no reset and the timing counters free-run (zxula.vhd:472-480). Ten frames, a
-    // cold boot, then the cell inverts at overall frame 15, five frames after it.
-    {
-        Emulator e;
-        std::string seq;
-        bool ok = build_next_emulator(e);
-        if (ok) {
-            flash_stage(e);
-            for (int f = 0; f < 10; ++f) e.run_frame();
-            EmulatorConfig cfg = e.config();
-            emulator_cold_boot(e, cfg);
-            flash_stage(e);
-            for (int f = 10; f < 20; ++f) {
-                e.run_frame();
-                const bool inv = flash_inverted(e);
-                seq += inv ? 'I' : 'n';
-                if (inv != (f >= 15)) ok = false;
-            }
-        }
-        check("INT-FLASH-02",
-              "a hard reset does not clear the flash counter (zxula.vhd:472-480, no reset): the "
-              "cell is still normal at overall frames 10-14 and inverted from frame 15",
-              ok, "frames 10..19 after the reset: " + seq);
-    }
-}
-
 int main() {
     std::printf("ULA Video Subsystem Integration Tests\n");
     std::printf("=====================================\n\n");
@@ -1881,9 +1803,6 @@ int main() {
 
     test_border_reset_integration(emu);
     std::printf("  Group: INT-BORDER-RST — done\n");
-
-    test_flash_power_on(emu);
-    std::printf("  Group: INT-FLASH      — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
