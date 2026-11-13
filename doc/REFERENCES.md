@@ -103,6 +103,13 @@ Cited by tool, version and file path in [SOURCE-LEVEL-DEBUGGING.md](design/SOURC
 | crtemu — Mattias Gustavsson's CRT-emulation shader (MIT / Unlicense), vendored and patched in `third_party/crtemu/` | <https://github.com/mattiasgustavsson/libs> |
 
 
+## NextZXOS distributions (SD card images)
+
+| Reference | URL |
+|---|---|
+| NextZXOS 24.11 emulator distribution: the default card `kDistroUrl` downloads (`src/core/sdcard_provisioner.cpp`) | <https://www.specnext.com/distro/24.11/sn-emulator-24.11.zip> |
+| NextZXOS 26.11 emulator distribution (`sn-emulator-26.11`): the candidate card, tried with `JNEXT_SDCARD_DISTRO_URL` | <https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip> |
+
 ## Adding to this file
 
 Add the URL here **and** link to this file rather than pasting the URL again

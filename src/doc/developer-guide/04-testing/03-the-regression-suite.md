@@ -93,6 +93,62 @@ lookup instead, and the suite provisions that image for itself in the
   because `cp --reflink` cannot cross a filesystem and `--reflink=auto` would
   quietly degrade to a real 1 GB copy into RAM.
 
+## Evaluating a new NextZXOS distribution
+
+The default card is the 24.11 distribution, and the references and pins are
+made against it. To find out what another distribution would change, without
+touching the machine-wide master that every concurrent run tests against, run
+the same tree twice (the same non-PGO `jnext`, master A = the default, master B
+= the candidate) and compare. Nothing here switches the default.
+
+1. **Provision B through jnext itself**, in a private state directory outside
+   the checkout, so the download, unzip and patch path is the one a user hits:
+
+   ```bash
+   JNEXT_CONFIG_DIR=$HOME/tmp/cand/state \
+   JNEXT_SDCARD_DISTRO_URL=<the candidate distribution zip URL> \
+   build/gui-release-non-pgo/jnext --headless --sdcard-download-confirm --delayed-automatic-exit 2
+   ```
+
+   The state directory then holds `sdcard/cspect-next-1gb.img` (the raw card),
+   its `.sha256` sidecar and `cspect-next-1gb-fixed.img` (the patched card).
+   Never run it without `JNEXT_CONFIG_DIR`: a forced download would replace the
+   shared master.
+2. **Say what differs**, with the read-only inventory tool. It prints the MBR
+   and BPB geometry, whether the card is a valid FAT32 volume, the size and
+   sha256 of the ROMs, `menu.def`, `TBBLUE.FW` and `TBBLUE.TBU`, the firmware
+   magic, the shape of `zx81.rom`, the core versions inside the `.TBU` and a
+   digest of the `/dot` name list:
+
+   ```bash
+   tools/sdcard-inventory.sh <card.img>
+   tools/sdcard-inventory.sh --diff <a.img> <b.img>    # exit 0 identical, 1 differ
+   ```
+3. **Boot it** before anything long: a headless `--machine next` run on a
+   reflinked copy of B, with a screenshot at a few frames, shows whether the
+   firmware starts on the emulated core and how many frames the boot takes. A
+   row whose keys are timed against the boot (a key at frame 400) moves with it.
+4. **Run the unit suites on B**: `JNEXT_TEST_SD_IMAGE=<a reflinked copy of B's
+   fixed card> make unit-test`. The harness honours a preset image; rows that pin
+   file sizes or magic bytes of the default distribution turn red by design.
+5. **Run the full regression twice, bare**, A and then B. B adds two
+   environment variables, both validated by the driver:
+   `JNEXT_REGRESSION_SD_STATE_DIR` (the state directory whose `sdcard/` holds
+   the master, in place of `~/.jnext`) and `JNEXT_REGRESSION_SHOTS_DIR` (where a
+   failing screenshot row leaves its actual PNG, which is otherwise deleted with
+   the run directory). Both must be absolute paths outside the checkout, and a
+   run that sets the state directory is refused if it is stamped
+   (`JNEXT_REGRESSION_STAMP`, so `make regression` and `make regression-confirm`)
+   or asked to regenerate references (`--update`): the stamp and the references
+   certify the default card. Such a run is bare `regression.sh`, never stamped.
+   The `[sdcard-provision]` row names the master in use.
+
+The card, the distribution zip and anything derived from them (an MBR or BPB
+dump, a ROM, a screenshot of a candidate screen that is going to be posted) are
+copyrighted. They live under `~/tmp` and `~/.jnext`, never in the repository,
+an issue, a pull request, a release or a CI artifact. The tool that makes or
+reads a card is public; its output is not.
+
 ## Concurrency: one process per row, in phases
 
 The functional rows used to be *sourced* into the driver one after
