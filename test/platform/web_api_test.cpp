@@ -201,10 +201,10 @@ int main()
             if ((o.kind == web_api::Kind::Image) != o.opt2.has_value()) { all = false; bad += " opt2:" + std::string(o.name); }
             if ((o.kind == web_api::Kind::Image || o.kind == web_api::Kind::Flag) != o.opt.has_value()) { all = false; bad += " opt:" + std::string(o.name); }
         }
-        // n: image (2) + keepWrites + file + machine = 5 mapped option rows (owner-approved
-        // pin bump when keepWrites was added: it was 4).
+        // n: image (2) + keepWrites + file + machine + touchKeyboard = 6 mapped option rows (owner-approved
+        // pin bumps: 4 -> 5 when keepWrites was added, 5 -> 6 for touchKeyboard).
         check("WAPI-01", "every Flag and Image row's OptId has a Documented spelling in cli::OPTIONS, arity 1",
-              all && n == 5, bad + " n=" + std::to_string(n));
+              all && n == 6, bad + " n=" + std::to_string(n));
     }
 
     // --- WAPI-02: the SetKey row's key is settable, on the SDL frontend, of the JS type --------
@@ -485,6 +485,28 @@ int main()
               !cli::browser_refusal(cli::OptId::SdcardWritesReset) &&
               !browser_page::option_refusal(cli::OptId::SdcardWritesReset) &&
               r.ok && r.argv.back() == "--sdcard-writes-reset", r.why);
+    }
+
+    // --- WAPI-TKB-01: touchKeyboard becomes --touch-keyboard, between --machine and --load -------
+    {
+        const Result with = run("{" + IMG + ",\"machine\":\"48k\",\"touchKeyboard\":\"off\",\"file\":\"/media/0-g.tap\"}");
+        const Argv want = {"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX,
+                           "--machine", "48k", "--touch-keyboard", "off", "--load", "/media/0-g.tap"};
+        const Result without = run("{" + IMG + ",\"machine\":\"48k\",\"file\":\"/media/0-g.tap\"}");
+        bool none = without.ok;
+        for (const std::string& a : without.argv) if (a == "--touch-keyboard") none = false;
+        check("WAPI-TKB-01", "touchKeyboard:'off' adds --touch-keyboard off after --machine and before --load; without it no --touch-keyboard",
+              with.ok && with.argv == want && none,
+              (with.ok ? join(with.argv) : with.why) + " | " + (without.ok ? join(without.argv) : without.why));
+    }
+
+    // --- WAPI-TKB-02: touchKeyboard that is not a string is refused, naming it -------------------
+    {
+        check("WAPI-TKB-02", "touchKeyboard of true, 5, null or {} is refused by build_argv and the reason names touchKeyboard",
+              refused_naming("{" + IMG + ",\"touchKeyboard\":true}", "touchKeyboard") &&
+              refused_naming("{" + IMG + ",\"touchKeyboard\":5}", "touchKeyboard") &&
+              refused_naming("{" + IMG + ",\"touchKeyboard\":null}", "touchKeyboard") &&
+              refused_naming("{" + IMG + ",\"touchKeyboard\":{}}", "touchKeyboard"));
     }
 
     std::printf("\n====================================================\n");

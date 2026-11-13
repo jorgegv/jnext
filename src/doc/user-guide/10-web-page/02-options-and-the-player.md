@@ -8,6 +8,7 @@
 | `keepWrites` | boolean | `--sdcard-writes`, with a file the page manages: what the program writes to the card, and the file a NEX saves through esxDOS (saves, high scores), is kept in the visitor's browser and is there at the next visit. Off by default; what it keeps, and what it cannot, is in 10.3 and 10.4. |
 | `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. `.nex`, `.tap`, `.tzx`, or a `.jns`, `.sna`, `.szx` or `.z80` snapshot, which runs on the machine it was saved on (see "Saving the game" below). Without it the machine boots to the NextZXOS menu. |
 | `machine` | string | `--machine`. |
+| `touchKeyboard` | `'auto'`, `'on'` or `'off'` | `--touch-keyboard`: the on-screen keyboard. `'auto'` (default) shows it on a phone or tablet, `'on'` always, `'off'` never. See "Keyboard", below. |
 | `muted` | boolean | `--set startup.silent`: no audio device for the session. |
 | `set` | `{"section.key": value}` | One `--set` each, sorted by key. |
 | `args` | array of strings | More command-line arguments, last, so they win. |
@@ -41,6 +42,8 @@
 | `saveSnapshot()` | Resolves to a `Uint8Array` holding a `.jns` snapshot of the running machine (`args: ['--snapshot-compression', 'off']` stores it uncompressed). Rejects if the machine is not running. |
 | `setVolume(v)` | Master level, 0 (silent) to 1; anything else throws a `RangeError`. A player started `muted` has no audio device. |
 | `resetCard()` | Forget the writes kept by `keepWrites` and restart the program, as `reset('program')` does. Needs `keepWrites` (it rejects without it). Resolves when the program is in the machine again. |
+| `showKeyboard(on)` | Show (`true`) or hide (`false`) the on-screen keyboard, whatever `touchKeyboard` says: the page's call wins, before or after the start. Anything but a boolean throws a `TypeError`. |
+| `keyboardVisible` | Whether the on-screen keyboard is shown now. |
 | `destroy()` | Stop the machine and remove the player; with `keepWrites` it first waits until the writes are stored. Afterwards every method throws. |
 
 ## Letting a visitor clear the saves
@@ -88,3 +91,23 @@ A snapshot never uses the stored NextZXOS recording (10.4): it starts at once.
 The player takes the keys while its canvas has focus (the click focuses it). The
 host modifier for JNEXT's own shortcuts is Alt (Option on a Mac); Ctrl+W, Ctrl+T,
 Ctrl+N and Ctrl+Q belong to the browser.
+
+### Phones and tablets
+
+On a device whose main pointer is a finger (`touchKeyboard: 'auto'`, the default) the player
+shows an on-screen Spectrum Next keyboard at the bottom of its box, and the screen above it
+shrinks by the keyboard's height; `'on'` shows it everywhere, `'off'` nowhere, and
+`player.showKeyboard(true)` or `false` decides while the page runs. Its keys type exactly what
+the keys of a PC keyboard do, and the screen keeps the focus while you type.
+
+- A key goes down when a finger lands on it and up when the finger lifts, so a held key is held;
+  two fingers hold two keys, for chords and for games.
+- Below 504 CSS pixels of width it shows the 40 keys of a 48K keyboard, in four rows; every
+  other key of the Next is Caps Shift or Symbol Shift plus a key, as on a 48K. From 504 pixels
+  on (a tablet, or a phone turned sideways) it shows the Next's 58 keys, in five rows, with
+  the extra keys: Delete, Edit, Break, Graph, Extend, True and Inverse video, Caps Lock, the
+  cursor keys, and the semicolon, quote, period and comma.
+- Caps Shift and Symbol Shift latch. A quick tap (under half a second, with no other key
+  pressed meanwhile) leaves the shift waiting, drawn highlighted, and the next key is typed with
+  it; tapping the waiting shift cancels it. A shift held longer, or held while another key goes
+  down, is an ordinary hold (Symbol Shift as a fire button works).

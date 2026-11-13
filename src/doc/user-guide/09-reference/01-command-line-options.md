@@ -367,6 +367,13 @@ with status 1.
     *Release captured mouse with* under **Settings \> Preferences \>
     Input**, which applies live.
 
+**--touch-keyboard** *MODE*
+:   Browser build only: when the on-screen Spectrum keyboard is shown.
+    `auto` (default) shows it on a phone or tablet (a device whose main
+    pointer is a finger), `on` always, `off` never. A page can also show
+    or hide it while it runs (see **The touch keyboard**). Accepted,
+    with a warning, and ignored by every other build.
+
 **--joy-uart-rx** *FILE*
 
 :   Attach *FILE* as a serial byte source on the joystick-port UART RX

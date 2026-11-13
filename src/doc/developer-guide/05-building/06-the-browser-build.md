@@ -37,7 +37,7 @@ the output of `git grep -n EMSCRIPTEN` over the CMake files.
 | `CMakeLists.txt` | `if(NOT EMSCRIPTEN)` around `src/remote` | No debugger protocol servers: a page has no sockets to serve on. |
 | `CMakeLists.txt` | `if(NOT EMSCRIPTEN)` around `src/script` | No script host. |
 | `CMakeLists.txt` | `if(EMSCRIPTEN)` after the `jnext` target | The node `jnext` links with `-sNODERAWFS=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1`. |
-| `CMakeLists.txt` | `if(EMSCRIPTEN)` around `jnext_web` | Defines the `jnext_web` target: `main.cpp`, `browser_frontend.cpp` and `web/web_controller.cpp`; `OUTPUT_NAME` `jnext-<version>`; `JNEXT_BROWSER=1`; the web link options (`-sENVIRONMENT=web`, `-sMODULARIZE=1`, `-sEXPORT_NAME=createJnextModule`, `-sINVOKE_RUN=0`, `-sEXIT_RUNTIME=0`, the exported runtime methods and functions, `-lidbfs.js`); the two `--extern-post-js` files, `web/jnext-image.js` then the configured `jnext_api.js`; and a `configure_file` of `jnext_api.js.in`, of each example page and of `jnext-widget.js.in`. |
+| `CMakeLists.txt` | `if(EMSCRIPTEN)` around `jnext_web` | Defines the `jnext_web` target: `main.cpp`, `browser_frontend.cpp` and `web/web_controller.cpp`; `OUTPUT_NAME` `jnext-<version>`; `JNEXT_BROWSER=1`; the web link options (`-sENVIRONMENT=web`, `-sMODULARIZE=1`, `-sEXPORT_NAME=createJnextModule`, `-sINVOKE_RUN=0`, `-sEXIT_RUNTIME=0`, the exported runtime methods and functions, `-lidbfs.js`); the three `--extern-post-js` files, `web/jnext-image.js`, `web/jnext-touch-keyboard.js`, then the configured `jnext_api.js`; and a `configure_file` of `jnext_api.js.in`, of each example page and of `jnext-widget.js.in`. |
 | `src/core/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` around `find_package(PNG)` | No libpng package search: the port target above stands in. |
 | `src/core/CMakeLists.txt` | `elseif(EMSCRIPTEN)` in the network-library choice | No network library: `sdcard_provisioner_net_web.cpp` is self-contained (a portable SHA-256, no download). |
 | `src/platform/CMakeLists.txt` | `if(NOT EMSCRIPTEN)` | `jnext_platform` does not link `jnext_remote` or `jnext_script`. |
@@ -101,8 +101,8 @@ returns with no loop installed (a refused flag) has no `onExit`: its return
 value is the status.
 
 *The JavaScript API.* `jnext.mount()` is `web/jnext_api.js.in`, configured with
-the version and linked into `jnext-<version>.js` as a second `--extern-post-js`,
-after `web/jnext-image.js` (which it calls). It makes one module instance per
+the version and linked into `jnext-<version>.js` as a third `--extern-post-js`,
+after `web/jnext-image.js` and `web/jnext-touch-keyboard.js` (which it calls). It makes one module instance per
 mount: the core keeps process-wide state, so one instance holds one emulator. It
 knows no flag spelling. The whole options object goes to `jnext_web_argv`, which
 runs `web_api::build_argv` over the `web_api::WEB_OPTIONS` table: each row names a
@@ -178,6 +178,28 @@ a NEX-only route (`emulator_load_routes_to_nex` gates the tick's recording, and 
 `load_z80` and `load_jns_file` build or restore the whole machine on their own). `saveSnapshot()` calls
 `jnext_web_save_snapshot`, which writes a `.jns` with `Emulator::save_jns_file` to a scratch file of the
 in-memory file system; the JavaScript reads it back and deletes it.
+
+*The touch keyboard.* `web/jnext-touch-keyboard.js` (`JnextTouchKeyboard.create`) builds the
+on-screen keyboard inside the player's box the first time it is shown, with inline styles only
+(no stylesheet is added to the page). A touch key is a synthetic DOM `KeyboardEvent`, with only
+`code`, dispatched on the canvas: it enters SDL's own Emscripten key handler, so SDL's key and
+modifier state, the host-key filter of the SDL callback, the input latch and `Keyboard::set_key`
+all treat it as a PC key, and the canvas blur's `SDL_ResetKeyboard()` releases a touch-held key as
+it releases a physical one. (A C++ export that pushed an SDL event would bypass SDL's key state.)
+No input code of the core changed. The keys never take the focus: the keyboard cancels
+`pointerdown`, `mousedown`, `touchstart` and `contextmenu`, and each key tracks its own pointer
+(`setPointerCapture`), so several fingers hold several keys. The extended keys of the full layout
+are sent as their own host keys, never as shift compounds, so NextReg 0xB0 and 0xB1 report them
+as the Next's keyboard does. Caps Shift and Symbol Shift latch (`LATCH_MAX_HOLD_MS`): a lone tap
+leaves the shift waiting; the next key sends the waiting shifts' key-downs first, then its own
+codes, and its release sends the key-ups, then the shifts', and clears the latches. A code
+shared by two presses (the Alt of Edit and Graph) is reference-counted. The mode is the
+`--touch-keyboard` flag, resolved in `main()` (`cli::parse_touch_keyboard`,
+`browser_frontend::set_touch_keyboard`) and read back by the page through
+`jnext_web_touch_keyboard`, because the JavaScript knows no flag of its own; `auto` is the
+`(pointer: coarse)` media query at the start. The keyboard takes the bottom of the box and the
+canvas shrinks by its height (`FULL_MIN_WIDTH` chooses the layout; a `ResizeObserver` on the box
+follows the page), then a window `resize` event makes SDL resize its drawing buffer.
 
 *Refused and absent.* The build's own flag and `--set` key refusals apply, and
 the page also refuses `--headless` (it would block the tab for ever), the RZX
@@ -258,7 +280,7 @@ the recording was made on is not the one it now boots from.
 | `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..15 | with `regression-wasm` |
 | `make unit-test-wasm` | `build/wasm-unit-test` | the SDL-only unit suites under node, through `test/node-run.sh`; suites marked `# os: native` are absent by name | the manifest | `unit-wasm` |
 | `make regression-wasm` | `build/wasm-core` | the regression suite's screenshot rows, each pixel-equal to the native reference, plus the functional rows whose `os=` names `emscripten` | `regression_tests.conf` | `regression-wasm` |
-| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-17, WBW-01 to WBW-17 (the kept writes, `writes.mjs`: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BSN-01 to BSN-11 (snapshots, `snapshots.mjs`: a `.sna`, `.z80`, `.szx` and `.jns` loaded in the page equal the native run of the same file, and `saveSnapshot()` is read back by the page and by the native jnext), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
+| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-17, TKB-01 to TKB-17 (the on-screen keyboard, `touch.mjs`: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's `keymaps.vhd`, `membrane.vhd` and `zxnext.vhd`, with `demo/key_matrix_demo`, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run `kmx.log` as oracle), WBW-01 to WBW-17 (the kept writes, `writes.mjs`: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BSN-01 to BSN-11 (snapshots, `snapshots.mjs`: a `.sna`, `.z80`, `.szx` and `.jns` loaded in the page equal the native run of the same file, and `saveSnapshot()` is read back by the page and by the native jnext), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
 
 - `make wasm-core` proves the module starts, imports no shared memory, catches an exception,
   refuses what the browser cannot do, and hashes correctly on the portable SHA-256.

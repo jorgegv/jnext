@@ -9,7 +9,8 @@
 # (rows WEBAPI-01..29, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
 # boots the example page), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
-# guide's two embedding snippets, run verbatim), `writes.mjs:12` (rows WBW-01..12: the guest's writes
+# guide's two embedding snippets, run verbatim), `touch.mjs:17` (rows TKB-01..17: the on-screen keyboard
+# under touch-device emulation) and `writes.mjs:12` (rows WBW-01..12: the guest's writes
 # kept across page loads, against a native journal oracle), `snapshots.mjs:11` (rows BSN-01..11: .sna, .z80,
 # .szx and .jns loaded in the page and compared with native runs, and player.saveSnapshot()) and `../bench/web/bench-stats-test.mjs:12` (rows
 # WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser). Further specs
@@ -37,7 +38,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "$@")
+SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:29" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -105,6 +106,8 @@ oracle keys     headless --machine 48k --delayed-keypress-frames 200 p --delayed
 oracle key1     headless --machine 48k --delayed-keypress-frames 200 1 --delayed-screenshot "$O/key1.png" --delayed-screenshot-frames 400 --delayed-automatic-exit-frames 600
 oracle pad      headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 6 \
                          --delayed-keypress-frames 245 enter --delayed-screenshot "$O/pad.png" --delayed-screenshot-frames 420 --delayed-automatic-exit-frames 600
+oracle kmx      headless --machine 48k --load "$ROOT/test/fixtures/tap/key_matrix_demo.tap" --magic-port 0xCAFE --magic-port-mode line \
+                         --delayed-keypress-frames 400 p --delayed-screenshot "$O/kmx.png" --delayed-screenshot-frames 500 --delayed-automatic-exit-frames 600
 
 # The per-subsystem log level oracle (BRW-27): the same arguments natively print the line the page must print.
 cp --reflink=auto "$SCRATCH/card.img" "$O/copper.card"
