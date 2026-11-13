@@ -31,6 +31,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   fetch when it happened at or before it. The paper area has no scroll and
 #   no Timex mode here, so the primary fetches are all that matter.
 #
+#   zxula.vhd:470 — a FLASH cell (attribute bit 7) inverts its pixels while flash_cnt(4)
+#   is 1. flash_cnt has no reset and counts frames from power-on, incrementing at
+#   (vc_ula, hc_ula) = (0,0) (zxula.vhd:472-480; zxula_timing.vhd:124-125 start vc_ula at 0
+#   and hc_ula at 256), so frame F shows the count F + 1. NextZXOS's cursor cell is the
+#   one FLASH attribute on this screen.
+#   FRAME ticks at raw (0,0), which is (VC_ULA 246, HC_ULA 331): hc_ula is 0 at raw hc 125
+#   (zxula_timing.vhd:194-204, :422-436), vc_ula = raw line - 64. A write in the 125
+#   ticks of line 246 before the ULA's hc 0 belongs to the START of the frame.
+#
 # and requires the emulator's screenshot of every frame to equal that model.
 # The write log is cross-checked against the .scr VRAM dumps (start-of-frame
 # VRAM + the frame's writes == end-of-frame VRAM) so a log that missed a write
@@ -94,12 +103,12 @@ from collections import defaultdict
 run, LO, HI = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 
 # Raster geometry of the 50 Hz machine in the debugger's (VC_ULA, HC_ULA)
-# coordinates: a frame's writes are ordered by (vc - VC0) mod LPF lines, VC0
-# being the raster line the FRAME counter ticks over on.
-VC0, LPF, LW = 247, 311, 456
+# coordinates: a frame's writes are ordered by their distance from the origin, the
+# raster position the FRAME counter ticks over on: raw (0,0) = (VC_ULA 246, HC_ULA 331).
+VC0, HC0, LPF, LW = 246, 331, 311, 456
 
 def tkey(vc, hc):
-    return ((vc - VC0) % LPF) * LW + hc
+    return ((vc * LW + hc) - (VC0 * LW + HC0)) % (LPF * LW)
 
 log = open(run + "/run.log", errors="replace").read().splitlines()
 
@@ -233,7 +242,8 @@ for F in range(LO, HI + 1):
                 x = c * 8 + b
                 got = paper_cell(rows, bpp, x, y)
                 for p, which in ((p_beam, "beam"), (p_end, "end")):
-                    col = ink if p & (0x80 >> b) else paper
+                    lit = bool(p & (0x80 >> b)) != (bool(a & 0x80) and bool(((F + 1) >> 4) & 1))
+                    col = ink if lit else paper
                     exp = zx_rgb(col, bright)
                     if exp != got:
                         if which == "beam":
