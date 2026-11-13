@@ -1773,7 +1773,7 @@ static void test_border_reset_integration(Emulator& emu) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Group — FLASH phase from power-on (zxula.vhd:470-480, zxula_timing.vhd:111-125)
+// Group: FLASH phase from power-on (zxula.vhd:470-480, zxula_timing.vhd:111-125)
 //
 // flash_cnt has no reset and increments once per frame at (hc_ula, vc_ula) =
 // (0,0), the first tick of ULA line 0, i.e. at the START of the frame's display.
@@ -1801,7 +1801,7 @@ static void flash_stage(Emulator& emu) {
 static void test_flash_power_on(Emulator&) {
     set_group("INT-FLASH");
 
-    // INT-FLASH-01 — from power-on, frame F shows flash_cnt = F + 1: normal for
+    // INT-FLASH-01: from power-on, frame F shows flash_cnt = F + 1: normal for
     // frames 0..14, inverted for 15..30, normal again at 31.
     {
         Emulator e;
@@ -1857,7 +1857,7 @@ int main() {
     std::printf("  Group: INT-BORDER-RST — done\n");
 
     test_flash_power_on(emu);
-    std::printf("  Group: INT-FLASH      — done\n");
+    std::printf("  Group: INT-FLASH      : done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
