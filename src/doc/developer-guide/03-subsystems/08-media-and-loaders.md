@@ -417,12 +417,36 @@ recording and, on a miss, calls `record_warm_start_state()`, which
    recipe is done when the statement executes (`ERR_NR` $FF, `PPC` $FFFE). The
    keys go through `Keyboard::queue_auto_type()`, and the per-frame step is
    `Emulator::warm_start_recipe_tick()`. A state that does not come within 400
-   frames ends the recipe (four waits, so at most about 2000 frames in all at 50 Hz and 2400 at 60 Hz), and the capture check then refuses,
-4. checks `nextzxos_resident()` (once, when the clock passes frame 400, before
-   any key) and `warm_start_capture_ready()` (when the recipe is done or gave
-   up; its message names what the recipe was waiting for), and
+   frames ends the recipe. Before the first state the recipe waits for the
+   firmware to commit a machine type (see below), so there are five waits and at
+   most about 2400 frames in all at 50 Hz and 2880 at 60 Hz; the capture check then
+   refuses,
+4. checks `nextzxos_resident()` (once, at the checkpoint: frame 400, or the
+   frame the firmware commits a machine type if that is later; before any key)
+   and `warm_start_capture_ready()` (when the recipe is done or gave up; its
+   message names what the recipe was waiting for), and
 5. serialises it with `save_state()` — the same `Saveable` stream the rewind
    buffer uses.
+
+**The commit wait.** Frame 400 is the earliest the recipe looks at the machine,
+but a firmware that is still loading must not be looked at: a calm screen with
+stale system variables could get a SPACE, and the residency check refuses a
+machine whose firmware has not finished. From frame 400 the recipe stays in its
+first phase while the firmware is *loading*: the boot-ROM overlay is off but NR
+0x03 config mode is still set. In the VHDL (`zxnext.vhd`) any NR 0x03 write clears
+the overlay, a value of 7 in bits 2:0 sets config mode and any other non-zero value
+clears it, so the window between the IPL's handover write and the firmware's
+machine-type commit is exactly that state. The first frame from 400 on at which it
+is not loading is the checkpoint, where the residency check runs and the first
+look at the machine happens; `calm` keeps counting through the wait. The wait is
+bounded by frame 800 (frame 400 plus one budget; in emulated time, so 960 at 60
+Hz): a firmware that has not committed by then is given up, the checkpoint is the
+deadline and the refusal message says that the recorder waited. On the 24.11 card
+the commit is at frame 295, so the checkpoint is frame 400 and the recording is the
+same bytes as before the wait existed; on the 26.11 card it is at frame 472 and the
+recording takes about 777 frames. A boot-ROM overlay still active at frame 400 (the
+IPL never handed over) is not loading: the checkpoint is frame 400 and the
+residency check refuses there.
 
 Nothing is pressed at a fixed frame count. The first version pressed SPACE at
 frame 400, DOWN at 470, ENTER at 500, and was measured to work on the
@@ -433,7 +457,7 @@ both cards is a HALT at one instruction (with a different SP on each screen), an
 every busy phase moves the PC at each frame boundary. A wait loop that polls the
 keyboard without HALT would not be sampled at one instruction and would never read
 as idle, so the recipe would give up and the capture check refuse. The
-recording takes about 600 frames on the two cards measured, and is the same file
+recording takes about 600 frames on the two 24.11 cards measured (about 780 on the 26.11 card), and is the same file
 on every run of one card (the clock is pinned, below).
 
 Two things keep the recording a pure function of the card, the machine and the

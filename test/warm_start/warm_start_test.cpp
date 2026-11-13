@@ -63,6 +63,9 @@
 //                 Command Line, statement)
 //   WSR-RDY-01..05, 17  the recipe drives on the machine's state: a slow welcome, 60 Hz,
 //                 a disabled welcome, a machine that never arrives, a custom menu
+//   WSR-CMT-01..06  the recipe waits (to frame 800) for the firmware's machine-type commit
+//                 before it looks at the machine: a loading machine gets no checkpoint and no
+//                 key, the give-up is counted from the checkpoint, 60 Hz, the boundary
 //   WSR-RCP-01..04  the recording recipe tick (GH #481): SPACE only over a
 //                 resident welcome program, the schedule in emulated time, and
 //                 the exact key sequence typed
@@ -1134,6 +1137,131 @@ int main()
                   z.seq == want && end == FakeZxos::EXEC && !e.keyboard().auto_typing() &&
                       e.warm_start_recipe_done(),
                   det("%zu key-downs, end state %d", z.seq.size(), static_cast<int>(end)));
+        }
+    }
+
+    // ── The recipe waits for the firmware's machine-type commit ──
+    // VHDL zxnext.vhd (checkout 30205: :5681-5683, :5708-5712): ANY NR 0x03 write clears
+    // bootrom_en, bits 2:0 = 111 sets config mode, any other non-zero value clears it. Between
+    // the IPL's handover write and the firmware's commit the machine is "overlay off, config
+    // mode set": the firmware is LOADING. The fixtures put the machine in that state with the
+    // two writes the VHDL gives (overlay off, transition 7) and commit it with transition 3.
+    {
+        struct Cmt {
+            Emulator e;
+            uint32_t step;
+            uint32_t units;
+            std::vector<uint32_t> checkpoints;   // `after` of every tick that returned true
+            uint32_t first_key = 0;              // `after` of the first tick that left a key queued
+            uint32_t done_at = 0;                // `after` of the first tick with the recipe done
+            explicit Cmt(bool hz60) : step(Emulator::warm_start_frame_units(hz60)), units(2400 - step) {
+                make_next(e);
+                // the welcome screen, held calm (as a HALT-waiting NextZXOS shows it)
+            }
+            void loading() {
+                e.mmu().set_boot_rom_enabled(false);
+                e.nextreg().apply_nr_03_config_mode_transition(7);
+            }
+            void commit() { e.nextreg().apply_nr_03_config_mode_transition(3); }
+            // run ticks until `until` units; `commit_at` = the `after` before whose tick the commit lands
+            void run(uint32_t until, uint32_t commit_at) {
+                while (units < until) {
+                    e.keyboard().tick_auto_type();
+                    Z80Registers r = e.cpu().get_registers();
+                    r.PC = kScrWelcome.pc; r.SP = kScrWelcome.sp; e.cpu().set_registers(r);
+                    sv_put16(e, kSvProg, kScrWelcome.prog); sv_put16(e, kSvVars, kScrWelcome.vars);
+                    sv_put16(e, kSvPpc, kScrWelcome.ppc);
+                    e.mmu().bank5_vram()[kSvErrNr - 0x4000]  = kScrWelcome.err;
+                    e.mmu().bank5_vram()[kSvTvFlag - 0x4000] = kScrWelcome.tv;
+                    const uint32_t before = units;
+                    units += step;
+                    if (commit_at && units == commit_at) commit();
+                    if (Emulator::warm_start_recipe_tick(e, before, units)) checkpoints.push_back(units);
+                    if (!first_key && e.keyboard().auto_typing()) first_key = units;
+                    if (!done_at && e.warm_start_recipe_done()) done_at = units;
+                }
+            }
+        };
+        {
+            Cmt c(false); c.loading();
+            c.run(2400 + 60 * 6, 0);
+            check("WSR-CMT-01",
+                  "a machine that is LOADING at T0 (overlay off, NR 0x03 config mode set, "
+                  "the welcome screen held calm from before T0) gets no checkpoint at T0 "
+                  "and no key over the next 60 frames",
+                  c.checkpoints.empty() && c.first_key == 0,
+                  det("%zu checkpoints, first key at units %u", c.checkpoints.size(), c.first_key));
+        }
+        {
+            Cmt c(false); c.loading();
+            c.run(5400, 2832);   // the commit lands on frame 472 (units 2832)
+            // kMenu gives up when after - phase_start > 2400 units: phase_start is the
+            // checkpoint (2832), so the first such tick is 2832 + 2406 = 5238, not T0 + 2406
+            check("WSR-CMT-02",
+                  "the firmware commits at frame 472: the checkpoint comes at that frame, once, "
+                  "no key is queued before it, and kMenu's give-up is counted from the "
+                  "checkpoint (units 5238), not from T0",
+                  c.checkpoints == std::vector<uint32_t>{2832} && c.first_key >= 2832 &&
+                      c.done_at == 5238,
+                  det("%zu checkpoints (first %u), first key %u, done at %u", c.checkpoints.size(),
+                      c.checkpoints.empty() ? 0u : c.checkpoints[0], c.first_key, c.done_at));
+        }
+        {
+            Cmt c(false); c.loading();
+            c.run(5000, 0);
+            std::string why;
+            const bool resident = c.e.nextzxos_resident(why);
+            check("WSR-CMT-03",
+                  "a machine that never commits is given up at frame 800 (units 4800, T0 plus "
+                  "one per-state budget): one checkpoint there, the recipe done and waiting for "
+                  "the commit, no key ever queued, and the residency check refuses naming the "
+                  "missing machine-type commit",
+                  c.checkpoints == std::vector<uint32_t>{4800} && c.done_at == 4800 &&
+                      c.first_key == 0 && c.e.warm_start_recipe_waiting_for() ==
+                          "the firmware to commit a machine type (NextREG 0x03)" &&
+                      !resident &&
+                      why.find("NextREG 0x03 config mode is still set - no firmware committed a "
+                               "machine type") != std::string::npos,
+                  det("%zu checkpoints, done at %u, key %u, '%s'", c.checkpoints.size(), c.done_at,
+                      c.first_key, why.c_str()));
+        }
+        {
+            Cmt c(false);
+            c.e.mmu().set_boot_rom_enabled(true);   // the IPL has not handed over yet
+            c.e.nextreg().apply_nr_03_config_mode_transition(7);
+            c.run(2400 + 600, 0);
+            check("WSR-CMT-04",
+                  "with the boot-ROM overlay still active at T0 (the IPL never handed over) the "
+                  "checkpoint is T0 itself, so the residency check refuses at frame 400 as "
+                  "before: only 'overlay off, config mode set' counts as loading",
+                  c.checkpoints == std::vector<uint32_t>{2400},
+                  det("%zu checkpoints, first %u", c.checkpoints.size(),
+                      c.checkpoints.empty() ? 0u : c.checkpoints[0]));
+        }
+        {
+            Cmt c(true); c.loading();
+            c.run(5000, 0);
+            check("WSR-CMT-05",
+                  "the commit deadline is emulated time: at 60 Hz a machine that never commits "
+                  "is given up at frame 960 (units 4800), not 800",
+                  c.checkpoints == std::vector<uint32_t>{4800} &&
+                      c.checkpoints[0] / Emulator::warm_start_frame_units(true) == 960,
+                  det("%zu checkpoints, first %u", c.checkpoints.size(),
+                      c.checkpoints.empty() ? 0u : c.checkpoints[0]));
+        }
+        {
+            Cmt c(false); c.loading();
+            c.run(4800 + 6, 4800);   // the commit lands on the deadline's own tick
+            check("WSR-CMT-06",
+                  "a commit that lands on the deadline's own frame (units 4800) is taken as "
+                  "committed: the recipe goes on (still waiting for the welcome or menu, a key "
+                  "queued) instead of giving up",
+                  c.checkpoints == std::vector<uint32_t>{4800} && !c.e.warm_start_recipe_done() &&
+                      c.first_key != 0 &&
+                      c.e.warm_start_recipe_waiting_for() ==
+                          "the welcome program or the menu to be idle",
+                  det("%zu checkpoints, done %d, first key %u", c.checkpoints.size(),
+                      c.e.warm_start_recipe_done() ? 1 : 0, c.first_key));
         }
     }
 
