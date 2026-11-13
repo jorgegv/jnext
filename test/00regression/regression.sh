@@ -15,7 +15,9 @@
 #   --platform        Run the suite against ANOTHER OS's binaries (GH #319): macOS
 #                     natively, Windows as MinGW exes under wine. The target is read
 #                     from the build trees (JNEXT_TARGET_BUILD / JNEXT_TARGET_SDL_BUILD,
-#                     JNEXT_TARGET_OS in their CMakeCache.txt), never from the caller.
+#                     JNEXT_TARGET_OS in their CMakeCache.txt; a dir with no cache, an
+#                     unpacked Windows package, is read from its jnext.exe's PE header),
+#                     never from the caller.
 #                     Runs the screenshots and the functional rows whose `os=` tag in
 #                     functional_tests.conf admits that OS; the 7 lints (tree checks)
 #                     and the stamp stay with the Linux run. `make regression-win` /
@@ -295,9 +297,18 @@ fi
 # TARGET_OS is the OS whose binaries the run executes. Without --platform it is
 # linux, and the `os=` tags below admit every row (linux is mandatory in every
 # tag). With it, it is read out of the build trees' own CMakeCache.txt
-# (JNEXT_TARGET_OS, set by CMakeLists.txt from CMAKE_SYSTEM_NAME), never taken
-# from the caller; both trees (the Qt one and the SDL-only one) must agree.
+# (JNEXT_TARGET_OS, set by CMakeLists.txt from CMAKE_SYSTEM_NAME) or, for a dir
+# that has none (an unpacked package), from its jnext.exe's own PE header (GH #487),
+# never taken from the caller; both trees (the Qt one and the SDL-only one) must agree.
 TARGET_OS=linux
+plat_exe_is_pe() {   # plat_exe_is_pe <file> -- a PE image: "MZ", and "PE\0\0" at the e_lfanew offset (0x3c)
+    local f=$1 off
+    [[ -f "$f" ]] || return 1
+    [[ "$(od -An -c -N 2 "$f" | tr -d ' ')" == MZ ]] || return 1
+    off=$(od -An -tu4 -j 0x3c -N 4 "$f" | tr -d ' ')
+    [[ "$off" =~ ^[0-9]+$ ]] || return 1
+    [[ "$(od -An -tx1 -j "$off" -N 4 "$f" | tr -d ' ')" == 50450000 ]]
+}
 if $PLATFORM_MODE; then
     $UPDATE_MODE && harness_fault "${BOLD}--platform${RESET} cannot be combined with --update" \
                                   "Reference screenshots are regenerated on Linux only."
@@ -309,10 +320,17 @@ if $PLATFORM_MODE; then
         [[ -n "$plat_dir" ]] || harness_fault "${BOLD}--platform${RESET} needs ${BOLD}$plat_var${RESET} (the build tree whose binary is under test)" \
                                               "Use ${BOLD}make regression-win${RESET} or ${BOLD}make regression-macos${RESET}."
         plat_cache="$plat_dir/CMakeCache.txt"
-        [[ -f "$plat_cache" ]] || harness_fault "no CMakeCache.txt in ${BOLD}$plat_dir${RESET} ($plat_var): not a configured build tree"
-        plat_os=$(grep -m1 -oP '^JNEXT_TARGET_OS:[A-Z]+=\K.*' "$plat_cache" || true)
-        [[ -n "$plat_os" ]] || harness_fault "$plat_cache does not define ${BOLD}JNEXT_TARGET_OS${RESET}" \
-                                             "Every build of this project sets it; the harness will not guess."
+        if [[ -f "$plat_cache" ]]; then
+            plat_os=$(grep -m1 -oP '^JNEXT_TARGET_OS:[A-Z]+=\K.*' "$plat_cache" || true)
+            [[ -n "$plat_os" ]] || harness_fault "$plat_cache does not define ${BOLD}JNEXT_TARGET_OS${RESET}" \
+                                                 "Every build of this project sets it; the harness will not guess."
+        elif plat_exe_is_pe "$plat_dir/jnext.exe"; then
+            # An unpacked package (make regression-package) has no cache: its OS is
+            # the binary's own PE header, which no caller-set variable can fake.
+            plat_os=windows
+        else
+            harness_fault "no CMakeCache.txt and no Windows jnext.exe in ${BOLD}$plat_dir${RESET} ($plat_var): not a configured build tree or an unpacked Windows package"
+        fi
         case $plat_os in
             macos|windows) ;;
             linux) harness_fault "${BOLD}$plat_dir${RESET} targets linux: --platform is for another OS" \

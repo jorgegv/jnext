@@ -194,7 +194,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count kloc-count-detailed regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
+       kloc-count kloc-count-detailed regression regression-win regression-package regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
@@ -317,7 +317,7 @@ gui-release-pgo-gen:
 		"-DJNEXT_PGO_DIR=$(PGO_PROFILE_ABS)"
 	$(CMAKE) --build $(BUILD_DIR_GUI_PGO_GEN) -j$(JOBS) --target jnext
 
-# Configure and build Qt GUI in Release mode with PGO: the shipped, tested binary (needs the SD image)
+# Configure and build Qt GUI in Release mode with PGO, like the shipped Linux packages (needs the SD image)
 gui-release: gui-release-pgo-gen
 	@# GH #297. Three steps, each skipped when it has nothing to do:
 	@#  1. gui-release-pgo-gen: the instrumented build (its own tree, so its
@@ -382,7 +382,7 @@ win-release:
 	@# in place (jnext.exe alone can't start — missing Qt6Core.dll and, even with
 	@# the DLLs, the platforms/qwindows.dll plugin).
 	@# WIN_EXTRA_QT_PLUGINS is empty for every shipped package; `make regression-win`
-	@# sets platforms/qoffscreen.dll on the non-PGO test tree only (GH #319).
+	@# sets platforms/qoffscreen.dll on this tree, which package-win never copies (GH #319, #487).
 	BUNDLE_EXTRA_QT_PLUGINS="$(WIN_EXTRA_QT_PLUGINS)" bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe $(BUILD_DIR_WIN_RELEASE)
 	@printf "$(BOLD)Windows executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_RELEASE)/jnext.exe\n"
 
@@ -517,19 +517,33 @@ clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
 # Run the regression suite's Windows rows and screenshots: MinGW exes under wine (GH #319)
 regression-win: unit-test-sdl-build unit-test-win-build win-sdl-release z88dk-gdb sdcard-image
 	@# `regression.sh --platform` against the Windows binaries: the Qt exe is the
-	@# shipped build minus PGO (Release + LTO, `win-release-non-pgo`) with Qt's
-	@# offscreen platform plugin bundled into THIS test tree only (never into a
-	@# package), the SDL-only exe is `win-sdl-release`, and the native helper tools
-	@# (rewind_test, sdfile_tool, the probes) come from the SDL unit-test tree. The one
+	@# shipped build, `win-release` (Release + LTO + PGO, the tree `package-win`
+	@# zips; GH #487), with Qt's offscreen platform plugin bundled into THIS tree
+	@# only: package-win stages a fresh dir with no extras, so the plugin never
+	@# reaches a zip (a packaging row pins that). The SDL-only exe is
+	@# `win-sdl-release`, and the native helper tools (rewind_test, sdfile_tool, the
+	@# probes) come from the SDL unit-test tree. The one
 	@# exception is nextpi-link-func's stand-in QEMU, which must be a PE: it comes from
 	@# the Windows unit-test tree (unit-test-win-build, GH #316).
 	@# Rows that cannot exist on Windows are declared absent with `os=` in
 	@# functional_tests.conf and printed by name, never skipped. A full run takes
 	@# the host lock like `make regression`; ROWS="a-func b-func" runs named rows.
 	@# It is not stamped: the stamp is the Linux run's.
-	@$(MAKE) --no-print-directory win-release-non-pgo WIN_EXTRA_QT_PLUGINS=platforms/qoffscreen.dll
-	JNEXT_TARGET_BUILD=build/win-release-non-pgo JNEXT_TARGET_SDL_BUILD=$(BUILD_DIR_WIN_SDL_RELEASE) \
+	@$(MAKE) --no-print-directory win-release WIN_EXTRA_QT_PLUGINS=platforms/qoffscreen.dll
+	JNEXT_TARGET_BUILD=$(BUILD_DIR_WIN_RELEASE) JNEXT_TARGET_SDL_BUILD=$(BUILD_DIR_WIN_SDL_RELEASE) \
 		TEST_BIN_DIR=$(BUILD_DIR_SDL_UNIT_TEST)/test bash test/00regression/regression.sh --platform $(ROWS)
+
+# Regression-test one package's OWN binary, unpacked from the artifact (PACKAGE=rpm|deb|win|win-qt5|win32-qt5)
+regression-package:
+	@# GH #487. Builds the package (package-$(PACKAGE), so the artifact is this tree's),
+	@# unpacks it into build/regression-package/$(PACKAGE) and runs every screenshot row
+	@# plus a declared set of functional rows against that binary
+	@# (test/regression-package.sh). release.yml runs it after each package build,
+	@# before the upload. Never stamped, never the batch gate's.
+	@case "$(PACKAGE)" in rpm|deb) pre="";; win|win-qt5|win32-qt5) pre="unit-test-sdl-build win-sdl-release sdcard-image";; \
+	 *) printf "$(BADGE_FAIL) FAIL $(RESET) name the package: make regression-package PACKAGE=rpm|deb|win|win-qt5|win32-qt5\n"; exit 2;; esac; \
+	 $(MAKE) --no-print-directory package-$(PACKAGE) $$pre || exit $$?; \
+	 bash test/regression-package.sh $(PACKAGE)
 
 # Run the regression suite's rows and screenshots against the macOS binaries (Darwin only; CI macos-regression)
 regression-macos: unit-test-sdl-build gui-release-non-pgo sdl-release z88dk-gdb sdcard-image
