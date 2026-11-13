@@ -2901,7 +2901,7 @@ static void test_layer_state_reads_live_registers(Emulator& emu) {
 //
 // The NextREG panel displays all 256 registers and DebuggerManager refreshes it several
 // times a second WHILE THE GUEST RUNS. NR 0x2C / 0x2E are the only two read handlers in
-// the machine whose read has a side effect: per VHDL zxnext.vhd:6006-6015 they latch the
+// the machine whose read has a side effect: per VHDL zxnext.vhd:6594-6603 they latch the
 // Pi-I2S low bits into the NR 0x2D shadow. A panel that reads them the way the Z80 does
 // would latch L, then latch R over it, and hand the guest a sample the DEBUGGER invented
 // — a far worse bug than the stale display it was fixing (caught in review, Task 40).
@@ -2918,7 +2918,7 @@ static void test_peek_does_not_mutate(Emulator& emu) {
     const uint8_t l_hi = emu.nextreg().read(0x2C);
     const uint8_t d_after_guest_read = emu.nextreg().read(0x2D);
     check("DVP-PEEK-01",
-          "guest read of NR 0x2C latches L's low bits into NR 0x2D (VHDL 6006-6015)",
+          "guest read of NR 0x2C latches L's low bits into NR 0x2D (VHDL 6594-6603)",
           d_after_guest_read == 0xC0,
           fmt("nr2C=%02X nr2D=%02X want C0", l_hi, d_after_guest_read));
 

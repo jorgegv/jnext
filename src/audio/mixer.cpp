@@ -118,7 +118,7 @@ void Mixer::reset()
     // to 13-bit). Mixer does not own the I2s; Emulator wires it via
     // set_i2s_source(). When unwired, the term is 0 (silence).
     //
-    // G73: consume the GATED pi_audio_L/R per VHDL zxnext.vhd:2358-2359
+    // G73: consume the GATED pi_audio_L/R per VHDL zxnext.vhd:2674-2675
     // — the same signals that feed audio_mixer.vhd's pi_i2s_L_i/R_i
     // ports (zxnext.vhd:6505-6506). With NR 0xA2 disabled or muted,
     // pi_audio_L/R is the 10-bit DC midpoint 0x200 ("silence"). The raw

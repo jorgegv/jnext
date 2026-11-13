@@ -200,7 +200,7 @@ void NextRegPanel::refresh() {
         // was 0xC0 (Task 40).
         //
         // But NOT read() either, which is the *Z80's* read: for NR 0x2C / 0x2E the VHDL
-        // read latches the Pi-I2S low bits into the NR 0x2D shadow (zxnext.vhd:6006-6015),
+        // read latches the Pi-I2S low bits into the NR 0x2D shadow (zxnext.vhd:6594-6603),
         // and this loop sweeps all 256 registers several times a second while the guest
         // is running — it would latch L, then latch R over it, and hand the Z80 a sample
         // the debugger invented. read() also emits a trace line per register, i.e. ~1000

@@ -468,13 +468,13 @@ static void test_nr_dac(Emulator& emu) {
               fmt("L=0x%03X R=0x%03X (want 0x100/0x0C0)", L, R));
     }
 
-    // NR-33 — zxnext.vhd:6006-6010 read of NR 0x2C returns pi_audio_L(9..2)
+    // NR-33 — zxnext.vhd:6594-6596 read of NR 0x2C returns pi_audio_L(9..2)
     // AND atomically latches pi_audio_L(1..0) into nr_2d_i2s_sample. We
     // verify the byte returned matches the expected high-8 bits and that
     // the latch (observable via the next NR 0x2D read, NR-34 below) carries
     // the low 2 bits in [7:6]. Symmetric check for NR 0x2E (right channel).
     //
-    // G113: pi_audio_L/R is the GATED signal (zxnext.vhd:2358-2359). At
+    // G113: pi_audio_L/R is the GATED signal (zxnext.vhd:2674-2675). At
     // power-on, NR 0xA2 = 0 → pi_i2s_en = 0 → both channels read back
     // the silence midpoint 0x200, NOT the raw I2s sample latch. We
     // explicitly enable both channels (NR 0xA2 = 0xC0; enL=enR=1, no
@@ -498,7 +498,7 @@ static void test_nr_dac(Emulator& emu) {
         check("NR-33",
               "NR 0x2C/0x2E read returns pi_audio_L/R(9..2) and latches "
               "pi_audio_L/R(1..0) into nr_2d_i2s_sample "
-              "[zxnext.vhd:6006-6015, :2358-2359]",
+              "[zxnext.vhd:6594-6603, :2674-2675]",
               l_byte == 0xE9 && l_latch == 0x40 &&
               r_byte == 0x4B && r_latch == 0x00,
               fmt("L byte=0x%02X latch=0x%02X (want 0xE9/0x40); "
@@ -506,7 +506,7 @@ static void test_nr_dac(Emulator& emu) {
                   l_byte, l_latch, r_byte, r_latch));
     }
 
-    // NR-34 — zxnext.vhd:6010-6011 read of NR 0x2D returns
+    // NR-34 — zxnext.vhd:6598-6599 read of NR 0x2D returns
     //   port_253b_dat <= nr_2d_i2s_sample & "000000".
     // The latch starts at 0 (init() seeds nr_2d_i2s_sample_ = 0); after a
     // read of NR 0x2C with a non-aligned (low 2 bits != 00) sample, the
@@ -535,7 +535,7 @@ static void test_nr_dac(Emulator& emu) {
         check("NR-34",
               "NR 0x2D read returns nr_2d_i2s_sample & \"000000\"; latch "
               "updated by NR 0x2C/0x2E reads "
-              "[zxnext.vhd:6010-6011, :6008, :6015]",
+              "[zxnext.vhd:6598-6599, :6596, :6603]",
               initial == 0x00 && after_2c == 0xC0 && after_2e == 0x80,
               fmt("initial=0x%02X after_2c=0x%02X after_2e=0x%02X "
                   "(want 0x00/0xC0/0x80)",
@@ -555,7 +555,7 @@ static void test_nr_dac(Emulator& emu) {
 static void test_nr_a2(Emulator& emu) {
     set_group("NR-0xA2");
 
-    // NR-40 — zxnext.vhd:5564: nr_a2_pi_i2s_ctl <= nr_wr_dat on NR 0xA2.
+    // NR-40 — zxnext.vhd:6127: nr_a2_pi_i2s_ctl <= nr_wr_dat on NR 0xA2.
     // G113: NR 0xA2 has a write handler that pushes the raw 8-bit value
     // into I2s::nr_a2_ctl_; round-trip via the new accessor confirms
     // storage. Use a non-trivial pattern (0xCD) so a stuck-at-0/1 bug
@@ -566,15 +566,15 @@ static void test_nr_a2(Emulator& emu) {
         const uint8_t got = emu.i2s().nr_a2_ctl();
         check("NR-40",
               "NR 0xA2 write handler stores nr_a2_pi_i2s_ctl into I2s "
-              "[zxnext.vhd:5564, :2283-2290]",
+              "[zxnext.vhd:6127, :2593-2600]",
               got == 0xCD,
               fmt("i2s.nr_a2_ctl()=0x%02X (want 0xCD)", got));
     }
 
-    // NR-41 — zxnext.vhd:2283-2290: bit fan-out drives pi_i2s_en[L/R],
+    // NR-41 — zxnext.vhd:2593-2600: bit fan-out drives pi_i2s_en[L/R],
     // inout, muteL/R, ear. Closing the loop end-to-end: drive a known
     // sample through the I2s, then assert the gated read path NR 0x2C
-    // (= pi_audio_L per zxnext.vhd:6007) responds to the NR 0xA2 fan-out.
+    // (= pi_audio_L per zxnext.vhd:6595) responds to the NR 0xA2 fan-out.
     //   Step 1: NR 0xA2 = 0x80 (enL=1) → pi_audio_L = raw left =
     //           0x3FF; high byte = (0x3FF >> 2) & 0xFF = 0xFF.
     //   Step 2: NR 0xA2 = 0x88 (enL=1, muteL=1) → pi_audio_L = 0x200
@@ -589,13 +589,13 @@ static void test_nr_a2(Emulator& emu) {
         const uint8_t muted   = nr_read(emu, 0x2C);
         check("NR-41",
               "NR 0xA2 fan-out reaches I2s gate (mute drops gated read "
-              "to silence midpoint) [zxnext.vhd:2283-2290, :2358]",
+              "to silence midpoint) [zxnext.vhd:2593-2600, :2674]",
               enabled == 0xFF && muted == 0x80,
               fmt("enabled=0x%02X muted=0x%02X (want 0xFF/0x80)",
                   enabled, muted));
     }
 
-    // NR-42 — zxnext.vhd:6192: read returns
+    // NR-42 — zxnext.vhd:6780: read returns
     //   nr_a2_pi_i2s_ctl(7 downto 6) & '0' & nr_a2_pi_i2s_ctl(4 downto 2)
     //   & '1' & nr_a2_pi_i2s_ctl(0).
     // Pass-through bits = b7,b6,b4,b3,b2,b0 (mask 0xDD); fixed b5=0,
@@ -613,14 +613,14 @@ static void test_nr_a2(Emulator& emu) {
         const uint8_t r2 = nr_read(emu, 0xA2);
         check("NR-42",
               "NR 0xA2 read returns ctl[7:6] & 0 & ctl[4:2] & 1 & ctl[0] "
-              "[zxnext.vhd:6192]",
+              "[zxnext.vhd:6780]",
               r0 == 0x02 && r1 == 0xDF && r2 == 0x57,
               fmt("c=0x00→0x%02X c=0xFF→0x%02X c=0x55→0x%02X "
                   "(want 0x02/0xDF/0x57)", r0, r1, r2));
     }
 
     // NR-43 — G73: Mixer gates I2S contribution by NR 0xA2 enable/mute.
-    // VHDL pi_audio_L/R (zxnext.vhd:2358-2359) feeds audio_mixer's
+    // VHDL pi_audio_L/R (zxnext.vhd:2674-2675) feeds audio_mixer's
     // pi_i2s_L_i / pi_i2s_R_i ports (zxnext.vhd:6505-6506) — so the
     // mixer adds the GATED 10-bit value (silence midpoint 0x200 when
     // disabled/muted), not the raw sample. End-to-end check: same I2s
@@ -673,7 +673,7 @@ static void test_nr_a2(Emulator& emu) {
         const int delta = static_cast<int>(pcm_L_on) - static_cast<int>(pcm_L_off);
         check("NR-43",
               "Mixer gates Pi I2S contribution by NR 0xA2 enable/mute "
-              "(audio_mixer.vhd:91-92, zxnext.vhd:2358-2359)",
+              "(audio_mixer.vhd:91-92, zxnext.vhd:2674-2675)",
               got_on == 1 && got_off == 1 &&
               pcm_L_on == 2044 && pcm_L_off == 0 && delta == 2044,
               fmt("pcm_L on=%d off=%d delta=%d (want 2044/0/2044)",
@@ -949,7 +949,7 @@ static void test_nr_mixer(Emulator& emu) {
     // The bare-Mixer rows MX-10/MX-11 in test/audio/audio_test.cpp could not
     // see the defect: they build a Mixer with no I2s source, while
     // Emulator's constructor always wires one (src/core/emulator.cpp:44) and
-    // the gated pi_audio_L/R idles at 0x200 (zxnext.vhd:2358-2359). The
+    // the gated pi_audio_L/R idles at 0x200 (zxnext.vhd:2674-2675). The
     // emulator therefore rested 512 (13-bit) = 2048 (int16) above zero on
     // every sample of every run, while the suite reported silence as 0.
     //
@@ -983,7 +983,7 @@ static void test_nr_mixer(Emulator& emu) {
               "an assembled power-on machine emits DIGITAL ZERO — silence is "
               "0, so a zero-padded device seam is inaudible [GH #116]",
               nonzero == 0,
-              fmt("%d/16 samples non-zero (worst=%d) VHDL zxnext.vhd:2358-2359, "
+              fmt("%d/16 samples non-zero (worst=%d) VHDL zxnext.vhd:2674-2675, "
                   "i2s.vhd:179, audio_mixer.vhd:89-90,99-100", nonzero, worst));
     }
 }

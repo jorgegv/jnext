@@ -12,6 +12,7 @@
 - Magic breakpoint recognises FD 00, the sjasmplus break opcode (CSpect 2.19.9.1+); ED FF now runs as the hardware NOP
 
 ### Bug Fixes
+- NextPi: an idle Pi costs far less CPU (QEMU no longer adds a USB hub for the Pi's sound card) (@janko-jj)
 - Programs loaded on the Next that print through the ROM (RST $10) no longer hang; the warm start records NextZXOS at its Command Line
 - Loading a NEX keeps the NextZXOS system variables and screen pixels, and sets the border as the NEX loaders do
 - SD card: a refused write no longer leaves a read-only card unreadable (macOS) or lands later after a host write error

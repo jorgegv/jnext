@@ -39,7 +39,7 @@ public:
 
     // Install a read handler whose read MUTATES emulated state — a VHDL read-side
     // effect (NR 0x2C / 0x2E latch the Pi-I2S low bits into the NR 0x2D shadow,
-    // zxnext.vhd:6006-6015). Such a register CANNOT be handed to the debugger's
+    // zxnext.vhd:6594-6603). Such a register CANNOT be handed to the debugger's
     // read handler, because the debugger reads registers en masse and must never
     // perturb the machine it is observing.
     //

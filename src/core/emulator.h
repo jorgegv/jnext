@@ -2408,7 +2408,7 @@ private:
     /// into NR 0x10 read at bits 6:2 (zxnext.vhd:5924).
     uint8_t nr_10_coreid_ = 0x01;
 
-    /// G112: NR 0x2D I2S sample latch (VHDL zxnext.vhd:6006-6015).
+    /// G112: NR 0x2D I2S sample latch (VHDL zxnext.vhd:6594-6603).
     /// Stores pi_audio_L(1:0) or pi_audio_R(1:0) — captured on the read of
     /// NR 0x2C / 0x2E — pre-shifted into bits [7:6] of the byte; bits [5:0]
     /// are always zero. NR 0x2D read returns this byte verbatim.
