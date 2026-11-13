@@ -93,6 +93,43 @@ lookup instead, and the suite provisions that image for itself in the
   because `cp --reflink` cannot cross a filesystem and `--reflink=auto` would
   quietly degrade to a real 1 GB copy into RAM.
 
+## Boot-timeline frames: the boot-ready helper
+
+A row that presses a key, captures a screen or resets "at frame N of a cold boot"
+must mean the same moment of the boot on every card, and a new NextZXOS distribution
+loads its firmware for a different number of frames before it reaches the same
+state (the 26.11 firmware commits its machine type at frame 472, the 24.11 one at
+frame 295). The anchor is the **firmware's machine-type commit**: the first NR
+0x03 write whose bits 2:0 are 001 to 100, which by `zxnext.vhd` is the write that
+clears config mode. It happens on every firmware boot whatever personality
+`config.ini` selects, and `boot-commit-probe.jds` reports its frame in a couple of
+seconds. `test-functions.inc` has the helper:
+
+- `BOOT_REF_COMMIT` is the commit frame of the boot the row literals were written
+  against, and `BOOT_DEFAULT_COMMIT` the frame the default card must give.
+- `bf N [K]` prints `N + K * (measured - BOOT_REF_COMMIT)`. Use `K = 2` for a frame
+  after a hard reset, which runs the firmware a second time; a soft reset does not
+  (`K = 1`). A malformed `N` or `K`, or a probe that finds no commit within 1500
+  frames, is a harness fault and never a pass-through.
+- `bf_keys <frame key>...` fills `BF_KEYS` with `--delayed-keypress-frames`
+  arguments; `bf_jds <template> <out>` expands `{{bf N}}` and `{{bf N K}}` in a
+  script template and refuses an output that keeps a `{{`.
+- A screenshot row in `regression_tests.conf` writes `@bf:N` (or `@bf:N:K`) in its
+  frame field or among its extra arguments.
+
+Compute every `bf` into a variable first (`shot=$(bf 400)`): a failure inside an
+argument position would not stop the row. Only frames on the boot timeline AFTER
+the commit are adopted. A frame inside a program loaded by `--load` (the warm
+start rebases those to frame 500) and a wall-clock bound stay literals.
+
+On the reference card the shift is 0, so every adopted row's command line, and every
+script it generates, is byte-identical to the literal row's and no reference
+changes. The `[sdcard-provision]` row reports the commit frame and the shift, and on
+the default master FAILS when the commit is not `BOOT_DEFAULT_COMMIT`: an emulator
+change that moves the boot is a red row, never a shift the helper quietly absorbs.
+On a candidate card (the seam below) any commit frame is allowed and reported.
+`esxdos-write-probe-measure.sh` takes the shift as `BOOT_SHIFT`.
+
 ## Evaluating a new NextZXOS distribution
 
 The default card is the 24.11 distribution, and the references and pins are
@@ -127,7 +164,8 @@ the same tree twice (the same non-PGO `jnext`, master A = the default, master B
 3. **Boot it** before anything long: a headless `--machine next` run on a
    reflinked copy of B, with a screenshot at a few frames, shows whether the
    firmware starts on the emulated core and how many frames the boot takes. A
-   row whose keys are timed against the boot (a key at frame 400) moves with it.
+   row whose keys are timed against the boot (a key at frame 400) is written
+   with the boot-ready helper (next section), so it moves with the boot.
 4. **Run the unit suites on B**: `JNEXT_TEST_SD_IMAGE=<a reflinked copy of B's
    fixed card> make unit-test`. The harness honours a preset image; rows that pin
    file sizes or magic bytes of the default distribution turn red by design.

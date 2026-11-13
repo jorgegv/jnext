@@ -182,9 +182,10 @@ PY
             > "$wc_w/$2.log" 2>&1 || true
     }
     # wc_keys <frame> <key>... : --delayed-keypress-frames pairs
-    wc_press() {   # wc_press <var> <frame> <key>
+    wc_press() {   # wc_press <var> <frame> <key>   (the frame is a boot-timeline frame: bf)
         local -n arr=$1
-        arr+=(--delayed-keypress-frames "$2" "$3")
+        local v; v=$(bf "$2") || exit 2
+        arr+=(--delayed-keypress-frames "$v" "$3")
     }
 
     # ---- A. warm, and B. the real chain, on card "ab" ------------------------
@@ -324,11 +325,12 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
         wc_press wc_keys "$wc_f" "$wc_ch"; wc_f=$((wc_f + 15))
     done
     wc_press wc_keys "$wc_f" enter
+    wc_b_shot=$(bf $((wc_f + 300))); wc_b_exit=$(bf $((wc_f + 320)))   # boot-timeline frames (bf)
     JNEXT_CONFIG_DIR="$wc_w/ab-real" timeout --foreground --kill-after=5s 300s "$JNEXT" \
         "${wc_args[@]}" --sdcard "$wc_w/ab/sdcard/cspect-next-1gb-fixed.img" \
         "${wc_keys[@]}" --delayed-screenshot "$wc_w/b.png" \
-        --delayed-screenshot-frames $((wc_f + 300)) \
-        --delayed-automatic-exit-frames $((wc_f + 320)) > "$wc_w/b.log" 2>&1 || true
+        --delayed-screenshot-frames "$wc_b_shot" \
+        --delayed-automatic-exit-frames "$wc_b_exit" > "$wc_w/b.log" 2>&1 || true
     wc_v=$(python3 -I "$wc_w/fields.py" cmp "$wc_w/a.log" "$wc_w/b.log")
     [[ -z "$wc_v" ]] || wc_faults+=("B: $wc_v")
     if [[ -f "$wc_w/a.png" && -f "$wc_w/b.png" ]]; then
@@ -341,10 +343,11 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
 
     # ---- C. NextZXOS's own welcome disabled ----------------------------------
     wc_card c
+    wc_c_key=$(bf 400); wc_c_exit=$(bf 600)   # boot-timeline frames (bf)
     JNEXT_CONFIG_DIR="$wc_w/c" timeout --foreground --kill-after=5s 120s "$JNEXT" \
         --headless --machine next --rtc "$NEXTZXOS_RTC" \
         --sdcard "$wc_w/c/sdcard/cspect-next-1gb-fixed.img" \
-        --delayed-keypress-frames 400 d --delayed-automatic-exit-frames 600 \
+        --delayed-keypress-frames "$wc_c_key" d --delayed-automatic-exit-frames "$wc_c_exit" \
         > "$wc_w/c-welcome.log" 2>&1 || true
     wc_warm c c-run
     grep -q "recorded a NextZXOS-resident machine" "$wc_w/c-run.log" \
