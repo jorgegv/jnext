@@ -203,6 +203,14 @@ row('BCRT-04', '--crt pc: the glass edge is nearer than the TV\'s (x 0..2 black,
   const page = await open(['--crt', 'pc']);
   await tvGeometry(page, { name: 'pc', id: 'BCRT-04' }, 2, [6, 7, 8, 9, 10, 11, 12]);
   must((await glError(page)) === 0, 'GL error');
+  // the last style wins: tv then pc is pc; a saved pc style then --crt tv is tv (x 8 is black in TV)
+  const later = await open(['--crt', 'tv', '--crt', 'pc']);
+  await tvGeometry(later, { name: 'tv then pc', id: 'BCRT-04' }, 2, [6, 7, 8]);
+  await later.ctx.close();
+  const tv = await open(['--set', 'startup.crt_shader_style=1', '--crt', 'tv']);
+  await waitFrame(tv, 160);
+  const im = await shot(tv);
+  must(black(px(im, 8, im.h >> 1)), `pc style then --crt tv: (8,256) = ${px(im, 8, im.h >> 1)}, not black`);
 });
 
 row('BCRT-05', '--crt soft at 1280x1024: no curve (corners lit), scanline period 4 device rows, shadow mask period 3 columns', async () => {
