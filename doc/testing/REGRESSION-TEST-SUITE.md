@@ -91,11 +91,15 @@ harness fault):
 - **`private-sd`** — the row writes to the SD card (`nextsync-func` formats
   it, `soft-reset-shadow-screen-func` stages a program onto it), so it gets a
   copy of its own. Every other row boots the run's clone through a hard link.
+- **`bound=<seconds>`** — this row's own kill bound, in place of the 600 s
+  default, for a row whose measured pass is slower than that
+  (`harness-selftest-func`, `bound=1200`). A positive integer, at most one per
+  row; anything else is a harness fault.
 
 What the driver checks, beyond the end-of-run accounting below: a row reports
 exactly one result under its own name (twice, or none, is a harness fault); a
 harness fault inside a row process is one of the run; a row that dies without a
-result or outlives `JNEXT_REGRESSION_ROW_TIMEOUT` (600 s) is a FAIL naming it,
+result or outlives `JNEXT_REGRESSION_ROW_TIMEOUT` (600 s, or the row's `bound=` tag) is a FAIL naming it,
 and the run goes on; a row that exits with its directories still there (its
 own trap replaced the library's) is a harness fault; a row directory that
 exists before its row starts, or is left over at the end, means some row wrote

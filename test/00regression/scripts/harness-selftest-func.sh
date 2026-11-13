@@ -13,12 +13,16 @@ if want harness-selftest-func; then
     begin_func harness-selftest-func
     # Timeout-wrapped like every other invocation here. Its only other time
     # bound would be the per-suite timeout inside the very harness it is
-    # testing — circular. 480 s, a hang bound: MEASURED, the self-test takes
-    # 281 s run directly at load 4 and 443 s at load 10 on the 12-CPU dev host
-    # (the old figure of ~85 s is long gone), and the row failed at 488 s and
-    # 567 s at load 16-29. The row runs in the quiet
-    # phase (functional_tests.conf); the bound is not raised.
-    if hs_out=$(timeout --foreground --kill-after=5s 480s bash "$PROJECT_DIR/test/harness-selftest.sh" 2>&1); then
+    # testing — circular. 900 s, a hang bound: MEASURED, the self-test takes
+    # 281 s run directly at load 4, 324 s, 443 s at load 10 and 607 s at
+    # moderate load (other agents running); as a row 353 s, 455 s and 457 s
+    # solo (load 17 -> 6). The old 480 s bound failed it at 484 s (load 24-28),
+    # 488 s and 567 s (load 16-29). 900 s leaves headroom over the worst pass
+    # and stays under the driver's per-row bound for THIS row, the `bound=1200` tag
+    # in functional_tests.conf (the default ROW_BOUND is 600 s), which must
+    # remain the larger of the two. The row runs in the
+    # quiet phase (functional_tests.conf).
+    if hs_out=$(timeout --foreground --kill-after=5s 900s bash "$PROJECT_DIR/test/harness-selftest.sh" 2>&1); then
         hs_line=$(echo "$hs_out" | grep -E '^Total:' | tail -1)
         pass_row " ($hs_line)"
     else

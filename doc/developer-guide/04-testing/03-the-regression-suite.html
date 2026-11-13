@@ -3171,7 +3171,10 @@ follow every other row. <code>private-sd</code> marks a row that writes to the S
 which then boots a copy of its own; every other row boots the run's clone
 through a hard link, and the driver fingerprints that clone after provisioning
 and again at the end, so an untagged writer is a harness fault rather than a
-row that quietly changes what its neighbours boot.</p>
+row that quietly changes what its neighbours boot. <code>bound=&lt;seconds&gt;</code> gives one
+row its own kill bound in place of the 600 s default, for a row whose measured
+pass is slower (<code>harness-selftest-func</code> carries <code>bound=1200</code>); it takes a
+positive integer, at most once, and anything else is a harness fault.</p>
 <p>The driver keeps every accounting check and adds the ones a process boundary
 needs: a row process that dies without a result, or outlives its 600 s bound,
 is a FAIL naming it; a row's directory that already exists when it starts, is
