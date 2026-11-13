@@ -368,6 +368,27 @@ bf_jds() {
     fi
 }
 
+# menu_index <image> <mode> <rom> — the `default=` value of the card's menu line with that mode (2nd
+# field) and ROM (4th). The firmware (TBBlue config.c:345-405) reads machines/next/menu.ini, else
+# menu.def, counts only `menu=` lines whose ROM field is non-empty, and `default=N` names the N-th of
+# those. A distribution can insert lines, so a row asks the card's own file instead of carrying a
+# number. Prints the index; fails (no output) when the file is missing, nothing matches, or the
+# (mode, ROM) key is not unique. `sdfile_tool` is $TEST_BIN_DIR/sdfile_tool.
+menu_index() {
+    local img=$1 mode=$2 rom=$3 f="$TMP_DIR/menu_index.def" n=0 hit="" line title m tm r
+    "$TEST_BIN_DIR/sdfile_tool" get "$img" machines/next/menu.ini "$f" >/dev/null 2>&1 ||
+        "$TEST_BIN_DIR/sdfile_tool" get "$img" machines/next/menu.def "$f" >/dev/null 2>&1 || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line=${line%$'\r'}
+        [[ "$line" == menu=* ]] || continue
+        IFS=, read -r title m tm r _ <<<"${line#menu=}"
+        [[ -n "$r" ]] || continue
+        if [[ "$m" == "$mode" && "$r" == "$rom" ]]; then [[ -z "$hit" ]] || return 1; hit=$n; fi
+        n=$((n + 1))
+    done <"$f"
+    [[ -n "$hit" ]] && echo "$hit"
+}
+
 declared_count() {   # declared_count <conf>  — non-comment, non-blank lines
     grep -cvE '^[[:space:]]*(#|$)' "$1" || true
 }

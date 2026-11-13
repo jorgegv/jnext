@@ -15,7 +15,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #       (zxula_timing.vhd:150-168, 448 x 320 x 4); and NR 0x05 bit 2 (60 Hz)
 #       cannot be set (zxnext.vhd:5835-5836);
 #   (b) tbblue.fw booting `--machine next` on a clone whose config.ini says
-#       `default=14` (menu.def "Pentagon 128K,3,8,128.rom") runs boot.c's mode
+#       `default=N`, N being the menu file's index of the Pentagon line (mode 3,
+#       ROM 128.rom: "Pentagon 128K,3,8,128.rom"), which the firmware counts as
+#       config.c does (menu_index in test-functions.inc), runs boot.c's mode
 #       3 itself and ends in the same register state. The row requires the
 #       firmware to have logged its `NR 0x03 = 0xC4` commit, so a run that
 #       never reached the firmware's personality FAILS instead of comparing
@@ -83,8 +85,12 @@ JDS
             fail_row " (could not read config.ini from the SD clone: $(tr -d '\n' <"$io_log"))"
             verdict=settled
         else
-            { grep -v '^default=' "$cfg_in" || true; printf 'default=14\n'; } >"$cfg_out"
-            if ! "$sdfile" put "$sd_image" machines/next/config.ini "$cfg_out" >"$io_log" 2>&1; then
+            if ! pen_def=$(menu_index "$sd_image" 3 128.rom); then
+                fail_row " (no menu.ini/menu.def line with mode 3 and ROM 128.rom, or more than one, on the card)"
+                verdict=settled
+            fi
+            { grep -v '^default=' "$cfg_in" || true; printf 'default=%s\n' "${pen_def:-}"; } >"$cfg_out"
+            if [[ -z "$verdict" ]] && ! "$sdfile" put "$sd_image" machines/next/config.ini "$cfg_out" >"$io_log" 2>&1; then
                 fail_row " (could not write config.ini to the SD clone: $(tr -d '\n' <"$io_log"))"
                 verdict=settled
             fi
@@ -124,7 +130,7 @@ JDS
         fi
         [[ -n "$n05" && "$(hexand "$n05" 04)" == 00 ]] || why+=" a:nr05=$n05 after writing 0x85;"
         # (b) the firmware's own personality, the oracle
-        (( fw_commit >= 1 )) || why+=" b:the firmware never wrote NR 0x03 = 0xC4 (config.ini default=14 not taken?);"
+        (( fw_commit >= 1 )) || why+=" b:the firmware never wrote NR 0x03 = 0xC4 (config.ini default=${pen_def:-?} not taken?);"
         [[ "$b03" == 44 && "$b82" == C6 && "$b8f" == 00 ]] ||
             why+=" b:regs nr03=$b03 nr82=$b82 nr8f=$b8f;"
         [[ -n "$b84" && "$(hexand "$b84" 04)" == 00 ]] || why+=" b:nr84=$b84;"
