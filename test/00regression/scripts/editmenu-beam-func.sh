@@ -31,7 +31,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   fetch when it happened at or before it. The paper area has no scroll and
 #   no Timex mode here, so the primary fetches are all that matter.
 #
-#   zxula.vhd:470 — a FLASH cell (attribute bit 7) inverts its pixels while flash_cnt(4)
+#   zxula.vhd:470: a FLASH cell (attribute bit 7) inverts its pixels while flash_cnt(4)
 #   is 1. flash_cnt has no reset and counts frames from power-on, incrementing at
 #   (vc_ula, hc_ula) = (0,0) (zxula.vhd:472-480; zxula_timing.vhd:124-125 start vc_ula at 0
 #   and hc_ula at 256), so frame F shows the count F + 1. NextZXOS's cursor cell is the

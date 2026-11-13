@@ -368,7 +368,7 @@ bf_jds() {
     fi
 }
 
-# menu_index <image> <mode> <rom> — the `default=` value of the card's menu line with that mode (2nd
+# menu_index <image> <mode> <rom>: the `default=` value of the card's menu line with that mode (2nd
 # field) and ROM (4th). The firmware (TBBlue config.c:345-405) reads machines/next/menu.ini, else
 # menu.def, counts only `menu=` lines whose ROM field is non-empty, and `default=N` names the N-th of
 # those. A distribution can insert lines, so a row asks the card's own file instead of carrying a
