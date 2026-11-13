@@ -4588,8 +4588,8 @@ a.click();
 <p>and <code>load()</code> takes it back, for instance from an <code>&lt;input type="file"&gt;</code>:</p>
 <pre><code class="language-js">await player.load({ data: new Uint8Array(await file.arrayBuffer()), name: file.name });
 </code></pre>
-<p>A snapshot runs on the machine it was saved on, whatever the player's <code>machine</code> option says
-(the log notes it), and that machine stays for later <code>reset('hard')</code>, <code>reset('program')</code> and
+<p>A snapshot runs on the machine it was saved on, whatever the player's <code>machine</code> option says,
+and that machine stays for later <code>reset('hard')</code>, <code>reset('program')</code> and
 <code>load()</code> of a program; a page that mixes snapshots of other machines with NEX programs gives
 each its own player. A <code>.jns</code> restores only on the SD card it was taken on: the same card
 image gives a snapshot that loads, another one is refused (<code>failed to load '&lt;file&gt;'</code>, the

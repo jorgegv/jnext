@@ -73,8 +73,8 @@ and `load()` takes it back, for instance from an `<input type="file">`:
 await player.load({ data: new Uint8Array(await file.arrayBuffer()), name: file.name });
 ```
 
-A snapshot runs on the machine it was saved on, whatever the player's `machine` option says
-(the log notes it), and that machine stays for later `reset('hard')`, `reset('program')` and
+A snapshot runs on the machine it was saved on, whatever the player's `machine` option says,
+and that machine stays for later `reset('hard')`, `reset('program')` and
 `load()` of a program; a page that mixes snapshots of other machines with NEX programs gives
 each its own player. A `.jns` restores only on the SD card it was taken on: the same card
 image gives a snapshot that loads, another one is refused (`failed to load '<file>'`, the
