@@ -4,7 +4,7 @@
 #
 #   bash test/browser/browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]
 #
-# Specs default to `smoke.mjs:33` (rows BRW-01..33, this directory) and `image.mjs:8`
+# Specs default to `smoke.mjs:34` (rows BRW-01..34, this directory) and `image.mjs:8`
 # (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:31`
 # (rows WEBAPI-01..31, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
@@ -14,7 +14,8 @@
 # kept across page loads, against a native journal oracle), `snapshots.mjs:11` (rows BSN-01..11: .sna, .z80,
 # .szx and .jns loaded in the page and compared with native runs, and player.saveSnapshot()) and `../bench/web/bench-stats-test.mjs:12` (rows
 # WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser) and `crt.mjs:13` (rows
-# BCRT-01..13: the CRT effect, crtemu on SDL's WebGL context, and its fallbacks). Further specs
+# BCRT-01..13: the CRT effect, crtemu on SDL's WebGL context, and its fallbacks) and `rzx.mjs:9` (rows BRZ-01..09:
+# .rzx recordings played and recorded in the page). Further specs
 # (the JavaScript API rows) are passed as extra `file:count` arguments or added to
 # SPECS below: each runs on the SDK's node, prints PASS|FAIL rows and a `Total:` line,
 # and its row count is pinned here, so a spec that loses rows fails the run.
@@ -29,6 +30,7 @@
 #                 request handler, and it is never committed, uploaded or traced
 #                 (Playwright tracing, HAR and video stay off).
 #   beeper_demo.tzx   the TAP of the regression suite re-wrapped as TZX.
+#   keys48.rzx, s128.rzx   RZX recordings made by the native jnext from our own inputs (rzx.mjs, BRW-34).
 #   beeper_demo.wav   the same TAP as a 44.1 kHz 8-bit mono cassette recording (tap2wav.py).
 #   oracle/*.png  native runs of the same arguments (build/sdl-release on the dummy
 #                 SDL drivers; keyed screens by the headless typist, which SdlApp lacks).
@@ -40,7 +42,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:33" "image.mjs:8" "api.mjs:31" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "$@")
+SPECS=("smoke.mjs:34" "image.mjs:8" "api.mjs:31" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:9" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -203,6 +205,20 @@ oracle z80     sdl --load "$SCRATCH/s48.z80"  --delayed-screenshot "$O/z80.png" 
 oracle szx     sdl --load "$SCRATCH/s128.szx" --delayed-screenshot "$O/szx.png"     --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
 oracle jns     sdl --rtc 2026-07-10T08:55:00 --load "$SCRATCH/tilemap.jns" --delayed-screenshot "$O/jns.png" --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
 oracle bluejns sdl --rtc 2026-07-10T08:55:00 --load "$SCRATCH/blue.jns"    --delayed-screenshot "$O/bluejns.png" --delayed-screenshot-frames 50 --delayed-automatic-exit-frames 120
+
+# RZX fixtures (GH #473): recorded by jnext itself from our own inputs, then replayed natively for the
+# oracle pictures. keys48.rzx is the `keys` typing recorded from power-on on a 48K (400 frames, embedded
+# 48K SNA); s128.rzx records #471's bank-7 shadow-screen snapshot (embedded 128K SZX).
+oracle rzxrec48  headless --machine 48k --rzx-record "$SCRATCH/keys48.rzx" \
+                          --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \
+                          --delayed-keypress-frames 245 enter --delayed-screenshot "$O/rzxrec48.png" --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 400
+oracle rzxplay48 sdl      --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxplay48.png" --delayed-screenshot-frames 320 --delayed-automatic-exit-frames 420
+oracle rzxend48  sdl      --load "$SCRATCH/keys48.rzx" --delayed-screenshot "$O/rzxend48.png" --delayed-screenshot-frames 500 --delayed-automatic-exit-frames 520
+oracle rzxrec128 headless --machine 128k --load "$SCRATCH/s128.szx" --rzx-record "$SCRATCH/s128.rzx" \
+                          --delayed-screenshot "$O/rzxrec128.png" --delayed-screenshot-frames 60 --delayed-automatic-exit-frames 120
+oracle rzxplay128 sdl     --load "$SCRATCH/s128.rzx" --delayed-screenshot "$O/rzxplay128.png" --delayed-screenshot-frames 60 --delayed-automatic-exit-frames 120
+oracle keys352   headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \
+                          --delayed-keypress-frames 245 enter --delayed-screenshot "$O/keys352.png" --delayed-screenshot-frames 352 --delayed-automatic-exit-frames 500
 
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
        SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg"
