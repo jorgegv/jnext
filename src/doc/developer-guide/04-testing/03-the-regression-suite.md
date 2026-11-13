@@ -130,7 +130,7 @@ through a hard link, and the driver fingerprints that clone after provisioning
 and again at the end, so an untagged writer is a harness fault rather than a
 row that quietly changes what its neighbours boot. `bound=<seconds>` gives one
 row its own kill bound in place of the 600 s default, for a row whose measured
-pass is slower (`harness-selftest-func` carries `bound=1200`); it takes a
+pass is slower (`harness-selftest-func` carries `bound=1500`); it takes a
 positive integer, at most once, and anything else is a harness fault.
 
 The driver keeps every accounting check and adds the ones a process boundary
