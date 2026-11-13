@@ -1269,24 +1269,32 @@ int main()
         auto never = [&](bool hz60) {
             Emulator e;
             make_next(e);
+            if (hz60) {
+                e.nextreg().write(0x05, 0x04);   // 60 Hz, pending until the frame edge commits it
+                e.run_frame();
+            }
             e.mmu().set_boot_rom_enabled(false);
             e.nextreg().apply_nr_03_config_mode_transition(7);
             const uint32_t step = Emulator::warm_start_frame_units(hz60);
             for (uint32_t u = 2400 - step; u < 5000; u += step) Emulator::warm_start_recipe_tick(e, u, u + step);
-            return e.warm_start_refusal_message(800, "why");
+            return e.warm_start_refusal_message(hz60 ? 960 : 800, "why");
         };
         Emulator plain;
         make_next(plain);
         const std::string m50 = never(false);
+        const std::string m60 = never(true);
         const std::string none = plain.warm_start_refusal_message(400, "why");
         check("WSR-CMT-08",
               "when the recipe gave up waiting for the commit the refusal line says the "
-              "recorder waited from frame 400 (50 Hz) and no clause appears otherwise",
+              "recorder waited from frame 400 (50 Hz) or 480 (60 Hz) and no clause appears otherwise",
               m50 == "warm start: after 800 frames of boot, why (the recorder waited from "
                      "frame 400 for the firmware to commit one). Not recording; this load "
                      "falls back to the synthetic machine." &&
+                  m60 == "warm start: after 960 frames of boot, why (the recorder waited from "
+                         "frame 480 for the firmware to commit one). Not recording; this load "
+                         "falls back to the synthetic machine." &&
                   none.find("waited") == std::string::npos,
-              m50 + " | " + none);
+              m50 + " | " + m60 + " | " + none);
     }
 
     // ── GH #481 follow-up: the recipe drives on the machine's state ──
