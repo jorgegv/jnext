@@ -37,7 +37,7 @@ public:
     /// is OFFSET BINARY, not sign-magnitude: i2s.vhd:179 builds it as
     /// `(not audio_pi_L(12)) & audio_pi_L(11 downto 3)`, i.e. it inverts the
     /// sign bit, so a signed zero (silence) leaves the entity as 0x200. The
-    /// same 0x200 is what zxnext.vhd:2358-2359 substitutes when the input is
+    /// same 0x200 is what zxnext.vhd:2674-2675 substitutes when the input is
     /// disabled, muted or in EAR mode — the state the machine powers on in
     /// and stays in for every ZX program (NR 0xA2 = 0). audio_mixer.vhd:89-90
     /// zero-extends that 10-bit value straight into the 13-bit sum.

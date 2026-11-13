@@ -474,7 +474,7 @@ static void test_nr_dac(Emulator& emu) {
     // the latch (observable via the next NR 0x2D read, NR-34 below) carries
     // the low 2 bits in [7:6]. Symmetric check for NR 0x2E (right channel).
     //
-    // G113: pi_audio_L/R is the GATED signal (zxnext.vhd:2358-2359). At
+    // G113: pi_audio_L/R is the GATED signal (zxnext.vhd:2674-2675). At
     // power-on, NR 0xA2 = 0 → pi_i2s_en = 0 → both channels read back
     // the silence midpoint 0x200, NOT the raw I2s sample latch. We
     // explicitly enable both channels (NR 0xA2 = 0xC0; enL=enR=1, no
@@ -571,7 +571,7 @@ static void test_nr_a2(Emulator& emu) {
               fmt("i2s.nr_a2_ctl()=0x%02X (want 0xCD)", got));
     }
 
-    // NR-41 — zxnext.vhd:2283-2290: bit fan-out drives pi_i2s_en[L/R],
+    // NR-41 — zxnext.vhd:2593-2600: bit fan-out drives pi_i2s_en[L/R],
     // inout, muteL/R, ear. Closing the loop end-to-end: drive a known
     // sample through the I2s, then assert the gated read path NR 0x2C
     // (= pi_audio_L per zxnext.vhd:6007) responds to the NR 0xA2 fan-out.
@@ -620,7 +620,7 @@ static void test_nr_a2(Emulator& emu) {
     }
 
     // NR-43 — G73: Mixer gates I2S contribution by NR 0xA2 enable/mute.
-    // VHDL pi_audio_L/R (zxnext.vhd:2358-2359) feeds audio_mixer's
+    // VHDL pi_audio_L/R (zxnext.vhd:2674-2675) feeds audio_mixer's
     // pi_i2s_L_i / pi_i2s_R_i ports (zxnext.vhd:6505-6506) — so the
     // mixer adds the GATED 10-bit value (silence midpoint 0x200 when
     // disabled/muted), not the raw sample. End-to-end check: same I2s
@@ -949,7 +949,7 @@ static void test_nr_mixer(Emulator& emu) {
     // The bare-Mixer rows MX-10/MX-11 in test/audio/audio_test.cpp could not
     // see the defect: they build a Mixer with no I2s source, while
     // Emulator's constructor always wires one (src/core/emulator.cpp:44) and
-    // the gated pi_audio_L/R idles at 0x200 (zxnext.vhd:2358-2359). The
+    // the gated pi_audio_L/R idles at 0x200 (zxnext.vhd:2674-2675). The
     // emulator therefore rested 512 (13-bit) = 2048 (int16) above zero on
     // every sample of every run, while the suite reported silence as 0.
     //

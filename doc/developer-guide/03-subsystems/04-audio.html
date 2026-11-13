@@ -3091,7 +3091,7 @@ ready. <code>PiAudio</code> absorbs the drift between QEMU's host clock and the 
 one: it prebuffers 50 ms, plays silence on an underrun and prebuffers again, and
 trims a backlog past 300 ms back to 100 ms. NR 0xA2 bit 0 sends the Pi's audio
 to EAR instead: <code>I2s::fe_ear()</code> is the hardware's comparator with hysteresis
-(<code>zxnext.vhd:2361-2373</code>), and <code>Emulator::audio_ear_in</code> folds it into the port
+(<code>zxnext.vhd:2677-2688</code>), and <code>Emulator::audio_ear_in</code> folds it into the port
 0xFE bit 6 read and the MIC output through the board's <code>ear_relax</code>. While it
 does (<code>I2s::ear_routed</code>), <code>PiAudio</code> runs in tape mode: a 250 ms prebuffer, and
 drift taken out one frame at a time, because a tape loader cannot survive the

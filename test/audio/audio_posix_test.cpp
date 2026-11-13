@@ -892,7 +892,7 @@ static void g_pi_audio() {
         // prebuffer, and drift corrected by single-frame skips and repeats
         // instead of the 50 ms refill and 100 ms trim that cut tape pulses.
         // Literal numbers, like MX-31/32: the rows pin the promised behaviour.
-        // jnext-only, no VHDL counterpart (except ear_routed, zxnext.vhd:2361-2373).
+        // jnext-only, no VHDL counterpart (except ear_routed, zxnext.vhd:2677-2688).
         auto put = [](int w, const std::string& b) {
             std::size_t off = 0;
             while (w >= 0 && off < b.size()) {

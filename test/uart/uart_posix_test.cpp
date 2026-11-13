@@ -1503,7 +1503,7 @@ static void test_nextpi_audio() {
     // ── PI-48 — THE FEATURE: the Pi's sound reaches the Next's mixer. With the
     // default audio setting PiQemu asks QEMU for its wav back-end on a FIFO
     // (44.1 kHz s16 stereo) and reads it; the emulator latches it into I2s,
-    // where NR 0xA2 gates it exactly as on the board (zxnext.vhd:2358-2359):
+    // where NR 0xA2 gates it exactly as on the board (zxnext.vhd:2674-2675):
     // with 0x00 the output is silent, with 0xC0 (both channels enabled — what
     // .pisend sets, plus its other bits) the Pi's square wave is in the mix.
     // The channels carry different amplitudes so a swap shows, and the levels
@@ -1946,7 +1946,7 @@ static void test_nextpi_audio() {
     }
 
     // ── PI-56..59 — NR 0xA2 bit 0: the Pi's audio as the EAR input, read on
-    // port 0xFE bit 6 (zxnext.vhd:2361-2373, :3459; zxnext_top_issue2.vhd:
+    // port 0xFE bit 6 (zxnext.vhd:2677-2688, :3459; zxnext_top_issue2.vhd:
     // 663-677). The stand-in plays a square wave with BOTH channels in phase at
     // ±24576 (10-bit 0x380 / 0x080: t = 11 / 00), flipping every 20 samples
     // (0.45 ms, well inside the ~1.17 ms relaxation), so the comparator
@@ -2176,7 +2176,7 @@ static void test_nextpi_audio() {
     }
 
     // PI-61 — setting NR 0xA2 bit 0 is itself an edge (R3-1). With bit 0 clear
-    // the comparator is held at 0 whatever the Pi sends (zxnext.vhd:2361-2373);
+    // the comparator is held at 0 whatever the Pi sends (zxnext.vhd:2677-2688);
     // a sample already at t = 11 therefore raises pi_fe_ear AT the NR 0xA2
     // write, and ear_relax passes that edge through: bit 6 reads 1 at once and
     // still 30000 master cycles later, instead of the relaxed level.

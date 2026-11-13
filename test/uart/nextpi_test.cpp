@@ -3643,7 +3643,7 @@ int main(int argc, char** argv) {
     // end to end (PI-48 for the socket transport; on Windows the named pipe,
     // written by another process's fopen). The stand-in opens the audio path as
     // QEMU's wav back-end does and writes a tone. NR 0xA2 gates it exactly as on
-    // the board (zxnext.vhd:2358-2359): 0x00 silent, 0xC0 both channels. The
+    // the board (zxnext.vhd:2674-2675): 0x00 silent, 0xC0 both channels. The
     // levels are exact: left +-16384 is to_i2s 768/256, +-256 from the 0x200 rest,
     // which the mixer outputs as +1024/-1024 (MX-06/07's x4); right +-8192 gives
     // +512/-512 (i2s.vhd:177-180).
