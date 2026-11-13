@@ -8,8 +8,8 @@
 // of src/platform/frame_deadline.h (one tick at once, then the grid, never a
 // burst). A fake clock is advanced by a fake tick of a given cost that reports
 // a given sleep, so no row depends on the host's speed. The refusal rows are
-// derived from the plan: the page refuses exactly --headless, --rzx-play and
-// --rzx-record, and loads exactly .nex, .tap, .tzx, .wav programs and .jns, .sna, .szx, .z80 snapshots.
+// derived from the plan: the page refuses exactly --headless and
+// --rzx-record, and loads exactly .nex, .tap, .tzx, .wav programs, .rzx recordings and .jns, .sna, .szx, .z80 snapshots.
 
 #include "platform/browser_pacing.h"
 #include "platform/browser_page.h"
