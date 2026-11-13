@@ -29,6 +29,18 @@ while IFS= read -r line; do
 
     want "$test_name" || continue
 
+    # A boot-timeline frame is written @bf:N (or @bf:N:K after a firmware reboot), in the frame
+    # field or among the extra arguments: it is expanded with the boot-ready helper
+    # (test-functions.inc). A literal frame stays a literal. On the reference card the
+    # expansion is the literal, so the command line is the one the row always had.
+    delay_frames=$(bf_expand "$delay_frames")
+    if [[ "$extra_args" == *@bf:* ]]; then
+        read -ra bf_words <<< "$extra_args"
+        extra_args=""
+        for bf_word in "${bf_words[@]}"; do extra_args+=" $(bf_expand "$bf_word")"; done
+        extra_args=${extra_args# }
+    fi
+
     ORDERED_TESTS+=("$test_name")
 
     out_img="$TMP_DIR/${test_name}.png"

@@ -223,6 +223,27 @@ esac
 # A run on a candidate card (JNEXT_REGRESSION_SD_STATE_DIR) says so in its row.
 [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] || sd_text+="; master in use $FALLBACK_SD_IMAGE (JNEXT_REGRESSION_SD_STATE_DIR)"
 
+# The boot anchor (test-functions.inc, "The boot-ready helper"): the frame at which this card's
+# firmware commits a machine type, measured once here on the run's clone and exported, so every
+# row's bf shift is the same number. The DEFAULT master must give BOOT_DEFAULT_COMMIT: a change
+# that moves the boot is a red row, never a shift the helper absorbs. A candidate card (the
+# seam) may commit anywhere, and the row reports where. JNEXT_REGRESSION_BOOT_ANCHOR=off skips
+# the measurement (the row sdcard-provision-func drives this script with a stub jnext whose
+# every call it counts).
+if [[ "$sd_verdict" == pass && "${JNEXT_REGRESSION_BOOT_ANCHOR:-on}" != off ]]; then
+    if boot_c=$(boot_commit_measure); then
+        export BOOT_COMMIT_MEASURED=$boot_c
+        sd_text+="; firmware commits the machine type at frame $boot_c (reference $BOOT_REF_COMMIT): boot-relative frames shift by $((boot_c - BOOT_REF_COMMIT))"
+        if [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" && "$boot_c" != "$BOOT_DEFAULT_COMMIT" ]]; then
+            sd_verdict=fail
+            sd_text+=" - the default card must commit at frame $BOOT_DEFAULT_COMMIT: an emulator change moved the boot, or the master is not the default card"
+        fi
+    else
+        sd_verdict=fail
+        sd_text+="; the firmware never committed a machine type within 1500 frames"
+    fi
+fi
+
 CURRENT_ROW=sdcard-provision
 printf "  "
 if [[ "$sd_verdict" == pass ]]; then pass_row "$sd_text"; else fail_row "$sd_text"; fi
