@@ -4976,9 +4976,10 @@ overriding the saved GUI preference. While on, the tape deck stops
 in the silent gap between two blocks when no program is reading the
 tape, and resumes when one does, so tapes whose BASIC loader is slow
 between blocks load in real time. It does nothing in fast load mode.
-Off, the deck runs straight through, as a real one does (a TZX “stop
-the tape if in 48K mode” block now stops only on a 48K machine, as
-the TZX specification says, whatever this setting is).</dd>
+A <code>.wav</code> has no blocks and is never paused. Off, the deck runs
+straight through, as a real one does (a TZX “stop the tape if in 48K
+mode” block now stops only on a 48K machine, as the TZX
+specification says, whatever this setting is).</dd>
 <dt><strong>--tape-save</strong> <em>FILE</em></dt>
 <dd>Save to tape, appending to <em>FILE</em>; its extension picks the format. A
 <code>.tzx</code> or <code>.wav</code> records the machine’s tape output (the MIC jack),
@@ -5165,26 +5166,26 @@ dB.</dd>
 dB to +24 dB.</dd>
 <dt><strong>--rzx-play</strong> <em>FILE</em></dt>
 <dd>Play back an RZX recording from the start of the run. Works the same
-in the GUI, the SDL-only build and under <strong>--headless</strong>. A recording
-that fails to load is logged, and <strong>jnext</strong> then exits non-zero. The
-machine starts exactly as it does for <strong>--load</strong> <em>FILE</em>, so the two
-spellings replay identically, and so do <strong>File &gt; Load NEX File…</strong>
-and <strong>File &gt; Play RZX Recording</strong> in the GUI. The recording brings
-its own snapshot of the machine, so it cannot be combined with
-<strong>--rzx-record</strong>, with <strong>--load</strong> or <strong>--inject</strong> of another
-program, or with a second RZX file. It plays on the machine it was
-recorded on, whatever machine is configured: a recording <strong>jnext</strong>
-makes names its machine, and one from another emulator is judged by
-its embedded snapshot (an SNA’s size, an SZX’s machine ID, a
-<code>.z80</code>’s hardware mode). A recording that names none — one <strong>jnext</strong>
-1.0.0 or earlier made with an SNA snapshot, or one whose snapshot is
-of a machine <strong>jnext</strong> does not emulate — plays on the configured
-machine. An explicit <strong>--machine</strong> given with the recording wins,
-and <strong>jnext</strong> warns when it disagrees with the recording, which then
-goes out of step; a recording played from the GUI’s menus always
-gets its own machine. The recording’s machine stays selected
-afterwards, in the GUI’s <strong>Machine &gt; Machine Type</strong> too, as if
-chosen there.</dd>
+in the GUI, the SDL-only build, under <strong>--headless</strong> and in a
+browser page. A recording that fails to load is logged, and
+<strong>jnext</strong> then exits non-zero. The machine starts exactly as it does
+for <strong>--load</strong> <em>FILE</em>, so the two spellings replay identically, and
+so do <strong>File &gt; Load NEX File…</strong> and <strong>File &gt; Play RZX Recording</strong>
+in the GUI. The recording brings its own snapshot of the machine, so
+it cannot be combined with <strong>--rzx-record</strong>, with <strong>--load</strong> or
+<strong>--inject</strong> of another program, or with a second RZX file. It plays
+on the machine it was recorded on, whatever machine is configured: a
+recording <strong>jnext</strong> makes names its machine, and one from another
+emulator is judged by its embedded snapshot (an SNA’s size, an SZX’s
+machine ID, a <code>.z80</code>’s hardware mode). A recording that names none —
+one <strong>jnext</strong> 1.0.0 or earlier made with an SNA snapshot, or one
+whose snapshot is of a machine <strong>jnext</strong> does not emulate — plays on
+the configured machine. An explicit <strong>--machine</strong> given with the
+recording wins, and <strong>jnext</strong> warns when it disagrees with the
+recording, which then goes out of step; a recording played from the
+GUI’s menus always gets its own machine. The recording’s machine
+stays selected afterwards, in the GUI’s <strong>Machine &gt; Machine Type</strong>
+too, as if chosen there.</dd>
 <dt><strong>--rzx-record</strong> <em>FILE</em></dt>
 <dd>
 <p>Record input to an RZX file from the start of the run — or, with
@@ -5192,11 +5193,13 @@ chosen there.</dd>
 machine, so the snapshot the file carries is the program, and
 playback replays it. The file is written when <strong>jnext</strong> exits (or,
 in the GUI, at <strong>File &gt; Stop RZX Recording</strong>). Works the same in
-the GUI, the SDL-only build and under <strong>--headless</strong>. While
-recording, a tape loads in real time: a fast load skips the ROM
-loader, which a recording cannot replay. The snapshot is an SZX on
-the 128K, Pentagon and +3 and a 48K SNA on the 48K. The file names
-the machine it was recorded on, which <strong>--rzx-play</strong> then uses.</p>
+the GUI, the SDL-only build and under <strong>--headless</strong>. A browser page
+refuses it and records from JavaScript (see THE BROWSER BUILD).
+While recording, a tape loads in real time: a fast load skips the
+ROM loader, which a recording cannot replay. The snapshot is an SZX
+on the 128K, Pentagon and +3 and a 48K SNA on the 48K. The file
+names the machine it was recorded on, which <strong>--rzx-play</strong> then
+uses.</p>
 <p><strong>Recording is not available on a ZX Spectrum Next, which is jnext’s
 default machine, so this needs an explicit --machine 48k, 128k,
 pentagon or plus3.</strong> An RZX carries a snapshot of the machine it

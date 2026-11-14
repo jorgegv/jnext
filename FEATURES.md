@@ -189,7 +189,9 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Embed JNEXT in a web page or an itch.io game with `jnext.mount()`; pause, reset, load and volume from JavaScript; several players per page; every option is a command-line flag or `--set` key, documented in the man page and diffed against the code; published with every public release as `jnext-<version>-web.zip`, ready to host; a copy-and-paste widget (one `div`, one script tag) with light and dark themes, title bar, progress bar and pause/reset/mute/fullscreen toolbar; the desktop's CRT effect (scanlines, soft scanlines, TV, PC monitor) on WebGL, off by default, through `--crt` in `args` or the `startup.crt_*` settings in `set`.
 - `keepWrites` (or `data-keep-writes` on the widget) keeps what a program writes to the SD card, and the esxDOS save of a directly loaded NEX, across page reloads, in the visitor's own browser, one record per image and page; `player.resetCard()` clears it.
 - An on-screen Spectrum Next keyboard for phones and tablets (`touchKeyboard`, `--touch-keyboard`, `data-touch-keyboard`, `player.showKeyboard()`): the 40 keys of a 48K or the Next's 58, latching Caps and Symbol Shift, several fingers at once, typed through the same path as a PC keyboard.
+- `.wav` tapes load in a page (in real time, as from a cassette).
 - Snapshots load in a page (`.jns`, `.sna`, `.szx`, `.z80`, on the machine they were saved on), and `player.saveSnapshot()` returns a `.jns` of the running machine for the page to download.
+- `.rzx` recordings play in a page, and a page records one from JavaScript (`player.startRzxRecording()` / `stopRzxRecording()` return the file for download).
 
 ## CLI
 - `--machine`, `--load`, `--headless`, `--tape-realtime`, `--tape-save`, `--esxdos-stub`

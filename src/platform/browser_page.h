@@ -13,15 +13,15 @@ inline const char* option_refusal(cli::OptId id)
     switch (id) {
     case cli::OptId::Headless:
         return "not available in a browser page (it would block the tab for ever)";
-    case cli::OptId::RzxPlay:
     case cli::OptId::RzxRecord:
-        return "RZX is not available in a browser page";
+        return "not available in a browser page (record from JavaScript: player.startRzxRecording(), "
+               "player.stopRzxRecording())";
     default:
         return nullptr;
     }
 }
 
-/// nullptr when `path` is a format the browser page loads (.nex .tap .tzx programs,
+/// nullptr when `path` is a format the browser page loads (.nex .tap .tzx .wav programs, .rzx recordings,
 /// .jns .sna .szx .z80 snapshots, any case), else the reason. The reason starts
 /// "a browser page loads only .nex, .tap, .tzx, " (BRR-05 pins that prefix; the guide quotes
 /// the text); later formats are appended. BRR-03, WEBAPI-11 and BRW-23 match the
@@ -33,9 +33,10 @@ inline const char* program_refusal(const std::string& path)
         std::string ext = path.substr(dot);
         for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         if (ext == ".nex" || ext == ".tap" || ext == ".tzx" ||
-            ext == ".jns" || ext == ".sna" || ext == ".szx" || ext == ".z80") return nullptr;
+            ext == ".jns" || ext == ".sna" || ext == ".szx" || ext == ".z80" || ext == ".wav" ||
+            ext == ".rzx") return nullptr;
     }
-    return "a browser page loads only .nex, .tap, .tzx, .jns, .sna, .szx, .z80 programs";
+    return "a browser page loads only .nex, .tap, .tzx, .jns, .sna, .szx, .z80, .wav, .rzx programs";
 }
 
 }  // namespace browser_page

@@ -1,4 +1,4 @@
-// Browser rows WEBAPI-01..29: the JavaScript API (jnext.mount) in headless Chromium
+// Browser rows WEBAPI-01..31: the JavaScript API (jnext.mount) in headless Chromium
 // (make wasm-browser-test, spec api.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Pages: test/browser/page/api.html (the fixture, mounts one or two players with the options
@@ -137,6 +137,17 @@ function diff(a, b) {
   if (a.w !== b.w || a.h !== b.h) return `size ${a.w}x${a.h} vs ${b.w}x${b.h}`;
   let n = 0;
   for (let i = 0; i < a.d.length; i += 4) if (a.d[i] !== b.d[i] || a.d[i + 1] !== b.d[i + 1] || a.d[i + 2] !== b.d[i + 2]) n++;
+  return n;
+}
+// Pixels of the 256x192 display (x 64..575, y 64..447 of a 640x512 picture; the border is excluded)
+// whose RGB differs between two decoded pictures.
+function paperDiff(a, b) {
+  if (a.w !== 640 || a.h !== 512 || b.w !== 640 || b.h !== 512) return `size ${a.w}x${a.h} vs ${b.w}x${b.h}`;
+  let n = 0;
+  for (let y = 64; y < 448; y++) for (let x = 64; x < 576; x++) {
+    const o = (y * 640 + x) * 4;
+    if (a.d[o] !== b.d[o] || a.d[o + 1] !== b.d[o + 1] || a.d[o + 2] !== b.d[o + 2]) n++;
+  }
   return n;
 }
 const memInfo = (page) => page.evaluate(() => ({
@@ -573,6 +584,72 @@ row('WEBAPI-29', 'a load() cancelled by a hard reset rejects (onError once) and 
   const again = await page.evaluate(() => window.player0.load('/scratch/beeper_demo.tzx').then(() => 'resolved', (e) => e.message));
   const r2 = await rec(page);
   must(again === 'resolved' && r2.ready === ready0 + 1 && r2.errors.length === 1, `second load: ${again}, ready ${ready0} -> ${r2.ready}, errors ${JSON.stringify(r2.errors)}`);
+  await page.ctx.close();
+});
+
+// WAV_F: the frame of the native oracle wav.png (browser-smoke.sh; the tape's program is on screen and
+// static from about frame 1345 on, tap-demo-reference.png's paper from there).
+const WAV_F = 1500;
+
+row('WEBAPI-30', 'file: a .wav tape: --load is the MEMFS copy, ready has the load applied, the tape stops while paused, and the screen equals the native run and tap-demo-reference.png (paper)', async () => {
+  const page = await newPage(); attach(page);
+  await open(page, [{ machine: '48k', muted: true, file: '/scratch/beeper_demo.wav',
+                      args: ['--delayed-screenshot', '/tmp/s.png', '--delayed-screenshot-frames', String(WAV_F)] }]);
+  const r0 = await rec(page);
+  const i = r0.argv.indexOf('--load');
+  must(i >= 0 && r0.argv[i + 1] === '/media/0-beeper_demo.wav', 'argv ' + JSON.stringify(r0.argv));
+  await click(page); await waitReady(page, 0, 1);
+  const r = await rec(page);
+  must(r.applied === 1 && r.errors.length === 0, `applied ${r.applied} errors ${JSON.stringify(r.errors)}`);
+  must(page.msgs.some((m) => /WAV: loaded/.test(m)) && page.msgs.some((m) => /WAV: tape attached/.test(m)),
+       'log: ' + JSON.stringify(page.msgs.slice(-8)));
+  await waitFrame(page, 0, 1100, 240000);   // inside the code block's bits
+  await page.evaluate(() => window.player0.pause());
+  const f = await frame(page);
+  await sleep(3000);
+  const f2 = await frame(page);
+  must(f2 === f, `frames moved while paused: ${f} -> ${f2}`);
+  await page.evaluate(() => window.player0.resume());
+  await waitFor(page, () => window.player0._module.FS.analyzePath('/tmp/s.png').exists, 0, 240000);
+  const shot = await grabPng(page, 0, '/tmp/s.png');
+  const dw = diff(shot, await decode(fs.readFileSync(path.join(ORACLE, 'wav.png'))));
+  const dr = paperDiff(shot, await decode(fs.readFileSync(path.join(ROOT, 'test/00regression/img/tap-demo-reference.png'))));
+  must(dw === 0 && dr === 0, `vs native wav.png: ${dw}; paper vs tap-demo-reference.png: ${dr}`);
+  must(pageErrors(page).length === 0, 'page errors ' + JSON.stringify(pageErrors(page)));
+  await page.ctx.close();
+});
+
+row('WEBAPI-31', 'player.load({data, name: Beeper.WAV}) at run time: resolves, onReady +1, the canvas paper follows the native wav.png through the linear filter', async () => {
+  const page = await newPage(); attach(page);
+  await open(page, [{ machine: '48k', muted: true, width: 640, height: 512 }]);
+  await click(page); await waitReady(page, 0, 1);
+  const r0 = await rec(page);
+  const out = await page.evaluate(async (u) => {
+    const buf = new Uint8Array(await (await fetch(u)).arrayBuffer());
+    return window.player0.load({ data: buf, name: 'Beeper.WAV' }).then(() => 'resolved', (e) => e.message);
+  }, AURL + '/scratch/beeper_demo.wav');
+  const r1 = await rec(page);
+  must(out === 'resolved' && r1.ready === r0.ready + 1 && r1.applied === r0.applied + 1 && r1.errors.length === 0,
+       `${out} ready ${r0.ready} -> ${r1.ready} applied ${r0.applied} -> ${r1.applied} errors ${JSON.stringify(r1.errors)}`);
+  must(page.msgs.some((m) => /WAV: loaded '\/media\/[^']*-Beeper\.WAV'/.test(m)), 'log: ' + JSON.stringify(page.msgs.slice(-8)));
+  await waitFrame(page, 0, (await frame(page)) + WAV_F - 100 + 50, 240000);
+  const fbi = await decode(fs.readFileSync(path.join(ORACLE, 'wav.png')));
+  await page.evaluate(() => { document.getElementById('textbox').style.display = 'none'; });   // the fixture's input box lies over a 640x512 canvas
+  const cv = await decode(await page.locator('#p0 canvas').screenshot());
+  must(cv.w === 640 && cv.h === 512 && fbi.w === 640 && fbi.h === 512, `sizes ${cv.w}x${cv.h} ${fbi.w}x${fbi.h}`);
+  const P = (im, x, y) => [im.d[(y * im.w + x) * 4], im.d[(y * im.w + x) * 4 + 1], im.d[(y * im.w + x) * 4 + 2]];
+  let bad = 0, first = '';
+  for (let y = 64; y < 448; y++) {
+    const rr = y >> 1, nb = Math.min(255, Math.max(0, (y & 1) ? rr + 1 : rr - 1));
+    for (let x = 64; x < 576; x++) {
+      const a = P(fbi, x, 2 * rr), b = P(fbi, x, 2 * nb), c = P(cv, x, y);
+      const same = a.every((v, k) => v === b[k]);
+      const ok = same ? c.every((v, k) => v === a[k]) : c.every((v, k) => v >= Math.min(a[k], b[k]) && v <= Math.max(a[k], b[k]));
+      if (!ok) { bad++; if (!first) first = `(${x},${y}) got ${c} rows ${a} / ${b}`; }
+    }
+  }
+  must(bad === 0, `${bad} canvas pixels violate the linear rule, first ${first}`);
+  must(pageErrors(page).length === 0, 'page errors ' + JSON.stringify(pageErrors(page)));
   await page.ctx.close();
 });
 
