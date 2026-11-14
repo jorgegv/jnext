@@ -55,7 +55,7 @@ extern const char* const kFixedImageFileName;  // "cspect-next-1gb-fixed.img"
 //   1 — FAT32 re-cluster to 8 KB clusters + default config.ini (Task 27).
 //       Images made by this recipe carry no recipe sidecar.
 //   2 — also doubles the 16 KB zx81.rom (GH #284).
-//   3 — the FAT32 volume serial is the first 4 bytes of the raw image's SHA-256
+//   3 - the FAT32 volume serial is the first 4 bytes of the raw image's SHA-256
 //       (kFixedImageRecipe 3: each distribution's card has its own serial).
 // provision_sd_card records it next to the image it derives, in
 // "<fixed image>" + kFixedImageRecipeSuffix, as the number and a newline.
