@@ -301,6 +301,13 @@ void write_sha256_sidecar(const std::string& raw, const std::string& hex) {
     f << hex << "  cspect-next-1gb.img\n";
 }
 
+// A raw image the rows below treat as "the default distribution's" (their downloads and trusted raws
+// predate distributions): its .distro names kDistroUrl's, so a changed default needs no new row.
+void write_default_raw_distro(const std::string& raw) {
+    std::ofstream f(raw + sdcard::kDistroSuffix, std::ios::trunc);
+    f << sdcard::distribution_of_url(sdcard::kDistroUrl) << "\n";
+}
+
 // Read the first whitespace-delimited token of a text file (the hex digest).
 std::string read_first_token(const std::string& path) {
     std::ifstream f(path);
@@ -2341,7 +2348,7 @@ void test_upgrade_rows() {
     // -- SER-01..03: each distribution's card has its own serial -----------------
     {
         clean();
-        write_file(raw, read_file(src)); write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        write_file(raw, read_file(src)); write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
         sdcard::ProvisionOptions o; o.download = failing_dl; o.confirm = [](const std::string&) { return true; };
         auto r = sdcard::provision_sd_card(o);
         const uint32_t want = sdcard::volume_id_from_sha256(sdcard::sha256_file(raw));
@@ -2352,12 +2359,12 @@ void test_upgrade_rows() {
         const uint32_t first = got;
         clean();
         // the same raw again: the same serial; another raw (one boot-code byte differs): another serial
-        write_file(raw, read_file(src)); write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        write_file(raw, read_file(src)); write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
         (void)sdcard::provision_sd_card(o);
         const uint32_t again = volume_serial(fixed, 63, 0);
         clean();
         std::vector<uint8_t> other = read_file(src); other[0x10] ^= 0x5A;
-        write_file(raw, other); write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        write_file(raw, other); write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
         (void)sdcard::provision_sd_card(o);
         const uint32_t different = volume_serial(fixed, 63, 0);
         check("PROV-SER-02", "the same raw gives the same serial twice; a different raw gives a different one",
@@ -2715,7 +2722,7 @@ int main() {
         check("PROV-FIXED-01", "raw FAT32 source built", src_ok, berr);
 
         const std::string h_before = sdcard::sha256_file(raw);
-        write_sha256_sidecar(raw, h_before); // trusted raw
+        write_sha256_sidecar(raw, h_before); write_default_raw_distro(raw); // trusted raw
 
         download_called = false;
         sdcard::ProvisionOptions o;
@@ -2757,7 +2764,7 @@ int main() {
         std::string berr;
         bool src_ok = make_fat32_source(raw, 63, 1228800, berr);
         check("PROV-BUSY-02", "raw FAT32 source built", src_ok, berr);
-        write_sha256_sidecar(raw, sdcard::sha256_file(raw)); // trusted raw
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw); // trusted raw
 
         sdcard::ProvisionOptions o;
         o.download = recording_dl; // must NOT be called (skip-redownload)
@@ -2782,7 +2789,7 @@ int main() {
     {
         std::remove(fixed.c_str());
         write_file(raw, {'r','a','w'});           // small trusted raw
-        write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
 
         download_called = false;
         sdcard::ProvisionOptions o;
@@ -2814,7 +2821,7 @@ int main() {
         std::remove(fixed.c_str());
         std::vector<uint8_t> junk(4096, 0xEE);    // no MBR/FAT32 partition
         write_file(raw, junk);
-        write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
 
         download_called = false;
         sdcard::ProvisionOptions o;
@@ -2842,7 +2849,7 @@ int main() {
         std::remove(fixed.c_str());
         std::string berr;
         bool src_ok = make_fat32_source(raw, 63, 1228800, berr);
-        write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
         write_file(recipe, {'1', '\n'});
         sdcard::ProvisionOptions o;
         o.download = recording_dl;
@@ -2862,7 +2869,7 @@ int main() {
         // 02: a derive that fails (the raw is not FAT32, so the patch fails)
         // leaves no sidecar, not even the stale one it found.
         write_file(raw, std::vector<uint8_t>(4096, 0xEE));
-        write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
         write_file(recipe, {'1', '\n'});
         sdcard::ProvisionOptions o;
         o.download = recording_dl;
@@ -2885,7 +2892,7 @@ int main() {
         // images whose sidecar is merely old (03b).
         const std::vector<uint8_t> user_image = {'u', 's', 'e', 'r', 'd', 'a', 't', 'a'};
         write_file(raw, {'r', 'a', 'w'});
-        write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw)); write_default_raw_distro(raw);
         for (int with_old_sidecar = 0; with_old_sidecar < 2; ++with_old_sidecar) {
             write_file(fixed, user_image);
             std::remove(recipe.c_str());
