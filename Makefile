@@ -194,7 +194,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count kloc-count-detailed regression regression-win regression-package regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
+       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
@@ -514,8 +514,22 @@ gui-clean: gui-debug-clean gui-release-clean
 # Remove all build directories (sdl/gui + unit-test; build/ takes the rest with it)
 clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
 
+# Build the stall capture's x64 stack helper (a test tool, never packaged): build/wine-stack/wine-stack-x64.exe
+wine-stack-x64:
+	@# GH #487. test/wine-stack.c names the call a stalled Windows process is blocked in without a
+	@# debugger; the helper's bitness must match its target's (x64 here, i686 for the 32-bit zip).
+	@command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 || { printf "$(BADGE_FAIL) ERROR $(RESET) MinGW x86_64 cross compiler not found (dnf install mingw64-gcc).\n"; exit 1; }
+	@mkdir -p build/wine-stack
+	x86_64-w64-mingw32-gcc -O1 -Wall -static test/wine-stack.c -o build/wine-stack/wine-stack-x64.exe -ldbghelp -lpsapi -lntdll
+
+# Build the stall capture's i686 stack helper (a test tool, never packaged): build/wine-stack/wine-stack-x86.exe
+wine-stack-x86:
+	@command -v i686-w64-mingw32-gcc >/dev/null 2>&1 || { printf "$(BADGE_FAIL) ERROR $(RESET) MinGW i686 cross toolchain incomplete (dnf install mingw32-gcc).\n"; exit 1; }
+	@mkdir -p build/wine-stack
+	i686-w64-mingw32-gcc -O1 -Wall -static test/wine-stack.c -o build/wine-stack/wine-stack-x86.exe -ldbghelp -lpsapi -lntdll
+
 # Run the regression suite's Windows rows and screenshots: MinGW exes under wine (GH #319)
-regression-win: unit-test-sdl-build unit-test-win-build win-sdl-release z88dk-gdb sdcard-image
+regression-win: unit-test-sdl-build unit-test-win-build win-sdl-release wine-stack-x64 z88dk-gdb sdcard-image
 	@# `regression.sh --platform` against the Windows binaries: the Qt exe is the
 	@# shipped build, `win-release` (Release + LTO + PGO, the tree `package-win`
 	@# zips; GH #487), with Qt's offscreen platform plugin bundled into THIS tree
@@ -541,7 +555,8 @@ regression-package:
 	@# plus a declared set of functional rows against that binary
 	@# (test/regression-package.sh). release.yml runs it after each package build,
 	@# before the upload. Never stamped, never the batch gate's.
-	@case "$(PACKAGE)" in rpm|deb) pre="";; win|win-qt5|win32-qt5) pre="unit-test-sdl-build win-sdl-release sdcard-image";; \
+	@case "$(PACKAGE)" in rpm|deb) pre="";; win|win-qt5) pre="unit-test-sdl-build win-sdl-release wine-stack-x64 sdcard-image";; \
+	 win32-qt5) pre="unit-test-sdl-build win-sdl-release wine-stack-x64 wine-stack-x86 sdcard-image";; \
 	 *) printf "$(BADGE_FAIL) FAIL $(RESET) name the package: make regression-package PACKAGE=rpm|deb|win|win-qt5|win32-qt5\n"; exit 2;; esac; \
 	 bash test/regression-package.sh --clear $(PACKAGE) || exit $$?; \
 	 $(MAKE) --no-print-directory package-$(PACKAGE) $$pre || exit $$?; \

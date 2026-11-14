@@ -565,53 +565,100 @@ if $PREFLIGHT_ONLY; then
     exit 0
 fi
 
-# --- The stall capture, checked against a known answer (GH #383) ---
+# --- The stall capture, checked against a known answer (GH #383, #487) ---
 # The capture exists to name the call a stalled jnext.exe is blocked in; v1.1.79 shipped one that
-# could not (it passed review on a stub that answered a command real winedbg never answers). So
-# once per run, on the real wine, a real jnext.exe is blocked on purpose and must be captured:
-# --headless with an empty config dir and no --sdcard makes sdcard::cli_confirm block in
-# std::getline(std::cin) on a stdin pipe this driver holds open. The runner's watchdog is given
-# 3 s / 2 s instead of 20 s / 10 s, takes its capture, and the capture must hold a Backtrace: with
-# wine's own symbol for the read (ReadFile or ReadConsole) and no "can't debug several processes".
-# Anything else is a HARNESS FAULT: a capture that silently cannot capture looks like "no stall".
+# could not (it passed review on a stub that answered a command real winedbg never answers), and the
+# first version of this check never met a 32-bit exe or a second jnext.exe. So once per run, on the
+# real wine, TWO real jnext.exe are blocked on purpose: --headless with an empty config dir and no
+# --sdcard makes sdcard::cli_confirm block in std::getline(std::cin) on a stdin pipe this driver holds
+# open. The DECOY (--machine 128k, no capture dir) starts first and so has the lower Windows pid; the
+# TARGET (--machine 48k) runs with the watchdog at 3 s / 2 s instead of 20 s / 10 s. The capture must
+#   (a) be exactly one file;
+#   (b) take its target threads from the exe (jnext.exe), never from start.exe, which is what wine
+#       runs a 32-bit exe behind;
+#   (c) hold a Backtrace: naming wine's own symbol for the read (ReadFile or ReadConsole);
+#   (d) show the command line of the TARGET (--machine 48k), not the decoy's;
+#   (e) not say "can't debug several processes".
+# And it must be harmless: answering `n` on both pipes must end BOTH runners by themselves, status 1,
+# with src/main.cpp's decline message and no "Unhandled" (a debugger attach killed a 32-bit process on
+# wine 11.20). Anything else is a HARNESS FAULT: a capture that silently cannot capture looks like
+# "no stall".
 wine_capture_selfcheck() {   # $1 = the Qt build dir
-    local dir=$TMP_DIR/wine-selfcheck sc_in sc_pid i f why= keep caps
-    mkdir -p "$dir/cfg"
-    mkfifo "$dir/stdin"
+    local dir=$TMP_DIR/wine-selfcheck sc_in dec_in sc_pid dec_pid i f why= keep caps tgt_sec rc_t=0 rc_d=0
+    mkdir -p "$dir/cfg" "$dir/dcfg"
+    mkfifo "$dir/stdin" "$dir/dstdin"
     exec {sc_in}<>"$dir/stdin"
+    exec {dec_in}<>"$dir/dstdin"
+    env -u JNEXT_WINE_CAPTURE_DIR JNEXT_CONFIG_DIR=$dir/dcfg \
+        timeout --foreground --kill-after=5s 90s bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$1/jnext.exe" --headless --machine 128k \
+        <&"$dec_in" >"$dir/dout" 2>&1 &
+    dec_pid=$!
+    for ((i = 0; i < 600; i++)); do
+        grep -q 'No SD-card image was found' "$dir/dout" 2>/dev/null && break
+        kill -0 "$dec_pid" 2>/dev/null || break
+        /usr/bin/sleep 0.1
+    done
     JNEXT_CONFIG_DIR=$dir/cfg JNEXT_WINE_CAPTURE_DIR=$dir/cap JNEXT_WINE_STALL_AFTER_S=3 JNEXT_WINE_STALL_FLAT_S=2 \
-        timeout --foreground --kill-after=5s 30s bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$1/jnext.exe" --headless --machine 48k \
+        timeout --foreground --kill-after=5s 90s bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$1/jnext.exe" --headless --machine 48k \
         <&"$sc_in" >"$dir/out" 2>&1 &
     sc_pid=$!
     # The runner prints "state saved to" once the capture file is complete.
-    for ((i = 0; i < 300; i++)); do
+    for ((i = 0; i < 600; i++)); do
         grep -q 'state saved to' "$dir/out" 2>/dev/null && break
         kill -0 "$sc_pid" 2>/dev/null || break
         /usr/bin/sleep 0.1
     done
-    kill -TERM "$sc_pid" 2>/dev/null || true
-    wait "$sc_pid" 2>/dev/null || true
-    exec {sc_in}>&-
     shopt -s nullglob
     caps=("$dir"/cap/wine-stall-*.txt)
     shopt -u nullglob
     f=${caps[0]:-}
-    if ((${#caps[@]} != 1)); then why="${#caps[@]} capture files, expected exactly one"
+    tgt_sec=$(sed -n '/^== target threads/,/^$/p' "$f" 2>/dev/null || true)
+    if ! grep -q 'No SD-card image was found' "$dir/dout" 2>/dev/null; then why="the decoy jnext.exe never reached its SD-card prompt (see decoy-output.txt)"
+    elif ((${#caps[@]} != 1)); then why="${#caps[@]} capture files, expected exactly one"
+    elif [[ $tgt_sec != *jnext.exe* || $tgt_sec == *start.exe* ]]; then why="the capture's target threads are not the exe's (jnext.exe), but wine's launcher"
     elif grep -q "can't debug several processes" "$f"; then why="winedbg refused: can't debug several processes"
     elif ! grep -q '^Backtrace:' "$f"; then why="the capture holds no Backtrace:"
     elif ! grep -qE 'ReadFile|ReadConsole' "$f"; then why="no Backtrace: names ReadFile or ReadConsole"
+    elif ! grep -q 'command line:.*--machine 48k' "$f" || grep -q -- '--machine 128k' "$f"; then why="the capture is not of the target (its command line is not --machine 48k, or it holds the decoy's 128k)"
     fi
+    if [[ -z $why ]]; then
+        # Harmless: both answer `n` and end by themselves, status 1, without a crash.
+        printf 'n\n' >&"$sc_in"; printf 'n\n' >&"$dec_in"
+        for ((i = 0; i < 200; i++)); do
+            kill -0 "$sc_pid" 2>/dev/null || kill -0 "$dec_pid" 2>/dev/null || break
+            /usr/bin/sleep 0.1
+        done
+        if kill -0 "$sc_pid" 2>/dev/null || kill -0 "$dec_pid" 2>/dev/null; then why="the capture killed or wedged its target or the decoy: a jnext.exe did not end within 20 s of answering n"
+        else
+            wait "$sc_pid" 2>/dev/null || rc_t=$?
+            wait "$dec_pid" 2>/dev/null || rc_d=$?
+            if [[ $rc_t -ne 1 || $rc_d -ne 1 ]]; then why="the capture killed or wedged its target or the decoy: after n the target ended with status $rc_t and the decoy with $rc_d, expected 1 and 1"
+            elif ! grep -q 'no SD-card image available' "$dir/out" || ! grep -q 'no SD-card image available' "$dir/dout" \
+                 || grep -q 'Unhandled' "$dir/out" "$dir/dout"; then why="the capture killed or wedged its target or the decoy: after n they did not both decline cleanly (no 'no SD-card image available', or an Unhandled exception)"
+            fi
+        fi
+    fi
+    kill -TERM "$sc_pid" "$dec_pid" 2>/dev/null || true
+    wait "$sc_pid" "$dec_pid" 2>/dev/null || true
+    exec {sc_in}>&- {dec_in}>&-
     if [[ -n $why ]]; then
         keep="$PROJECT_DIR/build/regression-artifacts/wine-stall/selfcheck-fault-$$"
         mkdir -p "$keep"
         cp -r "$dir/out" "$keep/runner-output.txt" 2>/dev/null || true
+        cp -r "$dir/dout" "$keep/decoy-output.txt" 2>/dev/null || true
         [[ -z $f ]] || cp "$f" "$keep/" 2>/dev/null || true
         harness_fault "the wine stall capture cannot name a blocked call (GH #383): $why" \
                       "Capture and runner output kept in ${BOLD}$keep${RESET}" \
                       "A capture that cannot capture reads as 'no stall'; see doc/testing/REGRESSION-TEST-SUITE.md."
     fi
+    local tl tt rf
+    tl=$(grep -m1 '^target:' "$f"); tt=$(sed -n '/^== target threads/,/^$/p' "$f" | sed -n 2p)
+    rf=$(grep -m1 -E 'ReadFile|ReadConsole' "$f")
     rm -rf "$dir"
-    echo -e "  ${GREEN}wine stall capture self-check passed${RESET} (a blocked jnext.exe was captured with a ReadFile backtrace, GH #383)"
+    echo -e "  ${GREEN}wine stall capture self-check passed${RESET} (a blocked jnext.exe was captured with a ReadFile backtrace, GH #383; target picked among 2, both survived)"
+    echo "    $tl"
+    echo "    first target thread: $tt"
+    echo "    frame: ${rf#"${rf%%[![:space:]]*}"}"
 }
 
 # --- Platform run: the binaries under test (GH #319) ---
@@ -649,6 +696,16 @@ if $PLATFORM_MODE; then
         # It also starts the desktop keeper and prints explorer.exe's pid (GH #329).
         REG_WINE_EXPLORER=$(bash "$PROJECT_DIR/test/wine-run.sh" --serve "$plat_qt_abs") \
             || harness_fault "cannot start a persistent wineserver and wine desktop"
+        # The stall capture's stack helper (test/wine-stack.c), one build per PE machine the binaries
+        # under test have; a missing one would read as "no stall", so it is refused here (GH #487).
+        export JNEXT_WINE_STACK_DIR=${JNEXT_WINE_STACK_DIR:-$PROJECT_DIR/build/wine-stack}
+        for plat_bin in "$plat_qt" "$plat_sdl"; do
+            plat_m=$(bash "$PROJECT_DIR/test/wine-run.sh" --pe-machine "$plat_bin")
+            case $plat_m in x86|x64) ;; *) harness_fault "cannot tell the PE machine of ${BOLD}$plat_bin${RESET} ($plat_m)" ;; esac
+            [[ -x "$JNEXT_WINE_STACK_DIR/wine-stack-$plat_m.exe" ]] \
+                || harness_fault "the stall capture's stack helper for $plat_m is not built: ${BOLD}$JNEXT_WINE_STACK_DIR/wine-stack-$plat_m.exe${RESET}" \
+                                 "Build it with ${BOLD}make wine-stack-$plat_m${RESET} (make regression-win and regression-package do)."
+        done
         wine_capture_selfcheck "$plat_qt_abs"
         mkdir -p "$TMP_DIR/platform"
         for plat_pair in "jnext:$plat_qt_abs" "jnext-sdl:$plat_sdl_abs"; do

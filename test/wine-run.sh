@@ -91,6 +91,8 @@ if [[ "${1:-}" == --jnext ]]; then
     [[ -n "${DISPLAY:-}" && "${XAUTHORITY:-}" == */xvfb-run.*/Xauthority ]] && KEEP_DISPLAY=$DISPLAY
 elif [[ "${1:-}" == --init || "${1:-}" == --serve ]]; then
     BUILD=$(cd "${2:?usage: wine-run.sh $1 <build_dir>}" && pwd)
+elif [[ "${1:-}" == --pe-machine ]]; then
+    BUILD=.   # --pe-machine <exe>: prints x86 | x64 | unknown(<hex>) | none (the driver's helper check)
 elif [[ "${1:-}" == --capture || "${1:-}" == --prefix-state || "${1:-}" == --watchdog ]]; then
     # Internal modes: the prefix is the caller's (exported WINEPREFIX).
     : "${WINEPREFIX:?wine-run.sh $1 needs WINEPREFIX}"
@@ -213,6 +215,44 @@ if [[ "${1:-}" == --serve ]]; then
     exit 0
 fi
 
+# The PE machine of an exe, read from the file (no toolchain): x86, x64, unknown(<hex>) or none.
+# The stack helper's bitness must match its target's (GH #487, measured on wine 11.20).
+pe_machine() {   # pe_machine <exe>
+    local f=$1 off m
+    [[ -f $f ]] || { echo none; return 0; }
+    [[ "$(/usr/bin/od -An -c -N 2 "$f" 2>/dev/null | /usr/bin/tr -d ' ')" == MZ ]] || { echo none; return 0; }
+    off=$(/usr/bin/od -An -tu4 -j 0x3c -N 4 "$f" 2>/dev/null | /usr/bin/tr -d ' ')
+    [[ $off =~ ^[0-9]+$ ]] || { echo none; return 0; }
+    [[ "$(/usr/bin/od -An -tx1 -j "$off" -N 4 "$f" 2>/dev/null | /usr/bin/tr -d ' ')" == 50450000 ]] || { echo none; return 0; }
+    m=$(/usr/bin/od -An -tx2 -j "$((off + 4))" -N 2 "$f" 2>/dev/null | /usr/bin/tr -d ' ')
+    case $m in 014c) echo x86 ;; 8664) echo x64 ;; *) echo "unknown($m)" ;; esac
+}
+
+# The Linux pid of THE exe a runner started (GH #487). For an x64 exe wine runs it in the process
+# the runner started ($wpid: its comm becomes the exe's name). For a 32-bit exe wine 11.20 runs
+# `start.exe /exec <exe>` in that process, which starts the exe as a SEPARATE Linux process (not
+# the runner's child): it is then the ONE process of that name in this prefix whose environment
+# carries this runner's marker. Parallel rows share a prefix and an exe name, so the name alone
+# never decides. Prints the pid, or nothing (none yet, or ambiguous).
+exe_pid() {   # exe_pid <wpid> <exe base name> <run marker>
+    local wpid=$1 base=${2:0:15} marker=$3 d c env_txt found= n=0
+    { read -r c < "/proc/$wpid/comm"; } 2>/dev/null || return 0
+    if [[ $c == "$base" ]]; then echo "$wpid"; return 0; fi
+    [[ -n $marker ]] || return 0
+    for d in /proc/[0-9]*; do
+        { read -r c < "$d/comm"; } 2>/dev/null || continue
+        [[ $c == "$base" ]] || continue
+        env_txt=$({ tr '\0' '\n' < "$d/environ"; } 2>/dev/null || true)
+        grep -qxF "WINEPREFIX=$WINEPREFIX" <<<"$env_txt" || continue
+        grep -qxF "JNEXT_WINE_RUN_ID=$marker" <<<"$env_txt" || continue
+        found=${d#/proc/}; n=$((n + 1))
+    done
+    [[ $n -eq 1 && -n $found ]] && echo "$found"
+    return 0
+}
+
+if [[ "${1:-}" == --pe-machine ]]; then pe_machine "${2:?usage: wine-run.sh --pe-machine <exe>}"; exit 0; fi
+
 # One line per process of this prefix (wineserver and every *.exe): pid comm threads
 # state wchan. Errors silenced: other users' /proc/<pid>/environ is EACCES.
 prefix_procs() {
@@ -287,6 +327,12 @@ if [[ "${1:-}" == --capture ]]; then
         { read -r la < /proc/loadavg; } 2>/dev/null || la=?
         echo "loadavg: $la"
         echo "WINEPREFIX: $WINEPREFIX"
+        if [[ -n "${JNEXT_WINE_WPID:-}" && "$JNEXT_WINE_WPID" != "$cap_pid" ]]; then
+            { read -r wc_comm < "/proc/$JNEXT_WINE_WPID/comm"; } 2>/dev/null || wc_comm=?
+            echo "target: the exe was re-run in its own process (pid $cap_pid) by the wine process $JNEXT_WINE_WPID (comm $wc_comm), as wine does for a 32-bit exe (start.exe /exec)"
+        else
+            echo "target: the exe runs in the wine process itself (pid $cap_pid)"
+        fi
         if { read -r st < "/proc/$cap_pid/stat"; } 2>/dev/null; then
             read -ra f <<<"${st##*) }"
             { read -r up _ < /proc/uptime; } 2>/dev/null || up=0
@@ -345,62 +391,32 @@ if [[ "${1:-}" == --capture ]]; then
     dbg_run "$info_tmp" --command "info thread"
     echo >> "$cap_out"
 
-    # The Windows pid of the target: the one process block whose command line is exactly
-    # "Z:<exe, / -> \>" <args as CreateProcess quotes them>; else (name only) the one
-    # process of that name, but only if /proc shows the target as the ONLY process of
-    # that name in the prefix: otherwise "the one jnext.exe" may be another row's.
-    want="\"Z:${cap_exe//\//\\}\""
-    for a in ${cap_args[@]+"${cap_args[@]}"}; do
-        a=${a//\"/\\\"}
-        if [[ -z $a || $a == *[[:space:]]* ]]; then want+=" \"$a\""; else want+=" $a"; fi
-    done
-    base=${cap_exe##*/}
-    exact=(); byname=(); hdr=
-    declare -A tids=()   # Windows pid -> its tids, as `info thread` lists them
-    tab=$'\t'
-    if [[ -r $info_tmp ]]; then
-        while IFS= read -r line; do
-            line=${line%$'\r'}
-            if [[ $line =~ ^([0-9a-fA-F]{8})[[:space:]]+([^[:space:]].*)$ ]]; then
-                hdr=${BASH_REMATCH[1]}
-                [[ ${BASH_REMATCH[2]} == "$base" ]] && byname+=("$hdr")
-            elif [[ -n $hdr && $line == $'\t['*']' ]]; then
-                cl=${line#*[}; cl=${cl%]}
-                [[ $cl == "$want" ]] && exact+=("$hdr")
-            elif [[ -n $hdr && $line =~ ^${tab}([0-9a-fA-F]{8})([[:space:]]|$) ]]; then
-                tids[$hdr]+=" ${BASH_REMATCH[1]}"
-            fi
-        done < "$info_tmp" 2>/dev/null || true
-    fi
+    # The call each thread is blocked in, from a debugger-free helper (test/wine-stack.c): winedbg's
+    # attach kills a 32-bit process under wine 11.20 (a break-in thread faults on a truncated
+    # address), and real winedbg prints no command line to pick the right process by. The helper
+    # finds THE process by image name + this runner's marker in its environment, suspends each
+    # thread only around GetThreadContext, and walks its stack. Its bitness follows the target's PE
+    # machine; no helper means a line saying so, never a silent fallback.
     /usr/bin/rm -f "$info_tmp"
-    pid=; how=
-    if ((${#exact[@]} == 1)); then pid=${exact[0]}; how="exact command-line match"
-    elif ((${#exact[@]} == 0 && ${#byname[@]} == 1)); then
-        same=0; me=0
-        while read -r pp pc _; do
-            [[ $pc == "${base:0:15}" ]] || continue
-            same=$((same + 1)); [[ $pp == "$cap_pid" ]] && me=1
-        done < <(prefix_procs)
-        if ((same == 1 && me == 1)); then pid=${byname[0]}; how="matched by name only; the only $base in the prefix"; fi
-    fi
-    if [[ -z $pid ]]; then
-        { echo "== winedbg backtraces"; echo "no unique match (${#exact[@]} exact, ${#byname[@]} by name); no backtrace"; } >> "$cap_out"
+    base=${cap_exe##*/}
+    stack_dir=${JNEXT_WINE_STACK_DIR:-${SELF%/*}/../build/wine-stack}
+    mach=$(pe_machine "$cap_exe")
+    case $mach in x86) helper=$stack_dir/wine-stack-x86.exe ;; x64) helper=$stack_dir/wine-stack-x64.exe ;; *) helper= ;; esac
+    if [[ -z $helper || ! -x $helper ]]; then
+        { echo "== wine-stack"; echo "no stack helper for $mach (${helper:-$cap_exe}); no backtrace"; } >> "$cap_out"
+    elif [[ -z "${JNEXT_WINE_RUN_ID:-}" ]]; then
+        { echo "== wine-stack"; echo "no run marker (JNEXT_WINE_RUN_ID): the process cannot be told from another row's; no backtrace"; } >> "$cap_out"
     elif ! target_alive; then
-        { echo "== winedbg backtraces"; echo "pid $cap_pid is gone: no backtrace"; } >> "$cap_out"
-    elif [[ -z "${tids[$pid]:-}" ]]; then
-        { echo "== winedbg backtraces of 0x$pid ($how)"; echo "info thread lists no thread for it: no backtrace"; } >> "$cap_out"
+        { echo "== wine-stack"; echo "pid $cap_pid is gone: no backtrace"; } >> "$cap_out"
     else
-        # One session: attach, one `bt <tid>` per thread of THAT pid, detach. `bt all` is not used:
-        # real winedbg answers it "can't debug several processes at once" (GH #383).
-        {
-            echo "attach 0x$pid"
-            for t in ${tids[$pid]}; do echo "bt 0x$t"; done
-            echo detach
-            echo quit
-        } > "$cap_out.cmds"
-        echo "== winedbg backtrace per thread of 0x$pid ($how)" >> "$cap_out"
-        dbg_run "$cap_out.bt" --file "$cap_out.cmds"
-        /usr/bin/rm -f "$cap_out.bt" "$cap_out.cmds"
+        echo "== wine-stack ($mach helper $helper)" >> "$cap_out"
+        stack_tmp=$cap_out.stack
+        rc=0
+        /usr/bin/timeout --kill-after=2s "${DBG_BOUND}s" ${PRIV[@]+"${PRIV[@]}"} "$WINE_BIN" "$helper" "JNEXT_WINE_RUN_ID=$JNEXT_WINE_RUN_ID" "$base" \
+            </dev/null >"$stack_tmp" 2>&1 || rc=$?
+        if [[ $rc -eq 124 || $rc -eq 137 ]]; then echo "wine-stack: no answer within ${DBG_BOUND}s (rc $rc)" >> "$cap_out"; fi
+        /usr/bin/tr -d '\r' < "$stack_tmp" >> "$cap_out" 2>/dev/null || true
+        /usr/bin/rm -f "$stack_tmp"
     fi
     exit 0
 fi
@@ -414,8 +430,16 @@ if [[ "${1:-}" == --watchdog ]]; then
     wd_flat=$(( ${JNEXT_WINE_STALL_FLAT_S:-10} * 100 ))
     wd_cpu_cap=200                                          # ticks (100/s): 2 s
     wd_last=-1; wd_since=0
+    wd_base=${1##*/}; wd_tgt=; wd_cur=$wd_pid
     while :; do
-        { read -r st < "/proc/$wd_pid/stat"; } 2>/dev/null || exit 0
+        # The process to watch is THE exe, not the wine process the runner started: for a 32-bit exe
+        # that one is start.exe, whose CPU time stays ~0 for ever (GH #487). Until the exe exists the
+        # wine process stands in, so a start-up stall is still caught.
+        if [[ -z $wd_tgt ]]; then
+            wd_tgt=$(exe_pid "$wd_pid" "$wd_base" "${JNEXT_WINE_RUN_ID:-}")
+            [[ -z $wd_tgt ]] || { wd_cur=$wd_tgt; wd_last=-1; }
+        fi
+        { read -r st < "/proc/$wd_cur/stat"; } 2>/dev/null || exit 0
         read -ra f <<<"${st##*) }"
         [[ ${f[0]} != Z && ${f[0]} != X ]] || exit 0
         { read -r up _ < /proc/uptime; } 2>/dev/null || exit 0
@@ -424,7 +448,7 @@ if [[ "${1:-}" == --watchdog ]]; then
         if ((cpu != wd_last)); then wd_last=$cpu; wd_since=$now; fi
         if ((now - f[19] >= wd_after && now - wd_since >= wd_flat && cpu <= wd_cpu_cap)); then
             if /usr/bin/mkdir -p "${wd_out%/*}" 2>/dev/null; then
-                /bin/bash "$SELF" --capture "$wd_pid" "$wd_out" "$@" </dev/null >/dev/null 2>&1 || true
+                JNEXT_WINE_WPID=$wd_pid /bin/bash "$SELF" --capture "$wd_cur" "$wd_out" "$@" </dev/null >/dev/null 2>&1 || true
                 kill -USR1 "$PPID" 2>/dev/null || true
             fi
             exit 0
@@ -448,6 +472,9 @@ if [[ -n "${JNEXT_MODE:-}" ]]; then
         exec {err_fd}> >(exec /usr/bin/sed -u 's/\r$//' >&2)
         fpids+=($!)
     fi
+    # GH #487: a per-runner marker in wine's environment (it reaches the Windows process and the
+    # exe's /proc/<pid>/environ) identifies THIS runner's exe among the other rows' (exe_pid).
+    export JNEXT_WINE_RUN_ID="$$.${EPOCHREALTIME/./}"
     ${PRIV[@]+"${PRIV[@]}"} "${JNEXT_WINE_BIN:-/usr/bin/wine}" "$@" <&3 >&"$out_fd" 2>&"$err_fd" {out_fd}>&- {err_fd}>&- 3<&- &
     wpid=$!
     # GH #383: the stall watchdog (header). Its stdio is /dev/null and it closes the filters'
@@ -460,15 +487,25 @@ if [[ -n "${JNEXT_MODE:-}" ]]; then
         on_capture() {   # $1 = the exe
             [[ -e $cap_file ]] || return 0
             # After the capture, and in a subshell: a dead stderr pipe must not kill this shell.
-            ( trap '' PIPE; echo "wine-run: ${1##*/} (pid $wpid) made no progress for ${JNEXT_WINE_STALL_FLAT_S:-10} s at age ${JNEXT_WINE_STALL_AFTER_S:-20} s; state saved to $cap_file" >&2 ) || true
+            local epid
+            epid=$(exe_pid "$wpid" "${1##*/}" "$JNEXT_WINE_RUN_ID"); epid=${epid:-$wpid}
+            ( trap '' PIPE; echo "wine-run: ${1##*/} (pid $epid) made no progress for ${JNEXT_WINE_STALL_FLAT_S:-10} s at age ${JNEXT_WINE_STALL_AFTER_S:-20} s; state saved to $cap_file" >&2 ) || true
         }
         trap 'on_capture "$@"' USR1
         /bin/bash "$SELF" --watchdog "$wpid" "$cap_file" "$@" </dev/null >/dev/null 2>&1 {out_fd}>&- {err_fd}>&- 3<&- &
         wd=$!
     fi
     exec {out_fd}>&- {err_fd}>&- 3<&-
-    trap 'kill -TERM "$wpid" 2>/dev/null || true' TERM
-    trap 'kill -INT "$wpid" 2>/dev/null' INT
+    # TERM and INT go to the wine process and, when the exe runs in a process of its own (a 32-bit
+    # exe behind start.exe), to that one too: start.exe does not pass INT on (measured, wine 11.20).
+    fwd_sig() {   # fwd_sig <signal>
+        local e
+        kill -"$1" "$wpid" 2>/dev/null || true
+        e=$(exe_pid "$wpid" "${EXE##*/}" "$JNEXT_WINE_RUN_ID")
+        [[ -z $e || $e == "$wpid" ]] || kill -"$1" "$e" 2>/dev/null || true
+    }
+    trap 'fwd_sig TERM' TERM
+    trap 'fwd_sig INT' INT
     rc=0
     wait "$wpid" || rc=$?
     # A trapped signal interrupts `wait`: keep waiting for wine's own end.
