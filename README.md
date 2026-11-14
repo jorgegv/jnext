@@ -74,7 +74,7 @@ find at [GitHub issues](https://github.com/jorgegv/jnext/issues):
 - [SUBSYSTEM-TESTS-STATUS.md](test/SUBSYSTEM-TESTS-STATUS.md) — live
   per-subsystem unit-test dashboard: exactly what is verified against the VHDL
 
-Linux, Windows (x64 and 32-bit x86), and macOS are supported.
+Linux, Windows (x64 and 32-bit x86), and macOS (Apple Silicon and Intel) are supported.
 
 ## Install
 

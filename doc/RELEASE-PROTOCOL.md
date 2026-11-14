@@ -461,7 +461,7 @@ Check them against `README.md` before posting — they have moved before:
 **JNEXT vX.Y.Z released** (previous announced build: vA.B.C)
 
 JNEXT is a ZX Spectrum Next emulator written against the official FPGA VHDL
-sources. With versions for Linux, Windows and MacOS.
+sources. With versions for Linux, Windows and MacOS (Apple Silicon and Intel).
 
 New features since last release:
 
@@ -484,7 +484,7 @@ Plus a long list of rendering, timing and compatibility fixes — see the Change
 ```bbcode
 [b]JNEXT vX.Y.Z released[/b] (previous announced build: vA.B.C)
 
-JNEXT is a ZX Spectrum Next emulator written against the official FPGA VHDL sources. With versions for Linux, Windows and MacOS.
+JNEXT is a ZX Spectrum Next emulator written against the official FPGA VHDL sources. With versions for Linux, Windows and MacOS (Apple Silicon and Intel).
 
 New features since last release:
 
