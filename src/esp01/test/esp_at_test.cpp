@@ -295,6 +295,9 @@ public:
     /// catches only the stimulus methods' `require_live()` — but only if it
     /// sees the real free.
 #if !ESP_AT_TEST_ASAN
+    // The matching allocation function: without it GCC (MinGW) flags every
+    // `new FakeTransport` released through this class-specific delete.
+    static void* operator new(std::size_t size) { return ::operator new(size); }
     static void operator delete(void* p, std::size_t size) {
         std::memset(p, 0xCD, size);
         quarantine().held.push_back(p);
