@@ -91,7 +91,8 @@ for your system from the
 | **Windows 10/11 (x64)**  | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe`             |
 | **Windows 7/8 (x64)**    | Download `jnext-*-windows-x64-legacy.zip`, unzip, run `jnext.exe`     |
 | **Windows 32-bit (x86)** | Download `jnext-*-windows-x86-legacy.zip`, unzip, run `jnext.exe`     |
-| **macOS**                | Download `jnext-*-Darwin.dmg`, open it, drag **jnext** to Applications |
+| **macOS (Apple Silicon)** | Download `jnext-*-macos-arm64.dmg`, open it, drag **jnext** to Applications |
+| **macOS (Intel)**        | Download `jnext-*-macos-x64.dmg` (macOS 15 or later), open it, drag **jnext** to Applications |
 
 The Linux packages put a `jnext` command on your `PATH`.
 
@@ -126,7 +127,7 @@ Details and the audited compatibility floors:
 [packaging/README.md](packaging/README.md) and
 [doc/design/WINDOWS-COMPAT-PLAN.md](doc/design/WINDOWS-COMPAT-PLAN.md).
 
-The **macOS** build is a `.dmg`; open it and drag **jnext** to Applications. The
+The **macOS** builds (Apple Silicon and Intel) are `.dmg` files; open one and drag **jnext** to Applications. The
 app is ad-hoc signed but **deliberately not notarised** — notarisation requires
 a paid Apple Developer Program membership — so Gatekeeper blocks the first
 launch. Try to open it once, then allow it under **System Settings → Privacy &

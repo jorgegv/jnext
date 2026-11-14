@@ -8,7 +8,20 @@
 -->
 # macOS
 
-Download `jnext-*-Darwin.dmg`, open it, and drag **jnext** to Applications.
+Download the `.dmg` for your Mac, open it, and drag **jnext** to Applications:
+
+| Your Mac | File |
+|----------|------|
+| Apple Silicon (M1 or later) | `jnext-*-macos-arm64.dmg` |
+| Intel | `jnext-*-macos-x64.dmg` |
+
+To tell which you have, open the Apple menu, choose **About This Mac**, and look
+at the **Chip** line (Apple Silicon: "Apple M1" and later) or the **Processor**
+line (Intel: "Intel Core ...").
+
+The Intel build needs macOS 15 Sequoia or later; on an older release the Finder
+says so instead of opening it. Intel builds are produced for as long as GitHub's
+build service offers Intel Macs, which GitHub has announced will end in fall 2027.
 
 The first time you open it, macOS refuses to launch it and shows a dialog
 reading *Apple could not verify "jnext" is free of malware that may harm your

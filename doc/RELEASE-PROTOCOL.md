@@ -199,7 +199,7 @@ metainfo excepted). **Do not add a hard-coded copy of the version; read
 | `make package-win` | Windows `.zip` — MinGW cross-build, Qt6/SDL3 DLLs + `qwindows` plugin bundled by `packaging/windows/bundle-dlls.sh` (`build/win-release/`) |
 | `make package-win-qt5` / `package-win32-qt5` | Windows 7/8 `-legacy` `.zip`s, x64 and 32-bit — the Qt5 full-GUI builds (GH #108) |
 | `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + `org.kde.Sdk//6.10`); ends by running `make verify-flatpak-permissions` on it |
-| `make package-macos` | macOS `.dmg` (Darwin only) |
+| `make package-macos` | macOS `.dmg` (Darwin only): `jnext-<v>-macos-arm64.dmg` or `-macos-x64.dmg` by the building machine's architecture |
 | `make package-test` | build every package (except macOS) and assert each artifact |
 | `make package-contract-test` | the packaging-**script** contract suites only — hermetic, ~4 s, no toolchain |
 
@@ -261,7 +261,9 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
   asserting its contents, then (GH #359) uploads each as a run artifact
   (Windows zips, rpm, source zip; 14-day retention, success only; the
   Fedora-built deb is not uploaded); **`macos`** runs `make package-macos` on
-  `macos-latest` and uploads the dmg; **`macos-unit`** runs `make unit-test-sdl`
+  `macos-latest` and uploads the dmg, **`macos-intel`** does the same on
+  `macos-15-intel` (MacPorts dependencies) and also runs `make unit-test-sdl`
+  there; **`macos-unit`** runs `make unit-test-sdl`
   and **`macos-regression`** runs `make regression-macos` there; **`flatpak`**
   calls `flatpak-build.yml` (§4), whose bundle is the `jnext-linux-flatpak`
   artifact. Packaging
@@ -272,7 +274,7 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
   a **`v*` tag push**. Jobs:
   1. **`gate`** — reads `releases.yaml` from the tag's own commit and checks
      whether `$GITHUB_REF_NAME` is listed → outputs `build` / `publish`.
-  2. **`deb` / `rpm` / `src` / `windows` / `flatpak` / `macos`** — run only
+  2. **`deb` / `rpm` / `src` / `windows` / `flatpak` / `macos` / `macos-intel`** — run only
      when `build == true`. `deb` is a **matrix** over `ubuntu:24.04` and
      `ubuntu:26.04` pinned containers: CPack's `dpkg-shlibdeps` bakes in the
      container's library package names, so each LTS gets its own deb (the 24.04
@@ -288,8 +290,10 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
      from the make-target rule, §4);
      macOS native on `macos-latest` via `make package-macos`, **no longer
      `continue-on-error`** since issue #61 (it carries the GH #46
-     `verify-bundle` gate, and a gate that cannot fail anything is not a gate).
-     Each uploads its packages as an artifact.
+     `verify-bundle` gate, and a gate that cannot fail anything is not a gate);
+     macOS Intel the same way on `macos-15-intel` with MacPorts dependencies,
+     also blocking and in `publish`'s `needs:`. Each uploads its packages as an
+     artifact.
   3. **`publish`** — `if: success() && needs.gate.outputs.publish == 'true'`;
      downloads the artifacts and creates a **GitHub Release**. The explicit
      `success()` is what makes ANY failed artifact job withhold the release

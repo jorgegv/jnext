@@ -15,7 +15,7 @@ you read it; it is not a replacement for it.
 | `make package-win-qt5` / `package-win32-qt5` | the legacy Qt5 Windows zips, 64- and 32-bit, which keep a lower Windows floor than the Qt6 build: Windows 7 SP1 against the Qt6 zip's Windows 10 1703. The floors were audited once, per package, and the audit is recorded in `doc/design/WINDOWS-COMPAT-PLAN.md` |
 | `make package-win-sdl` / `package-win32-sdl` | SDL-only Windows zips — repo-internal validation legs, not published |
 | `make package-flatpak` | Flatpak bundle, in `build/flatpak-release/` |
-| `make package-macos` | macOS `.dmg` — Darwin only; prints a SKIP and exits cleanly elsewhere |
+| `make package-macos` | macOS `.dmg` — Darwin only; prints a SKIP and exits cleanly elsewhere. `MACOS_DEPLOYMENT_TARGET=15.0` pins the minimum macOS and gates the `.dmg` on it; `MACPORTS_PREFIX=/opt/local` takes the dependencies from MacPorts (the Intel build) instead of Homebrew |
 | `make package-test` | builds every package except macOS and Flatpak and **asserts its contents** (a missing tool fails) |
 | `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain |
 
@@ -53,6 +53,9 @@ some platforms need more:
   with `llvm-profdata` from Xcode). There a stale profile is an error but a
   translation unit with no profile at all is only a warning, and the library
   members `jnext` never links are exempted from it via ld64's link map.
+  `tools/pgo-build.sh` also runs the FUSE Z80 suite natively against the
+  macOS PGO build's CPU core, on both architectures: AppleClang with ThinLTO
+  and PGO is a code generator no other suite exercises.
 
 `package-test` matters more than its name suggests. It does not merely build
 each package: it then looks inside and checks what is there — that the rpm and
@@ -91,7 +94,35 @@ DLL has no licence at all. On macOS,
 macdeployqt copies into the bundle (`licenses/bundled/<formula>/`, from the
 formula's keg) and fails the package when a library's formula has no licence. Homebrew copies only
 top-level licence files into a keg, so the Qt and glib kegs get texts from
-`packaging/macos/license-fallbacks/`.
+`packaging/macos/license-fallbacks/`. With `MACPORTS_PREFIX` set (the Intel
+build) the owner is the MacPorts port that `port provides` names for the
+library, the licences are the `LICENSE*`, `COPYING*` and `LICENCE*` files in
+`port contents`, and the same two failures apply: a library no port owns
+(for instance one that leaked in from another prefix on the build machine) or
+a port with no licence and no fallback stops the package.
+
+### The macOS architectures and the minimum macOS
+
+There are two macOS packages, built natively, because the dependencies are
+single-architecture and a universal binary is not an option: Apple Silicon
+(`jnext-<v>-macos-arm64.dmg`, Homebrew) and Intel (`jnext-<v>-macos-x64.dmg`,
+MacPorts: Homebrew builds no bottles for Intel Macs any more). The names carry
+the architecture because CPack's default would be the same for both and the
+release assets would collide. `packaging/macos/install-macports.sh` installs a
+pinned MacPorts and the ports from binary archives only, so a port whose
+archive is not published yet fails in seconds instead of starting a source
+build of Qt.
+
+A bundled library built for a newer macOS than the one running makes dyld
+refuse to start the app, so the minimum is explicit and checked.
+`MACOS_DEPLOYMENT_TARGET` becomes `CMAKE_OSX_DEPLOYMENT_TARGET` in both PGO
+trees and `LSMinimumSystemVersion` in the bundle's `Info.plist`, which makes
+the Finder say "requires macOS N or later" on an older release. Then
+`verify-bundle.sh` reads the minimum OS version of every Mach-O in the mounted
+`.dmg` (`LC_BUILD_VERSION` `minos`, or `LC_VERSION_MIN_MACOSX`). It always
+prints the highest one and the file that carries it; with the target set, it
+fails the package for any file that needs a newer macOS, and for a file whose
+minimum it cannot read.
 
 ## `version.yaml` is the single source of truth
 

@@ -4215,7 +4215,31 @@
   than adding a second, still-untested alternative.
 -->
 <h1 id="macos">macOS<a class="headerlink" href="#macos" title="Permanent link">&para;</a></h1>
-<p>Download <code>jnext-*-Darwin.dmg</code>, open it, and drag <strong>jnext</strong> to Applications.</p>
+<p>Download the <code>.dmg</code> for your Mac, open it, and drag <strong>jnext</strong> to Applications:</p>
+<table>
+<thead>
+<tr>
+<th>Your Mac</th>
+<th>File</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Apple Silicon (M1 or later)</td>
+<td><code>jnext-*-macos-arm64.dmg</code></td>
+</tr>
+<tr>
+<td>Intel</td>
+<td><code>jnext-*-macos-x64.dmg</code></td>
+</tr>
+</tbody>
+</table>
+<p>To tell which you have, open the Apple menu, choose <strong>About This Mac</strong>, and look
+at the <strong>Chip</strong> line (Apple Silicon: "Apple M1" and later) or the <strong>Processor</strong>
+line (Intel: "Intel Core ...").</p>
+<p>The Intel build needs macOS 15 Sequoia or later; on an older release the Finder
+says so instead of opening it. Intel builds are produced for as long as GitHub's
+build service offers Intel Macs, which GitHub has announced will end in fall 2027.</p>
 <p>The first time you open it, macOS refuses to launch it and shows a dialog
 reading <em>Apple could not verify "jnext" is free of malware that may harm your
 Mac or compromise your privacy</em> (the exact wording varies between macOS

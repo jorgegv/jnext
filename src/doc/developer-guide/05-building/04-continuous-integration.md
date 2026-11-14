@@ -52,11 +52,11 @@ hypothetical worry: a run here once printed `62 pass, 1 fail` and
 
 ## Why a Fedora container
 
-Three of the seven `ci.yml` jobs — `test`, `qt5-guard` and `package` — run in a
+Three of the eight `ci.yml` jobs — `test`, `qt5-guard` and `package` — run in a
 pinned Fedora container: the same image `release.yml` builds the rpm and Windows
 artifacts in, and the same distribution family the maintainer develops on. (The
-remaining four cannot: `macos`, `macos-unit` and `macos-regression` need a
-`macos-latest` runner, and `flatpak` runs
+remaining five cannot: `macos`, `macos-intel`, `macos-unit` and `macos-regression`
+need a macOS runner, and `flatpak` runs
 in the Flathub `flatpak-github-actions` image, because that is where
 `flatpak-builder` and the KDE SDK live.)
 
@@ -133,6 +133,14 @@ uploads each package it built as a run artifact; the steps are
 
 **`macos`** runs `make package-macos` on a real `macos-latest` runner and
 uploads the `.dmg`,
+**`macos-intel`** does the same on `macos-15-intel` for the Intel package, with
+the dependencies from MacPorts (`MACPORTS_PREFIX=/opt/local`; Homebrew builds no
+Intel bottles) and `MACOS_DEPLOYMENT_TARGET=15.0`, then runs
+`make unit-test-sdl` in the same job: GitHub allows five concurrent macOS jobs
+to a plan, shared by every run, so one job per architecture keeps a run at four
+(the regression suite is not repeated on Intel, since no source is
+architecture-specific). Both Intel runner images are retired in fall 2027, and
+the job goes with them,
 **`macos-unit`** runs `make unit-test-sdl` on one, with Homebrew's
 `bash`, `coreutils` and `grep` installed because the unit harness needs them
 (macOS ships bash 3.2 and BSD tools), and uploads the suites' logs on failure,
@@ -171,7 +179,8 @@ and compression is off since the packages are already compressed.
 | `jnext-windows-x86-sdl-zip` | `jnext-<v>-windows-x86-sdl.zip` | `package` (repo-internal, not a release asset) |
 | `jnext-linux-rpm` | `jnext-<v>-1.x86_64.rpm` | `package` |
 | `jnext-source-zip` | `jnext-<v>-src.zip` | `package` |
-| `jnext-macos-dmg` | `jnext-<v>-Darwin.dmg` | `macos` |
+| `jnext-macos-arm64-dmg` | `jnext-<v>-macos-arm64.dmg` | `macos` |
+| `jnext-macos-x64-dmg` | `jnext-<v>-macos-x64.dmg` | `macos-intel` |
 | `jnext-linux-flatpak` | `jnext-<v>-x86_64.flatpak` | `flatpak` |
 
 There is **no `.deb`**. The one `package-deb` builds in the Fedora container is
@@ -213,13 +222,13 @@ whose reference screenshot is an SD-card directory listing.
 public — the allowlist described in [5.3](03-packaging-and-release.md). When it
 is not, nothing builds, and the tag remains a private history marker.
 
-When it is, six artifact jobs run. `deb` is a matrix over two pinned Ubuntu LTS
+When it is, seven artifact jobs run. `deb` is a matrix over two pinned Ubuntu LTS
 containers, one per supported release, because `dpkg-shlibdeps` bakes the
 container's own library package names into the dependency list, so a deb built
 in one release's container is uninstallable on the next. `rpm` builds in the
 pinned Fedora container, so that its dependencies are Fedora-native. Then `src`,
 `windows` (three zips from one Fedora container), `flatpak` (one line, calling
-`flatpak-build.yml`), and `macos`.
+`flatpak-build.yml`), `macos` and `macos-intel`.
 Finally **`publish`** attaches everything to a GitHub Release, gated on
 `if: success() && needs.gate.outputs.publish == 'true'`.
 

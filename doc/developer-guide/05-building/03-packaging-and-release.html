@@ -2038,6 +2038,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Licence texts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-macos-architectures-and-the-minimum-macos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The macOS architectures and the minimum macOS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3005,7 +3022,7 @@ you read it; it is not a replacement for it.</p>
 </tr>
 <tr>
 <td><code>make package-macos</code></td>
-<td>macOS <code>.dmg</code> — Darwin only; prints a SKIP and exits cleanly elsewhere</td>
+<td>macOS <code>.dmg</code> — Darwin only; prints a SKIP and exits cleanly elsewhere. <code>MACOS_DEPLOYMENT_TARGET=15.0</code> pins the minimum macOS and gates the <code>.dmg</code> on it; <code>MACPORTS_PREFIX=/opt/local</code> takes the dependencies from MacPorts (the Intel build) instead of Homebrew</td>
 </tr>
 <tr>
 <td><code>make package-test</code></td>
@@ -3049,7 +3066,10 @@ some platforms need more:</p>
 <li><strong>macOS</strong> uses clang's instrumentation (<code>-fprofile-instr-generate</code>, merged
   with <code>llvm-profdata</code> from Xcode). There a stale profile is an error but a
   translation unit with no profile at all is only a warning, and the library
-  members <code>jnext</code> never links are exempted from it via ld64's link map.</li>
+  members <code>jnext</code> never links are exempted from it via ld64's link map.
+  <code>tools/pgo-build.sh</code> also runs the FUSE Z80 suite natively against the
+  macOS PGO build's CPU core, on both architectures: AppleClang with ThinLTO
+  and PGO is a code generator no other suite exercises.</li>
 </ul>
 <p><code>package-test</code> matters more than its name suggests. It does not merely build
 each package: it then looks inside and checks what is there — that the rpm and
@@ -3086,7 +3106,32 @@ DLL has no licence at all. On macOS,
 macdeployqt copies into the bundle (<code>licenses/bundled/&lt;formula&gt;/</code>, from the
 formula's keg) and fails the package when a library's formula has no licence. Homebrew copies only
 top-level licence files into a keg, so the Qt and glib kegs get texts from
-<code>packaging/macos/license-fallbacks/</code>.</p>
+<code>packaging/macos/license-fallbacks/</code>. With <code>MACPORTS_PREFIX</code> set (the Intel
+build) the owner is the MacPorts port that <code>port provides</code> names for the
+library, the licences are the <code>LICENSE*</code>, <code>COPYING*</code> and <code>LICENCE*</code> files in
+<code>port contents</code>, and the same two failures apply: a library no port owns
+(for instance one that leaked in from another prefix on the build machine) or
+a port with no licence and no fallback stops the package.</p>
+<h3 id="the-macos-architectures-and-the-minimum-macos">The macOS architectures and the minimum macOS<a class="headerlink" href="#the-macos-architectures-and-the-minimum-macos" title="Permanent link">&para;</a></h3>
+<p>There are two macOS packages, built natively, because the dependencies are
+single-architecture and a universal binary is not an option: Apple Silicon
+(<code>jnext-&lt;v&gt;-macos-arm64.dmg</code>, Homebrew) and Intel (<code>jnext-&lt;v&gt;-macos-x64.dmg</code>,
+MacPorts: Homebrew builds no bottles for Intel Macs any more). The names carry
+the architecture because CPack's default would be the same for both and the
+release assets would collide. <code>packaging/macos/install-macports.sh</code> installs a
+pinned MacPorts and the ports from binary archives only, so a port whose
+archive is not published yet fails in seconds instead of starting a source
+build of Qt.</p>
+<p>A bundled library built for a newer macOS than the one running makes dyld
+refuse to start the app, so the minimum is explicit and checked.
+<code>MACOS_DEPLOYMENT_TARGET</code> becomes <code>CMAKE_OSX_DEPLOYMENT_TARGET</code> in both PGO
+trees and <code>LSMinimumSystemVersion</code> in the bundle's <code>Info.plist</code>, which makes
+the Finder say "requires macOS N or later" on an older release. Then
+<code>verify-bundle.sh</code> reads the minimum OS version of every Mach-O in the mounted
+<code>.dmg</code> (<code>LC_BUILD_VERSION</code> <code>minos</code>, or <code>LC_VERSION_MIN_MACOSX</code>). It always
+prints the highest one and the file that carries it; with the target set, it
+fails the package for any file that needs a newer macOS, and for a file whose
+minimum it cannot read.</p>
 <h2 id="versionyaml-is-the-single-source-of-truth"><code>version.yaml</code> is the single source of truth<a class="headerlink" href="#versionyaml-is-the-single-source-of-truth" title="Permanent link">&para;</a></h2>
 <p>No other file carries a copy of the version: everything that needs it reads
 <code>version.yaml</code> when it is built.</p>

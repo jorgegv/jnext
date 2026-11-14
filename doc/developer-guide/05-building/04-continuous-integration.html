@@ -3029,11 +3029,11 @@ exit status, and a failing <code>make</code> therefore reports success. That is 
 hypothetical worry: a run here once printed <code>62 pass, 1 fail</code> and
 <code>UNIT TESTS FAILED</code> in bold, and went green.</p>
 <h2 id="why-a-fedora-container">Why a Fedora container<a class="headerlink" href="#why-a-fedora-container" title="Permanent link">&para;</a></h2>
-<p>Three of the seven <code>ci.yml</code> jobs — <code>test</code>, <code>qt5-guard</code> and <code>package</code> — run in a
+<p>Three of the eight <code>ci.yml</code> jobs — <code>test</code>, <code>qt5-guard</code> and <code>package</code> — run in a
 pinned Fedora container: the same image <code>release.yml</code> builds the rpm and Windows
 artifacts in, and the same distribution family the maintainer develops on. (The
-remaining four cannot: <code>macos</code>, <code>macos-unit</code> and <code>macos-regression</code> need a
-<code>macos-latest</code> runner, and <code>flatpak</code> runs
+remaining five cannot: <code>macos</code>, <code>macos-intel</code>, <code>macos-unit</code> and <code>macos-regression</code>
+need a macOS runner, and <code>flatpak</code> runs
 in the Flathub <code>flatpak-github-actions</code> image, because that is where
 <code>flatpak-builder</code> and the KDE SDK live.)</p>
 <p>Matching the maintainer's distribution is load-bearing rather than cosmetic. The
@@ -3102,6 +3102,14 @@ uploads each package it built as a run artifact; the steps are
 <code>uses:</code> steps, so the make-target rule is untouched.</p>
 <p><strong><code>macos</code></strong> runs <code>make package-macos</code> on a real <code>macos-latest</code> runner and
 uploads the <code>.dmg</code>,
+<strong><code>macos-intel</code></strong> does the same on <code>macos-15-intel</code> for the Intel package, with
+the dependencies from MacPorts (<code>MACPORTS_PREFIX=/opt/local</code>; Homebrew builds no
+Intel bottles) and <code>MACOS_DEPLOYMENT_TARGET=15.0</code>, then runs
+<code>make unit-test-sdl</code> in the same job: GitHub allows five concurrent macOS jobs
+to a plan, shared by every run, so one job per architecture keeps a run at four
+(the regression suite is not repeated on Intel, since no source is
+architecture-specific). Both Intel runner images are retired in fall 2027, and
+the job goes with them,
 <strong><code>macos-unit</code></strong> runs <code>make unit-test-sdl</code> on one, with Homebrew's
 <code>bash</code>, <code>coreutils</code> and <code>grep</code> installed because the unit harness needs them
 (macOS ships bash 3.2 and BSD tools), and uploads the suites' logs on failure,
@@ -3172,9 +3180,14 @@ and compression is off since the packages are already compressed.</p>
 <td><code>package</code></td>
 </tr>
 <tr>
-<td><code>jnext-macos-dmg</code></td>
-<td><code>jnext-&lt;v&gt;-Darwin.dmg</code></td>
+<td><code>jnext-macos-arm64-dmg</code></td>
+<td><code>jnext-&lt;v&gt;-macos-arm64.dmg</code></td>
 <td><code>macos</code></td>
+</tr>
+<tr>
+<td><code>jnext-macos-x64-dmg</code></td>
+<td><code>jnext-&lt;v&gt;-macos-x64.dmg</code></td>
+<td><code>macos-intel</code></td>
 </tr>
 <tr>
 <td><code>jnext-linux-flatpak</code></td>
@@ -3215,13 +3228,13 @@ whose reference screenshot is an SD-card directory listing.</p>
 <code>releases.yaml</code> <strong>from the tag's own commit</strong> and decides whether this tag is
 public — the allowlist described in <a href="03-packaging-and-release.html">5.3</a>. When it
 is not, nothing builds, and the tag remains a private history marker.</p>
-<p>When it is, six artifact jobs run. <code>deb</code> is a matrix over two pinned Ubuntu LTS
+<p>When it is, seven artifact jobs run. <code>deb</code> is a matrix over two pinned Ubuntu LTS
 containers, one per supported release, because <code>dpkg-shlibdeps</code> bakes the
 container's own library package names into the dependency list, so a deb built
 in one release's container is uninstallable on the next. <code>rpm</code> builds in the
 pinned Fedora container, so that its dependencies are Fedora-native. Then <code>src</code>,
 <code>windows</code> (three zips from one Fedora container), <code>flatpak</code> (one line, calling
-<code>flatpak-build.yml</code>), and <code>macos</code>.
+<code>flatpak-build.yml</code>), <code>macos</code> and <code>macos-intel</code>.
 Finally <strong><code>publish</code></strong> attaches everything to a GitHub Release, gated on
 <code>if: success() &amp;&amp; needs.gate.outputs.publish == 'true'</code>.</p>
 <p>That explicit <code>success()</code> is what makes a failed artifact job withhold the

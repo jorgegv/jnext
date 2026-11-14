@@ -21,7 +21,7 @@ launcher, the AppStream metainfo, a scalable SVG + 512×512 PNG icon under
 `hicolor`, `LICENSE`/`README.md`/`ChangeLog`/`USAGE.md` under `share/doc/jnext`, the 48K ROM
 symbol map `48rom.map` under `share/jnext`,
 the licence texts of the third-party code in the binary (`packaging/licenses.list`) under
-`share/doc/jnext/licenses` (the `licenses/` folder at the root of the macOS .dmg, installed by the same rule; the Ubuntu .deb with a vendored SDL3 adds `sdl3.txt`; the native rpm spec lists the folder with `%license`; the Windows zips get the same folder from `bundle-dlls.sh`, which adds the licences of the bundled DLLs' Fedora packages under `licenses/bundled/`; on macOS `packaging/macos/bundle-licenses.sh` adds the Homebrew formulae's licences of the libraries bundled into the app, to `licenses/bundled/` at the image root),
+`share/doc/jnext/licenses` (the `licenses/` folder at the root of the macOS .dmg, installed by the same rule; the Ubuntu .deb with a vendored SDL3 adds `sdl3.txt`; the native rpm spec lists the folder with `%license`; the Windows zips get the same folder from `bundle-dlls.sh`, which adds the licences of the bundled DLLs' Fedora packages under `licenses/bundled/`; on macOS `packaging/macos/bundle-licenses.sh` adds the Homebrew formulae's (MacPorts ports', for the Intel build) licences of the libraries bundled into the app, to `licenses/bundled/` at the image root),
 and the man page at `share/man/man1/jnext.1` (pre-generated and committed, so
 installing needs no doc toolchain — the formats compress it themselves, hence
 the `jnext.1*` glob in the RPM `%files`). `include(CPack)`
@@ -433,7 +433,18 @@ suppresses the prompt for the extracted `jnext.exe`.
 
 **macOS** has no build host in this environment — the `macos` job builds it
 natively on `macos-latest` through the project's own `make package-macos`
-target, so CI runs the same recipe a Mac developer would.
+target, so CI runs the same recipe a Mac developer would. There are two
+packages, named by architecture so the release assets cannot collide:
+`jnext-<ver>-macos-arm64.dmg` (Apple Silicon, Homebrew dependencies) and
+`jnext-<ver>-macos-x64.dmg` (Intel, built by the `macos-intel` job on
+`macos-15-intel`). Homebrew builds no bottles for Intel Macs any more and a
+source build of Qt takes hours, so the Intel build takes its dependencies from
+MacPorts' binary archives: `packaging/macos/install-macports.sh` installs a
+pinned MacPorts and the ports (`port -b`, archives only: a port whose archive is
+not published yet fails in seconds), and `MACPORTS_PREFIX=/opt/local` switches
+`complete-closure.sh`, `bundle-licenses.sh` and the unit-test PATH over to it.
+With the variable unset everything is Homebrew, as before. Both Intel runner
+images are retired in fall 2027; the job is removed then.
 
 The package is a **relocatable `jnext.app`** at the root of the `.dmg`. It has
 to be: until v0.98.72 the `.dmg` held a bare executable under `usr/bin`, still
@@ -452,6 +463,18 @@ not `/usr/lib` or `/System`). It runs twice: at install/staging time from
 mounted**, which also launches the bundled binary. A failure fails the job, so
 no `.dmg` is uploaded and the release simply carries no macOS package — the
 right outcome when the alternative is one that aborts at launch.
+
+The **minimum macOS** is explicit too. `MACOS_DEPLOYMENT_TARGET` (the Intel
+build passes `15.0`) becomes `CMAKE_OSX_DEPLOYMENT_TARGET` in both PGO trees and
+`LSMinimumSystemVersion` in `Info.plist`, and the mounted-`.dmg` run of
+`verify-bundle.sh` (given `JNEXT_MACOS_MIN` by `make verify-macos-dmg`) reads the
+minimum OS version of every Mach-O (`LC_BUILD_VERSION` `minos`, or
+`LC_VERSION_MIN_MACOSX`) and fails on any file that needs a newer macOS, or
+whose minimum it cannot read: dyld refuses a library built for a newer macOS
+than the running one, so a dependency bottled for the runner's OS would
+otherwise raise the app's floor unnoticed. It always prints the highest minimum
+and the file that carries it, set or not. `tools/pgo-build.sh` also runs the
+FUSE Z80 suite natively on the macOS PGO build, as it does for Windows under wine.
 
 Two more steps sit between deployment and verification, both learned from real
 CI runs rather than guessed:
@@ -538,7 +561,8 @@ jobs, when they run:
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
 | `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` + `package-win-qt5` + `package-win32-qt5` (MinGW cross-builds + DLL bundling) | 3× ZIP (`build/win-release/`, `build/win-qt5-release/`, `build/win32-qt5-release/`) | Yes — all three built here; the x64-Qt6 zip ran green on a real runner and shipped in v0.98.19, confirmed working on Windows hardware; both Qt5 zips confirmed by a tester on real Windows 8.1 (GH #108) |
 | `flatpak` | `ubuntu-latest` + KDE 6.10     | one `uses:` line calling `.github/workflows/flatpak-build.yml`: `flatpak-builder` (org.kde.Sdk//6.10), then `make verify-flatpak-permissions` on the bundle | `.flatpak` bundle              | Yes — built here against the installed `org.kde.Sdk//6.10`, then installed from the bundle and run; its sandbox permissions are asserted in-job by `verify-permissions.sh` (GH #271). *Blocking since v0.99.110.* |
-| `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `.dmg` (`build/mac-release/`) | No — no macOS runner locally; the bundle's self-containment is asserted in-job by `verify-bundle.sh`. *Blocking since issue #61.* |
+| `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `jnext-<ver>-macos-arm64.dmg` (`build/mac-release/`) | No — no macOS runner locally; the bundle's self-containment is asserted in-job by `verify-bundle.sh`. *Blocking since issue #61.* |
+| `macos-intel` | `macos-15-intel`          | `make package-macos` (MacPorts via `install-macports.sh`, `MACPORTS_PREFIX=/opt/local`, `MACOS_DEPLOYMENT_TARGET=15.0`) | DragNDrop `jnext-<ver>-macos-x64.dmg` (`build/mac-release/`) | No — no Intel Mac locally; same in-job gates, plus the minimum-macOS gate. Blocking: in `publish`'s `needs:`. |
 
 This workflow is separate from `ci.yml` (which runs the test suite on push/PR).
 `release.yml` does not run tests — it builds packages and, for tags listed in
