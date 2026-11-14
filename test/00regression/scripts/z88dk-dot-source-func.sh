@@ -68,6 +68,7 @@ JDS
         mkdir -p "$BASE/$1/sdcard"
         cp --reflink=auto "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" \
                           "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
+        sd_card_sidecars "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
         JNEXT_CONFIG_DIR="$BASE/$1" timeout --foreground --kill-after=5s 120s \
             "$JNEXT" --sdcard-file-add "$fx/PROG" --sdcard-file-dest /DOT/PROG \
             > "$W/add-$1.log" 2>&1 || rc=$?

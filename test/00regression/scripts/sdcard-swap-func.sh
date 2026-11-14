@@ -51,6 +51,7 @@ if want sdcard-swap-func; then
     clone_a() {   # clone_a <name> — a config dir whose fallback card is a clone of A
         mkdir -p "$BASE/$1/sdcard"
         cp --reflink=auto "$MASTER" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
+        sd_card_sidecars "$MASTER" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
     }
     clone_a swap
     clone_a control

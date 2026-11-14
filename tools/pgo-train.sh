@@ -59,6 +59,9 @@
 #   JNEXT_PGO_NO_SD_HINT  what to tell the user when there is no SD image
 #                     (default: the gui-release case, `make gui-release-non-pgo`);
 #                     tools/pgo-build.sh sets it for the package trees.
+#   JNEXT_REGRESSION_SD_STATE_DIR  the SD master's state directory (its sdcard/ holds the
+#                     card), as for the regression suite; default ~/.jnext. Set it to train on a
+#                     private card without touching the shared one.
 #   JNEXT_PGO_NO_GUI  =1 skips the Qt-offscreen GUI run; the build is then
 #                     byte-reproducible (see REPRODUCIBILITY below).
 #   JNEXT_PGO_REPORT_WEIGHTS  =1 (gcc only; needs gcov-dump next to the
@@ -106,7 +109,12 @@ CLANG=0
 mkdir -p "$PROFILE_DIR"
 PROFILE_DIR=$(cd "$PROFILE_DIR" && pwd)
 
-SD_MASTER_DIR="$HOME/.jnext/sdcard"
+# The same candidate-card override as the regression suite (test-functions.inc): with
+# JNEXT_REGRESSION_SD_STATE_DIR set, the master is that directory's sdcard/ and nothing under
+# ~/.jnext/sdcard is read or provisioned (GH #476: a tree that defaults to another distribution
+# must not replace the card other trees train and test on).
+SD_STATE_DIR="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}"
+SD_MASTER_DIR="$SD_STATE_DIR/sdcard"
 SD_MASTER="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
 NEX=test/00regression/nex
 TAP=test/00regression/tap
@@ -204,7 +212,7 @@ if [[ ! -f "$SD_MASTER" ]]; then
     mkdir -p "$SD_MASTER_DIR"
     {
         command -v flock >/dev/null 2>&1 && flock 9
-        [[ -f "$SD_MASTER" ]] || JNEXT_CONFIG_DIR="$HOME/.jnext" \
+        [[ -f "$SD_MASTER" ]] || JNEXT_CONFIG_DIR="$SD_STATE_DIR" \
             bounded 1200 ${RUNNER[@]+"${RUNNER[@]}"} "$BIN" --headless \
                 --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
     } 9>"$SD_MASTER_DIR/.provision.lock"
@@ -238,6 +246,11 @@ cp --reflink=always "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/
     cp "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ||
     die "cannot clone the SD master $SD_MASTER"
 SD="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+# The clone carries the master's distribution sidecars: without them the GUI run would be offered
+# the upgrade to the default distribution and wait for an answer (the NextZXOS dialog of GH #476).
+for sc in distro distro-declined; do
+    [[ ! -f "$SD_MASTER.$sc" ]] || cp "$SD_MASTER.$sc" "$SD.$sc"
+done
 # REPRODUCIBILITY. gcc's value profiling records runtime VALUES (pointer
 # alignment, sizes), so stack and heap addresses end up in the .gcda files,
 # and spdlog's formatter re-reads the clock once per wall-clock second, so its

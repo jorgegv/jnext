@@ -276,6 +276,16 @@ sd_clone_for_run() {
     return 0
 }
 
+# sd_card_sidecars <src.img> <dst.img>: a row that makes a config directory of its own and copies
+# the card into it copies the card's distribution sidecars too (see sd_clone_for_run), or a GUI run
+# in that directory is blocked on the offer of a newer distribution.
+sd_card_sidecars() {
+    local sc
+    for sc in distro distro-declined; do
+        [[ ! -f "$1.$sc" ]] || cp "$1.$sc" "$2.$sc" || return 1
+    done
+}
+
 # sd_expected_distro: the zip name of the default distribution, from its one definition
 # (sdcard::kDistroUrl in src/core/sdcard_provisioner.cpp: the line after the declaration).
 # Fails, printing nothing, unless exactly one name comes out.
