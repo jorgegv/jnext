@@ -442,10 +442,10 @@ int main() {
     using ParseFn = bool (*)(const char*, const char*, double&);
     struct Case { const char* text; bool ok; double value; };
     static const Case CASES[] = {
-        {"0", true, 0}, {"-0", true, 0}, {"3", true, 3}, {"-1.5", true, -1.5}, {".5", true, 0.5}, {"5.", true, 5},
+        {"0", true, 0}, {"-0", true, 0}, {"3", true, 3}, {"-2.75", true, -2.75}, {".5", true, 0.5}, {"5.", true, 5},
         {"1e2", true, 100}, {"1E-2", true, 0.01}, {"2.5e+1", true, 25}, {"-24", true, -24},
         {"+3", false, 0}, {" 3", false, 0}, {"3 ", false, 0}, {"", false, 0}, {"-", false, 0}, {".", false, 0},
-        {"1e", false, 0}, {"1e+", false, 0}, {"0x10", false, 0}, {"1.5x", false, 0}, {"1,5", false, 0},
+        {"1e", false, 0}, {"1e+", false, 0}, {"0x10", false, 0}, {"6.25x", false, 0}, {"6,25", false, 0},
         {"inf", false, 0}, {"nan", false, 0}, {"--3", false, 0}, {"1e999", false, 0}, {"1e-999", false, 0},
     };
     auto run_cases = [&](ParseFn fn) {
@@ -484,13 +484,13 @@ int main() {
         const std::locale before = std::locale::global(std::locale(std::locale::classic(), new Comma));
         std::string bad;
         double d = 0;
-        const std::string a = "1.5", b = "1,5";
-        if (!float_parse::parse_double_stream(a.data(), a.data() + a.size(), d) || d != 1.5) bad += "stream-1.5 ";
-        if (float_parse::parse_double_stream(b.data(), b.data() + b.size(), d)) bad += "stream-1,5 ";
-        if (!float_parse::parse_double(a.data(), a.data() + a.size(), d) || d != 1.5) bad += "dispatch-1.5 ";
-        if (canon("audio.gain_db=-1.5") != "-1.5") bad += "setter-1.5 ";
+        const std::string a = "6.25", b = "6,25";
+        if (!float_parse::parse_double_stream(a.data(), a.data() + a.size(), d) || d != 6.25) bad += "stream-6.25 ";
+        if (float_parse::parse_double_stream(b.data(), b.data() + b.size(), d)) bad += "stream-6,25 ";
+        if (!float_parse::parse_double(a.data(), a.data() + a.size(), d) || d != 6.25) bad += "dispatch-6.25 ";
+        if (canon("audio.gain_db=6.25") != "6.25") bad += "setter-6.25 ";
         std::locale::global(before);
-        check("SETK-23", "float_parse and the Float setter read 1.5 as 1.5 under a comma-decimal global locale", bad.empty(), bad);
+        check("SETK-23", "float_parse and the Float setter read 6.25 as 6.25 under a comma-decimal global locale", bad.empty(), bad);
     }
 
     // DK-83
