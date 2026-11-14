@@ -944,6 +944,30 @@ void run_esxdos_write_rows(int& passed, int& failed)
         wcheck("HFW-176",
                "a file the host changed after F_CHMOD stays archive-set through our F_FTRUNCATE (design)",
                ft == H::kOk && c_attr == H::kAttrArchive && f.attr_of("c.txt") == H::kAttrArchive);
+        // q1: an open handle is no reason to trust an entry: chmod, the host appends, a READ handle
+        f.file("d.txt", "dd");
+        f.hfs.chmod("d.txt", H::kChmodWrite, H::kChmodWrite);
+        host_append("d.txt");
+        uint8_t hq1 = 0;
+        f.hfs.open("d.txt", H::kModeRead, hq1);
+        const uint8_t d_attr = fstat_attr(hq1);
+        f.hfs.close(hq1);
+        wcheck("HFW-177",
+               "a stale 'clear' is not trusted because a handle is open: chmod, a host append, F_OPEN read, "
+               "F_FSTAT reads 20 (design)",
+               d_attr == H::kAttrArchive);
+        // q2: our F_FTRUNCATE of a file whose clear is valid leaves it clear until the handle closes
+        f.file("e.txt", "eeee");
+        f.hfs.chmod("e.txt", H::kChmodWrite, H::kChmodWrite);
+        uint8_t hq2 = 0;
+        f.hfs.open("e.txt", H::kModeWrite, hq2);
+        const uint8_t e_ft = f.hfs.ftruncate(hq2, 2);
+        const uint8_t e_open = fstat_attr(hq2);
+        f.hfs.close(hq2);
+        wcheck("HFW-178",
+               "F_FTRUNCATE through a write handle keeps a valid 'clear' while the handle is open (F_FSTAT "
+               "00) and closing it sets the bit, as a write does (design; [arch] S044F..S0452 around it)",
+               e_ft == H::kOk && e_open == 0 && f.attr_of("e.txt") == H::kAttrArchive);
     }
 
     // ══ 8.3 aliases stay put; host-only aliases are refused ([alias]) ═══════
