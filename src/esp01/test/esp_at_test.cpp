@@ -295,9 +295,13 @@ public:
     /// catches only the stimulus methods' `require_live()` — but only if it
     /// sees the real free.
 #if !ESP_AT_TEST_ASAN
-    // The matching allocation function: without it GCC (MinGW) flags every
-    // `new FakeTransport` released through this class-specific delete.
-    static void* operator new(std::size_t size) { return ::operator new(size); }
+    // The matching allocation function. GCC (MinGW) pairs a plain `::operator new`
+    // with `::operator delete` and flags the class-specific delete below as a
+    // mismatch; not inlined, GCC sees a call to this function instead, and the
+    // class delete (which deliberately never frees) is its partner.
+    __attribute__((noinline)) static void* operator new(std::size_t size) {
+        return ::operator new(size);
+    }
     static void operator delete(void* p, std::size_t size) {
         std::memset(p, 0xCD, size);
         quarantine().held.push_back(p);
