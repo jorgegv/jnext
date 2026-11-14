@@ -18,7 +18,7 @@
 namespace sdcard {
 
 const char* const kDistroUrl =
-    "https://www.specnext.com/distro/24.11/sn-emulator-24.11.zip";
+    "https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip";
 const char* const kImageFileName = "cspect-next-1gb.img";
 const char* const kFixedImageFileName = "cspect-next-1gb-fixed.img";
 const int kFixedImageRecipe = 3;
