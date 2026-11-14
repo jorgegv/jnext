@@ -1,7 +1,7 @@
 // GH #457 - rows for the esxDOS calls that change files on the host folder:
 // F_UNLINK, F_RENAME, F_MKDIR, F_RMDIR, F_TRUNCATE, F_FTRUNCATE, F_CHMOD, M_GETERR.
 //
-// ORACLE. Real NextZXOS 2.09, MEASURED by the kept probe
+// ORACLE. Real NextZXOS 2.10, MEASURED by the kept probe
 // (test/00regression/esxdos-write-probe.py) and recorded in
 // test/fixtures/esxdos-write-probe/nextzxos.txt. Every expected value below is a
 // line of that recording or a declared divergence from it (the generator's
@@ -702,12 +702,14 @@ void run_esxdos_write_rows(int& passed, int& failed)
         const uint8_t all = f.hfs.chmod("f.txt", 0, 0xFF);
         const uint8_t dirw = f.hfs.chmod("dd", 0, H::kChmodWrite);
         wcheck("HFW-93",
-               "F_CHMOD changes the host cannot store (hidden, system, archive cleared, any "
-               "mask outside A_WRITE/A_READ/A_ARCH, A_WRITE on a directory) are esx_enosys and "
-               "change nothing (declared divergence: NextZXOS stores them, [chmod] S0330..S0344, "
-               "S0370)",
-               hid == H::kEnosys && sys == H::kEnosys && arc == H::kEnosys && all == H::kEnosys &&
-                   dirw == H::kEnosys && fingerprint(f.root) == before);
+               "F_CHMOD changes the host cannot store (hidden, system, any mask outside "
+               "A_WRITE/A_READ/A_ARCH, A_WRITE on a directory) are esx_enosys and change "
+               "nothing (declared divergence: NextZXOS stores them, [chmod] S0330..S0344, "
+               "S0370); A_ARCH cleared is served: Fc=0, the host untouched, the archive bit "
+               "kept in the mount's state ([chmod] S0339 and [arch] S042F)",
+               hid == H::kEnosys && sys == H::kEnosys && arc == H::kOk && all == H::kEnosys &&
+                   dirw == H::kEnosys && fingerprint(f.root) == before &&
+                   (f.attr_of("f.txt") & H::kAttrArchive) != 0);
         wcheck("HFW-94",
                "F_CHMOD that leaves the reported bits as they are is Fc=0: A_ARCH set, A_READ "
                "either way, a mask of 0 ([chmod] S032C..S032F, S033A, S033C)",
@@ -734,6 +736,140 @@ void run_esxdos_write_rows(int& passed, int& failed)
                "(F_STAT of a file made read-only on the host)",
                (f.attr_of("host-ro.txt") & H::kAttrReadOnly) != 0 &&
                    (f.attr_of("v.dat") & H::kAttrReadOnly) == 0);
+    }
+
+    // ══ The archive bit of a file that went through F_CHMOD (NextZXOS 2.10: [chmod], [arch]) ══
+    {
+        Fx f(base, "arc", true);
+        f.file("f.txt", "1234567890");
+        f.file("g.txt", "g");
+        const std::string before = fingerprint(f.root);
+        auto arch = [&](const char* n) { return (f.attr_of(n) & H::kAttrArchive) != 0; };
+        auto readdir_attr = [&](const char* n) {
+            uint8_t dh = 0;
+            f.hfs.opendir("/", H::kDirLfnOnly, dh);
+            H::DirEntry de; bool have = false;
+            uint8_t a = 0xFF;
+            while (f.hfs.readdir(dh, de, have) == H::kOk && have)
+                if (de.lfn == n) a = de.attr;
+            f.hfs.close(dh);
+            return a;
+        };
+        const bool fresh = arch("f.txt") && f.attr_of("f.txt") == H::kAttrArchive;     // [arch] S041C: 20
+        f.hfs.chmod("f.txt", 0x00, H::kChmodWrite);
+        uint8_t fh = 0;
+        f.hfs.open("f.txt", H::kModeRead, fh);
+        H::StatInfo fst;
+        f.hfs.fstat(fh, fst);
+        f.hfs.close(fh);
+        wcheck("HFW-160",
+               "a file is archive-set until an F_CHMOD, and F_CHMOD A_WRITE clear leaves the archive "
+               "bit CLEAR in F_STAT, F_FSTAT and F_READDIR: attribute 01 ([arch] S041C 20, S041E 01; "
+               "[chmod] S0329 01)",
+               fresh && f.attr_of("f.txt") == H::kAttrReadOnly && fst.attr == H::kAttrReadOnly &&
+                   readdir_attr("f.txt") == H::kAttrReadOnly && arch("g.txt"));
+        f.hfs.chmod("f.txt", H::kChmodWrite, H::kChmodWrite);
+        wcheck("HFW-161",
+               "F_CHMOD A_WRITE set leaves it clear: attribute 00 ([arch] S0420 00; [chmod] S032B 00)",
+               f.attr_of("f.txt") == 0 && readdir_attr("f.txt") == 0);
+        const uint8_t aclr = f.hfs.chmod("f.txt", 0, H::kChmodArch);
+        const bool set_after_clear = f.attr_of("f.txt") == H::kAttrArchive;
+        const uint8_t aset = f.hfs.chmod("f.txt", H::kChmodArch, H::kChmodArch);
+        const bool clear_after_set = f.attr_of("f.txt") == 0;
+        wcheck("HFW-162",
+               "F_CHMOD that clears A_ARCH reports the bit SET and one that sets it reports it clear: "
+               "2.10's measured reading of the call, Fc=0 both ways, the host untouched ([arch] S042F "
+               "S0430 20, S0431 S0432 00; [chmod] S0339 20, S033B 00)",
+               aclr == H::kOk && set_after_clear && aset == H::kOk && clear_after_set &&
+                   fingerprint(f.root) == before);
+        f.hfs.chmod("f.txt", 0x01, 0x00);
+        const bool mask0_clears = f.attr_of("f.txt") == 0;
+        f.hfs.chmod("g.txt", H::kChmodRead, H::kChmodRead);
+        wcheck("HFW-163",
+               "ANY F_CHMOD clears the archive bit: a mask of 0 on a file already clear, a mask of 0 "
+               "and A_READ set on a fresh one ([arch] S0434 00, S043F S0440 00, S0441 S0442 00)",
+               mask0_clears && f.attr_of("g.txt") == 0);
+        f.hfs.chmod("f.txt", H::kChmodWrite, H::kChmodWrite);
+        uint8_t wh = 0;
+        f.hfs.open("f.txt", H::kModeWrite, wh);
+        std::size_t wr = 0;
+        const uint8_t one = 'z';
+        f.hfs.write(wh, &one, 1, wr);
+        H::StatInfo during;
+        f.hfs.fstat(wh, during);
+        f.hfs.close(wh);
+        wcheck("HFW-164",
+               "writing through a handle leaves the bit clear while the handle is open (F_FSTAT 00) and "
+               "closing it sets the bit ([arch] S0421..S0425: 00, then 20)",
+               during.attr == 0 && f.attr_of("f.txt") == H::kAttrArchive);
+        f.hfs.chmod("f.txt", H::kChmodWrite, H::kChmodWrite);
+        uint8_t nh = 0;
+        f.hfs.open("f.txt", H::kModeWrite, nh);
+        const bool open_clear = f.attr_of("f.txt") == 0;
+        f.hfs.close(nh);
+        wcheck("HFW-165",
+               "a write handle opened and closed with nothing written still sets the bit ([arch] "
+               "S044C..S044E 00 -> 20)",
+               open_clear && f.attr_of("f.txt") == H::kAttrArchive);
+        f.hfs.chmod("f.txt", H::kChmodWrite, H::kChmodWrite);
+        const uint8_t tr = f.hfs.truncate("f.txt", 4);
+        const bool tr_set = f.attr_of("f.txt") == H::kAttrArchive;
+        f.hfs.chmod("f.txt", H::kChmodWrite, H::kChmodWrite);
+        uint8_t th = 0;
+        f.hfs.open("f.txt", H::kModeWrite, th);
+        const uint8_t ftr = f.hfs.ftruncate(th, 2);
+        f.hfs.close(th);
+        wcheck("HFW-166",
+               "F_TRUNCATE sets the bit, and so does closing a handle that went through F_FTRUNCATE "
+               "([arch] S0448 S0449 20, S044F..S0452 20)",
+               tr == H::kOk && tr_set && ftr == H::kOk && f.attr_of("f.txt") == H::kAttrArchive);
+        f.hfs.chmod("f.txt", H::kChmodWrite, H::kChmodWrite);
+        const uint8_t rn = f.hfs.rename("f.txt", "r.txt");
+        wcheck("HFW-167",
+               "F_RENAME keeps the bit with the file: the new name is clear, the old one is gone ([arch] "
+               "S0435 S0436 00, S0454 S0455 00)",
+               rn == H::kOk && f.attr_of("r.txt") == 0 && f.attr_of("f.txt") == 0xFF);
+        f.hfs.unlink("r.txt");
+        f.file("r.txt", "again");
+        wcheck("HFW-168",
+               "F_UNLINK and a create of the same name give a fresh file: the bit is set ([arch] S0437..S043B 20)",
+               f.attr_of("r.txt") == H::kAttrArchive);
+        // Not recorded steps (one session, a host that edits): the bits NextZXOS keeps on the card
+        // cannot follow a host change, so a file that no longer is the one F_CHMOD saw is archive-set.
+        f.file("h.txt", "host");
+        f.hfs.chmod("h.txt", H::kChmodWrite, H::kChmodWrite);
+        const bool h_clear = f.attr_of("h.txt") == 0;
+        { std::ofstream o(f.root / "h.txt", std::ios::binary | std::ios::app); o << "more"; }
+        wcheck("HFW-169",
+               "a file changed on the HOST after F_CHMOD (its size differs) is archive-set again: the "
+               "kept state is dropped, not applied to a different file (design; no recorded step)",
+               h_clear && f.attr_of("h.txt") == H::kAttrArchive);
+        f.file("k.txt", "kk");
+        f.hfs.chmod("k.txt", H::kChmodWrite, H::kChmodWrite);
+        fs::remove(f.root / "k.txt");
+        f.file("k.txt", "kk");
+        wcheck("HFW-170",
+               "a file re-created on the host under the same name and size is archive-set (a new file; "
+               "design, no recorded step)",
+               f.attr_of("k.txt") == H::kAttrArchive);
+        f.dir("sub");
+        f.file("sub/m.txt", "m");
+        f.hfs.chmod("sub/m.txt", H::kChmodWrite, H::kChmodWrite);
+        const uint8_t dr = f.hfs.rename("sub", "sub2");
+        const bool moved = f.attr_of("sub2/m.txt") == 0;
+        wcheck("HFW-171",
+               "a renamed DIRECTORY takes the bit of every file under it along (a FAT entry is the file's "
+               "own; design, no recorded step)",
+               dr == H::kOk && moved);
+        std::string why;
+        f.hfs.chmod("g.txt", H::kChmodWrite, H::kChmodWrite);
+        const bool g_clear = f.attr_of("g.txt") == 0;
+        f.hfs.configure(f.root.string(), true, why);
+        wcheck("HFW-172",
+               "the bit lives in the mount's state: a new mount of the same folder reads every file "
+               "archive-set (the documented limit: on the card it would survive a restart; no recorded "
+               "step can see it)",
+               g_clear && f.attr_of("g.txt") == H::kAttrArchive);
     }
 
     // ══ 8.3 aliases stay put; host-only aliases are refused ([alias]) ═══════

@@ -844,7 +844,7 @@ them: NextZXOS is software, so the oracle is a PROBE, kept in the tree
 (`test/00regression/esxdos-write-probe.py`, the `nex` command writes the two
 NEX files), run under real NextZXOS booted in jnext on a scratch copy of the SD
 image, and the answers recorded in `test/fixtures/esxdos-write-probe/nextzxos.txt`
-with the image's sha256, `M_DOSVERSION` (2.09) and the sha256 of the probe NEX
+with the image's sha256, `M_DOSVERSION` (2.10) and the sha256 of the probe NEX
 files in its header. Every rule in the code names the recorded group it came
 from. The generator's `DIVERGE` table lists each place jnext deliberately
 answers otherwise, with its reason. To re-measure: `esxdos-write-probe-measure.sh`
@@ -857,8 +857,16 @@ success `A` is whatever the register held (junk), so the probe masks it, and
 the dispatcher returns 0; `F_UNLINK` of a directory is success and deletes
 nothing; `F_TRUNCATE` with a wildcard truncates the first match; `F_CHMOD`'s
 `A_WRITE` is the inverse of FAT's read-only bit, `A_READ` is inert, and hidden
-and system are set together, so only `A_WRITE`, `A_READ` and the archive bit
-set are served (everything else is `esx_enosys`: refused, not faked); a name with
+and system are set together, so only `A_WRITE`, `A_READ` and `A_ARCH` are served
+(everything else is `esx_enosys`: refused, not faked). The archive bit is the one
+attribute a host file cannot hold and 2.10 changes on `F_CHMOD`, so `EsxdosHostFs`
+keeps it per file in `archive_clear_` for the mount (session state: lost when jnext
+exits, which no recorded step can see): after any `F_CHMOD` of a file it reads clear,
+unless that call cleared `A_ARCH`, which leaves it set; closing a write handle,
+`F_TRUNCATE` and a re-create set it, a rename (a directory's too) carries it, and an
+entry whose file's size, modification time or inode no longer matches is stale and
+reads set. The `[arch]` group of the probe measured the write, truncate, rename and
+re-create cases; a name with
 `"`, `<`, `>`, `|`, `:` is `esx_einval` in every call; a trailing dot is dropped;
 a renamed current directory keeps its old name in `F_GETCWD` on a card (jnext
 shows the new one); `F_RENAME` of an empty destination means the current

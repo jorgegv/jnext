@@ -138,12 +138,13 @@ wrong answer is worse than a clear refusal:
   fiction
 - `M_P3DOS`, which calls NextZXOS ROM routines directly, including raw sector
   reads. A directory has no sectors to give.
-- `F_CHMOD` of the hidden and system attributes, of the archive attribute
-  cleared, and of a directory's attributes: a host file or directory has no
-  such attribute for the next `F_STAT` or `F_READDIR` to show, so the call is
-  refused with `esx_enosys` instead of answering success and showing something
-  else. Setting or clearing the read-only bit works, and means the host write
-  permission
+- `F_CHMOD` of the hidden and system attributes and of a directory's
+  attributes: a host file or directory has no such attribute for the next
+  `F_STAT` or `F_READDIR` to show, so the call is refused with `esx_enosys`
+  instead of answering success and showing something else. Setting or clearing
+  the read-only bit works, and means the host write permission. The archive
+  bit of a file is answered as NextZXOS 2.10 does, but JNEXT only remembers it
+  while it runs: a file reads as archive-set again the next time JNEXT starts
 - a name that ends in a space (a card keeps it, a host may strip it). A name
   with `"`, `<`, `>` or `|` in it is refused with `esx_einval`, as on the card,
   and so is a wildcard in a name that is being created

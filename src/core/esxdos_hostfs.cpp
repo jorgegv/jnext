@@ -8,6 +8,7 @@
 #include <cstring>
 #include <ctime>
 #include <system_error>
+#include <sys/stat.h>
 
 namespace fs = std::filesystem;
 
@@ -245,6 +246,7 @@ void EsxdosHostFs::clear()
     for (auto& d : dirs_)  d = DirHandle{};
     cwd_.clear();
     aliases_.clear();
+    archive_clear_.clear();
     active_ = false;
     writable_ = false;
     root_.clear();
@@ -701,6 +703,7 @@ uint8_t EsxdosHostFs::close(uint8_t handle)
     if (FileHandle* f = file_slot(handle)) {
         if (!f->open) return kEbadf;
         f->stream.close();
+        if (f->writable) archive_record(fs::path(f->path), true);    // 2.10 sets it on closing a write handle
         f->open = false;
         f->path.clear();
         f->position = 0;
@@ -800,7 +803,7 @@ uint8_t EsxdosHostFs::fstat(uint8_t handle, StatInfo& out) const
     const uint64_t size = fs::file_size(p, ec);
     out.size = ec ? 0 : static_cast<uint32_t>(
         std::min<uint64_t>(size, 0xFFFFFFFFULL));
-    out.attr = kAttrArchive;
+    out.attr = archive_of(p) ? kAttrArchive : 0;
     if (!writable_ || host_read_only(p)) out.attr |= kAttrReadOnly;
     std::error_code ec2;
     const auto mtime = fs::last_write_time(p, ec2);
@@ -827,7 +830,7 @@ uint8_t EsxdosHostFs::stat(const std::string& guest_path, StatInfo& out)
 
     out = StatInfo{};
     if (fs::is_regular_file(st)) {
-        out.attr = kAttrArchive;
+        out.attr = archive_of(host) ? kAttrArchive : 0;
         std::error_code ec2;
         const uint64_t size = fs::file_size(host, ec2);
         out.size = ec2 ? 0 : static_cast<uint32_t>(
@@ -854,7 +857,7 @@ uint8_t EsxdosHostFs::sync(uint8_t handle)
 
 // ── Calls that change the host folder (GH #457) ──────────────────────────
 //
-// Every answer below is NextZXOS 2.09's, MEASURED by the kept probe
+// Every answer below is NextZXOS 2.10's, MEASURED by the kept probe
 // (test/00regression/esxdos-write-probe.py, recorded in test/fixtures/
 // esxdos-write-probe/nextzxos.txt). The comments name the recorded group. Order
 // matters and is the measured one: every check that does not write first, then
@@ -953,6 +956,7 @@ uint8_t EsxdosHostFs::unlink_file(const fs::path& host)
     std::error_code ec;
     if (!fs::remove(host, ec) || ec) return kEio;
     forget_alias(host);
+    archive_forget(host);
     return kOk;
 }
 
@@ -1080,6 +1084,7 @@ uint8_t EsxdosHostFs::rename(const std::string& from, const std::string& to)
         if (src_dir) reopen_streams(src, fs::path());
         return kEio;
     }
+    archive_move(src, target);
     // The source name is free again, and takes its alias with it.
     if (const auto d = aliases_.find(src.parent_path().string()); d != aliases_.end())
         d->second.erase(src.filename().string());
@@ -1155,6 +1160,7 @@ uint8_t EsxdosHostFs::rmdir(const std::string& guest_path)
     if (!writable_) return kEdevicebusy;
     if (!fs::remove(host, ec) || ec) return kEio;
     forget_alias(host);
+    archive_forget(host);
     return kOk;
 }
 
@@ -1168,6 +1174,7 @@ uint8_t EsxdosHostFs::truncate_file(const fs::path& host, uint32_t size)
     if (!writable_) return kEdevicebusy;
     std::error_code ec;
     fs::resize_file(host, size, ec);      // the extension reads as zeroes
+    if (!ec) archive_record(host, true);
     return ec ? kEio : kOk;
 }
 
@@ -1213,28 +1220,92 @@ uint8_t EsxdosHostFs::ftruncate(uint8_t handle, uint32_t size)
 
 uint8_t EsxdosHostFs::chmod_file(const fs::path& host, uint8_t values, uint8_t mask)
 {
-    // Only what the host can store AND F_STAT/F_READDIR will then report as
-    // NextZXOS would: A_WRITE (the inverse of the read-only attribute; the host
-    // write permission), A_READ (inert, measured) and A_ARCH (always reported
-    // set here, so setting it is a no-op and clearing it is not storable).
-    // Anything else is refused, not faked: hidden and system, and the archive
-    // bit cleared, have no host form.
+    // Only what F_STAT/F_READDIR will then report as NextZXOS 2.10 would: A_WRITE (the inverse
+    // of the read-only attribute; the host write permission), A_READ (inert, measured) and A_ARCH,
+    // which a host file cannot store and jnext keeps per file for the mount (see chmod() in the
+    // header). Anything else is refused, not faked: hidden and system have no host form, and a
+    // directory has no stored attribute at all.
     constexpr uint8_t kServed = kChmodWrite | kChmodRead | kChmodArch;
     if (mask & ~kServed) return kEnosys;
-    if ((mask & kChmodArch) && !(values & kChmodArch)) return kEnosys;
     std::error_code ec;
     const fs::file_status st = fs::symlink_status(host, ec);
     if (ec) return kEio;
     // A directory has no stored attribute here, and NextZXOS reports a changed
     // one through F_READDIR (measured), so only the inert bit is served.
     if (fs::is_directory(st) && (mask & (kChmodWrite | kChmodArch))) return kEnosys;
-    if (!(mask & kChmodWrite)) return kOk;
-    const fs::perms w = fs::perms::owner_write | fs::perms::group_write | fs::perms::others_write;
-    if (values & kChmodWrite)
-        fs::permissions(host, fs::perms::owner_write, fs::perm_options::add, ec);
-    else
-        fs::permissions(host, w, fs::perm_options::remove, ec);
-    return ec ? kEio : kOk;
+    if (mask & kChmodWrite) {
+        const fs::perms w = fs::perms::owner_write | fs::perms::group_write | fs::perms::others_write;
+        if (values & kChmodWrite)
+            fs::permissions(host, fs::perms::owner_write, fs::perm_options::add, ec);
+        else
+            fs::permissions(host, w, fs::perm_options::remove, ec);
+        if (ec) return kEio;
+    }
+    // NextZXOS 2.10 (measured, [chmod] and [arch]): after ANY F_CHMOD of a file the archive bit is
+    // clear, except when that call cleared A_ARCH, which leaves it set.
+    if (!fs::is_directory(st))
+        archive_record(host, (mask & kChmodArch) && !(values & kChmodArch));
+    return kOk;
+}
+
+bool EsxdosHostFs::archive_of(const fs::path& host) const
+{
+    const auto it = archive_clear_.find(host.string());
+    if (it == archive_clear_.end()) return true;
+    // A file one of our handles holds open is being changed by us: the entry stands. Any other
+    // difference from what was recorded is the host's doing (an edit, a re-create): set.
+    if (is_open_file(host)) return false;
+    struct stat sb{};
+    std::error_code ec;
+    const auto size = fs::file_size(host, ec);
+    if (ec || ::stat(host.string().c_str(), &sb) != 0) return true;
+    const auto mtime = fs::last_write_time(host, ec);
+    if (ec) return true;
+    const ArchiveClear& a = it->second;
+    return !(a.size == size && a.mtime == mtime && a.inode == static_cast<std::uintmax_t>(sb.st_ino));
+}
+
+void EsxdosHostFs::archive_record(const fs::path& host, bool set)
+{
+    const std::string key = host.string();
+    if (set) { archive_clear_.erase(key); return; }
+    ArchiveClear a;
+    struct stat sb{};
+    std::error_code ec;
+    a.size = fs::file_size(host, ec);
+    if (ec || ::stat(key.c_str(), &sb) != 0) { archive_clear_.erase(key); return; }
+    a.mtime = fs::last_write_time(host, ec);
+    a.inode = static_cast<std::uintmax_t>(sb.st_ino);
+    archive_clear_[key] = a;
+}
+
+void EsxdosHostFs::archive_move(const fs::path& from, const fs::path& to)
+{
+    const std::string f = from.string(), t = to.string();
+    std::vector<std::pair<std::string, ArchiveClear>> moved;
+    for (auto it = archive_clear_.begin(); it != archive_clear_.end();) {
+        const bool own = it->first == f;
+        const bool under = it->first.size() > f.size() && it->first.compare(0, f.size(), f) == 0 &&
+                           (it->first[f.size()] == '/' || it->first[f.size()] == '\\');
+        if (own || under) {
+            moved.emplace_back(own ? t : t + it->first.substr(f.size()), it->second);
+            it = archive_clear_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto& m : moved) archive_clear_[m.first] = std::move(m.second);
+}
+
+void EsxdosHostFs::archive_forget(const fs::path& host)
+{
+    const std::string f = host.string();
+    for (auto it = archive_clear_.begin(); it != archive_clear_.end();) {
+        const bool under = it->first == f ||
+            (it->first.size() > f.size() && it->first.compare(0, f.size(), f) == 0 &&
+             (it->first[f.size()] == '/' || it->first[f.size()] == '\\'));
+        it = under ? archive_clear_.erase(it) : std::next(it);
+    }
 }
 
 uint8_t EsxdosHostFs::chmod(const std::string& guest_path, uint8_t values, uint8_t mask)
@@ -1338,7 +1409,7 @@ uint8_t EsxdosHostFs::opendir(const std::string& guest_path, uint8_t mode,
         DirEntry e;
         e.lfn = l.lfn;
         e.sfn = l.sfn;
-        e.attr = l.is_dir ? kAttrDirectory : kAttrArchive;
+        e.attr = l.is_dir ? kAttrDirectory : (archive_of(l.path) ? kAttrArchive : 0);
         if (!writable_ || (!l.is_dir && host_read_only(l.path))) e.attr |= kAttrReadOnly;
         if (!e.lfn.empty() && e.lfn.front() == '.') e.attr |= kAttrHidden;
         if (!l.is_dir) {

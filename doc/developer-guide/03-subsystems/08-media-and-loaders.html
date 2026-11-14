@@ -3943,7 +3943,7 @@ them: NextZXOS is software, so the oracle is a PROBE, kept in the tree
 (<code>test/00regression/esxdos-write-probe.py</code>, the <code>nex</code> command writes the two
 NEX files), run under real NextZXOS booted in jnext on a scratch copy of the SD
 image, and the answers recorded in <code>test/fixtures/esxdos-write-probe/nextzxos.txt</code>
-with the image's sha256, <code>M_DOSVERSION</code> (2.09) and the sha256 of the probe NEX
+with the image's sha256, <code>M_DOSVERSION</code> (2.10) and the sha256 of the probe NEX
 files in its header. Every rule in the code names the recorded group it came
 from. The generator's <code>DIVERGE</code> table lists each place jnext deliberately
 answers otherwise, with its reason. To re-measure: <code>esxdos-write-probe-measure.sh</code>
@@ -3955,8 +3955,16 @@ success <code>A</code> is whatever the register held (junk), so the probe masks 
 the dispatcher returns 0; <code>F_UNLINK</code> of a directory is success and deletes
 nothing; <code>F_TRUNCATE</code> with a wildcard truncates the first match; <code>F_CHMOD</code>'s
 <code>A_WRITE</code> is the inverse of FAT's read-only bit, <code>A_READ</code> is inert, and hidden
-and system are set together, so only <code>A_WRITE</code>, <code>A_READ</code> and the archive bit
-set are served (everything else is <code>esx_enosys</code>: refused, not faked); a name with
+and system are set together, so only <code>A_WRITE</code>, <code>A_READ</code> and <code>A_ARCH</code> are served
+(everything else is <code>esx_enosys</code>: refused, not faked). The archive bit is the one
+attribute a host file cannot hold and 2.10 changes on <code>F_CHMOD</code>, so <code>EsxdosHostFs</code>
+keeps it per file in <code>archive_clear_</code> for the mount (session state: lost when jnext
+exits, which no recorded step can see): after any <code>F_CHMOD</code> of a file it reads clear,
+unless that call cleared <code>A_ARCH</code>, which leaves it set; closing a write handle,
+<code>F_TRUNCATE</code> and a re-create set it, a rename (a directory's too) carries it, and an
+entry whose file's size, modification time or inode no longer matches is stale and
+reads set. The <code>[arch]</code> group of the probe measured the write, truncate, rename and
+re-create cases; a name with
 <code>"</code>, <code>&lt;</code>, <code>&gt;</code>, <code>|</code>, <code>:</code> is <code>esx_einval</code> in every call; a trailing dot is dropped;
 a renamed current directory keeps its old name in <code>F_GETCWD</code> on a card (jnext
 shows the new one); <code>F_RENAME</code> of an empty destination means the current

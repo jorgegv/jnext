@@ -1668,7 +1668,7 @@ copying them into the SD-card image each time.
 With **\--esxdos-stub-writable** it also changes the host files: `F_UNLINK`
 (wildcards too), `F_RENAME`, `F_MKDIR`, `F_RMDIR`, `F_TRUNCATE`, `F_FTRUNCATE`
 and `F_CHMOD`, and `M_GETERR` gives the text of an error code. Each answers as
-NextZXOS 2.09 was measured to answer it (the probe and its recording are in the
+NextZXOS 2.10 was measured to answer it (the probe and its recording are in the
 source tree), including which error code a refusal carries. A write-protected
 root (no **\--esxdos-stub-writable**) answers every call that would write with
 `esx_edevicebusy`, after every check that does not write, and changes nothing.
@@ -1721,14 +1721,21 @@ moves a source into an existing directory, and a directory it renames keeps its
 open files and its place as the current directory. The read-only bit of a file
 follows the host: a file without write permission is read-only for `F_STAT`,
 `F_FSTAT`, `F_READDIR`, `F_OPEN` for writing, `F_UNLINK` and `F_TRUNCATE`, and
-`F_CHMOD` with `A_WRITE` changes that permission. An 8.3 short name
+`F_CHMOD` with `A_WRITE` changes that permission. The archive bit of a file
+answers as NextZXOS 2.10's does: set until an `F_CHMOD`, then clear after any
+`F_CHMOD` of that file (set when the call itself cleared `A_ARCH`, which 2.10
+reads that way), and set again by closing a handle opened for writing, by
+`F_TRUNCATE`, and by creating the file anew; a rename keeps it. A host file has
+no such bit, so JNEXT keeps it while it runs and **forgets it when it exits**
+(on a card it would be in the directory entry), and a file changed on the host
+reads as set again. An 8.3 short name
 (`LONGNA~1.TXT`) keeps naming the same file after others are deleted, as on FAT,
 and a name the host answers to that the directory listing does not hold (an NTFS
 short name, a differently normalised spelling) is refused rather than reaching
 another file.
 
 Where it differs from NextZXOS, deliberately: `F_CHMOD` of the hidden and system
-bits, of the archive bit cleared, and of a directory is refused with
+bits, and of a directory is refused with
 `esx_enosys` (a host file has no such attributes; faking it would make
 `F_STAT` contradict the answer); a name ending in a space is refused with
 `esx_einval` (NextZXOS keeps the space, a host may strip it); a renamed current
