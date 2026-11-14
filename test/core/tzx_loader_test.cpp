@@ -358,7 +358,7 @@ int main(int argc, char** argv) {
         {"TZXC-48", "TZXC-49", "30-comment", concat({{0x30}, pstr("comment")})},
         {"TZXC-50", "TZXC-51", "31-message", concat({{0x31, 5}, pstr("msg")})},
         {"TZXC-52", "TZXC-53", "32-archive",
-         concat({{0x32}, le16(12), {2, 0x00}, pstr("Game"), {0x02}, pstr("Me")})},
+         concat({{0x32}, le16(11), {2, 0x00}, pstr("Game"), {0x02}, pstr("Me")})},
         {"TZXC-54", "TZXC-55", "33-hardware", concat({{0x33, 1, 0x00, 0x03, 0x01}})},
         {"TZXC-56", "TZXC-57", "35-custom",
          concat({{0x35}, str("CUSTOMINFO      "), le32(2), {'x', 'y'}})},
@@ -498,10 +498,7 @@ int main(int argc, char** argv) {
         {"TZXC-122", cases[13].name, cases[13].block},
         {"TZXC-123", cases[14].name, cases[14].block},
         {"TZXC-124", cases[15].name, cases[15].block},
-        // The TZXC-52 fixture declares 12 for an 11-byte body (libspectrum reads the
-        // strings and tolerates it, the fast-load skip honours the declared length),
-        // so this row carries its own block with the length the spec calls for.
-        {"TZXC-125", "32-archive", concat({{0x32}, le16(11), {2, 0x00}, pstr("Game"), {0x02}, pstr("Me")})},
+        {"TZXC-125", cases[16].name, cases[16].block},
         {"TZXC-126", cases[17].name, cases[17].block},
         {"TZXC-127", cases[18].name, cases[18].block},
         {"TZXC-128", cases[19].name, cases[19].block},
