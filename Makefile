@@ -33,10 +33,18 @@ BUILD_DIR_WIN_UNIT_TEST := build/win-sdl-unit-test
 # ONLY -- the rest of the Makefile (package-macos above all) keeps the system
 # tools. Empty on Linux: the recipe then sees PATH unchanged.
 UNIT_TEST_PATH := $(PATH)
+# GH #494: the Intel macOS build gets its dependencies from MacPorts (Homebrew
+# builds no Intel bottles). MACPORTS_PREFIX (e.g. /opt/local) selects that: its
+# bin has bash and the g-prefixed tools, libexec/gnubin the plain GNU names
+# (MacPorts grep installs only ggrep in bin). Unset: Homebrew, as before.
 ifeq ($(shell uname -s),Darwin)
+ifneq ($(MACPORTS_PREFIX),)
+UNIT_TEST_PATH := $(MACPORTS_PREFIX)/bin:$(MACPORTS_PREFIX)/libexec/gnubin:$(PATH)
+else
 BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
 ifneq ($(BREW_PREFIX),)
 UNIT_TEST_PATH := $(BREW_PREFIX)/bin:$(BREW_PREFIX)/opt/coreutils/libexec/gnubin:$(BREW_PREFIX)/opt/grep/libexec/gnubin:$(PATH)
+endif
 endif
 endif
 CMAKE             := cmake
@@ -1674,6 +1682,11 @@ publish-release:
 # Absolute path: the cpack phase runs inside a subshell that cd's into the build
 # directory, where a relative path stops resolving.
 MACOS_BOUND := bash $(CURDIR)/packaging/macos/run-bounded.sh
+# GH #494: the macOS the .dmg promises to run on (e.g. 15.0). Empty = the
+# toolchain's default and no gate. Set, it goes to CMAKE_OSX_DEPLOYMENT_TARGET in
+# both PGO trees (and into the bundle's LSMinimumSystemVersion), and
+# verify-macos-dmg fails the build if any Mach-O in the .dmg needs a newer macOS.
+MACOS_DEPLOYMENT_TARGET ?=
 
 # Build source packages: v<ver>.tar.gz (rpm/deb source) + jnext-<ver>-src.zip (release); vendors submodules
 package-src:
@@ -1932,9 +1945,9 @@ package-macos:
 		exit 0; \
 	fi; \
 	$(MACOS_BOUND) 3600 "PGO build: instrument, train, rebuild (mac-release; GH #297)" \
-		env JOBS=$(JOBS) bash tools/pgo-build.sh $(BUILD_DIR_MAC_RELEASE) -- \
+		env JOBS=$(JOBS) FUSE_CASES=$(FUSE_CASES) bash tools/pgo-build.sh $(BUILD_DIR_MAC_RELEASE) -- \
 		$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
-		-DMACOS_APP_BUNDLE=ON && \
+		-DMACOS_APP_BUNDLE=ON $(if $(MACOS_DEPLOYMENT_TARGET),-DCMAKE_OSX_DEPLOYMENT_TARGET=$(MACOS_DEPLOYMENT_TARGET)) && \
 	( cd $(BUILD_DIR_MAC_RELEASE) && $(MACOS_BOUND) 900 "cpack -G DragNDrop" cpack -G DragNDrop ) && \
 	$(MAKE) verify-macos-dmg
 
@@ -1983,6 +1996,7 @@ verify-macos-dmg:
 	yes | $(MACOS_BOUND) 120 "hdiutil attach" \
 		hdiutil attach "$$dmg" -nobrowse -readonly -noverify -noautoopen -mountpoint "$$mnt" >/dev/null; \
 	$(MACOS_BOUND) 300 "verify-bundle (mounted dmg)" \
+		env JNEXT_MACOS_MIN="$(MACOS_DEPLOYMENT_TARGET)" \
 		bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" </dev/null; \
 	test -f "$$mnt/jnext.app/Contents/Resources/48rom.map" \
 		|| { echo "error: the .dmg's jnext.app has no Contents/Resources/48rom.map" >&2; exit 1; }; \

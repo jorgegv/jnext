@@ -118,3 +118,20 @@ if [[ "$BIN" == *.exe ]]; then
     fi
     echo "pgo-build: FUSE Z80 under wine: $FUSE_CASES/$FUSE_CASES"
 fi
+
+# 5. macOS: the same gate, natively (GH #494). AppleClang + ThinLTO + PGO is a
+# codegen target no other suite runs, and with an x86_64 build next to the
+# arm64 one it is two. No `timeout`: macOS has none, and the caller's
+# run-bounded phase (make package-macos) already bounds this whole script.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    FUSE_CASES=${FUSE_CASES:-1356}
+    cmake --build "$DIR" -j"$JOBS" --target fuse_z80_test
+    FUSE_LOG="$DIR/fuse-native.log"
+    rc=0
+    "$DIR/fuse_z80_test" "$SCRIPT_DIR/../test/fuse" >"$FUSE_LOG" 2>&1 || rc=$?
+    if [[ $rc -ne 0 ]] || ! grep -Eq "^Total: +$FUSE_CASES +Passed: +$FUSE_CASES " "$FUSE_LOG"; then
+        tail -20 "$FUSE_LOG" >&2
+        die "FUSE Z80 on the macOS PGO build: exit $rc, expected $FUSE_CASES of $FUSE_CASES passed (log: $FUSE_LOG)"
+    fi
+    echo "pgo-build: FUSE Z80 on macOS ($(uname -m)): $FUSE_CASES/$FUSE_CASES"
+fi

@@ -195,7 +195,8 @@ fi
 command -v perl >/dev/null 2>&1 || missing_userland+=("perl")
 if (( ${#missing_userland[@]} )); then
     die "The host lacks what this script needs: ${BOLD}${missing_userland[*]}${RESET}" \
-        "On macOS: brew install bash coreutils grep   (make unit-test-sdl then puts them first on PATH)"
+        "On macOS: brew install bash coreutils grep   (make unit-test-sdl then puts them first on PATH)" \
+        "On Intel macOS (MacPorts): sudo port install bash coreutils grep, then MACPORTS_PREFIX=/opt/local make unit-test-sdl"
 fi
 
 [[ -f "$CONF" ]]       || die "Missing test manifest: $CONF"
