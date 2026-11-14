@@ -54,7 +54,7 @@ mentions them, so a test can no longer be absent from this document.
 | ESP-01 AT engine                           |   499 |  499 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: mmu_integration_test            |   137 |  137 |    0 |    0 |       0 |          0 |
-| Companion: ula_integration_test            |    18 |   18 |    0 |    0 |       0 |          0 |
+| Companion: ula_integration_test            |    20 |   20 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |    32 |   32 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
@@ -67,9 +67,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6229 | 6229 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6231 | 6231 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6229**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5714**. Rows the 195 suites declared in `test/unit-tests.conf` run live: **16239**.
+Rows the sections above carry: **6231**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5716**. Rows the 196 suites declared in `test/unit-tests.conf` run live: **16276**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -81,7 +81,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 147 suites (10609 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 148 suites (10644 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -100,9 +100,9 @@ These 147 suites (10609 live rows) have no VHDL-derived plan row to map, so they
 | `sdcard_file_add_posix_test` | 13 | rows moved out of sdcard_file_add_test (symlink, FIFO, device, chmod-0 fixtures; POSIX-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sdcard_file_add_linux_test` | 1 | SDFA-T26 moved out of sdcard_file_add_test (needs a case-sensitive host filesystem; Linux-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `fat32_image_test` | 16 | FAT32 on-disk format (host image reader) |
-| `sdcard_provisioner_test` | 140 | jnext SD-image download/patch policy (host side) |
+| `sdcard_provisioner_test` | 160 | jnext SD-image download/patch policy (host side) |
 | `sdcard_provisioner_posix_test` | 2 | PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side) |
-| `warm_start_test` | 86 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
+| `warm_start_test` | 94 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
 | `snapshot_test` | 299 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
 | `sd_identity_test` | 31 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the Tier-1 identity read off a REAL image -- MBR partition table, FAT32 BS_VolID (Tier 2 retired, GH #396) -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sd_no_digest_linux_test` | 5 | GH #396: no whole-card read on .jns save/probe/load or a warm-start hit, measured by Linux /proc/self/io rchar; jnext-internal host behaviour (a UI-thread stall), the FPGA core has no counterpart |
@@ -129,6 +129,7 @@ These 147 suites (10609 live rows) have no VHDL-derived plan row to map, so they
 | `speed_report_test` | 36 | host speed-percentage reporting |
 | `host_key_latch_test` | 182 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `sdl_pointer_release_test` | 11 | SDL pointer-release route (host UI, GH #365) |
+| `sdcard_upgrade_box_test` | 3 | SDL message box offering a newer NextZXOS image (host UI, GH #476) |
 | `sdl_window_title_test` | 3 | SDL window title carries the version (host GUI) |
 | `quit_signal_test` | 14 | SIGINT/SIGTERM as a quit request (host process behaviour; GH #364) |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
@@ -212,7 +213,7 @@ These 147 suites (10609 live rows) have no VHDL-derived plan row to map, so they
 | `window_title_test` | 6 | main-window title carries the version (host GUI) |
 | `color_scheme_test` | 28 | GUI light/dark scheme from the desktop portal (host GUI, GH #363) |
 | `color_scheme_linux_test` | 2 | GH #414: the private dbus-daemon of color_scheme_test dies with a SIGKILLed or normally exiting suite; Linux-only test infrastructure (guard process, /proc), the FPGA core has no counterpart |
-| `sdcard_dialog_test` | 9 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
+| `sdcard_dialog_test` | 13 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
 | `quit_cleanup_test` | 12 | host shutdown ordering (GUI lifecycle) |
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
 | `preferences_apply_test` | 100 | Preferences dialog wiring (host GUI) |
@@ -1513,7 +1514,7 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | TR-19 | NR0x14 compares exactly colour bits 8:1 (ULA): 512 matching colours transparent, 4096 with one compared bit flipped opaque (VHDL zxnext.vhd:7100) | zxnext.vhd:7100 | pass | test/compositor/compositor_test.cpp:328 |
 | TR-26 | NR0x14=0x02, text-mode TM colour 9-bit 0x005 (blue 101) is transparent; the ULA shows (VHDL zxnext.vhd:7109, 7116) | zxnext.vhd:7109,7116 | pass | test/compositor/compositor_test.cpp:602 |
 | TR-27 | text-mode TM compares exactly colour bits 8:1: 512 matching colours transparent, 4096 with one compared bit flipped opaque (VHDL zxnext.vhd:7109) | zxnext.vhd:7109 | pass | test/compositor/compositor_test.cpp:641 |
-| TRB-01 | NR 0x14=0x02 with ULA paper and text-mode tile both palette colour 0x02 (9-bit 0x005): both transparent, Layer 2 white shows (zxnext.vhd:7100,7109,7121) | zxnext.vhd:7100,7109,7121 | pass | test/compositor/compositor_integration_test.cpp:1995 |
+| TRB-01 | NR 0x14=0x02 with ULA paper and text-mode tile both palette colour 0x02 (9-bit 0x005): both transparent, Layer 2 white shows (zxnext.vhd:7100,7109,7121) | zxnext.vhd:7100,7109,7121 | pass | test/compositor/compositor_integration_test.cpp:1997 |
 | TR-31 | L2 pixel_en=0 => layer2_transparent (VHDL zxnext.vhd:7121) | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:695 |
 | TR-32 | L2 opaque; priority bit propagation checked in L2P (VHDL 7123) | zxnext.vhd:7123 | pass | test/compositor/compositor_test.cpp:713 |
 | TR-33 | layer2_transparent=1 suppresses priority bit (VHDL 7123) | zxnext.vhd:7123 | pass | test/compositor/compositor_test.cpp:728 |
@@ -1678,8 +1679,8 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | SRST-14 | Pausing right after a mid-frame soft reset and resuming does not restart the frame: the rows above the reset keep their history (zxnext.vhd:6370; zxula_timing.vhd — no reset) | zxnext.vhd:6370, zxula_timing.vhd | pass | test/compositor/compositor_integration_test.cpp:1811 |
 | SRST-15 | A mid-frame soft reset at 60 Hz keeps the 60 Hz geometry: the split lands on the reset row and the frame stays 264 lines (zxnext.vhd:6696-6703; zxula_timing.vhd:229-238) | zxnext.vhd:6696-6703, zxula_timing.vhd:229-238 | pass | test/compositor/compositor_integration_test.cpp:1834 |
 | SRST-16 | Attribute writes made after a mid-frame soft reset land on the rows drawn after them, not on rows drawn before the reset (zxula.vhd:218-263; zxnext.vhd:6370) | zxula.vhd:218-263, zxnext.vhd:6370 | pass | test/compositor/compositor_integration_test.cpp:1870 |
-| SRST-17 | A soft reset leaves the FLASH phase running: frames 20..31 after a reset at frame 20 stay swapped, frame 32 is not (zxula.vhd:470,474-480 — no reset) | zxula.vhd:470,474-480 | pass | test/compositor/compositor_integration_test.cpp:1900 |
-| SRST-18 | A soft reset does not blank the picture: after a guest reset the debugger stops on, and after F4 while paused, the screen still shows the last frame drawn (zxnext.vhd:6370; zxula_timing.vhd — no reset) | zxnext.vhd:6370, zxula_timing.vhd | pass | test/compositor/compositor_integration_test.cpp:1943 |
+| SRST-17 | A soft reset leaves the FLASH phase running: frames 20..30 after a reset at frame 20 stay swapped, frame 31 is not (zxula.vhd:470,474-480 — no reset) | zxula.vhd:470,474-480 | pass | test/compositor/compositor_integration_test.cpp:1902 |
+| SRST-18 | A soft reset does not blank the picture: after a guest reset the debugger stops on, and after F4 while paused, the screen still shows the last frame drawn (zxnext.vhd:6370; zxula_timing.vhd — no reset) | zxnext.vhd:6370, zxula_timing.vhd | pass | test/compositor/compositor_integration_test.cpp:1945 |
 | UCLIP-01 | mid-frame NR 0x1A write does not retroactively re-mask a row whose per-line snapshot already ran — col 200 survives under the stale window A (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4621 |
 | UCLIP-02 | …and display col 100 is clipped per the SNAPSHOTTED window A (x1=128>100) - proves the snapshot is captured, not the reset default (zxula.vhd:562; zxnext.vhd:6779-6783) | zxula.vhd:562, zxnext.vhd:6779-6783 | pass | test/compositor/compositor_test.cpp:4632 |
 | UCLIP-03 | after the deferred snapshot lands, the SAME row selects window B: col 200 clipped, col 100 kept (zxula.vhd:562; zxnext.vhd:6779-6783) | zxula.vhd:562, zxnext.vhd:6779-6783 | pass | test/compositor/compositor_test.cpp:4650 |
@@ -5869,6 +5870,8 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 | INT-SHADOW-02 | OUT 0x7FFD bit 3 must switch ULA reads to bank 7 — render-side regression for the half-implemented set_shadow_screen_en that tripped beast.nex 2026-04-25 | — | pass | test/ula/ula_integration_test.cpp:1601 |
 | INT-STANDARD-ALT-01 | OUT 0xFF=0x01 → STANDARD_1 alt-file routes ULA to 0x6000 base (zxula.vhd:191,218,235; zxnext.vhd:2397; emulator.cpp:1187-1192) | zxula.vhd:191,218,235, zxnext.vhd:2397 | pass | test/ula/ula_integration_test.cpp:1697 |
 | INT-BORDER-RST-01 | Power-on and a hard reset leave the border black, port_fe_reg's reset value (zxnext.vhd:3587-3593,3601-3605; zxula.vhd:543-553) | zxnext.vhd:3587-3593,3601-3605, zxula.vhd:543-553 | pass | test/ula/ula_integration_test.cpp:1758 |
+| INT-FLASH-01 | flash_cnt counts frames from power-on and shows count F + 1 at frame F: a FLASH cell is normal for frames 0-14, inverted for 15-30, normal at 31 (zxula.vhd:470-480 + zxula_timing.vhd:111-125) | zxula.vhd:470-480, zxula_timing.vhd:111-125 | pass | test/ula/ula_integration_test.cpp:1819 |
+| INT-FLASH-02 | a hard reset reloads the core (zxnext.vhd:6959 -> zxnext_top_issue2.vhd:1236-1241), so the flash counter restarts from its power-on value: normal for the first 15 frames after the reset, inverted from frame 15 (frames 0-19 are checked) | zxnext.vhd:6959, zxnext_top_issue2.vhd:1236-1241 | pass | test/ula/ula_integration_test.cpp:1850 |
 
 ### Companion integration suite — `test/compositor/compositor_integration_test.cpp`
 
@@ -5924,9 +5927,9 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | SRST-14 | Pausing right after a mid-frame soft reset and resuming does not restart the frame: the rows above the reset keep their history (zxnext.vhd:6370; zxula_timing.vhd — no reset) | zxnext.vhd:6370, zxula_timing.vhd | pass | test/compositor/compositor_integration_test.cpp:1811 |
 | SRST-15 | A mid-frame soft reset at 60 Hz keeps the 60 Hz geometry: the split lands on the reset row and the frame stays 264 lines (zxnext.vhd:6696-6703; zxula_timing.vhd:229-238) | zxnext.vhd:6696-6703, zxula_timing.vhd:229-238 | pass | test/compositor/compositor_integration_test.cpp:1834 |
 | SRST-16 | Attribute writes made after a mid-frame soft reset land on the rows drawn after them, not on rows drawn before the reset (zxula.vhd:218-263; zxnext.vhd:6370) | zxula.vhd:218-263, zxnext.vhd:6370 | pass | test/compositor/compositor_integration_test.cpp:1870 |
-| SRST-17 | A soft reset leaves the FLASH phase running: frames 20..31 after a reset at frame 20 stay swapped, frame 32 is not (zxula.vhd:470,474-480 — no reset) | zxula.vhd:470,474-480 | pass | test/compositor/compositor_integration_test.cpp:1900 |
-| SRST-18 | A soft reset does not blank the picture: after a guest reset the debugger stops on, and after F4 while paused, the screen still shows the last frame drawn (zxnext.vhd:6370; zxula_timing.vhd — no reset) | zxnext.vhd:6370, zxula_timing.vhd | pass | test/compositor/compositor_integration_test.cpp:1943 |
-| TRB-01 | NR 0x14=0x02 with ULA paper and text-mode tile both palette colour 0x02 (9-bit 0x005): both transparent, Layer 2 white shows (zxnext.vhd:7100,7109,7121) | zxnext.vhd:7100,7109,7121 | pass | test/compositor/compositor_integration_test.cpp:1995 |
+| SRST-17 | A soft reset leaves the FLASH phase running: frames 20..30 after a reset at frame 20 stay swapped, frame 31 is not (zxula.vhd:470,474-480 — no reset) | zxula.vhd:470,474-480 | pass | test/compositor/compositor_integration_test.cpp:1902 |
+| SRST-18 | A soft reset does not blank the picture: after a guest reset the debugger stops on, and after F4 while paused, the screen still shows the last frame drawn (zxnext.vhd:6370; zxula_timing.vhd — no reset) | zxnext.vhd:6370, zxula_timing.vhd | pass | test/compositor/compositor_integration_test.cpp:1945 |
+| TRB-01 | NR 0x14=0x02 with ULA paper and text-mode tile both palette colour 0x02 (9-bit 0x005): both transparent, Layer 2 white shows (zxnext.vhd:7100,7109,7121) | zxnext.vhd:7100,7109,7121 | pass | test/compositor/compositor_integration_test.cpp:1997 |
 
 ### Companion integration suite — `test/copper/copper_integration_test.cpp`
 
