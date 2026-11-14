@@ -156,12 +156,11 @@ int main()
     {
         Sim s;
         s.start(P60);
-        int n17 = 0, n18 = 0, other = 0;
+        int n18 = 0, other = 0;
         for (int k = 0; k < 1000; k++) {
             const int iv = s.tick(P60);
-            if (iv == 17) ++n17;
-            else if (iv == 18) ++n18;
-            else ++other;
+            if (iv == 18) ++n18;
+            else if (iv != 17) ++other;
         }
         check("FD-03a", "intervals at 17197us are only ever 17 or 18 ms",
               other == 0, "other=" + fmt(other));
@@ -174,12 +173,11 @@ int main()
     {
         Sim s;
         s.start(P50);
-        int n20 = 0, n21 = 0, other = 0;
+        int n21 = 0, other = 0;
         for (int k = 0; k < 1000; k++) {
             const int iv = s.tick(P50);
-            if (iv == 20) ++n20;
-            else if (iv == 21) ++n21;
-            else ++other;
+            if (iv == 21) ++n21;
+            else if (iv != 20) ++other;
         }
         check("FD-04a", "intervals at 20259us are only ever 20 or 21 ms",
               other == 0, "other=" + fmt(other));

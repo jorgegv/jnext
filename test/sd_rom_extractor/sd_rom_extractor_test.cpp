@@ -322,7 +322,7 @@ int main() {
             constexpr uint32_t kReservedSectors = 1;
             constexpr uint32_t kNumFats = 1;
             constexpr uint32_t kFatSizeSectors = 1;
-            constexpr uint32_t kPartLba = 1;
+            [[maybe_unused]] constexpr uint32_t kPartLba = 1;
             // Total sectors in the synthetic image:
             //   1 (MBR) + 1 (BPB) + 1 (FAT) + 4 (data) = 7
             constexpr uint32_t kTotalSectors = 7;

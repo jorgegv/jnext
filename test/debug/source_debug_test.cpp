@@ -4190,7 +4190,7 @@ int main() {
             const std::vector<uint8_t> s = foreign_state(0x00, true, 6, 0x8001);
             const Result ld = m.dbg->load_state_bytes(m.a, s.data(), s.size());
             const uint64_t load_clock = m.emu.clock().get();
-            const Result into = m.dbg->source_step(m.a, Step::Into);    // $8001 -> $8002 (main.bas:11)
+            static_cast<void>(m.dbg->source_step(m.a, Step::Into));    // $8001 -> $8002 (main.bas:11); setup, the row reads the trace
             const auto& t = m.emu.trace_log();
             const bool pre = t.size() >= 2 && t.at(t.size() - 1).pc == 0x8001 &&
                              t.at(t.size() - 2).pc == 0x8000 &&

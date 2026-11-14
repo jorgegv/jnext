@@ -3813,7 +3813,7 @@ void group25_gh283_rzx() {
     };
     auto g283_replay = [kRepDma, kRepCpu](Emulator& emu, bool dma_first) {
         auto n = std::make_shared<int>(0);
-        emu.port().rzx_in_override = [n, kRepDma, kRepCpu, dma_first](uint16_t) -> uint8_t {
+        emu.port().rzx_in_override = [n, dma_first](uint16_t) -> uint8_t {
             const int i = (*n)++;
             if (!dma_first) return i == 0 ? kRepCpu : 0xFF;
             return i == 0 ? kRepDma : (i == 1 ? kRepCpu : 0xFF);

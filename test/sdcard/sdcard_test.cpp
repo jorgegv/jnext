@@ -428,8 +428,7 @@ static void test_cmd18_cs_deassert_aborts(SdCardDevice& sd) {
     (void)send_cmd_r1(sd, 18, 2);
     (void)wait_token(sd);
     // Read partial data; abort mid-block by deselecting.
-    uint8_t scratch[64];
-    for (int i = 0; i < 64; ++i) scratch[i] = spi_read(sd);
+    for (int i = 0; i < 64; ++i) (void)spi_read(sd);
     sd.deselect();
 
     // Re-select and re-issue CMD17 at a new sector.
@@ -4019,8 +4018,7 @@ void test_s6_state_roundtrip() {
         init_card(sd);
         (void)send_cmd_r1(sd, 18, 2);
         (void)wait_token(sd);
-        uint8_t blk[512];
-        for (int i = 0; i < 100; ++i) blk[i] = spi_read(sd);
+        for (int i = 0; i < 100; ++i) (void)spi_read(sd);
         sd.deselect();                   // CS high: the stream PAUSES
         check("S6-SD-INFLIGHT-03",
               "a paused-but-open CMD18 stream still reports the transfer in "
