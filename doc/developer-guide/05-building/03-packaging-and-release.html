@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.35</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.35</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2030,6 +2030,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#testing-the-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing the packages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#profile-guided-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Profile-guided packages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#licence-texts" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3021,6 +3043,50 @@ you read it; it is not a replacement for it.</p>
 <em>empty</em> <code>third_party/spdlog</code> directory, which fails CMake configure the moment
 anyone tries to build from it; <code>package-src</code> instead runs
 <code>packaging/make-dist-tarball.sh</code>, which vendors the submodule content properly.</p>
+<h2 id="testing-the-packages">Testing the packages<a class="headerlink" href="#testing-the-packages" title="Permanent link">&para;</a></h2>
+<p><code>make regression</code> tests <code>build/gui-release</code>, a PGO build made like the Linux
+packages (same source, flags class and PGO method) but a different file: each
+package builds its own tree, trains its own profile, and the debs are compiled
+by Ubuntu's gcc against Ubuntu's Qt, which no Fedora host can execute. So the
+packages' own binaries are tested where they are built, by
+<code>make regression-package PACKAGE=&lt;p&gt;</code> (<code>test/regression-package.sh</code>; it first deletes the package's earlier-version artifacts), which
+<code>release.yml</code> runs after each package step and before the upload:</p>
+<table>
+<thead>
+<tr>
+<th><code>PACKAGE</code></th>
+<th>artifact</th>
+<th>how the binary under test is obtained</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rpm</code>, <code>deb</code></td>
+<td>the <code>.rpm</code> / <code>.deb</code></td>
+<td>extracted (<code>rpm2cpio</code>, <code>dpkg-deb -x</code>) into <code>build/regression-package/&lt;p&gt;/</code>; <code>regression.sh</code> runs with <code>JNEXT=&lt;dir&gt;/usr/bin/jnext</code></td>
+</tr>
+<tr>
+<td><code>win</code>, <code>win-qt5</code>, <code>win32-qt5</code></td>
+<td>the three published zips</td>
+<td>unzipped; only Qt's offscreen platform plugin (the difference between two <code>bundle-dlls.sh</code> stagings, with and without it, which must be exactly that one file) is added to that scratch copy, never over a zip member and never a file the zip lacks; <code>regression.sh --platform</code> runs with the copy as its Qt tree under wine, whose <code>PATH</code> carries no MinGW sysroot, so a DLL missing from the zip fails the run</td>
+</tr>
+</tbody>
+</table>
+<p>The rows are every screenshot row of <code>regression_tests.conf</code> plus the 17
+functional rows listed once in the script (exit paths and CLI, Qt offscreen
+start and exit, snapshots, tape, RZX, audio, NextZXOS reset, esxDOS host
+files, and the DZRP, GDB and ZRCP servers). A package run is green only when
+the harness exits 0 with no FAIL and no SKIP and its total is exactly the
+lints, the SD provision, the screenshots and the functional rows (a filtered
+run skips the harness's own completeness check, so the script makes it). It is
+never stamped and not part of the batch gate. The Flatpak bundle is the one
+shipped artifact this does not cover: it keeps its in-build FUSE gate and
+permission gate.</p>
+<p>The packaging test (<code>make package-test</code>, the CI <code>package</code> job) pins the
+contract: the harness is handed the unpacked package's own binary, a Windows
+scratch copy equals the zip plus the plugin, and no shipped zip carries
+<code>platforms/qoffscreen.dll</code>.</p>
+<h2 id="profile-guided-packages">Profile-guided packages<a class="headerlink" href="#profile-guided-packages" title="Permanent link">&para;</a></h2>
 <p>Every package's <code>jnext</code> is a <strong>PGO build</strong>, the same as <code>make gui-release</code>
 (<a href="05-performance-and-optimisation.html#profile-guided-optimisation">5.5</a>): the package
 targets call <code>tools/pgo-build.sh</code>, which configures an instrumented twin of the
@@ -3032,7 +3098,7 @@ some platforms need more:</p>
   and are trained under <strong>wine</strong> with no display, the GUI run on Qt's
   offscreen platform (its plugin is bundled next to the instrumented exe
   only). No wine is a hard error; <code>WIN_PGO=0</code> (or <code>make win-release-non-pgo</code>)
-  builds without PGO.
+  builds without PGO. <code>make regression-win</code> tests this same PGO tree.
   The wine prefix is refreshed (<code>wineboot -u</code>) on every build, so a prefix
   made while the host wine was broken does not stay broken. After the
   optimised build, <code>tools/pgo-build.sh</code> builds <code>fuse_z80_test.exe</code> in the

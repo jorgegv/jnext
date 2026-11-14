@@ -6,7 +6,7 @@
 # Two entry points, because the suite has two very different halves (GH #61):
 #
 #   bash packaging-test.sh --contracts-only   (`make package-contract-test`)
-#       The nine packaging-layer contract suites — six on the packaging
+#       The ten packaging-layer contract suites — six on the packaging
 #       scripts, one on the package-* recipes themselves (GH #148), one on
 #       the artifact selection the package rows below use, one on the Flatpak
 #       manifest. Hermetic:
@@ -165,6 +165,9 @@ fi
 # The package rows pick their artifact through artifact-select.sh; this proves
 # a previous version's leftover can no longer pass for the new build.
 contract artifact-select test/packaging/artifact-select-test.sh artsel "current-version artifact only; stale leftovers fail loudly"
+
+# --- regression-package contract (GH #487) ----------------------------------
+contract regression-package test/packaging/regression-package-test.sh regpkg "unknown package, no or stale artifact, manifest pin, regression-win on the PGO tree"
 
 # ---- end of the hermetic contract half --------------------------------------
 # Everything above needs nothing but bash; everything below builds real
@@ -723,6 +726,204 @@ elif [ ! -f build/win-release/jnext.exe ]; then
     skp package-win-lto "jnext.exe absent (package-win not built here)"
 else
     ok package-win-lto "Release + LTO:$win_lto_ok"
+fi
+
+# --- regression-package rows (GH #487) ---------------------------------------
+# test/regression-package.sh unpacks a package and runs the regression harness
+# against the binary inside it. Here the harness is replaced by a stub (the
+# script's test-only JNEXT_REGRESSION_PACKAGE_RUNNER seam), so each row proves
+# what the script HANDS the harness, on the real artifacts built above, without
+# paying for a suite run: the binary is the package's own, the Windows scratch
+# copy is the zip's members plus the offscreen plugin, the rows are the declared
+# set, and the script's verdict follows the harness's status, SKIP count and
+# row total. The stub prints a Pass/Fail/Skip line from STUB_PASS/FAIL/SKIP.
+rp_stub=$LOGDIR/rp-stub.sh
+cat > "$rp_stub" <<'STUB'
+#!/usr/bin/env bash
+# Records what regression-package.sh gave the harness; for a Windows package it
+# also compares the scratch copy with the zip while that copy still exists.
+{
+    echo "JNEXT=${JNEXT:-}"
+    echo "JNEXT_TARGET_BUILD=${JNEXT_TARGET_BUILD:-}"
+    echo "NARGS=$#"
+    echo "ARGS=$*"
+    if [ -n "${STUB_ZIP:-}" ]; then
+        [ -f "${JNEXT_TARGET_BUILD:-/nonexistent}/platforms/qoffscreen.dll" ] && echo "PLUGIN=yes" || echo "PLUGIN=no"
+        diffs=0
+        while IFS= read -r m; do
+            case "$m" in */) continue ;; esac
+            unzip -p "$STUB_ZIP" "$m" | cmp -s - "$(dirname "$JNEXT_TARGET_BUILD")/$m" || diffs=$((diffs+1))
+        done < <(unzip -Z1 "$STUB_ZIP")
+        echo "MEMBER_DIFFS=$diffs"
+        (cd "$JNEXT_TARGET_BUILD" && find . -type f | sed 's|^\./||' | sort) > "$STUB_RECORD.files"
+    fi
+} > "$STUB_RECORD"
+echo "  Pass: ${STUB_PASS:-0}  Fail: ${STUB_FAIL:-0}  Skip: ${STUB_SKIP:-0}"
+exit "${STUB_RC:-0}"
+STUB
+chmod +x "$rp_stub"
+rp_shots=$(awk '!/^[[:space:]]*(#|$)/' test/00regression/regression_tests.conf | wc -l)
+rp_func=17
+rp_lints=$(sed -n 's/^ *reg_lints=\([0-9][0-9]*\).*/\1/p' test/00regression/regression.sh | head -n1)
+rp_nargs=$((rp_shots + rp_func))
+
+# rp_run <pkg> <pass> [fail] [skip] [rc] — run the script with the stub; the stub's
+# record lands in $LOGDIR/rp-record, the script's output in $LOGDIR/rp-<pkg>.log.
+rp_run() {
+    local pkg=$1 zip=""
+    case "$pkg" in win*) zip=$(rp_art "$pkg") ;; esac
+    rm -f "$LOGDIR/rp-record"
+    JNEXT_REGRESSION_PACKAGE_RUNNER=$rp_stub STUB_RECORD=$LOGDIR/rp-record STUB_ZIP=${zip:+$PWD/$zip} \
+        STUB_PASS=$2 STUB_FAIL=${3:-0} STUB_SKIP=${4:-0} STUB_RC=${5:-0} \
+        bash test/regression-package.sh "$pkg" >"$LOGDIR/rp-$pkg.log" 2>&1
+}
+rp_tree() { case "$1" in win) echo win-release ;; win-qt5) echo win-qt5-release ;; win32-qt5) echo win32-qt5-release ;; esac; }
+rp_zipname() { case "$1" in
+    win) echo "jnext-$VER-windows-x64.zip" ;; win-qt5) echo "jnext-$VER-windows-x64-legacy.zip" ;;
+    win32-qt5) echo "jnext-$VER-windows-x86-legacy.zip" ;; esac; }
+# rp_art <pkg> — the artifact the package row above built for THIS version (it cleared
+# the older ones first), or nothing.
+rp_art() {
+    local f
+    case "$1" in
+        rpm) f=build/rpm-release/jnext-$VER-1.x86_64.rpm ;;
+        deb) f=build/deb-release/jnext_${VER}_amd64.deb ;;
+        *)   f=build/$(rp_tree "$1")/$(rp_zipname "$1") ;;
+    esac
+    [ -f "$f" ] && printf '%s\n' "$f"
+}
+# rp_extras_ok <zip> <top-dir> — the copy's file list (recorded by the stub) minus the zip's
+# members must be exactly the test plugin, nothing else: a file the zip
+# lacks must NOT be put back. Sets rp_extras_why.
+rp_extras_ok() {
+    local members extras e
+    members=$(unzip -Z1 "$1" | sed -n "s|^$2/||p" | sed '/\/$/d;/^$/d' | sort)
+    extras=$(comm -13 <(printf '%s\n' "$members") "$LOGDIR/rp-record.files")
+    [[ -n "$extras" ]] || { rp_extras_why="nothing was added"; return 1; }
+    [[ "$extras" == platforms/qoffscreen.dll ]] || { rp_extras_why="more than the plugin was added: $extras"; return 1; }
+    return 0
+}
+rp_field() { sed -n "s/^$1=//p" "$LOGDIR/rp-record"; }
+
+# rp_linux_row <row> <pkg> <member-extract-cmd...>
+rp_linux_row() {
+    local row=$1 pkg=$2 art got args
+    shift 2
+    art=$(rp_art "$pkg") || { skp "$row" "$pkg not built here"; return; }
+    if ! rp_run "$pkg" $((rp_lints + 1 + rp_nargs)); then
+        bad "$row" "regression-package.sh $pkg failed against a green stub" "$LOGDIR/rp-$pkg.log"; return
+    fi
+    got=$(rp_field JNEXT); args=$(rp_field ARGS)
+    if [ "$got" != "$PWD/build/regression-package/$pkg/usr/bin/jnext" ]; then
+        bad "$row" "the harness got JNEXT='$got', not the unpacked package's usr/bin/jnext"
+    elif ! "$@" "$art" | cmp -s - "$got"; then
+        bad "$row" "the binary handed to the harness differs from the package payload's /usr/bin/jnext"
+    elif [ "$(rp_field NARGS)" -ne "$rp_nargs" ] || [[ " $args " == *" --platform "* ]] \
+         || [[ " $args " != *" boot-48k "* ]] || [[ " $args " != *" zrcp-qt-func "* ]]; then
+        bad "$row" "the row list is not the $rp_shots screenshot + $rp_func functional rows (NARGS=$(rp_field NARGS)), or carries --platform"
+    else
+        ok "$row" "JNEXT = the unpacked package's own usr/bin/jnext (byte-identical to the payload), $rp_shots + $rp_func rows, no --platform"
+    fi
+}
+rp_linux_row regression-package-rpm rpm \
+    sh -c 'rpm2cpio "$1" | cpio -i --to-stdout --quiet ./usr/bin/jnext 2>/dev/null' sh
+rp_linux_row regression-package-deb deb \
+    sh -c 'dpkg-deb --fsys-tarfile "$1" | tar -xO ./usr/bin/jnext 2>/dev/null' sh
+
+# Windows: the harness gets --platform and a scratch copy that holds every zip
+# member unchanged plus the offscreen plugin; the zip itself is untouched.
+for rp_p in win win-qt5 win32-qt5; do
+    rp_row=regression-package-$rp_p
+    rp_z=$(rp_art "$rp_p") || { skp "$rp_row" "package-$rp_p not built here"; continue; }
+    rp_sha=$(sha256sum "$rp_z")
+    rp_top=$(rp_zipname "$rp_p"); rp_top=${rp_top%.zip}
+    if ! rp_run "$rp_p" $((1 + rp_nargs)); then
+        bad "$rp_row" "regression-package.sh $rp_p failed against a green stub" "$LOGDIR/rp-$rp_p.log"; continue
+    fi
+    if [[ " $(rp_field ARGS) " != *" --platform "* ]]; then
+        bad "$rp_row" "the harness was not run with --platform"
+    elif [ "$(rp_field JNEXT_TARGET_BUILD)" != "$PWD/build/regression-package/$rp_p/$rp_top" ]; then
+        bad "$rp_row" "the Qt tree is '$(rp_field JNEXT_TARGET_BUILD)', not the unpacked zip's scratch copy"
+    elif [ "$(rp_field PLUGIN)" != yes ]; then
+        bad "$rp_row" "the scratch copy has no platforms/qoffscreen.dll"
+    elif [ "$(rp_field MEMBER_DIFFS)" != 0 ]; then
+        bad "$rp_row" "$(rp_field MEMBER_DIFFS) zip member(s) differ in the scratch copy"
+    elif ! rp_extras_ok "$rp_z" "$rp_top"; then
+        bad "$rp_row" "the scratch copy is not the zip's members plus the offscreen plugin: $rp_extras_why"
+    elif [ "$(sha256sum "$rp_z")" != "$rp_sha" ]; then
+        bad "$rp_row" "the zip itself changed"
+    elif [ -d "build/regression-package/$rp_p" ]; then
+        bad "$rp_row" "a green run left its scratch copy (a wine prefix is ~1.7 GB)"
+    else
+        ok "$rp_row" "--platform on a scratch copy = every zip member unchanged + the offscreen plugin; zip untouched; scratch removed"
+    fi
+done
+
+# A zip with files MISSING must stay that way in the scratch copy: bundle-dlls.sh stages a whole
+# bundle, and putting back whatever the zip lacks (Qt6Svg.dll, SDL3.dll, qwindows.dll, qt.conf here)
+# would let a broken package pass. Fixture = the real x64 zip minus those four members.
+if rp_zw=$(rp_art win) && command -v zip >/dev/null 2>&1; then
+    rp_top=$(rp_zipname win); rp_top=${rp_top%.zip}
+    rp_fx=$LOGDIR/missing-files.zip
+    cp "$rp_zw" "$rp_fx"
+    zip -q -d "$rp_fx" "$rp_top/Qt6Svg.dll" "$rp_top/SDL3.dll" "$rp_top/platforms/qwindows.dll" "$rp_top/qt.conf" >/dev/null 2>&1
+    rm -f "$LOGDIR/rp-record" "$LOGDIR/rp-record.files"
+    if JNEXT_REGRESSION_PACKAGE_ARTIFACT=$rp_fx JNEXT_REGRESSION_PACKAGE_RUNNER=$rp_stub STUB_RECORD=$LOGDIR/rp-record STUB_ZIP=$rp_fx \
+           STUB_PASS=$((1 + rp_nargs)) bash test/regression-package.sh win >"$LOGDIR/rp-missing.log" 2>&1; then
+        rp_back=""
+        for rp_m in Qt6Svg.dll SDL3.dll platforms/qwindows.dll qt.conf; do
+            [[ -z "$(grep -Fx -- "$rp_m" "$LOGDIR/rp-record.files")" ]] || rp_back="$rp_back $rp_m"
+        done
+        if [ -n "$rp_back" ]; then
+            bad regression-package-win-missing "files the zip lacks were put back into the scratch copy:$rp_back"
+        elif [ "$(rp_field MEMBER_DIFFS)" != 0 ]; then
+            bad regression-package-win-missing "a remaining member differs in the scratch copy"
+        else
+            ok regression-package-win-missing "a zip without Qt6Svg.dll, SDL3.dll, qwindows.dll and qt.conf still lacks them in the scratch copy"
+        fi
+    else
+        bad regression-package-win-missing "regression-package.sh failed on the fixture zip" "$LOGDIR/rp-missing.log"
+    fi
+else
+    skp regression-package-win-missing "package-win not built here, or zip not installed"
+fi
+
+# The script's verdict follows the harness: its exit status, Fail and Skip counts,
+# and a total of exactly lints + 1 + rows (a filtered run has no completeness check).
+rp_v=""
+rp_art deb >/dev/null && rp_v=deb
+rp_art rpm >/dev/null && rp_v=rpm
+if [ -z "$rp_v" ]; then
+    skp regression-package-verdict "neither the rpm nor the deb was built here"
+else
+    rp_ok=$((rp_lints + 1 + rp_nargs)); rp_bad=""
+    rp_run "$rp_v" "$rp_ok" 0 0 0 || rp_bad="$rp_bad a green stub was refused;"
+    rp_run "$rp_v" "$rp_ok" 0 0 1 && rp_bad="$rp_bad exit status 1 passed;"
+    rp_run "$rp_v" "$rp_ok" 1 0 0 && rp_bad="$rp_bad Fail 1 passed;"
+    rp_run "$rp_v" "$rp_ok" 0 1 0 && rp_bad="$rp_bad Skip 1 passed;"
+    rp_run "$rp_v" $((rp_ok - 1)) 0 0 0 && rp_bad="$rp_bad one row short passed;"
+    rp_run "$rp_v" $((rp_ok + 1)) 0 0 0 && rp_bad="$rp_bad one row over passed;"
+    if [ -z "$rp_bad" ]; then
+        ok regression-package-verdict "exit status, Fail, Skip and the row total each decide the verdict ($rp_v)"
+    else
+        bad regression-package-verdict "$rp_bad"
+    fi
+fi
+
+# The offscreen plugin is staged into a test copy only; a shipped zip must never carry it.
+rp_np_n=0; rp_np_bad=""
+for rp_p in win win-qt5 win32-qt5; do
+    rp_z=$(rp_art "$rp_p") || continue
+    rp_np_n=$((rp_np_n + 1))
+    rp_zl=$(unzip -Z1 "$rp_z" 2>/dev/null)
+    [[ "$rp_zl" != *platforms/qoffscreen.dll* && "$rp_zl" != *wine-stack* ]] || rp_np_bad="$rp_np_bad $(basename "$rp_z")"
+done
+if [ -n "$rp_np_bad" ]; then
+    bad package-win-no-test-plugin "a test tool (platforms/qoffscreen.dll or wine-stack*) is inside a shipped zip:$rp_np_bad"
+elif [ "$rp_np_n" -eq 0 ]; then
+    skp package-win-no-test-plugin "no Windows zip built here"
+else
+    ok package-win-no-test-plugin "none of the $rp_np_n Windows zip(s) built carries platforms/qoffscreen.dll or a wine-stack helper"
 fi
 
 summary

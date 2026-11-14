@@ -256,7 +256,7 @@ jobs:
             mingw64-SDL3 mingw64-zlib mingw64-libpng mingw64-winpthreads \
             wine-core wine-common
           # GH #319. The regression-win leg also builds the Qt frontend for
-          # Windows (the build that ships, minus PGO), so it needs the MinGW Qt6.
+          # Windows (the PGO build that ships, trained under wine), so it needs the MinGW Qt6.
           if [ "${{ matrix.leg }}" = regression-win ]; then dnf install -y mingw64-qt6-qtbase mingw64-qt6-qtsvg; fi
 
       - name: Check out
