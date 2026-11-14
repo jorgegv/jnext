@@ -384,12 +384,12 @@ struct Modals {
         if (!open_since.isValid()) open_since.start();
         else if (open_since.elapsed() > deadline_ms) {
             stuck = true;
-            seen.push_back({"stuck", dlg->windowTitle(), {}});
+            seen.push_back({"stuck", dlg->windowTitle(), {}, {}});
             dlg->reject();
             return;
         }
         if (!expect_modals) {
-            seen.push_back({"unexpected", dlg->windowTitle(), {}});
+            seen.push_back({"unexpected", dlg->windowTitle(), {}, {}});
             dlg->reject();
             return;
         }
@@ -418,7 +418,7 @@ struct Modals {
             else mb->done(box_answer);
             return;
         }
-        seen.push_back({"dialog", dlg->windowTitle(), {}});
+        seen.push_back({"dialog", dlg->windowTitle(), {}, {}});
         if (auto* spin = dlg->findChild<QSpinBox*>()) {
             spin_seen = spin->value();
             if (spin_value >= 0) spin->setValue(spin_value);

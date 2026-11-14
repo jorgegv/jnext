@@ -5204,7 +5204,7 @@ static void test_t77_kbd() {
         static const uint8_t sel[8] =
             {0xFE, 0xFD, 0xFB, 0xF7, 0xEF, 0xDF, 0xBF, 0x7F};
         for (int r = 0; r < 8; ++r) if (kb.read_rows(sel[r]) != 0x1F) all_up = false;
-        check("T77K-15", "Alt alone presses no ZX key", all_up, DETAIL(""));
+        check("T77K-15", "Alt alone presses no ZX key", all_up, "");
     }
     // T77K-16: right Alt behaves identically to left Alt.
     {

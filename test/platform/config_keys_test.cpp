@@ -321,7 +321,7 @@ int main() {
         if (canon("paths.source_dirs=") != "") bad += "empty ";
         if (canon("paths.source_dirs=a" + sep + "b c") != "a" + sep + "b c") bad += "list ";
         if (canon("paths.source_dirs=/x,y") != "/x,y") bad += "comma ";
-        for (const std::string v : {sep + "a", "a" + sep, "a" + sep + sep + "b", sep}) {
+        for (const std::string& v : {sep + "a", "a" + sep, "a" + sep + sep + "b", sep}) {
             if (canon("paths.source_dirs=" + v, &why) != "<refused>") bad += "accepts '" + v + "' ";
             else if (why.find("\"" + v + "\"") == std::string::npos ||
                      why.find("paths.source_dirs") == std::string::npos) bad += "why(" + why + ") ";
