@@ -16,7 +16,8 @@
 # `port provides` names for the library's file under $MACPORTS_PREFIX, the licence
 # files are those of `port contents <port>` named LICENSE*/COPYING*/LICENCE* or
 # under a LICENSES/ directory, and the fallback key is "qt" for every qt6-* port,
-# "glib" for glib2, "sqlite" for sqlite3, else the port name. The same two hard
+# "glib" for glib2, "sqlite" for sqlite3, "openssl3" for the openssl port (its libraries
+# are symlinks into openssl3), else the port name. The same two hard
 # failures apply, so a library that leaked in from another prefix (the runner's
 # own Homebrew in /usr/local) fails here as unowned. MACPORTS_PREFIX unset:
 # Homebrew, exactly as above.
@@ -91,10 +92,12 @@ for e in "$FW"/*; do
         mkdir -p "$out"
         macports_licences "$port" "$out"
         key=$port
-        case "$key" in qt6-*) key=qt ;; glib2) key=glib ;; sqlite3) key=sqlite ;; esac
+        case "$key" in qt6-*) key=qt ;; glib2) key=glib ;; sqlite3) key=sqlite ;; openssl) key=openssl3 ;; esac
         if [ -z "$(ls -A "$out")" ] && [ -d "$FALLBACKS/$key" ]; then cp -f "$FALLBACKS/$key"/* "$out/"; fi
         if [ -z "$(ls -A "$out")" ]; then
             echo "error: port $port ($base) has no licence file in its contents and no fallback" >&2
+            # What the port does install under doc/licenses, so a licence at an unexpected path shows.
+            port -q contents "$port" 2>/dev/null | grep -E '/(doc|licen[cs]es?)/' | sed 's/^[[:space:]]*/    contents: /' >&2 || true
             mp_failed=1
         fi
         continue

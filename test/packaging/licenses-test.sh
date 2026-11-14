@@ -292,6 +292,32 @@ else [ -f "$W/mpoutz/bundled/zlib/LICENSE" ] || msg="$msg zlib fallback not ship
 [ -z "$msg" ] && ok macports-zlib-fallback "a licence-less zlib gets the zlib fallback text" \
               || bad macports-zlib-fallback "$msg"
 
+# The ports the first Intel CI run found licence-less (bzip2, dbus, graphite2, libiconv,
+# gettext-runtime) and the openssl meta-port (libraries are links into openssl3): each gets its fallback
+msg=""
+for pl in bzip2:libbz2.1.0.dylib:LICENSE dbus:libdbus-1.3.dylib:COPYING graphite2:libgraphite2.3.dylib:LICENSE \
+          libiconv:libiconv.2.dylib:COPYING.LIB gettext-runtime:libintl.8.dylib:COPYING.LIB openssl:libcrypto.3.dylib:LICENSE.txt; do
+    pn=${pl%%:*}; r=${pl#*:}; lb=${r%%:*}; want=${r#*:}
+    touch "$MP/lib/$lb"; mpown "$MP/lib/$lb" "$pn"
+    mpapp "$W/mpappf-$pn" "$lb"
+    if ! runmp "$W/mpappf-$pn" "$W/mpoutf-$pn"; then msg="$msg $pn failed: $(tail -2 "$W/mpoutf-$pn.log" | tr "\n" " ");"
+    else
+        od=$pn; [ "$pn" = openssl ] && od=openssl
+        [ -f "$W/mpoutf-$pn/bundled/$od/$want" ] || msg="$msg $pn: $want not shipped;"
+    fi
+done
+[ -z "$msg" ] && ok macports-fallback-ports "bzip2, dbus, graphite2, libiconv, gettext-runtime and openssl ship their fallback texts" \
+              || bad macports-fallback-ports "$msg"
+
+# a licence-less port with no fallback: what it installs under doc/ or licenses/ is printed, to show a misplaced licence
+msg=""
+touch "$MP/lib/libqux.1.dylib"; mpown "$MP/lib/libqux.1.dylib" qux "$MP/share/doc/qux/NOTICE"
+mpapp "$W/mpappq" libqux.1.dylib
+if runmp "$W/mpappq" "$W/mpoutq"; then msg="$msg accepted;"
+elif ! grep -q 'contents: .*share/doc/qux/NOTICE' "$W/mpoutq.log"; then msg="$msg doc path not echoed: $(cat "$W/mpoutq.log");"; fi
+[ -z "$msg" ] && ok macports-licenceless-lists-docs "a licence-less port's doc/licenses files are listed in the error" \
+              || bad macports-licenceless-lists-docs "$msg"
+
 # a licence-less port with no fallback is fatal ON ITS OWN (no unowned library to fail the run)
 msg=""
 mpapp "$W/mpapp9" libbar.1.dylib
