@@ -105,11 +105,18 @@ Windows host; it is part of the merge gate for every code change.
 
 `make regression-win` runs the regression suite's screenshots and the
 functional rows Windows can run against MinGW-built exes under wine: the Qt exe
-as shipped minus PGO (`win-release-non-pgo`, with `qoffscreen.dll` bundled into
-that test tree only), the SDL-only exe, and the native helpers from the SDL
-unit-test tree. `make regression-macos` is its macOS twin (CI `macos-regression`).
+as `package-win` zips it (the PGO tree `win-release`, with `qoffscreen.dll`
+bundled into that test tree only, never into a zip), the SDL-only exe, and the
+native helpers from the SDL unit-test tree. `make regression-macos` is its macOS
+twin (CI `macos-regression`).
 `ROWS="..."` names rows. Neither is stamped; see
 [the regression suite](../04-testing/03-the-regression-suite.md#platform-runs-macos-and-windows-under-wine).
+
+`make regression-package PACKAGE=rpm|deb|win|win-qt5|win32-qt5` builds that
+package, unpacks the artifact (never installs it) and runs the screenshots plus
+17 functional rows against the `jnext` inside it; `release.yml` runs it after
+each package build. See
+[testing the packages](03-packaging-and-release.md#testing-the-packages).
 
 The built tree is **not yet a relocatable directory**, so there is no recipe for
 running it by hand on a real Windows machine, and none has been tried. What

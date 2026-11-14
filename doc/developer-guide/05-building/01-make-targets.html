@@ -3053,11 +3053,17 @@ wine, no compiler needed), so the run step could later be taken over by a real
 Windows host; it is part of the merge gate for every code change.</p>
 <p><code>make regression-win</code> runs the regression suite's screenshots and the
 functional rows Windows can run against MinGW-built exes under wine: the Qt exe
-as shipped minus PGO (<code>win-release-non-pgo</code>, with <code>qoffscreen.dll</code> bundled into
-that test tree only), the SDL-only exe, and the native helpers from the SDL
-unit-test tree. <code>make regression-macos</code> is its macOS twin (CI <code>macos-regression</code>).
+as <code>package-win</code> zips it (the PGO tree <code>win-release</code>, with <code>qoffscreen.dll</code>
+bundled into that test tree only, never into a zip), the SDL-only exe, and the
+native helpers from the SDL unit-test tree. <code>make regression-macos</code> is its macOS
+twin (CI <code>macos-regression</code>).
 <code>ROWS="..."</code> names rows. Neither is stamped; see
 <a href="../04-testing/03-the-regression-suite.html#platform-runs-macos-and-windows-under-wine">the regression suite</a>.</p>
+<p><code>make regression-package PACKAGE=rpm|deb|win|win-qt5|win32-qt5</code> builds that
+package, unpacks the artifact (never installs it) and runs the screenshots plus
+17 functional rows against the <code>jnext</code> inside it; <code>release.yml</code> runs it after
+each package build. See
+<a href="03-packaging-and-release.html#testing-the-packages">testing the packages</a>.</p>
 <p>The built tree is <strong>not yet a relocatable directory</strong>, so there is no recipe for
 running it by hand on a real Windows machine, and none has been tried. What
 stands in the way, in order of effort: <code>JNEXT_BINARY</code> (the CLI suite) and the
