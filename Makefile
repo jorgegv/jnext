@@ -524,6 +524,7 @@ wine-stack-x64:
 
 # Build the stall capture's i686 stack helper (a test tool, never packaged): build/wine-stack/wine-stack-x86.exe
 wine-stack-x86:
+	@# GH #487. The i686 twin of wine-stack-x64: a 32-bit exe's stack is only readable by a 32-bit helper.
 	@command -v i686-w64-mingw32-gcc >/dev/null 2>&1 || { printf "$(BADGE_FAIL) ERROR $(RESET) MinGW i686 cross toolchain incomplete (dnf install mingw32-gcc).\n"; exit 1; }
 	@mkdir -p build/wine-stack
 	i686-w64-mingw32-gcc -O1 -Wall -static test/wine-stack.c -o build/wine-stack/wine-stack-x86.exe -ldbghelp -lpsapi -lntdll

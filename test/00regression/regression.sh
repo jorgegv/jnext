@@ -584,7 +584,7 @@ fi
 # wine 11.20). Anything else is a HARNESS FAULT: a capture that silently cannot capture looks like
 # "no stall".
 wine_capture_selfcheck() {   # $1 = the Qt build dir
-    local dir=$TMP_DIR/wine-selfcheck sc_in dec_in sc_pid dec_pid i f why= keep caps tgt_sec rc_t=0 rc_d=0
+    local dir=$TMP_DIR/wine-selfcheck sc_in dec_in sc_pid dec_pid i f why= keep caps tgt_sec rc_t=0 rc_d=0 decoy_ok=0
     mkdir -p "$dir/cfg" "$dir/dcfg"
     mkfifo "$dir/stdin" "$dir/dstdin"
     exec {sc_in}<>"$dir/stdin"
@@ -613,7 +613,9 @@ wine_capture_selfcheck() {   # $1 = the Qt build dir
     shopt -u nullglob
     f=${caps[0]:-}
     tgt_sec=$(sed -n '/^== target threads/,/^$/p' "$f" 2>/dev/null || true)
-    if ! grep -q 'No SD-card image was found' "$dir/dout" 2>/dev/null; then why="the decoy jnext.exe never reached its SD-card prompt (see decoy-output.txt)"
+    # "picked among N" below counts the decoy only if it really reached its prompt.
+    ! grep -q 'No SD-card image was found' "$dir/dout" 2>/dev/null || decoy_ok=1
+    if [[ $decoy_ok -eq 0 ]]; then why="the decoy jnext.exe never reached its SD-card prompt (see decoy-output.txt)"
     elif ((${#caps[@]} != 1)); then why="${#caps[@]} capture files, expected exactly one"
     elif [[ $tgt_sec != *jnext.exe* || $tgt_sec == *start.exe* ]]; then why="the capture's target threads are not the exe's (jnext.exe), but wine's launcher"
     elif grep -q "can't debug several processes" "$f"; then why="winedbg refused: can't debug several processes"
@@ -655,7 +657,7 @@ wine_capture_selfcheck() {   # $1 = the Qt build dir
     tl=$(grep -m1 '^target:' "$f"); tt=$(sed -n '/^== target threads/,/^$/p' "$f" | sed -n 2p)
     rf=$(grep -m1 -E 'ReadFile|ReadConsole' "$f")
     rm -rf "$dir"
-    echo -e "  ${GREEN}wine stall capture self-check passed${RESET} (a blocked jnext.exe was captured with a ReadFile backtrace, GH #383; target picked among 2, both survived)"
+    echo -e "  ${GREEN}wine stall capture self-check passed${RESET} (a blocked jnext.exe was captured with a ReadFile backtrace, GH #383; target picked among $((decoy_ok + 1)), both survived)"
     echo "    $tl"
     echo "    first target thread: $tt"
     echo "    frame: ${rf#"${rf%%[![:space:]]*}"}"

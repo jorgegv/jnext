@@ -14,7 +14,8 @@
  *       <n> 0x<pc> <symbol>+0x<off> in <module>
  *   Otherwise prints "matches=<n>" and exits 1.
  * No debugger is attached (winedbg's attach kills a 32-bit process on wine 11.20): a thread is
- * suspended only around GetThreadContext, so a helper killed by its bound never leaves one stopped.
+ * suspended only around GetThreadContext, so a helper killed by its bound leaves one stopped only if the
+ * kill lands inside that suspend-to-resume window.
  */
 #include <windows.h>
 #include <tlhelp32.h>
@@ -153,7 +154,7 @@ int main(int argc, char **argv)
         memset(&c, 0, sizeof c);
         memset(&wc, 0, sizeof wc);
         /* Suspended only while its registers are read: a blocked thread's stack does not move while
-           it is walked, and a kill of this helper must never leave a thread stopped. */
+           it is walked; the window in which a kill could leave a thread stopped is just the context read. */
         SuspendThread(ht);
 #ifdef _WIN64
         if (wow) {
