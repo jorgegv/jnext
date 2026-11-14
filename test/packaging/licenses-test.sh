@@ -5,12 +5,13 @@
 # by the release workflow, whose install/bundle steps fail on a missing source.
 #
 set -u
+unset MACPORTS_PREFIX   # an inherited prefix must not switch the Homebrew rows into MacPorts mode
 cd "$(dirname "$0")/../.." || exit 2   # repo root
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; RESET='\033[0m'
 pass=0; fail=0
-ok()  { printf "  ${GREEN}PASS${RESET} %-16s %s\n" "$1" "$2"; pass=$((pass+1)); }
-bad() { printf "  ${RED}FAIL${RESET} %-16s %s\n" "$1" "$2"; fail=$((fail+1)); }
+ok()  { printf "  ${GREEN}PASS${RESET} %-28s %s\n" "$1" "$2"; pass=$((pass+1)); }
+bad() { printf "  ${RED}FAIL${RESET} %-28s %s\n" "$1" "$2"; fail=$((fail+1)); }
 
 LIST=${LICENSES_LIST:-packaging/licenses.list}
 entries=$(grep -E '^[^#].*\|' "$LIST")
@@ -139,6 +140,79 @@ HOMEBREW_PREFIX="$B" bash packaging/macos/bundle-licenses.sh "$W/app" "$W/out3" 
     && msg="$msg stale empty licence dir accepted on a re-run;"
 [ -z "$msg" ] && ok licenses-macos "bundle-licenses.sh: keg licences, Qt/glib fallbacks, refuses unowned/licence-less" \
               || bad licenses-macos "$msg"
+
+# 6. macOS, MacPorts mode (MACPORTS_PREFIX set, the Intel build): a stub `port`
+#    answers `provides` / `contents` from fixture files. The output format is
+#    MacPorts': "<path> is provided by: <port>", and `contents` lists one
+#    indented absolute path per file. A framework is looked up by its real binary
+#    under libexec/qt6/lib. Rows: owner + licence, Qt fallback, an unowned library
+#    (the gate against a Homebrew library leaking in from /usr/local), and
+#    MACPORTS_PREFIX unset staying in Homebrew mode.
+MP=$W/mp; MPA=$W/mpapp2/Contents/Frameworks; MPX=$W/mpx
+mkdir -p "$MP/lib" "$MP/libexec/qt6/lib/QtCore.framework/Versions/A" "$MP/share/doc/libpng" "$MPX" \
+         "$W/mpbin"
+touch "$MP/lib/libpng16.16.dylib" "$MP/libexec/qt6/lib/QtCore.framework/Versions/A/QtCore" \
+      "$MP/share/doc/libpng/COPYING" "$MP/share/doc/libpng/README"
+printf '%s %s\n' "$MP/lib/libpng16.16.dylib" libpng \
+    "$MP/libexec/qt6/lib/QtCore.framework/Versions/A/QtCore" qt6-qtbase > "$MPX/provides"
+printf '  %s\n  %s\n' "$MP/lib/libpng16.16.dylib" "$MP/share/doc/libpng/COPYING" "$MP/share/doc/libpng/README" > "$MPX/contents.libpng"
+printf '  %s\n' "$MP/libexec/qt6/lib/QtCore.framework/Versions/A/QtCore" > "$MPX/contents.qt6-qtbase"
+cat > "$W/mpbin/port" <<'STUB'
+#!/usr/bin/env bash
+# port -q provides <file> | port -q contents <port>
+echo "$*" >> "$MPX/calls"
+case "$2" in
+provides) p=$(grep -F -m1 "$3 " "$MPX/provides") || { echo "$3 is not provided by a MacPorts port."; exit 0; }
+          echo "$3 is provided by: ${p##* }" ;;
+contents) cat "$MPX/contents.$3" 2>/dev/null ;;
+esac
+STUB
+chmod +x "$W/mpbin/port"
+runmp() {   # runmp <app> <out>
+    MPX=$MPX PATH="$W/mpbin:$PATH" MACPORTS_PREFIX="$MP" bash packaging/macos/bundle-licenses.sh "$1" "$2" >"$2.log" 2>&1
+}
+msg=""
+mkdir -p "$MPA"; touch "$MPA/libpng16.16.dylib"
+if ! runmp "$W/mpapp2" "$W/mpout"; then
+    msg="$msg script failed on a MacPorts-owned dylib: $(tail -3 "$W/mpout.log" | tr "\n" " ");"
+else
+    [ -f "$W/mpout/bundled/libpng/COPYING" ] || msg="$msg port licence not shipped under the port name;"
+    [ ! -e "$W/mpout/bundled/libpng/README" ] || msg="$msg a non-licence file was shipped;"
+fi
+[ -z "$msg" ] && ok macports-owner-and-licence "MACPORTS_PREFIX: dylib owned by libpng ships its COPYING under bundled/libpng" \
+              || bad macports-owner-and-licence "$msg"
+
+msg=""
+mkdir -p "$W/mpapp3/Contents/Frameworks/QtCore.framework"
+if ! runmp "$W/mpapp3" "$W/mpout3"; then
+    msg="$msg script failed on a MacPorts Qt framework: $(tail -3 "$W/mpout3.log" | tr "\n" " ");"
+else
+    [ -f "$W/mpout3/bundled/qt6-qtbase/LGPL-3.0-only.txt" ] || msg="$msg qt6-* fallback not shipped;"
+fi
+[ -z "$msg" ] && ok macports-qt-fallback "qt6-qtbase framework with no licence in its contents gets the qt fallback" \
+              || bad macports-qt-fallback "$msg"
+
+msg=""
+mkdir -p "$W/mpapp4/Contents/Frameworks"; touch "$W/mpapp4/Contents/Frameworks/libhomebrew.9.dylib"
+if runmp "$W/mpapp4" "$W/mpout4"; then msg="$msg a library no MacPorts port owns was accepted;"
+elif ! grep -q 'no MacPorts port owns libhomebrew.9.dylib' "$W/mpout4.log"; then
+    msg="$msg refused, but not with the 'no MacPorts port owns' message: $(cat "$W/mpout4.log");"
+fi
+[ -z "$msg" ] && ok macports-unowned-fails "a library no port provides is refused, naming it" \
+              || bad macports-unowned-fails "$msg"
+
+msg=""
+mkdir -p "$W/hbapp/Contents/Frameworks"; touch "$W/hbapp/Contents/Frameworks/libpng16.16.dylib"
+: > "$MPX/calls"
+if ! env -u MACPORTS_PREFIX MPX="$MPX" PATH="$W/mpbin:$PATH" HOMEBREW_PREFIX="$B" \
+        bash packaging/macos/bundle-licenses.sh "$W/hbapp" "$W/hbout" >/dev/null 2>&1; then
+    msg="$msg Homebrew run failed with MACPORTS_PREFIX unset;"
+else
+    [ -f "$W/hbout/bundled/libpng/LICENSE" ] || msg="$msg Homebrew keg licence not shipped;"
+    [ ! -s "$MPX/calls" ] || msg="$msg port was consulted with MACPORTS_PREFIX unset;"
+fi
+[ -z "$msg" ] && ok macports-unset-is-homebrew "MACPORTS_PREFIX unset: Homebrew lookup, port never run" \
+              || bad macports-unset-is-homebrew "$msg"
 
 printf "\nTotal: %d  Pass: %d  Fail: %d\n" $((pass+fail)) "$pass" "$fail"
 [ "$fail" -eq 0 ]
