@@ -259,6 +259,52 @@ int main() {
         fs::remove_all(wbase, rm_ec);
     }
 
+    // HFW-180 (GH #476) -- the archive bit of a file F_UNLINK deleted does not come back with the
+    // same inode. The host keeps a hard link, jnext F_CHMODs and F_UNLINKs the name, the host moves
+    // the link back: same inode, size and modification time (an unlink changes only the ctime), so
+    // only F_UNLINK's own forgetting of the entry makes the file read archive-set (a new entry on
+    // the card). POSIX only, like the rest of this suite: Windows has no usable inode and wine no
+    // hard links; a host that cannot make the link FAILS the row, it never skips.
+    {
+        const fs::path hbase = fs::temp_directory_path() / ("jnext-hostfs-hl-" + jtp::process_id_string());
+        std::error_code hec;
+        fs::remove_all(hbase, hec);
+        put_file(hbase / "h1.txt", "hh");
+        std::error_code lec;
+        fs::create_hard_link(hbase / "h1.txt", hbase / "h1-keep.txt", lec);
+        const bool linked = !lec;
+        EsxdosHostFs hw;
+        std::string why;
+        hw.configure(hbase.string(), true, why);
+        uint8_t cm = 0xFF, ul = 0xFF, a_stat = 0xFF, a_fstat = 0xFF, a_before = 0xFF;
+        if (linked) {
+            cm = hw.chmod("h1.txt", EsxdosHostFs::kChmodWrite, EsxdosHostFs::kChmodWrite);
+            EsxdosHostFs::StatInfo sb;
+            hw.stat("h1.txt", sb);
+            a_before = sb.attr;
+            ul = hw.unlink("h1.txt");
+            std::error_code mec;
+            fs::rename(hbase / "h1-keep.txt", hbase / "h1.txt", mec);
+            EsxdosHostFs::StatInfo st;
+            if (!mec && hw.stat("h1.txt", st) == EsxdosHostFs::kOk) a_stat = st.attr;
+            uint8_t h = 0;
+            EsxdosHostFs::StatInfo fst;
+            if (hw.open("h1.txt", EsxdosHostFs::kModeRead, h) == EsxdosHostFs::kOk) {
+                if (hw.fstat(h, fst) == EsxdosHostFs::kOk) a_fstat = fst.attr;
+                hw.close(h);
+            }
+        }
+        hcheck("HFW-180",
+               "a name F_UNLINK deleted reads archive-set when the host puts the SAME file (same inode, "
+               "size and mtime, through a hard link) back under it: F_STAT and F_FSTAT 20, not the "
+               "'clear' F_CHMOD left (design; nothing of the old entry survives an unlink)",
+               linked && cm == EsxdosHostFs::kOk && a_before == 0 && ul == EsxdosHostFs::kOk &&
+                   a_stat == EsxdosHostFs::kAttrArchive && a_fstat == EsxdosHostFs::kAttrArchive,
+               std::string(linked ? "" : "hard link unavailable: ") + "chmod=" + hex2(cm) + " before=" +
+                   hex2(a_before) + " unlink=" + hex2(ul) + " stat=" + hex2(a_stat) + " fstat=" + hex2(a_fstat));
+        fs::remove_all(hbase, rm_ec);
+    }
+
     // NXROOT-13 (GH #490) -- the implicit root of --esxdos-stub is the directory
     // the NEX's PATH names, not its link target's: L/link.nex -> R/real.nex
     // serves L (the directory `.RUN` and the kept-open sibling lookup already
