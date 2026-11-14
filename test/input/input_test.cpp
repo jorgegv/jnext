@@ -98,17 +98,6 @@ static void check(const char* id, const char* desc, bool cond, const char* detai
 static char g_buf[512];
 #define DETAIL(...) (snprintf(g_buf, sizeof(g_buf), __VA_ARGS__), g_buf)
 
-// Record a plan row that cannot be exercised against the current C++
-// surface as an honest SKIP (neither pass nor fail). Follows the Copper
-// test pattern (test/copper/copper_test.cpp). The row metadata is kept
-// visible so Task 3 can track implementation debt. Skipped rows do NOT
-// contribute to g_total, g_pass, or g_fail — they preserve a meaningful
-// pass-rate signal on the live portion of the plan.
-static void skip(const char* id, const char* desc, const char* subsystem) {
-    report_row_id(id);
-    g_skipped.push_back({g_group, id, desc, subsystem});
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 static Keyboard fresh_keyboard() {

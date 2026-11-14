@@ -323,15 +323,6 @@ bool pump(Emulator& emu, std::vector<uint8_t>& heard, int timeout_ms, Done done)
 
 const std::vector<uint8_t> kSup = {'S', 'U', 'P', '>', ' '};
 
-bool wait_for_file_text(const Fixture& fx, const char* name, const std::string& want, int ms) {
-    const auto t0 = std::chrono::steady_clock::now();
-    while (ms_since(t0) < ms) {
-        if (fx.file(name) == want) return true;
-        sleep_ms(20);
-    }
-    return fx.file(name) == want;
-}
-
 /// Pump the machine until the stand-in has received `want`.
 bool pump_until_received(Emulator& emu, const Fixture& fx, const std::string& want, int ms) {
     std::vector<uint8_t> ignored;

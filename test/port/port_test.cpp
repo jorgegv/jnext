@@ -85,10 +85,6 @@ static void check(const char* id, const char* desc, bool cond, const char* detai
 // Does NOT affect g_pass/g_fail counters — skipped rows are printed at
 // end-of-run and picked up by the traceability matrix extractor.
 static std::vector<std::pair<const char*, const char*>> g_skips;
-static void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skips.emplace_back(id, reason);
-}
 
 static char g_buf[512];
 #define DETAIL(...) (snprintf(g_buf, sizeof(g_buf), __VA_ARGS__), g_buf)

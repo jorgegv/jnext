@@ -83,10 +83,6 @@ static void check(const char* id, const char* desc, bool cond,
 // row is visible in the binary's SKIP section, and picked up by the
 // traceability matrix extractor via its first-arg string literal.
 static std::vector<std::pair<const char*, const char*>> g_skips;
-static void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skips.emplace_back(id, reason);
-}
 
 static char g_buf[512];
 #define DETAIL(...) (snprintf(g_buf, sizeof(g_buf), __VA_ARGS__), g_buf)
@@ -141,10 +137,6 @@ static uint32_t cpp_ram_addr(uint8_t active_bank, uint32_t l2_addr) {
 static void write_both(Ram& ram, uint8_t bank, uint32_t l2_addr, uint8_t v) {
     ram.write(cpp_ram_addr(bank, l2_addr),  v);
     ram.write(vhdl_ram_addr(bank, l2_addr), v);
-}
-
-static void write_cpp_only(Ram& ram, uint8_t bank, uint32_t l2_addr, uint8_t v) {
-    ram.write(cpp_ram_addr(bank, l2_addr), v);
 }
 
 // Fill the 256x192 narrow-mode VRAM with a row-major pattern. Pattern

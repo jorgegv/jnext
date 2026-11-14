@@ -84,11 +84,6 @@ static int fail_count = 0;
 // Skip helper — mirrors test/sdcard/sdcard_test.cpp:48-80 shape.
 struct SkipNote { const char* id; const char* reason; };
 static std::vector<SkipNote> g_skipped;
-static void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skipped.push_back({id, reason});
-    fprintf(stdout, "SKIP %-16s %s\n", id, reason);
-}
 
 // One row: a literal ID, the condition, a literal description, and an
 // optional detail carrying measured values (printed, never part of the ID).
