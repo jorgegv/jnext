@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.35</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.35</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3327,6 +3327,11 @@ direction is a harness fault, so retagging a row is a deliberate edit. Absent ro
 are printed by name; a named row the OS does not run is refused; an absent row
 that reports is a harness fault. A platform run's total is 1 provision + the
 screenshots + the admitted rows (no lints, no stamp).</p>
+<p><strong>Where the target OS comes from.</strong> The OS is read from the binary's own tree, never
+from the caller: <code>JNEXT_TARGET_OS</code> in the tree's <code>CMakeCache.txt</code> or, for a dir with
+no cache (an unpacked Windows package, <code>make regression-package</code>), the PE header of
+its <code>jnext.exe</code> (<code>MZ</code>, then <code>PE\0\0</code> at the <code>e_lfanew</code> offset). A dir with neither
+is a harness fault.</p>
 <p><strong>The Windows runner.</strong> <code>test/wine-run.sh --jnext</code> runs <code>jnext.exe</code> as <code>$JNEXT</code>
 (two one-line shims in the run's <code>$TMP_DIR</code> call it, so rows keep invoking
 <code>"$JNEXT"</code> as one word). Each of these was measured to be necessary under wine
@@ -3361,7 +3366,7 @@ screenshots + the admitted rows (no lints, no stamp).</p>
 <li>wine cannot <code>CreateProcess</code> an ELF, so the <code>--record</code> rows (ffmpeg) are absent
    on Windows; the Windows spawn path is covered by the unit rows SF-*.</li>
 <li>The prefix is ~1.7 GB and lives under the build tree
-   (<code>build/win-release-non-pgo/wine-prefix</code>), never in <code>/tmp</code>.</li>
+   (<code>build/win-release/wine-prefix</code>, or inside the unpacked package under <code>build/regression-package/</code>), never in <code>/tmp</code>.</li>
 <li><code>dzrp-paused-headless-func</code> measures jnext's own CPU: under a wrapper
    "the first child" is a shell, so the row finds the process named <code>jnext</code> /
    <code>jnext.exe</code> among the descendants (deepest one) and reads its CPU from <code>/proc</code>
@@ -3375,15 +3380,18 @@ screenshots + the admitted rows (no lints, no stamp).</p>
     Windows.</li>
 <li>A stalled <code>jnext.exe</code> names its blocked call. With
     <code>JNEXT_WINE_CAPTURE_DIR</code> set (the driver exports
-    <code>build/regression-artifacts/wine-stall/&lt;run&gt;/</code>) the runner's watchdog fires once on a
-    process at least 20 s old whose CPU time has been flat for 10 s and totals 2 s or less, and
-    writes <code>wine-stall-&lt;time&gt;-&lt;pid&gt;.txt</code>: <code>/proc</code> threads, the prefix's processes, the
-    <code>winedevice.exe</code> threads, <code>winedbg info thread</code>, and one <code>Backtrace:</code> per thread of that
-    Windows pid (one <code>winedbg --file</code> session; never <code>bt all</code>, which real winedbg refuses). TERM
-    is forwarded at once. Before the first row the driver checks the capture on a real
-    <code>jnext.exe</code> blocked on the SD prompt and treats a capture with no <code>ReadFile</code> backtrace as a
-    harness fault. Every Windows run ends with a <code>wine prefix at the end:</code> line and lists any
-    captures.</li>
+    <code>build/regression-artifacts/wine-stall/&lt;run&gt;/</code>) the runner's watchdog fires once on the exe
+    (the process of its name that carries the runner's <code>JNEXT_WINE_RUN_ID</code> marker: wine 11.20 runs
+    a 32-bit exe behind <code>start.exe</code> as a separate process) when it is at least 20 s old, its CPU
+    time has been flat for 10 s and totals 2 s or less. It writes <code>wine-stall-&lt;time&gt;-&lt;pid&gt;.txt</code>:
+    <code>/proc</code> threads, a <code>target:</code> line, the prefix's processes, the <code>winedevice.exe</code> threads,
+    <code>winedbg info thread</code>, and one <code>Backtrace:</code> per thread from <code>test/wine-stack.c</code> (built by
+    <code>make wine-stack-x64</code> / <code>wine-stack-x86</code>, a helper that attaches no debugger: winedbg's attach
+    kills a 32-bit process on that wine). TERM and INT are forwarded to both processes. Before the
+    first row the driver blocks a decoy and a target <code>jnext.exe</code> on the SD prompt, and treats a
+    capture that is not the target's, names no <code>ReadFile</code> frame, or leaves either process unable to
+    exit by itself as a harness fault. Every Windows run ends with a <code>wine prefix at the end:</code>
+    line and lists any captures.</li>
 </ol>
 <p><strong>On macOS</strong> the SD image comes from <code>make sdcard-image</code>, the per-run clone falls
 back to a plain copy where <code>cp --reflink=always</code> does not exist (reported as

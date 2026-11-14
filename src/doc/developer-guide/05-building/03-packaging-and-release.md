@@ -24,6 +24,39 @@ The source tarball is deliberately not a `git archive`. That would produce an
 anyone tries to build from it; `package-src` instead runs
 `packaging/make-dist-tarball.sh`, which vendors the submodule content properly.
 
+## Testing the packages
+
+`make regression` tests `build/gui-release`, a PGO build made like the Linux
+packages (same source, flags class and PGO method) but a different file: each
+package builds its own tree, trains its own profile, and the debs are compiled
+by Ubuntu's gcc against Ubuntu's Qt, which no Fedora host can execute. So the
+packages' own binaries are tested where they are built, by
+`make regression-package PACKAGE=<p>` (`test/regression-package.sh`; it first deletes the package's earlier-version artifacts), which
+`release.yml` runs after each package step and before the upload:
+
+| `PACKAGE` | artifact | how the binary under test is obtained |
+|-----------|----------|---------------------------------------|
+| `rpm`, `deb` | the `.rpm` / `.deb` | extracted (`rpm2cpio`, `dpkg-deb -x`) into `build/regression-package/<p>/`; `regression.sh` runs with `JNEXT=<dir>/usr/bin/jnext` |
+| `win`, `win-qt5`, `win32-qt5` | the three published zips | unzipped; only Qt's offscreen platform plugin (the difference between two `bundle-dlls.sh` stagings, with and without it, which must be exactly that one file) is added to that scratch copy, never over a zip member and never a file the zip lacks; `regression.sh --platform` runs with the copy as its Qt tree under wine, whose `PATH` carries no MinGW sysroot, so a DLL missing from the zip fails the run |
+
+The rows are every screenshot row of `regression_tests.conf` plus the 17
+functional rows listed once in the script (exit paths and CLI, Qt offscreen
+start and exit, snapshots, tape, RZX, audio, NextZXOS reset, esxDOS host
+files, and the DZRP, GDB and ZRCP servers). A package run is green only when
+the harness exits 0 with no FAIL and no SKIP and its total is exactly the
+lints, the SD provision, the screenshots and the functional rows (a filtered
+run skips the harness's own completeness check, so the script makes it). It is
+never stamped and not part of the batch gate. The Flatpak bundle is the one
+shipped artifact this does not cover: it keeps its in-build FUSE gate and
+permission gate.
+
+The packaging test (`make package-test`, the CI `package` job) pins the
+contract: the harness is handed the unpacked package's own binary, a Windows
+scratch copy equals the zip plus the plugin, and no shipped zip carries
+`platforms/qoffscreen.dll`.
+
+## Profile-guided packages
+
 Every package's `jnext` is a **PGO build**, the same as `make gui-release`
 ([5.5](05-performance-and-optimisation.md#profile-guided-optimisation)): the package
 targets call `tools/pgo-build.sh`, which configures an instrumented twin of the
@@ -35,7 +68,7 @@ some platforms need more:
   and are trained under **wine** with no display, the GUI run on Qt's
   offscreen platform (its plugin is bundled next to the instrumented exe
   only). No wine is a hard error; `WIN_PGO=0` (or `make win-release-non-pgo`)
-  builds without PGO.
+  builds without PGO. `make regression-win` tests this same PGO tree.
   The wine prefix is refreshed (`wineboot -u`) on every build, so a prefix
   made while the host wine was broken does not stay broken. After the
   optimised build, `tools/pgo-build.sh` builds `fuse_z80_test.exe` in the

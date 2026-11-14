@@ -292,8 +292,12 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
      `continue-on-error`** since issue #61 (it carries the GH #46
      `verify-bundle` gate, and a gate that cannot fail anything is not a gate);
      macOS Intel the same way on `macos-15-intel` with MacPorts dependencies,
-     also blocking and in `publish`'s `needs:`. Each uploads its packages as an
-     artifact.
+     also blocking and in `publish`'s `needs:`.
+     Each uploads its packages as an artifact. The `deb`, `rpm` and `windows`
+     jobs first run `make regression-package` on the package they built (GH #487;
+     unpacked, never installed; the Windows job once per zip), so the published
+     file is the tested one and a red run withholds the release. The Flatpak is
+     not covered.
   3. **`publish`** — `if: success() && needs.gate.outputs.publish == 'true'`;
      downloads the artifacts and creates a **GitHub Release**. The explicit
      `success()` is what makes ANY failed artifact job withhold the release
