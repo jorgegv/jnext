@@ -821,6 +821,15 @@ target_link_libraries(halt_batch_observer_test PRIVATE
 target_include_directories(halt_batch_observer_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME halt_batch_observer_tests COMMAND halt_batch_observer_test)
 
+# GH #489 - the call-stack tracker fed from the CPU's own M1 fetch buffer.
+add_executable(call_stack_fetch_test core/call_stack_fetch_test.cpp)
+target_link_libraries(call_stack_fetch_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(call_stack_fetch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME call_stack_fetch_tests COMMAND call_stack_fetch_test)
+
 add_executable(halt_batch_boot_test core/halt_batch_boot_test.cpp)
 target_link_libraries(halt_batch_boot_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video

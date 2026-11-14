@@ -1412,6 +1412,9 @@ public:
         batch_copper_enabled_ = copper;
     }
     uint64_t halt_repeats_batched_for_test() const { return halt_repeats_batched_; }
+    /// GH #489 - how many slots predicted the fetch space for the call-stack tracker: only a slot
+    /// that may accept an interrupt (an NMI pending, or an INT pending with IFF1 set).
+    uint64_t call_stack_predictions_for_test() const { return call_stack_predictions_; }
     /// GH #452 stage 4 - of those, the repeats absorbed while the DMA sat in its burst prescaler wait,
     /// and while the IM2 fabric was in hardware mode: what a row reads to know a batch engaged THERE.
     uint64_t halt_repeats_batched_dma_wait_for_test() const { return halt_repeats_batched_dma_wait_; }
@@ -2292,6 +2295,7 @@ private:
     bool     batch_halt_enabled_   = true;
     bool     batch_copper_enabled_ = true;
     uint64_t halt_repeats_batched_ = 0;
+    uint64_t call_stack_predictions_ = 0;
     uint64_t halt_repeats_batched_dma_wait_ = 0;
     uint64_t halt_repeats_batched_hw_mode_ = 0;
     uint64_t copper_cycles_skipped_ = 0;

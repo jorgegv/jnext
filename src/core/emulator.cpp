@@ -11234,20 +11234,26 @@ uint64_t Emulator::step_one_instruction()
                 }
             }
         }
-        // Call stack tracking (debugger only, gated by enabled flag).
-        if (call_stack_.enabled()) {
-            // Same shape as the trace record above: three bytes are
-            // read at PC whatever the instruction's length, so PC+1 and PC+2
-            // are the debugger's reads and must not fire the user's
-            // watchpoints. The call-stack tracker is switched on by the
-            // debugger, so this too only ever hurt the user who had it open.
-            DebugState::InspectionScope inspect(debug_state_);
+        // Call stack tracking (debugger only, gated by enabled flag). GH #489: nothing is
+        // PREDICTED per instruction any more. The tracker is fed after execute() from what the
+        // CPU fetched (see the post block); only the pre-slot state is captured here, and the
+        // fetch space only for a slot that may take an INT or NMI, whose frame records the
+        // interrupted PC's space (nothing is fetched there). execute() takes an NMI if one is
+        // pending when it starts, and an INT if one is pending with IFF1 set (Z80Cpu::execute():
+        // the request stays pending for its pulse whatever IFF1 says, but is accepted only with
+        // IFF1); nothing between here and there raises either or sets IFF1.
+        const bool cs_on = call_stack_.enabled();
+        uint16_t cs_pc = 0, cs_sp = 0;
+        jnext::dbg::MemSpace cs_space = jnext::dbg::MemSpace::cpu();
+        if (cs_on) {
             const Z80Registers& regs2 = cpu_.registers();
-            // Through the overlay the M1 selects, like the trace record above.
-            const PredictedInstr pi = predict_instruction_(regs2.PC);
-            call_stack_.on_instruction_pre(
-                regs2.PC, regs2.SP, pi.b[0], pi.b[1], pi.b[2],
-                pi.first.space);
+            cs_pc = regs2.PC;
+            cs_sp = regs2.SP;
+            if (cpu_.nmi_pending() || (cpu_.int_pending() && regs2.IFF1)) {
+                ++call_stack_predictions_;
+                DebugState::InspectionScope inspect(debug_state_);
+                cs_space = predict_fetch(cs_pc);
+            }
         }
 
         // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
@@ -11416,8 +11422,17 @@ uint64_t Emulator::step_one_instruction()
         // ASKED of the CPU: such a slot fetches no opcode, so the pre-slot
         // capture names an instruction that did not run, and a CALL or RST
         // waiting at PC would otherwise be recorded as taken.
-        if (call_stack_.enabled()) {
+        if (cs_on) {
             const Z80Registers& post = cpu_.registers();
+            // The pre-slot capture, completed with what the CPU fetched. The tracker reads the
+            // second byte only after a prefix, and the operand only for a CALL that pushed
+            // (a taken CALL), whose operand is the PC it jumped to; nothing else reads it.
+            const uint8_t cs_b0 = cpu_.last_m1_byte(0);
+            const bool prefixed = cs_b0 == 0xCB || cs_b0 == 0xED || cs_b0 == 0xDD || cs_b0 == 0xFD;
+            call_stack_.on_instruction_pre(
+                cs_pc, cs_sp, cs_b0,
+                prefixed ? cpu_.last_m1_byte(1) : uint8_t(post.PC & 0xFF),
+                prefixed ? uint8_t(0) : uint8_t(post.PC >> 8), cs_space);
             switch (cpu_.last_slot_kind()) {
                 case Z80Cpu::SlotKind::Int:
                     call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::INT);
