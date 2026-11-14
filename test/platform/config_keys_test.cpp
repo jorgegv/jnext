@@ -14,11 +14,13 @@
 #include "platform/config_keys.h"
 
 #include "core/cli_options.h"
+#include "core/float_parse.h"
 #include "debug/debug_keymap.h"
 #include "debug/source_search.h"
 #include "input/joy_source.h"
 
 #include <cstdio>
+#include <locale>
 #include <set>
 #include <string>
 #include <vector>
@@ -432,6 +434,63 @@ int main() {
         if (why.find("'step_out'") == std::string::npos || why.find("'trace_toggle'") == std::string::npos) bad += "names2(" + why + ") ";
         check("DK-82", "apply_overrides: a combo held by another action's default, or by a saved redefinition, is refused naming both actions",
               bad.empty(), bad);
+    }
+
+    // SETK-21 .. SETK-23: the locale-independent text -> double behind the Float type
+    // (src/core/float_parse.h). Libc++ before LLVM 20 has no floating std::from_chars, so the
+    // header has two arms; the stream arm is compiled everywhere, so both are tested here.
+    using ParseFn = bool (*)(const char*, const char*, double&);
+    struct Case { const char* text; bool ok; double value; };
+    static const Case CASES[] = {
+        {"0", true, 0}, {"-0", true, 0}, {"3", true, 3}, {"-1.5", true, -1.5}, {".5", true, 0.5}, {"5.", true, 5},
+        {"1e2", true, 100}, {"1E-2", true, 0.01}, {"2.5e+1", true, 25}, {"-24", true, -24},
+        {"+3", false, 0}, {" 3", false, 0}, {"3 ", false, 0}, {"", false, 0}, {"-", false, 0}, {".", false, 0},
+        {"1e", false, 0}, {"1e+", false, 0}, {"0x10", false, 0}, {"1.5x", false, 0}, {"1,5", false, 0},
+        {"inf", false, 0}, {"nan", false, 0}, {"--3", false, 0}, {"1e999", false, 0}, {"1e-999", false, 0},
+    };
+    auto run_cases = [&](ParseFn fn) {
+        std::string bad;
+        for (const Case& c : CASES) {
+            double d = 7;
+            const std::string t = c.text;
+            const bool ok = fn(t.data(), t.data() + t.size(), d);
+            if (ok != c.ok || (ok && d != c.value)) bad += "'" + t + "' ";
+        }
+        return bad;
+    };
+
+    // SETK-21
+    {
+        const std::string bad = run_cases(float_parse::parse_double_stream);
+        check("SETK-21", "the stream arm of float_parse accepts a plain decimal and refuses +, blanks, junk, hex, inf, nan and out-of-range text",
+              bad.empty(), bad);
+    }
+
+    // SETK-22
+    {
+#ifdef JNEXT_HAVE_FLOAT_FROM_CHARS
+        const std::string bad = run_cases(float_parse::parse_double_chars);
+        check("SETK-22", "the from_chars arm of float_parse (this library has it) gives the same answers as the stream arm", bad.empty(), bad);
+#else
+        const std::string bad = run_cases(float_parse::parse_double);
+        check("SETK-22", "float_parse::parse_double (this library has no floating from_chars: the stream arm) gives the table's answers", bad.empty(), bad);
+#endif
+    }
+
+    // SETK-23
+    {
+        // A global locale whose decimal point is a comma, as a Spanish host's: the parse must not follow it.
+        struct Comma : std::numpunct<char> { char do_decimal_point() const override { return ','; } };
+        const std::locale before = std::locale::global(std::locale(std::locale::classic(), new Comma));
+        std::string bad;
+        double d = 0;
+        const std::string a = "1.5", b = "1,5";
+        if (!float_parse::parse_double_stream(a.data(), a.data() + a.size(), d) || d != 1.5) bad += "stream-1.5 ";
+        if (float_parse::parse_double_stream(b.data(), b.data() + b.size(), d)) bad += "stream-1,5 ";
+        if (!float_parse::parse_double(a.data(), a.data() + a.size(), d) || d != 1.5) bad += "dispatch-1.5 ";
+        if (canon("audio.gain_db=-1.5") != "-1.5") bad += "setter-1.5 ";
+        std::locale::global(before);
+        check("SETK-23", "float_parse and the Float setter read 1.5 as 1.5 under a comma-decimal global locale", bad.empty(), bad);
     }
 
     // DK-83

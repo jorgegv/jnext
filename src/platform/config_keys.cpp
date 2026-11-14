@@ -2,6 +2,7 @@
 
 #include "core/cli_options.h"
 #include "core/emulator_config.h"
+#include "core/float_parse.h"
 #include "debug/source_search.h"
 #include "debug/debug_keymap.h"
 #include "input/joy_source.h"
@@ -85,9 +86,7 @@ bool canon_value(const Key& k, const std::string& key, const std::string& val,
                 ++b;
                 if (b < e && (*b == '-' || *b == '+')) b = e;   // refused below
             }
-            std::from_chars_result r{b, std::errc::invalid_argument};
-            if (b < e) r = std::from_chars(b, e, d);
-            if (r.ec == std::errc() && r.ptr == e && std::isfinite(d)
+            if (b < e && float_parse::parse_double(b, e, d) && std::isfinite(d)
                 && d >= k.lo && d <= k.hi) {
                 if (d == 0) d = 0.0;   // -0 -> 0: what AppConfig::save() writes
                 canon = num(d);
