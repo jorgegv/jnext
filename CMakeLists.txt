@@ -235,6 +235,16 @@ add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
 # ZOT TZX/TAP player by antirez — MIT License.
 add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
 
+set(SPDLOG_SYSTEM_INCLUDES ON CACHE BOOL "" FORCE)
+option(JNEXT_WERROR "Treat compiler warnings as errors (packaging builds set OFF)" ON)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(JNEXT_WARNINGS -Wall -Wextra)
+    if(JNEXT_WERROR)
+        list(APPEND JNEXT_WARNINGS -Werror)
+    endif()
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:${JNEXT_WARNINGS}>")
+endif()
+
 # Every src/<subsystem>/CMakeLists.txt below collects its sources with
 # file(GLOB_RECURSE ... CONFIGURE_DEPENDS "*.cpp"). CONFIGURE_DEPENDS is not
 # decoration: without it a glob is evaluated ONCE, at configure time, so a

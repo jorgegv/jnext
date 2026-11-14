@@ -14,7 +14,7 @@ endif()
 # are unaffected. -Wall/-Wextra are deliberately NOT enabled (GH #418): only the
 # compiler's default warnings are errors. Production .cpp files compiled
 # straight into a test (wav_loader, sdl_input, quit_signal) are covered too.
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if(JNEXT_WERROR AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Werror)
 endif()
 
