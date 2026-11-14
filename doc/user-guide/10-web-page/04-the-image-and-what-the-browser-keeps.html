@@ -4526,7 +4526,9 @@ differs in one byte, starts with none. A record made for another image is refuse
 record whose header is not a valid one (damaged, or in a format this version does not
 read) is refused as "not a jnext SD-writes file" and the reset does not remove it: clear the
 site's data in the browser, or delete the record from the <code>jnext-card-writes</code> database
-(store <code>journals</code>) with the browser's developer tools.</p>
+(store <code>journals</code>) with the browser's developer tools.
+A <code>.jns</code> snapshot (10.2) restored over a card that has newer saves leaves NextZXOS's in-memory
+picture of the card out of step with the card, as on the desktop (5.9).</p>
 <p>Browsers keep the storage of each origin (scheme, host and port) apart. Two pages of one
 origin share the image and the recording. A game inside an <code>iframe</code> of another site may
 or may not see the storage its own origin has: that depends on the browser, its version

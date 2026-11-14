@@ -63,7 +63,11 @@ each started on its own and left to run for 600 frames:
   the pictures.
 
 The CRT effect (10.2) is extra drawing work on the graphics chip of every frame, which is why it is off
-by default; the figures above are without it.
+by default; the figures above are without it. With the TV look on, measured on the same machine with
+the same programs, the time a frame took grew by about 0.1 ms in Chrome, 0.2 ms in Chrome at half
+speed and 0.15 ms in Firefox on average (the largest single program, 1.1 ms), and the emulation and
+display rates stayed what they were without it. The soft scanlines and the PC monitor looks cost about
+the same as TV on the three heaviest programs.
 
 This is what one machine did, not a promise for another: a slower computer, a busy
 one or another browser will differ.
