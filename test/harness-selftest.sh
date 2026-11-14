@@ -3419,7 +3419,7 @@ pe_with_machine() {   # pe_with_machine <file> <machine as printf octal bytes>
 pe_with_machine "$T/pe64/fake.exe" '\144\206'   # 0x8664
 pe_with_machine "$T/pe86/fake.exe" '\114\001'   # 0x014c
 printf '#!%s\n$| = 1; my $m = $ARGV[0] // "stall";\n$SIG{TERM} = sub { print "got-term\\n"; exit 9 };\n$SIG{INT} = sub { print "got-int\\n"; exit 8 } if $m eq "int";\nprint "ready\\n";\nif ($m eq "busy") { 1 while 1 } else { select(undef, undef, undef, 0.1) while 1 }\n' "$(command -v perl)" > "$T/standin/fake.exe"
-printf '#!/bin/bash\nkid=\ntrap '"'"'[ -z "$kid" ] || kill -TERM "$kid" 2>/dev/null; exit 143'"'"' TERM\ntrap "" INT\n( setsid "$STUB_STANDIN" "$@" </dev/null & echo $! > "$STUB_KIDFILE" )\nsleep 0.3\nkid=$(cat "$STUB_KIDFILE")\nwhile kill -0 "$kid" 2>/dev/null; do sleep 0.1; done\n' > "$T/standin/start.exe"
+printf '#!/bin/bash\nkid=\ntrap '"'"'[ -z "$kid" ] || kill -TERM "$kid" 2>/dev/null; exit 143'"'"' TERM\ntrap "" INT\n( setsid "$STUB_STANDIN" "$@" </dev/null & echo $! > "$STUB_KIDFILE" )\nsleep 0.3\nkid=$(cat "$STUB_KIDFILE")\n# a zombie is dead: the stand-in is an orphan, and under a PID 1 that never reaps (a CI container) it stays a zombie for ever, which `kill -0` still sees\nalive() { local s; s=$(cat "/proc/$kid/stat" 2>/dev/null) || return 1; s=${s##*) }; [ "${s:0:1}" != Z ]; }\nwhile alive; do sleep 0.1; done\n' > "$T/standin/start.exe"
 : > "$T/stk/wine-stack-x64.exe"; : > "$T/stk/wine-stack-x86.exe"
 chmod +x "$T/standin/fake.exe" "$T/standin/start.exe" "$T/stk/"*
 export STUB_STANDIN="$T/standin/fake.exe" STUB_START="$T/standin/start.exe" STUB_KIDFILE="$T/standin/kid"
