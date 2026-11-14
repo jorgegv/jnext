@@ -123,6 +123,9 @@ cmake -S "$SRC" -B "$WORK/build" \
     -DSDL_EXAMPLES=OFF
 cmake --build "$WORK/build" -j"$(nproc 2>/dev/null || echo 2)"
 cmake --install "$WORK/build"
+# The package ships SDL3's licence text (CMakeLists.txt jnext_install_licenses).
+mkdir -p "$PREFIX/share/licenses"
+cp "$SRC/LICENSE.txt" "$PREFIX/share/licenses/SDL3-LICENSE.txt"
 
 # Prove the prefix is usable rather than assuming the install worked: a
 # half-installed prefix would send the jnext configure back to the system SDL3

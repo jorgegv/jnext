@@ -80,6 +80,7 @@ imports() { "$OBJDUMP" -p "$1" 2>/dev/null | awk '/DLL Name:/{print tolower($3)}
 # enqueues its own imports, until the queue drains.
 declare -A SEEN
 QUEUE=()
+BUNDLED=()      # sysroot files copied into the bundle (their licences are shipped)
 UNRESOLVED=0   # set if any non-system, non-sysroot DLL import is left unsatisfied
 
 resolve_queue() {
@@ -103,6 +104,7 @@ resolve_queue() {
             continue
         fi
         cp -f "$f" "$DEST/"
+        BUNDLED+=("$f")
         local sub
         for sub in $(imports "$f"); do QUEUE+=("$sub"); done
     done
@@ -166,6 +168,7 @@ QT_PLUGIN_LIST="$QT_PLUGIN_LIST ${BUNDLE_EXTRA_QT_PLUGINS:-}"
     fi
     mkdir -p "$DEST/$(dirname "$rel")"
     cp -f "$src" "$DEST/$rel"
+    BUNDLED+=("$src")
     # a plugin may drag in extra libs (e.g. qjpeg -> libjpeg); resolve them too
     for sub in $(imports "$src"); do QUEUE+=("$sub"); done
 done
@@ -196,6 +199,36 @@ if [ "$UNRESOLVED" -ne 0 ]; then
     echo "error: bundle is incomplete (unresolved DLLs above) — not shipping it" >&2
     exit 1
 fi
+
+# --- licences ----------------------------------------------------------------
+# licenses/: jnext's third-party texts (packaging/licenses.list) and, per bundled
+# sysroot DLL, the licence files of the Fedora package that owns it
+# (licenses/bundled/<package>/). A package without licence files (Fedora's
+# mingw bzip2, win-iconv and zlib) uses packaging/windows/license-fallbacks/
+# <name>.txt; no fallback either = the bundle is refused. %doc files are never
+# used: the CI containers install none.
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+FALLBACKS=${LICENSE_FALLBACKS:-$ROOT/packaging/windows/license-fallbacks}
+rm -rf "$DEST/licenses"
+mkdir -p "$DEST/licenses/bundled"
+while IFS='|' read -r name src; do
+    case "$name" in ''|'#'*) continue ;; esac
+    cp -f "$ROOT/$src" "$DEST/licenses/$name" || { echo "error: licence missing: $src" >&2; exit 1; }
+done < "$ROOT/packaging/licenses.list"
+command -v rpm >/dev/null 2>&1 || { echo "error: rpm not found (needed to find the DLLs' licences)" >&2; exit 1; }
+for f in "${BUNDLED[@]}"; do
+    pkg=$(rpm -qf --qf '%{NAME}\n' "$f" | head -n1)
+    [ -n "$pkg" ] || { echo "error: no package owns $f" >&2; exit 1; }
+    out="$DEST/licenses/bundled/$pkg"
+    [ -d "$out" ] && continue
+    mkdir -p "$out"
+    rpm -qL "$pkg" | while read -r l; do if [ -f "$l" ]; then cp -f "$l" "$out/"; fi; done
+    if [ -z "$(ls -A "$out")" ]; then
+        fb="$FALLBACKS/${pkg#mingw??-}.txt"
+        if [ -f "$fb" ]; then cp -f "$fb" "$out/"; fi
+    fi
+    [ -n "$(ls -A "$out")" ] || { echo "error: no licence file for package $pkg ($f)" >&2; exit 1; }
+done
 
 # Count DLLs only — $DEST may be the build dir itself (in-place bundling), whose
 # total file count includes the whole CMake tree and would be meaningless here.

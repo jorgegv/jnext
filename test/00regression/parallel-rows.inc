@@ -39,7 +39,9 @@
 
 # Seconds a row may run before it is killed and FAILed. 10x the slowest row
 # (qt-keypress-burst-func, ~56 s on a quiet host): a bound for a hang, not a
-# performance budget.
+# performance budget. A row whose measured pass is slower than this carries a
+# `bound=<seconds>` tag in functional_tests.conf (ROW_BOUND_OF, set by
+# regression.sh), which replaces the default for that row only.
 ROW_BOUND=${JNEXT_REGRESSION_ROW_TIMEOUT:-600}
 ROW_RUNNER="$SCRIPT_DIR/row-runner.sh"
 ROW_RUNNING_PIDS=""
@@ -107,7 +109,7 @@ run_row_launch() {
     JNEXT_REGRESSION_ROW_TMP="$tdir" JNEXT_REGRESSION_ROW_RUN="$rdir" \
     JNEXT_REGRESSION_ROW_RESULT="$ROWS_OUT/$row.result" \
     JNEXT_REGRESSION_ROW_MASTER_STAMP="$SD_MASTER_STAMP" JNEXT_REGRESSION_ROW_CLONE_MODE="$mode" \
-        timeout --kill-after=5s "${ROW_BOUND}s" bash "$ROW_RUNNER" "$row" "$SCRIPTS_DIR/$row.sh" \
+        timeout --kill-after=5s "${ROW_BOUND_OF[$row]:-$ROW_BOUND}s" bash "$ROW_RUNNER" "$row" "$SCRIPTS_DIR/$row.sh" \
         < /dev/null > "$ROWS_OUT/$row.log" 2>&1 &
     REPLY=$!
     ROW_RUNNING_PIDS+=" $REPLY"
@@ -126,7 +128,7 @@ run_row_merge() {
     if [[ $rc -eq 124 || $rc -eq 137 ]]; then
         echo ""
         begin_func "$row"
-        fail_row " (row process outlived its ${ROW_BOUND} s bound and was killed, exit $rc)"
+        fail_row " (row process outlived its ${ROW_BOUND_OF[$row]:-$ROW_BOUND} s bound and was killed, exit $rc)"
         show_output "row output" "$(cat "$ROWS_OUT/$row.log")"
         rm -rf "${ROWS_TMP:?}/$row" "${ROWS_RUN:?}/$row"
         return 0

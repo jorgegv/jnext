@@ -6056,7 +6056,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // G112: NR 0x2C/0x2D/0x2E read handlers — Pi I2S input.
-    // VHDL zxnext.vhd:6006-6015:
+    // VHDL zxnext.vhd:6594-6603:
     //   NR 0x2C read → port_253b_dat <= pi_audio_L(9 downto 2);
     //                  nr_2d_i2s_sample <= pi_audio_L(1 downto 0);
     //   NR 0x2E read → port_253b_dat <= pi_audio_R(9 downto 2);
@@ -6075,9 +6075,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_destructive_read_handler(0x2C,
         [this]() -> uint8_t {
             // G113: read the GATED pi_audio_L (10-bit), not the raw I2s
-            // latch — VHDL zxnext.vhd:6007 reads `pi_audio_L`, which already
+            // latch — VHDL zxnext.vhd:6595 reads `pi_audio_L`, which already
             // applies the NR 0xA2 enable/mute/ear/cross-channel-mux gate at
-            // zxnext.vhd:2358. When NR 0xA2 disables I2S, pi_audio_L = 0x200
+            // zxnext.vhd:2674. When NR 0xA2 disables I2S, pi_audio_L = 0x200
             // (silence midpoint), so the high-8 bits = 0x80 and the latched
             // low-2 bits = 0b00.
             const uint16_t L = guest_pi_audio(true) & 0x3FF;
@@ -6102,15 +6102,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // G113 — NR 0xA2 Pi I2S control byte.
-    // VHDL zxnext.vhd:5564 stores the raw 8 bits in nr_a2_pi_i2s_ctl;
-    // zxnext.vhd:2283-2290 fans them out to pi_i2s_en[L/R], inout,
+    // VHDL zxnext.vhd:6127 stores the raw 8 bits in nr_a2_pi_i2s_ctl;
+    // zxnext.vhd:2593-2600 fans them out to pi_i2s_en[L/R], inout,
     // muteL/R, ear. The I2s class consumes those bits when computing
-    // pi_audio_L/R() per zxnext.vhd:2358-2359.
+    // pi_audio_L/R() per zxnext.vhd:2674-2675.
     nextreg_.set_write_handler(0xA2, [this](uint8_t v) -> uint8_t {
         with_pi_ear_tracking([&] { i2s_.set_nr_a2_ctl(v); });
         return v;
     });
-    // VHDL zxnext.vhd:6192:
+    // VHDL zxnext.vhd:6780:
     //   port_253b_dat <= nr_a2_pi_i2s_ctl(7 downto 6) & '0'
     //                    & nr_a2_pi_i2s_ctl(4 downto 2) & '1'
     //                    & nr_a2_pi_i2s_ctl(0);

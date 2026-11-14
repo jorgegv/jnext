@@ -32,7 +32,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | UART + I2C/RTC        |      104 |      104 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (POSIX-only rows) |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NextPi launcher + TCP link (all OSes) |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NextPi launcher + TCP link (all OSes) |      102 |      102 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      246 |      246 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket SIGPIPE (POSIX) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 AT command engine |      499 |      499 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -50,7 +50,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Warm start (GH #234)  |       94 |       94 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Warm start (GH #234)  |       86 |       86 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot SD identity (.jns, GH #27 S7) |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot/warm start: no whole-card read (GH #396) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -59,7 +59,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Compositor            |      252 |      252 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video             |      164 |      164 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ULA Video (int)       |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ULA Video (int)       |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Floating Bus          |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |      113 |      113 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      178 |      178 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -201,6 +201,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16235**| **16235**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16239**| **16239**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

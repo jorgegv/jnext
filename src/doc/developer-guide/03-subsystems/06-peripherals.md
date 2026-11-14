@@ -335,6 +335,19 @@ while jnext runs neither starts nor stops it. Three pieces:
   `'...'` and `"..."` literal, backslash ordinary, no expansion) goes after
   jnext's own arguments as argv entries: through the watchdog's `"$@"` on POSIX
   and a per-argument `quote_arg` on Windows, never a shell.
+  `PiQemu::build_args_with_chardev` attaches the sound card as
+  `usb-audio,...,port=1`, straight onto the raspi0's single dwc2 root port.
+  Without `port=`, QEMU inserts its own 8-port hub there, and the guest keeps a
+  transfer queued on the hub's interrupt endpoint, so QEMU's idle CPU at the
+  `SUP>` prompt is 6-8 times higher (measured on Linux; jnext's own work is the
+  same with or without the Pi). `PiQemu::extra_args_may_add_device` keeps the hub (no
+  `port=`) whenever the extras contain a `-device`, `--device`, `-usbdevice`,
+  `--usbdevice`, `-readconfig` or `--readconfig` argument, a trailing one with no
+  value included. It deliberately does not parse the value: QEMU's `-device`
+  grammar (`driver=` anywhere, JSON, escaped commas, USB names without the
+  `usb-` prefix such as `u2f-passthru`) is not worth reproducing, because a
+  wrong "yes" costs only CPU (today's behaviour) while a wrong "no" makes QEMU
+  refuse to start ("no free ports" in `qemu.log`) where it started before.
 * **`core/nextpi_provisioner.{h,cpp}`** makes the NextPi directory exist, on
   the SD provisioner's seams (`DownloadFn`, `ConfirmFn`, `ProgressFn`,
   `BusyFn`, so the same GUI dialogs and terminal prompts serve both): it asks,

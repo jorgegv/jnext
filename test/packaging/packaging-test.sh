@@ -135,6 +135,9 @@ contract complete-closure test/packaging/complete-closure-test.sh closure "copie
 # 0 with no executable in the artifact.
 contract package-recipe test/packaging/package-recipe-guard-test.sh pkgrecipe "every bundle-dlls.sh invocation aborts its recipe on failure"
 
+# --- licence texts in every package (hermetic: lists and recipes only) -------
+contract licenses test/packaging/licenses-test.sh licenses "every package recipe ships the third-party licence texts"
+
 # --- flatpak permission gate contract (GH #271) ------------------------------
 # verify-permissions.sh is what stops the shipped Flatpak losing --share=network
 # again. jnext downloads its SD-card image and runs the ESP-01 WiFi emulation

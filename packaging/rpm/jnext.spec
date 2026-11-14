@@ -61,6 +61,7 @@ appstream-util validate-relax --nonet %{buildroot}%{_datadir}/metainfo/io.github
 
 %files
 %license %{_docdir}/%{name}/LICENSE
+%license %{_docdir}/%{name}/licenses
 %doc %{_docdir}/%{name}/README.md
 %doc %{_docdir}/%{name}/ChangeLog
 %doc %{_docdir}/%{name}/USAGE.md
