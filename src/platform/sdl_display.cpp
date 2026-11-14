@@ -65,7 +65,7 @@ bool SdlDisplay::init(int native_w, int native_h, int display_h) {
     return true;
 }
 
-void SdlDisplay::upload_frame(const uint32_t* pixels, int w, int h) {
+void SdlDisplay::upload_frame(const uint32_t* pixels, int w, int /*h*/) {
     SDL_UpdateTexture(texture_, nullptr, pixels, w * sizeof(uint32_t));
     SDL_RenderClear(renderer_);
     SDL_RenderTexture(renderer_, texture_, nullptr, nullptr);
