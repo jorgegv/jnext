@@ -783,6 +783,45 @@ int main(int argc, char** argv) {
                   abs_ok && ctor_ok && assign_ok && c.path().empty(),
                   "path=" + want);
         }
+        {   // TZXC-111 (GH #418)
+            // Oracle: TZX v1.20, block 0x35 = 16-byte ID + 4-byte length + data, so a
+            // 0x35 with fewer than 20 bytes after its ID is truncated, not skippable.
+            // A .jns can restore fast_offset onto any byte of the file (restore_deck()
+            // checks only header <= offset <= size), here the 0x35 inside the payload of
+            // a valid 0x10 block, 15 bytes from the end of the file. The last 6 payload
+            // bytes read as a complete 0x10 block (data byte 0xAB), exactly 10 bytes
+            // past that 0x35: the old fall-through into the 0x5A skip would serve it.
+            Bytes body(20, 0x00);
+            body[4] = 0x35;
+            const Bytes fake = {0x10, 0x00, 0x00, 0x01, 0x00, 0xAB};
+            for (size_t i = 0; i < fake.size(); ++i) body[14 + i] = fake[i];
+            const std::string path = write_file("t111.tzx", concat({kHeader, b10(body)}));
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZX48K;
+            cfg.rewind_buffer_frames = 0;
+            TzxLoader t;
+            std::string why;
+            bool restored = false;
+            if (emu->init(cfg) && t.load(path)) {
+                t.start_playback(0);
+                TzxLoader::DeckState d = t.deck_state(0);
+                d.fast_offset = 10 + 1 + 4 + 4;                 // the 0x35 byte
+                restored = t.restore_deck(d, 0, why);
+            }
+            bool served = true;
+            if (restored) {
+                Z80Registers r = emu->cpu().get_registers();
+                r.AF2 = 0xFF01; r.IX = 0x8100; r.DE = 1; r.SP = 0x9000;
+                emu->mmu().write(0x9000, 0x34);
+                emu->mmu().write(0x9001, 0x12);
+                emu->cpu().set_registers(r);
+                served = t.handle_ld_bytes_trap(*emu);
+            }
+            check("TZXC-111", "fast-load at a 0x35 with fewer than 20 bytes after it serves no block (it stops) "
+                  "instead of falling into the 0x5A skip and serving the bytes 10 on",
+                  restored && !served, why);
+        }
     }
 
 

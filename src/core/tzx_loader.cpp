@@ -653,14 +653,12 @@ const uint8_t* TzxLoader::next_data_block(int& out_len) {
                 case 0x28: if (remaining >= 2) body_size = 2 + read_u16(b); break;
                 case 0x31: if (remaining >= 2) body_size = 2 + b[1]; break;
                 case 0x33: if (remaining >= 1) body_size = 1 + b[0] * 3; break;
-                case 0x35: if (remaining >= 20) {
-                    body_size = 20 + static_cast<int>(
-                        static_cast<uint32_t>(b[16]) |
-                        (static_cast<uint32_t>(b[17]) << 8) |
-                        (static_cast<uint32_t>(b[18]) << 16) |
-                        (static_cast<uint32_t>(b[19]) << 24));
-                    break;
-                }
+                case 0x35: if (remaining >= 20) body_size = 20 + static_cast<int>(
+                               static_cast<uint32_t>(b[16]) |
+                               (static_cast<uint32_t>(b[17]) << 8) |
+                               (static_cast<uint32_t>(b[18]) << 16) |
+                               (static_cast<uint32_t>(b[19]) << 24));
+                           break;
                 case 0x5A: body_size = 9; break;
                 default:   // $16-$18, $26, $27, $34, $40 and unknown IDs
                     body_size = spec_skip_body(id, b, static_cast<size_t>(remaining));
