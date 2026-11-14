@@ -327,6 +327,26 @@ void csf_10() {
           describe(f) + " space=" + std::to_string(f.size() > 1 ? int(f[1].caller_space.kind) : -1));
 }
 
+void csf_11() {
+    // Z80Cpu::last_m1_byte(): the bytes the last execute() fetched, 0xFF past them. A NOP fetches its
+    // opcode alone; an accepted INT fetches no opcode (t80na.vhd:278-279), so nothing is in the buffer.
+    Rig r;
+    r.poke(0xC000, {0x00, 0x00});
+    r.start(0xC000);
+    r.step();
+    const uint8_t nop0 = r.emu->cpu().last_m1_byte(0), nop1 = r.emu->cpu().last_m1_byte(1);
+    Z80Registers g = r.emu->cpu().get_registers();
+    g.IFF1 = g.IFF2 = 1;
+    g.IM = 1;
+    r.emu->cpu().set_registers(g);
+    r.emu->cpu().request_interrupt(0xFF);
+    r.step();
+    const uint8_t int0 = r.emu->cpu().last_m1_byte(0);
+    check("CSF-11", "last_m1_byte: the opcode of a NOP at index 0 and 0xFF at index 1; 0xFF at index 0 after an accepted INT",
+          nop0 == 0x00 && nop1 == 0xFF && int0 == 0xFF,
+          "nop0=" + std::to_string(nop0) + " nop1=" + std::to_string(nop1) + " int0=" + std::to_string(int0));
+}
+
 }  // namespace
 
 int main() {
@@ -336,6 +356,7 @@ int main() {
     csf_08();
     csf_09();
     csf_10();
+    csf_11();
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
