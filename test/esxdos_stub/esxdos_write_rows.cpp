@@ -968,6 +968,19 @@ void run_esxdos_write_rows(int& passed, int& failed)
                "F_FTRUNCATE through a write handle keeps a valid 'clear' while the handle is open (F_FSTAT "
                "00) and closing it sets the bit, as a write does (design; [arch] S044F..S0452 around it)",
                e_ft == H::kOk && e_open == 0 && f.attr_of("e.txt") == H::kAttrArchive);
+        // p2: our own unlink and create again, then one byte written, read through the open handle
+        f.file("g.txt", "gg");
+        f.hfs.chmod("g.txt", H::kChmodWrite, H::kChmodWrite);
+        f.hfs.unlink("g.txt");
+        uint8_t hp2 = 0;
+        f.hfs.open("g.txt", H::kModeWrite | H::kModeOpenCreat, hp2);
+        f.hfs.write(hp2, &one, 1, wr);
+        const uint8_t g_attr = fstat_attr(hp2);
+        f.hfs.close(hp2);
+        wcheck("HFW-179",
+               "a file we unlinked and created again is archive-set also after a byte is written through the "
+               "new handle: nothing of the old entry is re-adopted (design; HFW-173 with the write)",
+               g_attr == H::kAttrArchive && f.attr_of("g.txt") == H::kAttrArchive);
     }
 
     // ══ 8.3 aliases stay put; host-only aliases are refused ([alias]) ═══════
