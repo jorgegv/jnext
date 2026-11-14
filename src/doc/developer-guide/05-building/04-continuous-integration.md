@@ -232,13 +232,21 @@ is still possible — it means restoring `continue-on-error` on that one job in
 that one commit, which makes it an explicit and visible decision each time
 rather than a standing one.
 
+The `rpm`, `deb` and `windows` jobs also run `make regression-package` on each
+package they build (the Windows job once per zip), right after the package step
+and before the upload, so the file that is published is the file that was
+tested and a red run withholds the release. The jobs install what that needs
+beyond the build: ImageMagick, python3 and ripgrep (plus `cpio` on Fedora), and
+in the Windows job the native toolchain that builds the SDL unit-test tree.
+See [testing the packages](03-packaging-and-release.md#testing-the-packages).
+
 ## The regression suite on other operating systems
 
 Two more blocking jobs run a portable subset of the regression suite, with the
 same plain make targets a developer types. The **`regression-win`** leg of the
 `test` job installs the MinGW cross toolchain (including `mingw64-qt6-qtbase` and `mingw64-qt6-qtsvg`)
 and wine and runs `make regression-win`: the screenshots and the functional rows
-Windows can run, against the Release + LTO Qt exe and the SDL-only exe under
+Windows can run, against the PGO Qt exe that `package-win` zips and the SDL-only exe under
 wine. **`macos-regression`** runs `make regression-macos` on `macos-latest` with
 Homebrew's `qt@6`, `ffmpeg`, `imagemagick`, `mtools`, `dosfstools` added to the unit job's list. Rows an OS cannot run are declared
 by `os=` tags and printed as absent, never skipped.
