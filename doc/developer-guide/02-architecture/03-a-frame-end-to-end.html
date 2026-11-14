@@ -3165,7 +3165,7 @@ single-step once kept its own copy of this cluster, silently lost the IM2 tick
 and both /INT polls, and so delivered no interrupts at all while you were
 stepping.</p>
 <p><strong>Then a data-breakpoint check</strong>, which returns early if one fired.</p>
-<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:11596</code>), the
+<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:11611</code>), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -3206,7 +3206,7 @@ the interrupt-status NextREGs, the tape EAR bit — first brings them up to the
 edge its bus cycle latches or commits on (<code>Emulator::sync_io_devices_to()</code>),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.</p>
-<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:13583</code>) renders nothing at all. What it does is
+<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:13598</code>) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 <code>snapshot_row_render_state()</code> — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

@@ -190,6 +190,7 @@ BEGIN {
     M["halt_batch_equiv_test"]         = "Cycle batching equivalence (fixtures)"
     M["halt_batch_periph_test"]        = "Cycle batching equivalence (peripherals)"
     M["halt_batch_observer_test"]      = "Cycle batching equivalence (ESP and debugger client)"
+    M["call_stack_fetch_test"]         = "Call-stack tracker fetch feed"
     M["halt_batch_boot_test"]          = "Cycle batching equivalence (cold boot)"
     M["halt_batch_corpus_1_test"]      = "Cycle batching equivalence (NEX corpus 1/8)"
     M["halt_batch_corpus_2_test"]      = "Cycle batching equivalence (NEX corpus 2/8)"
