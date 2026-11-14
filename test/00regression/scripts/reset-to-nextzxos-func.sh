@@ -18,7 +18,7 @@ if want reset-to-nextzxos-func; then
     rm -f "$rst_png"
     # boot-timeline frames (bf): the reset after the first boot's commit, and the capture and
     # exit after the SECOND boot, which runs the firmware again (K=2)
-    rst_reset=$(bf 450); rst_shot=$(bf 900 2); rst_exit=$(bf 920 2)
+    rst_reset=$(bf 627); rst_shot=$(bf 1254 2); rst_exit=$(bf 1274 2)
     JNEXT_DELAYED_RESET_FRAMES=$rst_reset JNEXT_DELAYED_RESET_TYPE=hard \
     timeout --foreground --kill-after=5s 150s "$JNEXT" --headless --machine next \
         "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \

@@ -43,7 +43,7 @@ if want delayed-nmi-func; then
     nmi_bin="$SCRIPT_DIR/bin/nmi_enable.bin"
     # boot-timeline frames (bf): the inject, the press and the exit of the three NMI runs
     # (the frame-10 and frame-20 runs of the refusal checks below are not boot frames)
-    nmi_inject=$(bf 450); nmi_press=$(bf 500); nmi_exit=$(bf 540)
+    nmi_inject=$(bf 627); nmi_press=$(bf 677); nmi_exit=$(bf 717)
     common=(--headless --machine next "${SD_CARD_ARGS[@]}"
             --rtc 2026-07-10T08:55:00
             --delayed-automatic-exit-frames "$nmi_exit" --log-level warn)

@@ -111,8 +111,8 @@ PY
         # no disk images; mounting one costs NextZXOS extra frames before the
         # welcome appears, which is why this row waits longer.)
         # boot-timeline frames (bf)
-        da_shot=$(bf 600); da_exit=$(bf 620)
-        bf_keys 500 space
+        da_shot=$(bf 777); da_exit=$(bf 797)
+        bf_keys 677 space
         JNEXT_CONFIG_DIR="$cfg" timeout --foreground --kill-after=5s 180s \
             "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
                      "${BF_KEYS[@]}" \

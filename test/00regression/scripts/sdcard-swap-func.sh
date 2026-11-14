@@ -75,17 +75,17 @@ if want sdcard-swap-func; then
     # Every frame here is a boot-timeline frame (bf).
     keys=()
     kadd() { local v; v=$(bf "$1") || exit 2; keys+=(--delayed-keypress-frames "$v" "$2"); }
-    kadd 400 space; kadd 470 down; kadd 500 enter
-    f=560
+    kadd 577 space; kadd 647 down; kadd 677 enter
+    f=737
     for k in r e m o u n t enter; do
         kadd "$f" "$k"; f=$((f + 15))
     done
-    kadd 760 y
-    f=1100
+    kadd 937 y
+    f=1277
     for k in . n e x l o a d space m a g i c . n e x enter; do
         kadd "$f" "$k"; f=$((f + 15))
     done
-    sw_insert=$(bf 720); sw_exit=$(bf 1500)
+    sw_insert=$(bf 897); sw_exit=$(bf 1677)
 
     remount_run() {   # remount_run <name> [extra args...]
         local name=$1 rc=0; shift

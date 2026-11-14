@@ -70,8 +70,8 @@ if want sdcard-file-add-tree-func; then
     add_tree() {    # add_tree <name> <host tree> — via the feature under test
         local rc=0
         # boot-timeline frames (bf)
-        bt_shot=$(bf 950); bt_exit=$(bf 970)
-        bf_keys 400 space 470 down 500 enter 560 . 575 l 590 s 605 space 620 g 635 h 650 2 665 9 680 2 695 sym+v 710 s 725 u 740 b 760 enter
+        bt_shot=$(bf 1127); bt_exit=$(bf 1147)
+        bf_keys 577 space 647 down 677 enter 737 . 752 l 767 s 782 space 797 g 812 h 827 2 842 9 857 2 872 sym+v 887 s 902 u 917 b 937 enter
         JNEXT_CONFIG_DIR="$BASE/$1" timeout --foreground --kill-after=5s 120s \
             "$JNEXT" --sdcard-file-add "$2" --sdcard-file-dest /GH292 \
             > "$W/add-$1.log" 2>&1 || rc=$?

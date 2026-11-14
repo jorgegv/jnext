@@ -3596,13 +3596,13 @@ if command -v magick &>/dev/null; then seam_im=(magick); else seam_im=(convert);
 "${seam_im[@]}" -size 4x4 xc:red "$T/shot-a.png" 2>/dev/null; "${seam_im[@]}" -size 4x4 xc:blue "$T/shot-b.png" 2>/dev/null
 cat > "$T/seam-jnext" <<FAKE
 #!/bin/sh
-# the boot-ready probe (boot-commit-probe.jds): answer with FAKE_COMMIT (default 295), or with nothing
+# the boot-ready probe (boot-commit-probe.jds): answer with FAKE_COMMIT (default 472), or with nothing
 case " \$* " in *boot-commit-probe*)
     # FAKE_BY_CARD: answer by the card the probe was started on (the seam card holds STAYS), as a real boot does
     if [ -n "\$FAKE_BY_CARD" ]; then
-        if [ "\$(cat "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null)" = STAYS ]; then FAKE_COMMIT=472; else FAKE_COMMIT=295; fi
+        if [ "\$(cat "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null)" = STAYS ]; then FAKE_COMMIT=649; else FAKE_COMMIT=472; fi
     fi
-    [ -n "\$FAKE_PROBE_NONE" ] || echo "[jds F:\$FAKE_COMMIT C:1] BOOT-COMMIT FRAME=\${FAKE_COMMIT:-295} NR03=B3 [client 2]"
+    [ -n "\$FAKE_PROBE_NONE" ] || echo "[jds F:\$FAKE_COMMIT C:1] BOOT-COMMIT FRAME=\${FAKE_COMMIT:-472} NR03=B3 [client 2]"
     exit 0 ;;
 esac
 echo "\$*" >> "$T/seam-argv.log"
@@ -3772,24 +3772,24 @@ argv_of() {   # argv_of <name> -- the recorded jnext argv of the screenshot row 
     grep -- "$1.png" "$T/seam-argv.log" | sed "s|[^ ]*$1.png|PNG|" | head -1
 }
 : > "$T/seam-argv.log"
-out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=472 -- shot-bf); rc=$?
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- shot-bf); rc=$?
 out+=" argv=$(argv_of shot-bf)"
-check "HS-172a" "@bf:400 in a screenshot row's frame field and in its --delayed-keypress-frames argument is expanded with the measured shift (commit 472, reference 295: 400 -> 577)" 0 $rc "$out" \
+check "HS-172a" "@bf:400 in a screenshot row's frame field and in its --delayed-keypress-frames argument is expanded with the measured shift (commit 649, reference 472: 400 -> 577)" 0 $rc "$out" \
     "--delayed-screenshot-frames 577" "--delayed-keypress-frames 577 space"
 : > "$T/seam-argv.log"
-out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=295 -- shot-bf shot-lit); rc=$?
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=472 -- shot-bf shot-lit); rc=$?
 a_bf=$(argv_of shot-bf); a_lit=$(argv_of shot-lit)
 out+=" same=$([[ -n "$a_bf" && "$a_bf" == "$a_lit" ]] && echo yes || echo no) argv=$a_bf"
 check "HS-172b" "with shift 0 (commit = the reference) the expanded row's argv is byte-identical to the literal row's" 0 $rc "$out" \
     "same=yes" "--delayed-screenshot-frames 400"
-out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=472 -- bf-probe-func); rc=$?
-check "HS-172c" "bf N K adds K shifts: bf 450 2 with commit 472 (shift 177) is 804" 0 $rc "$out" "bf=804"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- bf-probe-func); rc=$?
+check "HS-172c" "bf N K adds K shifts: bf 450 2 with commit 649 (shift 177) is 804" 0 $rc "$out" "bf=804"
 out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_PROBE_NONE=1 -- bf-probe-func); rc=$?
 check "HS-172d" "an unmeasurable shift (no BOOT-COMMIT line) is a harness fault (exit 2) for a row that needs it, never a literal pass-through" 2 $rc "$out" \
     "never committed a machine type within 1500 frames"
 printf '# expect: 4\nshot-x 48k BOOT 5\nshot-bf 48k BOOT @bf:400 --delayed-keypress-frames @bf:400 space\nshot-lit 48k BOOT 400 --delayed-keypress-frames 400 space\nshot-bad 48k BOOT @bf:4x0\n' > "$SQT/regression_tests.conf"
 cp "$T/shot-a.png" "$SQT/img/shot-bad-reference.png"
-out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=472 -- shot-bad); rc=$?
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- shot-bad); rc=$?
 check "HS-172d2" "a malformed @bf:4x0 in a screenshot row is a harness fault (exit 2) naming it" 2 $rc "$out" \
     "not non-negative integers"
 printf '# expect: 3\nshot-x 48k BOOT 5\nshot-bf 48k BOOT @bf:400 --delayed-keypress-frames @bf:400 space\nshot-lit 48k BOOT 400 --delayed-keypress-frames 400 space\n' > "$SQT/regression_tests.conf"
@@ -3808,32 +3808,32 @@ def_run() {   # def_run <VAR=value ...> -- <regression.sh args...>: a pristine d
       JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 JNEXT_TEST_JOBS=1 "${envs[@]}" \
       timeout --kill-after=5s 120s bash "$SQT/regression.sh" "$@" 2>&1 )
 }
-out=$(def_run FAKE_COMMIT=296 -- ok-func); rc=$?
-check "HS-172e" "on the DEFAULT master a commit at frame 296 FAILS sdcard-provision, naming 296 and the pinned 295" 1 $rc "$out" \
-    "commits the machine type at frame 296" "must commit at frame 295"
-out=$(def_run FAKE_COMMIT=295 -- ok-func); rc=$?
+out=$(def_run FAKE_COMMIT=473 -- ok-func); rc=$?
+check "HS-172e" "on the DEFAULT master a commit at frame 473 FAILS sdcard-provision, naming 473 and the pinned 472" 1 $rc "$out" \
+    "commits the machine type at frame 473" "must commit at frame 472"
+out=$(def_run FAKE_COMMIT=472 -- ok-func); rc=$?
 check "HS-172e2" "the control: a commit at the pinned frame passes sdcard-provision on the default master and the row reports the shift" 0 $rc "$out" \
-    "commits the machine type at frame 295 (reference 295): boot-relative frames shift by 0"
+    "commits the machine type at frame 472 (reference 472): boot-relative frames shift by 0"
 out=$(def_run FAKE_PROBE_NONE=1 -- ok-func); rc=$?
 check "HS-172f" "a probe with no BOOT-COMMIT line FAILS sdcard-provision: the firmware never committed within 1500 frames" 1 $rc "$out" \
     "the firmware never committed a machine type within 1500 frames"
-out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=472 -- bfjds-func); rc=$?
-out2=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=472 -- bfjds-bad-func); rc2=$?
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- bfjds-func); rc=$?
+out2=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- bfjds-bad-func); rc2=$?
 check "HS-172g" "bf_jds expands {{bf 470}} (-> 647) and {{bf 100 2}} (-> 454), and refuses an output that still holds a {{ placeholder" 0 $rc "$out" \
     "jds=on frame 647 then 454"
 check "HS-172g2" "...and a template with an unknown placeholder is a harness fault naming it" 2 $rc2 "$out2" \
     "an unexpanded placeholder is left"
-out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=472 -- bfkeys-func); rc=$?
-check "HS-172h" "bf_keys builds the --delayed-keypress-frames arguments with every frame shifted (commit 472: 400 -> 577, 470 -> 647)" 0 $rc "$out" \
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- bfkeys-func); rc=$?
+check "HS-172h" "bf_keys builds the --delayed-keypress-frames arguments with every frame shifted (commit 649: 400 -> 577, 470 -> 647)" 0 $rc "$out" \
     "keys=--delayed-keypress-frames 577 space --delayed-keypress-frames 647 down"
-out=$(BOOT_COMMIT_MEASURED=295 seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_PROBE_NONE=1 -- bf-probe-func); rc=$?
+out=$(BOOT_COMMIT_MEASURED=472 seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_PROBE_NONE=1 -- bf-probe-func); rc=$?
 check "HS-172i" "a boot anchor inherited from an enclosing run (BOOT_COMMIT_MEASURED in the environment) never hides an unmeasurable boot: the driver drops it and the row is still a harness fault" 2 $rc "$out" \
     "never committed a machine type within 1500 frames"
 out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_BY_CARD=1 -- ok-func); rc=$?
-check "HS-172j" "the probe boots the RUN's card: a candidate (seam) run reports the candidate's commit (472, shift 177), not the default master's (295)" 0 $rc "$out" \
-    "commits the machine type at frame 472 (reference 295): boot-relative frames shift by 177"
+check "HS-172j" "the probe boots the RUN's card: a candidate (seam) run reports the candidate's commit (649, shift 177), not the default master's (472)" 0 $rc "$out" \
+    "commits the machine type at frame 649 (reference 472): boot-relative frames shift by 177"
 out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=100 -- bfneg-func); rc=$?
-check "HS-172k" "a frame that the shift would make negative (commit 100, shift -195, bf 150) is a harness fault naming it, never a negative or wrapped frame" 2 $rc "$out" \
+check "HS-172k" "a frame that the shift would make negative (commit 100, shift -372, bf 150) is a harness fault naming it, never a negative or wrapped frame" 2 $rc "$out" \
     "gives a negative frame"
 
 # HS-173: menu_index (test-functions.inc) finds a row's `default=` in the card's own menu file, counting

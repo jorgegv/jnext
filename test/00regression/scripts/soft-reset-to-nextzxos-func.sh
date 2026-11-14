@@ -22,7 +22,7 @@ if want soft-reset-to-nextzxos-func; then
     srst_png="$TMP_DIR/jnext_test_soft_reset_nextzxos.png"
     rm -f "$srst_png"
     # boot-timeline frames (bf); a soft reset does not run the firmware again (K=1)
-    srst_key=$(bf 450); srst_reset=$(bf 700); srst_shot=$(bf 1200); srst_exit=$(bf 1220)
+    srst_key=$(bf 627); srst_reset=$(bf 877); srst_shot=$(bf 1377); srst_exit=$(bf 1397)
     JNEXT_DELAYED_RESET_FRAMES=$srst_reset JNEXT_DELAYED_RESET_TYPE=f4 \
     timeout --foreground --kill-after=5s 150s "$JNEXT" --headless --machine next \
         "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \

@@ -17,7 +17,7 @@ if want tape-save-boot-func; then
     ts_tap="$TMP_DIR/jnext_test_tapesave_boot.tap"
     ts_png="$TMP_DIR/jnext_test_tapesave_boot.png"
     rm -f "$ts_tap" "$ts_png"
-    ts_shot=$(bf 400); ts_exit=$(bf 420)   # boot-timeline frames (bf)
+    ts_shot=$(bf 577); ts_exit=$(bf 597)   # boot-timeline frames (bf)
     ts_out=$(timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
         "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \
         --tape-save "$ts_tap" \

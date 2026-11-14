@@ -131,7 +131,7 @@ PY
         # Frame-based throughout, so the capture points do not move with host
         # speed. The tape is loaded and BASIC is back at its prompt well
         # before frame 1400.
-        bf_keys 400 space 470 enter 540 enter 620 4   # boot-timeline key frames (bf)
+        bf_keys 577 space 647 enter 717 enter 797 4   # boot-timeline key frames (bf)
         JNEXT_CONFIG_DIR="$cfg" timeout --foreground --kill-after=5s 300s \
             "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
                      --magic-port 0x0055 --magic-port-mode dec \
@@ -146,7 +146,7 @@ PY
     tokens() { grep -cx 199 "$W/boot-$1.log" || true; }
 
     if [[ ${#faults[@]} -eq 0 ]]; then
-        tb_1400=$(bf 1400); tb_1450=$(bf 1450); tb_1500=$(bf 1500); tb_1600=$(bf 1600)   # boot-timeline frames (bf)
+        tb_1400=$(bf 1577); tb_1450=$(bf 1627); tb_1500=$(bf 1677); tb_1600=$(bf 1777)   # boot-timeline frames (bf)
         boot_tap auto    "$W/auto.tap"   /0GH282A.TAP \
                  --delayed-automatic-exit-frames "$tb_1400"
         boot_tap noautoA "$W/noauto.tap" /0GH282N.TAP \

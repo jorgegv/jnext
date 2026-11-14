@@ -289,8 +289,8 @@ sd_expected_recipe() {
 #   bf N [K]             N + K * (measured - BOOT_REF_COMMIT). K = 2 for a frame after a hard reset
 #                        that runs the firmware again. With the reference card the shift is 0 and
 #                        every adopted row's command line is byte-identical to the literal one.
-BOOT_REF_COMMIT=295
-BOOT_DEFAULT_COMMIT=295
+BOOT_REF_COMMIT=472
+BOOT_DEFAULT_COMMIT=472
 
 # boot_commit_measure: run the probe on this run's card clone; print the commit frame, or fail.
 boot_commit_measure() {

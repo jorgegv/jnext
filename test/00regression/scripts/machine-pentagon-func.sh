@@ -75,12 +75,12 @@ JDS
 on nextreg 0x03 do
     log "NRW 03 = \${VALUE:x2}"
 end
-on frame {{bf 600}} once do
+on frame {{bf 777}} once do
     $state_line
 end
 JDS
         bf_jds "$jds_fw.in" "$jds_fw"
-        pen_exit=$(bf 610)
+        pen_exit=$(bf 787)
         if ! "$sdfile" get "$sd_image" machines/next/config.ini "$cfg_in" >"$io_log" 2>&1; then
             fail_row " (could not read config.ini from the SD clone: $(tr -d '\n' <"$io_log"))"
             verdict=settled

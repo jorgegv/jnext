@@ -90,8 +90,8 @@ if want soft-reset-shadow-screen-func; then
 
     if [[ -z "$verdict" ]]; then
         # boot-timeline frames (bf); the soft reset does not run the firmware again (K=1)
-        shsc_reset=$(bf 1300); shsc_shot=$(bf 1800); shsc_exit=$(bf 1820)
-        bf_keys 400 space 500 enter 730 down 745 down 760 enter 790 down 805 down 820 down 835 enter
+        shsc_reset=$(bf 1477); shsc_shot=$(bf 1977); shsc_exit=$(bf 1997)
+        bf_keys 577 space 677 enter 907 down 922 down 937 enter 967 down 982 down 997 down 1012 enter
         JNEXT_DELAYED_RESET_FRAMES=$shsc_reset JNEXT_DELAYED_RESET_TYPE=f4 \
         timeout --foreground --kill-after=5s 300s "$JNEXT" --headless --machine next \
             "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \

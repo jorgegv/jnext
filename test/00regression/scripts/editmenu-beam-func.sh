@@ -64,9 +64,9 @@ if want editmenu-beam-func; then
     # First/last frame whose paper area is checked; the script captures from
     # EMB_LO-3 so each checked frame has its start-of-frame VRAM dump.
     # (boot-timeline frames: bf)
-    emb_lo=$(bf 641)
-    emb_hi=$(bf 646)
-    emb_k1=$(bf 400); emb_k2=$(bf 470); emb_k3=$(bf 490); emb_k4=$(bf 510); emb_k5=$(bf 640)
+    emb_lo=$(bf 818)
+    emb_hi=$(bf 823)
+    emb_k1=$(bf 577); emb_k2=$(bf 647); emb_k3=$(bf 667); emb_k4=$(bf 687); emb_k5=$(bf 817)
     {
         echo "on frame $emb_k1 do press \"space\" for 3 end"
         echo "on frame $emb_k2 do press \"down\" for 3 end"

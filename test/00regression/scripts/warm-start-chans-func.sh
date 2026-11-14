@@ -318,8 +318,8 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
         || wc_faults+=("F: the load went on with a recorded NextZXOS machine instead of falling back")
 
     wc_keys=()
-    wc_press wc_keys 400 space; wc_press wc_keys 470 down; wc_press wc_keys 500 enter
-    wc_f=600; wc_cmd=".nexload probe.nex"
+    wc_press wc_keys 577 space; wc_press wc_keys 647 down; wc_press wc_keys 677 enter
+    wc_f=777; wc_cmd=".nexload probe.nex"
     for (( i = 0; i < ${#wc_cmd}; i++ )); do
         wc_ch=${wc_cmd:i:1}; [[ "$wc_ch" == " " ]] && wc_ch=space
         wc_press wc_keys "$wc_f" "$wc_ch"; wc_f=$((wc_f + 15))
@@ -343,7 +343,7 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
 
     # ---- C. NextZXOS's own welcome disabled ----------------------------------
     wc_card c
-    wc_c_key=$(bf 400); wc_c_exit=$(bf 600)   # boot-timeline frames (bf)
+    wc_c_key=$(bf 577); wc_c_exit=$(bf 777)   # boot-timeline frames (bf)
     JNEXT_CONFIG_DIR="$wc_w/c" timeout --foreground --kill-after=5s 120s "$JNEXT" \
         --headless --machine next --rtc "$NEXTZXOS_RTC" \
         --sdcard "$wc_w/c/sdcard/cspect-next-1gb-fixed.img" \

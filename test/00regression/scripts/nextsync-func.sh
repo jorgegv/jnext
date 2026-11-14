@@ -186,7 +186,7 @@ if want nextsync-func; then
         # 4000 frames = 80 s of emulated time for a ~20 KB transfer measured at
         # ~1.5 s emulated, so the budget is ~50x the work.
         # boot-timeline key frames (bf)
-        bf_keys 400 space 470 down 500 enter 560 . 575 s 590 y 605 n 620 c 635 enter
+        bf_keys 577 space 647 down 677 enter 737 . 752 s 767 y 782 n 797 c 812 enter
         timeout --foreground --kill-after=5s 300s "$JNEXT" --headless --machine next \
             "${SD_CARD_ARGS[@]}" \
             --esp --esp-allow "$peer_ip" \

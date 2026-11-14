@@ -62,12 +62,12 @@ JDS
 on nextreg 0x03 do
     log "NRW 03 = \${VALUE:x2}"
 end
-on frame {{bf 700}} once do
+on frame {{bf 877}} once do
     $state_line
 end
 JDS
         bf_jds "$jds_fw.in" "$jds_fw"
-        mpe_exit=$(bf 710)
+        mpe_exit=$(bf 887)
     fi
 
     field() {   # $1 = log, $2 = key: the value of `key=` on its STATE line, upper-cased
