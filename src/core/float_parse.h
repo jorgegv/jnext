@@ -5,9 +5,10 @@
 // (Xcode 16.4 on macos-15: `call to deleted function 'from_chars'`), and
 // strtod/stod/stof follow LC_NUMERIC, which a Qt app sets from the host
 // (setlocale(LC_ALL, "")): a comma-decimal host would read "1.5" as 1. So:
-//   - parse_double_chars: std::from_chars, compiled only where the library has
-//     the floating overload (__cpp_lib_to_chars; libstdc++ and new libc++ define
-//     it, an old libc++ does not);
+//   - parse_double_chars: std::from_chars, compiled only where the library
+//     defines __cpp_lib_to_chars. libstdc++ does (Linux, MinGW); libc++ never
+//     does, whatever its version, so every Apple build, arm64 included, takes the
+//     stream arm;
 //   - parse_double_stream: an istringstream imbued with the classic locale,
 //     compiled everywhere, so both arms are testable on one host;
 //   - parse_double: the first when it exists, else the second.

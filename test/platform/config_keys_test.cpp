@@ -437,8 +437,9 @@ int main() {
     }
 
     // SETK-21 .. SETK-23: the locale-independent text -> double behind the Float type
-    // (src/core/float_parse.h). Libc++ before LLVM 20 has no floating std::from_chars, so the
-    // header has two arms; the stream arm is compiled everywhere, so both are tested here.
+    // (src/core/float_parse.h). The header has two arms: std::from_chars, compiled only on libstdc++
+    // (Linux, MinGW), and a classic-locale stream, used on libc++ (every Apple build) and compiled
+    // everywhere, so both arms are tested here.
     using ParseFn = bool (*)(const char*, const char*, double&);
     struct Case { const char* text; bool ok; double value; };
     static const Case CASES[] = {
