@@ -4447,10 +4447,30 @@ Game controllers are page-wide: give the other players
 <ul>
 <li>Flags and <code>--set</code> keys that need a process, a socket or a terminal are refused with
   a message; the list is in the man page ("Not available in the browser").</li>
-<li>Only <code>.nex</code>, <code>.tap</code> and <code>.tzx</code> programs load. <code>--headless</code> and RZX are refused.</li>
-<li>Writes the guest makes to the SD card are not kept: the card lives in memory for the
-  session. Files JNEXT writes (screenshots, snapshots) live in memory too.</li>
+<li>Programs load as <code>.nex</code>, <code>.tap</code>, <code>.tzx</code> or <code>.wav</code> (a tape, in real time), recordings as <code>.rzx</code>, snapshots as <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code>. <code>--headless</code> and <code>--rzx-record</code> are refused (a page records with <code>startRzxRecording()</code> and <code>stopRzxRecording()</code>).
+  A WAV is large and stays in the page's memory for the session; give the <code>.tap</code> or <code>.tzx</code> of a game when there is one.</li>
+<li>Writes the guest makes to the SD card are kept across reloads only when the page asks
+  with <code>keepWrites</code> (10.4); without it the card lives in memory for the session. Files JNEXT
+  writes (screenshots, snapshots) live in memory in either case; <code>saveSnapshot()</code> hands a snapshot
+  to the page.</li>
+<li><code>keepWrites</code> keeps what reaches the card (a program started from the NextZXOS menu, or one
+  that drives the card itself, writes there) and the file a NEX loaded with <code>file</code> saves
+  through esxDOS. Such a NEX is not started by NextZXOS, so JNEXT's own stand-in answers its
+  esxDOS file calls (<code>RST $08</code>); it keeps ONE file, which is stored when the program closes
+  it and is there at the next visit (the man page, "esxDOS calls from a directly loaded
+  NEX"). A program that saves two files keeps only the last one written. The file belongs to
+  the page's card and the file name, not to the program: a changed NEX on the same page reads
+  the old save, as on a real Next. A save made this way does not make the next visit record
+  the machine again. Files such a page writes to a host directory it names with
+  <code>--esxdos-stub-root</code> live in memory only.</li>
+<li>With <code>keepWrites</code>, one image on one page has one set of saves: two <code>keepWrites</code> players of
+  the same image on the same page share it, and the last one to store wins. After the program
+  has saved, the next visit starts NextZXOS again and records the machine once more (the
+  card is no longer the one the recording was made on), which takes as long as a first visit's
+  <code>warm-start</code> step; a visit that follows one that saved nothing is restored as usual.</li>
 <li>Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q and the operating system's own keys never reach the page.</li>
+<li>The on-screen keyboard (10.2) is tested under a browser's touch-device emulation, not on real
+  phones or tablets, and the emulation speed on a phone has not been measured.</li>
 </ul>
 <h2 id="how-fast-it-runs">How fast it runs<a class="headerlink" href="#how-fast-it-runs" title="Permanent link">&para;</a></h2>
 <p>Measured on one 2026 laptop (a Ryzen AI 5 340), with the 39 programs of the
@@ -4459,11 +4479,18 @@ each started on its own and left to run for 600 frames:</p>
 <ul>
 <li>In Chrome 156, in Firefox 159 and in Chrome with its CPU throttled to half speed (a
   rough stand-in for a slow machine) every program kept full emulation speed, with no
-  audio underrun. On an otherwise idle machine every program also showed every picture
-  (the lowest figure was 99.5% of the pictures). With some other load on the machine the
+  audio underrun. On an otherwise idle machine every program also showed nearly every picture:
+  the lowest, one program that runs at 58 Hz, in Firefox, showed 98% to 99% of them, and
+  every other program showed 99.7% or more. With some other load on the machine the
   three heaviest programs at half speed (<code>shift</code>, <code>blue</code> and <code>menu</code>) showed 95% to 98% of
   the pictures.</li>
 </ul>
+<p>The CRT effect (10.2) is extra drawing work on the graphics chip of every frame, which is why it is off
+by default; the figures above are without it. With the TV look on, measured on the same machine with
+the same programs, the time a frame took grew by about 0.1 ms in Chrome, 0.2 ms in Chrome at half
+speed and 0.15 ms in Firefox on average (the largest single program, 1.1 ms), and the emulation and
+display rates stayed what they were without it. The soft scanlines and the PC monitor looks cost about
+the same as TV on the three heaviest programs.</p>
 <p>This is what one machine did, not a promise for another: a slower computer, a busy
 one or another browser will differ.</p>
 

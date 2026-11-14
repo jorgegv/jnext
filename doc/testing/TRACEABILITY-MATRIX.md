@@ -44,7 +44,8 @@ mentions them, so a test can no longer be absent from this document.
 | Contention                                 |   178 |  178 |    0 |    0 |       0 |          0 |
 | LoRes                                      |   101 |  101 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    94 |   94 |    0 |    0 |       0 |          0 |
-| Companion: sdcard_posix_test               |     5 |    5 |    0 |    0 |       0 |          0 |
+| Companion: sdcard_posix_test               |     7 |    7 |    0 |    0 |       0 |          0 |
+| Companion: sdcard_writes_test              |    28 |   28 |    0 |    0 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
@@ -69,9 +70,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6192 | 6192 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6222 | 6222 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6192**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5691**. Rows the 202 suites declared in `test/unit-tests.conf` run live: **16108**.
+Rows the sections above carry: **6222**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5721**. Rows the 203 suites declared in `test/unit-tests.conf` run live: **16168**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -83,14 +84,14 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 152 suites (10501 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 152 suites (10531 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
 | `fuse_z80_test` | 1356 | data-driven FUSE runner, no per-row IDs |
 | `z80n_test` | 85 | data-driven FUSE-style runner, opcode names not row IDs |
 | `rewind_call_stack_test` | 20 | debugger call-stack tracker restored by rewind, emptied by a state load or reset (jnext-internal); the T80N core has no debugger |
-| `esxdos_stub_test` | 185 | esxDOS API surface + jnext trap policy, not core logic |
+| `esxdos_stub_test` | 193 | esxDOS API surface + jnext trap policy, not core logic |
 | `esxdos_symlink_test` | 6 | esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic |
 | `quick_snapshot_posix_test` | 2 | GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle |
 | `video_recorder_posix_test` | 7 | GH #446 ffmpeg PATH lookup rows needing exec bits, symlinks and a decoy script (POSIX-only); host tooling, no VHDL oracle |
@@ -105,7 +106,7 @@ These 152 suites (10501 live rows) have no VHDL-derived plan row to map, so they
 | `sdcard_provisioner_test` | 140 | jnext SD-image download/patch policy (host side) |
 | `sha256_test` | 14 | SHA-256 of every backend (OpenSSL, BCrypt, the portable WebAssembly one; host utility): NIST FIPS 180-2 Appendix B and the NIST CSRC SHA-2 example as oracles, coreutils sha256sum for the rest; the FPGA core has no counterpart |
 | `sdcard_provisioner_posix_test` | 2 | PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side) |
-| `warm_start_test` | 101 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
+| `warm_start_test` | 107 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
 | `warm_start_card_test` | 4 | warm-start digest key and stepped recording against the real card (GH #464, jnext-internal); no FPGA counterpart |
 | `snapshot_test` | 299 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
 | `sd_identity_test` | 31 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the Tier-1 identity read off a REAL image -- MBR partition table, FAT32 BS_VolID (Tier 2 retired, GH #396) -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
@@ -134,16 +135,16 @@ These 152 suites (10501 live rows) have no VHDL-derived plan row to map, so they
 | `speed_report_test` | 36 | host speed-percentage reporting |
 | `host_key_latch_test` | 182 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `sdl_app_tick_test` | 12 | SdlApp::tick() host frame-loop iteration (host UI, GH #462) |
-| `browser_policy_test` | 25 | browser page rAF callback gate and refusals (host UI, GH #463) |
-| `web_api_test` | 17 | browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465) |
+| `browser_policy_test` | 29 | browser page rAF callback gate and refusals (host UI, GH #463) |
+| `web_api_test` | 22 | browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465) |
 | `sdl_pointer_release_test` | 11 | SDL pointer-release route (host UI, GH #365) |
 | `sdl_window_title_test` | 3 | SDL window title carries the version (host GUI) |
 | `quit_signal_test` | 14 | SIGINT/SIGTERM as a quit request (host process behaviour; GH #364) |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 27 | jnext log-level gating |
-| `cli_options_test` | 41 | CLI flag table vs the man page (see `make cli-check`) |
-| `cli_options_native_test` | 25 | CLI rows that run the built jnext binary (split out of cli_options_test, GH #460; see `make cli-check`) |
-| `config_keys_test` | 26 | the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle) |
+| `cli_options_test` | 42 | CLI flag table vs the man page (see `make cli-check`) |
+| `cli_options_native_test` | 26 | CLI rows that run the built jnext binary (split out of cli_options_test, GH #460; see `make cli-check`) |
+| `config_keys_test` | 27 | the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle) |
 | `video_recorder_cmd_test` | 46 | FFmpeg command-line construction (host encoder) |
 | `video_recorder_cmd_native_test` | 8 | FFmpeg recording through a stand-in child process (host encoder, split out of video_recorder_cmd_test, GH #460) |
 | `nex_loader_test` | 157 | NEX file-format spec (host loader), no core counterpart |
@@ -194,7 +195,7 @@ These 152 suites (10501 live rows) have no VHDL-derived plan row to map, so they
 | `script_events_test` | 153 | debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_record_test` | 35 | debugger session recorder (GH #20 / #26 WP6, jnext-internal); the T80N core has no debugger |
 | `zrcp_adapter_test` | 231 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
-| `crt_shader_policy_test` | 14 | OpenGL CRT shader decision rules: style numbers, fullscreen placement, ARGB-to-GL byte order (host GUI) |
+| `crt_shader_policy_test` | 18 | OpenGL CRT shader decision rules: style numbers, fullscreen placement, ARGB-to-GL byte order (host GUI) |
 | `app_config_test` | 176 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
@@ -4621,11 +4622,48 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| SDP-IOERR-01 | transient host write error: CMD24 answers 0x0D with no busy byte, the card still reads sectors 1 and 4, and the rejected block never lands in the file afterwards (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:178 |
-| SDP-IOERR-03 | after a failed host write the card recovered read-write, not degraded to read-only: the next CMD24 is accepted (0x05) and its block is in the file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:217 |
-| SDP-IOERR-02 | persistent host write error: CMD24 answers 0x0D and the card still reads sectors 1 and 2 while the failure lasts | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:241 |
-| SDP-IOERR-04 | host write error on an image that can no longer be opened for writing: the card degrades to read-only, so the next CMD24 is refused (0x0D, no further stream write) and reads still return the original bytes | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:298 |
-| SDP-IOERR-05 | host write error with the image gone (neither reopen works): the card ends unmounted, and a later mount() works and reads | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:331 |
+| SDP-IOERR-01 | transient host write error: CMD24 answers 0x0D with no busy byte, the card still reads sectors 1 and 4, and the rejected block never lands in the file afterwards (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:181 |
+| SDP-IOERR-03 | after a failed host write the card recovered read-write, not degraded to read-only: the next CMD24 is accepted (0x05) and its block is in the file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:220 |
+| SDP-IOERR-02 | persistent host write error: CMD24 answers 0x0D and the card still reads sectors 1 and 2 while the failure lasts | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:244 |
+| SDP-IOERR-04 | host write error on an image that can no longer be opened for writing: the card degrades to read-only, so the next CMD24 is refused (0x0D, no further stream write) and reads still return the original bytes | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:301 |
+| SDP-IOERR-05 | host write error with the image gone (neither reopen works): the card ends unmounted, and a later mount() works and reads | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:334 |
+| SDP-SDW-01 | a journal append that really fails (RLIMIT_FSIZE) answers 0x0D, the file keeps its last whole length and the sector still reads its earlier content (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:383 |
+| SDP-SDW-02 | a kept-file append that really fails (RLIMIT_FSIZE) returns false, FILE keeps its last whole length (no torn tail) and the earlier kept file is still the kept one | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:416 |
+
+### Companion write-journal suite — `test/sdcard/sdcard_writes_test.cpp`
+
+> Citations in this section are the declared tombstone `(SD SPI spec; journal format: developer guide)`: this suite has no VHDL counterpart to cite.
+
+| Test ID | Description | VHDL file:line | Status | Test file:line |
+|---------|-------------|----------------|--------|----------------|
+| SDW-01 | journal mode: CMD24 is accepted (0x05) and read back by CMD17, the image file is byte-identical and no write reached its stream (SD spec 7.3.3.1) | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:263 |
+| SDW-02 | after one write the journal file is exactly the 64-byte header and one 516-byte record, as the format table lays them out | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:271 |
+| SDW-03 | a new device on the rebound journal (a reload) reads the written sector from the journal and its neighbours from the image | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:295 |
+| SDW-04 | CMD18 across three sectors with only the middle one journaled returns image, journal, image | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:311 |
+| SDW-05 | SDSC card, CMD16 block length 16: a read inside a journaled sector returns that slice of the written bytes, and one inside another sector the image's | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:335 |
+| SDW-06 | a sector written twice: the second copy wins on read-back and after a remount, and the remount compacts the file to one record | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:369 |
+| SDW-07 | a journal bound to another digest is refused at bind; the reason names both digests and --sdcard-writes-reset, and the file is untouched | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:392 |
+| SDW-08 | desktop binding: after the image's mtime moves its journal is refused, the reason naming the mtime, and the file is untouched | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:409 |
+| SDW-10 | a file that is not a journal (wrong magic) is refused at bind with and without reset, never removed or written | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:420 |
+| SDW-09 | a trailing partial record is dropped, the whole records before it are served, and the next append lands right after the last whole record | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:453 |
+| SDW-11 | reset at bind and clear() both remove the file and the image's bytes are served again; clear() runs the hook once and bind does not run it | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:490 |
+| SDW-12 | the persist hook runs once per committed write and never for a refused write (past the end: R1 PARAMETER_ERROR 0x40, no data phase) or a read | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:516 |
+| SDW-16 | host_write_generation() grows by one per committed journal write and not for a refused one | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:522 |
+| SDW-13 | in journal mode a write past the end of the image is refused at the command (R1 PARAMETER_ERROR 0x40, SD spec 7.3.1.4) and adds no record (the file is never created) | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:542 |
+| SDW-14 | two devices mounting the bound image share one journal: a write through one is read through the other | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:562 |
+| SDW-15 | a live SD change to another image mounts it without a journal (its writes reach its own file); remounting the bound image restores journal mode | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:591 |
+| SDW-17 | an image bound under one spelling of its path (dir/../x.img) and mounted under another is still in journal mode: the write reads back and the image file is byte-identical | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:614 |
+| SDW-18 | SDSC card in journal mode: CMD24 at byte 7*512+8 (not a block boundary, WRITE_BL_MISALIGN = 0) is refused at the command (R1 ADDRESS_ERROR 0x20, SD spec 7.3.1.4) and adds no record | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:634 |
+| SDW-19 | commit_file on a journal with no file creates FILE = header + one kept-file record (0xFFFFFFFF, L, n, name, bytes), as the format table lays it out | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:661 |
+| SDW-20 | a fresh bind of that FILE (a reload) gives the kept file back (name and bytes); no sector is journaled (empty()) and every sector reads the image | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:673 |
+| SDW-21 | sector 9, file v1, file v2, sector 9 again: a rebind serves the second sector copy and v2, and compacts FILE to one sector record then one kept-file record | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:705 |
+| SDW-22 | a kept-file record of another name supersedes the earlier one (one file per journal): after a reload only the later name is kept and FILE is compacted to the sector record then that one kept-file record | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:717 |
+| SDW-23 | a trailing kept-file record that runs past EOF (or is cut inside its marker/length head) is dropped, the earlier records are served, FILE is cut back to the last whole record, and the next commit appends there | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:759 |
+| SDW-24 | a complete kept-file record with n > L-2, or with L < 2, refuses the bind as not an SD-writes file and leaves FILE untouched; with reset (the file has a journal's header) the bind discards it and succeeds | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:796 |
+| SDW-25 | the persist hook runs once per commit_file; an identical (name, bytes) re-commit appends nothing and runs no hook; clear() removes FILE and the kept file, hook +1 | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:820 |
+| SDW-26 | bind(reset) on a FILE holding a sector record and a kept-file record discards both: FILE is gone, no kept file, the image's bytes are served | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:848 |
+| SDW-27 | with only a kept-file record, for_each_sorted calls its function zero times and empty() is true (the warm-start key never sees the file) | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:863 |
+| SDW-28 | a binding of 2^32 sectors (2 TiB) is refused (sector 0xFFFFFFFF is the kept-file marker), naming the size; one sector less binds | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:879 |
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp`
 

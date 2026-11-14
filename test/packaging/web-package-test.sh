@@ -5,7 +5,7 @@
 # trees under a scratch directory, no emcc, no browser, no SD-card image. The
 # scratch directory is removed on exit.
 #
-# Oracles: the package contract of this suite's own literal 23-name list (the
+# Oracles: the package contract of this suite's own literal 24-name list (the
 # issue's scope: js + wasm, example pages, README.txt with the source link,
 # LICENSE, CREDITS.md, licences of the linked libraries; and NEVER a NextZXOS
 # image, owner rule); version.yaml as the only source of the version; the
@@ -69,13 +69,14 @@ python3 -I -c 'import yaml' 2>/dev/null || missing+=("python3-pyyaml")
 mkbase() {
     local b=$T/base
     mkdir -p "$b/root/packaging/web" "$b/root/third_party/spdlog" "$b/root/third_party/nlohmann-json" \
-             "$b/root/third_party/zot" "$b/root/third_party/fatfs"
+             "$b/root/third_party/zot" "$b/root/third_party/fatfs" "$b/root/third_party/crtemu"
     cp "$ROOT/packaging/web/package-web.sh" "$ROOT/packaging/web/README.txt.in" "$b/root/packaging/web/"
     cp "$ROOT/LICENSE" "$ROOT/CREDITS.md" "$b/root/"
     cp "$ROOT/third_party/spdlog/LICENSE" "$b/root/third_party/spdlog/"
     cp "$ROOT/third_party/nlohmann-json/LICENSE.MIT" "$b/root/third_party/nlohmann-json/"
     cp "$ROOT/third_party/zot/LICENSE" "$b/root/third_party/zot/"
     cp "$ROOT/third_party/fatfs/LICENSE.txt" "$b/root/third_party/fatfs/"
+    cp "$ROOT/third_party/crtemu/LICENSE" "$b/root/third_party/crtemu/"
     local em=$b/emsdk/upstream/emscripten
     local lib=$em/system/lib
     mkdir -p "$lib/libc/musl" "$lib/libcxx" "$lib/libcxxabi" "$lib/libunwind" "$lib/compiler-rt" \
@@ -204,7 +205,7 @@ row WEBPKG-01 "$ok" "tools present; build exits 0, one jnext-9.9.9-web.zip in th
 [[ -f "$ZIP1" ]] || not_run 2
 sha1=$(sha "$ZIP1")
 
-# ---- WEBPKG-02: exactly the 23 names ----
+# ---- WEBPKG-02: exactly the 24 names ----
 cat >"$T/want-names" <<'NAMES'
 jnext-9.9.9-web/CREDITS.md
 jnext-9.9.9-web/LICENSE
@@ -215,6 +216,7 @@ jnext-9.9.9-web/jnext-9.9.9.js
 jnext-9.9.9-web/jnext-9.9.9.wasm
 jnext-9.9.9-web/jnext-widget.js
 jnext-9.9.9-web/licenses/compiler-rt.txt
+jnext-9.9.9-web/licenses/crtemu.txt
 jnext-9.9.9-web/licenses/emscripten.txt
 jnext-9.9.9-web/licenses/fatfs.txt
 jnext-9.9.9-web/licenses/libcxx.txt
@@ -233,8 +235,8 @@ NAMES
 python3 -I -c 'import sys, zipfile
 print("\n".join(sorted(zipfile.ZipFile(sys.argv[1]).namelist())))' "$ZIP1" >"$T/got-names"
 ok=0
-[[ $(wc -l <"$T/want-names") -eq 23 ]] && cmp -s "$T/want-names" "$T/got-names" && ok=1
-row WEBPKG-02 "$ok" "the zip holds exactly the literal 23 names, no directory entry, no stale jnext-9.9.8.*, no stray.html"
+[[ $(wc -l <"$T/want-names") -eq 24 ]] && cmp -s "$T/want-names" "$T/got-names" && ok=1
+row WEBPKG-02 "$ok" "the zip holds exactly the literal 24 names, no directory entry, no stale jnext-9.9.8.*, no stray.html"
 
 # ---- WEBPKG-03: every entry equals its fixture source ----
 mkdir "$T/x1"
@@ -255,6 +257,7 @@ chk licenses/sdl3.txt "$E/cache/ports/sdl3/SDL-release-9.9/LICENSE.txt"; chk lic
 chk licenses/libpng.txt "$E/cache/ports/libpng/libpng-9.9/LICENSE"
 chk licenses/spdlog.txt "$R/third_party/spdlog/LICENSE"; chk licenses/nlohmann-json.txt "$R/third_party/nlohmann-json/LICENSE.MIT"
 chk licenses/zot.txt "$R/third_party/zot/LICENSE"; chk licenses/fatfs.txt "$R/third_party/fatfs/LICENSE.txt"
+chk licenses/crtemu.txt "$R/third_party/crtemu/LICENSE"
 if grep -qF '@' "$X/README.txt"; then ok=0; fi
 grep -qF '/tree/v9.9.9' "$X/README.txt" || ok=0
 row WEBPKG-03 "$ok" "every entry is byte-identical to its fixture; README.txt is the template with 9.9.9 and has no @"
@@ -266,7 +269,7 @@ ok=0
 if [[ $RC -eq 0 && -f "$D/build/jnext-9.9.10-web.zip" ]]; then
     n=$(python3 -I -c 'import sys, zipfile
 n = zipfile.ZipFile(sys.argv[1]).namelist()
-print(all(x.startswith("jnext-9.9.10-web/") for x in n) and "jnext-9.9.10-web/jnext-9.9.10.js" in n and "jnext-9.9.10-web/jnext-9.9.10.wasm" in n and len(n) == 23)' "$D/build/jnext-9.9.10-web.zip")
+print(all(x.startswith("jnext-9.9.10-web/") for x in n) and "jnext-9.9.10-web/jnext-9.9.10.js" in n and "jnext-9.9.10-web/jnext-9.9.10.wasm" in n and len(n) == 24)' "$D/build/jnext-9.9.10-web.zip")
     [[ "$n" == True ]] && ok=1
 fi
 row WEBPKG-04 "$ok" "version.yaml 9.9.10: output jnext-9.9.10-web.zip with 9.9.10 names"

@@ -4295,6 +4295,50 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#letting-a-visitor-clear-the-saves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letting a visitor clear the saves
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-crt-effect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The CRT effect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saving-the-game" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Saving the game
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recording-a-game" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recording a game
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#keyboard" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4302,6 +4346,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Keyboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phones-and-tablets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phones and tablets
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -4442,14 +4503,24 @@
 <td>The SD-card image, as <code>--sdcard</code> and <code>--sdcard-sha256</code>.</td>
 </tr>
 <tr>
+<td><code>keepWrites</code></td>
+<td>boolean</td>
+<td><code>--sdcard-writes</code>, with a file the page manages: what the program writes to the card, and the file a NEX saves through esxDOS (saves, high scores), is kept in the visitor's browser and is there at the next visit. Off by default; what it keeps, and what it cannot, is in 10.3 and 10.4.</td>
+</tr>
+<tr>
 <td><code>file</code></td>
 <td>URL, <code>{url}</code> or <code>{data, name}</code></td>
-<td>The program to run, as <code>--load</code>. <code>.nex</code>, <code>.tap</code> and <code>.tzx</code> only. Without it the machine boots to the NextZXOS menu.</td>
+<td>The program to run, as <code>--load</code>. <code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code>, an <code>.rzx</code> recording, or a <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code> snapshot, which runs on the machine it was saved on (see "Saving the game" below; recordings: "Recording a game"). Without it the machine boots to the NextZXOS menu.</td>
 </tr>
 <tr>
 <td><code>machine</code></td>
 <td>string</td>
 <td><code>--machine</code>.</td>
+</tr>
+<tr>
+<td><code>touchKeyboard</code></td>
+<td><code>'auto'</code>, <code>'on'</code> or <code>'off'</code></td>
+<td><code>--touch-keyboard</code>: the on-screen keyboard. <code>'auto'</code> (default) shows it on a phone or tablet, <code>'on'</code> always, <code>'off'</code> never. See "Keyboard", below.</td>
 </tr>
 <tr>
 <td><code>muted</code></td>
@@ -4491,7 +4562,9 @@
 <li><code>onReady()</code>: after the mount's click, after <code>load()</code> and after <code>reset()</code>: the
   program is in the machine and a frame has been shown. A load the program itself
   asks for (a NEX that runs another) is not the page's: it fires no <code>onReady</code> and
-  <code>reset()</code> still restarts the page's program.</li>
+  <code>reset()</code> still restarts the page's program. For a <code>.wav</code>, <code>onReady</code> comes when the
+  tape is in the deck; the program then loads as the tape plays, in real time (a 48K game
+  takes minutes), and the tape stops while the player is paused or the tab is hidden.</li>
 <li><code>onError(message)</code>: on every failure (a refused option, a bad image, a program that
   does not load, an exit with an error). The promise of the call that failed rejects
   with the same message.</li>
@@ -4526,19 +4599,125 @@
 <td>Load another program (same forms as <code>file</code>) while the machine runs. Resolves when it is in the machine.</td>
 </tr>
 <tr>
+<td><code>saveSnapshot()</code></td>
+<td>Resolves to a <code>Uint8Array</code> holding a <code>.jns</code> snapshot of the running machine (<code>args: ['--snapshot-compression', 'off']</code> stores it uncompressed). Rejects if the machine is not running.</td>
+</tr>
+<tr>
+<td><code>startRzxRecording()</code></td>
+<td>Starts an RZX recording of the machine as it is now. Rejects if the machine is not running, if the last recording has not been collected with <code>stopRzxRecording()</code> (one running, or ended by a <code>reset()</code> or a <code>load()</code>), or if it cannot start (a ZX Spectrum Next, an RZX playing, <code>--tape-save</code>: the console says which).</td>
+</tr>
+<tr>
+<td><code>stopRzxRecording()</code></td>
+<td>Ends the recording and resolves to a <code>Uint8Array</code> holding the <code>.rzx</code> file. Rejects if none is running.</td>
+</tr>
+<tr>
 <td><code>setVolume(v)</code></td>
 <td>Master level, 0 (silent) to 1; anything else throws a <code>RangeError</code>. A player started <code>muted</code> has no audio device.</td>
 </tr>
 <tr>
+<td><code>resetCard()</code></td>
+<td>Forget the writes kept by <code>keepWrites</code> and restart the program, as <code>reset('program')</code> does. Needs <code>keepWrites</code> (it rejects without it). Resolves when the program is in the machine again.</td>
+</tr>
+<tr>
+<td><code>showKeyboard(on)</code></td>
+<td>Show (<code>true</code>) or hide (<code>false</code>) the on-screen keyboard, whatever <code>touchKeyboard</code> says: the page's call wins, before or after the start. Anything but a boolean throws a <code>TypeError</code>.</td>
+</tr>
+<tr>
+<td><code>keyboardVisible</code></td>
+<td>Whether the on-screen keyboard is shown now.</td>
+</tr>
+<tr>
 <td><code>destroy()</code></td>
-<td>Stop the machine and remove the player. Afterwards every method throws.</td>
+<td>Stop the machine and remove the player; with <code>keepWrites</code> it first waits until the writes are stored. Afterwards every method throws.</td>
 </tr>
 </tbody>
 </table>
+<h2 id="letting-a-visitor-clear-the-saves">Letting a visitor clear the saves<a class="headerlink" href="#letting-a-visitor-clear-the-saves" title="Permanent link">&para;</a></h2>
+<p>A page that uses <code>keepWrites</code> can offer a button for <code>resetCard()</code>:</p>
+<pre><code class="language-html">&lt;button onclick=&quot;player.resetCard()&quot;&gt;Clear saves&lt;/button&gt;
+</code></pre>
+<p>where <code>player</code> is what <code>jnext.mount()</code> resolved to (or <code>el.jnextPlayer</code> of a widget).
+<code>args: ['--sdcard-writes-reset']</code> does the same for one start, when the page is
+loaded.</p>
+<h2 id="the-crt-effect">The CRT effect<a class="headerlink" href="#the-crt-effect" title="Permanent link">&para;</a></h2>
+<p>The desktop window's CRT effect (5.3) runs in the page too, off by default, with the same five
+looks and the same parameters. There is no extra option: use <code>args</code> with <code>--crt</code> and one of
+<code>off</code>, <code>scanlines</code>, <code>soft</code>, <code>tv</code> or <code>pc</code>, or the three settings it stands for in <code>set</code>:</p>
+<pre><code class="language-js">jnext.mount(el, { image: img, args: ['--crt', 'tv'] });
+
+jnext.mount(el, { image: img, set: { 'startup.crt_shader': true, 'startup.crt_shader_style': 1 } });
+// style 0 is tv, 1 is pc, 2 is soft; 'startup.crt_filter': true is the plain scanlines
+</code></pre>
+<ul>
+<li>The effect is chosen for the whole run: there is no call to switch it while the player runs.</li>
+<li>It draws on the page's WebGL, so it needs a browser with WebGL.</li>
+<li><em>Soft scanlines</em> show their lines only when the picture is at least twice 640x512 device pixels
+  (a larger box or a high-density screen), as on the desktop; at 640x512 they only dim the picture.</li>
+<li>If the shader cannot run, the player writes one line starting <code>CRT effect:</code> to the browser console
+  and carries on: with the plain scanlines for <em>Soft scanlines</em> (or when <code>scanlines</code> was also asked),
+  with the plain picture otherwise.</li>
+</ul>
+<h2 id="saving-the-game">Saving the game<a class="headerlink" href="#saving-the-game" title="Permanent link">&para;</a></h2>
+<p><code>saveSnapshot()</code> gives the page a snapshot of the whole machine, to offer as a download:</p>
+<pre><code class="language-js">const bytes = await player.saveSnapshot();
+const a = document.createElement('a');
+a.href = URL.createObjectURL(new Blob([bytes]));
+a.download = 'game.jns';
+a.click();
+</code></pre>
+<p>and <code>load()</code> takes it back, for instance from an <code>&lt;input type="file"&gt;</code>:</p>
+<pre><code class="language-js">await player.load({ data: new Uint8Array(await file.arrayBuffer()), name: file.name });
+</code></pre>
+<p>A snapshot runs on the machine it was saved on, whatever the player's <code>machine</code> option says,
+and that machine stays for later <code>reset('hard')</code>, <code>reset('program')</code> and
+<code>load()</code> of a program; a page that mixes snapshots of other machines with NEX programs gives
+each its own player. A <code>.jns</code> restores only on the SD card it was taken on: the same card
+image gives a snapshot that loads, another one is refused (<code>failed to load '&lt;file&gt;'</code>, the
+reason in the browser console). <code>args: ['--snapshot-mode', 'force']</code> loads it anyway, at the
+page's risk. A <code>.jns</code> that had a tape attached remembers the tape by its path; one saved in a
+page names a file of the page's memory, so on another JNEXT it restores without the tape.
+A snapshot never uses the stored NextZXOS recording (10.4): it starts at once.</p>
+<h2 id="recording-a-game">Recording a game<a class="headerlink" href="#recording-a-game" title="Permanent link">&para;</a></h2>
+<p><code>startRzxRecording()</code> records the machine from the moment it is called, input included, and
+<code>stopRzxRecording()</code> gives the page the <code>.rzx</code> file, to offer as a download:</p>
+<pre><code class="language-js">await player.startRzxRecording();
+// ... the visitor plays ...
+const bytes = await player.stopRzxRecording();
+const a = document.createElement('a');
+a.href = URL.createObjectURL(new Blob([bytes]));
+a.download = 'game.rzx';
+a.click();
+</code></pre>
+<p>A recording is refused on a ZX Spectrum Next, which is the default machine: give the player
+<code>machine: '48k'</code>, <code>'128k'</code>, <code>'plus3'</code> or <code>'pentagon'</code>. While recording, a tape loads in real
+time. A <code>reset()</code> or a <code>load()</code> ends the recording early; <code>stopRzxRecording()</code> still returns it, and until it is called no new recording can start.
+A recording plays on the machine it was made on: given as <code>file</code>, an explicit <code>machine</code> wins at
+the start, and later <code>load()</code> and <code>reset()</code> use the recording's. While it plays, every port read
+comes from the file, so the visitor's keys do nothing until the console says <code>RZX: playback
+complete</code>; then the machine runs on, live. <code>load()</code> takes a recording back like any program.</p>
 <h2 id="keyboard">Keyboard<a class="headerlink" href="#keyboard" title="Permanent link">&para;</a></h2>
 <p>The player takes the keys while its canvas has focus (the click focuses it). The
 host modifier for JNEXT's own shortcuts is Alt (Option on a Mac); Ctrl+W, Ctrl+T,
 Ctrl+N and Ctrl+Q belong to the browser.</p>
+<h3 id="phones-and-tablets">Phones and tablets<a class="headerlink" href="#phones-and-tablets" title="Permanent link">&para;</a></h3>
+<p>On a device whose main pointer is a finger (<code>touchKeyboard: 'auto'</code>, the default) the player
+shows an on-screen Spectrum Next keyboard at the bottom of its box, and the screen above it
+shrinks by the keyboard's height; <code>'on'</code> shows it everywhere, <code>'off'</code> nowhere, and
+<code>player.showKeyboard(true)</code> or <code>false</code> decides while the page runs. Its keys type exactly what
+the keys of a PC keyboard do, and the screen keeps the focus while you type.</p>
+<ul>
+<li>A key goes down when a finger lands on it and up when the finger lifts, so a held key is held;
+  two fingers hold two keys, for chords and for games.</li>
+<li>Below 504 CSS pixels of width it shows the 40 keys of a 48K keyboard, in four rows; every
+  other key of the Next is Caps Shift or Symbol Shift plus a key, as on a 48K. From 504 pixels
+  on (a tablet, or a phone turned sideways) it shows the Next's 58 keys, in five rows, with
+  the extra keys: Delete, Edit, Break, Graph, Extend, True and Inverse video, Caps Lock, the
+  cursor keys, and the semicolon, quote, period and comma.</li>
+<li>Caps Shift and Symbol Shift latch. A quick tap (under half a second, with no other key
+  pressed meanwhile) leaves the shift waiting, drawn highlighted, and the next key is typed with
+  it; tapping the waiting shift cancels it. A shift held longer, or held while another key goes
+  down, is an ordinary hold (Symbol Shift as a fire button works).</li>
+</ul>
 
 
 

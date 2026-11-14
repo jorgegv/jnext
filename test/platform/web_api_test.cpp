@@ -201,8 +201,10 @@ int main()
             if ((o.kind == web_api::Kind::Image) != o.opt2.has_value()) { all = false; bad += " opt2:" + std::string(o.name); }
             if ((o.kind == web_api::Kind::Image || o.kind == web_api::Kind::Flag) != o.opt.has_value()) { all = false; bad += " opt:" + std::string(o.name); }
         }
+        // n: image (2) + keepWrites + file + machine + touchKeyboard = 6 mapped option rows (owner-approved
+        // pin bumps: 4 -> 5 when keepWrites was added, 5 -> 6 for touchKeyboard).
         check("WAPI-01", "every Flag and Image row's OptId has a Documented spelling in cli::OPTIONS, arity 1",
-              all && n == 4, bad + " n=" + std::to_string(n));
+              all && n == 6, bad + " n=" + std::to_string(n));
     }
 
     // --- WAPI-02: the SetKey row's key is settable, on the SDL frontend, of the JS type --------
@@ -449,6 +451,62 @@ int main()
         const Result r = run("{\"image\":{\"path\":\"/sdcard/image.img\",\"sha256\":\"" + zero + "\"}}");
         check("WAPI-17", "an image with an all-zero sha256 is refused (the cache's \"no digest\" never reaches the core)",
               !r.ok && r.argv.empty() && r.why.find("all zeros") != std::string::npos, r.why);
+    }
+
+    // --- WAPI-18: keepWrites becomes --sdcard-writes, right after the image --------------------
+    {
+        const Result with = run("{" + IMG + ",\"keepWrites\":\"/jnext/card-writes/k.jsdw\",\"file\":\"/media/0-g.nex\"}");
+        const Argv want = {"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX,
+                           "--sdcard-writes", "/jnext/card-writes/k.jsdw", "--load", "/media/0-g.nex"};
+        const Result without = run("{" + IMG + ",\"file\":\"/media/0-g.nex\"}");
+        const Argv want_without = {"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX,
+                                   "--load", "/media/0-g.nex"};
+        check("WAPI-18", "keepWrites:<path> adds --sdcard-writes <path> after the image flags; without it the command line is unchanged",
+              with.ok && with.argv == want && without.ok && without.argv == want_without,
+              (with.ok ? join(with.argv) : with.why) + " | " + (without.ok ? join(without.argv) : without.why));
+    }
+
+    // --- WAPI-19: keepWrites that is not a string reaches the core refused, naming it ------------
+    {
+        check("WAPI-19", "keepWrites of a non-string (true, 5) is refused by build_argv and the reason names keepWrites",
+              refused_naming("{" + IMG + ",\"keepWrites\":true}", "keepWrites") &&
+              refused_naming("{" + IMG + ",\"keepWrites\":5}", "keepWrites"));
+    }
+
+    // --- WAPI-20: --sdcard-writes-reset can ride in args -----------------------------------------
+    {
+        const cli::Option* found = nullptr;
+        for (const cli::Option& c : cli::OPTIONS)
+            if (c.id == cli::OptId::SdcardWritesReset && c.doc == cli::Doc::Documented) found = &c;
+        const Result r = run("{" + IMG + ",\"args\":[\"--sdcard-writes-reset\"]}");
+        check("WAPI-20", "--sdcard-writes-reset is Documented, arity 0, refused by neither cli::browser_refusal nor "
+                         "browser_page::option_refusal, and passes through args",
+              found && found->arity == 0 &&
+              !cli::browser_refusal(cli::OptId::SdcardWritesReset) &&
+              !browser_page::option_refusal(cli::OptId::SdcardWritesReset) &&
+              r.ok && r.argv.back() == "--sdcard-writes-reset", r.why);
+    }
+
+    // --- WAPI-TKB-01: touchKeyboard becomes --touch-keyboard, between --machine and --load -------
+    {
+        const Result with = run("{" + IMG + ",\"machine\":\"48k\",\"touchKeyboard\":\"off\",\"file\":\"/media/0-g.tap\"}");
+        const Argv want = {"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX,
+                           "--machine", "48k", "--touch-keyboard", "off", "--load", "/media/0-g.tap"};
+        const Result without = run("{" + IMG + ",\"machine\":\"48k\",\"file\":\"/media/0-g.tap\"}");
+        bool none = without.ok;
+        for (const std::string& a : without.argv) if (a == "--touch-keyboard") none = false;
+        check("WAPI-TKB-01", "touchKeyboard:'off' adds --touch-keyboard off after --machine and before --load; without it no --touch-keyboard",
+              with.ok && with.argv == want && none,
+              (with.ok ? join(with.argv) : with.why) + " | " + (without.ok ? join(without.argv) : without.why));
+    }
+
+    // --- WAPI-TKB-02: touchKeyboard that is not a string is refused, naming it -------------------
+    {
+        check("WAPI-TKB-02", "touchKeyboard of true, 5, null or {} is refused by build_argv and the reason names touchKeyboard",
+              refused_naming("{" + IMG + ",\"touchKeyboard\":true}", "touchKeyboard") &&
+              refused_naming("{" + IMG + ",\"touchKeyboard\":5}", "touchKeyboard") &&
+              refused_naming("{" + IMG + ",\"touchKeyboard\":null}", "touchKeyboard") &&
+              refused_naming("{" + IMG + ",\"touchKeyboard\":{}}", "touchKeyboard"));
     }
 
     std::printf("\n====================================================\n");

@@ -5,6 +5,7 @@
 #include "core/emulator.h"
 #include "core/log.h"
 #include "core/warm_start_cache.h"
+#include "peripheral/sd_write_journal.h"
 
 #include <SDL3/SDL.h>
 #include <emscripten.h>
@@ -20,6 +21,7 @@ struct Context {
     browser_pacing::Gate  gate;
     uint64_t              fill_events = 0;    // running total of the audio fill events (the bench's counter 8)
     bool                  active = false;
+    int                   touch_keyboard = 0;   // cli::TouchKeyboard
 };
 Context g_ctx;
 
@@ -94,6 +96,13 @@ extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_loop_active()
     return g_ctx.active ? 1 : 0;
 }
 
+// The --touch-keyboard mode main() resolved: 0 auto, 1 on, 2 off. The page's JS reads it at the
+// 'started' event and applies it; it knows no flag of its own.
+extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_touch_keyboard()
+{
+    return g_ctx.touch_keyboard;
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE double jnext_web_frame()
 {
     return g_ctx.app ? static_cast<double>(g_ctx.app->emulator().frame_num()) : 0.0;
@@ -135,6 +144,13 @@ EM_JS(void, jnext_web_persist_warm_start, (), {
     }
 });
 
+// The write journal (--sdcard-writes) changed: tell the page, which keeps its
+// file in IndexedDB. Module.jnextPersistCardWrites is the page's coalesced
+// persist; a page that did not ask for keepWrites has none.
+EM_JS(void, jnext_web_persist_card_writes, (), {
+    if (Module.jnextPersistCardWrites) Module.jnextPersistCardWrites();
+});
+
 namespace browser_frontend {
 
 bool active() { return g_ctx.active; }
@@ -142,6 +158,7 @@ bool active() { return g_ctx.active; }
 void prepare()
 {
     warm_start::set_persist_hook(jnext_web_persist_warm_start);
+    sd_write_journal::set_persist_hook(jnext_web_persist_card_writes);
     // SDL's keyboard default is #window: it would capture every key of the
     // page. Follow the canvas selector instead (a page ENV value wins).
     const char* sel = SDL_GetHint(SDL_HINT_EMSCRIPTEN_CANVAS_SELECTOR);
@@ -167,5 +184,7 @@ void run(SdlApp& app, std::function<int()> finish)
     web_controller::attach(app);
     emscripten_set_main_loop_arg(frame_cb, nullptr, 0, 0);
 }
+
+void set_touch_keyboard(int mode) { g_ctx.touch_keyboard = mode; }
 
 }  // namespace browser_frontend

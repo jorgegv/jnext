@@ -8,8 +8,8 @@
 // of src/platform/frame_deadline.h (one tick at once, then the grid, never a
 // burst). A fake clock is advanced by a fake tick of a given cost that reports
 // a given sleep, so no row depends on the host's speed. The refusal rows are
-// derived from the plan: the page refuses exactly --headless, --rzx-play and
-// --rzx-record, and loads exactly .nex, .tap and .tzx.
+// derived from the plan: the page refuses exactly --headless and
+// --rzx-record, and loads exactly .nex, .tap, .tzx, .wav programs, .rzx recordings and .jns, .sna, .szx, .z80 snapshots.
 
 #include "platform/browser_pacing.h"
 #include "platform/browser_page.h"
@@ -334,14 +334,13 @@ int main()
         int refused = 0; bool exact = true;
         for (const auto& o : cli::OPTIONS) {
             const bool want = std::strcmp(o.name, "--headless") == 0 ||
-                              std::strcmp(o.name, "--rzx-play") == 0 ||
                               std::strcmp(o.name, "--rzx-record") == 0;
             const bool got = browser_page::option_refusal(o.id) != nullptr;
             if (got) ++refused;
             if (got != want) exact = false;
         }
-        check("BRR-01", "option_refusal is non-null for exactly --headless --rzx-play --rzx-record",
-              exact && refused == 3, "refused=" + num(refused));
+        check("BRR-01", "option_refusal is non-null for exactly --headless --rzx-record",
+              exact && refused == 2, "refused=" + num(refused));
     }
     // BRR-02: each refusal reason.
     {
@@ -354,12 +353,12 @@ int main()
             for (const char* c = why; *c; ++c) if (static_cast<unsigned char>(*c) >= 0x80) ok = false;
         }
         check("BRR-02", "each refusal reason is non-empty ASCII and says \"browser page\"",
-              ok && n == 3, "n=" + num(n));
+              ok && n == 2, "n=" + num(n));
     }
     // BRR-03: program_refusal.
     {
         const char* good[] = {"a.nex", "A.NEX", "b.tap", "B.TAP", "c.tzx", "/x/y z/c.TzX", "./g.tap", "/media/v1.2/a.nex"};
-        const char* bad[] = {"x.sna", "x.szx", "x.z80", "x.jns", "x.rzx", "x.wav", "x.zip", "noext", "game.nex.bak", "", "/media/v1.nex/noext"};
+        const char* bad[] = {"x.zip", "noext", "game.nex.bak", "", "/media/v1.nex/noext"};
         bool ok = true;
         for (const char* g : good) if (browser_page::program_refusal(g) != nullptr) ok = false;
         for (const char* b : bad) {
@@ -367,6 +366,59 @@ int main()
             if (!why || std::strstr(why, ".nex, .tap, .tzx") == nullptr) ok = false;
         }
         check("BRR-03", "program_refusal: null for .nex .tap .tzx in any case; else a reason naming \".nex, .tap, .tzx\"",
+              ok);
+    }
+    // BRR-05: the four snapshot formats load, in any case; a refusal names every loadable extension.
+    {
+        const char* good[] = {"a.jns", "A.JNS", "b.sna", "B.Sna", "c.szx", "C.SZX", "d.z80", "D.Z80",
+                              "/media/0-game.v2.sna", "./x/y z/s.jns"};
+        const char* bad[] = {"x.scr", "game.sna.bak"};
+        const char* exts[] = {".nex", ".tap", ".tzx", ".jns", ".sna", ".szx", ".z80"};
+        bool ok = true;
+        for (const char* g : good) if (browser_page::program_refusal(g) != nullptr) ok = false;
+        for (const char* b : bad) {
+            const char* why = browser_page::program_refusal(b);
+            if (!why) { ok = false; continue; }
+            for (const char* e : exts) if (std::strstr(why, e) == nullptr) ok = false;
+            // The order is user-visible (the guide quotes it): ".nex, .tap, .tzx, " stays the prefix, later formats append.
+            const char kPrefix[] = "a browser page loads only .nex, .tap, .tzx, ";
+            if (std::strncmp(why, kPrefix, sizeof(kPrefix) - 1) != 0) ok = false;
+        }
+        check("BRR-05", "program_refusal: null for .jns .sna .szx .z80 in any case; a refusal names every loadable extension, after the prefix \"a browser page loads only .nex, .tap, .tzx, \"",
+              ok);
+    }
+    // BRR-06: .wav tapes load, in any case; only an exact extension (GH #472).
+    {
+        const char* good[] = {"x.wav", "X.WAV", "a.Wav", "/media/0-game.v2.wav", "./t/y z/tape.wAv"};
+        const char* bad[] = {"x.wave", "game.wav.bak", "x.wav.zip"};
+        bool ok = true;
+        for (const char* g : good) if (browser_page::program_refusal(g) != nullptr) ok = false;
+        for (const char* b : bad) {
+            const char* why = browser_page::program_refusal(b);
+            if (!why || std::strstr(why, ".wav") == nullptr || std::strstr(why, ".nex, .tap, .tzx") == nullptr) ok = false;
+        }
+        check("BRR-06", "program_refusal: null for .wav in any case; .wave, .wav.bak, .wav.zip refused with a reason naming .wav",
+              ok);
+    }
+    // BRR-07: .rzx recordings load, in any case; only an exact extension (GH #473).
+    {
+        const char* good[] = {"x.rzx", "X.RZX", "a.Rzx", "/media/0-game.v2.rzx", "./r/y z/play.rZx"};
+        const char* bad[] = {"x.rzxx", "game.rzx.bak", "x.rzx.zip"};
+        bool ok = true;
+        for (const char* g : good) if (browser_page::program_refusal(g) != nullptr) ok = false;
+        for (const char* b : bad) {
+            const char* why = browser_page::program_refusal(b);
+            if (!why || std::strstr(why, ".rzx") == nullptr || std::strstr(why, ".nex, .tap, .tzx") == nullptr) ok = false;
+        }
+        check("BRR-07", "program_refusal: null for .rzx in any case; .rzxx, .rzx.bak, .rzx.zip refused with a reason naming .rzx",
+              ok);
+    }
+    // BRR-08: --rzx-play is accepted; --rzx-record is refused and the reason names the player methods (GH #473).
+    {
+        const char* rec = browser_page::option_refusal(cli::OptId::RzxRecord);
+        const bool ok = browser_page::option_refusal(cli::OptId::RzxPlay) == nullptr && rec &&
+                        std::strstr(rec, "startRzxRecording") != nullptr && std::strstr(rec, "stopRzxRecording") != nullptr;
+        check("BRR-08", "--rzx-play is accepted; the --rzx-record refusal names player.startRzxRecording() and player.stopRzxRecording()",
               ok);
     }
     // BRR-04: the page-only table is disjoint from the build's own.

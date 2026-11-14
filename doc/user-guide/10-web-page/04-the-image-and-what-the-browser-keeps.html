@@ -4359,6 +4359,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="What the browser keeps, and where">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keeping-the-saves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping the saves
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -4479,19 +4496,39 @@ otherwise <code>onProgress</code> reports only 0 and 1.</p>
 <p>A later visit makes no request for the image. The cached copy is hashed again every
 time, and a copy that no longer matches the digest is deleted and fetched again.</p>
 <p>For a <code>.nex</code> program the recorded machine is brought back (<code>restore</code>) instead of booting
-NextZXOS again. A corrupted recording is made again. A <code>.tap</code> or a <code>.tzx</code> starts directly in 48K
-BASIC, without NextZXOS, so there is nothing to record. A Next page with no program boots
+NextZXOS again. A corrupted recording is made again. A <code>.tap</code>, a <code>.tzx</code> or a <code>.wav</code> starts directly in 48K
+BASIC, and an <code>.rzx</code> on the machine it was recorded on, without NextZXOS, so there is nothing to record. A Next page with no program boots
 NextZXOS on every visit and records nothing.</p>
 <h2 id="what-the-browser-keeps-and-where">What the browser keeps, and where<a class="headerlink" href="#what-the-browser-keeps-and-where" title="Permanent link">&para;</a></h2>
 <ul>
 <li>The image is kept in the browser's Cache Storage, under its URL.</li>
 <li>The warm-start recording is kept in IndexedDB.</li>
-<li>Nothing else is kept: no settings, and none of the writes the program makes to the
-  card, nor screenshots or snapshots (10.3).</li>
+<li>With <code>keepWrites</code>, the sectors the program writes to the card are kept in IndexedDB, in
+  a database of their own (<code>jnext-card-writes</code>) that exists only for a page that uses it.
+  There is one record per image and page: its name is the image's SHA-256 and a short
+  digest of the page's path, so another image, or another page of the same site, has
+  its own saves, and a changed image never reuses the old ones. Only the written sectors
+  are stored (516 bytes each; the card itself is never written), and they stay in the
+  visitor's browser: nothing is sent anywhere.</li>
+<li>Nothing else is kept: no settings, nor screenshots or snapshots (10.3).</li>
 <li>Several players on one page share the recording.</li>
 <li>If the browser's storage is full, the session still runs and the next visit downloads
   the image again.</li>
 </ul>
+<h3 id="keeping-the-saves">Keeping the saves<a class="headerlink" href="#keeping-the-saves" title="Permanent link">&para;</a></h3>
+<pre><code class="language-js">jnext.mount(el, { image: {...}, file: 'game.nex', keepWrites: true });
+</code></pre>
+<p>Whatever the program writes to the card is there at the next visit, and so is the one file a
+NEX loaded with <code>file</code> saves through esxDOS (10.3). <code>player.resetCard()</code> clears both (10.2). A save is stored a moment after the program makes it: a reload within moments of a save can lose it (the store on leaving the page is best effort).
+The saves belong to the image: a page that now names another image, even one that
+differs in one byte, starts with none. A record made for another image is refused with a message naming
+<code>--sdcard-writes-reset</code>: mount once with <code>args: ['--sdcard-writes-reset']</code> to discard it. A
+record whose header is not a valid one (damaged, or in a format this version does not
+read) is refused as "not a jnext SD-writes file" and the reset does not remove it: clear the
+site's data in the browser, or delete the record from the <code>jnext-card-writes</code> database
+(store <code>journals</code>) with the browser's developer tools.
+A <code>.jns</code> snapshot (10.2) restored over a card that has newer saves leaves NextZXOS's in-memory
+picture of the card out of step with the card, as on the desktop (5.9).</p>
 <p>Browsers keep the storage of each origin (scheme, host and port) apart. Two pages of one
 origin share the image and the recording. A game inside an <code>iframe</code> of another site may
 or may not see the storage its own origin has: that depends on the browser, its version
@@ -4553,16 +4590,40 @@ their status line.</p>
 <td>The page is not served over <code>https://</code>, <code>http://localhost</code> or <code>http://127.0.0.1</code>.</td>
 </tr>
 <tr>
-<td><code>--load &lt;file&gt;: a browser page loads only .nex, .tap, .tzx programs</code></td>
+<td><code>--load &lt;file&gt;: a browser page loads only .nex, .tap, .tzx, .jns, .sna, .szx, .z80, .wav, .rzx programs</code></td>
 <td>The program has another extension.</td>
 </tr>
 <tr>
-<td><code>--rzx-play: RZX is not available in a browser page</code></td>
-<td>RZX files cannot be played in a page (<code>--rzx-record</code> is refused the same way).</td>
+<td><code>failed to load '&lt;file&gt;'</code>, and in the console <code>the mounted SD card is not the one the snapshot was taken on</code></td>
+<td>A <code>.jns</code> was taken on another SD card. Mount the card it was taken on, or pass <code>args: ['--snapshot-mode', 'force']</code>.</td>
+</tr>
+<tr>
+<td><code>--rzx-record: not available in a browser page (record from JavaScript: ...)</code></td>
+<td>A page cannot start a recording from the command line: record with <code>startRzxRecording()</code> and <code>stopRzxRecording()</code>.</td>
+</tr>
+<tr>
+<td><code>the RZX recording did not start (the log says why)</code></td>
+<td><code>startRzxRecording()</code> was refused: the machine is a ZX Spectrum Next, an RZX is playing, or <code>--tape-save</code> is on. The console line before it says which.</td>
 </tr>
 <tr>
 <td><code>&lt;flag&gt;: not available in the browser build (...)</code> or <code>&lt;flag&gt;: not available in a browser page (...)</code></td>
 <td>An option that needs a process, a socket or a terminal was given. The reason is in the brackets, and the list is in the man page ("Not available in the browser").</td>
+</tr>
+<tr>
+<td><code>&lt;file&gt; is not a jnext SD-writes file; not touching it</code></td>
+<td>The stored record's header is damaged, or in a format this version does not read; <code>--sdcard-writes-reset</code> does not remove it. Clear the site's data, or delete the record from the <code>jnext-card-writes</code> database. (A record with a valid header whose saved-file entry is inconsistent is refused the same way, but <code>--sdcard-writes-reset</code> does discard it.)</td>
+</tr>
+<tr>
+<td><code>&lt;file&gt; was made for another image ...; run with --sdcard-writes-reset to discard them</code></td>
+<td>The record under this key is for another image. Mount once with <code>args: ['--sdcard-writes-reset']</code>.</td>
+</tr>
+<tr>
+<td><code>jnext: resetCard() needs the keepWrites option</code></td>
+<td><code>resetCard()</code> was called on a player mounted without <code>keepWrites</code>.</td>
+</tr>
+<tr>
+<td><code>option 'keepWrites' must be a boolean</code></td>
+<td><code>keepWrites</code> is not <code>true</code> or <code>false</code>. Nothing has been downloaded yet.</td>
 </tr>
 <tr>
 <td><code>jnext exited with code N</code></td>

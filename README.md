@@ -51,7 +51,7 @@ under CI.
   hardware — all machine and peripheral ROMs come from the SD card, not from
   the emulator.
 - **In a web page, too.** The same emulator, built for WebAssembly: a script tag
-  and one call put a `.nex`, `.tap` or `.tzx` in your own page or an itch.io
+  and one call put a `.nex`, `.tap`, `.tzx`, `.wav`, `.rzx` recording or snapshot (`.jns`, `.sna`, `.szx`, `.z80`) in your own page or an itch.io
   upload ([user guide chapter 10](doc/user-guide/10-web-page/index.html)).
 - **The VHDL is the specification.** Where the hardware's behaviour is
   ambiguous, it is resolved against the official FPGA core sources and pinned

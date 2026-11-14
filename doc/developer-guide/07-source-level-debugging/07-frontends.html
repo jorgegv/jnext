@@ -3198,8 +3198,8 @@ the SDL-only and Windows trees test it): an absolute name; then the map's direct
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading <code>..</code> is dropped.
 <code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:311</code>) takes the
-configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3128</code>, fed by
-<code>apply_startup_config()</code>, <code>:2910</code>: the saved list with the command line's <code>--source-dir</code> or
+configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3129</code>, fed by
+<code>apply_startup_config()</code>, <code>:2911</code>: the saved list with the command line's <code>--source-dir</code> or
 <code>paths.source_dirs</code> value over it), and <strong>Locate File...</strong> (<code>SourcePanel::locate_file()</code>, <code>source_panel.cpp:438</code>)
 adds to a second, session-only list through <code>DebuggerManager::on_source_dir_located()</code> (<code>debugger_manager.cpp:323</code>). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by

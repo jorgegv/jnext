@@ -24,10 +24,30 @@ Game controllers are page-wide: give the other players
 
 - Flags and `--set` keys that need a process, a socket or a terminal are refused with
   a message; the list is in the man page ("Not available in the browser").
-- Only `.nex`, `.tap` and `.tzx` programs load. `--headless` and RZX are refused.
-- Writes the guest makes to the SD card are not kept: the card lives in memory for the
-  session. Files JNEXT writes (screenshots, snapshots) live in memory too.
+- Programs load as `.nex`, `.tap`, `.tzx` or `.wav` (a tape, in real time), recordings as `.rzx`, snapshots as `.jns`, `.sna`, `.szx` or `.z80`. `--headless` and `--rzx-record` are refused (a page records with `startRzxRecording()` and `stopRzxRecording()`).
+  A WAV is large and stays in the page's memory for the session; give the `.tap` or `.tzx` of a game when there is one.
+- Writes the guest makes to the SD card are kept across reloads only when the page asks
+  with `keepWrites` (10.4); without it the card lives in memory for the session. Files JNEXT
+  writes (screenshots, snapshots) live in memory in either case; `saveSnapshot()` hands a snapshot
+  to the page.
+- `keepWrites` keeps what reaches the card (a program started from the NextZXOS menu, or one
+  that drives the card itself, writes there) and the file a NEX loaded with `file` saves
+  through esxDOS. Such a NEX is not started by NextZXOS, so JNEXT's own stand-in answers its
+  esxDOS file calls (`RST $08`); it keeps ONE file, which is stored when the program closes
+  it and is there at the next visit (the man page, "esxDOS calls from a directly loaded
+  NEX"). A program that saves two files keeps only the last one written. The file belongs to
+  the page's card and the file name, not to the program: a changed NEX on the same page reads
+  the old save, as on a real Next. A save made this way does not make the next visit record
+  the machine again. Files such a page writes to a host directory it names with
+  `--esxdos-stub-root` live in memory only.
+- With `keepWrites`, one image on one page has one set of saves: two `keepWrites` players of
+  the same image on the same page share it, and the last one to store wins. After the program
+  has saved, the next visit starts NextZXOS again and records the machine once more (the
+  card is no longer the one the recording was made on), which takes as long as a first visit's
+  `warm-start` step; a visit that follows one that saved nothing is restored as usual.
 - Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q and the operating system's own keys never reach the page.
+- The on-screen keyboard (10.2) is tested under a browser's touch-device emulation, not on real
+  phones or tablets, and the emulation speed on a phone has not been measured.
 
 ## How fast it runs
 
@@ -37,10 +57,18 @@ each started on its own and left to run for 600 frames:
 
 - In Chrome 156, in Firefox 159 and in Chrome with its CPU throttled to half speed (a
   rough stand-in for a slow machine) every program kept full emulation speed, with no
-  audio underrun. On an otherwise idle machine every program also showed every picture
-  (the lowest figure was 99.5% of the pictures). With some other load on the machine the
+  audio underrun. On an otherwise idle machine every program also showed nearly every picture:
+  the lowest, one program that runs at 58 Hz, in Firefox, showed 98% to 99% of them, and
+  every other program showed 99.7% or more. With some other load on the machine the
   three heaviest programs at half speed (`shift`, `blue` and `menu`) showed 95% to 98% of
   the pictures.
+
+The CRT effect (10.2) is extra drawing work on the graphics chip of every frame, which is why it is off
+by default; the figures above are without it. With the TV look on, measured on the same machine with
+the same programs, the time a frame took grew by about 0.1 ms in Chrome, 0.2 ms in Chrome at half
+speed and 0.15 ms in Firefox on average (the largest single program, 1.1 ms), and the emulation and
+display rates stayed what they were without it. The soft scanlines and the PC monitor looks cost about
+the same as TV on the three heaviest programs.
 
 This is what one machine did, not a promise for another: a slower computer, a busy
 one or another browser will differ.

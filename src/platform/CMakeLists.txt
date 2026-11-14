@@ -6,6 +6,10 @@ list(FILTER SOURCES EXCLUDE REGEX "${JNEXT_GENERATED_DIR_REGEX}")
 # The browser frontend is a source of the jnext_web target only (top-level CMakeLists.txt).
 list(FILTER SOURCES EXCLUDE REGEX "browser_frontend\\.cpp$")
 list(FILTER SOURCES EXCLUDE REGEX "web/web_controller\\.cpp$")
+# The browser build's CRT effect (crtemu on SDL's WebGL context) exists only there.
+if(NOT EMSCRIPTEN)
+  list(FILTER SOURCES EXCLUDE REGEX "(browser_crt|crtemu_browser_impl)\\.cpp$")
+endif()
 add_library(jnext_platform STATIC ${SOURCES})
 find_package(SDL3 REQUIRED)
 # jnext_input provides MouseDispatcher (sdl_app uses it as host adapter for
@@ -30,6 +34,8 @@ endif()
 target_include_directories(jnext_platform PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # web_api.cpp: the vendored nlohmann-json (third_party/nlohmann-json/nlohmann/json.hpp).
 target_include_directories(jnext_platform PRIVATE ${CMAKE_SOURCE_DIR})
+# browser_crt.cpp: the vendored crtemu header (third_party/crtemu/crtemu.h), as src/gui includes it.
+target_include_directories(jnext_platform PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
 # Bake the build type into the --benchmark BENCH line (Task 27 T1), so a
 # benchmark result always states which optimisation level produced it.
 target_compile_definitions(jnext_platform PRIVATE JNEXT_BUILD_TYPE="${CMAKE_BUILD_TYPE}")

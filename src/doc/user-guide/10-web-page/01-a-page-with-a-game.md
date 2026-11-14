@@ -30,7 +30,7 @@ What happens, in order:
    When the program is a `.nex`, the first time the machine boots NextZXOS in a
    browser it is recorded, so that the next visit starts in a moment:
    `onProgress('warm-start', fraction)` reports it, and `onProgress('restore', 1)`
-   marks a visit that used the stored recording. A `.tap`, a `.tzx` or no program
+   marks a visit that used the stored recording. A `.tap`, a `.tzx`, a `.wav`, an `.rzx` recording, a snapshot or no program
    records nothing (10.4).
 5. `onReady()` is called when the program is in the machine and a frame has been
    shown.

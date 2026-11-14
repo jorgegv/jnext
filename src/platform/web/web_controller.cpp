@@ -160,6 +160,16 @@ extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_reset(int kind)
     return 0;
 }
 
+// resetCard(): discard the writes kept for the card (the persist hook deletes the
+// stored record), then restart the program or hard-reset, as reset('program')
+// does. 2 = the card has no write journal (keepWrites was not given).
+extern "C" EMSCRIPTEN_KEEPALIVE int jnext_web_reset_card()
+{
+    if (!g_app) return 1;
+    if (!g_app->emulator().forget_card_writes()) return 2;
+    return jnext_web_reset(0);
+}
+
 // nullptr = the load was started; else the reason it was refused. The program
 // is in the machine when the next "ready" event arrives.
 extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_load(const char* path)
@@ -170,6 +180,41 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_load(const char* path)
     // failed load never becomes the program a reset restarts.
     g_page_load = true;
     g_app->cold_boot(path);
+    return nullptr;
+}
+
+// saveSnapshot(): write a .jns of the running machine to `path` (the page reads the
+// bytes back). nullptr = written; else the reason (valid until the next call).
+extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_save_snapshot(const char* path)
+{
+    static std::string why;
+    if (!g_app) return "the machine is not running";
+    if (g_app->emulator().save_jns_file(path ? path : "")) return nullptr;
+    why = g_app->emulator().last_jns_error();
+    if (why.empty()) why = "the snapshot could not be written";
+    return why.c_str();
+}
+
+// nullptr = an RZX recording to `path` started (it embeds the machine as it is now); else why
+// not (start_rzx_recording() logs the reason: a Next, a playback, a recording, --tape-save).
+extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_rzx_record(const char* path)
+{
+    if (!g_app) return "the machine is not running";
+    if (!g_app->emulator().start_rzx_recording(path ? path : ""))
+        return "the RZX recording did not start (the log says why)";
+    return nullptr;
+}
+
+// nullptr = the recording to `path` is in that file: stopped (and written) now, or ended earlier
+// by a reset, a load or an RZX playback, which write it; else why not.
+extern "C" EMSCRIPTEN_KEEPALIVE const char* jnext_web_rzx_stop(const char* path)
+{
+    if (!g_app) return "the machine is not running";
+    Emulator& emu = g_app->emulator();
+    const std::string p = path ? path : "";
+    if (emu.rzx_recorder().is_recording() && emu.rzx_recorder().output_path() == p)
+        emu.stop_rzx_recording();
+    if (emu.rzx_output_failed(p)) return "the RZX recording could not be written";
     return nullptr;
 }
 

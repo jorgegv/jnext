@@ -59,6 +59,8 @@ members of 10.2.
 | `data-sha256` | its SHA-256 (`image.sha256`), 64 hex digits; required | |
 | `data-file` | the program to run (`file`) | none: NextZXOS menu |
 | `data-width`, `data-height` | the screen size in CSS pixels | 640 and 512 |
+| `data-keep-writes` | keep the program's saves across reloads (`keepWrites`); any value but `false`. `el.jnextPlayer.resetCard()` clears them | off |
+| `data-touch-keyboard` | the on-screen keyboard (`touchKeyboard`): `auto`, `on` or `off` | `auto`: shown on a phone or tablet |
 | `data-title` | the title bar text | `JNEXT` |
 | `data-theme` | `light` or `dark` | the visitor's browser setting |
 

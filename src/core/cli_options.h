@@ -58,6 +58,8 @@ enum class OptId {
     SdcardFileForce,
     WarmStartRegenerate,
     SdcardSha256,
+    SdcardWrites,
+    SdcardWritesReset,
     DelayedScreenshot,
     DelayedScreenshotTime,
     DelayedScreenshotFrames,
@@ -126,6 +128,7 @@ enum class OptId {
     Joy1Device,
     Joy2Device,
     MouseRelease,
+    TouchKeyboard,
     JoyUartRx,
     JoyUartRxDelayFrames,
     JoyUartConnector,
@@ -316,6 +319,24 @@ inline constexpr Option OPTIONS[] = {
       "card into memory on every visit and has already checked the\n"
       "hash. Needs --sdcard. A recording taken after jnext has\n"
       "written to the card in this run is used, but not cached." },
+    { "--sdcard-writes", 1, Doc::Documented, OptId::SdcardWrites,
+      "FILE",
+      "Keep the guest's writes to the SD card in FILE instead of\n"
+      "the image: the image is opened read-only and never changes,\n"
+      "and FILE's sectors are laid over it whenever the card is\n"
+      "mounted, so the writes survive the next run. FILE belongs to\n"
+      "one image (its --sdcard-sha256, else its size and\n"
+      "modification time): one made against another image is\n"
+      "refused. Created at the first write. Also keeps the one\n"
+      "file the esxDOS stand-in holds for a directly loaded NEX,\n"
+      "stored when the program closes it. Excludes\n"
+      "--sdcard-readonly and --sdcard-file-add." },
+    { "--sdcard-writes-reset", 0, Doc::Documented, OptId::SdcardWritesReset,
+      "",
+      "Discard the writes kept in the --sdcard-writes FILE (the\n"
+      "stand-in's file included) before the card is mounted. Needs\n"
+      "--sdcard-writes. A file that is\n"
+      "not a jnext SD-writes file is refused, never removed." },
     // GH #417 - the three Startup settings that have a menu of their own
     // (Machine > CPU Speed, View > Scale, View > CRT) and so get a flag; every
     // other jnext.conf setting is reached with --set.
@@ -332,7 +353,7 @@ inline constexpr Option OPTIONS[] = {
       "EFFECT",
       "CRT effect for this run: off, scanlines, soft, tv or pc\n"
       "(the Preferences pop-up's choices; soft, tv and pc need\n"
-      "the GPU shader). Qt window only" },
+      "the GPU shader). Qt window and browser build" },
     { "--speed", 1, Doc::Documented, OptId::Speed,
       "PERCENT",
       "Emulator speed as % (50=half, 100=normal, 200=2x, 400=4x)" },
@@ -367,6 +388,11 @@ inline constexpr Option OPTIONS[] = {
       "Alt+Cmd in the Qt GUI on macOS), 'middle-click' or 'esc'.\n"
       "The middle click or Esc is not passed to the program.\n"
       "Wins over the saved GUI preference for this run" },
+    { "--touch-keyboard", 1, Doc::Documented, OptId::TouchKeyboard,
+      "MODE",
+      "Browser page: the on-screen Spectrum keyboard. 'auto'\n"
+      "(default): shown on a phone or tablet; 'on': always;\n"
+      "'off': never. No effect outside a browser page" },
     // GH #251 — a serial cable in a joystick socket, whose bytes reach the guest
     // through the NR 0x0B I/O-mode mux rather than either UART header. It exists
     // because nothing on the command line could put a byte on that pin, so a
@@ -995,6 +1021,17 @@ inline const Option* find(const char* name) {
         if (std::strcmp(o.name, name) == 0) return &o;
     }
     return nullptr;
+}
+
+// --touch-keyboard (browser page only): when the on-screen keyboard is shown. The page reads the
+// numbers (jnext_web_touch_keyboard), so they are fixed: 0 auto, 1 on, 2 off.
+enum class TouchKeyboard : int { Auto = 0, On = 1, Off = 2 };
+inline bool parse_touch_keyboard(const char* s, TouchKeyboard& out) {
+    if (!s) return false;
+    if (std::strcmp(s, "auto") == 0) { out = TouchKeyboard::Auto; return true; }
+    if (std::strcmp(s, "on") == 0)   { out = TouchKeyboard::On;   return true; }
+    if (std::strcmp(s, "off") == 0)  { out = TouchKeyboard::Off;  return true; }
+    return false;
 }
 
 // Why a spelling is refused by the BROWSER (WebAssembly) build, or nullptr when

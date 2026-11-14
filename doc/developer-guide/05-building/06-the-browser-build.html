@@ -3063,7 +3063,7 @@ the output of <code>git grep -n EMSCRIPTEN</code> over the CMake files.</p>
 <tr>
 <td><code>CMakeLists.txt</code></td>
 <td><code>if(EMSCRIPTEN)</code> around <code>jnext_web</code></td>
-<td>Defines the <code>jnext_web</code> target: <code>main.cpp</code>, <code>browser_frontend.cpp</code> and <code>web/web_controller.cpp</code>; <code>OUTPUT_NAME</code> <code>jnext-&lt;version&gt;</code>; <code>JNEXT_BROWSER=1</code>; the web link options (<code>-sENVIRONMENT=web</code>, <code>-sMODULARIZE=1</code>, <code>-sEXPORT_NAME=createJnextModule</code>, <code>-sINVOKE_RUN=0</code>, <code>-sEXIT_RUNTIME=0</code>, the exported runtime methods and functions, <code>-lidbfs.js</code>); the two <code>--extern-post-js</code> files, <code>web/jnext-image.js</code> then the configured <code>jnext_api.js</code>; and a <code>configure_file</code> of <code>jnext_api.js.in</code>, of each example page and of <code>jnext-widget.js.in</code>.</td>
+<td>Defines the <code>jnext_web</code> target: <code>main.cpp</code>, <code>browser_frontend.cpp</code> and <code>web/web_controller.cpp</code>; <code>OUTPUT_NAME</code> <code>jnext-&lt;version&gt;</code>; <code>JNEXT_BROWSER=1</code>; the web link options (<code>-sENVIRONMENT=web</code>, <code>-sMODULARIZE=1</code>, <code>-sEXPORT_NAME=createJnextModule</code>, <code>-sINVOKE_RUN=0</code>, <code>-sEXIT_RUNTIME=0</code>, the exported runtime methods and functions, <code>-lidbfs.js</code>); the three <code>--extern-post-js</code> files, <code>web/jnext-image.js</code>, <code>web/jnext-touch-keyboard.js</code>, then the configured <code>jnext_api.js</code>; and a <code>configure_file</code> of <code>jnext_api.js.in</code>, of each example page and of <code>jnext-widget.js.in</code>.</td>
 </tr>
 <tr>
 <td><code>src/core/CMakeLists.txt</code></td>
@@ -3077,8 +3077,8 @@ the output of <code>git grep -n EMSCRIPTEN</code> over the CMake files.</p>
 </tr>
 <tr>
 <td><code>src/platform/CMakeLists.txt</code></td>
-<td><code>if(NOT EMSCRIPTEN)</code></td>
-<td><code>jnext_platform</code> does not link <code>jnext_remote</code> or <code>jnext_script</code>.</td>
+<td><code>if(NOT EMSCRIPTEN)</code> (twice)</td>
+<td><code>jnext_platform</code> does not link <code>jnext_remote</code> or <code>jnext_script</code>; and the sources <code>browser_crt.cpp</code> and <code>crtemu_browser_impl.cpp</code> (the CRT effect) are left out of every other build.</td>
 </tr>
 <tr>
 <td><code>src/esp01/CMakeLists.txt</code></td>
@@ -3109,8 +3109,10 @@ the output of <code>git grep -n EMSCRIPTEN</code> over the CMake files.</p>
   when the browser ends the pointer lock itself; <code>take_audio_fill_stats()</code>, the bench's
   audio fill-events seam.</li>
 <li><code>src/platform/headless_app.cpp</code> and <code>headless_app.h</code>: no script host.</li>
-<li><code>src/platform/sdl_display.cpp</code>: the canvas is created as an OpenGL window and the
-  page owns its size (window scale does nothing).</li>
+<li><code>src/platform/sdl_display.cpp</code> and <code>sdl_display.h</code>: the canvas is created as an OpenGL window and the
+  page owns its size (window scale does nothing); <code>set_crt()</code> and the CRT draw (below).</li>
+<li><code>src/platform/browser_crt.cpp</code>, <code>browser_crt.h</code> and <code>crtemu_browser_impl.cpp</code>: the CRT
+  effect, whole files.</li>
 <li><code>src/platform/debug_servers.cpp</code> and <code>debug_servers.h</code>: no protocol servers (the three servers are neither declared nor started).</li>
 <li><code>src/core/nextpi_provisioner.cpp</code>: compiled out.</li>
 <li><code>src/core/video_recorder.cpp</code>: no process to run ffmpeg, so the call fails as a
@@ -3120,7 +3122,7 @@ the output of <code>git grep -n EMSCRIPTEN</code> over the CMake files.</p>
   conditional.</li>
 </ul>
 <p><code>src/platform/browser_page.h</code> has no arm of its own: <code>main.cpp</code> includes it only under
-<code>JNEXT_BROWSER</code>, and it holds the page's own refusals (<code>--headless</code>, RZX, program
+<code>JNEXT_BROWSER</code>, and it holds the page's own refusals (<code>--headless</code>, <code>--rzx-record</code>, program
 formats).</p>
 <h2 id="at-run-time">At run time<a class="headerlink" href="#at-run-time" title="Permanent link">&para;</a></h2>
 <p>The browser frontend is a second target of the same tree, <code>jnext_web</code>: the same
@@ -3149,8 +3151,8 @@ the run. Its result reaches the page through <code>Module.onExit</code>. A <code
 returns with no loop installed (a refused flag) has no <code>onExit</code>: its return
 value is the status.</p>
 <p><em>The JavaScript API.</em> <code>jnext.mount()</code> is <code>web/jnext_api.js.in</code>, configured with
-the version and linked into <code>jnext-&lt;version&gt;.js</code> as a second <code>--extern-post-js</code>,
-after <code>web/jnext-image.js</code> (which it calls). It makes one module instance per
+the version and linked into <code>jnext-&lt;version&gt;.js</code> as a third <code>--extern-post-js</code>,
+after <code>web/jnext-image.js</code> and <code>web/jnext-touch-keyboard.js</code> (which it calls). It makes one module instance per
 mount: the core keeps process-wide state, so one instance holds one emulator. It
 knows no flag spelling. The whole options object goes to <code>jnext_web_argv</code>, which
 runs <code>web_api::build_argv</code> over the <code>web_api::WEB_OPTIONS</code> table: each row names a
@@ -3158,8 +3160,8 @@ runs <code>web_api::build_argv</code> over the <code>web_api::WEB_OPTIONS</code>
 the man page's browser section is diffed against the table and the refusal
 functions by <code>web_api_test</code> (run by <code>make cli-check</code>). The controller
 (<code>web_controller.cpp</code>, a source of <code>jnext_web</code> only) holds the exported calls
-(<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_set_volume</code>,
-<code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
+(<code>jnext_web_pause</code>, <code>jnext_web_reset</code>, <code>jnext_web_load</code>, <code>jnext_web_save_snapshot</code>,
+<code>jnext_web_rzx_record</code>, <code>jnext_web_rzx_stop</code>, <code>jnext_web_set_volume</code>, <code>jnext_web_quit</code>) and, through <code>SdlApp::set_on_load_applied</code> and <code>after_tick</code>, tells
 the page when the program is in the machine and a frame has followed (the <code>ready</code>
 event, <code>Module.jnextEvent</code>). <code>jnext_web_load_applied</code>, <code>jnext_web_gain_db</code>,
 <code>jnext_web_frame_period_ms</code> and <code>jnext_web_cpu_mhz</code> (the frame period and the
@@ -3216,17 +3218,53 @@ working silently. Browsers will not resume it without a gesture on the page:
 start the module from a click. Mouse capture is the pointer lock; when the
 browser ends the lock itself (Escape) jnext's capture is released too. A pad
 appears after its first button press (browser policy).</p>
+<p><em>Snapshots.</em> A snapshot rides the desktop's own load path: <code>program_refusal()</code> is the only gate, and
+<code>jnext_web_load</code> hands the file to <code>SdlApp::cold_boot</code>, which boots the machine the snapshot names
+(and keeps it for later resets, as the desktop frontends do). It never touches the warm start: that is
+a NEX-only route (<code>emulator_load_routes_to_nex</code> gates the tick's recording, and <code>load_sna</code>, <code>load_szx</code>,
+<code>load_z80</code> and <code>load_jns_file</code> build or restore the whole machine on their own). <code>saveSnapshot()</code> calls
+<code>jnext_web_save_snapshot</code>, which writes a <code>.jns</code> with <code>Emulator::save_jns_file</code> to a scratch file of the
+in-memory file system; the JavaScript reads it back and deletes it. <code>startRzxRecording()</code> and
+<code>stopRzxRecording()</code> do the same with <code>jnext_web_rzx_record</code> (<code>Emulator::start_rzx_recording</code>, which refuses and logs
+why on a Next, during a playback and so on) and <code>jnext_web_rzx_stop</code> (<code>stop_rzx_recording</code> when that path is still
+recording; a reset or a load has written it already) into <code>/tmp/jnext-page-&lt;seq&gt;.rzx</code>.</p>
+<p><em>The touch keyboard.</em> <code>web/jnext-touch-keyboard.js</code> (<code>JnextTouchKeyboard.create</code>) builds the
+on-screen keyboard inside the player's box the first time it is shown, with inline styles only
+(no stylesheet is added to the page). A touch key is a synthetic DOM <code>KeyboardEvent</code>, with only
+<code>code</code>, dispatched on the canvas: it enters SDL's own Emscripten key handler, so SDL's key and
+modifier state, the host-key filter of the SDL callback, the input latch and <code>Keyboard::set_key</code>
+all treat it as a PC key, and the canvas blur's <code>SDL_ResetKeyboard()</code> releases a touch-held key as
+it releases a physical one. (A C++ export that pushed an SDL event would bypass SDL's key state.)
+No input code of the core changed. The keys never take the focus: the keyboard cancels
+<code>pointerdown</code>, <code>mousedown</code>, <code>touchstart</code> and <code>contextmenu</code>, and each key tracks its own pointer
+(<code>setPointerCapture</code>), so several fingers hold several keys. The extended keys of the full layout
+are sent as their own host keys, never as shift compounds, so NextReg 0xB0 and 0xB1 report them
+as the Next's keyboard does. Caps Shift and Symbol Shift latch (<code>LATCH_MAX_HOLD_MS</code>): a lone tap
+leaves the shift waiting; the next key sends the waiting shifts' key-downs first, then its own
+codes, and its release sends the key-ups, then the shifts', and clears the latches. A code
+shared by two presses (the Alt of Edit and Graph) is reference-counted. The mode is the
+<code>--touch-keyboard</code> flag, resolved in <code>main()</code> (<code>cli::parse_touch_keyboard</code>,
+<code>browser_frontend::set_touch_keyboard</code>) and read back by the page through
+<code>jnext_web_touch_keyboard</code>, because the JavaScript knows no flag of its own; <code>auto</code> is the
+<code>(pointer: coarse)</code> media query at the start. The keyboard takes the bottom of the box and the
+canvas shrinks by its height (<code>FULL_MIN_WIDTH</code> chooses the layout; a <code>ResizeObserver</code> on the box
+follows the page), then a window <code>resize</code> event makes SDL resize its drawing buffer.</p>
+<p><em>A WAV on the grid.</em> A <code>.wav</code> is positioned on the emulated T-state clock
+(<code>WavLoader::get_ear_bit</code>), so the grid, a callback that runs no tick or two, a pause and a
+hidden tab move it exactly as far as the machine runs, never in wall time. It never sprints
+(<code>fastload_active()</code> excludes it) and the core runs it per instruction (batch gate G4), like a
+real-time <code>.tap</code> or <code>.tzx</code>.</p>
 <p><em>Refused and absent.</em> The build's own flag and <code>--set</code> key refusals apply, and
-the page also refuses <code>--headless</code> (it would block the tab for ever), the RZX
-flags, and any program that is not a <code>.nex</code>, <code>.tap</code> or <code>.tzx</code> (<code>browser_page.h</code>),
+the page also refuses <code>--headless</code> (it would block the tab for ever), <code>--rzx-record</code> (a
+page records with the player's methods), and any program that is not a <code>.nex</code>, <code>.tap</code>, <code>.tzx</code>, <code>.jns</code>, <code>.sna</code>, <code>.szx</code>, <code>.z80</code>, <code>.wav</code> or <code>.rzx</code> (<code>browser_page.h</code>),
 each with a message that says "browser page". The browser reserves Ctrl+W, T and
 N (and Ctrl+Q in some browsers), so Symbol Shift plus those letters cannot be
 typed with Ctrl; the operating system keeps Alt+Tab and Alt+F4. Files the
-emulator writes (screenshots, WAV, quick snapshots) live in the in-memory file
-system for the session. <code>--rzx-play</code> is started by a pre-step at the top of
-<code>SdlApp::run()</code>, which the page does not call (<code>--rzx-record</code> starts from <code>tick()</code>);
-a later RZX implementation must move that pre-step into something the loop can call
-before it enables RZX. Two things
+emulator writes (screenshots, WAV, quick snapshots, RZX recordings, which <code>stopRzxRecording()</code> hands to the page) live in the in-memory file
+system for the session. On the desktop <code>--rzx-play</code> is started by a pre-step at the top of
+<code>SdlApp::run()</code>, which the page does not call. In a page an RZX playback (<code>file</code>, <code>--load x.rzx</code>,
+<code>--rzx-play</code>) is the page's pending load (<code>main.cpp</code>) instead: so it fires <code>ready</code>, is what
+<code>reset('program')</code> restarts, and a file that fails rejects <code>ready</code>. Two things
 the browser link carries but never runs: the ESP-01's worker thread and the
 NextPi audio thread sleep in their own thread bodies, and neither is reachable
 from <code>tick()</code>: the flags that start them are refused, and a thread cannot start
@@ -3243,17 +3281,75 @@ digest, because the page rewrites the card on every visit and its modification
 time would never match. A zipped image is extracted in <code>main()</code> with the
 program-archive reader (exactly one <code>.img</code> member; the zip's digest stands for
 it) and the extracted card is removed when the run ends. The recording is the
-one thing kept between visits: IndexedDB (IDBFS) is mounted on the warm-start
+only thing kept between visits by default: IndexedDB (IDBFS) is mounted on the warm-start
 directory only (<code>JNEXT_CONFIG_DIR=/jnext</code>, so <code>/jnext/warm-start</code>), and
 <code>warm_start::store()</code> calls a persist hook, installed by the browser frontend,
 that flushes it. Guest writes to the card live in memory and are gone at
-reload. A first NEX load records the NextZXOS machine in steps: <code>SdlApp::tick()</code>
+reload unless the page asks for <code>keepWrites</code> (below). A first NEX load records the NextZXOS machine in steps: <code>SdlApp::tick()</code>
 calls <code>Emulator::prepare_warm_start()</code> for a time budget per tick and reports
 <code>Module.jnextProgress(phase, fraction)</code> (<code>'warm-start'</code> while recording,
 <code>'restore'</code> for a cached recording; the page adds <code>'download'</code>), so the page can
 repaint and show progress instead of freezing for the length of the boot. With no
 image the provisioner declines the download without reading stdin (a stdin read
 is <code>window.prompt()</code> in a browser).</p>
+<p><em>The CRT effect.</em> <code>--crt</code> and the three <code>startup.crt_*</code> keys (the <code>WEB</code> frontend bit in
+<code>config_keys.h</code>; the native SDL-only build still warns that they have no effect) turn on
+the desktop's crtemu shader, off by default. The SDL renderer of the page is a WebGL 1
+context (SDL's GLES2 driver), and a canvas holds one context, so crtemu draws on SDL's own:
+<code>BrowserCrt</code> (<code>platform/browser_crt.cpp</code>) owns a <code>crtemu_t</code> built right after the renderer, in
+the same host-loader mode as the Qt overlay (GL entry points from <code>SDL_GL_GetProcAddress</code>,
+<code>crtemu_browser_impl.cpp</code> being the one translation unit with crtemu's implementation, which
+carries patch 4: the vertex buffer and attribute are stated again at every present). With the
+shader on, <code>SdlDisplay::upload_frame</code> calls <code>BrowserCrt::present</code> instead of drawing: the
+framebuffer is swapped to ABGR into the object's own buffer, the viewport is SDL's letterbox
+rectangle (<code>SDL_GetRenderLogicalPresentationRect</code>, in output pixels, from the top;
+<code>SDL_GetRenderOutputSize</code> gives the height: the Current form returns the logical size under a
+logical presentation) turned into a GL viewport by <code>crt_shader::gl_viewport</code>, every vertex
+attribute array but 0 is disabled (SDL's GLES2 renderer enables arrays 0 and 1 and binds a buffer
+to neither until its first draw, which it never makes now, and WebGL 1 refuses a draw while an
+enabled array has no buffer), and <code>crtemu_present</code> draws, its own clear painting the letterbox
+bars. SDL's own state needs no care, because it draws nothing while the shader runs. No SDL
+present is needed: the page shows the drawing buffer at the end of the frame. The effect is chosen
+once, after <code>SdlApp::init</code> (<code>main.cpp</code>; the rule is
+<code>crt_shader::resolve</code>, the one the Qt window uses too), and fixed for the run. The software scanlines are 25% black on the odd rows of the
+640x512 logical screen, as the Qt overlay's. A shader that cannot be built (no WebGL renderer,
+a compile or link failure) leaves the run going: one <code>CRT effect:</code> warning, then the
+scanlines for the soft style (or when <code>startup.crt_filter</code> is also set) and the plain picture
+otherwise. <code>BrowserCrt</code> is destroyed before the renderer, because crtemu deletes its GL
+objects with the context alive. A lost WebGL context is not handled, as for SDL's own
+renderer. crtemu's WebGL arm needed two patches in the host-loader mode (8: the wrap enums, 9:
+the viewport size), listed in <code>third_party/crtemu/README.jnext.md</code>.</p>
+<p><em>Keeping the guest's writes.</em> <code>keepWrites: true</code> makes the page pass
+<code>--sdcard-writes &lt;path&gt;</code>, the SD write journal of
+<a href="../03-subsystems/08-media-and-loaders.html">3.8</a>, with a file in the in-memory filesystem
+(<code>/jnext/card-writes/&lt;key&gt;.jsdw</code>) that <code>web/jnext-image.js</code> brings in from, and stores back
+to, its own IndexedDB database <code>jnext-card-writes</code> (store <code>journals</code>, one record per key).
+The key is the image's SHA-256 and the first 16 hex digits of the SHA-256 of
+<code>location.pathname</code> (<code>cardWritesKey</code>), so one image has one record per page and a changed
+image never reuses the old one. A second IDBFS mount was rejected: it would create a database
+at mount, and the warm-start database is the only one a plain page makes; the store is
+written whole (the file is a few KB) and the database is created only for a page that uses
+the option. The option is opt-in: it adds a flag to the command line the API documents.
+<code>jnext_api.js</code> hands <code>keepWrites</code> to the emulator as the file's path (false is dropped) and
+rejects a non-boolean itself, before anything is fetched. The core's journal calls a persist
+hook after every committed write (<code>browser_frontend.cpp</code>, which calls
+<code>Module.jnextPersistCardWrites</code>); <code>persistCardWrites</code> runs one store at a time, and a write
+that arrives during one sets a flag that makes the same chain store once more, so the last
+write is the one kept. One store also runs after <code>callMain</code> returns, because a bind-time
+<code>--sdcard-writes-reset</code> happens before the hook exists (the file is then absent and the record
+is deleted), a best-effort one on <code>pagehide</code>, and a final one that <code>destroy()</code> awaits before it
+resolves. <code>player.resetCard()</code> calls <code>jnext_web_reset_card()</code> (<code>web_controller.cpp</code>), which
+runs <code>Emulator::forget_card_writes()</code> (the journal's <code>clear()</code>, whose hook deletes the record,
+and the stand-in's in-memory file, which a cold boot would otherwise carry over) and then the
+same restart as <code>reset('program')</code>. A NEX loaded with <code>file</code> is answered by the esxDOS stand-in (3.8), which keeps one file; the
+journal stores it as a second kind of record, when the program closes the file, so it travels in
+the same record, needs no other flag or store, and is reset with the card. The record has no
+program in its key: a changed NEX on the same page and image reads the old save. The stand-in's
+file is not card state, so a save through it leaves the warm-start key alone and the next visit
+restores the recording instead of making it again. Files in a host directory a page names with
+<code>--esxdos-stub-root</code> are in memory only. Two <code>keepWrites</code> players of one image on one page share
+a key; the last store wins. A visit after the program saved records the warm start again, because the card
+the recording was made on is not the one it now boots from.</p>
 <h2 id="how-it-is-tested">How it is tested<a class="headerlink" href="#how-it-is-tested" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3291,7 +3387,7 @@ is <code>window.prompt()</code> in a browser).</p>
 <td><code>make wasm-browser-test</code></td>
 <td><code>build/wasm-core</code></td>
 <td>the browser frontend in the pinned Chromium headless shell</td>
-<td>BRW-01 to BRW-33, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-29, WIDGET-01 to WIDGET-16, WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, <code>test/bench/web/bench-stats-test.mjs</code>), and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
+<td>BRW-01 to BRW-34, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-31 (WEBAPI-30 and 31 load a WAV, made at run time from <code>demo/beeper_demo</code>'s TAP by <code>tap2wav.py</code> beside <code>tap2tzx.py</code>, and compare the page with a native run and with <code>tap-demo-reference.png</code>), WIDGET-01 to WIDGET-17, TKB-01 to TKB-17 (the on-screen keyboard, <code>touch.mjs</code>: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's <code>keymaps.vhd</code>, <code>membrane.vhd</code> and <code>zxnext.vhd</code>, with <code>demo/key_matrix_demo</code>, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run <code>kmx.log</code> as oracle), WBW-01 to WBW-17 (the kept writes, <code>writes.mjs</code>: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BRZ-01 to BRZ-12 (RZX in a page, <code>rzx.mjs</code>: <code>keys48.rzx</code> and <code>s128.rzx</code> are recorded at run time by the native jnext from our own inputs; a page's replay equals the native replay, and <code>stopRzxRecording()</code>'s file replays natively), BSN-01 to BSN-11 (snapshots, <code>snapshots.mjs</code>: a <code>.sna</code>, <code>.z80</code>, <code>.szx</code> and <code>.jns</code> loaded in the page equal the native run of the same file, and <code>saveSnapshot()</code> is read back by the page and by the native jnext), BCRT-01 to BCRT-13 (the CRT effect: <code>test/browser/crt.mjs</code>, structure derived from the vendored shaders, not reference images), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, <code>test/bench/web/bench-stats-test.mjs</code>), and WEBPKG-BR-01, which boots <code>plain.html</code> from the extracted <code>make package-web</code> zip (the <code>SPECS</code> of <code>test/browser/browser-smoke.sh</code>)</td>
 <td><code>browser</code></td>
 </tr>
 </tbody>
@@ -3313,6 +3409,7 @@ is <code>window.prompt()</code> in a browser).</p>
   only its colours are set from the theme variables). The WIDGET rows (<code>widget.mjs</code>)
   include the two code blocks of the user guide's section 10.5, extracted from its
   source and run verbatim, so the guide's snippets cannot drift from what is tested.</li>
+<li><code>crt_shader_policy_test</code> (CRT-POL-15 to 18: the start-up rule and the GL viewport) and <code>config_keys_test</code> (SETK-CRT-01: the <code>WEB</code> bit) cover the CRT effect's rules natively.</li>
 <li>Native suites test the browser's policy without a browser: <code>web_api_test</code> (the option
   table, the argv and the man page's browser section; <code>make cli-check</code> runs it),
   <code>browser_policy_test</code> (the frame-callback gate and the page's refusals),

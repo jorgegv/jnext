@@ -6,8 +6,8 @@
 // This file knows no command-line flag and no --set key: the whole options
 // object goes to the emulator (jnext_web_argv, src/platform/web_api.cpp), which
 // owns the table that turns it into a command line. The only option names used
-// here are the ones this layer acts on itself: image, file, width, height,
-// wasmUrl and the three callbacks.
+// here are the ones this layer acts on itself: image, file, keepWrites, width,
+// height, wasmUrl and the three callbacks.
 (function (root) {
   'use strict';
 
@@ -78,8 +78,9 @@
   }
 
   // The options object as the emulator reads it: functions become true, file and
-  // image become what was installed (or placeholders for the early validation).
-  function substitute(options, file, image) {
+  // image become what was installed (or placeholders for the early validation), and
+  // keepWrites becomes the path of the writes file (false: dropped).
+  function substitute(options, file, image, writes) {
     var o = {};
     Object.keys(options).forEach(function (k) {
       var v = options[k];
@@ -87,6 +88,8 @@
     });
     if (o.file !== undefined && fileSpec(o.file)) o.file = file;
     if (o.image !== undefined && o.image && typeof o.image === 'object') o.image = image;
+    if (o.keepWrites === true) o.keepWrites = writes;
+    else if (o.keepWrites === false) delete o.keepWrites;
     return o;
   }
 
@@ -103,6 +106,9 @@
       if (cv !== undefined && typeof cv !== 'function') {
         return Promise.reject(new TypeError("jnext.mount: option '" + CALLBACKS[ci] + "' must be a function"));
       }
+    }
+    if (options.keepWrites !== undefined && typeof options.keepWrites !== 'boolean') {
+      return Promise.reject(new TypeError("jnext.mount: option 'keepWrites' must be a boolean"));
     }
     var n = ++counter;
     var cb = {};
@@ -134,6 +140,7 @@
     box.appendChild(canvas);
     box.appendChild(overlay);
     container.appendChild(box);
+    var kb = JnextTouchKeyboard.create(box, canvas);   // builds nothing until the keyboard is shown
 
     // ---- state ----
     var state = 'waiting';
@@ -144,6 +151,9 @@
     var waiters = [];            // { resolve, reject }: the next ready / error
     var volume = null;
     var startedSeen = false;
+    var writesKey = null;        // keepWrites: the IndexedDB key of this player's saves
+    var persistChain = null;     // the persist in flight, if any
+    var persistAgain = false;    // a write arrived while it ran
     var readyDone = false;
     var readyResolve, readyReject;
     var ready = new Promise(function (res, rej) { readyResolve = res; readyReject = rej; });
@@ -168,6 +178,7 @@
         startedSeen = true;
         state = 'running';
         if (volume !== null) mod._jnext_web_set_volume(volume);
+        kb.started(mod._jnext_web_touch_keyboard());
       } else if (type === 'ready') {
         readyDone = true;
         readyResolve();
@@ -223,6 +234,29 @@
       });
     }
 
+    // Store the card's write journal in IndexedDB. One persist runs at a time; a write that
+    // arrives meanwhile sets persistAgain and the same chain stores the file once more, so the
+    // last write is always the one kept. Resolves when nothing is left to store.
+    function persistCardWrites() {
+      if (!writesKey || !mod) return Promise.resolve();
+      if (persistChain) { persistAgain = true; return persistChain; }
+      var m = mod, key = writesKey;
+      function run() {
+        persistAgain = false;
+        return JnextImage.saveCardWrites(m, key).then(function () {
+          if (persistAgain) return run();
+          persistChain = null;
+        }, function (e) {
+          console.warn('jnext: the saved writes could not be stored: ' + e);
+          persistChain = null;
+        });
+      }
+      persistChain = run();
+      return persistChain;
+    }
+    function onPageHide() { persistCardWrites(); }
+
+    Object.defineProperty(player, 'keyboardVisible', { get: function () { return kb.visible; }, enumerable: true });
     Object.defineProperty(player, '_module', { get: function () { return mod; }, enumerable: false });
 
     player.pause = function () {
@@ -237,6 +271,12 @@
       mod._jnext_web_resume();
       state = 'running';
     };
+    // The on-screen keyboard, shown or hidden by the page: that wins over --touch-keyboard.
+    player.showKeyboard = function (on) {
+      live();
+      if (typeof on !== 'boolean') throw new TypeError('jnext: showKeyboard() takes a boolean');
+      kb.show(on, true);
+    };
     player.reset = function (kind) {
       live();
       if (kind === undefined) kind = 'program';
@@ -250,6 +290,17 @@
       }
       mod._jnext_web_reset(k);
       return afterFrames();
+    };
+    // Forget what the guest wrote to the card (keepWrites) and restart the program.
+    player.resetCard = function () {
+      live();
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      if (!writesKey) return Promise.reject(new Error('jnext: resetCard() needs the keepWrites option'));
+      var w = waitReady();
+      if (mod._jnext_web_reset_card() !== 0) {
+        rejectWaiters(new Error('jnext: resetCard() needs the keepWrites option'));
+      }
+      return w;
     };
     player.load = function (file) {
       live();
@@ -270,6 +321,67 @@
         return w;
       }, function (e) { throw fail(e.message); });
     };
+    // A .jns snapshot of the running machine, as a Uint8Array: for the page to keep, offer as a
+    // download, or give back to load() as {data, name}. Written to a scratch file of the page's
+    // in-memory file system, read back, deleted.
+    var snapshotSeq = 0;
+    player.saveSnapshot = function () {
+      live();
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      var path = '/tmp/jnext-page-' + (++snapshotSeq) + '.jns';
+      var p = mod.stringToNewUTF8(path);
+      var why = mod._jnext_web_save_snapshot(p);
+      mod._free(p);
+      if (why) {
+        var e = fail(mod.UTF8ToString(why));
+        return Promise.reject(e);
+      }
+      try {
+        var bytes = mod.FS.readFile(path);
+        mod.FS.unlink(path);
+        return Promise.resolve(bytes);
+      } catch (x) {
+        return Promise.reject(fail('jnext: the snapshot could not be read back: ' + (x && x.message ? x.message : String(x))));
+      }
+    };
+    // An RZX recording of the machine as it is now (not on a Next). stopRzxRecording() resolves to
+    // the file's bytes (a Uint8Array) for the page to offer as a download or give back to load() as
+    // {data, name}. The file is a scratch one of the page's in-memory file system, read back and
+    // deleted. A reset or a load() ends a recording early; the bytes are still returned.
+    var rzxPath = null, rzxSeq = 0;
+    player.startRzxRecording = function () {
+      live();
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      if (rzxPath) return Promise.reject(new Error('jnext: the last RZX recording has not been collected; call stopRzxRecording() first'));
+      var path = '/tmp/jnext-page-' + (++rzxSeq) + '.rzx';
+      var p = mod.stringToNewUTF8(path);
+      var why = mod._jnext_web_rzx_record(p);
+      mod._free(p);
+      if (why) return Promise.reject(fail(mod.UTF8ToString(why)));
+      rzxPath = path;
+      return Promise.resolve();
+    };
+    player.stopRzxRecording = function () {
+      live();
+      if (!machineUp()) return Promise.reject(new Error('jnext: the machine is not running'));
+      if (!rzxPath) return Promise.reject(new Error('jnext: no RZX recording is running'));
+      var path = rzxPath;
+      rzxPath = null;
+      var p = mod.stringToNewUTF8(path);
+      var why = mod._jnext_web_rzx_stop(p);
+      mod._free(p);
+      var gone = function () { try { mod.FS.unlink(path); } catch (x) { /* not there */ } };
+      if (why) { gone(); return Promise.reject(fail(mod.UTF8ToString(why))); }
+      if (!mod.FS.analyzePath(path).exists) return Promise.reject(fail('jnext: the RZX recording was not written'));
+      try {
+        var bytes = mod.FS.readFile(path);
+        gone();
+        return Promise.resolve(bytes);
+      } catch (x) {
+        gone();
+        return Promise.reject(fail('jnext: the RZX recording could not be read back: ' + (x && x.message ? x.message : String(x))));
+      }
+    };
     player.setVolume = function (v) {
       live();
       if (typeof v !== 'number' || !isFinite(v) || v < 0 || v > 1) {
@@ -282,18 +394,21 @@
       live();
       var wasUp = machineUp();
       var finish = function () {
+        kb.destroy();
         // SDL closes its AudioContext only with the playback device, and the loop's exit leaves it
         // running: close it here, after the machine has exited, so a destroyed player holds no audio.
         var ac = mod && mod.SDL3 && mod.SDL3.audioContext;
         if (ac && ac.state !== 'closed') { try { ac.close(); } catch (e) { /* already gone */ } }
         state = 'destroyed';
         if (box.parentNode) box.parentNode.removeChild(box);
-        mod = null;
+        window.removeEventListener('pagehide', onPageHide);
+        // The saves are stored before the module is dropped and before destroy() resolves.
+        return persistCardWrites().then(function () { mod = null; });
       };
-      if (!wasUp) { finish(); return Promise.resolve(); }
+      if (!wasUp) return finish();
       return new Promise(function (resolve) {
         var done = false;
-        function end() { if (!done) { done = true; finish(); resolve(); } }
+        function end() { if (!done) { done = true; finish().then(resolve); } }
         exitWaiters.push(end);
         setTimeout(end, 2000);
         mod._jnext_web_quit();
@@ -302,6 +417,7 @@
 
     // ---- the module, the image, the program ----
     function failMount(e) {
+      kb.destroy();
       if (box.parentNode) box.parentNode.removeChild(box);
       state = 'destroyed';
       throw fail(e && e.message ? e.message : String(e));
@@ -316,6 +432,7 @@
       locateFile: function (p) { return p.endsWith('.wasm') ? wasmUrl : p; },
       jnextEvent: onEvent,
       jnextProgress: progress,
+      jnextPersistCardWrites: persistCardWrites,
       preRun: [function (m) {
         m.ENV.SDL_EMSCRIPTEN_CANVAS_SELECTOR = '#' + canvas.id;
         m.ENV.JNEXT_CONFIG_DIR = '/jnext';
@@ -325,7 +442,8 @@
       // Early validation: names, shapes, types, `image` required. No request has
       // been made yet, so a refused page costs nothing.
       var img = options.image;
-      argvOf(mod, substitute(options, 'x', { path: '/sdcard/image.img', sha256: img && img.sha256 }));
+      argvOf(mod, substitute(options, 'x', { path: '/sdcard/image.img', sha256: img && img.sha256 },
+                             '/jnext/card-writes/x.jsdw'));
       return JnextImage.mountWarmStartStore(mod);
     }).then(function () {
       return JnextImage.fetchImage(options.image, progress);
@@ -333,8 +451,16 @@
       var inst = JnextImage.installImage(mod, image);
       var fs = options.file !== undefined ? fileSpec(options.file) : null;
       var fp = fs ? installFile(mod, fs) : Promise.resolve('');
-      return fp.then(function (path) {
-        var argv = argvOf(mod, substitute(options, path, { path: inst[1], sha256: inst[3] }));
+      // keepWrites: this image on this page has one record; its file goes back into the
+      // in-memory filesystem before the machine starts.
+      var wp = options.keepWrites === true
+        ? JnextImage.cardWritesKey(image.sha256, location.pathname).then(function (key) {
+            return JnextImage.loadCardWrites(mod, key).then(function (p) { writesKey = key; return p; });
+          })
+        : Promise.resolve('');
+      return Promise.all([fp, wp]).then(function (paths) {
+        var path = paths[0];
+        var argv = argvOf(mod, substitute(options, path, { path: inst[1], sha256: inst[3] }, paths[1]));
         Object.defineProperty(player, 'argv', { value: Object.freeze(argv), enumerable: true });
         say('Click to start');
         function start() {
@@ -349,6 +475,10 @@
           } catch (e) {
             log.push(String(e));
           }
+          // A bind-time --sdcard-writes-reset ran before the core's persist hook was
+          // installed: store what the file is now (absent: the record goes).
+          window.addEventListener('pagehide', onPageHide);
+          persistCardWrites();
           if (!startedSeen && state === 'starting') {
             state = 'exited';
             var e2 = fail(log.slice(logMark).join('\n') || 'jnext: the machine did not start');

@@ -10,6 +10,10 @@
 //
 // data-image, data-sha256, data-file  the mount() options image.url, image.sha256, file
 // data-width, data-height             the screen size in CSS pixels (640 x 512)
+// data-keep-writes                    the mount() option keepWrites: keep the program's saves across
+//                                     reloads (any value but "false"); el.jnextPlayer.resetCard() clears them
+// data-touch-keyboard                 the mount() option touchKeyboard: auto (default; shown on a phone
+//                                     or tablet), on or off
 // data-title                          the title bar text (JNEXT)
 // data-theme                          light | dark (default: the visitor's setting)
 //
@@ -180,6 +184,8 @@
       onError: function (message) { ui.say('error: ' + message, true); }
     };
     if (el.getAttribute('data-file')) options.file = el.getAttribute('data-file');
+    if (el.getAttribute('data-touch-keyboard')) options.touchKeyboard = el.getAttribute('data-touch-keyboard');
+    if (el.hasAttribute('data-keep-writes') && el.getAttribute('data-keep-writes') !== 'false') options.keepWrites = true;
 
     var p = jnext.mount(ui.stage, options);
     // The API's own overlay (its text and its click are the API's): only its looks are set here.

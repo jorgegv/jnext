@@ -108,6 +108,7 @@ BEGIN {
     M["sdcard_test"]                   = "SD Card"
     M["sd_rom_extractor_test"]         = "SD ROM Extractor"
     M["sdcard_posix_test"]             = "SD Card (POSIX-only rows)"
+    M["sdcard_writes_test"]            = "SD Card write journal (GH #470)"
     M["sdcard_file_add_test"]          = "SD File Add (GH #269)"
     M["sdcard_file_add_posix_test"]    = "SD File Add (POSIX-only rows)"
     M["sdcard_file_add_linux_test"]    = "SD File Add (case-sensitive host)"
