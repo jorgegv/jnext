@@ -120,7 +120,7 @@ bool half_match(const std::string& p, const std::string& n) {
 /// resolve()'s kBareDotDot is a bare '..' above the root. NextZXOS answers it as it
 /// does any missing last component, which for a call that looks a name up is
 /// esx_enoent (MEASURED, GH #457).
-uint8_t lookup_miss(uint8_t err) { return err == EsxdosHostFs::kBareDotDot ? EsxdosHostFs::kEnoent : err; }
+uint8_t lookup_miss(uint8_t err) { return err == EsxdosHostFs::kBareDotDot ? static_cast<uint8_t>(EsxdosHostFs::kEnoent) : err; }
 
 /// A name a call that CREATES one can give an entry: no wildcard characters
 /// (NextZXOS answers esx_einval, measured), and no trailing space (NextZXOS keeps
@@ -392,7 +392,7 @@ uint8_t EsxdosHostFs::resolve(const std::string& guest_path, fs::path& out,
             // the second is reported as kBareDotDot and each call maps it (see
             // lookup_miss() and the per-call maps). The escaping path is never
             // formed either way.
-            if (comps.empty()) return k + 1 < parts.size() ? kEnotdir : kBareDotDot;
+            if (comps.empty()) return k + 1 < parts.size() ? static_cast<uint8_t>(kEnotdir) : kBareDotDot;
             comps.pop_back();
             continue;
         }
@@ -935,7 +935,7 @@ uint8_t EsxdosHostFs::wild_lookup(const std::string& guest, std::vector<Listed>&
     // name, a symlink, would make every wildcard call there esx_eacces.)
     fs::path dir;
     if (const uint8_t err = resolve(lf.prefix.empty() ? std::string(".") : lf.prefix, dir))
-        return err == kBareDotDot ? kEnotdir : err;   // more path follows: not a bare '..'
+        return err == kBareDotDot ? static_cast<uint8_t>(kEnotdir) : err;   // more path follows: not a bare '..'
     std::error_code dec;
     if (!fs::is_directory(fs::symlink_status(dir, dec)) || dec) return kEnotdir;
     if (!wildcard_entries(dir, lf.leaf, hits)) return kEio;
@@ -1040,7 +1040,7 @@ uint8_t EsxdosHostFs::rename(const std::string& from, const std::string& to)
     // An empty destination is the current directory (measured: the source went
     // into it), as "." is.
     if (uint8_t err = resolve(to.empty() ? std::string(".") : to, dst, &dcomps))
-        return err == kBareDotDot ? kEinval : err;           // measured: a bare '..' as destination
+        return err == kBareDotDot ? static_cast<uint8_t>(kEinval) : err;           // measured: a bare '..' as destination
     fs::path target = dst;
     std::vector<std::string> tcomps = dcomps;
     const fs::file_status dst_st = fs::symlink_status(dst, ec);
@@ -1124,7 +1124,7 @@ uint8_t EsxdosHostFs::mkdir(const std::string& guest_path)
     if (!active_) return kEnoent;
     fs::path host;
     if (uint8_t err = resolve(guest_path, host))
-        return err == kBareDotDot ? kEinval : err;           // measured: "C:/.." is esx_einval
+        return err == kBareDotDot ? static_cast<uint8_t>(kEinval) : err;           // measured: "C:/.." is esx_einval
     if (host == root_) return kEinval;                  // measured, not esx_eexist
     std::error_code ec;
     if (fs::exists(fs::symlink_status(host, ec))) return kEexist;
@@ -1294,7 +1294,7 @@ uint8_t EsxdosHostFs::opendir(const std::string& guest_path, uint8_t mode,
 
     fs::path host;
     if (const uint8_t err = resolve(guest_path, host))
-        return err == kBareDotDot ? kEnotdir : err;    // a bare '..': measured esx_enotdir
+        return err == kBareDotDot ? static_cast<uint8_t>(kEnotdir) : err;    // a bare '..': measured esx_enotdir
 
     std::error_code ec;
     const fs::file_status st = fs::symlink_status(host, ec);
@@ -1483,7 +1483,7 @@ uint8_t EsxdosHostFs::getcwd_of(const std::string& filespec,
     fs::path host;
     std::vector<std::string> comps;
     if (const uint8_t err = resolve(dir, host, &comps))
-        return err == kBareDotDot ? kEnotdir : err;
+        return err == kBareDotDot ? static_cast<uint8_t>(kEnotdir) : err;
     std::error_code ec;
     const fs::file_status st = fs::symlink_status(host, ec);
     if (ec || !fs::exists(st)) return kEnotdir;   // measured, see resolve()
@@ -1498,7 +1498,7 @@ uint8_t EsxdosHostFs::chdir(const std::string& guest_path)
     fs::path host;
     std::vector<std::string> comps;
     if (const uint8_t err = resolve(guest_path, host, &comps))
-        return err == kBareDotDot ? kEnotdir : err;    // a bare '..': measured esx_enotdir
+        return err == kBareDotDot ? static_cast<uint8_t>(kEnotdir) : err;    // a bare '..': measured esx_enotdir
 
     std::error_code ec;
     const fs::file_status st = fs::symlink_status(host, ec);
