@@ -18,8 +18,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Memory/MMU (int)      |      137 |      137 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      379 |      379 |      0 |       0 |    100% | 🟢 All tests pass. |
-| esxDOS stub           |      314 |      314 |      0 |       0 |    100% | 🟢 All tests pass. |
-| esxDOS stub (symlinks, POSIX) |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
+| esxDOS stub           |      334 |      334 |      0 |       0 |    100% | 🟢 All tests pass. |
+| esxDOS stub (symlinks, POSIX) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quick snapshots: prune never follows a symlink (GH #321) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg PATH lookup, POSIX) |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | PGO link-map parser (GH #416) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -48,9 +48,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD File Add (POSIX-only rows) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (case-sensitive host) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card Provisioner   |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card Provisioner   |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Warm start (GH #234)  |       86 |       86 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Warm start (GH #234)  |       94 |       94 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot SD identity (.jns, GH #27 S7) |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot/warm start: no whole-card read (GH #396) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -59,7 +59,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Compositor            |      252 |      252 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video             |      164 |      164 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ULA Video (int)       |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ULA Video (int)       |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Floating Bus          |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |      113 |      113 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      178 |      178 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -90,6 +90,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host key minimum-hold latch |      182 |      182 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL Pointer Release (GH #365) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SDL upgrade offer box (GH #476) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL window title (version) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SIGINT/SIGTERM quit request |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -182,7 +183,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Main-window title (version) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI light/dark scheme (GH #363) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI scheme: private bus dies with the suite (GH #414) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD-card/NextPi download dialog (GH #358) |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD-card/NextPi download dialog (GH #358) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Toolbar SVG icon set + icon lint |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply) |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -202,6 +203,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16253**| **16253**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16311**| **16311**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
