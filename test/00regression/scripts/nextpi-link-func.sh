@@ -62,8 +62,9 @@ if want nextpi-link-func; then
             || fails+=("the start of QEMU was not logged")
 
         if [[ "$exe" == .exe ]]; then
-            port=$(grep -oP 'port=\K[0-9]+' "$bindir/args" 2>/dev/null | head -n1 || true)
-            [[ -n "$port" ]] || fails+=("QEMU was not given a listening port (no port= in its arguments)")
+            # the chardev argument only: the sound card's `port=1` (USB) also appears in the argv
+            port=$(tr -d '\r' <"$bindir/args" 2>/dev/null | grep -oP '^socket,id=pi,.*port=\K[0-9]+' | head -n1 || true)
+            [[ -n "$port" ]] || fails+=("QEMU was not given a listening port (no socket,id=pi chardev port= in its arguments)")
             grep -q "Raspberry Pi serial link attached to UART 1 - TCP 127.0.0.1:$port;" <<<"$out" \
                 || fails+=("the serial link was not attached over TCP 127.0.0.1:${port:-?}")
         else
