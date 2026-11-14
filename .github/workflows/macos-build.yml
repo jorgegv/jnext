@@ -1,9 +1,11 @@
 # Standalone macOS build, triggered by hand from the GitHub Actions UI
 # (Actions → "macOS Build (manual)" → Run workflow). Lets the macOS build be
-# exercised WITHOUT cutting a release — the macos leg in release.yml only runs
-# on a published tag and is continue-on-error, so failures there are easy to
-# miss. This workflow is NOT continue-on-error: a broken macOS build fails the
-# run, loud and visible.
+# exercised WITHOUT cutting a release: the macOS legs in release.yml only run on
+# a pushed v* tag (or its own manual dispatch, which also builds every Linux and
+# Windows package). Cheapest way to iterate on the macOS build: macOS jobs only.
+# Two jobs, one per architecture (Apple Silicon with Homebrew, Intel with
+# MacPorts: Homebrew builds no Intel bottles). Neither is continue-on-error: a
+# broken macOS build fails the run, loud and visible.
 name: macOS Build (manual)
 
 on:
@@ -66,6 +68,45 @@ jobs:
         if: ${{ inputs.package }}
         uses: actions/upload-artifact@v6
         with:
-          name: jnext-macos-package
+          name: jnext-macos-arm64-package
+          path: build/mac-release/*.dmg
+          if-no-files-found: error
+
+  # GH #494: the Intel build. MacPorts supplies the dependencies (see the
+  # macos-intel job in ci.yml for why), and MACOS_DEPLOYMENT_TARGET=15.0 makes
+  # the package fail if anything in it needs a newer macOS than Sequoia.
+  macos-build-intel:
+    runs-on: macos-15-intel
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (MacPorts, binary archives only)
+        run: bash packaging/macos/install-macports.sh
+      # Same key as the other macOS jobs: the image is architecture-independent.
+      - name: Cache NextZXOS SD-card image
+        uses: actions/cache@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-24.11-recipe2-macos
+
+      - name: make gui-release
+        run: CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local make gui-release
+
+      - name: Smoke test (--version)
+        run: ./build/gui-release/jnext --version
+
+      - name: Package and verify (make package-macos)
+        if: ${{ inputs.package }}
+        timeout-minutes: 60
+        run: MACPORTS_PREFIX=/opt/local CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
+
+      - name: Upload package
+        if: ${{ inputs.package }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-macos-x64-package
           path: build/mac-release/*.dmg
           if-no-files-found: error

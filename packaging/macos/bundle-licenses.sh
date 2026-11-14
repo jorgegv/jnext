@@ -45,7 +45,7 @@ macports_owner() {
                "$MP_PREFIX/lib/$base/Versions/A/$name" \
                "$MP_PREFIX/Library/Frameworks/$base/Versions/A/$name"
     else
-        set -- "$MP_PREFIX/lib/$base"
+        set -- "$MP_PREFIX/lib/$base" "$MP_PREFIX/libexec/qt6/lib/$base"
     fi
     for cand in "$@"; do
         line=$(port -q provides "$cand" 2>/dev/null | sed -n 's/.* is provided by: *//p' | head -1 || true)

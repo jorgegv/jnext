@@ -35,6 +35,11 @@ name: Release
 #               issue #61: it carries the GH #46 verify-bundle gate, and a gate
 #               that cannot fail anything is not a gate. `publish` requires
 #               success(), so a failed .dmg withholds the release.
+#   * macos-intel → the same target on macos-15-intel, dependencies from MacPorts
+#               (Homebrew builds no Intel bottles), minimum macOS 15 enforced by
+#               verify-bundle. The two .dmg files are named by architecture
+#               (jnext-<ver>-macos-arm64.dmg / -macos-x64.dmg) so they cannot
+#               collide as release assets. Blocking, like `macos`.
 #
 # workflow_dispatch builds all packages for testing but never publishes.
 
@@ -421,7 +426,40 @@ jobs:
         run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
       - uses: actions/upload-artifact@v6
         with:
-          name: jnext-macos-package
+          name: jnext-macos-arm64-package
+          path: build/mac-release/*.dmg
+          if-no-files-found: error
+
+  # ---- macOS Intel: MacPorts dependencies (GH #494) -----------------------
+  # Blocking like `macos`, and in publish's `needs:`: a release either carries
+  # both Mac builds or stops and says so. To release without it on purpose (a
+  # MacPorts archive lagging a port bump, or after fall 2027 when the Intel
+  # runner images are retired), drop `macos-intel` from publish's `needs:` in
+  # that one commit - an explicit, visible decision, not a standing one.
+  macos-intel:
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Install dependencies (MacPorts, binary archives only)
+        run: bash packaging/macos/install-macports.sh
+      # Same key as the arm64 job: the image does not depend on the architecture.
+      - name: Cache NextZXOS SD-card image
+        uses: actions/cache@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-24.11-recipe2-macos
+      # MACOS_DEPLOYMENT_TARGET=15.0: verify-bundle fails the package if any
+      # Mach-O in the .dmg needs a newer macOS than Sequoia.
+      - name: Package and verify (make package-macos)
+        timeout-minutes: 60
+        run: MACPORTS_PREFIX=/opt/local CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
+      - uses: actions/upload-artifact@v6
+        with:
+          name: jnext-macos-x64-package
           path: build/mac-release/*.dmg
           if-no-files-found: error
 
@@ -445,7 +483,7 @@ jobs:
   # success() surprises): every build job is gated on build=='true', and
   # publish=='true' implies build=='true'.
   publish:
-    needs: [gate, deb, rpm, src, windows, flatpak, macos]
+    needs: [gate, deb, rpm, src, windows, flatpak, macos, macos-intel]
     if: success() && needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:

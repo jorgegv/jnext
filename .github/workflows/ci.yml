@@ -711,8 +711,8 @@ jobs:
   # uploaded so a macOS build can be tested WITHOUT cutting a release, which is
   # the other half of why the gap hurt.
   #
-  # This is the only job needing a real macos-latest runner; every other job in
-  # this file is fedora:44. It is deliberately NOT continue-on-error: a gate
+  # This and the macOS jobs below are the only ones needing a real macOS
+  # runner; every other job in this file is fedora:44. It is deliberately NOT continue-on-error: a gate
   # that cannot fail anything is not a gate (the same reasoning release.yml's
   # macos job records).
   macos:
@@ -745,7 +745,7 @@ jobs:
       - name: Upload the dmg
         uses: actions/upload-artifact@v6
         with:
-          name: jnext-macos-dmg
+          name: jnext-macos-arm64-dmg
           # BUILD_DIR_MAC_RELEASE, the same path release.yml's macos job
           # uploads. `if-no-files-found: error` so a renamed output directory
           # is a red job rather than a green one with no artifact in it.
@@ -753,6 +753,70 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+  # GH #494. The Intel Mac package, and the SDL-only unit suites on x86_64, in ONE
+  # job: GitHub caps a plan at 5 concurrent macOS jobs, shared by every run, so a
+  # job per concern would put a CI run at 5 and queue the next one. There is no
+  # architecture-specific source in src/ (no intrinsics, no __x86_64__), so the
+  # regression suite is not run on Intel: its behaviour is covered on arm64
+  # macOS and on Linux/Windows x64. BLOCKING, like `macos`.
+  #
+  # Dependencies come from MacPorts, not Homebrew: Homebrew has stopped building
+  # bottles for Intel Macs (a source build of Qt is hours, on an unsupported
+  # tier), MacPorts publishes x86_64 binary archives for all of them.
+  # packaging/macos/install-macports.sh installs a pinned MacPorts and the ports,
+  # binary archives only; MACPORTS_PREFIX then switches the packaging scripts and
+  # the unit-test PATH to it (Homebrew behaviour is unchanged when unset). The
+  # runner's own Homebrew in /usr/local is never searched, and bundle-licenses.sh
+  # fails the build on any bundled library no MacPorts port owns.
+  #
+  # macos-15-intel, not macos-26-intel: MacPorts binaries are built for the OS
+  # they were made on, and MACOS_DEPLOYMENT_TARGET=15.0 makes verify-bundle fail
+  # the build if anything in the .dmg needs a newer macOS than Sequoia. Both
+  # Intel runner images are retired in fall 2027; remove this job then.
+  macos-intel:
+    runs-on: macos-15-intel
+    # The same bound as `macos`: a PGO build, plus the unit suites. If a run
+    # measures this job above ~50 minutes, move it to release.yml and
+    # macos-build.yml only (it would start to extend the wall time of CI).
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (MacPorts, binary archives only)
+        run: bash packaging/macos/install-macports.sh
+      # The same key as `macos`: the image does not depend on the architecture.
+      # On a miss pgo-train.sh provisions it itself, and this step then saves it.
+      - name: Cache NextZXOS SD-card image
+        uses: actions/cache@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-24.11-recipe2-macos
+
+      - name: make package-macos (build, package, verify self-containment and minimum macOS)
+        run: MACPORTS_PREFIX=/opt/local CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
+
+      - name: make unit-test-sdl (the SDL-only suites on Intel macOS)
+        run: MACPORTS_PREFIX=/opt/local CMAKE_PREFIX_PATH=/opt/local LANG=C make unit-test-sdl
+
+      - name: Upload the dmg
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-macos-x64-dmg
+          path: build/mac-release/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload the suites' logs
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-macos-x64-unit-logs
+          path: build/sdl-unit-test/test-logs
+          if-no-files-found: ignore
 
   # GH #214. The SDL-only unit suites on macOS. The `macos` job above builds and
   # packages but runs no suite, so a POSIX divergence in a suite or in the code it
