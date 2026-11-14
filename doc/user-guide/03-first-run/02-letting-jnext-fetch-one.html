@@ -955,6 +955,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#nextzxos-2611-and-the-fpga-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NextZXOS 26.11 and the FPGA core
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#when-a-newer-distribution-is-available" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4193,11 +4204,12 @@ SD card image</strong>. Answer yes and JNEXT will:</p>
   Next's firmware refuses such a card, as the real machine does;</li>
 <li>it gets a default <code>/MACHINES/NEXT/config.ini</code>, the firmware's settings
   file;</li>
-<li><code>/MACHINES/NEXT/zx81.rom</code> is made 32 KB long: the same 16 KB ROM, twice.
-  The distribution ships it as 16 KB, but the firmware's boot menu loads
-  the ZX81 entry as 32 KB and stops on <code>zx81.rom...error reading!</code>. The
-  ZX Spectrum Next team made the same change after that distribution was
-  released. JNEXT makes it only when the file is exactly the one the
+<li><code>/MACHINES/NEXT/zx81.rom</code> is made 32 KB long, the same 16 KB ROM twice,
+  when the distribution ships it as 16 KB (NextZXOS 24.11 did; 26.11 already
+  ships 32 KB and is left alone). The firmware's boot menu loads the ZX81
+  entry as 32 KB and stops on <code>zx81.rom...error reading!</code> otherwise. The
+  ZX Spectrum Next team made the same change after the 24.11 distribution
+  was released. JNEXT makes it only when the file is exactly the one that
   distribution ships. A working copy prepared by an earlier version of
   JNEXT is not fixed automatically; see
   <a href="06-if-something-goes-wrong.html">If something goes wrong</a>.</li>
@@ -4220,6 +4232,11 @@ fetched was kept. The address can be selected and copied from the message: try i
 browser to see whether the file can be reached at all.</p>
 <p>Answering no leaves JNEXT with nothing to boot from, so it explains the problem
 and exits.</p>
+<h2 id="nextzxos-2611-and-the-fpga-core">NextZXOS 26.11 and the FPGA core<a class="headerlink" href="#nextzxos-2611-and-the-fpga-core" title="Permanent link">&para;</a></h2>
+<p>The distribution JNEXT downloads is NextZXOS 26.11. It ships FPGA core 3.03.00 in
+its <code>TBBLUE.TBU</code> update file, while JNEXT emulates core 3.02.03, the one it follows.
+NextZXOS 2.10 boots and runs on it, and the firmware shows core 3.02.03 on its
+splash screen. Whatever core 3.03.00 adds over 3.02.03 is not emulated.</p>
 <h2 id="when-a-newer-distribution-is-available">When a newer distribution is available<a class="headerlink" href="#when-a-newer-distribution-is-available" title="Permanent link">&para;</a></h2>
 <p>JNEXT remembers which distribution each image came from. When a version of JNEXT
 downloads a newer distribution than the one your image came from, it tells you so

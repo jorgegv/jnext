@@ -129,24 +129,25 @@ start rebases those to frame 500), a wall-clock bound, and a row that needs no
 NextZXOS (`beam-replay-func` injects a halt program at frame 160, before the
 firmware commits, and a shift does not help it) stay literals.
 
-There is one deliberate exception, `boot-nextzxos-splash`: its frame 252 is before the
-commit (295 on the 24.11 card), but it captures the firmware's own splash and the
+There is one deliberate exception, `boot-nextzxos-splash`: its frame 429 is before the
+commit (472 on the 26.11 card), but it captures the firmware's own splash and the
 screen must be taken at the same stage of that boot on every card. It is adopted
-(`@bf:252`); measured on the 26.11 card (commit 472) the shifted frame 429 shows the
-same splash stage, and the only difference from the 24.11 reference is the firmware
-version text, so the shift keeps its distance to the commit there.
+(`@bf:429`); on the 24.11 card (commit 295) the shifted frame 252 shows the same splash
+stage with the older firmware's text, so the shift keeps its distance to the commit.
 
-On the reference card the shift is 0, so every adopted row's command line, and every
-script it generates, is byte-identical to the literal row's and no reference
-changes. The `[sdcard-provision]` row reports the commit frame and the shift, and on
-the default master FAILS when the commit is not `BOOT_DEFAULT_COMMIT`: an emulator
-change that moves the boot is a red row, never a shift the helper quietly absorbs.
-On a candidate card (the seam below) any commit frame is allowed and reported.
+The literals are those of the default 26.11 card, whose shift is 0: every adopted row's
+command line, and every script it generates, is the literal one. (They were written
+against 24.11, commit 295, and rebased by `+177` per firmware run when 26.11 became the
+default: a 24.11 card now shifts by -177.) The `[sdcard-provision]` row reports the
+commit frame and the shift, and on the default master FAILS when the commit is not
+`BOOT_DEFAULT_COMMIT`: an emulator change that moves the boot is a red row, never a
+shift the helper quietly absorbs. On a candidate card (the seam below) any commit frame
+is allowed and reported.
 `esxdos-write-probe-measure.sh` takes the shift as `BOOT_SHIFT`.
 
 ## Evaluating a new NextZXOS distribution
 
-The default card is the 24.11 distribution, and the references and pins are
+The default card is the 26.11 distribution, and the references and pins are
 made against it. To find out what another distribution would change, without
 touching the machine-wide master that every concurrent run tests against, run
 the same tree twice (the same non-PGO `jnext`, master A = the default, master B
