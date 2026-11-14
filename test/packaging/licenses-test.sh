@@ -271,15 +271,26 @@ msg=""
 touch "$MP/lib/libbar.1.dylib" "$MP/lib/libbaz.1.dylib"
 mpown "$MP/lib/libbar.1.dylib" bar
 mpown "$MP/lib/libbaz.1.dylib" baz
-mpapp "$W/mpapp8" libbar.1.dylib libbaz.1.dylib libghost.1.dylib
+mpapp "$W/mpapp8" libaaghost.1.dylib libbar.1.dylib libbaz.1.dylib libzzghost.1.dylib
 if runmp "$W/mpapp8" "$W/mpout8"; then msg="$msg licence-less ports without fallback were accepted;"
 else
     grep -q 'port bar (libbar.1.dylib) has no licence' "$W/mpout8.log" || msg="$msg bar not named;"
     grep -q 'port baz (libbaz.1.dylib) has no licence' "$W/mpout8.log" || msg="$msg baz not named (stopped at the first?);"
-    grep -q 'no MacPorts port owns libghost.1.dylib' "$W/mpout8.log" || msg="$msg the unowned library not named;"
+    grep -q 'no MacPorts port owns libaaghost.1.dylib' "$W/mpout8.log" || msg="$msg the first unowned library not named;"
+    grep -q 'no MacPorts port owns libzzghost.1.dylib' "$W/mpout8.log" || msg="$msg the unowned library after it not named (stopped at the first?);"
 fi
 [ -z "$msg" ] && ok macports-reports-all "licence-less and unowned libraries are all named, then the run fails" \
               || bad macports-reports-all "$msg"
+
+# zlib (a dependency of Qt, libpng, freetype, glib2) installs no licence file: its fallback ships
+msg=""
+touch "$MP/lib/libz.1.dylib"
+mpown "$MP/lib/libz.1.dylib" zlib
+mpapp "$W/mpappz" libz.1.dylib
+if ! runmp "$W/mpappz" "$W/mpoutz"; then msg="$msg script failed: $(tail -3 "$W/mpoutz.log" | tr "\n" " ");"
+else [ -f "$W/mpoutz/bundled/zlib/LICENSE" ] || msg="$msg zlib fallback not shipped;"; fi
+[ -z "$msg" ] && ok macports-zlib-fallback "a licence-less zlib gets the zlib fallback text" \
+              || bad macports-zlib-fallback "$msg"
 
 # a licence-less port with no fallback is fatal ON ITS OWN (no unowned library to fail the run)
 msg=""

@@ -240,8 +240,11 @@ fi
 
 if [ "$minos_over" -gt 0 ] || [ "$minos_unknown" -gt 0 ] || [ "$plist_bad" -ne 0 ]; then
     note
-    note "$minos_over file(s) newer than macOS $MIN_FLOOR and $minos_unknown with no"
-    note "readable minimum, across $checked Mach-O file(s)."
+    if [ "$minos_over" -gt 0 ] || [ "$minos_unknown" -gt 0 ]; then
+        note "$minos_over file(s) newer than macOS $MIN_FLOOR and $minos_unknown with no"
+        note "readable minimum, across $checked Mach-O file(s)."
+    fi
+    [ "$plist_bad" -eq 0 ] || note "Info.plist does not declare LSMinimumSystemVersion $MIN_FLOOR."
     exit 1
 fi
 
