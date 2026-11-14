@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -848,9 +849,13 @@ void run_esxdos_write_rows(int& passed, int& failed)
         f.hfs.chmod("k.txt", H::kChmodWrite, H::kChmodWrite);
         fs::remove(f.root / "k.txt");
         f.file("k.txt", "kk");
+        // The identity is size, modification time and inode: a host that stamps both files in one
+        // timestamp tick and gives no inode (Windows) cannot tell them apart, so the second file is
+        // given a later time, as any real re-create has.
+        fs::last_write_time(f.root / "k.txt", fs::last_write_time(f.root / "k.txt") + std::chrono::seconds(10));
         wcheck("HFW-170",
-               "a file re-created on the host under the same name and size is archive-set (a new file; "
-               "design, no recorded step)",
+               "a file re-created on the host under the same name and size, with a later modification "
+               "time, is archive-set (a new file; design, no recorded step)",
                f.attr_of("k.txt") == H::kAttrArchive);
         f.dir("sub");
         f.file("sub/m.txt", "m");

@@ -234,7 +234,10 @@ public:
     /// behaviour measured in the `[chmod]` and `[arch]` groups of the recording. Closing a handle
     /// opened for writing, F_TRUNCATE and F_FTRUNCATE set it again, a rename moves it with the
     /// file, and a file jnext did not change but whose size, modification time or inode differs
-    /// from what the entry recorded (changed or re-created on the host) is archive-set.
+    /// from what the entry recorded (changed or re-created on the host) is archive-set. (A host that
+    /// stamps a re-create in the same timestamp tick and has no inode, Windows, cannot tell a same-size
+    /// re-create from the file; jnext's own unlink and rmdir drop the entry, so only a host-side
+    /// delete and re-create inside one tick is missed.)
     uint8_t chmod(const std::string& guest_path, uint8_t values, uint8_t mask);
 
     /// NextZXOS's name matcher for F_UNLINK / F_CHMOD / F_TRUNCATE wildcards,
