@@ -449,6 +449,7 @@ int main() {
         {"1e", false, 0}, {"1e+", false, 0}, {"0x10", false, 0}, {"6.25x", false, 0}, {"6,25", false, 0},
         {"inf", false, 0}, {"nan", false, 0}, {"--3", false, 0}, {"1e999", false, 0}, {"1e-999", false, 0},
         {"0.1e-999", false, 0}, {".5e-400", false, 0}, {"0.0e-999", true, 0},
+        {"1e-310", false, 0}, {"2.5e-308", true, 2.5e-308},
     };
     auto run_cases = [&](ParseFn fn) {
         std::string bad;
@@ -472,7 +473,7 @@ int main() {
     {
 #ifdef JNEXT_HAVE_FLOAT_FROM_CHARS
         const std::string bad = run_cases(float_parse::parse_double_chars);
-        check("SETK-22", "the from_chars arm of float_parse (this library has it) gives the same answers as the stream arm", bad.empty(), bad);
+        check("SETK-22", "the from_chars arm of float_parse (this library has it) gives the same answers as the stream arm, subnormals refused in both", bad.empty(), bad);
 #else
         const std::string bad = run_cases(float_parse::parse_double);
         check("SETK-22", "float_parse::parse_double (this library has no floating from_chars: the stream arm) gives the table's answers", bad.empty(), bad);

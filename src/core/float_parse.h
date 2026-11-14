@@ -14,8 +14,10 @@
 //   - parse_double: the first when it exists, else the second.
 // Grammar, the same in every arm: an optional '-', decimal digits with an
 // optional '.', an optional exponent. Hex floats, inf, nan, a '+', leading or
-// trailing blanks and any trailing junk are refused; so are values that overflow
-// or that are not zero and underflow to it.
+// trailing blanks and any trailing junk are refused; so are values that overflow,
+// and any nonzero result that is not a normal double (underflow to zero, and
+// subnormals: libstdc++ returns those, libc++'s stream refuses them, so every
+// platform is made to refuse them).
 #include <charconv>
 #include <cmath>
 #include <locale>
@@ -32,6 +34,7 @@ inline bool parse_double_chars(const char* b, const char* e, double& out) {
     double d = 0;
     const std::from_chars_result r = std::from_chars(b, e, d);
     if (r.ec != std::errc() || r.ptr != e || !std::isfinite(d)) return false;   // from_chars reads inf/nan
+    if (d != 0 && !std::isnormal(d)) return false;                              // subnormal
     out = d;
     return true;
 }
@@ -62,6 +65,7 @@ inline bool parse_double_stream(const char* b, const char* e, double& out) {
     double d = 0;
     is >> std::noskipws >> d;
     if (is.fail() || (nonzero && d == 0)) return false;   // overflow, or underflow to 0
+    if (d != 0 && !std::isnormal(d)) return false;        // subnormal
     out = d;
     return true;
 }
