@@ -1779,7 +1779,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         return done(0x00);
                     // The calls that change the host folder (GH #457). Registers
                     // from the z88dk asm_esx_f_*.asm headers; the answers are
-                    // NextZXOS 2.09's, measured (esxdos_hostfs.h). On success A
+                    // NextZXOS 2.10's, measured (esxdos_hostfs.h). On success A
                     // is whatever it was (NextZXOS leaves junk there): 0 here.
                     case 0xAD:    // F_UNLINK: A=drive, IX=filespec (wildcards)
                         if (const uint8_t err = esxdos_hostfs_.unlink(read_filespec(r.IX)))
@@ -1881,7 +1881,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     // behind a direct load, so it, and any other B, get the
                     // default refusal below. B=1 copies the message into the
                     // 32-byte buffer at DE, the last character with bit 7 set.
-                    // Measured under NextZXOS 2.09: Fc=0 and A=$02 for every code,
+                    // Measured under NextZXOS 2.10: Fc=0 and A=$02 for every code,
                     // the texts in esxdos_error_message(), "Unknown error" above
                     // 31 (GH #457).
                     if (!direct_nex_esxdos_ && !esxdos_hostfs_.active())

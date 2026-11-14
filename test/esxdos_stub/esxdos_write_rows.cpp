@@ -857,6 +857,22 @@ void run_esxdos_write_rows(int& passed, int& failed)
                "a file re-created on the host under the same name and size, with a later modification "
                "time, is archive-set (a new file; design, no recorded step)",
                f.attr_of("k.txt") == H::kAttrArchive);
+        // A file jnext deletes and then creates again under the same name is a NEW directory entry:
+        // the archive bit is set, also when it is read through the handle that created it (design,
+        // like HFW-170: the recording has no F_FSTAT of a fresh create).
+        f.file("z.txt", "zz");
+        f.hfs.chmod("z.txt", H::kChmodWrite, H::kChmodWrite);
+        const bool z_clear = f.attr_of("z.txt") == 0;
+        f.hfs.unlink("z.txt");
+        uint8_t zh = 0;
+        const uint8_t zo = f.hfs.open("z.txt", H::kModeWrite | H::kModeOpenCreat, zh);
+        H::StatInfo zst;
+        const uint8_t zf = f.hfs.fstat(zh, zst);
+        f.hfs.close(zh);
+        wcheck("HFW-173",
+               "a file deleted through F_UNLINK and created again through F_OPEN is archive-set, read "
+               "through the new handle too: nothing of the old entry survives (design; no recorded step)",
+               z_clear && zo == H::kOk && zf == H::kOk && zst.attr == H::kAttrArchive);
         f.dir("sub");
         f.file("sub/m.txt", "m");
         f.hfs.chmod("sub/m.txt", H::kChmodWrite, H::kChmodWrite);

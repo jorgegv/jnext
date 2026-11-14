@@ -102,11 +102,19 @@ sd_seam_raw_distro() {
     echo "${d:-sn-emulator-24.11.zip}"
 }
 
+# sd_master_distro: the zip name the master was made from: its .distro sidecar, else the legacy
+# 24.11 name (a master made before distributions were recorded).
+sd_master_distro() {
+    local d=""
+    [[ ! -f "$FALLBACK_SD_IMAGE.distro" ]] || d=$(head -n1 "$FALLBACK_SD_IMAGE.distro" | tr -d '[:space:]')
+    echo "${d:-sn-emulator-24.11.zip}"
+}
+
 sd_rederive() {
     # The witness rm is belt-and-braces: sd_rederive rewrites it on every
     # success anyway. It matters only on the FAILURE path, where it stops a
     # witness describing an image that no longer exists from surviving.
-    rm -f "$FALLBACK_SD_IMAGE" "$SD_WITNESS" "$SD_RECIPE"
+    rm -f "$FALLBACK_SD_IMAGE" "$SD_WITNESS" "$SD_RECIPE" "$FALLBACK_SD_IMAGE.distro"
     # JNEXT_CONFIG_DIR is pinned to the MASTER's directory for this one
     # invocation. It points at the per-run clone dir everywhere else, and the
     # provisioner honours it (src/core/sdcard_provisioner.cpp) — without the
@@ -140,6 +148,8 @@ sd_rederive() {
 # if it is somehow absent, fall through unlocked rather than refuse to test.
 sd_state=""
 sd_old_recipe=""
+sd_old_distro=""
+sd_want_distro=$(sd_expected_distro) || sd_want_distro=""
 # sd_derive_as <state> — re-derive, and name the outcome: <state> on success,
 # "wrongrecipe" when jnext derived an image of another recipe, else "failed".
 sd_derive_as() {
@@ -185,10 +195,17 @@ sd_seam_gate() {
     flock 9 2>/dev/null || true
     if [[ -z "$sd_want_recipe" ]]; then
         sd_state="norecipe"
+    elif [[ -z "$sd_want_distro" ]]; then
+        sd_state="nodistro"
     elif [[ -n "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]]; then
         sd_seam_gate
     elif [[ ! -f "$FALLBACK_SD_IMAGE" || ! -f "$SD_WITNESS" ]]; then
         sd_derive_as provisioned
+    elif [[ "$(sd_master_distro)" != "$sd_want_distro" ]]; then
+        # The default distribution moved (GH #476): a master of another one is replaced, however
+        # healthy its witness and recipe, or every boot row runs on the wrong card.
+        sd_old_distro=$(sd_master_distro)
+        sd_derive_as distro
     elif [[ "$(sd_recipe)" != "$sd_want_recipe" ]]; then
         sd_old_recipe=$(sd_recipe)
         sd_derive_as recipe
@@ -216,10 +233,12 @@ case "$sd_state" in
                  [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] || sd_text=": candidate card unchanged since it was witnessed" ;;
     provisioned) sd_verdict=pass; sd_text=": derived $FALLBACK_SD_IMAGE" ;;
     repaired)    sd_verdict=pass; sd_text=": WAS MODIFIED — re-derived from the verified distribution image" ;;
+    distro)      sd_verdict=pass; sd_text=": made from distribution $sd_old_distro - re-derived from the default $sd_want_distro" ;;
     recipe)      sd_verdict=pass; sd_text=": made by image recipe ${sd_old_recipe:-(none recorded)} — re-derived with recipe $sd_want_recipe" ;;
     adopted)     sd_verdict=pass; sd_text=": candidate card used as it is and witnessed (not re-derived: it has no witness yet, so it is taken as it is)" ;;
     seamfail)    sd_verdict=fail; sd_text=": candidate card: $sd_seam_why" ;;
     wrongrecipe) sd_verdict=fail; sd_text=": jnext derived an image of recipe '${sd_got_recipe:-}', expected '$sd_want_recipe' — $JNEXT is not built from this tree" ;;
+    nodistro)    sd_verdict=fail; sd_text=": cannot read kDistroUrl from src/core/sdcard_provisioner.cpp" ;;
     norecipe)    sd_verdict=fail; sd_text=": cannot read kFixedImageRecipe from src/core/sdcard_provisioner.cpp" ;;
     *)           sd_verdict=fail; sd_text=": provisioning failed — $FALLBACK_SD_IMAGE was not produced" ;;
 esac

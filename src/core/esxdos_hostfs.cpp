@@ -753,6 +753,7 @@ uint8_t EsxdosHostFs::write(uint8_t handle, const uint8_t* data,
     f->stream.flush();
     written = count;
     f->position += count;
+    archive_refresh(fs::path(f->path));
     return kOk;
 }
 
@@ -1215,6 +1216,7 @@ uint8_t EsxdosHostFs::ftruncate(uint8_t handle, uint32_t size)
     f->stream.clear();
     f->stream.open(fs::path(f->path), std::ios::binary | std::ios::in | std::ios::out);
     if (!f->stream.is_open()) { *f = FileHandle{}; return kEio; }
+    if (!ec) archive_refresh(fs::path(f->path));
     return ec ? kEio : kOk;
 }
 
@@ -1252,9 +1254,9 @@ bool EsxdosHostFs::archive_of(const fs::path& host) const
 {
     const auto it = archive_clear_.find(host.string());
     if (it == archive_clear_.end()) return true;
-    // A file one of our handles holds open is being changed by us: the entry stands. Any other
-    // difference from what was recorded is the host's doing (an edit, a re-create): set.
-    if (is_open_file(host)) return false;
+    // Any difference from what was recorded is a different file, or the host's doing (an edit, a
+    // re-create): set. Our own writes through a handle refresh the record (archive_refresh), so
+    // they never read as a change, and a stale entry is never trusted because a handle is open.
     struct stat sb{};
     std::error_code ec;
     const auto size = fs::file_size(host, ec);
@@ -1277,6 +1279,13 @@ void EsxdosHostFs::archive_record(const fs::path& host, bool set)
     a.mtime = fs::last_write_time(host, ec);
     a.inode = static_cast<std::uintmax_t>(sb.st_ino);
     archive_clear_[key] = a;
+}
+
+void EsxdosHostFs::archive_refresh(const fs::path& host)
+{
+    // A change of ours to a file whose bit is clear (until its handle closes and sets the bit):
+    // the record follows the file, so only a change by someone else makes it stale.
+    if (archive_clear_.count(host.string())) archive_record(host, false);
 }
 
 void EsxdosHostFs::archive_move(const fs::path& from, const fs::path& to)
