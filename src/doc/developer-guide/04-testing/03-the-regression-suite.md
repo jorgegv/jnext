@@ -366,15 +366,18 @@ is a harness fault.
     Windows.
 11. A stalled `jnext.exe` names its blocked call. With
     `JNEXT_WINE_CAPTURE_DIR` set (the driver exports
-    `build/regression-artifacts/wine-stall/<run>/`) the runner's watchdog fires once on a
-    process at least 20 s old whose CPU time has been flat for 10 s and totals 2 s or less, and
-    writes `wine-stall-<time>-<pid>.txt`: `/proc` threads, the prefix's processes, the
-    `winedevice.exe` threads, `winedbg info thread`, and one `Backtrace:` per thread of that
-    Windows pid (one `winedbg --file` session; never `bt all`, which real winedbg refuses). TERM
-    is forwarded at once. Before the first row the driver checks the capture on a real
-    `jnext.exe` blocked on the SD prompt and treats a capture with no `ReadFile` backtrace as a
-    harness fault. Every Windows run ends with a `wine prefix at the end:` line and lists any
-    captures.
+    `build/regression-artifacts/wine-stall/<run>/`) the runner's watchdog fires once on the exe
+    (the process of its name that carries the runner's `JNEXT_WINE_RUN_ID` marker: wine 11.20 runs
+    a 32-bit exe behind `start.exe` as a separate process) when it is at least 20 s old, its CPU
+    time has been flat for 10 s and totals 2 s or less. It writes `wine-stall-<time>-<pid>.txt`:
+    `/proc` threads, a `target:` line, the prefix's processes, the `winedevice.exe` threads,
+    `winedbg info thread`, and one `Backtrace:` per thread from `test/wine-stack.c` (built by
+    `make wine-stack-x64` / `wine-stack-x86`, a helper that attaches no debugger: winedbg's attach
+    kills a 32-bit process on that wine). TERM and INT are forwarded to both processes. Before the
+    first row the driver blocks a decoy and a target `jnext.exe` on the SD prompt, and treats a
+    capture that is not the target's, names no `ReadFile` frame, or leaves either process unable to
+    exit by itself as a harness fault. Every Windows run ends with a `wine prefix at the end:`
+    line and lists any captures.
 
 **On macOS** the SD image comes from `make sdcard-image`, the per-run clone falls
 back to a plain copy where `cp --reflink=always` does not exist (reported as

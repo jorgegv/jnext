@@ -38,26 +38,35 @@
 #   - bash and wine by absolute path, since a row may set PATH to an empty dir;
 #   - DISPLAY is kept only for an xvfb-run display, never a desktop one.
 # (JNEXT_WINE_BIN replaces /usr/bin/wine: the harness self-test's stub.)
-#   - a stalled jnext.exe names its blocked call (GH #383): when JNEXT_WINE_CAPTURE_DIR is
+#   - a stalled jnext.exe names its blocked call (GH #383, #487): when JNEXT_WINE_CAPTURE_DIR is
 #     set, a watchdog (the internal mode `--watchdog`, a child of this script with its stdio
-#     on /dev/null, so it holds none of the row's pipes) reads /proc/<wine pid>/stat once a
+#     on /dev/null, so it holds none of the row's pipes) reads /proc/<exe pid>/stat once a
 #     second and fires ONCE when the process is >= 20 s old, its CPU time (utime+stime) has
 #     not moved for 10 s and its total is <= 2 s: a startup stall has 0.1-0.3 s of CPU, a
 #     starved but runnable process keeps advancing, one that worked and went idle is over
-#     the cap. It then runs the internal mode `--capture`, which saves to
-#     <dir>/wine-stall-<time>-<pid>.txt: the target's Linux threads and CPU time from /proc;
-#     the prefix's processes with their thread counts; the threads of the prefix's
-#     winedevice.exe hosts (/proc only); `winedbg info thread`; and one `Backtrace:` per
-#     thread of THAT Windows pid (one `winedbg --file` session: attach, `bt <tid>` for each
-#     tid `info thread` lists under the pid, detach). It never uses `bt all`: real winedbg
-#     answers it with "can't debug several processes at once" (the stub of the harness
-#     self-test mirrors that). Then it signals this script (USR1), which writes one stderr
-#     line naming the file. TERM is simply forwarded, at once: nothing is captured at the
-#     bound, so no kill is racing the capture. `--prefix-state` prints the thread counts of
-#     the prefix's wine processes (the driver's end-of-run line).
-#     winedbg runs only while the target is alive, and the name fallback only if /proc shows
-#     it as the only process of its name in the prefix: a winedbg killed by its bound kills
-#     its debuggee under wine 11, so it may only ever be pointed at the stalled process.
+#     the cap. THE EXE: wine 11.20 runs a 64-bit exe in the process this script started, but a
+#     32-bit one as `start.exe /exec <exe>`, which starts it as ANOTHER Linux process (not this
+#     script's child). So this script exports JNEXT_WINE_RUN_ID=<its pid>.<time> into wine's
+#     environment (it reaches the exe's /proc/<pid>/environ) and exe_pid takes the ONE process of
+#     the exe's name in the prefix that carries it; until it exists the wine process stands in.
+#     Parallel rows share a prefix and an exe name, so the name alone never decides. TERM and INT
+#     are forwarded to both processes (start.exe does not pass INT on). The watchdog then runs the
+#     internal mode `--capture`, which saves to <dir>/wine-stall-<time>-<pid>.txt: the target's
+#     Linux threads and CPU time from /proc and a `target:` line; the prefix's processes with their
+#     thread counts; the threads of the prefix's winedevice.exe hosts (/proc only); `winedbg info
+#     thread` (it attaches to nothing); and one `Backtrace:` per thread of the exe from a
+#     debugger-free helper, test/wine-stack.c (built by `make wine-stack-x64` / `wine-stack-x86`,
+#     found through JNEXT_WINE_STACK_DIR, default build/wine-stack): it picks the process by name
+#     and marker, suspends a thread only around GetThreadContext and walks its stack. The helper
+#     replaces winedbg's attach/bt/detach session because that attach kills a 32-bit process on
+#     wine 11.20 (the break-in thread faults on a truncated address) and real winedbg prints no
+#     command line to pick the process by. The helper's bitness follows the exe's PE machine
+#     (`--pe-machine <exe>` prints it); without a helper the capture says so. Then it signals
+#     this script (USR1), which writes one stderr line naming the file. TERM is simply
+#     forwarded, at once: nothing is captured at the bound, so no kill is racing the capture.
+#     `--prefix-state` prints the thread counts of the prefix's wine processes (the driver's
+#     end-of-run line). The helper runs only while the target is alive and under a bound with
+#     --kill-after (JNEXT_WINE_DBG_BOUND_S, test-only).
 #     The /proc sections come first and are never cut. wine does not catch SIGTERM
 #     (measured), so the forward always lands. INT is forwarded at once.
 #     JNEXT_WINE_STALL_AFTER_S and JNEXT_WINE_STALL_FLAT_S replace the 20 s and the 10 s;
@@ -402,12 +411,12 @@ if [[ "${1:-}" == --capture ]]; then
     stack_dir=${JNEXT_WINE_STACK_DIR:-${SELF%/*}/../build/wine-stack}
     mach=$(pe_machine "$cap_exe")
     case $mach in x86) helper=$stack_dir/wine-stack-x86.exe ;; x64) helper=$stack_dir/wine-stack-x64.exe ;; *) helper= ;; esac
-    if [[ -z $helper || ! -x $helper ]]; then
+    if ! target_alive; then
+        { echo "== wine-stack"; echo "pid $cap_pid is gone: no backtrace"; } >> "$cap_out"
+    elif [[ -z $helper || ! -x $helper ]]; then
         { echo "== wine-stack"; echo "no stack helper for $mach (${helper:-$cap_exe}); no backtrace"; } >> "$cap_out"
     elif [[ -z "${JNEXT_WINE_RUN_ID:-}" ]]; then
         { echo "== wine-stack"; echo "no run marker (JNEXT_WINE_RUN_ID): the process cannot be told from another row's; no backtrace"; } >> "$cap_out"
-    elif ! target_alive; then
-        { echo "== wine-stack"; echo "pid $cap_pid is gone: no backtrace"; } >> "$cap_out"
     else
         echo "== wine-stack ($mach helper $helper)" >> "$cap_out"
         stack_tmp=$cap_out.stack

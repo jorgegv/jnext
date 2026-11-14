@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=338  # 333 -> 338: HS-180d..e (the PE check, its two sub-conditions apart) and HS-181a..c (an unpacked package gets no MinGW sysroot on its wine PATH, decided by wine-run.sh --jnext from the absent CMakeCache.txt; GH #487).  # 330 -> 333: HS-180a..c (a cache-less dir, an unpacked Windows package, takes its target OS from its jnext.exe PE header and is refused otherwise; GH #487).  # 328 -> 330: HS-69t (a killed tagged row names its own bound), HS-69u (the real conf's bound= tag reaches the driver's array and exceeds the row's inner bound).  # 324 -> 328: HS-69p, HS-69q..s (a row's bound= tag overrides the driver's kill bound; the tag parser refuses a malformed or doubled one).  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=341  # 338 -> 341: HS-182a..j added (the capture of a 32-bit exe: the exe found by a per-runner marker, a debugger-free stack helper, a self-check with a decoy and a survival clause, wine 11.20 measurements; GH #487) and HS-98c, HS-98d, HS-98j, HS-98k, HS-98m, HS-98x, HS-99j retired: they pinned the exact command-line / name-only process match and the winedbg attach session, which are gone. Real winedbg prints NO command line under a process, so the exact match never fired on real wine (the stub printed lines real winedbg does not), and its attach kills a 32-bit process; HS-182c/d replace them. HS-99s keeps the listing half, HS-182j the helper half.  # 333 -> 338: HS-180d..e (the PE check, its two sub-conditions apart) and HS-181a..c (an unpacked package gets no MinGW sysroot on its wine PATH, decided by wine-run.sh --jnext from the absent CMakeCache.txt; GH #487).  # 330 -> 333: HS-180a..c (a cache-less dir, an unpacked Windows package, takes its target OS from its jnext.exe PE header and is refused otherwise; GH #487).  # 328 -> 330: HS-69t (a killed tagged row names its own bound), HS-69u (the real conf's bound= tag reaches the driver's array and exceeds the row's inner bound).  # 324 -> 328: HS-69p, HS-69q..s (a row's bound= tag overrides the driver's kill bound; the tag parser refuses a malformed or doubled one).  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2967,36 +2967,34 @@ wstub="$T/wine-stub"
 cat > "$wstub" <<'WEOF'
 #!/bin/bash
 # stub wine: report what a Windows process would see, per the first argument
-if [[ "${1:-}" == winedbg ]]; then   # the stall capture's debugger (GH #383), mirroring REAL winedbg (measured, wine 11)
-    if [[ "${2:-}" == --file ]]; then   # a script: `attach 0x<pid>`, `bt 0x<tid>`..., detach, quit
-        [[ -z "${STUB_FILE_HANG:-}" ]] || exec sleep 30
-        [[ -z "${STUB_CMDS_COPY:-}" ]] || cp "$3" "$STUB_CMDS_COPY"
-        spid=
-        while IFS= read -r l; do
-            case $l in
-                "attach "*) spid=${l#attach } ;;
-                "bt "*) printf 'Backtrace:\nSTUB-BT %s/%s\n' "$spid" "${l#bt }" ;;
-            esac
-        done < "$3"
-        exit 0
-    fi
+if [[ "${1:-}" == winedbg ]]; then   # the stall capture's process listing (GH #383), mirroring REAL winedbg (measured, wine 11.20)
     case "${3:-}" in
-        "info thread")
+        "info thread")   # real winedbg prints NO command line under a process (measured), only its id and name
             [[ -z "${STUB_DBG_HANG:-}" ]] || exec sleep 30
             [[ -z "${STUB_KILL_PID:-}" ]] || { kill -9 "$STUB_KILL_PID"; sleep 0.3; }
-            w=${STUB_EXE//\//\\}
             printf 'process  tid      prio    name (all IDs are in hex)\r\nSTUB-INFO-THREAD\r\n'
-            printf '00000100 fake.exe\r\n\t["Z:%s" %s]\r\n\t00000104    0     \r\n' "$w" "${STUB_ARGS_DECOY-hang-other}"
-            [[ -z "${STUB_DBG_ONE:-}" ]] || exit 0
-            printf '00000200 fake.exe\r\n\t["Z:%s" %s]\r\n\t00000204    0     \r\n' "$w" "${STUB_ARGS_TARGET-hang}"
-            [[ -z "${STUB_TID2:-}" ]] || printf '\t%s    0     \r\n' "$STUB_TID2"
-            [[ -z "${STUB_DBG_DUP:-}" ]] || printf '00000300 fake.exe\r\n\t["Z:%s" %s]\r\n\t00000304    0     \r\n' "$w" "${STUB_ARGS_TARGET-hang}"
+            printf '00000100 fake.exe\r\n\t00000104    0     \r\n00000200 fake.exe\r\n\t00000204    0     \r\n'
             ;;
-        "bt all")   # what real winedbg says to it, and no backtrace (R4 of GH #383: the old stub answered)
-            echo "WineDbg can't debug several processes at once" ;;
     esac
     exit 0
 fi
+case "${1:-}" in   # the stack helper (test/wine-stack.c), run by the capture through wine (GH #487)
+    *wine-stack-x64.exe|*wine-stack-x86.exe)
+        [[ -z "${STUB_HELPER_LOG:-}" ]] || echo "${1##*/}" >> "$STUB_HELPER_LOG"
+        [[ -z "${STUB_HELPER_HANG:-}" ]] || exec sleep 30
+        hb=${3:0:15}; hn=0; hf=
+        for hd in /proc/[0-9]*; do
+            { read -r hc < "$hd/comm"; } 2>/dev/null || continue
+            [[ $hc == "$hb" ]] || continue
+            { tr '\0' '\n' < "$hd/environ"; } 2>/dev/null | grep -qxF "$2" || continue
+            hf=${hd#/proc/}; hn=$((hn + 1))
+        done
+        [[ $hn -eq 1 ]] || { echo "matches=$hn"; exit 1; }
+        printf 'match pid %08x %s\r\ncommand line: %s\r\n' "$hf" "$3" "$(tr '\0' ' ' < "/proc/$hf/cmdline")"
+        printf 'Backtracing for thread %04x in process %04x:\r\nBacktrace:\r\n  1 0x1 ReadFile+0x112 in kernelbase\r\n' "$hf" "$hf"
+        [[ -z "${STUB_HELPER_KILL:-}" ]] || kill -9 "$hf"
+        exit 0 ;;
+esac
 case "${2:-}" in
     env)  echo "QPA=${QT_QPA_PLATFORM:-unset} WQPA=${WINEQT_QPA_PLATFORM:-unset} SDLV=${WINESDL_VIDEODRIVER:-unset}" ;;
     crlf) printf 'out line\r\n'; printf 'err line\r\n' >&2 ;;
@@ -3010,6 +3008,8 @@ case "${2:-}" in
     stall) exec perl -e '$| = 1; $SIG{TERM} = sub { print "got-term\n"; exit 9 }; print "ready\n"; $end = time + ($ENV{STUB_LIFE} || 1e6); select(undef, undef, undef, 0.1) while time < $end; print "bye\n"; exit 9' ;;
     burn) exec perl -e '$| = 1; $SIG{TERM} = sub { print "got-term\n"; exit 9 }; print "ready\n"; 1 while ((times)[0] + (times)[1] < ($ENV{STUB_BURN} || 2.6)); print "burned\n"; select(undef, undef, undef, 0.1) while 1' ;;
     hangint) exec perl -e '$| = 1; $SIG{INT} = sub { print "got-int\n"; exit 8 }; print "ready\n"; sleep 30' ;;
+    p64) exec "$STUB_STANDIN" "${@:3}" ;;   # wine runs a 64-bit exe in the process it started (its comm becomes the exe's)
+    p86) exec "$STUB_START" "${@:3}" ;;     # ...and a 32-bit one as `start.exe /exec <exe>`, which starts it as another process
 esac
 WEOF
 chmod +x "$wstub"
@@ -3123,9 +3123,29 @@ printf '#!/bin/sh\nexit 0\n' > "$PL/jnext"; chmod +x "$PL/jnext"
 printf '# expect: 3\n# expect-macos: 2\n# expect-windows: 2\nadm-a-func\n# os: stub\nadm-b-func os=linux,macos\n# os: stub\nabs-c-func os=linux,windows\n' > "$PLT/functional_tests.conf"
 # The stub runner's --jnext arm is the driver's once-per-run self-check (GH #383): it writes a
 # capture with a ReadFile frame, prints the runner's "state saved to" line and waits for TERM.
-PLW_SC_PASS='d=$JNEXT_WINE_CAPTURE_DIR; mkdir -p "$d"; f=$d/wine-stall-sc.txt; printf "== header\n\n== winedbg backtrace per thread of 0x1 (stub)\nBacktrace:\n=>0 0x1 in ntdll\n  1 0x2 ReadFile+0x110(file=8) in kernelbase\n" > "$f"; echo "wine-run: jnext.exe (pid 1) made no progress for 2 s at age 3 s; state saved to $f" >&2; trap "exit 143" TERM; while :; do sleep 0.1; done'
+PLW_SC_PASS='case " $* " in
+*" 128k "*) [ "${PLW_V:-}" = nodecoy ] || echo "No SD-card image was found at ~/.jnext/."; read -r a; echo "error: no SD-card image available."; exit 1 ;;
+esac
+[ "${PLW_V:-}" = nofile ] && exit 0
+d=$JNEXT_WINE_CAPTURE_DIR; mkdir -p "$d"; f=$d/wine-stall-sc.txt
+{ echo "== header"; echo "target: stub"; echo; echo "== target threads (tid comm state cpu-ticks wchan syscall)"; echo "7 ${PLW_TCOMM:-jnext.exe} S 1 x syscall: 0"; echo
+  case "${PLW_V:-}" in
+  nobt) ;;
+  refuse) printf "WineDbg can\047t debug several processes at once\n" ;;
+  noread) printf "Backtrace:\n=>0 0x1 in ntdll\n" ;;
+  *) echo "== wine-stack (stub)"; echo "command line: \"Z:\\x\\jnext.exe\" --headless --machine ${PLW_CMD:-48k}"; printf "Backtrace:\n  1 0x2 ReadFile+0x110 in kernelbase\n" ;;
+  esac; } > "$f"
+[ "${PLW_V:-}" = two ] && cp "$f" "$d/wine-stall-sc2.txt"
+echo "No SD-card image was found at ~/.jnext/."
+echo "wine-run: jnext.exe (pid 1) made no progress for 2 s at age 3 s; state saved to $f" >&2
+[ "${PLW_V:-}" = dead ] && exit 5
+read -r a
+[ "${PLW_V:-}" = rc0 ] && exit 0
+[ "${PLW_V:-}" = unclean ] && echo "Unhandled exception: page fault on execute access"
+echo "error: no SD-card image available."; exit 1'
+mkdir -p "$PL/build/wine-stack"; : > "$PL/build/wine-stack/wine-stack-x64.exe"; chmod +x "$PL/build/wine-stack/wine-stack-x64.exe"   # the driver refuses a run without its stack helper (GH #487)
 plw_serve() {   # plw_serve <serve behaviour> [<--jnext behaviour; default: the self-check passes>]: write the stub runner
-    printf '#!/bin/bash\ncase "$1" in\n--init) exit 0 ;;\n--serve) %s ;;\n--jnext) %s ;;\nesac\n' "$1" "${2:-$PLW_SC_PASS}" > "$PL/test/wine-run.sh"
+    printf '#!/bin/bash\ncase "$1" in\n--init) exit 0 ;;\n--pe-machine) echo x64 ;;\n--serve) %s ;;\n--jnext) %s ;;\nesac\n' "$1" "${2:-$PLW_SC_PASS}" > "$PL/test/wine-run.sh"
 }
 plw_run() {
     rm -f "$PLM/lint-ran" "$PLM/ran-abs-c"
@@ -3183,12 +3203,12 @@ wd_start() {   # wd_start <capture dir | -> <mode>: sets wd_pid wd_dog (env: JNE
     if [[ -n ${WD_DEADERR:-} ]]; then   # stderr into a pipe whose reader has already exited
         ( if [[ $d == - ]]; then unset JNEXT_WINE_CAPTURE_DIR; else export JNEXT_WINE_CAPTURE_DIR=$d; fi
           export STUB_LIFE=${STUB_LIFE:-60}
-          JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/fake.exe" "$mode" ) \
+          JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$PROJECT_DIR/test/wine-run.sh" --jnext "${WD_EXE:-$T/fake.exe}" "$mode" ${WD_ARGS:-} ) \
             > "$T/wd.out" 2> >(exec head -c0) &
     else
         ( if [[ $d == - ]]; then unset JNEXT_WINE_CAPTURE_DIR; else export JNEXT_WINE_CAPTURE_DIR=$d; fi
           export STUB_LIFE=${STUB_LIFE:-60}   # an orphaned stub (a mutant that kills its runner) ends by itself
-          JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/fake.exe" "$mode" ) \
+          JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$PROJECT_DIR/test/wine-run.sh" --jnext "${WD_EXE:-$T/fake.exe}" "$mode" ${WD_ARGS:-} ) \
             > "$T/wd.out" 2>&1 &
     fi
     wd_pid=$!
@@ -3209,6 +3229,7 @@ wd_end() {   # wd_end [signal]: send it, wait for the runner; sets cap_rc cap_ms
     t1=$EPOCHREALTIME
     kill "$wd_dog" 2>/dev/null; wait "$wd_dog" 2>/dev/null || true
     pkill -KILL -f -- "$wstub" 2>/dev/null || true
+    pkill -KILL -f -- "$T/standin/" 2>/dev/null || true
     cap_ms=$(( (${t1/./} - ${t0/./}) / 1000 ))
     cap_out=$(cat "$T/wd.out")
 }
@@ -3252,18 +3273,10 @@ check "HS-99d" "a process with flat CPU past the thresholds gets exactly ONE cap
     "got-term" "files=1 headers=1 2.5 s later headers=1 target=alive gone=0" "age: "
 cap_thr=$(sed -n '/^== target threads/,/^$/p' <<<"$cap_txt")
 check "HS-98b" "...it holds the blocked process's own /proc threads (comm, state, syscall) and the command's args" 0 0 "$cap_thr"$'\n'"$cap_txt" "perl" "syscall:" "command: $T/fake.exe stall"
-n=$(grep -c '0x00000100' <<<"$cap_txt" || true)
-check "HS-98c" "...and backtraces the right Windows pid (the exact command-line match) thread by thread, not the decoy listed first" 0 $((n == 0 ? 0 : 1)) "$cap_txt" "STUB-BT 0x00000200/0x00000204"
 n=$(grep -c 'STUB-INFO-THREAD\|STUB-BT\|Backtrace' <<<"$cap_out" || true)
 check "HS-99n" "a capture is announced on the row's stderr in ONE line naming the file; winedbg's output never reaches the row" 9 $cap_rc "$cap_out"$'\n'"leaked=$n" \
     "wine-run: fake.exe (pid " "made no progress for 1 s at age 1 s; state saved to $cap1" "leaked=0"
 
-JNEXT_WINE_STALL_AFTER_S=1 JNEXT_WINE_STALL_FLAT_S=1 STUB_ARGS_TARGET=stall STUB_DBG_DUP=1 wd_start "$T/cap" stall
-wd_saved || true
-cap_txt=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
-wd_end TERM
-n=$(grep -c 'STUB-BT' <<<"$cap_txt" || true)
-check "HS-98d" "two processes with the identical command line give 'no unique match' and no backtrace at all" 0 $((n == 0 ? 0 : 1)) "$cap_txt" "no unique match"
 
 JNEXT_WINE_STALL_AFTER_S=1 JNEXT_WINE_STALL_FLAT_S=1 wd_start "$T/cap" hangq
 sleep 3.5
@@ -3357,43 +3370,20 @@ pid_w1=$!
 WINEPREFIX="$T/wp" "$T/wdv2/winedevice.exe" 300 </dev/null >/dev/null 2>&1 &
 pid_w2=$!
 sleep 0.3
-STUB_ARGS_TARGET='"a b" "" q\"z' STUB_ARGS_DECOY='"a b" "" q"z' cap_direct "$pid_a" "$T/fake.exe" 'a b' '' 'q"z'
-check "HS-98j" "the exact command-line match quotes an argument with a space, an empty one and a \" as CreateProcess does, and tells it from a decoy that differs only in quoting" 0 0 "$capd_txt" \
-    "STUB-BT 0x00000200/0x00000204" "exact command-line match"
-rm -f "$T/cmds.copy"
-STUB_TID2=00000208 STUB_CMDS_COPY="$T/cmds.copy" cap_direct "$pid_a" "$T/fake.exe" hang
-cmds=$(cat "$T/cmds.copy" 2>/dev/null || true)
-want_cmds=$'attach 0x00000200\nbt 0x00000204\nbt 0x00000208\ndetach\nquit'
-n=$(grep -c '^Backtrace:' <<<"$capd_txt" || true)
-ball=$(grep -c 'bt all' <<<"$cmds" || true)
-check "HS-99j" "the backtraces are ONE winedbg session: attach, a bt per thread of the matched pid (and no other pid's), detach, quit; never bt all" 0 $([[ $cmds == "$want_cmds" ]] && echo 0 || echo 1) \
-    "$capd_txt"$'\n'"cmds: $cmds"$'\n'"backtraces=$n ball=$ball" "backtraces=2 ball=0" "STUB-BT 0x00000200/0x00000208"
 JNEXT_WINE_DBG_BOUND_S=1 STUB_DBG_HANG=1 cap_direct "$pid_a" "$T/fake.exe" hang
 bound_txt=$capd_txt
-JNEXT_WINE_DBG_BOUND_S=1 STUB_FILE_HANG=1 cap_direct "$pid_a" "$T/fake.exe" hang
-bound_txt+=$'\n'$capd_txt
 n=$(grep -c 'no answer within 1s' <<<"$bound_txt" || true)
-check "HS-99s" "a winedbg that never answers is cut by its own bound, in the listing and in the backtrace session (the file says so)" 0 0 "$bound_txt"$'\n'"answers=$n" \
-    "winedbg --command info thread: no answer within 1s" "winedbg --file" "answers=2"
+check "HS-99s" "a winedbg that never answers is cut by its own bound in the listing (the file says so; the helper's bound is HS-182j)" 0 0 "$bound_txt"$'\n'"answers=$n" \
+    "winedbg --command info thread: no answer within 1s" "answers=1"
 cap_direct "$pid_pp" "$T/pp/plugplay.exe"
 wd_sec=$(sed -n '/^== winedevice processes/,/^$/p' <<<"$capd_txt")
 check "HS-99k" "the capture lists the threads of every winedevice.exe of the prefix from /proc (both stand-ins, pid and tid)" 0 0 "$wd_sec" \
     "$pid_w1 $pid_w1 winedevice.exe S" "$pid_w2 $pid_w2 winedevice.exe S"
-STUB_DBG_ONE=1 cap_direct "$pid_a" "$T/fake.exe" other-args
-check "HS-98k" "a name-only match is taken when /proc shows the target as the only process of that name in the prefix" 0 0 "$capd_txt" \
-    "STUB-BT 0x00000100/0x00000104" "matched by name only"
 dead=$(sleep 0 & echo $!); sleep 0.3
 STUB_DBG_ONE=1 cap_direct "$dead" "$T/fake.exe" other-args
 n=$(grep -c 'STUB-BT\|STUB-INFO-THREAD' <<<"$capd_txt" || true)
 kill -0 "$pid_a" 2>/dev/null && alive=alive || alive=dead
-check "HS-98l" "a target that is gone starts NO winedbg (the only fake.exe left is another row's, which stays untouched)" 0 $((n == 0 ? 0 : 1)) "$capd_txt"$'\n'"other=$alive" "is gone" "other=alive"
-WINEPREFIX="$T/wp" "$T/pp2/fake.exe" 300 </dev/null >/dev/null 2>&1 &
-pid_b=$!
-sleep 0.3
-STUB_DBG_ONE=1 cap_direct "$pid_a" "$T/fake.exe" other-args
-n=$(grep -c 'STUB-BT' <<<"$capd_txt" || true)
-check "HS-98m" "...and a name-only match is refused when a second process of that name runs in the prefix" 0 $((n == 0 ? 0 : 1)) "$capd_txt" "no unique match"
-kill "$pid_b" 2>/dev/null; wait "$pid_b" 2>/dev/null || true
+check "HS-98l" "a target that is gone starts NO winedbg or helper (the only fake.exe left is another row's, which stays untouched)" 0 $((n == 0 ? 0 : 1)) "$capd_txt"$'\n'"other=$alive" "is gone" "other=alive"
 out=$(WINEPREFIX="$T/wp" bash "$PROJECT_DIR/test/wine-run.sh" --prefix-state 2>&1); rc=$?
 check "HS-98n" "--prefix-state prints the prefix's processes with their thread counts (the line the plugplay hypothesis needs)" 0 $rc "$out" "plugplay.exe=1" "(threads)"
 cap_direct "$pid_pp" "$T/pp/plugplay.exe"
@@ -3401,16 +3391,7 @@ cap_sec=$(sed -n '/^== prefix processes/,/^$/p' <<<"$capd_txt")
 check "HS-98o" "the capture lists the prefix's processes with pid, thread count and state (plugplay.exe 1 S)" 0 0 "$cap_sec" "plugplay.exe 1 "
 kill "$pid_pp" "$pid_a" "$pid_w1" "$pid_w2" 2>/dev/null; wait "$pid_pp" "$pid_a" "$pid_w1" "$pid_w2" 2>/dev/null || true
 
-# F6: the guards of the name fallback and of the debugger start, each with a stub that crosses them.
-WINEPREFIX="$T/wp" "$T/pp/fake.exe" 300 </dev/null >/dev/null 2>&1 &
-pid_a=$!
-"$(command -v sleep)" 300 </dev/null >/dev/null 2>&1 &
-pid_s=$!
-sleep 0.3
-STUB_DBG_ONE=1 cap_direct "$pid_s" "$T/fake.exe" other-args
-n=$(grep -c 'STUB-BT' <<<"$capd_txt" || true)
-check "HS-98x" "a live target whose name is NOT the exe's (a loader stage) never takes the name fallback onto the one other process of that name" 0 $((n == 0 ? 0 : 1)) "$capd_txt" "no unique match"
-kill "$pid_s" "$pid_a" 2>/dev/null; wait "$pid_s" "$pid_a" 2>/dev/null || true
+# F6: the guards of the debugger and helper start, each with a stub that crosses them.
 tpid=$( (WINEPREFIX="$T/wp" "$T/pp/fake.exe" 300 </dev/null >/dev/null 2>&1 & echo $!) )
 sleep 0.3
 STUB_KILL_PID=$tpid cap_direct "$tpid" "$T/fake.exe" hang
@@ -3423,6 +3404,82 @@ cap_direct "$zp" "$T/fake.exe" hang
 n=$(grep -c 'STUB-INFO-THREAD' <<<"$capd_txt" || true)
 check "HS-98z" "a zombie target starts no winedbg" 0 $((n == 0 ? 0 : 1)) "$capd_txt" "is gone"
 unset STUB_EXE
+
+# GH #487: the capture of a 32-bit exe. Wine 11.20 runs a 64-bit exe in the process the runner started
+# but a 32-bit one as `start.exe /exec <exe>`, which starts it as ANOTHER process (measured: /proc showed
+# start.exe, then a separate exe reparented to the user's subreaper). The stub wine mirrors both: mode p64
+# execs the stand-in exe itself; mode p86 execs a script named start.exe that starts the stand-in detached
+# (same environment), waits for it, ends on TERM by killing it, and ignores INT, as start.exe does.
+mkdir -p "$T/pe64" "$T/pe86" "$T/standin" "$T/stk" "$T/nostk"
+pe_with_machine() {   # pe_with_machine <file> <machine as printf octal bytes>
+    { printf 'MZ'; head -c 58 /dev/zero; printf '\100\0\0\0'; printf 'PE\0\0'; printf "$2"; } > "$1"
+}
+pe_with_machine "$T/pe64/fake.exe" '\144\206'   # 0x8664
+pe_with_machine "$T/pe86/fake.exe" '\114\001'   # 0x014c
+printf '#!%s\n$| = 1; my $m = $ARGV[0] // "stall";\n$SIG{TERM} = sub { print "got-term\\n"; exit 9 };\n$SIG{INT} = sub { print "got-int\\n"; exit 8 } if $m eq "int";\nprint "ready\\n";\nif ($m eq "busy") { 1 while 1 } else { select(undef, undef, undef, 0.1) while 1 }\n' "$(command -v perl)" > "$T/standin/fake.exe"
+printf '#!/bin/bash\nkid=\ntrap '"'"'[ -z "$kid" ] || kill -TERM "$kid" 2>/dev/null; exit 143'"'"' TERM\ntrap "" INT\n( setsid "$STUB_STANDIN" "$@" </dev/null & echo $! > "$STUB_KIDFILE" )\nsleep 0.3\nkid=$(cat "$STUB_KIDFILE")\nwhile kill -0 "$kid" 2>/dev/null; do sleep 0.1; done\n' > "$T/standin/start.exe"
+: > "$T/stk/wine-stack-x64.exe"; : > "$T/stk/wine-stack-x86.exe"
+chmod +x "$T/standin/fake.exe" "$T/standin/start.exe" "$T/stk/"*
+export STUB_STANDIN="$T/standin/fake.exe" STUB_START="$T/standin/start.exe" STUB_KIDFILE="$T/standin/kid"
+cap32() {   # cap32 <mode> <exe> <args...> : the watchdog on the stub (1 s / 1 s) with the stack helper dir $T/stk, until saved or 6 s
+    JNEXT_WINE_STALL_AFTER_S=1 JNEXT_WINE_STALL_FLAT_S=1 JNEXT_WINE_STACK_DIR=${CAP32_STK:-$T/stk} WD_EXE=$2 WD_ARGS="${*:3}" wd_start "$T/cap" "$1"
+}
+cap32 p86 "$T/pe86/fake.exe" busy
+sleep 3.5
+n=$(cap_n)
+wd_end TERM
+check "HS-182a" "32-bit exe: a BUSY exe behind a flat start.exe is never captured (the watchdog measures the exe, not start.exe); TERM ends start.exe (rc 143)" 143 $cap_rc "$cap_out"$'\n'"files=$n" "files=0"
+rm -f "$T/hl86"
+STUB_HELPER_LOG="$T/hl86" cap32 p86 "$T/pe86/fake.exe" stall tgt86
+wd_saved 'state saved to' 15 || true
+cap86=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+n=$(cap_n)
+wd_end TERM
+thr=$(sed -n '/^== target threads/,/^$/p' <<<"$cap86")
+tgtl=$(grep -m1 '^target:' <<<"$cap86" || true)
+check "HS-182b" "32-bit exe: a stalled exe is captured ONCE; its target threads are the exe's (fake.exe), not start.exe's, and the target line says it was re-run through start.exe" 0 $([[ $n -eq 1 && $thr != *start.exe* ]] && echo 0 || echo 1) \
+    "files=$n"$'\n'"$thr"$'\n'"$tgtl" "files=1" " fake.exe " "re-run in its own process" "(comm start.exe)"
+# the helper names THIS runner's exe: a decoy from another runner (other marker, started first, same exe name)
+( unset JNEXT_WINE_CAPTURE_DIR; export STUB_LIFE=60 WINEPREFIX="$T/wp" JNEXT_WINE_BIN="$wstub"
+  exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/pe86/fake.exe" p86 stall decoy86 ) > "$T/dec86.out" 2>&1 &
+dec86=$!
+for _ in $(seq 1 100); do grep -q ready "$T/dec86.out" 2>/dev/null && break; sleep 0.1; done
+STUB_HELPER_LOG="$T/hl86c" cap32 p86 "$T/pe86/fake.exe" stall tgt86
+wd_saved 'state saved to' 15 || true
+capc=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+wd_end TERM
+kill "$dec86" 2>/dev/null; wait "$dec86" 2>/dev/null || true; pkill -KILL -f -- "$T/standin/" 2>/dev/null || true
+cl=$(grep '^command line:' <<<"$capc" || true)
+check "HS-182c" "the capture's helper names THIS runner's exe by its marker: the command line is the target's (tgt86), never the decoy's (decoy86, started first, same exe name)" 0 $([[ $cl == *tgt86* && $cl != *decoy86* ]] && echo 0 || echo 1) \
+    "$capc" "tgt86" "Backtrace:"
+rm -f "$T/hl64" "$T/hl86d"
+STUB_HELPER_LOG="$T/hl64" cap32 p64 "$T/pe64/fake.exe" stall x64
+wd_saved 'state saved to' 15 || true
+wd_end TERM
+STUB_HELPER_LOG="$T/hl86d" cap32 p86 "$T/pe86/fake.exe" stall x86
+wd_saved 'state saved to' 15 || true
+wd_end TERM
+check "HS-182d" "the helper follows the exe's PE machine: a 0x8664 exe runs wine-stack-x64.exe, a 0x14c exe runs wine-stack-x86.exe" 0 $([[ "$(cat "$T/hl64" 2>/dev/null)" == wine-stack-x64.exe && "$(cat "$T/hl86d" 2>/dev/null)" == wine-stack-x86.exe ]] && echo 0 || echo 1) \
+    "x64 run: $(cat "$T/hl64" 2>/dev/null) / x86 run: $(cat "$T/hl86d" 2>/dev/null)" "wine-stack-x64.exe" "wine-stack-x86.exe"
+CAP32_STK="$T/nostk" cap32 p64 "$T/pe64/fake.exe" stall nohelper
+wd_saved 'state saved to' 15 || true
+capn=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+wd_end TERM
+cap32 p64 "$T/fake.exe" stall nomachine
+wd_saved 'state saved to' 15 || true
+capm=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+wd_end TERM
+nb=$(grep -c '^Backtrace:' <<<"$capn"$'\n'"$capm" || true)
+check "HS-182e" "a missing helper or an exe that is not a PE of a known machine: the capture says 'no stack helper for ...' and holds no Backtrace" 0 $((nb == 0 ? 0 : 1)) \
+    "$capn"$'\n'"$capm" "no stack helper for x64" "no stack helper for none"
+JNEXT_WINE_STALL_AFTER_S=999 WD_EXE="$T/pe86/fake.exe" WD_ARGS=int wd_start - p86
+wd_end INT
+check "HS-182f" "INT reaches a 32-bit exe through start.exe (which ignores it): the stand-in's own handler runs at once (ms=$cap_ms < 1000)" 0 $(( cap_ms < 1000 ? 0 : 1 )) "$cap_out"$'\n'"ms=$cap_ms" "got-int"
+JNEXT_WINE_DBG_BOUND_S=1 STUB_HELPER_HANG=1 cap32 p64 "$T/pe64/fake.exe" stall hang
+wd_saved 'state saved to' 15 || true
+caph=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+wd_end TERM
+check "HS-182j" "a helper that never answers is cut by its own bound and the file says so" 0 0 "$caph" "wine-stack: no answer within 1s"
 
 # the driver: exports the capture dir, reports captures and the prefix line, never changes a verdict
 cp "$PLT/scripts/adm-a-func.sh" "$T/adm-a.good"
@@ -3442,34 +3499,35 @@ left=$(find "$PL/build/regression-artifacts/wine-stall" -mindepth 1 2>/dev/null 
 n=$(grep -c 'wine stall captures' <<<"$out" || true)
 check "HS-98i" "a run with no capture prints the prefix line, no captures line, and leaves no empty per-run dir" 0 $rc "$out"$'\n'"left=$left caps=$n" \
     "wine prefix at the end:" "left=0 caps=0"
-check "HS-99l" "the once-per-run self-check passes on a capture with a ReadFile frame, and its capture is not counted among the run's stall captures" 0 $rc "$out"$'\n'"caps=$n" \
-    "wine stall capture self-check passed" "caps=0"
-# F3: a capture that cannot name a blocked call is a harness fault, not a quiet pass
-sc_cap='d=$JNEXT_WINE_CAPTURE_DIR; mkdir -p "$d"; f=$d/wine-stall-sc.txt; printf "%s\n" @@ > "$f"; echo "wine-run: jnext.exe (pid 1) made no progress for 2 s at age 3 s; state saved to $f" >&2; trap "exit 143" TERM; while :; do sleep 0.1; done'
+# F3: a capture that cannot name a blocked call is a harness fault, not a quiet pass. The stub
+# runner's --jnext arm (PLW_SC_PASS) plays the decoy and the target; PLW_V picks what it gets wrong.
 sc_serve="\"$T/explorer.exe\" 600 </dev/null >/dev/null 2>&1 & echo \$! | tee \"$T/expl.pid\""
-sc_l="'== header' '== winedbg backtraces' 'no unique match (0 exact, 0 by name); no backtrace'"
-plw_serve "$sc_serve" "${sc_cap/@@/$sc_l}"
-out1=$(plw_run); rc1=$?
-kill "$(cat "$T/expl.pid")" 2>/dev/null || true
-sc_l="'== header' \"WineDbg can't debug several processes at once\""
-plw_serve "$sc_serve" "${sc_cap/@@/$sc_l}"
-out2=$(plw_run); rc2=$?
-kill "$(cat "$T/expl.pid")" 2>/dev/null || true
-sc_l="'== header' 'Backtrace:' '=>0 0x1 in ntdll'"
-plw_serve "$sc_serve" "${sc_cap/@@/$sc_l}"
-out3=$(plw_run); rc3=$?
-kill "$(cat "$T/expl.pid")" 2>/dev/null || true
-sc_pat='> "$f";'; sc_rep='> "$f"; cp "$f" "$d/wine-stall-sc2.txt";'
-sc_l="'== header' 'Backtrace:' '  1 0x2 ReadFile+0x110 in kernelbase'"
-plw_serve "$sc_serve" "$(sc_x=${sc_cap/@@/$sc_l}; echo "${sc_x/"$sc_pat"/"$sc_rep"}")"
-out5=$(plw_run); rc5=$?
-kill "$(cat "$T/expl.pid")" 2>/dev/null || true
-plw_serve "$sc_serve" 'exit 0'
-out4=$(plw_run); rc4=$?
-kill "$(cat "$T/expl.pid")" 2>/dev/null || true
-check "HS-99m" "a self-check capture with no backtrace, with only winedbg's refusal, with a backtrace that names no read, no capture at all, or two captures is a harness fault (exit 2) naming GH #383" 2 $(( rc1 == 2 && rc2 == 2 && rc3 == 2 && rc4 == 2 && rc5 == 2 ? 2 : 1 )) \
+sc_one() {   # sc_one <variant> [VAR=value...]: prints the run's output, then "rc=<n>"
+    local v=$1 o r; shift
+    plw_serve "$sc_serve"
+    o=$( export PLW_V=$v; for kv in "$@"; do export "$kv"; done; plw_run ); r=$?
+    kill "$(cat "$T/expl.pid")" 2>/dev/null || true
+    printf '%s\nrc=%s\n' "$o" "$r"
+}
+out1=$(sc_one nobt); out2=$(sc_one refuse); out3=$(sc_one noread); out4=$(sc_one nofile); out5=$(sc_one two)
+rcs=0; for o in "$out1" "$out2" "$out3" "$out4" "$out5"; do [[ "$o" == *$'\nrc=2' ]] || rcs=1; done
+check "HS-99m" "a self-check capture with no backtrace, with only winedbg's refusal, with a backtrace that names no read, no capture at all, or two captures is a harness fault (exit 2) naming GH #383" 0 $rcs \
     "$out1"$'\n'"$out2"$'\n'"$out3"$'\n'"$out4"$'\n'"$out5" "HARNESS FAULT" "cannot name a blocked call (GH #383)" "the capture holds no Backtrace:" \
     "winedbg refused" "no Backtrace: names ReadFile or ReadConsole" "0 capture files" "2 capture files" "selfcheck-fault"
+# GH #487 (F1, F4, F3 of the 32-bit analysis): the self-check refuses a capture of the wrong process or one that harmed its target
+out1=$(sc_one start PLW_TCOMM=start.exe)
+check "HS-182g" "the self-check refuses (exit 2, GH #383 message) a capture whose target threads are wine's start.exe, not the exe" 0 $([[ "$out1" == *$'\nrc=2' ]] && echo 0 || echo 1) \
+    "$out1" "HARNESS FAULT" "cannot name a blocked call (GH #383)" "not the exe's (jnext.exe), but wine's launcher"
+out1=$(sc_one decoycmd PLW_CMD=128k)
+check "HS-182h" "...a capture whose command line is the decoy's (--machine 128k), not the target's" 0 $([[ "$out1" == *$'\nrc=2' ]] && echo 0 || echo 1) \
+    "$out1" "HARNESS FAULT" "the capture is not of the target"
+out1=$(sc_one dead); out2=$(sc_one rc0); out3=$(sc_one unclean)
+rcs=0; for o in "$out1" "$out2" "$out3"; do [[ "$o" == *$'\nrc=2' ]] || rcs=1; done
+check "HS-182i" "...and a target that did not survive the capture (it died, or ended with status 0, or crashed) is a harness fault saying it was killed or wedged" 0 $rcs \
+    "$out1"$'\n'"$out2"$'\n'"$out3" "HARNESS FAULT" "the capture killed or wedged its target or the decoy" "the target ended with status 5" "the target ended with status 0" "did not both decline cleanly"
+out1=$(sc_one ok); n=$(grep -c 'wine stall captures' <<<"$out1" || true)
+check "HS-99l" "the once-per-run self-check passes on a capture with a ReadFile frame (decoy picked past, both survive), says so, and its capture is not counted among the run's stall captures" 0 $([[ "$out1" == *$'\nrc=0' ]] && echo 0 || echo 1) "$out1"$'\n'"caps=$n" \
+    "wine stall capture self-check passed" "target picked among 2, both survived" "caps=0"
 # The test-only overrides never reach a real row, even when a developer has them exported
 printf 'if want adm-a-func; then begin_func adm-a-func; echo "env=${JNEXT_WINE_STALL_AFTER_S-unset}/${JNEXT_WINE_STALL_FLAT_S-unset}/${JNEXT_WINE_STALL_POLL_S-unset}/${JNEXT_WINE_DBG_BOUND_S-unset}" > "%s/rowenv"; pass_row; fi\n' "$T" > "$PLT/scripts/adm-a-func.sh"
 plw_serve "\"$T/explorer.exe\" 600 </dev/null >/dev/null 2>&1 & echo \$! | tee \"$T/expl.pid\""

@@ -916,14 +916,14 @@ for rp_p in win win-qt5 win32-qt5; do
     rp_z=$(rp_art "$rp_p") || continue
     rp_np_n=$((rp_np_n + 1))
     rp_zl=$(unzip -Z1 "$rp_z" 2>/dev/null)
-    [[ "$rp_zl" != *platforms/qoffscreen.dll* ]] || rp_np_bad="$rp_np_bad $(basename "$rp_z")"
+    [[ "$rp_zl" != *platforms/qoffscreen.dll* && "$rp_zl" != *wine-stack* ]] || rp_np_bad="$rp_np_bad $(basename "$rp_z")"
 done
 if [ -n "$rp_np_bad" ]; then
-    bad package-win-no-test-plugin "platforms/qoffscreen.dll is inside a shipped zip:$rp_np_bad"
+    bad package-win-no-test-plugin "a test tool (platforms/qoffscreen.dll or wine-stack*) is inside a shipped zip:$rp_np_bad"
 elif [ "$rp_np_n" -eq 0 ]; then
     skp package-win-no-test-plugin "no Windows zip built here"
 else
-    ok package-win-no-test-plugin "none of the $rp_np_n Windows zip(s) built carries platforms/qoffscreen.dll"
+    ok package-win-no-test-plugin "none of the $rp_np_n Windows zip(s) built carries platforms/qoffscreen.dll or a wine-stack helper"
 fi
 
 summary

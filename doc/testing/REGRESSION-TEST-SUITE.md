@@ -255,29 +255,50 @@ NONBLOCK covers the PCM, not pipewire-alsa's context setup, which blocks in `mod
 **The capture, in case a stall recurs.** When `JNEXT_WINE_CAPTURE_DIR` is set (the driver sets it to
 `build/regression-artifacts/wine-stall/<run>/`, which CI uploads on a red run), `wine-run.sh --jnext`
 starts a watchdog (`--watchdog`, stdio on `/dev/null`, so it holds none of the row's pipes). It
-reads `/proc/<wine pid>/stat` once a second and fires ONCE when the process is at least 20 s old, its
+reads `/proc/<exe pid>/stat` once a second and fires ONCE when the process is at least 20 s old, its
 CPU time has not moved for 10 s and the total is at most 2 s (a startup stall has 0.1-0.3 s; a starved
-but runnable process keeps advancing; one that worked then idled is over the cap). It writes
-`wine-stall-<time>-<pid>.txt`: the process's threads from `/proc`; the prefix's processes with thread
-counts; the threads of the `winedevice.exe` driver hosts (`/proc` only: attaching to one would pause
-every row's device I/O); `winedbg info thread`; and one `Backtrace:` per thread of that ONE Windows pid
-from a single `winedbg --file` session (attach, `bt <tid>` each, detach). It never uses `bt all`: real
-winedbg answers "can't debug several processes at once". The runner then prints one stderr line naming
-the file. TERM is forwarded at once and captures nothing: the v1.1.79 capture fired on every
-deliberate TERM (29 per green run) and its `bt all <pid>` never finished under load. At the end of
-every Windows run the driver prints `wine prefix at the end:` and lists any captures. Diagnostics
+but runnable process keeps advancing; one that worked then idled is over the cap).
+
+*Which process is the exe.* Wine 11.20 runs a 64-bit exe in the process the runner started, but a
+32-bit exe as `start.exe /exec <exe>`, which starts it as ANOTHER Linux process, reparented away from
+the runner; watching the runner's child would watch `start.exe`, whose CPU time stays near 0 for ever.
+So each runner exports a marker, `JNEXT_WINE_RUN_ID`, into wine's environment (it reaches the
+exe's `/proc/<pid>/environ` and its Windows environment), and the exe is the ONE process of its name
+in the prefix whose environment carries it (`exe_pid`): parallel rows share a prefix and an exe name, so
+the name alone never decides. TERM and INT are forwarded to both processes (`start.exe` does not pass
+INT on).
+
+*What it writes*, `wine-stall-<time>-<pid>.txt`: the exe's threads from `/proc`, and a `target:` line
+saying whether wine ran it in place or through `start.exe`; the prefix's processes with thread counts;
+the threads of the `winedevice.exe` driver hosts (`/proc` only: attaching to one would pause every row's
+device I/O); `winedbg info thread` (it attaches to nothing); and one `Backtrace:` per thread of the exe
+from a debugger-free helper, `test/wine-stack.c` (`make wine-stack-x64` / `wine-stack-x86`, test tools,
+never packaged). The helper finds the process by name and marker, suspends a thread only around
+`GetThreadContext` and walks its stack with `StackWalk64`. It replaces winedbg's `attach`/`bt`/`detach`
+session, which on wine 11.20 kills a 32-bit process (the attach's break-in thread faults on a truncated
+address) and which could not pick the right process anyway, since real winedbg prints no command line.
+Its bitness follows the exe's PE machine (an x64 helper on a 32-bit target loses the `ReadFile` frame);
+a missing helper is a line saying so in the capture, never a silent fallback. The runner then prints one
+stderr line naming the file. TERM is forwarded at once and captures nothing: the v1.1.79 capture fired
+on every deliberate TERM (29 per green run) and its `bt all <pid>` never finished under load. At the end
+of every Windows run the driver prints `wine prefix at the end:` and lists any captures. Diagnostics
 only: no exit status moves.
 
 **The capture is checked against a known answer, once per run.** After `--serve` and before the first
-row the driver blocks a real `jnext.exe` on purpose (`--headless`, an empty config dir and no
-`--sdcard`, so the SD prompt blocks in `std::getline(std::cin)` on a stdin pipe the driver holds
-open), with the watchdog at 3 s / 2 s (`JNEXT_WINE_STALL_AFTER_S` / `_FLAT_S`, test-only), and the
-capture must hold a `Backtrace:` naming wine's `ReadFile` or `ReadConsole` and no "can't debug several
-processes". Anything else is a HARNESS FAULT (exit 2): a capture that silently cannot capture reads as
-"no stall", which is what v1.1.79 shipped. It costs about 4 s and is not a row. Its capture lives in its
-own directory and is deleted on success, so the end-of-run captures line counts real stalls only.
-`JNEXT_WINE_STALL_AFTER_S`, `_FLAT_S`, `_POLL_S` and `JNEXT_WINE_DBG_BOUND_S` are test-only overrides (the driver unsets them before the rows). HS-99d-t pin the watchdog, the capture and the self-check; the harness-selftest stub winedbg mirrors
-real winedbg (the old stub answered `bt all <pid>`, which is how that bug passed review).
+row the driver blocks TWO real `jnext.exe` on purpose (`--headless`, an empty config dir and no
+`--sdcard`, so the SD prompt blocks in `std::getline(std::cin)` on a stdin pipe the driver holds open):
+a decoy (`--machine 128k`, no capture dir), started first so that it has the lower Windows pid, and the
+target (`--machine 48k`), with the watchdog at 3 s / 2 s (`JNEXT_WINE_STALL_AFTER_S` / `_FLAT_S`,
+test-only). The capture must be one file whose target threads are the exe's, hold a `Backtrace:` naming
+wine's `ReadFile` or `ReadConsole`, show the TARGET's command line (never the decoy's) and not say "can't
+debug several processes". It must also be harmless: answering `n` on both pipes must end both runners by
+themselves with status 1 and "no SD-card image available", with no "Unhandled" (the winedbg attach killed
+a 32-bit process). Anything else is a HARNESS FAULT (exit 2): a capture that silently cannot capture
+reads as "no stall", which is what v1.1.79 shipped. The success line echoes the `target:` line, the first
+target thread and the `ReadFile` frame. It runs on the 64-bit binaries in every `make regression-win`
+and on the 32-bit Qt exe in `make regression-package PACKAGE=win32-qt5`. Its capture lives in its own
+directory and is deleted on success, so the end-of-run captures line counts real stalls only.
+`JNEXT_WINE_STALL_AFTER_S`, `_FLAT_S`, `_POLL_S` and `JNEXT_WINE_DBG_BOUND_S` are test-only overrides (the driver unsets them before the rows). HS-99d-t and HS-182a-j pin the watchdog, the capture and the self-check. The harness-selftest stub wine mirrors real wine as measured on 11.20: `winedbg info thread` prints no command lines, a 32-bit exe is started by a script named `start.exe` as a separate detached process that ignores INT, and a stub helper picks the process by name and marker. (The earlier stub printed command lines real winedbg never prints, which is how the exact-match arm passed review while never firing on real wine.)
 
 ## One full run at a time, and green-run stamps (GH #295)
 
