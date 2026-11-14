@@ -893,6 +893,59 @@ void run_esxdos_write_rows(int& passed, int& failed)
                g_clear && f.attr_of("g.txt") == H::kAttrArchive);
     }
 
+    // ══ The archive bit after a change by the host, read around our own handle (design rows) ══
+    {
+        Fx f(base, "arc2", true);
+        auto host_append = [&](const char* n) {
+            std::ofstream o(f.root / n, std::ios::binary | std::ios::app);
+            o << "h";
+        };
+        auto fstat_attr = [&](uint8_t h) { H::StatInfo st; f.hfs.fstat(h, st); return st.attr; };
+        const uint8_t one = 'z';
+        std::size_t wr = 0;
+        // p1: chmod (bit clear), the host appends (the file is a different one: set), then our own write
+        f.file("a.txt", "aa");
+        f.hfs.chmod("a.txt", H::kChmodWrite, H::kChmodWrite);
+        host_append("a.txt");
+        const uint8_t a_before = f.attr_of("a.txt");
+        uint8_t h1 = 0;
+        f.hfs.open("a.txt", H::kModeWrite, h1);
+        f.hfs.write(h1, &one, 1, wr);
+        const uint8_t a_open = fstat_attr(h1);
+        f.hfs.close(h1);
+        wcheck("HFW-174",
+               "a file the host changed after F_CHMOD is archive-set, and our own F_WRITE through a handle "
+               "does not bring the old 'clear' back: F_FSTAT of the open handle and F_STAT read 20 (design; "
+               "a write clears nothing, [arch] S0421..S0425)",
+               a_before == H::kAttrArchive && a_open == H::kAttrArchive &&
+                   f.attr_of("a.txt") == H::kAttrArchive);
+        // p3: chmod, the host deletes the file, we create it again and write
+        f.file("b.txt", "bb");
+        f.hfs.chmod("b.txt", H::kChmodWrite, H::kChmodWrite);
+        fs::remove(f.root / "b.txt");
+        uint8_t h3 = 0;
+        const uint8_t b_open = f.hfs.open("b.txt", H::kModeWrite | H::kModeOpenCreat, h3);
+        f.hfs.write(h3, &one, 1, wr);
+        const uint8_t b_attr = fstat_attr(h3);
+        f.hfs.close(h3);
+        wcheck("HFW-175",
+               "a file the host deleted and we created again is a new file: archive-set through our "
+               "F_WRITE too, not the old file's 'clear' (design; [arch] S041C)",
+               b_open == H::kOk && b_attr == H::kAttrArchive && f.attr_of("b.txt") == H::kAttrArchive);
+        // p5: chmod, the host appends, our F_FTRUNCATE through a write handle
+        f.file("c.txt", "cccc");
+        f.hfs.chmod("c.txt", H::kChmodWrite, H::kChmodWrite);
+        host_append("c.txt");
+        uint8_t h5 = 0;
+        f.hfs.open("c.txt", H::kModeWrite, h5);
+        const uint8_t ft = f.hfs.ftruncate(h5, 2);
+        const uint8_t c_attr = fstat_attr(h5);
+        f.hfs.close(h5);
+        wcheck("HFW-176",
+               "a file the host changed after F_CHMOD stays archive-set through our F_FTRUNCATE (design)",
+               ft == H::kOk && c_attr == H::kAttrArchive && f.attr_of("c.txt") == H::kAttrArchive);
+    }
+
     // ══ 8.3 aliases stay put; host-only aliases are refused ([alias]) ═══════
     {
         Fx f(base, "al", true);

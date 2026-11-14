@@ -372,8 +372,9 @@ private:
     bool archive_of(const std::filesystem::path& host) const;
     /// Records the archive bit of `host` as clear (`set` false) or forgets the record (true).
     void archive_record(const std::filesystem::path& host, bool set);
-    /// The file was changed by one of our own handles: a recorded "clear" follows it (new identity).
-    void archive_refresh(const std::filesystem::path& host);
+    /// The file was changed by one of our own handles; `was_clear` is what archive_of() said BEFORE the
+    /// change. A valid "clear" follows the file (new identity); anything else leaves it archive-set.
+    void archive_refresh(const std::filesystem::path& host, bool was_clear);
     /// A file or directory moved from `from` to `to`: its entries (and those under a directory) follow it.
     void archive_move(const std::filesystem::path& from, const std::filesystem::path& to);
     /// The entries of `host` and of everything under it are dropped (the file or directory is gone).

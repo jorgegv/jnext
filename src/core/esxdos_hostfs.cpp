@@ -744,6 +744,9 @@ uint8_t EsxdosHostFs::write(uint8_t handle, const uint8_t* data,
     if (!f || !f->open) return kEbadf;
     if (!writable_ || !f->writable) return kErdonly;
     if (count == 0) return kOk;
+    // Whether the bit was clear BEFORE this change decides what it is after: our write keeps a
+    // valid 'clear' (until the handle closes) and never revives one the host has made stale.
+    const bool was_clear = !archive_of(fs::path(f->path));
     f->stream.clear();
     f->stream.seekp(static_cast<std::streamoff>(f->position), std::ios::beg);
     if (!f->stream) { f->stream.clear(); return kEio; }
@@ -753,7 +756,7 @@ uint8_t EsxdosHostFs::write(uint8_t handle, const uint8_t* data,
     f->stream.flush();
     written = count;
     f->position += count;
-    archive_refresh(fs::path(f->path));
+    archive_refresh(fs::path(f->path), was_clear);
     return kOk;
 }
 
@@ -1210,13 +1213,14 @@ uint8_t EsxdosHostFs::ftruncate(uint8_t handle, uint32_t size)
     // The stream is closed around the resize on every host (Windows will not
     // resize a file another handle holds open); the position is jnext's own and
     // is untouched, also past the new end (measured).
+    const bool was_clear = !archive_of(fs::path(f->path));
     f->stream.close();
     std::error_code ec;
     fs::resize_file(fs::path(f->path), size, ec);
     f->stream.clear();
     f->stream.open(fs::path(f->path), std::ios::binary | std::ios::in | std::ios::out);
     if (!f->stream.is_open()) { *f = FileHandle{}; return kEio; }
-    if (!ec) archive_refresh(fs::path(f->path));
+    if (!ec) archive_refresh(fs::path(f->path), was_clear);
     return ec ? kEio : kOk;
 }
 
@@ -1255,7 +1259,7 @@ bool EsxdosHostFs::archive_of(const fs::path& host) const
     const auto it = archive_clear_.find(host.string());
     if (it == archive_clear_.end()) return true;
     // Any difference from what was recorded is a different file, or the host's doing (an edit, a
-    // re-create): set. Our own writes through a handle refresh the record (archive_refresh), so
+    // re-create): set. Our own writes through a handle carry a valid record along (archive_refresh), so
     // they never read as a change, and a stale entry is never trusted because a handle is open.
     struct stat sb{};
     std::error_code ec;
@@ -1281,11 +1285,11 @@ void EsxdosHostFs::archive_record(const fs::path& host, bool set)
     archive_clear_[key] = a;
 }
 
-void EsxdosHostFs::archive_refresh(const fs::path& host)
+void EsxdosHostFs::archive_refresh(const fs::path& host, bool was_clear)
 {
-    // A change of ours to a file whose bit is clear (until its handle closes and sets the bit):
-    // the record follows the file, so only a change by someone else makes it stale.
-    if (archive_clear_.count(host.string())) archive_record(host, false);
+    // A change of ours to a file: a 'clear' that was valid before it follows the file (new identity)
+    // until its handle closes; anything else (set, or an entry the host had made stale) is set.
+    archive_record(host, !was_clear);
 }
 
 void EsxdosHostFs::archive_move(const fs::path& from, const fs::path& to)
