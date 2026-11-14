@@ -2986,7 +2986,8 @@ case "${1:-}" in   # the stack helper (test/wine-stack.c), run by the capture th
         for hd in /proc/[0-9]*; do
             { read -r hc < "$hd/comm"; } 2>/dev/null || continue
             [[ $hc == "$hb" ]] || continue
-            { tr '\0' '\n' < "$hd/environ"; } 2>/dev/null | grep -qxF "$2" || continue
+            he=$({ tr '\0' '\n' < "$hd/environ"; } 2>/dev/null || true)
+            grep -qxF "$2" <<<"$he" || continue
             hf=${hd#/proc/}; hn=$((hn + 1))
         done
         [[ $hn -eq 1 ]] || { echo "matches=$hn"; exit 1; }
@@ -3440,18 +3441,20 @@ tgtl=$(grep -m1 '^target:' <<<"$cap86" || true)
 check "HS-182b" "32-bit exe: a stalled exe is captured ONCE; its target threads are the exe's (fake.exe), not start.exe's, and the target line says it was re-run through start.exe" 0 $([[ $n -eq 1 && $thr != *start.exe* ]] && echo 0 || echo 1) \
     "files=$n"$'\n'"$thr"$'\n'"$tgtl" "files=1" " fake.exe " "re-run in its own process" "(comm start.exe)"
 # the helper names THIS runner's exe: a decoy from another runner (other marker, started first, same exe name)
-( unset JNEXT_WINE_CAPTURE_DIR; export STUB_LIFE=60 WINEPREFIX="$T/wp" JNEXT_WINE_BIN="$wstub"
+( unset JNEXT_WINE_CAPTURE_DIR; export STUB_LIFE=60 WINEPREFIX="$T/wp" JNEXT_WINE_BIN="$wstub" STUB_KIDFILE="$T/standin/kid-d"
   exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/pe86/fake.exe" p86 stall decoy86 ) > "$T/dec86.out" 2>&1 &
 dec86=$!
 for _ in $(seq 1 100); do grep -q ready "$T/dec86.out" 2>/dev/null && break; sleep 0.1; done
-STUB_HELPER_LOG="$T/hl86c" cap32 p86 "$T/pe86/fake.exe" stall tgt86
+STUB_KIDFILE="$T/standin/kid-t" STUB_HELPER_LOG="$T/hl86c" cap32 p86 "$T/pe86/fake.exe" stall tgt86
 wd_saved 'state saved to' 15 || true
 capc=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+kid_t=$(cat "$T/standin/kid-t" 2>/dev/null || true)
 wd_end TERM
 kill "$dec86" 2>/dev/null; wait "$dec86" 2>/dev/null || true; pkill -KILL -f -- "$T/standin/" 2>/dev/null || true
 cl=$(grep '^command line:' <<<"$capc" || true)
-check "HS-182c" "the capture's helper names THIS runner's exe by its marker: the command line is the target's (tgt86), never the decoy's (decoy86, started first, same exe name)" 0 $([[ $cl == *tgt86* && $cl != *decoy86* ]] && echo 0 || echo 1) \
-    "$capc" "tgt86" "Backtrace:"
+tgtp=$(grep -m1 '^target:' <<<"$capc" || true)
+check "HS-182c" "the capture names THIS runner's exe by its marker, among two of the same name: its target line carries the target's pid ($kid_t) and the helper's command line is the target's (tgt86), never the decoy's (decoy86, started first)" 0 \
+    $([[ $cl == *tgt86* && $cl != *decoy86* && -n $kid_t && $tgtp == *"(pid $kid_t)"* ]] && echo 0 || echo 1) "$capc" "tgt86" "Backtrace:" "(pid $kid_t)"
 rm -f "$T/hl64" "$T/hl86d"
 STUB_HELPER_LOG="$T/hl64" cap32 p64 "$T/pe64/fake.exe" stall x64
 wd_saved 'state saved to' 15 || true
