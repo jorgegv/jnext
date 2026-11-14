@@ -3955,8 +3955,8 @@ out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-c1" -- clone-probe-func); 
 check "HS-175a" "a candidate card with no .distro (a legacy 24.11 card) is cloned with a .distro-declined naming the default distribution and no .distro" 0 $rc "$out" \
     "clone=cspect-next-1gb-fixed.img.distro-declined=sn-emulator-26.11.zip "
 out=$(DEF_DISTRO=sn-emulator-26.11.zip def_run -- clone-probe-func); rc=$?
-check "HS-175b" "a master that IS the default distribution is cloned with its .distro and NO declined sidecar (the control)" 0 $rc "$out" \
-    "clone=cspect-next-1gb-fixed.img.distro=sn-emulator-26.11.zip "
+check "HS-175b" "a master that IS the default distribution is cloned with its .distro and NO declined sidecar (the control): the probe lists exactly one sidecar" 0 $rc "$out" \
+    "(clone=cspect-next-1gb-fixed.img.distro=sn-emulator-26.11.zip )"
 seam_state "$T/seam-c3"; printf card > "$T/seam-c3/sdcard/cspect-next-1gb-fixed.img"; printf '2\n' > "$T/seam-c3/sdcard/cspect-next-1gb-fixed.img.recipe"
 printf 'sn-emulator-24.11.zip\n' > "$T/seam-c3/sdcard/cspect-next-1gb-fixed.img.distro"
 out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-c3" -- clone-probe-func); rc=$?
