@@ -135,7 +135,9 @@ bool valid_sha256(const std::string& value)
 
 SourceMapLoadResult failed(std::string error)
 {
-    return {-1, std::move(error)};
+    // Every member, in order: a member added later is then a -Wmissing-field-initializers
+    // error here, not a silent default.
+    return {-1, std::move(error), {}, -1, 0, 0, 0, 0, {}};
 }
 
 bool read_line(std::istream& input, std::string& line)
@@ -320,7 +322,8 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path, SymbolTabl
         }
         identity = SourceProgramIdentity{*program_sha256,
                                          static_cast<uint16_t>(*program_org),
-                                         *program_size};
+                                         *program_size,
+                                         {}};
     }
 
     std::error_code ec;
@@ -359,7 +362,7 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path, SymbolTabl
     }
     map.replace(std::move(ranges), {}, std::move(identity),
                 loaded);
-    SourceMapLoadResult result{trace_count, {}};
+    SourceMapLoadResult result{trace_count, {}, {}, -1, 0, 0, 0, 0, {}};
     if (labels) result.labels = label_count;
     return result;
 }
