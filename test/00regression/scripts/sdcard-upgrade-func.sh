@@ -23,12 +23,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   5. --sdcard-upgrade yes: the card is REPLACED by the distribution's own (the marker file
 #      is on it, .distro names 99.99, .recipe is 3, its volume serial is the first 4 bytes of
 #      the raw's SHA-256, the declined sidecar is gone) and the old raw/sha are the new ones.
-# The card written is a copy in the row's own scratch directory; the master is
-# never touched.
+#   6. the candidate-card seam's offline re-derive (01-sdcard-provision.sh with the REAL jnext, which
+#      the stub of sdcard-provision-func cannot test): a seam dir holding a recipe-2 card, its witness and
+#      the raw of a distribution jnext knows is re-derived at recipe 3 on the first run and kept on the
+#      second, and the card is never lost (the raw is accepted only because the address the script
+#      passes ends in the raw's own distribution name).
+# The scratch directory is under $RUN_DIR/private (the same filesystem as the clone, and not the
+# RAM-backed /tmp: it holds ~2 GB); the master is never touched.
 if want sdcard-upgrade-func; then
     begin_func sdcard-upgrade-func
 
-    su_dir="$TMP_DIR/sdcard-upgrade"
+    su_dir="$RUN_DIR/private/sdcard-upgrade"
     rm -rf "$su_dir"; mkdir -p "$su_dir/cfg/sdcard"
     su_faults=()
     su_missing=()
@@ -123,12 +128,33 @@ PY
             got_serial=$(od -An -tx4 -j $((su_off + 0x43)) -N 4 "$su_card" 2>/dev/null | tr -d ' ')
             [[ -n "$want_serial" && "$got_serial" == "$want_serial" ]] \
                 || su_faults+=("5: the card's volume serial is '$got_serial', not the raw's SHA-256 prefix '$want_serial'")
+            # 6: the seam's offline re-derive, with the real jnext and the real script. The raw and its
+            # sidecars are those step 5 just made from the synthetic distribution (99.99).
+            seam="$su_dir/seam"; sd6="$su_dir/seam/sdcard"; rm -rf "$seam"; mkdir -p "$sd6"
+            if [[ -f "$raw" && -f "$raw.sha256" && -f "$raw.distro" ]]; then
+                cp --reflink=auto "$raw" "$sd6/"; cp "$raw.sha256" "$raw.distro" "$sd6/"
+                cp --reflink=auto "$su_card" "$sd6/cspect-next-1gb-fixed.img"
+                printf '%s  cspect-next-1gb-fixed.img\n' "$(sha256sum < "$sd6/cspect-next-1gb-fixed.img" | cut -d' ' -f1)" > "$sd6/cspect-next-1gb-fixed.img.sha256"
+                printf '2\n' > "$sd6/cspect-next-1gb-fixed.img.recipe"
+                for run in 1 2; do
+                    LANG=C JNEXT_REGRESSION_BOOT_ANCHOR=off JNEXT_REGRESSION_SD_STATE_DIR="$seam" HOME="$su_dir/seamhome" \
+                        JNEXT="$JNEXT" bash "$SCRIPT_DIR/scripts/01-sdcard-provision.sh" > "$su_dir/seam$run.out" 2>&1 || true
+                    sed 's/\x1b\[[0-9;]*m//g' "$su_dir/seam$run.out" | tr -d '\r' > "$su_dir/seam$run.txt"
+                    [[ -f "$sd6/cspect-next-1gb-fixed.img" ]] || su_faults+=("6: run $run: the seam's card was lost")
+                    [[ -f "$sd6/cspect-next-1gb-fixed.img.recipe" && "$(tr -d '[:space:]' < "$sd6/cspect-next-1gb-fixed.img.recipe")" == 3 ]] \
+                        || su_faults+=("6: run $run: the card is not at recipe 3: $(grep 'sdcard-provision\|PASS\|FAIL' "$su_dir/seam$run.txt" | tail -n 1 | cut -c1-200)")
+                done
+                grep -q 're-derived with recipe 3' "$su_dir/seam1.txt" || su_faults+=("6: run 1 did not take the recipe path")
+                grep -q 'unchanged since it was witnessed' "$su_dir/seam2.txt" || su_faults+=("6: run 2 did not find the card unchanged")
+            else
+                su_faults+=("6: step 5 left no raw with its sidecars to build the seam from")
+            fi
         fi
     fi
 
     if [[ ${#su_missing[@]} -gt 0 ]]; then :; elif [[ ! -f "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ]]; then :
     elif [[ ${#su_faults[@]} -eq 0 ]]; then
-        pass_row " (a newer distribution is offered and never forced: headless keeps the card and says how to upgrade; no / never / ask behave; --sdcard refuses the option; yes replaces the card with the new distribution's, its own serial, atomically)"
+        pass_row " (a newer distribution is offered and never forced: headless keeps the card and says how to upgrade; no / never / ask behave; --sdcard refuses the option; yes replaces the card with the new distribution's, its own serial, atomically; the seam's offline re-derive keeps its card)"
     else
         fail_row " (${#su_faults[@]} fault(s) in the upgrade offer)"
         printf '      %s\n' "${su_faults[@]}"

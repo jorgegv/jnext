@@ -1110,7 +1110,8 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             r.path   = fixed;
             r.error.clear();
             r.warning = "The upgrade to " + distribution_title(current_dist) + " failed, so the "
-                        "current SD card image stays in use and nothing was changed.\n\n" + why;
+                        "current SD card image stays in use and nothing was changed. "
+                        "To try again, run jnext --sdcard-upgrade yes.\n\n" + why;
         } else {
             r.status = ProvisionStatus::Failed;
             r.error  = why;

@@ -94,6 +94,14 @@ sd_hash() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
 # would trip `set -e` on exactly the images this exists to catch.
 sd_recipe() { { head -n1 "$SD_RECIPE" 2>/dev/null || true; } | tr -d '[:space:]'; }
 
+# sd_seam_raw_distro: the zip name the seam dir's raw came from: its .distro sidecar, else the
+# legacy 24.11 name (what jnext itself reads a raw with no sidecar as).
+sd_seam_raw_distro() {
+    local side="$SD_DIR/cspect-next-1gb.img.distro" d=""
+    [[ ! -f "$side" ]] || d=$(head -n1 "$side" | tr -d '[:space:]')
+    echo "${d:-sn-emulator-24.11.zip}"
+}
+
 sd_rederive() {
     # The witness rm is belt-and-braces: sd_rederive rewrites it on every
     # success anyway. It matters only on the FAILURE path, where it stops a
@@ -110,10 +118,13 @@ sd_rederive() {
     # With the candidate-card seam the derive is offline by construction: it only runs
     # from a raw the sidecar verifies (sd_seam_raw_ok), and a download address that
     # cannot be fetched makes any other path fail instead of fetching the default
-    # distribution into the candidate's directory.
+    # distribution into the candidate's directory. The address ENDS IN THE RAW'S OWN
+    # DISTRIBUTION NAME (its .distro sidecar, else sn-emulator-24.11.zip): jnext reuses a raw
+    # only when the distribution it was downloaded from is the one the address names (GH #476),
+    # so any other name makes it refuse the verified raw and try the download.
     local sd_env=("JNEXT_CONFIG_DIR=${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}")
     [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] \
-        || sd_env+=(JNEXT_SDCARD_DISTRO_URL=file:///nonexistent-candidate-card-never-download)
+        || sd_env+=("JNEXT_SDCARD_DISTRO_URL=file:///nonexistent-candidate-card-never-download/$(sd_seam_raw_distro)")
     env "${sd_env[@]}" \
         "${JNEXT_NATIVE:-$JNEXT}" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
     [[ -f "$FALLBACK_SD_IMAGE" ]] || return 1
@@ -142,7 +153,9 @@ sd_seam_raw_ok() {
     local raw="$SD_DIR/cspect-next-1gb.img" side="$SD_DIR/cspect-next-1gb.img.sha256" want
     [[ -f "$raw" && -f "$side" ]] || return 1
     want=$(awk '{print $1; exit}' "$side")
-    [[ -n "$want" && "$(sd_hash "$raw")" == "$want" ]]
+    [[ -n "$want" && "$(sd_hash "$raw")" == "$want" ]] || return 1
+    # The offline derive names the raw's distribution in its address: only a plain file name can be one.
+    [[ "$(sd_seam_raw_distro)" =~ ^[A-Za-z0-9._-]+$ ]]
 }
 sd_seam_why=""
 # The candidate-card gate (JNEXT_REGRESSION_SD_STATE_DIR set). The candidate is the thing
@@ -204,7 +217,7 @@ case "$sd_state" in
     provisioned) sd_verdict=pass; sd_text=": derived $FALLBACK_SD_IMAGE" ;;
     repaired)    sd_verdict=pass; sd_text=": WAS MODIFIED — re-derived from the verified distribution image" ;;
     recipe)      sd_verdict=pass; sd_text=": made by image recipe ${sd_old_recipe:-(none recorded)} — re-derived with recipe $sd_want_recipe" ;;
-    adopted)     sd_verdict=pass; sd_text=": candidate card used as it is and witnessed (no raw to rebuild it from)" ;;
+    adopted)     sd_verdict=pass; sd_text=": candidate card used as it is and witnessed (not re-derived: it has no witness yet, so it is taken as it is)" ;;
     seamfail)    sd_verdict=fail; sd_text=": candidate card: $sd_seam_why" ;;
     wrongrecipe) sd_verdict=fail; sd_text=": jnext derived an image of recipe '${sd_got_recipe:-}', expected '$sd_want_recipe' — $JNEXT is not built from this tree" ;;
     norecipe)    sd_verdict=fail; sd_text=": cannot read kFixedImageRecipe from src/core/sdcard_provisioner.cpp" ;;
