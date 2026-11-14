@@ -207,6 +207,12 @@ if [[ -f "$SD_MASTER" && -f "$PROFILE_DIR/.trained" ]] &&
 fi
 
 # --- The SD master: provision it exactly as the regression suite does -------
+# A master that exists but is not this tree's (another distribution or image recipe: GH #476) is
+# re-derived by the regression suite's own gate. Linux, native runs only: the gate needs bash 4,
+# and a runner (wine) cannot derive a card natively.
+if [[ -f "$SD_MASTER" && "$(uname -s)" == Linux && ${#RUNNER[@]} -eq 0 && -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]]; then
+    "$PROJECT_DIR/tools/sd-master-ensure.sh" "$BIN" || die "the SD master $SD_MASTER is not this tree's and could not be re-derived"
+fi
 if [[ ! -f "$SD_MASTER" ]]; then
     echo "pgo-train: no SD image at $SD_MASTER — provisioning it (jnext's own download)"
     mkdir -p "$SD_MASTER_DIR"
