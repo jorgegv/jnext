@@ -27,8 +27,8 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 pass=0; fail=0
-ok()  { printf "  ${GREEN}PASS${RESET} %-22s %s\n" "$1" "$2"; pass=$((pass+1)); }
-bad() { printf "  ${RED}FAIL${RESET} %-22s %s\n" "$1" "$2"; fail=$((fail+1)); }
+ok()  { printf "  ${GREEN}PASS${RESET} %-24s %s\n" "$1" "$2"; pass=$((pass+1)); }
+bad() { printf "  ${RED}FAIL${RESET} %-24s %s\n" "$1" "$2"; fail=$((fail+1)); }
 
 # --- stubs -------------------------------------------------------------------
 mkdir -p "$WORK/bin"
@@ -48,7 +48,21 @@ case "$1" in
     exit 0
     ;;
 -l)
-    # Only the LC_RPATH load commands matter here; mimic otool's layout.
+    # The LC_RPATH load commands and the minimum-OS command matter here; mimic
+    # otool's layout. Real otool -l prints (Apple's layout, not derived from
+    # the script):
+    #       cmd LC_BUILD_VERSION      |       cmd LC_VERSION_MIN_MACOSX
+    #   cmdsize 32                    |   cmdsize 16
+    #  platform 1                     |   version 10.13
+    #     minos 15.0                  |       sdk 10.15
+    #       sdk 26.0
+    # <file>.minos -> LC_BUILD_VERSION minos; <file>.vmin -> LC_VERSION_MIN_MACOSX.
+    if [ -f "$f.minos" ]; then
+        printf '      cmd LC_BUILD_VERSION\n  cmdsize 32\n platform 1\n    minos %s\n      sdk 26.0\n   ntools 1\n' "$(cat "$f.minos")"
+    fi
+    if [ -f "$f.vmin" ]; then
+        printf '      cmd LC_VERSION_MIN_MACOSX\n  cmdsize 16\n  version %s\n      sdk 10.15\n' "$(cat "$f.vmin")"
+    fi
     if [ -f "$f.rpaths" ]; then
         while IFS= read -r rp; do
             printf '          cmd LC_RPATH\n'
@@ -110,6 +124,13 @@ install_id() { printf '%s\n' "$3" > "$1/$2.id"; }
 rpaths() { local app=$1 rel=$2; shift 2; printf '%s\n' "$@" > "$app/$rel.rpaths"; }
 
 run() { bash "$SCRIPT" "$1" >"$WORK/out.log" 2>&1; echo $?; }
+
+# minos <app> <relative-path> <version>   - give a file an LC_BUILD_VERSION minos
+minos() { printf '%s\n' "$3" > "$1/$2.minos"; }
+# vmin <app> <relative-path> <version>    - give a file LC_VERSION_MIN_MACOSX
+vmin() { printf '%s\n' "$3" > "$1/$2.vmin"; }
+# runfloor <app> <floor>                  - run with JNEXT_MACOS_MIN set
+runfloor() { JNEXT_MACOS_MIN=$2 bash "$SCRIPT" "$1" >"$WORK/out.log" 2>&1; echo $?; }
 
 printf "${BOLD}=== verify-bundle.sh contract tests ===${RESET}\n\n"
 
@@ -331,6 +352,69 @@ for case_ in "homebrew.app:1" "dangling.app:1" "badsig.app:1" "empty.app:1" \
 done
 if [ -z "$vb18" ]; then ok VB-18 "every failing verdict keeps its exit code with stderr unwritable"
 else bad VB-18 "wrong exit code(s):$vb18"; fi
+
+# --- minimum macOS (JNEXT_MACOS_MIN) -----------------------------------------
+# A bundled dylib built for a newer macOS than the target raises the app's real
+# floor: dyld refuses it on the older OS. The gate reads every Mach-O's minos.
+# mkminosapp <dir> - an app with an executable, a dylib and a plugin, all at 15.0
+mkminosapp() {
+    local app=$1
+    macho "$app" Contents/MacOS/jnext '/usr/lib/libSystem.B.dylib'
+    macho "$app" Contents/Frameworks/libpng16.16.dylib '/usr/lib/libSystem.B.dylib'
+    macho "$app" Contents/PlugIns/platforms/libqcocoa.dylib '/usr/lib/libSystem.B.dylib'
+    minos "$app" Contents/MacOS/jnext 15.0
+    minos "$app" Contents/Frameworks/libpng16.16.dylib 15.0
+    minos "$app" Contents/PlugIns/platforms/libqcocoa.dylib 15.0
+}
+
+APP=$WORK/minos-ok.app; mkminosapp "$APP"
+rc=$(runfloor "$APP" 15.0)
+if [ "$rc" -eq 0 ]; then ok minos-under-floor "all files at 15.0, floor 15.0 accepted"
+else bad minos-under-floor "expected 0, got $rc: $(cat "$WORK/out.log")"; fi
+
+APP=$WORK/minos-dylib.app; mkminosapp "$APP"
+minos "$APP" Contents/Frameworks/libpng16.16.dylib 26.0
+rc=$(runfloor "$APP" 15.0)
+if [ "$rc" -ne 0 ] && grep -q 'libpng16' "$WORK/out.log" && grep -q '26.0' "$WORK/out.log"; then
+    ok minos-dylib-over-floor "dylib at 26.0 over floor 15.0 rejected, named"
+else bad minos-dylib-over-floor "expected non-zero naming libpng16 and 26.0, got $rc: $(cat "$WORK/out.log")"; fi
+
+APP=$WORK/minos-plugin.app; mkminosapp "$APP"
+minos "$APP" Contents/PlugIns/platforms/libqcocoa.dylib 15.4
+rc=$(runfloor "$APP" 15.0)
+if [ "$rc" -ne 0 ] && grep -q 'libqcocoa' "$WORK/out.log"; then
+    ok minos-plugin-over-floor "nested plugin at 15.4 over floor 15.0 rejected"
+else bad minos-plugin-over-floor "expected non-zero naming libqcocoa, got $rc: $(cat "$WORK/out.log")"; fi
+
+APP=$WORK/minos-num.app; mkminosapp "$APP"
+minos "$APP" Contents/Frameworks/libpng16.16.dylib 15.10
+rc_a=$(runfloor "$APP" 15.9)
+minos "$APP" Contents/Frameworks/libpng16.16.dylib 15.9
+rc_b=$(runfloor "$APP" 15.10)
+if [ "$rc_a" -ne 0 ] && [ "$rc_b" -eq 0 ]; then
+    ok minos-numeric-compare "15.10 over floor 15.9 rejected; 15.9 under floor 15.10 accepted"
+else bad minos-numeric-compare "expected rejected/accepted, got 15.10>15.9=$rc_a 15.9<15.10=$rc_b"; fi
+
+APP=$WORK/minos-legacy.app; mkminosapp "$APP"
+rm -f "$APP/Contents/Frameworks/libpng16.16.dylib.minos"
+vmin "$APP" Contents/Frameworks/libpng16.16.dylib 10.13
+rc=$(runfloor "$APP" 15.0)
+if [ "$rc" -eq 0 ]; then ok minos-legacy-cmd "LC_VERSION_MIN_MACOSX 10.13 under floor 15.0 accepted"
+else bad minos-legacy-cmd "expected 0, got $rc: $(cat "$WORK/out.log")"; fi
+
+APP=$WORK/minos-report.app; mkminosapp "$APP"
+minos "$APP" Contents/Frameworks/libpng16.16.dylib 26.0
+rc=$(run "$APP")
+if [ "$rc" -eq 0 ] && grep -q 'highest minos 26.0' "$WORK/out.log" && grep -q 'libpng16' "$WORK/out.log"; then
+    ok minos-no-floor-reports "no floor: accepted, highest minos 26.0 and its file reported"
+else bad minos-no-floor-reports "expected 0 naming 26.0 and libpng16, got $rc: $(cat "$WORK/out.log")"; fi
+
+APP=$WORK/minos-unreadable.app; mkminosapp "$APP"
+rm -f "$APP/Contents/Frameworks/libpng16.16.dylib.minos"
+rc=$(runfloor "$APP" 15.0)
+if [ "$rc" -ne 0 ] && grep -q 'UNREADABLE' "$WORK/out.log" && grep -q 'libpng16' "$WORK/out.log"; then
+    ok minos-unreadable "Mach-O with no minimum command rejected under a floor"
+else bad minos-unreadable "expected non-zero naming UNREADABLE libpng16, got $rc: $(cat "$WORK/out.log")"; fi
 
 printf "\n${BOLD}Total: %d pass, %d fail${RESET}\n" "$pass" "$fail"
 [ "$fail" -eq 0 ]
