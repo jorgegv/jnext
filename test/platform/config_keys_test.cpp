@@ -447,6 +447,7 @@ int main() {
         {"+3", false, 0}, {" 3", false, 0}, {"3 ", false, 0}, {"", false, 0}, {"-", false, 0}, {".", false, 0},
         {"1e", false, 0}, {"1e+", false, 0}, {"0x10", false, 0}, {"6.25x", false, 0}, {"6,25", false, 0},
         {"inf", false, 0}, {"nan", false, 0}, {"--3", false, 0}, {"1e999", false, 0}, {"1e-999", false, 0},
+        {"0.1e-999", false, 0}, {".5e-400", false, 0}, {"0.0e-999", true, 0},
     };
     auto run_cases = [&](ParseFn fn) {
         std::string bad;
