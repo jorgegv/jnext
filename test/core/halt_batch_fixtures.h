@@ -152,7 +152,7 @@ Scenario im2_halt(const char* name, uint8_t speed, uint8_t page6, int frames = 1
 }
 
 // ULA frame interrupt masked, line interrupt at line 100 (NR 0x22 / 0x23).
-Scenario line_int() {
+[[maybe_unused]] Scenario line_int() {
     Scenario s = im2_halt("line-int", 0, 0xFF);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
@@ -172,7 +172,7 @@ Scenario line_int() {
 // Pulse mode (NR 0xC0 b0 = 0): an enabled CTC request drives a /INT pulse there as well
 // (im2_peripheral.vhd:184-187, zxnext.vhd:2270-2305, :2326-2339, :2150). The ULA interrupt
 // is masked so the CTC is the only source.
-Scenario ctc_int() {
+[[maybe_unused]] Scenario ctc_int() {
     Scenario s = im2_halt("ctc-int", 0, 0xFF);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
@@ -187,7 +187,7 @@ Scenario ctc_int() {
 
 // IM 2 hardware mode (NR 0xC0 bit 0) with the ULA frame interrupt and the CTC both
 // going through the fabric. The handler ends in RETI, which the fabric needs.
-Scenario im2_hardware() {
+[[maybe_unused]] Scenario im2_hardware() {
     Scenario s = im2_halt("im2-hardware", 0, 0xFF);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
@@ -276,7 +276,7 @@ Scenario copper_busy(const char* name, uint8_t mode) {
 // first 64 raw lines of the next frame), so at every frame boundary the PC stands on that
 // WAIT. Started in mode 01, stopped (00) at frame 1 with the PC there, set to mode 10 at
 // frame 3: the Copper resumes at the WAIT, meets it, runs the MOVE and reaches the HALT.
-Scenario copper_mode10() {
+[[maybe_unused]] Scenario copper_mode10() {
     Scenario s;
     s.name = "copper-m10";
     s.frames = 120;
@@ -298,7 +298,7 @@ Scenario copper_mode10() {
 
 // NR 0x64 (the Copper line offset) rewritten by the CPU all the time, so it changes across
 // every CVC reload (GH #290): LD A,0; loop: NEXTREG 0x64,A; INC A; JR loop.
-Scenario copper_offset_stress() {
+[[maybe_unused]] Scenario copper_offset_stress() {
     Scenario s = copper_busy("copper-offset-stress", 3);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
@@ -315,7 +315,7 @@ Scenario copper_offset_stress() {
 // A WAIT reachable only in the line that straddles two frames (cvc 246 = hc_ula line lpf-1 of
 // the 64-line display origin): hc_ula 332 is in the tail
 // that belongs to raw line 0 of the NEXT jnext frame (GH181-HCULA-04's case). Mode 11.
-Scenario copper_straddle() {
+[[maybe_unused]] Scenario copper_straddle() {
     Scenario s;
     s.name = "copper-straddle";
     s.frames = 120;
@@ -351,7 +351,7 @@ Scenario ctc_phase() {
 // The Copper changes what the next HALT repeat fetches and costs: WAIT then MOVE NR 0x07 (28 MHz,
 // then 3.5 again), then MOVE NR 0x56 / 0x57 to remap the page holding the HALT onto a copy of the
 // program in pages 0x0E / 0x0F, and back (copper.vhd:80, :94). `mode`: 1 = once, 3 = every frame.
-Scenario copper_moves(const char* name, uint8_t mode) {
+[[maybe_unused]] Scenario copper_moves(const char* name, uint8_t mode) {
     Scenario s = im2_halt(name, 0, 0xFF);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
@@ -377,7 +377,7 @@ Scenario copper_moves(const char* name, uint8_t mode) {
 // resumed, the press lands, and the next run_frame() finishes that frame. The press is pending
 // at the first slot start of the resumed frame: it must not be spanned (zxnext.vhd:2090,
 // :2164-2170). Between frames the first slot is never a batch, so only this shape shows it.
-Scenario nmi_hotkey() {
+[[maybe_unused]] Scenario nmi_hotkey() {
     Scenario s = di_halt("nmi-hotkey", 0, 40);
     auto base = s.setup;
     auto stops = std::make_shared<int>(0);
@@ -406,7 +406,7 @@ Scenario nmi_hotkey() {
 
 // NR 0x02 software NMI (bit 3 = Multiface) written by a Copper MOVE while the CPU halts on DI;HALT
 // (zxnext.vhd:3830-3872): the Copper acts mid-batch otherwise (bound B4).
-Scenario copper_nmi() {
+[[maybe_unused]] Scenario copper_nmi() {
     Scenario s = di_halt("copper-nmi", 0, 60);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
@@ -440,7 +440,7 @@ Scenario low_halt(const char* name, int frames) {
 // A Multiface state transition in flight at the start of a halted stretch: the port-enable
 // pulse sets the Multiface FSM going and it takes MORE than one M1 edge to show in the memory
 // it overlays (multiface.vhd:169-186), so the second repeat's fetch is not the first's.
-Scenario multiface_edge() {
+[[maybe_unused]] Scenario multiface_edge() {
     Scenario s = low_halt("multiface-edge", 40);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
@@ -455,7 +455,7 @@ Scenario multiface_edge() {
 
 // A DivMMC delayed automap in flight at the start of a halted stretch: the entry latches the
 // hold, the NEXT M1 promotes hold to held (divmmc.vhd:123-148), so repeats of one M1 differ.
-Scenario divmmc_delayed() {
+[[maybe_unused]] Scenario divmmc_delayed() {
     Scenario s = low_halt("divmmc-delayed", 40);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
@@ -472,7 +472,7 @@ Scenario divmmc_delayed() {
 // The HALT byte overwritten while the CPU is halted: the halted flag stays set but the opcode at PC is
 // no longer 0x76 (here LDIR, which leaves PC where it is while BC counts down): a "HALT repeat" by PC
 // and flag alone, though every execution changes registers and memory.
-Scenario halt_byte_replaced() {
+[[maybe_unused]] Scenario halt_byte_replaced() {
     Scenario s = di_halt("halt-byte-replaced", 0, 40);
     s.before_frame = [](Emulator& e, int f) {
         if (f != 10) return;
@@ -489,7 +489,7 @@ Scenario halt_byte_replaced() {
 // The EI-grace slot: ISR returns WITHOUT EI and the main loop is EI; HALT; JR, so every HALT is the
 // instruction right after an EI, where an interrupt is not accepted (t80n.vhd:1768) even if its request
 // is already pending. CTC channel 0 interrupts at 3200 master cycles (and the ULA's) land in that slot often.
-Scenario ctc_grace() {
+[[maybe_unused]] Scenario ctc_grace() {
     Scenario s = ctc_phase();
     s.name = "ctc-grace";
     auto base = s.setup;
@@ -510,7 +510,7 @@ Scenario ctc_grace() {
 // NR 0x07 written mid-frame while the CPU sits on DI;HALT: the new speed is a pending
 // shadow that commits at the end of the next slot, so the first repeat after the write runs at the old
 // one and the rest at the new (zxnext.vhd:5796-5828).
-Scenario speed_switch() {
+[[maybe_unused]] Scenario speed_switch() {
     Scenario s = di_halt("speed-switch", 0, 60);
     auto stops = std::make_shared<int>(0);
     s.setup = [=, base = s.setup](Emulator& e) { base(e); *stops = 0; };
@@ -533,7 +533,7 @@ Scenario speed_switch() {
 // A UART TX byte in flight on EI;HALT with the TX / RX interrupts on and the ULA interrupt off: the
 // bit engine completes inside what would be a batch and its interrupt must end the HALT at once
 // (uart.vhd).
-Scenario uart_tx() {
+[[maybe_unused]] Scenario uart_tx() {
     Scenario s = im2_halt("uart-tx", 0, 0xFF);
     auto base = s.setup;
     s.setup = [=](Emulator& e) {
@@ -549,7 +549,7 @@ Scenario uart_tx() {
 
 // A real 128K machine, the shared program in bank 5 (contended while the display is
 // drawn), 3.5 MHz: a HALT repeat there costs what the display position says.
-Scenario contended_bank5() {
+[[maybe_unused]] Scenario contended_bank5() {
     Scenario s;
     s.name = "contended-bank5";
     s.config = [](EmulatorConfig& c) {

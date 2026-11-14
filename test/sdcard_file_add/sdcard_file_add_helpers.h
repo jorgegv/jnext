@@ -35,7 +35,7 @@ bool write_host_file(const fs::path& p, const std::vector<uint8_t>& data) {
     return f.good();
 }
 
-bool read_host_file(const fs::path& p, std::vector<uint8_t>& out) {
+[[maybe_unused]] bool read_host_file(const fs::path& p, std::vector<uint8_t>& out) {
     std::ifstream f(p, std::ios::binary);
     if (!f) return false;
     out.assign(std::istreambuf_iterator<char>(f),
@@ -150,7 +150,7 @@ bool make_fixture(const fs::path& image, std::string& why) {
 // after every mutation. `extract_sd_rom` is a different code path from the
 // writer (its own MBR/BPB/FAT walk), so this is a real check that the write
 // left the rest of the volume alone.
-bool fixture_tree_intact(const fs::path& image) {
+[[maybe_unused]] bool fixture_tree_intact(const fs::path& image) {
     std::vector<uint8_t> got;
     if (!extract_sd_rom(image.string(), "/README.TXT", got)) return false;
     if (got != payload(48, 7)) return false;
@@ -162,7 +162,7 @@ bool fixture_tree_intact(const fs::path& image) {
 // A writer that updates only FAT #1 passes every read-back test jnext can run
 // (its readers all use FAT #1) and produces a card that fsck and any driver
 // using the mirror will disagree with.
-bool fats_agree(const fs::path& image, std::string& detail) {
+[[maybe_unused]] bool fats_agree(const fs::path& image, std::string& detail) {
     std::ifstream f(image, std::ios::binary);
     if (!f) { detail = "open"; return false; }
     uint8_t bpb[kSectorSize];
@@ -261,7 +261,7 @@ uint32_t fat_scan_free(const fs::path& image) {
 // scan of FAT #1 (what is really allocated). A cluster freed only in FatFs's
 // memory and never flushed shows up as exactly this disagreement — the lost
 // cluster fsck.vfat reclaims (GH #292 review round 3).
-bool free_counts_agree(const fs::path& image) {
+[[maybe_unused]] bool free_counts_agree(const fs::path& image) {
     const uint32_t a = fsinfo_free_count(image);
     return a != 0xFFFFFFFFu && a == fat_scan_free(image);
 }
@@ -269,7 +269,7 @@ bool free_counts_agree(const fs::path& image) {
 // Does `long_name` appear in the directory `dir` of the image, with `size`
 // bytes? Uses fat32_read_tree, which reconstructs VFAT long names — the short
 // name reader (extract_sd_rom) cannot see them at all.
-bool tree_has(const fs::path& image, const std::string& dir,
+[[maybe_unused]] bool tree_has(const fs::path& image, const std::string& dir,
               const std::string& long_name, std::size_t size) {
     uint32_t part = 0;
     if (!fat32_find_partition(image.string(), part)) return false;
@@ -320,7 +320,7 @@ bool read_tree(const fs::path& image, Fat32Tree& tree) {
 }
 
 // Does the card hold `data` at `path`?
-bool card_file_is(const fs::path& image, const std::string& path,
+[[maybe_unused]] bool card_file_is(const fs::path& image, const std::string& path,
                   const std::vector<uint8_t>& data) {
     Fat32Tree tree;
     if (!read_tree(image, tree)) return false;
@@ -356,7 +356,7 @@ void digest_nodes(const std::vector<Fat32Node>& nodes, uint64_t& h) {
     }
 }
 
-uint64_t tree_digest(const fs::path& image) {
+[[maybe_unused]] uint64_t tree_digest(const fs::path& image) {
     Fat32Tree tree;
     if (!read_tree(image, tree)) return 0;
     uint64_t h = 1469598103934665603ull;

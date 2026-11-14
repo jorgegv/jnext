@@ -1706,7 +1706,7 @@ void test_v11_cpu_01_im2_ddfd_ed_no_reti(Result& res) {
     DevState ctc0_now = im2.state(Dev::CTC0);
     bool ctc0_still_in_isr = ctc0_now == DevState::S_ISR;
 
-    char detail[260];
+    char detail[400];
     std::snprintf(detail, sizeof(detail),
                   "Setup: CTC0 in S_ISR=%d. After DD ED 4D: "
                   "reti_seen at 4D pulse high?%s "
