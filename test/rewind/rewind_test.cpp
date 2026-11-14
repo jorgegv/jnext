@@ -5375,7 +5375,7 @@ static int test_s8_jns_roundtrip()
             for (const auto& e : r.entries()) {
                 std::vector<uint8_t> bytes;
                 if (e.name == member) {
-                    bytes.assign(body.begin(), body.end());
+                    bytes = std::vector<uint8_t>(body.begin(), body.end());
                 } else if (!r.read(e.name, bytes, why)) {
                     return false;
                 }
@@ -5634,7 +5634,7 @@ static int test_s8_jns_roundtrip()
             jnext::zip::Writer w{jnext::jns::kArchiveComment};
             for (const auto& e : r.entries()) {
                 std::vector<uint8_t> bytes;
-                if (e.name == member) bytes.assign(body.begin(), body.end());
+                if (e.name == member) bytes = std::vector<uint8_t>(body.begin(), body.end());
                 else if (!r.read(e.name, bytes, why)) return false;
                 if (!w.add(e.name, bytes.data(), bytes.size(),
                            jnext::zip::Method::Deflate, why)) {
@@ -6121,7 +6121,7 @@ static int test_s8_jns_roundtrip()
                 jnext::zip::Writer w{jnext::jns::kArchiveComment};
                 for (const auto& e : r.entries()) {
                     std::vector<uint8_t> bytes;
-                    if (e.name == member) bytes.assign(body.begin(), body.end());
+                    if (e.name == member) bytes = std::vector<uint8_t>(body.begin(), body.end());
                     else if (!r.read(e.name, bytes, why)) return false;
                     if (!w.add(e.name, bytes.data(), bytes.size(),
                                jnext::zip::Method::Deflate, why)) {
@@ -6593,7 +6593,7 @@ static int test_s8_jns_roundtrip()
                 if (e.name == drop) continue;
                 std::vector<uint8_t> bytes;
                 if (e.name == jnext::jns::kManifestMember) {
-                    bytes.assign(manifest_text.begin(), manifest_text.end());
+                    bytes = std::vector<uint8_t>(manifest_text.begin(), manifest_text.end());
                 } else if (!r.read(e.name, bytes, why)) {
                     return false;
                 }

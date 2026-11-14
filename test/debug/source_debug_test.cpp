@@ -11846,7 +11846,6 @@ int main() {
 
     // ── GH #387: the store has no lifetime (design 6.8) ──────────────────────────────
     {
-        const MemSpace P = MemSpace::page(p80);   // what supplies $8000 on the 48K fixture machine
         const fs::path tdir = dir / "uann-life";
         fs::create_directories(tdir);
         const fs::path uann_map = tdir / "user.map";
