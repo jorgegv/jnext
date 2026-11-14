@@ -138,6 +138,17 @@ naming the option and the value, and exits with status 1.
     corrupted one. Also discards a half-finished download. Ignored when
     **\--sdcard** is given: an explicit path always wins.
 
+**\--sdcard-upgrade** *MODE*
+:   What to do when the default-location card is of an older NextZXOS
+    distribution than the one jnext downloads now. *MODE* is **ask** (the
+    default in the GUI: forget any "do not ask again" and ask), **yes** (replace
+    the card without asking: everything saved on it is lost), **no** (keep the
+    card for this run, no question) or **never** (keep it and do not offer
+    this distribution again). Without the option, the GUI asks (once, unless
+    "Do not ask me again" was ticked) and **\--headless** keeps the card and
+    logs one line. Refused together with **\--sdcard**: an explicit card is
+    never offered an upgrade. See **SD CARD AND ROMS**.
+
 **\--sdcard-readonly**
 :   Open the SD image read-only, so the host file is never modified. The
     emulated machine sees a write-protected card: writes are rejected with the
@@ -1410,6 +1421,19 @@ cached image. An interrupted download (Cancel, a dropped connection, or 30
 seconds without data) is kept (`sn-emulator.zip.part`) and continues on the next
 run. An explicit **\--sdcard** always wins over both.
 
+When the default card is of an older NextZXOS distribution than the one jnext
+downloads now, jnext tells you a newer one is available, and in the GUI asks
+what to do. **Download and replace** downloads the new image and replaces the
+card: **everything you saved on the old card is lost**, and the old card stays
+untouched until the new one is complete, so a failed download or patch changes
+nothing. **Keep my card** goes on using the old one, and asks again next time;
+ticking **Do not ask me again** stops the offer for this distribution (a later
+one asks once more). A terminal or scripted run (**\--headless**,
+**\--sdcard-file-add**) never asks: it keeps the card and logs one line. The
+choice can be made without the GUI with **\--sdcard-upgrade**. A card you name
+yourself, with **\--sdcard** or in Preferences, is never offered an upgrade.
+Each distribution's card has its own FAT32 volume serial.
+
 Note that jnext opens the image **read-write** by default, and writes the
 emulated machine makes to the SD card are persisted to the file. Two runs
 sharing one image are therefore not independent: a run that boots NextZXOS
@@ -1644,7 +1668,7 @@ copying them into the SD-card image each time.
 With **\--esxdos-stub-writable** it also changes the host files: `F_UNLINK`
 (wildcards too), `F_RENAME`, `F_MKDIR`, `F_RMDIR`, `F_TRUNCATE`, `F_FTRUNCATE`
 and `F_CHMOD`, and `M_GETERR` gives the text of an error code. Each answers as
-NextZXOS 2.09 was measured to answer it (the probe and its recording are in the
+NextZXOS 2.10 was measured to answer it (the probe and its recording are in the
 source tree), including which error code a refusal carries. A write-protected
 root (no **\--esxdos-stub-writable**) answers every call that would write with
 `esx_edevicebusy`, after every check that does not write, and changes nothing.
@@ -1697,14 +1721,21 @@ moves a source into an existing directory, and a directory it renames keeps its
 open files and its place as the current directory. The read-only bit of a file
 follows the host: a file without write permission is read-only for `F_STAT`,
 `F_FSTAT`, `F_READDIR`, `F_OPEN` for writing, `F_UNLINK` and `F_TRUNCATE`, and
-`F_CHMOD` with `A_WRITE` changes that permission. An 8.3 short name
+`F_CHMOD` with `A_WRITE` changes that permission. The archive bit of a file
+answers as NextZXOS 2.10's does: set until an `F_CHMOD`, then clear after any
+`F_CHMOD` of that file (set when the call itself cleared `A_ARCH`, which 2.10
+reads that way), and set again by closing a handle opened for writing, by
+`F_TRUNCATE`, and by creating the file anew; a rename keeps it. A host file has
+no such bit, so JNEXT keeps it while it runs and **forgets it when it exits**
+(on a card it would be in the directory entry), and a file changed on the host
+reads as set again. An 8.3 short name
 (`LONGNA~1.TXT`) keeps naming the same file after others are deleted, as on FAT,
 and a name the host answers to that the directory listing does not hold (an NTFS
 short name, a differently normalised spelling) is refused rather than reaching
 another file.
 
 Where it differs from NextZXOS, deliberately: `F_CHMOD` of the hidden and system
-bits, of the archive bit cleared, and of a directory is refused with
+bits, and of a directory is refused with
 `esx_enosys` (a host file has no such attributes; faking it would make
 `F_STAT` contradict the answer); a name ending in a space is refused with
 `esx_einval` (NextZXOS keeps the space, a host may strip it); a renamed current
@@ -2981,6 +3012,15 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 
 `~/.jnext/sdcard/cspect-next-1gb.img`
 :   The canonical distribution image the patched one above is produced from.
+
+`~/.jnext/sdcard/cspect-next-1gb-fixed.img.distro`, `cspect-next-1gb.img.distro`
+:   The distribution (the zip file name, e.g. `sn-emulator-24.11.zip`) each of
+    the two images came from. Without one, the image is taken to be 24.11.
+
+`~/.jnext/sdcard/cspect-next-1gb-fixed.img.distro-declined`
+:   The distribution whose upgrade offer you turned down with "Do not ask me
+    again" (or **\--sdcard-upgrade** `never`). Delete it, or use
+    **\--sdcard-upgrade** `ask`, to be asked again.
 
 `~/.jnext/nextpi/`
 :   The NextPi directory: `nextpi.img` (the release's SD-card image,

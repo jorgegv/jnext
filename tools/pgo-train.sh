@@ -28,7 +28,7 @@
 # about the same total count (JNEXT_PGO_REPORT_WEIGHTS=1 below measures them;
 # re-measure after adding or changing a run). The MOD player's navigation
 # through NextZXOS is therefore NOT profiled — it would outweigh five other
-# runs — only 150 frames of play from a snapshot taken at frame 900.
+# runs — only 150 frames of play from a snapshot taken at frame 1107.
 #
 # HELD OUT, never trained, so they measure how well the profile generalises:
 # santaspressie, celeste, celeste2, odemo, test02layer2, shift, nirvana. A new
@@ -59,6 +59,9 @@
 #   JNEXT_PGO_NO_SD_HINT  what to tell the user when there is no SD image
 #                     (default: the gui-release case, `make gui-release-non-pgo`);
 #                     tools/pgo-build.sh sets it for the package trees.
+#   JNEXT_REGRESSION_SD_STATE_DIR  the SD master's state directory (its sdcard/ holds the
+#                     card), as for the regression suite; default ~/.jnext. Set it to train on a
+#                     private card without touching the shared one.
 #   JNEXT_PGO_NO_GUI  =1 skips the Qt-offscreen GUI run; the build is then
 #                     byte-reproducible (see REPRODUCIBILITY below).
 #   JNEXT_PGO_REPORT_WEIGHTS  =1 (gcc only; needs gcov-dump next to the
@@ -106,7 +109,12 @@ CLANG=0
 mkdir -p "$PROFILE_DIR"
 PROFILE_DIR=$(cd "$PROFILE_DIR" && pwd)
 
-SD_MASTER_DIR="$HOME/.jnext/sdcard"
+# The same candidate-card override as the regression suite (test-functions.inc): with
+# JNEXT_REGRESSION_SD_STATE_DIR set, the master is that directory's sdcard/ and nothing under
+# ~/.jnext/sdcard is read or provisioned (GH #476: a tree that defaults to another distribution
+# must not replace the card other trees train and test on).
+SD_STATE_DIR="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}"
+SD_MASTER_DIR="$SD_STATE_DIR/sdcard"
 SD_MASTER="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
 NEX=test/00regression/nex
 TAP=test/00regression/tap
@@ -147,23 +155,24 @@ GUI_ARGS=(--machine next --silent --load "$NEX/parallax.nex")
 # The MOD player, launched as a user launches it: the NextZXOS Browser down to
 # /apps/audio/NXModPlayer/nxmodplayer.nex, then the player's own Mod Browser to
 # mods/Jarresque.mod. Every key is pressed at a fixed frame (frame, key pairs
-# below; the cursor positions are those of the 24.11 image), so the run is as
+# below; the cursor positions are those of the 26.11 image), so the run is as
 # deterministic as the others. That navigation runs UNPROFILED (see BALANCED)
-# and saves a .jns at frame 900, with the MOD playing; the profiled run then
+# and saves a .jns at frame 1107, with the MOD playing; the profiled run then
 # plays MOD_PLAY frames from it. A key pressed at a fixed frame cannot tell
 # whether the guest acted on it, so the profiled run also saves a snapshot one
 # frame before its exit, and the training FAILS unless the MOD's own text is
 # in that RAM: a changed image or a slower boot must not quietly leave the
 # player out of the profile.
 MOD_KEYS=(
-    400 space  430 enter                             # welcome, menu: Browser at C:/ on APPS
-    470 enter  495 down  510 down  525 enter         # APPS: . .. AUDIO
-    550 down  565 down  580 down  595 down  610 enter    # . .. NextDAW-demo NextSID NXModPlayer
-    635 down  650 down  665 down  680 enter          # . .. MODS nxmodplayer.nex: run it
-    760 down  775 enter                              # Mod Browser: .. MODS
-    800 down  815 down  830 down  845 enter          # .. AWESOME5 DUNE_ECOLOVE JARRESQUE: play
+    577 space  607 enter                             # welcome, menu: Browser at C:/ on ALPINE~1
+    647 down  662 enter                              # root: ALPINE~1 APPS: enter APPS
+    687 down  702 down  717 enter                    # APPS: . .. AUDIO
+    742 down  757 down  772 down  787 down  802 enter    # . .. NextDAW-demo NextSID NXModPlayer
+    827 down  842 down  857 down  872 enter          # . .. MODS nxmodplayer.nex: run it
+    952 down  967 down  982 down  997 enter          # Mod Browser (directory order): .. nxmodplayer.nex readme.txt MODS
+    1022 down  1037 down  1052 enter                 # .. AWESOME5 JARRESQUE: play
 )
-MOD_SNAP_FRAME=900
+MOD_SNAP_FRAME=1107
 MOD_PLAY=150
 MOD_PROOF="by hollywood/lunatics"   # the MOD's second sample name (Jarresque.mod offset 20)
 
@@ -203,7 +212,7 @@ if [[ ! -f "$SD_MASTER" ]]; then
     mkdir -p "$SD_MASTER_DIR"
     {
         command -v flock >/dev/null 2>&1 && flock 9
-        [[ -f "$SD_MASTER" ]] || JNEXT_CONFIG_DIR="$HOME/.jnext" \
+        [[ -f "$SD_MASTER" ]] || JNEXT_CONFIG_DIR="$SD_STATE_DIR" \
             bounded 1200 ${RUNNER[@]+"${RUNNER[@]}"} "$BIN" --headless \
                 --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
     } 9>"$SD_MASTER_DIR/.provision.lock"
@@ -237,6 +246,11 @@ cp --reflink=always "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/
     cp "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ||
     die "cannot clone the SD master $SD_MASTER"
 SD="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+# The clone carries the master's distribution sidecars: without them the GUI run would be offered
+# the upgrade to the default distribution and wait for an answer (the NextZXOS dialog of GH #476).
+for sc in distro distro-declined; do
+    [[ ! -f "$SD_MASTER.$sc" ]] || cp "$SD_MASTER.$sc" "$SD.$sc"
+done
 # REPRODUCIBILITY. gcc's value profiling records runtime VALUES (pointer
 # alignment, sizes), so stack and heap addresses end up in the .gcda files,
 # and spdlog's formatter re-reads the clock once per wall-clock second, so its

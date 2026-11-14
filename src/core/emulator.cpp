@@ -1779,7 +1779,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         return done(0x00);
                     // The calls that change the host folder (GH #457). Registers
                     // from the z88dk asm_esx_f_*.asm headers; the answers are
-                    // NextZXOS 2.09's, measured (esxdos_hostfs.h). On success A
+                    // NextZXOS 2.10's, measured (esxdos_hostfs.h). On success A
                     // is whatever it was (NextZXOS leaves junk there): 0 here.
                     case 0xAD:    // F_UNLINK: A=drive, IX=filespec (wildcards)
                         if (const uint8_t err = esxdos_hostfs_.unlink(read_filespec(r.IX)))
@@ -1881,7 +1881,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     // behind a direct load, so it, and any other B, get the
                     // default refusal below. B=1 copies the message into the
                     // 32-byte buffer at DE, the last character with bit 7 set.
-                    // Measured under NextZXOS 2.09: Fc=0 and A=$02 for every code,
+                    // Measured under NextZXOS 2.10: Fc=0 and A=$02 for every code,
                     // the texts in esxdos_error_message(), "Unknown error" above
                     // 31 (GH #457).
                     if (!direct_nex_esxdos_ && !esxdos_hostfs_.active())
@@ -7731,8 +7731,6 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
     constexpr int kHold = 5;   // frames each typed key is held
     WsRecipe& r = rec.ws_recipe_;
 
-    const bool t0 = before < kWarmStartT0Units && kWarmStartT0Units <= after;
-
     // Idle = the same PC and SP at this frame boundary as at the last one, with
     // no auto-typed key queued. NextZXOS waits for a key in a HALT loop (every
     // wait on the measured cards is a HALT at one instruction) and the sample
@@ -7745,9 +7743,29 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
     r.last_sp = sp;
     if (rec.keyboard_.auto_typing() || !same) r.calm = 0; else ++r.calm;
 
-    if (after < kWarmStartT0Units || r.phase == WsPhase::kDone || r.phase == WsPhase::kGaveUp)
-        return t0;
-    if (r.phase_start == 0) r.phase_start = after;   // the first look at the machine
+    // The commit wait. Before T0 nothing is looked at. From T0 the recipe stays in
+    // kCommit while the firmware is loading (overlay off, config mode still set:
+    // zxnext.vhd:5681-5711, any NR 0x03 write clears the overlay and any value in
+    // bits 2:0 other than 000 and 111 clears config mode), up to T0 + one per-state budget. The first frame that is not
+    // loading, or the deadline, is the checkpoint, reported once. `calm` is NOT
+    // reset here: it has been counting through the wait, as it counted from T0 on.
+    bool checkpoint = false;
+    if (r.phase == WsPhase::kCommit) {
+        if (after < kWarmStartT0Units) return false;
+        const bool loading = !rec.mmu_.boot_rom_enabled() && rec.nextreg_.nr_03_config_mode();
+        if (loading && after < kWarmStartT0Units + kWarmStartPhaseUnits) return false;
+        checkpoint = true;
+        if (loading) {
+            r.stuck = WsPhase::kCommit;
+            r.phase = WsPhase::kGaveUp;
+            return true;
+        }
+        r.phase = WsPhase::kMenu;
+        r.phase_start = after;   // the first look at the machine
+    }
+    if (r.phase == WsPhase::kDone || r.phase == WsPhase::kGaveUp)
+        return checkpoint;
+    if (r.phase_start == 0) r.phase_start = after;
 
     const uint8_t* b5 = rec.mmu_.bank5_vram();
     auto b = [&](uint16_t a) { return b5[a - 0x4000]; };
@@ -7820,13 +7838,29 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
         r.stuck = r.phase;
         r.phase = WsPhase::kGaveUp;
     }
-    return t0;
+    return checkpoint;
+}
+
+std::string Emulator::warm_start_refusal_message(uint32_t frames, const std::string& why) const
+{
+    // At the commit deadline the recorder had been waiting since T0 (frame 400 at
+    // 50 Hz, 480 at 60 Hz: T0 is emulated time): say so.
+    std::string waited;
+    if (ws_recipe_.phase == WsPhase::kGaveUp && ws_recipe_.stuck == WsPhase::kCommit) {
+        const uint32_t per = video_timing().refresh_60hz() ? kWarmStartUnitsPer60HzFrame
+                                                           : kWarmStartUnitsPer50HzFrame;
+        waited = fmt::format(" (the recorder waited from frame {} for the firmware to commit one)",
+                             kWarmStartT0Units / per);
+    }
+    return fmt::format("warm start: after {} frames of boot, {}{}. Not recording; this load "
+                       "falls back to the synthetic machine.", frames, why, waited);
 }
 
 std::string Emulator::warm_start_recipe_waiting_for() const
 {
     const WsPhase p = ws_recipe_.phase == WsPhase::kGaveUp ? ws_recipe_.stuck : ws_recipe_.phase;
     switch (p) {
+    case WsPhase::kCommit:    return "the firmware to commit a machine type (NextREG 0x03)";
     case WsPhase::kMenu:      return "the welcome program or the menu to be idle";
     case WsPhase::kDown:      return "the menu to be idle after the cursor key";
     case WsPhase::kEnter:     return "the Command Line to be idle";
@@ -7976,10 +8010,7 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
         units += warm_start_frame_units(rec->video_timing().refresh_60hz());
         if (warm_start_recipe_tick(*rec, before, units) &&
             !rec->nextzxos_resident(why)) {
-            Log::emulator()->error(
-                "warm start: after {} frames of boot, {}. Not recording; this load "
-                "falls back to the synthetic machine.",
-                frames, why);
+            Log::emulator()->error("{}", rec->warm_start_refusal_message(frames, why));
             return false;
         }
     }

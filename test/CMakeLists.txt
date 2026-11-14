@@ -1131,6 +1131,15 @@ target_include_directories(sdl_pointer_release_test PRIVATE ${CMAKE_SOURCE_DIR}/
 target_link_libraries(sdl_pointer_release_test PRIVATE ${JNEXT_SDL3_TARGET})
 add_test(NAME sdl_pointer_release_tests COMMAND sdl_pointer_release_test)
 
+# The SDL upgrade offer's button mapping: which choice each button of the message box means.
+# The box needs a display, so only the mapping is tested; sdcard_upgrade_box.cpp is compiled in
+# directly (SDL3 plus the core's distribution_title, nothing of the platform library).
+add_executable(sdcard_upgrade_box_test platform/sdcard_upgrade_box_test.cpp
+                                       ${CMAKE_SOURCE_DIR}/src/platform/sdcard_upgrade_box.cpp)
+target_include_directories(sdcard_upgrade_box_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(sdcard_upgrade_box_test PRIVATE jnext_core ZLIB::ZLIB ${JNEXT_SDL3_TARGET})
+add_test(NAME sdcard_upgrade_box_tests COMMAND sdcard_upgrade_box_test)
+
 # GH #155 — the SDL window title names the version. Drives the real
 # SdlDisplay::init() under SDL's dummy video driver: no display, ungated.
 add_executable(sdl_window_title_test platform/sdl_window_title_test.cpp)

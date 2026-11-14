@@ -9,7 +9,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # esxdos-write-func (GH #457): a real guest program (the kept probe NEX, test/
 # 00regression/esxdos-write-probe.py) calls F_UNLINK, F_RENAME, F_MKDIR, F_RMDIR,
 # F_TRUNCATE, F_FTRUNCATE, F_CHMOD and M_GETERR on a host folder, and every answer
-# it prints is compared, step by step, with what REAL NextZXOS 2.09 answered to the
+# it prints is compared, step by step, with what REAL NextZXOS 2.10 answered to the
 # same program (test/fixtures/esxdos-write-probe/nextzxos.txt, measured once by
 # esxdos-write-oracle-func). The differences that remain are the declared ones, each
 # with its reason in the generator's DIVERGE table.
@@ -60,7 +60,7 @@ if want esxdos-write-func; then
 
     if [[ $ver_rc -eq 0 && $cite_rc -eq 0 && $rw_rc -eq 0 && $ro_rc -eq 0 && $cmp_rw_rc -eq 0 && $cmp_ro_rc -eq 0 \
           && "$before" == "$after" && "$before" == *"W457/RO/nd/n.txt F "* ]]; then
-        pass_row " (the probe NEX matches its recording; every write-call answer on a writable root and on a write-protected one equals NextZXOS 2.09's except the declared divergences; the write-protected tree is untouched)"
+        pass_row " (the probe NEX matches its recording; every write-call answer on a writable root and on a write-protected one equals NextZXOS 2.10's except the declared divergences; the write-protected tree is untouched)"
     else
         fail_row " (cites rc=$cite_rc '${cite:0:200}'; verify rc=$ver_rc '${ver:0:200}'; rw rc=$rw_rc compare rc=$cmp_rw_rc '$(grep -E -m3 '^(DIFFERS|no END)' <<<"$cmp_rw" | tr '\n' ' ' || true)'; ro rc=$ro_rc compare rc=$cmp_ro_rc '$(grep -E -m3 '^(DIFFERS|no END)' <<<"$cmp_ro" | tr '\n' ' ' || true)'; tree unchanged=$([[ "$before" == "$after" ]] && echo yes || echo no))"
     fi

@@ -35,6 +35,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # the write), the other turns it OFF mid-frame (before the write) and back on
 # after it — in both the write must still be invisible to the frame in flight.
 #
+# Every lane's setup starts with `set nextreg[0x69] = 0x00`: the CPU halts while the
+# firmware's boot screen is still up, and that screen is on the ULA with firmware 1.44
+# and on Layer 2 with 1.46 (NR 0x69 bit 7); opaque Layer 2 would cover the ULA, tilemap
+# and LoRes lanes. The write is the ULA baseline (Layer 2 off, no shadow screen, no
+# Timex mode, zxnext.vhd:3617, :3658, :3924), so the row does not depend on which
+# firmware froze. It makes "Layer 2 OFF at the frame's start" true for the two lanes
+# that claim it, and a precondition check fails them if it ever stops being true.
+#
 # Deterministic: halted CPU, --rtc pinned, headless. Every lane runs twice
 # (poke, control); the runs are independent processes and go four at a time.
 if want beam-replay-func; then
@@ -131,6 +139,17 @@ if want beam-replay-func; then
     }
     br_l2_320_poke() { br_xor_page 0x12 0x1400 1024; }
 
+    # The precondition of the two "Layer 2 OFF at the frame's start" lanes, logged by the
+    # script at the start of the poke frame (`on frame f` fires as frame f + 1 begins):
+    # NR 0x69 bit 7 must be 0 there, else the lane would silently test plain Layer 2 again.
+    br_pre69_rule() { echo "on frame $((br_poke_f - 1)) do log \"PRE69 \${nextreg[0x69]:x2}\" end"; }
+    br_pre69_on() {   # $1 = run.log: 0 when Layer 2 was already on (or the line is missing)
+        local v
+        v=$(grep -o 'PRE69 [0-9A-Fa-f][0-9A-Fa-f]' "$1" 2>/dev/null | tail -n 1 | cut -d' ' -f2 || true)
+        [[ -n "$v" ]] || return 0   # no PRE69 line: not provably off, so the lane fails
+        (( (0x$v & 0x80) != 0 ))
+    }
+
     # Layer 2 configured but OFF at the frame's start; ON from scanline 10.
     br_l2_late_on_setup() {
         echo '    set nextreg[0x12] = 9'
@@ -138,6 +157,7 @@ if want beam-replay-func; then
     }
     br_l2_late_on_poke() { br_xor_page 0x12 0x1400 1024; }
     br_l2_late_on_extra() {
+        br_pre69_rule
         echo "on scanline 10 when FRAME == $br_poke_f do"
         echo '    out 0x123B 0x02'
         echo 'end'
@@ -148,6 +168,7 @@ if want beam-replay-func; then
     br_l2_nr69_on_setup() { br_l2_late_on_setup; }
     br_l2_nr69_on_poke() { br_xor_page 0x12 0x1400 1024; }
     br_l2_nr69_on_extra() {
+        br_pre69_rule
         echo "on scanline 10 when FRAME == $br_poke_f do"
         echo '    set nextreg[0x69] = 0x80'
         echo 'end'
@@ -196,6 +217,7 @@ if want beam-replay-func; then
         local lane=$1 kind=$2 out=$3
         {
             echo "on frame $br_setup_f do"
+            echo '    set nextreg[0x69] = 0x00'
             "br_${lane}_setup"
             echo 'end'
             if declare -F "br_${lane}_extra" >/dev/null; then "br_${lane}_extra"; fi
@@ -240,6 +262,9 @@ if want beam-replay-func; then
         if [[ ! -s "$br_p/frame_a.png" || ! -s "$br_p/frame_b.png" \
               || ! -s "$br_c/frame_a.png" || ! -s "$br_c/frame_b.png" ]]; then
             br_bad+=" $br_lane:no-screenshot;"
+        elif [[ "$br_lane" == l2_late_on || "$br_lane" == l2_nr69_on ]] &&
+             { br_pre69_on "$br_p/run.log" || br_pre69_on "$br_c/run.log"; }; then
+            br_bad+=" $br_lane:layer2-already-on-at-frame-start(vacuous);"
         elif ! cmp -s "$br_p/frame_a.png" "$br_c/frame_a.png"; then
             br_bad+=" $br_lane:poke-visible-in-the-frame-being-drawn;"
         elif cmp -s "$br_p/frame_b.png" "$br_c/frame_b.png"; then

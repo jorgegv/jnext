@@ -41,10 +41,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 if want delayed-nmi-func; then
     begin_func delayed-nmi-func
     nmi_bin="$SCRIPT_DIR/bin/nmi_enable.bin"
+    # boot-timeline frames (bf): the inject, the press and the exit of the three NMI runs
+    # (the frame-10 and frame-20 runs of the refusal checks below are not boot frames)
+    nmi_inject=$(bf 627); nmi_press=$(bf 677); nmi_exit=$(bf 717)
     common=(--headless --machine next "${SD_CARD_ARGS[@]}"
             --rtc 2026-07-10T08:55:00
-            --delayed-automatic-exit-frames 540 --log-level warn)
-    inject=(--inject "$nmi_bin" --inject-org 8000 --inject-delay 450)
+            --delayed-automatic-exit-frames "$nmi_exit" --log-level warn)
+    inject=(--inject "$nmi_bin" --inject-org 8000 --inject-delay "$nmi_inject")
 
     # Count executions of the NMI vector in the traced window. The trace is
     # per-instruction, so a handler entered even once is visible.
@@ -65,21 +68,21 @@ if want delayed-nmi-func; then
     gate_csv="$TMP_DIR/nmi-gate.csv"
 
     # 1. Gate open + press -> the handler runs.
-    JNEXT_G46B_ITRACE="$fire_csv" JNEXT_G46B_ITRACE_START=500 JNEXT_G46B_ITRACE_FRAMES=1 \
+    JNEXT_G46B_ITRACE="$fire_csv" JNEXT_G46B_ITRACE_START=$nmi_press JNEXT_G46B_ITRACE_FRAMES=1 \
     timeout --foreground --kill-after=5s 180s "$JNEXT" "${common[@]}" "${inject[@]}" \
-        --delayed-nmi-frames 500 divmmc >/dev/null 2>&1 || true
+        --delayed-nmi-frames "$nmi_press" divmmc >/dev/null 2>&1 || true
     fire=$(count_0066 "$fire_csv")
 
     # 2. Same run, no press at all.
-    JNEXT_G46B_ITRACE="$ctrl_csv" JNEXT_G46B_ITRACE_START=500 JNEXT_G46B_ITRACE_FRAMES=1 \
+    JNEXT_G46B_ITRACE="$ctrl_csv" JNEXT_G46B_ITRACE_START=$nmi_press JNEXT_G46B_ITRACE_FRAMES=1 \
     timeout --foreground --kill-after=5s 180s "$JNEXT" "${common[@]}" "${inject[@]}" \
         >/dev/null 2>&1 || true
     ctrl=$(count_0066 "$ctrl_csv")
 
     # 3. Press with the NR 0x06 gate closed (no fixture) -> ignored.
-    JNEXT_G46B_ITRACE="$gate_csv" JNEXT_G46B_ITRACE_START=500 JNEXT_G46B_ITRACE_FRAMES=1 \
+    JNEXT_G46B_ITRACE="$gate_csv" JNEXT_G46B_ITRACE_START=$nmi_press JNEXT_G46B_ITRACE_FRAMES=1 \
     timeout --foreground --kill-after=5s 180s "$JNEXT" "${common[@]}" \
-        --delayed-nmi-frames 500 divmmc >/dev/null 2>&1 || true
+        --delayed-nmi-frames "$nmi_press" divmmc >/dev/null 2>&1 || true
     gate=$(count_0066 "$gate_csv")
 
     # 4. An unknown button name must be refused, not dropped. `reset` is in

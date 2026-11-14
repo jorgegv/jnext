@@ -176,6 +176,7 @@ BEGIN {
     M["pok_trainers_test"]             = "POK trainers (.pok, GH #381)"
     M["pok_dialog_test"]               = "POK Trainers GUI dialog (GH #381)"
     M["sdcard_dialog_test"]            = "SD-card/NextPi download dialog (GH #358)"
+    M["sdcard_upgrade_box_test"]       = "SDL upgrade offer box (GH #476)"
     M["load_error_test"]               = "GUI load-failure dialogs"
     M["log_test"]                      = "Logging"
     M["log_gate_test"]                 = "Logging (gate)"

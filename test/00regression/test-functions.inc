@@ -261,7 +261,39 @@ sd_clone_for_run() {
         SD_CLONE_MODE=failed
         return 1
     fi
+    # The clone is a card jnext opens by its default path, so jnext would OFFER it the upgrade to
+    # the default distribution when it is another one (a GUI run blocks on that box). Rows never
+    # answer it: the clone carries the master's distribution sidecar, and when that is not the
+    # default distribution it also carries "do not ask again" for the default one (GH #476).
+    local want_dist have_dist="sn-emulator-24.11.zip"
+    want_dist=$(sd_expected_distro) || return 1
+    if [[ -f "$SD_MASTER_IMAGE.distro" ]]; then
+        have_dist=$(head -n1 "$SD_MASTER_IMAGE.distro" | tr -d '[:space:]')
+        cp "$SD_MASTER_IMAGE.distro" "$dst.distro"
+    fi
+    rm -f "$dst.distro-declined"
+    [[ "$have_dist" == "$want_dist" ]] || printf '%s\n' "$want_dist" > "$dst.distro-declined"
     return 0
+}
+
+# sd_card_sidecars <src.img> <dst.img>: a row that makes a config directory of its own and copies
+# the card into it copies the card's distribution sidecars too (see sd_clone_for_run), or a GUI run
+# in that directory is blocked on the offer of a newer distribution.
+sd_card_sidecars() {
+    local sc
+    for sc in distro distro-declined; do
+        [[ ! -f "$1.$sc" ]] || cp "$1.$sc" "$2.$sc" || return 1
+    done
+}
+
+# sd_expected_distro: the zip name of the default distribution, from its one definition
+# (sdcard::kDistroUrl in src/core/sdcard_provisioner.cpp: the line after the declaration).
+# Fails, printing nothing, unless exactly one name comes out.
+sd_expected_distro() {
+    local src="$PROJECT_DIR/src/core/sdcard_provisioner.cpp" n
+    n=$(sed -n '/^const char\* const kDistroUrl =$/{n;s#.*/\([^/"]*\)";$#\1#p}' "$src" 2>/dev/null)
+    [[ -n "$n" && "$n" != *$'\n'* ]] || return 1
+    printf '%s\n' "$n"
 }
 
 # sd_expected_recipe — print the fixed-image recipe number the jnext under test
@@ -273,6 +305,120 @@ sd_expected_recipe() {
     local src="$PROJECT_DIR/src/core/sdcard_provisioner.cpp" pat='^const int kFixedImageRecipe = [0-9]+;$'
     [[ "$(grep -cE "$pat" "$src" 2>/dev/null)" == 1 ]] || return 1
     grep -E "$pat" "$src" | grep -oE '[0-9]+'
+}
+
+# ---- The boot-ready helper: boot-timeline frames anchored on the machine-type commit ----
+# A row that presses a key, takes a screenshot or resets "at frame N of a cold boot" must mean
+# the same moment of the boot on every card, and a new NextZXOS distribution loads its firmware
+# for a different number of frames before it reaches the same state. The anchor is the FIRMWARE'S
+# MACHINE-TYPE COMMIT: the first NR 0x03 write whose bits 2:0 are 001..100, which by zxnext.vhd
+# :5708-5712 is the write that clears config mode. It happens on every firmware boot whatever
+# personality config.ini selects, and boot-commit-probe.jds reports its frame in 2 s.
+#   BOOT_REF_COMMIT      the commit frame of the boot the row literals were written against.
+#   BOOT_DEFAULT_COMMIT  the frame the DEFAULT master must give (01-sdcard-provision.sh fails on
+#                        any other, so an emulator change that moves the boot is a red row and
+#                        never a shift the helper quietly absorbs). A candidate card reports its own.
+#   bf N [K]             N + K * (measured - BOOT_REF_COMMIT). K = 2 for a frame after a hard reset
+#                        that runs the firmware again. With the reference card the shift is 0 and
+#                        every adopted row's command line is byte-identical to the literal one.
+BOOT_REF_COMMIT=472
+BOOT_DEFAULT_COMMIT=472
+
+# boot_commit_measure: run the probe on this run's card clone; print the commit frame, or fail.
+boot_commit_measure() {
+    local out
+    out=$(LANG=C timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
+              ${SD_CARD_ARGS[@]+"${SD_CARD_ARGS[@]}"} --rtc 2026-07-10T08:55:00 \
+              --script "$SCRIPT_DIR/boot-commit-probe.jds" --delayed-automatic-exit-frames 1500 </dev/null 2>&1 || true)
+    out=$(sed -n 's/.*BOOT-COMMIT FRAME=\([0-9][0-9]*\).*/\1/p' <<< "$out" | head -1)
+    [[ -n "$out" ]] || return 1
+    echo "$out"
+}
+# boot_commit: the measured commit frame: $BOOT_COMMIT_MEASURED (exported by the provision row),
+# else the cache in $RUN_DIR, else a fresh measurement. Unmeasurable = harness fault.
+boot_commit() {
+    local f="${RUN_DIR:-$TMP_DIR}/boot-commit" m
+    if [[ -n "${BOOT_COMMIT_MEASURED:-}" ]]; then echo "$BOOT_COMMIT_MEASURED"; return 0; fi
+    if [[ -s "$f" ]]; then cat "$f"; return 0; fi
+    m=$(boot_commit_measure) || { harness_fault "the firmware never committed a machine type within 1500 frames (boot-commit-probe.jds)" \
+                                              "Every boot-relative frame (bf) is anchored on it." >&2; }
+    echo "$m" > "$f"
+    echo "$m"
+}
+boot_shift() { local c; c=$(boot_commit) || exit 2; echo $(( c - BOOT_REF_COMMIT )); }
+# bf N [K]: see above. A bad N or K is a harness fault, never a pass-through.
+bf() {
+    local n=${1:-} k=${2:-1} sh v
+    [[ "$n" =~ ^[0-9]+$ && "$k" =~ ^[0-9]+$ ]] \
+        || { harness_fault "bf: '${n}' '${k}' are not non-negative integers" >&2; }
+    sh=$(boot_shift) || exit 2
+    v=$(( n + k * sh ))
+    (( v >= 0 )) || { harness_fault "bf $n $k: shift $sh gives a negative frame" >&2; }
+    echo "$v"
+}
+# bf_expand <word>: expand a conf token @bf:N or @bf:N:K; any other word passes unchanged.
+bf_expand() {
+    local w=$1
+    if [[ "$w" == @bf:* ]]; then
+        local spec=${w#@bf:} n k
+        n=${spec%%:*}; k=1
+        [[ "$spec" == *:* ]] && k=${spec#*:}
+        bf "$n" "$k"
+    else
+        echo "$w"
+    fi
+}
+# bf_keys <frame key>...: set BF_KEYS to the --delayed-keypress-frames arguments of those pairs, every
+# frame a boot-timeline frame (bf). Not a subshell: the array is the caller's.
+bf_keys() {
+    local v
+    BF_KEYS=()
+    while (( $# >= 2 )); do
+        v=$(bf "$1") || exit 2
+        BF_KEYS+=(--delayed-keypress-frames "$v" "$2")
+        shift 2
+    done
+}
+# bf_jds <template> <out>: expand {{bf N}} and {{bf N K}} in a .jds.in template; a placeholder
+# left over is a harness fault.
+bf_jds() {
+    local in=$1 out=$2 line pre rest spec n k v
+    : > "$out"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        while [[ "$line" == *"{{bf "*"}}"* ]]; do
+            pre=${line%%\{\{bf *}; rest=${line#*\{\{bf }
+            spec=${rest%%\}\}*}; rest=${rest#*\}\}}
+            n=${spec%% *}; k=1
+            [[ "$spec" == *" "* ]] && k=${spec#* }
+            v=$(bf "$n" "$k") || exit 2
+            line="$pre$v$rest"
+        done
+        printf '%s\n' "$line" >> "$out"
+    done < "$in"
+    if grep -q '{{' "$out"; then
+        harness_fault "bf_jds: an unexpanded placeholder is left in $out (from $in)" >&2
+    fi
+}
+
+# menu_index <image> <mode> <rom>: the `default=` value of the card's menu line with that mode (2nd
+# field) and ROM (4th). The firmware (TBBlue config.c:345-405) reads machines/next/menu.ini, else
+# menu.def, counts only `menu=` lines whose ROM field is non-empty, and `default=N` names the N-th of
+# those. A distribution can insert lines, so a row asks the card's own file instead of carrying a
+# number. Prints the index; fails (no output) when the file is missing, nothing matches, or the
+# (mode, ROM) key is not unique. `sdfile_tool` is $TEST_BIN_DIR/sdfile_tool.
+menu_index() {
+    local img=$1 mode=$2 rom=$3 f="$TMP_DIR/menu_index.def" n=0 hit="" line title m tm r
+    "$TEST_BIN_DIR/sdfile_tool" get "$img" machines/next/menu.ini "$f" >/dev/null 2>&1 ||
+        "$TEST_BIN_DIR/sdfile_tool" get "$img" machines/next/menu.def "$f" >/dev/null 2>&1 || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line=${line%$'\r'}
+        [[ "$line" == menu=* ]] || continue
+        IFS=, read -r title m tm r _ <<<"${line#menu=}"
+        [[ -n "$r" ]] || continue
+        if [[ "$m" == "$mode" && "$r" == "$rom" ]]; then [[ -z "$hit" ]] || return 1; hit=$n; fi
+        n=$((n + 1))
+    done <"$f"
+    [[ -n "$hit" ]] && echo "$hit"
 }
 
 declared_count() {   # declared_count <conf>  — non-comment, non-blank lines
@@ -471,7 +617,10 @@ regression_lib_init() {
     # The MASTER SD image — machine-wide, shared, and the only copy the suite
     # ever writes. 01-sdcard-provision.sh gates it on a hash and re-derives it
     # if a stray interactive session drifted it.
-    SD_MASTER_DIR="$HOME/.jnext/sdcard"
+    # JNEXT_REGRESSION_SD_STATE_DIR (regression.sh validates it) points the
+    # master at another jnext state dir, to evaluate a candidate card without
+    # touching the shared one; unset, the master is exactly what it always was.
+    SD_MASTER_DIR="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}/sdcard"
     SD_MASTER_IMAGE="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
     SD_MASTER_WITNESS="$SD_MASTER_IMAGE.sha256"
     # Written by jnext itself when it derives the image: the number of the

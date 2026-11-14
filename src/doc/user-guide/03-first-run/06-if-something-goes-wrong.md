@@ -12,10 +12,22 @@ an explicit `--sdcard`. It downloads the distribution again and builds a new
 working copy from it, so **any files you saved on the card are lost**. It also
 discards a half-finished download and starts the download again from the beginning.
 
+A failed replacement changes nothing: JNEXT builds the new image next to your old
+one and moves it into place only when it is complete. The same holds when you
+accept the offer of a newer distribution ([Letting JNEXT fetch
+one](02-letting-jnext-fetch-one.md)); JNEXT then goes on with your old image and
+tells you why the upgrade did not happen.
+
 The message that says the download failed names the address JNEXT was fetching.
 If that address does not download in a web browser on the same computer either,
 the cause is the network or the server, not JNEXT: check the connection, a
 proxy or firewall, and try again later.
+
+**The card carries a core update newer than the one JNEXT emulates.** The NextZXOS 26.11
+distribution ships FPGA core 3.03.00 in `TBBLUE.TBU`; JNEXT emulates core 3.02.03. The
+system boots and runs on it, and nothing in the update file is applied, so what
+3.03.00 adds is simply not there. This is a known difference, not a fault of your
+image or of the download.
 
 **The boot menu's ZX81 entry stops on `zx81.rom...error reading!`.** Your
 working copy was prepared by an earlier version of JNEXT, before it doubled

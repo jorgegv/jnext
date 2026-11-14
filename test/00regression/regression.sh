@@ -207,6 +207,10 @@ fi
 # would do the same.
 REG_STAMP_MODE=${JNEXT_REGRESSION_STAMP:-}
 export -n JNEXT_REGRESSION_STAMP JNEXT_REGRESSION_LOCK 2>/dev/null || true
+# The boot anchor (test-functions.inc) is measured by THIS run's [sdcard-provision] row and exported
+# to its rows; one inherited from an enclosing run (the harness self-test runs this driver inside
+# harness-selftest-func) would hide an unmeasurable boot.
+unset BOOT_COMMIT_MEASURED
 
 # Shared helpers/constants and the one-time environment setup (locale, jnext
 # binary resolution, SD args, manifest paths, TMP_DIR + EXIT trap, counters,
@@ -280,6 +284,42 @@ done
 # status — a name that IS present reports as absent.
 declare -A IS_FILTERED
 for arg in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do IS_FILTERED["$arg"]=1; done
+
+# --- Candidate-card seams (evaluating a new NextZXOS distribution) ---
+# JNEXT_REGRESSION_SD_STATE_DIR: a jnext state dir whose sdcard/ holds the
+# master this run uses instead of ~/.jnext/sdcard. JNEXT_REGRESSION_SHOTS_DIR:
+# where a failing screenshot row leaves its actual PNG. The stamp and the
+# reference screenshots certify the DEFAULT card, so a seam run is never
+# stamped and never --update; and neither path may lie inside the checkout,
+# where a card or a screen of one could be committed by accident.
+for seam_var in JNEXT_REGRESSION_SD_STATE_DIR JNEXT_REGRESSION_SHOTS_DIR; do
+    seam_val=${!seam_var:-}
+    [[ -n "$seam_val" ]] || continue
+    [[ "$seam_val" == /* ]] || harness_fault "${BOLD}$seam_var${RESET} must be an absolute path" \
+                                             "Got '$seam_val'."
+    # Lexical check only: a '..' component is refused, a symlink into the
+    # checkout is not detected.
+    [[ "/$seam_val/" != *"/../"* ]] || harness_fault "${BOLD}$seam_var${RESET} must not contain a '..' component" \
+                                                    "Got '$seam_val'."
+    # '//' and '/./' (an easy product of "$DIR/" concatenation) are collapsed first, so
+    # they cannot hide the checkout prefix.
+    seam_norm="$seam_val/"
+    while [[ "$seam_norm" == *"//"* || "$seam_norm" == *"/./"* ]]; do
+        seam_norm=${seam_norm//\/\//\/}
+        seam_norm=${seam_norm//\/.\//\/}
+    done
+    seam_norm=${seam_norm%/}
+    [[ "$seam_norm" != "$PROJECT_DIR" && "$seam_norm" != "$PROJECT_DIR"/* ]] \
+        || harness_fault "${BOLD}$seam_var${RESET} is inside the checkout ($PROJECT_DIR)" \
+                         "Card images and their screens never go where git add can see them."
+done
+if [[ -n "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]]; then
+    [[ -z "$REG_STAMP_MODE" ]] || harness_fault "${BOLD}JNEXT_REGRESSION_SD_STATE_DIR${RESET} runs are never stamped" \
+                                  "The stamp certifies the default card; JNEXT_REGRESSION_STAMP is set."
+    ! $UPDATE_MODE || harness_fault "${BOLD}JNEXT_REGRESSION_SD_STATE_DIR${RESET} cannot be combined with --update" \
+                                  "The references belong to the default card."
+fi
+[[ -z "${JNEXT_REGRESSION_SHOTS_DIR:-}" ]] || mkdir -p -- "$JNEXT_REGRESSION_SHOTS_DIR"
 
 # Check prerequisites
 if ! $PLATFORM_MODE && [[ ! -x "$JNEXT" ]]; then

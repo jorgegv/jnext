@@ -377,11 +377,19 @@ public:
     /// 50 Hz frame count times 6.
     static constexpr uint32_t kWarmStartUnitsPer50HzFrame = 6;
     static constexpr uint32_t kWarmStartUnitsPer60HzFrame = 5;
-    /// T0: frame 400. NextZXOS residency is checked once there (the first point
-    /// at which the firmware has certainly loaded NextZXOS, so a card without
-    /// it is refused early), and the recipe's state machine starts looking at
-    /// the machine. Nothing is pressed at a fixed frame: every key waits for
-    /// the machine to be idle in the state that wants it (see
+    /// T0: frame 400, the EARLIEST look at the machine. From T0 the recipe waits
+    /// (WsPhase::kCommit) while the firmware is still loading, i.e. the boot-ROM
+    /// overlay is off but NR 0x03 config mode is still set (VHDL zxnext.vhd: any
+    /// NR 0x03 write clears the overlay, bits 2:0 = 111 sets config mode, any other
+    /// non-zero value clears it: the firmware's machine-type commit). The first
+    /// frame from T0 on at which it is not loading is the CHECKPOINT: NextZXOS
+    /// residency is checked there once (so a card without it is refused early) and
+    /// the recipe's state machine starts looking at the machine. The wait is
+    /// bounded by T0 plus one kWarmStartPhaseUnits (frame 800 at 50 Hz); a
+    /// firmware that has not committed by then is given up (the checkpoint is the
+    /// deadline and the residency check refuses). The 24.11 firmware commits at
+    /// frame 295, the 26.11 one at 472. Nothing is pressed at a fixed frame: every
+    /// key waits for the machine to be idle in the state that wants it (see
     /// warm_start_recipe_tick()).
     static constexpr uint32_t kWarmStartT0Units = 400 * 6;
     /// The nominal length of a recording on the measured cards (about 760
@@ -421,19 +429,26 @@ public:
     ///   Command Line idle (TV_FLAG $21)           -> `print;:pause 0` ENTER
     ///   statement executing (ERR_NR $FF, PPC $FFFE) -> done
     /// A state that does not come within kWarmStartPhaseUnits ends the recipe.
-    /// Returns true when T0 was crossed: the caller then checks
+    /// Returns true exactly once, at the CHECKPOINT (see kWarmStartT0Units: T0
+    /// itself unless the firmware is still loading there): the caller then checks
     /// `nextzxos_resident()` (not done here, so rows can drive the recipe on a
     /// machine that never booted). Keep calling until warm_start_recipe_done()
-    /// (it always comes: each of the four states gives up after
-    /// kWarmStartPhaseUnits, so at most 4 budgets after T0, about 2000 frames at
-    /// 50 Hz and 2400 at 60 Hz), then run warm_start_capture_ready(), which is what
-    /// decides (and names what the recipe was waiting for when it gave up).
+    /// (it always comes: the commit wait ends at T0 plus one budget and each of
+    /// the four states gives up after kWarmStartPhaseUnits, so at most 5 budgets
+    /// after T0, about 2400 frames at 50 Hz and 2880 at 60 Hz), then run
+    /// warm_start_capture_ready(), which is what decides (and names what the
+    /// recipe was waiting for when it gave up).
     static bool warm_start_recipe_tick(Emulator& rec, uint32_t units_before,
                                        uint32_t units_after);
 
     /// True once the recipe has reached the executing statement or given up
     /// waiting: stop stepping and run warm_start_capture_ready().
     bool warm_start_recipe_done() const { return ws_recipe_.phase == WsPhase::kDone || ws_recipe_.phase == WsPhase::kGaveUp; }
+
+    /// The error line the recorder logs when the checkpoint's residency check
+    /// refuses. When the checkpoint was the commit deadline (the recipe gave up in
+    /// kCommit) the line says the recorder had waited from T0 for the firmware.
+    std::string warm_start_refusal_message(uint32_t frames, const std::string& why) const;
 
     /// What the recipe was last waiting for, for a refusal message.
     std::string warm_start_recipe_waiting_for() const;
@@ -2173,9 +2188,9 @@ private:
 
     /// The warm-start recording recipe's state machine (see
     /// warm_start_recipe_tick()). Only a recorder's Emulator uses it.
-    enum class WsPhase { kMenu, kDown, kEnter, kStatement, kDone, kGaveUp };
+    enum class WsPhase { kCommit, kMenu, kDown, kEnter, kStatement, kDone, kGaveUp };
     struct WsRecipe {
-        WsPhase  phase        = WsPhase::kMenu;
+        WsPhase  phase        = WsPhase::kCommit;
         uint16_t last_pc      = 0xFFFF;
         uint16_t last_sp      = 0xFFFF;
         uint32_t calm         = 0;      // consecutive idle frames

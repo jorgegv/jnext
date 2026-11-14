@@ -18,6 +18,10 @@ set -uo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HARNESS="$PROJECT_DIR/test/run-unit-tests.sh"
 export LC_ALL=C
+# The candidate-card seams belong to the run that sets them (HS-171 sets them itself):
+# inherited from the regression run that executes this self-test, they would turn
+# every nested regression.sh below into a refusal or a run on another card.
+unset JNEXT_REGRESSION_SD_STATE_DIR JNEXT_REGRESSION_SHOTS_DIR
 
 pass=0; fail=0; total=0
 
@@ -25,7 +29,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=343  # 341 -> 343: HS-183a..b (the self-check decoy is pinned: its record from the stub, and the no-decoy fault; review H1, GH #487).  # 338 -> 341: HS-182a..j added (the capture of a 32-bit exe: the exe found by a per-runner marker, a debugger-free stack helper, a self-check with a decoy and a survival clause, wine 11.20 measurements; GH #487) and HS-98c, HS-98d, HS-98j, HS-98k, HS-98m, HS-98x, HS-99j retired: they pinned the exact command-line / name-only process match and the winedbg attach session, which are gone. Real winedbg prints NO command line under a process, so the exact match never fired on real wine (the stub printed lines real winedbg does not), and its attach kills a 32-bit process; HS-182c/d replace them. HS-99s keeps the listing half, HS-182j the helper half.  # 333 -> 338: HS-180d..e (the PE check, its two sub-conditions apart) and HS-181a..c (an unpacked package gets no MinGW sysroot on its wine PATH, decided by wine-run.sh --jnext from the absent CMakeCache.txt; GH #487).  # 330 -> 333: HS-180a..c (a cache-less dir, an unpacked Windows package, takes its target OS from its jnext.exe PE header and is refused otherwise; GH #487).  # 328 -> 330: HS-69t (a killed tagged row names its own bound), HS-69u (the real conf's bound= tag reaches the driver's array and exceeds the row's inner bound).  # 324 -> 328: HS-69p, HS-69q..s (a row's bound= tag overrides the driver's kill bound; the tag parser refuses a malformed or doubled one).  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=392  # 379 -> 392 (merge of main v1.2.36): main's +13 since v1.2.35 (330 -> 343, below) added to this branch's +49 over main (330 -> 379).  # 341 -> 343: HS-183a..b (the self-check decoy is pinned: its record from the stub, and the no-decoy fault; review H1, GH #487).  # 338 -> 341: HS-182a..j added (the capture of a 32-bit exe: the exe found by a per-runner marker, a debugger-free stack helper, a self-check with a decoy and a survival clause, wine 11.20 measurements; GH #487) and HS-98c, HS-98d, HS-98j, HS-98k, HS-98m, HS-98x, HS-99j retired: they pinned the exact command-line / name-only process match and the winedbg attach session, which are gone. Real winedbg prints NO command line under a process, so the exact match never fired on real wine (the stub printed lines real winedbg does not), and its attach kills a 32-bit process; HS-182c/d replace them. HS-99s keeps the listing half, HS-182j the helper half.  # 333 -> 338: HS-180d..e (the PE check, its two sub-conditions apart) and HS-181a..c (an unpacked package gets no MinGW sysroot on its wine PATH, decided by wine-run.sh --jnext from the absent CMakeCache.txt; GH #487).  # 330 -> 333: HS-180a..c (a cache-less dir, an unpacked Windows package, takes its target OS from its jnext.exe PE header and is refused otherwise; GH #487).  # 377 -> 379: HS-177c (the next run after a distribution re-derive touches nothing), HS-178 (an unreadable kDistroUrl is a FAIL).  # 375 -> 377: HS-177a..b (the default master of another distribution is replaced).  # 374 -> 375: HS-176 (pgo-train honours the candidate-card override).  # 373 -> 374: HS-175d (sd_card_sidecars: a row's own copy of the clone gets the sidecars).  # 370 -> 373: HS-175a..c (the run's SD clone carries .distro and a declined sidecar for the default distribution, so a GUI row never meets the upgrade offer).  # 367 -> 370: HS-174a..c (the legacy name for a raw with no .distro; the seam's offline derive names the raw's own distribution; a .distro that is not a file name is not a verified raw).  # 361 -> 367: main's HS-69p..u (bound= tag) merged with this branch's +HS-171/172/173 rows.  # 328 -> 330: HS-69t (a killed tagged row names its own bound), HS-69u (the real conf's bound= tag reaches the driver's array and exceeds the row's inner bound).  # 324 -> 328: HS-69p, HS-69q..s (a row's bound= tag overrides the driver's kill bound; the tag parser refuses a malformed or doubled one).  # 358 -> 361: HS-173a..c (menu_index on synthetic menu files).  # 344 -> 358: HS-172a..k (the boot-ready helper: @bf expansion with the measured shift, shift 0 byte-identical, K, a malformed or unmeasurable shift is a fault, the default master pins its commit frame, bf_jds).  # 342 -> 344: HS-171s..t (the seam gate keeps a witnessed card with a missing or wrong recipe sidecar; a raw with a mismatching sidecar is not verified).  # 332 -> 342: HS-171i..r (a candidate card is never deleted or replaced by a download; ".." and "//" "/./" path refusals; the kept-PNG directory is created by the driver; the two leak guards).  # 324 -> 332: HS-171a..h (the candidate-card seams JNEXT_REGRESSION_SD_STATE_DIR and JNEXT_REGRESSION_SHOTS_DIR: refusals, the master in the seam dir, kept failing screenshots).  # 322 -> 324: HS-170a..b (the bare in-place sed lint is wired into the preflight as row 7; macOS CI).  # 321 -> 322: HS-169 (the scratch HOME carries the git config, so a preflight lint still runs in a checkout owned by another uid, as in CI).  # 314 -> 321: HS-167, HS-168a..f (the self-test runs in a scratch HOME and never reaches the real ~/.jnext, and a guard that the real SD master is unchanged; owner decision 2026-11-07).  # 308 -> 314: HS-164a..d (GH #460: no run's cleanup removes the shared ~/.jnext/runs, so no concurrent run's mkdir under it can lose; unit and regression harness, another run's directory present or the parent empty) and HS-165a..b (a unit run that cannot make its private SD clone refuses to run instead of reading the shared master; owner decision 2026-11-07).  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -85,7 +89,7 @@ tool_runnable() {   # tool_runnable <name>
     [[ $rc -ne 126 && $rc -ne 127 ]]
 }
 missing_tools=""
-for tool in awk basename bash c++ cat chmod comm cp cut date dirname env find flock git grep \
+for tool in awk basename bash c++ cat chmod cmp comm cp cut date dirname env find flock git grep \
             head ln ls make mkdir mktemp mv nproc perl rg rm rmdir sed seq sh sha256sum sleep \
             sort stat tail test timeout touch tr true uname uniq wc xargs; do
     tool_runnable "$tool" || missing_tools+=" $tool"
@@ -3661,6 +3665,384 @@ res="fixture=$(git_safe_dirs "$cgf/to")"
 res+=" live=$([[ "$(git_safe_dirs "$ORIG_HOME")" == "$(git_safe_dirs "$HOME")" ]] && echo same || echo DIFFERENT)"
 check "HS-169" "the scratch HOME carries both git config files (~/.gitconfig and ~/.config/git/config, safe.directory), so the preflight lints work in a checkout owned by another uid (CI run 42460116296)" 0 0 "$res" \
     "fixture=/selftest/marker-dir /selftest/marker-xdg" "live=same"
+
+# ---------------- the candidate-card seams (HS-171) ----------------
+# JNEXT_REGRESSION_SD_STATE_DIR points the run's SD master at another jnext state dir and
+# JNEXT_REGRESSION_SHOTS_DIR keeps a failing screenshot's actual PNG, so a candidate NextZXOS
+# card can be evaluated without touching the shared master. Oracle: the harness contract
+# (a seam run is never stamped and never regenerates references; neither path may sit inside
+# the checkout; unset, nothing changes). A throwaway repository holds the REAL driver, library,
+# scheduler, row runner, stamp script, the REAL 01-sdcard-provision.sh and screenshots.sh, with
+# a fake jnext that records its JNEXT_CONFIG_DIR and writes the card + recipe sidecar there.
+SQ="$T/seamrepo"; SQT="$SQ/test/00regression"
+mkdir -p "$SQT/scripts" "$SQT/img" "$SQ/src/core" "$SQ/build/test" "$SQ/build/sdl-release" "$T/seamfix" "$T/seamstamps" "$T/seamstate" "$T/seamshots"
+cp "$PROJECT_DIR/test/00regression/regression.sh" "$PROJECT_DIR/test/00regression/test-functions.inc" \
+   "$PROJECT_DIR/test/00regression/parallel-rows.inc" "$PROJECT_DIR/test/00regression/row-runner.sh" "$SQT/"
+cp "$PROJECT_DIR/test/00regression/scripts/01-sdcard-provision.sh" "$PROJECT_DIR/test/00regression/scripts/screenshots.sh" "$SQT/scripts/"
+cp "$PROJECT_DIR/test/regression-stamp.sh" "$SQ/test/"
+printf 'const int kFixedImageRecipe = 2;\nconst char* const kDistroUrl =\n    "https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip";\n' > "$SQ/src/core/sdcard_provisioner.cpp"
+printf '# expect: 3\nshot-x 48k BOOT 5\nshot-bf 48k BOOT @bf:400 --delayed-keypress-frames @bf:400 space\nshot-lit 48k BOOT 400 --delayed-keypress-frames 400 space\n' > "$SQT/regression_tests.conf"
+printf '# expect: 9\nok-func\nsdcard-provision-func\nbf-probe-func\nbfjds-func\nbfjds-bad-func\nbfkeys-func\nbfneg-func\nclone-probe-func\nclone-copy-func\n' > "$SQT/functional_tests.conf"
+printf 'if want bfneg-func; then begin_func bfneg-func; v=$(bf 150); pass_row " (bf=$v)"; fi\n' > "$SQT/scripts/bfneg-func.sh"
+printf 'if want bfkeys-func; then begin_func bfkeys-func; bf_keys 400 space 470 down; pass_row " (keys=${BF_KEYS[*]})"; fi\n' > "$SQT/scripts/bfkeys-func.sh"
+cp "$PROJECT_DIR/test/00regression/boot-commit-probe.jds" "$SQT/"
+printf 'if want clone-probe-func; then begin_func clone-probe-func; pass_row " (clone=$(cd "$RUN_DIR/sdcard" && for f in cspect-next-1gb-fixed.img.distro cspect-next-1gb-fixed.img.distro-declined; do [ -f "$f" ] && printf "%%s=%%s " "$f" "$(tr -d "\\n" < "$f")"; done))"; fi\n' > "$SQT/scripts/clone-probe-func.sh"
+printf 'if want clone-copy-func; then begin_func clone-copy-func; mkdir -p "$TMP_DIR/c/sdcard"; cp "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" "$TMP_DIR/c/sdcard/"; sd_card_sidecars "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" "$TMP_DIR/c/sdcard/cspect-next-1gb-fixed.img"; pass_row " (copy=$(cd "$TMP_DIR/c/sdcard" && for f in cspect-next-1gb-fixed.img.distro cspect-next-1gb-fixed.img.distro-declined; do [ -f "$f" ] && printf "%%s=%%s " "$f" "$(tr -d "\\n" < "$f")"; done))"; fi\n' > "$SQT/scripts/clone-copy-func.sh"
+printf 'if want bf-probe-func; then begin_func bf-probe-func; v=$(bf 450 2); pass_row " (bf=$v)"; fi\n' > "$SQT/scripts/bf-probe-func.sh"
+printf 'if want bfjds-func; then begin_func bfjds-func; printf "on frame {{bf 470}} then {{bf 100 2}}\\n" > "$TMP_DIR/t.jds.in"; bf_jds "$TMP_DIR/t.jds.in" "$TMP_DIR/t.jds"; pass_row " (jds=$(cat "$TMP_DIR/t.jds"))"; fi\n' > "$SQT/scripts/bfjds-func.sh"
+printf 'if want bfjds-bad-func; then begin_func bfjds-bad-func; printf "on frame {{bf 470}} {{other 1}}\\n" > "$TMP_DIR/t.jds.in"; bf_jds "$TMP_DIR/t.jds.in" "$TMP_DIR/t.jds"; pass_row " (expanded)"; fi\n' > "$SQT/scripts/bfjds-bad-func.sh"
+cp "$PROJECT_DIR/test/00regression/scripts/sdcard-provision-func.sh" "$SQT/scripts/"
+printf 'if want ok-func; then begin_func ok-func; pass_row; fi\n' > "$SQT/scripts/ok-func.sh"
+printf 'for lint_n in 1 2 3 4 5 6 7; do CURRENT_ROW="lint-$lint_n"; pass_row; done\n' > "$SQT/scripts/00-preflight-lint.sh"
+printf '#!/bin/sh\nexit 0\n' > "$SQ/build/test/rewind_test"
+chmod +x "$SQ/build/test/rewind_test"
+cp "$SQ/build/test/rewind_test" "$SQ/build/sdl-release/jnext"
+# the fake jnext: provisions a card + recipe in $JNEXT_CONFIG_DIR, logs that dir, and writes the
+# screenshot it is asked for (shot-a.png) so the row compares it against its reference
+# (the screenshot row itself needs ImageMagick: magick, else convert)
+if command -v magick &>/dev/null; then seam_im=(magick); else seam_im=(convert); fi
+"${seam_im[@]}" -size 4x4 xc:red "$T/shot-a.png" 2>/dev/null; "${seam_im[@]}" -size 4x4 xc:blue "$T/shot-b.png" 2>/dev/null
+cat > "$T/seam-jnext" <<FAKE
+#!/bin/sh
+# the boot-ready probe (boot-commit-probe.jds): answer with FAKE_COMMIT (default 472), or with nothing
+case " \$* " in *boot-commit-probe*)
+    # FAKE_BY_CARD: answer by the card the probe was started on (the seam card holds STAYS), as a real boot does
+    if [ -n "\$FAKE_BY_CARD" ]; then
+        if [ "\$(cat "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null)" = STAYS ]; then FAKE_COMMIT=649; else FAKE_COMMIT=472; fi
+    fi
+    [ -n "\$FAKE_PROBE_NONE" ] || echo "[jds F:\$FAKE_COMMIT C:1] BOOT-COMMIT FRAME=\${FAKE_COMMIT:-472} NR03=B3 [client 2]"
+    exit 0 ;;
+esac
+echo "\$*" >> "$T/seam-argv.log"
+echo "cfg=\$JNEXT_CONFIG_DIR url=\$JNEXT_SDCARD_DISTRO_URL" >> "$T/seam-jnext.log"
+# a real jnext provisions only when asked to download/derive; the screenshot call must not touch the card dir
+case " \$* " in *" --sdcard-download-confirm "*)
+    mkdir -p "\$JNEXT_CONFIG_DIR/sdcard"
+    [ -f "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img" ] || printf card > "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img"
+    [ -f "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img.recipe" ] || printf '2\n' > "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img.recipe"
+    [ -f "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img.distro" ] || printf 'sn-emulator-26.11.zip\n' > "\$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img.distro"
+    ;;
+esac
+while [ \$# -gt 0 ]; do
+    [ "\$1" = --delayed-screenshot ] && cp "$T/shot-a.png" "\$2"
+    shift
+done
+exit 0
+FAKE
+chmod +x "$T/seam-jnext"
+printf 'build/\n' > "$SQ/.gitignore"
+git -C "$SQ" -c user.name=t -c user.email=t@t init -q >/dev/null 2>&1
+git -C "$SQ" add -A >/dev/null 2>&1; git -C "$SQ" -c user.name=t -c user.email=t@t commit -qm fixture >/dev/null 2>&1
+seam_run() {   # seam_run <VAR=value ...> -- <regression.sh args...>   (a fresh scratch HOME per call)
+    local envs=()
+    while [[ "$1" != -- ]]; do envs+=("$1"); shift; done; shift
+    rm -rf "$T/seamfix"; mkdir -p "$T/seamfix"
+    ( cd "$SQ" && env HOME="$T/seamfix" JNEXT="$T/seam-jnext" \
+      JNEXT_REGRESSION_STAMP_DIR="$T/seamstamps" JNEXT_REGRESSION_LOCK_FILE="$T/seam.lock" \
+      JNEXT_REGRESSION_LOCK_WAIT=6 JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" \
+      JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 JNEXT_TEST_JOBS=1 "${envs[@]}" \
+      timeout --kill-after=5s 120s bash "$SQT/regression.sh" "$@" 2>&1 )
+}
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seamstate" JNEXT_REGRESSION_STAMP=1 -- shot-x); rc=$?
+check "HS-171a" "a candidate-card run that asks for a stamp is a harness fault naming the variable" 2 $rc "$out" \
+    "HARNESS FAULT" "JNEXT_REGRESSION_SD_STATE_DIR" "never stamped"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seamstate" -- --update shot-x); rc=$?
+check "HS-171b" "a candidate-card run with --update is a harness fault naming the variable" 2 $rc "$out" \
+    "HARNESS FAULT" "JNEXT_REGRESSION_SD_STATE_DIR" "--update"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR=rel/state -- shot-x); rc=$?
+check "HS-171c" "a relative candidate-card path is a harness fault naming the variable" 2 $rc "$out" \
+    "HARNESS FAULT" "JNEXT_REGRESSION_SD_STATE_DIR" "absolute"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$SQ/state" -- shot-x); rc=$?
+check "HS-171d" "a candidate-card path inside the checkout is a harness fault naming the variable" 2 $rc "$out" \
+    "HARNESS FAULT" "JNEXT_REGRESSION_SD_STATE_DIR" "inside the checkout"
+out=$(seam_run JNEXT_REGRESSION_SHOTS_DIR=rel/shots -- shot-x); rc=$?
+check "HS-171e" "a relative kept-screenshot path is a harness fault naming the variable" 2 $rc "$out" \
+    "HARNESS FAULT" "JNEXT_REGRESSION_SHOTS_DIR" "absolute"
+out=$(seam_run JNEXT_REGRESSION_SHOTS_DIR="$SQ/shots" -- shot-x); rc=$?
+check "HS-171f" "a kept-screenshot path inside the checkout is a harness fault naming the variable" 2 $rc "$out" \
+    "HARNESS FAULT" "JNEXT_REGRESSION_SHOTS_DIR" "inside the checkout"
+# g: the REAL 01-sdcard-provision.sh derives into the seam dir, and the default HOME master is not made
+cp "$T/shot-a.png" "$SQT/img/shot-x-reference.png"
+rm -rf "$T/seamstate"; mkdir -p "$T/seamstate/sdcard"; : > "$T/seam-jnext.log"
+# a candidate dir that can be derived: the raw and the sidecar that verifies it
+printf RAW > "$T/seamstate/sdcard/cspect-next-1gb.img"
+printf '%s  cspect-next-1gb.img\n' "$(printf RAW | sha256sum | cut -d' ' -f1)" > "$T/seamstate/sdcard/cspect-next-1gb.img.sha256"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seamstate" -- shot-x); rc=$?
+out+=" derived_in_seam=$([[ -f "$T/seamstate/sdcard/cspect-next-1gb-fixed.img" ]] && echo yes || echo no)"
+out+=" home_master=$([[ -e "$T/seamfix/.jnext/sdcard/cspect-next-1gb-fixed.img" ]] && echo made || echo none)"
+out+=" $(tr '\n' ' ' < "$T/seam-jnext.log")"
+check "HS-171g" "with the seam set the sdcard-provision row derives the master in the seam dir (jnext ran with that JNEXT_CONFIG_DIR), names it, and the HOME master is not made" 0 $rc "$out" \
+    "derived_in_seam=yes" "home_master=none" "cfg=$T/seamstate" "master in use $T/seamstate/sdcard/cspect-next-1gb-fixed.img"
+# h: a PASSING screenshot row keeps nothing, a FAILING one keeps its actual PNG
+rm -rf "$T/seamshots"   # not created here: the driver must make the directory itself
+out=$(seam_run JNEXT_REGRESSION_SHOTS_DIR="$T/seamshots" -- shot-x); rc=$?
+out+=" kept_on_pass=$(find "$T/seamshots" -type f | wc -l)"
+cp "$T/shot-b.png" "$SQT/img/shot-x-reference.png"
+out+=" $(seam_run JNEXT_REGRESSION_SHOTS_DIR="$T/seamshots" -- shot-x | tr '\n' ' ')"
+out+=" kept_on_fail=$(find "$T/seamshots" -type f -name 'shot-x.png' | wc -l)"
+out+=" same_bytes=$(cmp -s "$T/seamshots/shot-x.png" "$T/shot-a.png" && echo yes || echo no)"
+check "HS-171h" "with the kept-screenshot seam set, a passing screenshot row leaves nothing and a failing one leaves its actual PNG (the bytes the emulator wrote)" 0 $rc "$out" \
+    "kept_on_pass=0" "kept_on_fail=1" "same_bytes=yes"
+
+# i..l: the candidate card is never deleted and nothing is downloaded. Fake jnext calls are
+# logged (cfg= and url=), so "no call" and "offline" are observed, not assumed.
+cp "$T/shot-a.png" "$SQT/img/shot-x-reference.png"
+seam_state() {   # seam_state <dir> -- a fresh candidate dir
+    rm -rf "$1"; mkdir -p "$1/sdcard"; : > "$T/seam-jnext.log"
+}
+seam_state "$T/seam-i"; printf STAYS > "$T/seam-i/sdcard/cspect-next-1gb-fixed.img"; printf '2\n' > "$T/seam-i/sdcard/cspect-next-1gb-fixed.img.recipe"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-i" -- shot-x); rc=$?
+out+=" calls=$(grep -c "cfg=$T/seam-i " "$T/seam-jnext.log" || true) card=$(cat "$T/seam-i/sdcard/cspect-next-1gb-fixed.img") witness=$([[ -s "$T/seam-i/sdcard/cspect-next-1gb-fixed.img.sha256" ]] && echo yes || echo no)"
+check "HS-171i" "a candidate card with no raw and no witness is used as it is and witnessed: no jnext call, the card kept" 0 $rc "$out" \
+    "candidate card used as it is" "calls=0" "card=STAYS" "witness=yes"
+seam_state "$T/seam-j"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-j" -- shot-x); rc=$?
+out+=" calls=$(grep -c "cfg=$T/seam-j " "$T/seam-jnext.log" || true)"
+check "HS-171j" "a candidate dir with no card and no verified raw FAILS the row saying so, and runs no jnext to derive or download (nothing is downloaded)" 1 $rc "$out" \
+    "no card in the seam dir and no raw whose sidecar verifies" "calls=0"
+seam_state "$T/seam-k"; printf DRIFT > "$T/seam-k/sdcard/cspect-next-1gb-fixed.img"; printf 'deadbeef  cspect-next-1gb-fixed.img\n' > "$T/seam-k/sdcard/cspect-next-1gb-fixed.img.sha256"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-k" -- shot-x); rc=$?
+out+=" calls=$(grep -c "cfg=$T/seam-k " "$T/seam-jnext.log" || true) card=$(cat "$T/seam-k/sdcard/cspect-next-1gb-fixed.img")"
+check "HS-171k" "a candidate card that drifted from its witness, with no verified raw, FAILS the row and is NOT deleted or re-derived" 1 $rc "$out" \
+    "drifted from its witness" "calls=0" "card=DRIFT"
+seam_state "$T/seam-l"; printf RAW > "$T/seam-l/sdcard/cspect-next-1gb.img"
+printf '%s  cspect-next-1gb.img\n' "$(printf RAW | sha256sum | cut -d' ' -f1)" > "$T/seam-l/sdcard/cspect-next-1gb.img.sha256"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-l" -- shot-x); rc=$?
+out+=" $(tr '\n' ' ' < "$T/seam-jnext.log") card=$([[ -f "$T/seam-l/sdcard/cspect-next-1gb-fixed.img" ]] && echo made || echo none)"
+check "HS-171l" "a candidate dir holding a raw whose sidecar verifies is re-derived from it, in the seam dir, with a download address that cannot be fetched" 0 $rc "$out" \
+    "cfg=$T/seam-l url=file:///nonexistent-candidate-card-never-download" "card=made"
+seam_state "$T/seam-l2"; printf RAW > "$T/seam-l2/sdcard/cspect-next-1gb.img"
+printf '%s  cspect-next-1gb.img\n' "$(printf RAW | sha256sum | cut -d' ' -f1)" > "$T/seam-l2/sdcard/cspect-next-1gb.img.sha256"
+printf 'sn-emulator-26.11.zip\n' > "$T/seam-l2/sdcard/cspect-next-1gb.img.distro"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-l2" -- shot-x); rc=$?
+out+=" $(tr '\n' ' ' < "$T/seam-jnext.log")"
+check "HS-174a" "the offline derive's address ends in the raw's own distribution name (its .distro sidecar), so jnext accepts the raw the harness verified" 0 $rc "$out" \
+    "cfg=$T/seam-l2 url=file:///nonexistent-candidate-card-never-download/sn-emulator-26.11.zip"
+seam_state "$T/seam-l3"; printf RAW > "$T/seam-l3/sdcard/cspect-next-1gb.img"
+printf '%s  cspect-next-1gb.img\n' "$(printf RAW | sha256sum | cut -d' ' -f1)" > "$T/seam-l3/sdcard/cspect-next-1gb.img.sha256"
+printf 'x/../y.zip\n' > "$T/seam-l3/sdcard/cspect-next-1gb.img.distro"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-l3" -- shot-x); rc=$?
+out+=" calls=$(grep -c "cfg=$T/seam-l3 " "$T/seam-jnext.log" || true)"
+check "HS-174b" "a raw whose .distro is not a plain file name is not a verified raw: no card and no raw to trust FAILS the row, and no jnext is run" 1 $rc "$out" \
+    "no card in the seam dir and no raw whose sidecar verifies" "calls=0"
+seam_state "$T/seam-l4"; printf RAW > "$T/seam-l4/sdcard/cspect-next-1gb.img"
+printf '%s  cspect-next-1gb.img\n' "$(printf RAW | sha256sum | cut -d' ' -f1)" > "$T/seam-l4/sdcard/cspect-next-1gb.img.sha256"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-l4" -- shot-x); rc=$?
+out+=" $(tr '\n' ' ' < "$T/seam-jnext.log")"
+check "HS-174c" "a raw with no .distro sidecar is the legacy distribution: the offline derive's address ends in sn-emulator-24.11.zip" 0 $rc "$out" \
+    "cfg=$T/seam-l4 url=file:///nonexistent-candidate-card-never-download/sn-emulator-24.11.zip"
+# m..p: a '..' component, and '//' or '/./' in front of the checkout prefix, are refused
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seamstate/../x" -- shot-x); rc=$?
+check "HS-171m" "a '..' component in the candidate-card path is a harness fault naming the variable" 2 $rc "$out" \
+    "HARNESS FAULT" "JNEXT_REGRESSION_SD_STATE_DIR" "'..' component"
+out=$(seam_run JNEXT_REGRESSION_SHOTS_DIR="$T/x/../y" -- shot-x); rc=$?
+check "HS-171n" "a '..' component in the kept-screenshot path is a harness fault naming the variable" 2 $rc "$out" \
+    "HARNESS FAULT" "JNEXT_REGRESSION_SHOTS_DIR" "'..' component"
+out=""; worst=2
+for v in "$SQ//state" "/$SQ/state" "$SQ/./state" "$SQ/." "${SQ%/*}/./${SQ##*/}/state"; do
+    o=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$v" -- shot-x); r=$?
+    [[ $r == 2 ]] || worst=$r
+    out+="$o"$'\n'
+done
+out+="refused=$(grep -c 'inside the checkout' <<< "$out")"
+check "HS-171o" "a doubled slash, a '/./' or a trailing '/.' does not hide the checkout prefix of the candidate-card path (5 spellings, all refused, one with the "/./" BEFORE the checkout prefix)" 2 $worst "$out" \
+    "refused=5"
+out=$(seam_run JNEXT_REGRESSION_SHOTS_DIR="$SQ//shots" -- shot-x); rc=$?
+check "HS-171p" "a doubled slash does not hide the checkout prefix of the kept-screenshot path" 2 $rc "$out" \
+    "HARNESS FAULT" "JNEXT_REGRESSION_SHOTS_DIR" "inside the checkout"
+# s, t: the gate's two quiet guards (R2). s: a WITNESSED card whose recipe sidecar is absent or
+# wrong, with no raw, is kept (a fix-sdcard-image.sh or minimal card): no jnext call, PASS. t: a raw
+# whose sidecar does NOT match its sha is not a verified raw: next to a drifted card the row FAILS.
+out=""; worst=0
+for rc_variant in none 9; do
+    seam_state "$T/seam-s"; printf STAYS > "$T/seam-s/sdcard/cspect-next-1gb-fixed.img"
+    printf '%s  cspect-next-1gb-fixed.img\n' "$(printf STAYS | sha256sum | cut -d' ' -f1)" > "$T/seam-s/sdcard/cspect-next-1gb-fixed.img.sha256"
+    [[ "$rc_variant" == none ]] || printf '%s\n' "$rc_variant" > "$T/seam-s/sdcard/cspect-next-1gb-fixed.img.recipe"
+    o=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-s" -- shot-x); r=$?
+    [[ $r == 0 ]] || worst=$r
+    out+="$o recipe=$rc_variant calls=$(grep -c "cfg=$T/seam-s " "$T/seam-jnext.log" || true) card=$(cat "$T/seam-s/sdcard/cspect-next-1gb-fixed.img")"$'\n'
+done
+check "HS-171s" "a witnessed candidate card whose recipe sidecar is absent or wrong, with no raw, is kept as it is: no jnext call, the row passes" 0 $worst "$out" \
+    "candidate card unchanged since it was witnessed" "recipe=none calls=0 card=STAYS" "recipe=9 calls=0 card=STAYS"
+seam_state "$T/seam-t"; printf DRIFT > "$T/seam-t/sdcard/cspect-next-1gb-fixed.img"; printf 'deadbeef  cspect-next-1gb-fixed.img\n' > "$T/seam-t/sdcard/cspect-next-1gb-fixed.img.sha256"
+printf RAWX > "$T/seam-t/sdcard/cspect-next-1gb.img"; printf '%s  cspect-next-1gb.img\n' "$(printf OTHER | sha256sum | cut -d' ' -f1)" > "$T/seam-t/sdcard/cspect-next-1gb.img.sha256"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-t" -- shot-x); rc=$?
+out+=" calls=$(grep -c "cfg=$T/seam-t " "$T/seam-jnext.log" || true) card=$(cat "$T/seam-t/sdcard/cspect-next-1gb-fixed.img")"
+check "HS-171t" "a raw whose sidecar does not match its sha is not a verified raw: next to a drifted card the row FAILS, the card is kept, no jnext call" 1 $rc "$out" \
+    "no raw whose sidecar verifies" "calls=0" "card=DRIFT"
+
+# HS-172: the boot-ready helper. The REAL driver, screenshots.sh, 01-sdcard-provision.sh and
+# test-functions.inc run against the fake jnext, which answers the commit probe with FAKE_COMMIT
+# and records every other argv. A candidate dir (seam) lets the commit be anywhere; the default
+# master (a pristine card under the scratch HOME) must give BOOT_DEFAULT_COMMIT.
+cp "$T/shot-a.png" "$SQT/img/shot-x-reference.png"; cp "$T/shot-a.png" "$SQT/img/shot-bf-reference.png"; cp "$T/shot-a.png" "$SQT/img/shot-lit-reference.png"
+seam_state "$T/seam-bf"; printf STAYS > "$T/seam-bf/sdcard/cspect-next-1gb-fixed.img"; printf '2\n' > "$T/seam-bf/sdcard/cspect-next-1gb-fixed.img.recipe"
+argv_of() {   # argv_of <name> -- the recorded jnext argv of the screenshot row <name>, path blanked
+    grep -- "$1.png" "$T/seam-argv.log" | sed "s|[^ ]*$1.png|PNG|" | head -1
+}
+: > "$T/seam-argv.log"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- shot-bf); rc=$?
+out+=" argv=$(argv_of shot-bf)"
+check "HS-172a" "@bf:400 in a screenshot row's frame field and in its --delayed-keypress-frames argument is expanded with the measured shift (commit 649, reference 472: 400 -> 577)" 0 $rc "$out" \
+    "--delayed-screenshot-frames 577" "--delayed-keypress-frames 577 space"
+: > "$T/seam-argv.log"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=472 -- shot-bf shot-lit); rc=$?
+a_bf=$(argv_of shot-bf); a_lit=$(argv_of shot-lit)
+out+=" same=$([[ -n "$a_bf" && "$a_bf" == "$a_lit" ]] && echo yes || echo no) argv=$a_bf"
+check "HS-172b" "with shift 0 (commit = the reference) the expanded row's argv is byte-identical to the literal row's" 0 $rc "$out" \
+    "same=yes" "--delayed-screenshot-frames 400"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- bf-probe-func); rc=$?
+check "HS-172c" "bf N K adds K shifts: bf 450 2 with commit 649 (shift 177) is 804" 0 $rc "$out" "bf=804"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_PROBE_NONE=1 -- bf-probe-func); rc=$?
+check "HS-172d" "an unmeasurable shift (no BOOT-COMMIT line) is a harness fault (exit 2) for a row that needs it, never a literal pass-through" 2 $rc "$out" \
+    "never committed a machine type within 1500 frames"
+printf '# expect: 4\nshot-x 48k BOOT 5\nshot-bf 48k BOOT @bf:400 --delayed-keypress-frames @bf:400 space\nshot-lit 48k BOOT 400 --delayed-keypress-frames 400 space\nshot-bad 48k BOOT @bf:4x0\n' > "$SQT/regression_tests.conf"
+cp "$T/shot-a.png" "$SQT/img/shot-bad-reference.png"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- shot-bad); rc=$?
+check "HS-172d2" "a malformed @bf:4x0 in a screenshot row is a harness fault (exit 2) naming it" 2 $rc "$out" \
+    "not non-negative integers"
+printf '# expect: 3\nshot-x 48k BOOT 5\nshot-bf 48k BOOT @bf:400 --delayed-keypress-frames @bf:400 space\nshot-lit 48k BOOT 400 --delayed-keypress-frames 400 space\n' > "$SQT/regression_tests.conf"
+rm -f "$SQT/img/shot-bad-reference.png"
+# e: the default master must commit at the pinned frame
+def_run() {   # def_run <VAR=value ...> -- <regression.sh args...>: a pristine default master under a fresh HOME
+    local envs=()
+    while [[ "$1" != -- ]]; do envs+=("$1"); shift; done; shift
+    if [[ -z "${DEF_KEEP:-}" ]]; then   # DEF_KEEP=1: the master a previous def_run left (and maybe changed)
+        rm -rf "$T/deffix"; mkdir -p "$T/deffix/.jnext/sdcard"
+        printf card > "$T/deffix/.jnext/sdcard/cspect-next-1gb-fixed.img"
+        printf '2\n' > "$T/deffix/.jnext/sdcard/cspect-next-1gb-fixed.img.recipe"
+        printf '%s\n' "${DEF_DISTRO:-sn-emulator-26.11.zip}" > "$T/deffix/.jnext/sdcard/cspect-next-1gb-fixed.img.distro"
+        printf '%s  cspect-next-1gb-fixed.img\n' "$(printf card | sha256sum | cut -d' ' -f1)" > "$T/deffix/.jnext/sdcard/cspect-next-1gb-fixed.img.sha256"
+    fi
+    ( cd "$SQ" && env HOME="$T/deffix" JNEXT="$T/seam-jnext" \
+      JNEXT_REGRESSION_STAMP_DIR="$T/seamstamps" JNEXT_REGRESSION_LOCK_FILE="$T/seam.lock" \
+      JNEXT_REGRESSION_LOCK_WAIT=6 JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" \
+      JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 JNEXT_TEST_JOBS=1 "${envs[@]}" \
+      timeout --kill-after=5s 120s bash "$SQT/regression.sh" "$@" 2>&1 )
+}
+out=$(def_run FAKE_COMMIT=473 -- ok-func); rc=$?
+check "HS-172e" "on the DEFAULT master a commit at frame 473 FAILS sdcard-provision, naming 473 and the pinned 472" 1 $rc "$out" \
+    "commits the machine type at frame 473" "must commit at frame 472"
+out=$(def_run FAKE_COMMIT=472 -- ok-func); rc=$?
+check "HS-172e2" "the control: a commit at the pinned frame passes sdcard-provision on the default master and the row reports the shift" 0 $rc "$out" \
+    "commits the machine type at frame 472 (reference 472): boot-relative frames shift by 0"
+out=$(def_run FAKE_PROBE_NONE=1 -- ok-func); rc=$?
+check "HS-172f" "a probe with no BOOT-COMMIT line FAILS sdcard-provision: the firmware never committed within 1500 frames" 1 $rc "$out" \
+    "the firmware never committed a machine type within 1500 frames"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- bfjds-func); rc=$?
+out2=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- bfjds-bad-func); rc2=$?
+check "HS-172g" "bf_jds expands {{bf 470}} (-> 647) and {{bf 100 2}} (-> 454), and refuses an output that still holds a {{ placeholder" 0 $rc "$out" \
+    "jds=on frame 647 then 454"
+check "HS-172g2" "...and a template with an unknown placeholder is a harness fault naming it" 2 $rc2 "$out2" \
+    "an unexpanded placeholder is left"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=649 -- bfkeys-func); rc=$?
+check "HS-172h" "bf_keys builds the --delayed-keypress-frames arguments with every frame shifted (commit 649: 400 -> 577, 470 -> 647)" 0 $rc "$out" \
+    "keys=--delayed-keypress-frames 577 space --delayed-keypress-frames 647 down"
+out=$(BOOT_COMMIT_MEASURED=472 seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_PROBE_NONE=1 -- bf-probe-func); rc=$?
+check "HS-172i" "a boot anchor inherited from an enclosing run (BOOT_COMMIT_MEASURED in the environment) never hides an unmeasurable boot: the driver drops it and the row is still a harness fault" 2 $rc "$out" \
+    "never committed a machine type within 1500 frames"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_BY_CARD=1 -- ok-func); rc=$?
+check "HS-172j" "the probe boots the RUN's card: a candidate (seam) run reports the candidate's commit (649, shift 177), not the default master's (472)" 0 $rc "$out" \
+    "commits the machine type at frame 649 (reference 472): boot-relative frames shift by 177"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-bf" FAKE_COMMIT=100 -- bfneg-func); rc=$?
+check "HS-172k" "a frame that the shift would make negative (commit 100, shift -372, bf 150) is a harness fault naming it, never a negative or wrapped frame" 2 $rc "$out" \
+    "gives a negative frame"
+
+# HS-175: the run's SD clone carries the master's distribution sidecar, and "do not ask again" for the
+# default distribution when the master is another one, so a GUI row is never blocked by the upgrade offer.
+seam_state "$T/seam-c1"; printf card > "$T/seam-c1/sdcard/cspect-next-1gb-fixed.img"; printf '2\n' > "$T/seam-c1/sdcard/cspect-next-1gb-fixed.img.recipe"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-c1" -- clone-probe-func); rc=$?
+check "HS-175a" "a candidate card with no .distro (a legacy 24.11 card) is cloned with a .distro-declined naming the default distribution and no .distro" 0 $rc "$out" \
+    "clone=cspect-next-1gb-fixed.img.distro-declined=sn-emulator-26.11.zip "
+out=$(DEF_DISTRO=sn-emulator-26.11.zip def_run -- clone-probe-func); rc=$?
+check "HS-175b" "a master that IS the default distribution is cloned with its .distro and NO declined sidecar (the control): the probe lists exactly one sidecar" 0 $rc "$out" \
+    "(clone=cspect-next-1gb-fixed.img.distro=sn-emulator-26.11.zip )"
+seam_state "$T/seam-c3"; printf card > "$T/seam-c3/sdcard/cspect-next-1gb-fixed.img"; printf '2\n' > "$T/seam-c3/sdcard/cspect-next-1gb-fixed.img.recipe"
+printf 'sn-emulator-24.11.zip\n' > "$T/seam-c3/sdcard/cspect-next-1gb-fixed.img.distro"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-c3" -- clone-probe-func); rc=$?
+check "HS-175c" "a candidate card whose .distro names another distribution keeps it in the clone and gets the declined sidecar for the default one" 0 $rc "$out" \
+    "clone=cspect-next-1gb-fixed.img.distro=sn-emulator-24.11.zip cspect-next-1gb-fixed.img.distro-declined=sn-emulator-26.11.zip "
+
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-c1" -- clone-copy-func); rc=$?
+check "HS-175d" "a row that copies the clone into a config directory of its own (sd_card_sidecars) gets the .distro-declined too, so its GUI runs meet no upgrade offer" 0 $rc "$out" \
+    "copy=cspect-next-1gb-fixed.img.distro-declined=sn-emulator-26.11.zip "
+
+# HS-177: the DEFAULT master is replaced when it was made from another distribution than the default, however
+# healthy its witness and recipe (the state a tree that still defaulted to the previous distribution leaves).
+out=$(DEF_DISTRO=sn-emulator-24.11.zip def_run -- ok-func); rc=$?
+check "HS-177a" "a healthy default master made from another distribution (.distro 24.11) is re-derived and sdcard-provision names the reason" 0 $rc "$out" \
+    "made from distribution sn-emulator-24.11.zip - re-derived from the default sn-emulator-26.11.zip"
+out=$(DEF_KEEP=1 def_run -- ok-func); rc=$?
+check "HS-177c" "...and the NEXT run on that master touches nothing: the derive left a master of the default distribution (the old .distro is dropped before it)" 0 $rc "$out" \
+    "unchanged since it was derived"
+out=$(def_run -- ok-func); rc=$?
+check "HS-177b" "the control: a healthy default master of the default distribution is left alone" 0 $rc "$out" \
+    "unchanged since it was derived"
+
+# HS-178: a tree whose kDistroUrl cannot be read is a FAIL, never a master re-derived on every run.
+cp "$SQ/src/core/sdcard_provisioner.cpp" "$T/sdprov.cpp.keep"
+printf 'const int kFixedImageRecipe = 2;\n' > "$SQ/src/core/sdcard_provisioner.cpp"
+out=$(def_run -- ok-func); rc=$?
+cp "$T/sdprov.cpp.keep" "$SQ/src/core/sdcard_provisioner.cpp"
+check "HS-178" "sdcard-provision FAILS when kDistroUrl cannot be read from the provisioner source, naming it" 1 $rc "$out" \
+    "cannot read kDistroUrl from src/core/sdcard_provisioner.cpp"
+
+# HS-176: tools/pgo-train.sh honours JNEXT_REGRESSION_SD_STATE_DIR like the suite, so a PGO build can train on
+# a private card: with a stub instrumented jnext and a state directory holding no card, it looks for the card
+# there, asks the (stub) jnext to provision into that directory, and never reads or creates anything under $HOME/.jnext.
+PG="$T/pgo"; rm -rf "$PG"; mkdir -p "$PG/build" "$PG/home" "$PG/state" "$PG/prof"
+printf 'CMAKE_CXX_COMPILER:FILEPATH=%s\n' "$(command -v g++ || command -v c++)" > "$PG/build/CMakeCache.txt"
+printf '#!/bin/sh\necho "cfg=$JNEXT_CONFIG_DIR" >> "%s/stub.log"\nexit 0\n' "$PG" > "$PG/build/jnext"; chmod +x "$PG/build/jnext"
+out=$(HOME="$PG/home" JNEXT_REGRESSION_SD_STATE_DIR="$PG/state" timeout --kill-after=5s 120s bash "$PROJECT_DIR/tools/pgo-train.sh" "$PG/build/jnext" "$PG/prof" 2>&1); rc=$?
+out+=" $(cat "$PG/stub.log" 2>/dev/null | tr '\n' ' ') home_sdcard=$([[ -e "$PG/home/.jnext/sdcard/cspect-next-1gb-fixed.img" ]] && echo made || echo none)"
+check "HS-176" "pgo-train with JNEXT_REGRESSION_SD_STATE_DIR set looks for its card in that directory, provisions into it and touches no ~/.jnext/sdcard" 1 $rc "$out" \
+    "no SD image at $PG/state/sdcard/cspect-next-1gb-fixed.img" "cfg=$PG/state" "home_sdcard=none"
+
+# HS-173: menu_index (test-functions.inc) finds a row's `default=` in the card's own menu file, counting
+# as the firmware does (config.c:345-405). The menu files are synthetic, written here (never card
+# content), and sdfile_tool is a fake that serves them: `get IMG PATH OUT` copies $FAKE_MENU_DIR/<name>.
+MI="$T/menuidx"; mkdir -p "$MI/bin" "$MI/files" "$MI/tmp"
+cat > "$MI/bin/sdfile_tool" <<'FAKE'
+#!/bin/sh
+# get <image> <path-on-card> <out>
+[ "$1" = get ] || exit 2
+cp "$FAKE_MENU_DIR/$(basename "$3")" "$4" 2>/dev/null || exit 1
+FAKE
+chmod +x "$MI/bin/sdfile_tool"
+sed -n '/^menu_index() {/,/^}/p' "$PROJECT_DIR/test/00regression/test-functions.inc" > "$MI/menu_index.sh"
+mi() {   # mi <mode> <rom> -- prints "rc=<n> idx=<out>"
+    local o rc=0
+    o=$(FAKE_MENU_DIR="$MI/files" TEST_BIN_DIR="$MI/bin" TMP_DIR="$MI/tmp" bash -c 'source "$1"; menu_index card.img "$2" "$3"' _ "$MI/menu_index.sh" "$1" "$2") || rc=$?
+    echo "rc=$rc idx=$o"
+}
+rm -f "$MI/files/"*
+printf 'ignored=x\r\nmenu=A,0,8,48.rom\r\nmenu=No ROM,0,8,\r\nmenu=B,1,8,128.rom\r\nmenu=C,3,8,128.rom\r\nmenu=D,2,8,plus3.rom\r\n' > "$MI/files/menu.def"
+out="$(mi 3 128.rom) $(mi 1 128.rom) $(mi 0 48.rom) $(mi 2 plus3.rom)"
+check "HS-173a" "menu_index counts only menu= lines with a ROM field (a CRLF file, a line with an empty ROM and a non-menu line before): (3,128.rom) is 2, (1,128.rom) 1, (0,48.rom) 0, (2,plus3.rom) 3" 0 0 "$out" \
+    "rc=0 idx=2 rc=0 idx=1 rc=0 idx=0 rc=0 idx=3"
+printf 'menu=A,3,8,128.rom\nmenu=B,3,8,128.rom\n' > "$MI/files/menu.def"
+out="$(mi 3 128.rom) $(mi 1 128.rom)"
+check "HS-173b" "a duplicate (mode, ROM) key and a key with no line both fail with no index: the row must never guess" 0 0 "$out" \
+    "rc=1 idx= rc=1 idx="
+printf 'menu=X,0,8,48.rom\nmenu=Y,3,8,128.rom\n' > "$MI/files/menu.ini"
+printf 'menu=Y,3,8,128.rom\nmenu=X,0,8,48.rom\n' > "$MI/files/menu.def"
+out="$(mi 3 128.rom)"; rm -f "$MI/files/menu.ini"; out+=" $(mi 3 128.rom)"; rm -f "$MI/files/menu.def"; out+=" $(mi 3 128.rom)"
+check "HS-173c" "menu.ini is read ahead of menu.def (index 1 from the ini, 0 from the def once it is gone), and a card with neither fails" 0 0 "$out" \
+    "rc=0 idx=1 rc=0 idx=0 rc=1 idx="
+
+# q: the leak guards. The REAL sdcard-provision-func row, with the seam exported, must pass
+# (its stub run keeps the scratch HOME's master); and the self-test's own preamble must drop
+# both seams before anything nested runs.
+seam_state "$T/seam-q"; printf STAYS > "$T/seam-q/sdcard/cspect-next-1gb-fixed.img"; printf '2\n' > "$T/seam-q/sdcard/cspect-next-1gb-fixed.img.recipe"
+out=$(seam_run JNEXT_REGRESSION_SD_STATE_DIR="$T/seam-q" -- sdcard-provision-func); rc=$?
+check "HS-171q" "the real sdcard-provision-func row passes with the candidate-card seam exported (it must not read the seam)" 0 $rc "$out" \
+    "[sdcard-provision-func]" "PASS"
+hs_head="$T/hs-head.sh"
+sed -n '1,/^pass=0; fail=0; total=0$/p' "$PROJECT_DIR/test/harness-selftest.sh" > "$hs_head"
+echo 'echo "seams=[${JNEXT_REGRESSION_SD_STATE_DIR-unset}][${JNEXT_REGRESSION_SHOTS_DIR-unset}]"' >> "$hs_head"
+out=$(JNEXT_REGRESSION_SD_STATE_DIR=/x JNEXT_REGRESSION_SHOTS_DIR=/y bash "$hs_head" 2>&1); rc=$?
+check "HS-171r" "the self-test's preamble drops both candidate-card seams, so a nested regression.sh never sees them" 0 $rc "$out" \
+    "seams=[unset][unset]"
 
 # ---- the real SD master is never touched by the self-test (HS-168) ----
 # Hard guard, from the 2026-11-07 incident (the real master became the 4-byte stand-in).
