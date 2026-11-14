@@ -5,11 +5,6 @@
 #include <SDL3/SDL.h>
 
 #include <cstdio>
-#include <cstdlib>
-#include <sstream>
-#ifdef __linux__
-#include <sys/stat.h>
-#endif
 
 namespace sdcard {
 
@@ -22,47 +17,8 @@ UpgradeChoice upgrade_choice_for_button(int button_id) {
     }
 }
 
-bool box_would_hang(bool linux_os, bool zenity_in_path, bool session_bus) {
-    return linux_os && zenity_in_path && !session_bus;
-}
-
 namespace {
 const char* const kHowToUpgrade = "run jnext --sdcard-upgrade yes to upgrade";
-
-bool on_linux() {
-#ifdef __linux__
-    return true;
-#else
-    return false;
-#endif
-}
-
-bool zenity_in_path() {
-#ifdef __linux__
-    const char* path = std::getenv("PATH");
-    if (!path) return false;
-    std::stringstream ss(path);
-    std::string dir;
-    while (std::getline(ss, dir, ':')) {
-        struct stat st{};
-        if (!dir.empty() && ::stat((dir + "/zenity").c_str(), &st) == 0 && (st.st_mode & S_IXUSR))
-            return true;
-    }
-#endif
-    return false;
-}
-
-bool session_bus() {
-#ifdef __linux__
-    const char* addr = std::getenv("DBUS_SESSION_BUS_ADDRESS");
-    if (addr && *addr) return true;
-    const char* rt = std::getenv("XDG_RUNTIME_DIR");
-    struct stat st{};
-    return rt && *rt && ::stat((std::string(rt) + "/bus").c_str(), &st) == 0;
-#else
-    return true;   // not Linux: box_would_hang() never asks
-#endif
-}
 
 void say_kept(const std::string& from, const std::string& to, const std::string& why) {
     const std::string new_title = distribution_title(to);
@@ -89,10 +45,9 @@ UpgradeChoice sdl_offer_upgrade(const std::string& from, const std::string& to,
     box.numbuttons = 3;
     box.buttons    = buttons;
     int pressed = kUpgradeButtonKeep;
-    if (box_would_hang(on_linux(), zenity_in_path(), session_bus())) {
-        say_kept(from, to, "zenity has no session bus to show it on");
-        return UpgradeChoice::Keep;
-    }
+    // On Linux SDL shows this through zenity when it is installed, and waits for it with no timeout:
+    // a zenity started on a display other than the desktop session's (an Xvfb next to a real
+    // session bus, say) can wait without ever drawing a window. A real desktop is not affected.
     if (!SDL_ShowMessageBox(&box, &pressed)) {
         say_kept(from, to, SDL_GetError());
         return UpgradeChoice::Keep;
