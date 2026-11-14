@@ -53,7 +53,7 @@ order* and matters: it is the tie-break below.
    tie, the one *emitted later* first (`primary_first`). The first is the
    segment's primary location.
 
-`loaded_file` is the adapter's absolute, lexically normalised path (built as the local `loaded`: `sld_loader.cpp:328`,
+`loaded_file` is the adapter's absolute, lexically normalised path (built as the local `loaded`: `sld_loader.cpp:331`,
 `z88dk_source_map.cpp:1210`), which is also where the search for a source file starts ([7.7](07-frontends.md)).
 `identity`, `loaded_file`, `format` (`"SLD"` or `"z88dk"`; `clear()` resets it to
 `"SLD"`), `texts` and `dot` (`SourceMap::dot()`: the map is a z88dk dot command's, so
