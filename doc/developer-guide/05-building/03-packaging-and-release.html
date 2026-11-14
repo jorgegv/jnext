@@ -3111,7 +3111,8 @@ build) the owner is the MacPorts port that <code>port provides</code> names for 
 library, the licences are the <code>LICENSE*</code>, <code>COPYING*</code> and <code>LICENCE*</code> files in
 <code>port contents</code>, and the same two failures apply: a library no port owns
 (for instance one that leaked in from another prefix on the build machine) or
-a port with no licence and no fallback stops the package.</p>
+a port with no licence and no fallback stops the package, after every such
+library has been named, so one run shows the whole list.</p>
 <h3 id="the-macos-architectures-and-the-minimum-macos">The macOS architectures and the minimum macOS<a class="headerlink" href="#the-macos-architectures-and-the-minimum-macos" title="Permanent link">&para;</a></h3>
 <p>There are two macOS packages, built natively, because the dependencies are
 single-architecture and a universal binary is not an option: Apple Silicon
@@ -3130,8 +3131,10 @@ the Finder say "requires macOS N or later" on an older release. Then
 <code>verify-bundle.sh</code> reads the minimum OS version of every Mach-O in the mounted
 <code>.dmg</code> (<code>LC_BUILD_VERSION</code> <code>minos</code>, or <code>LC_VERSION_MIN_MACOSX</code>). It always
 prints the highest one and the file that carries it; with the target set, it
-fails the package for any file that needs a newer macOS, and for a file whose
-minimum it cannot read.</p>
+fails the package for any file that needs a newer macOS, for a file whose
+minimum it cannot read, and unless <code>Contents/Info.plist</code> carries
+<code>LSMinimumSystemVersion</code> equal to the target (so the Finder refuses an older
+macOS instead of dyld killing the app).</p>
 <h2 id="versionyaml-is-the-single-source-of-truth"><code>version.yaml</code> is the single source of truth<a class="headerlink" href="#versionyaml-is-the-single-source-of-truth" title="Permanent link">&para;</a></h2>
 <p>No other file carries a copy of the version: everything that needs it reads
 <code>version.yaml</code> when it is built.</p>

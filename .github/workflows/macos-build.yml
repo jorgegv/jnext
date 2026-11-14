@@ -93,7 +93,7 @@ jobs:
           key: sdcard-image-distro-24.11-recipe2-macos
 
       - name: make gui-release
-        run: CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local make gui-release
+        run: OPENSSL_ROOT_DIR=/opt/local/libexec/openssl3 CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local make gui-release
 
       - name: Smoke test (--version)
         run: ./build/gui-release/jnext --version
@@ -101,7 +101,7 @@ jobs:
       - name: Package and verify (make package-macos)
         if: ${{ inputs.package }}
         timeout-minutes: 60
-        run: MACPORTS_PREFIX=/opt/local CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
+        run: MACPORTS_PREFIX=/opt/local OPENSSL_ROOT_DIR=/opt/local/libexec/openssl3 CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
 
       - name: Upload package
         if: ${{ inputs.package }}

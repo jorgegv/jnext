@@ -456,7 +456,7 @@ jobs:
       # Mach-O in the .dmg needs a newer macOS than Sequoia.
       - name: Package and verify (make package-macos)
         timeout-minutes: 60
-        run: MACPORTS_PREFIX=/opt/local CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
+        run: MACPORTS_PREFIX=/opt/local OPENSSL_ROOT_DIR=/opt/local/libexec/openssl3 CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
       - uses: actions/upload-artifact@v6
         with:
           name: jnext-macos-x64-package

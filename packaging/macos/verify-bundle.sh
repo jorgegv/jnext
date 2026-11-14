@@ -24,7 +24,8 @@
 # carries it are always printed. When JNEXT_MACOS_MIN is set (the dmg-time call
 # of `make package-macos` passes MACOS_DEPLOYMENT_TARGET), any file whose minimum
 # is NEWER fails the build, and so does a file whose minimum cannot be read: an
-# unknown minimum is not "old enough". dyld refuses a library built for a newer
+# unknown minimum is not "old enough", and the bundle's Info.plist must carry
+# LSMinimumSystemVersion equal to the floor. dyld refuses a library built for a newer
 # macOS than the one running, so a dependency bottled for the runner's OS would
 # otherwise raise the app's real floor with no warning to anyone.
 #
@@ -221,7 +222,23 @@ else
     printf '%s\n' "verify-bundle: highest minos unknown (no file declares one)" || true
 fi
 
-if [ "$minos_over" -gt 0 ] || [ "$minos_unknown" -gt 0 ]; then
+# With a floor, the bundle must SAY it: Info.plist's LSMinimumSystemVersion equal
+# to the floor, so the Finder refuses an older macOS instead of dyld killing the
+# app. Whitespace is stripped so the key and its <string> may sit on separate lines.
+plist_bad=0
+if [ -n "$MIN_FLOOR" ]; then
+    plist_val=""
+    if [ -f "$APP/Contents/Info.plist" ]; then
+        plist_val=$(tr -d ' \t\r\n' < "$APP/Contents/Info.plist" |
+            sed -n 's|.*<key>LSMinimumSystemVersion</key><string>\([^<]*\)</string>.*|\1|p' || true)
+    fi
+    if [ "$plist_val" != "$MIN_FLOOR" ]; then
+        note "FAIL: Contents/Info.plist LSMinimumSystemVersion is '${plist_val:-<absent>}', expected '$MIN_FLOOR'"
+        plist_bad=1
+    fi
+fi
+
+if [ "$minos_over" -gt 0 ] || [ "$minos_unknown" -gt 0 ] || [ "$plist_bad" -ne 0 ]; then
     note
     note "$minos_over file(s) newer than macOS $MIN_FLOOR and $minos_unknown with no"
     note "readable minimum, across $checked Mach-O file(s)."

@@ -45,10 +45,18 @@ macports_owner() {
                "$MP_PREFIX/lib/$base/Versions/A/$name" \
                "$MP_PREFIX/Library/Frameworks/$base/Versions/A/$name"
     else
-        set -- "$MP_PREFIX/lib/$base" "$MP_PREFIX/libexec/qt6/lib/$base"
+        # <prefix>/libexec/<port>/lib is MacPorts' analogue of Homebrew's opt/*/lib
+        # (openssl3 keeps its libraries in libexec/openssl3/lib, Qt in libexec/qt6/lib).
+        set -- "$MP_PREFIX/lib/$base"
+        for cand in "$MP_PREFIX"/libexec/*/lib/"$base"; do
+            [ -e "$cand" ] && set -- "$@" "$cand"
+        done
     fi
     for cand in "$@"; do
-        line=$(port -q provides "$cand" 2>/dev/null | sed -n 's/.* is provided by: *//p' | head -1 || true)
+        # `port -q provides` prints ONLY the bare port name (MacPorts 2.12.7
+        # port.tcl action_provides: the "is provided by:" sentence is the non-quiet
+        # form), and nothing at all when no port provides the file.
+        line=$(port -q provides "$cand" 2>/dev/null | head -1 || true)
         if [ -n "$line" ]; then echo "${line%% *}"; return 0; fi
     done
     echo ""
@@ -66,11 +74,18 @@ macports_licences() {   # macports_licences <port> <outdir>
     done < <(port -q contents "$1" 2>/dev/null || true)
 }
 
+# MacPorts mode reports EVERY unowned or licence-less library before failing, so
+# one CI run shows the whole list instead of one library per round trip.
+mp_failed=0
+
 for e in "$FW"/*; do
     base=$(basename "$e")
     if [ -n "$MP_PREFIX" ]; then
         port=$(macports_owner "$base")
-        [ -n "$port" ] || { echo "error: no MacPorts port owns $base (cannot ship its licence)" >&2; exit 1; }
+        if [ -z "$port" ]; then
+            echo "error: no MacPorts port owns $base (cannot ship its licence)" >&2
+            mp_failed=1; continue
+        fi
         out="$DEST/bundled/$port"
         [ -d "$out" ] && continue
         mkdir -p "$out"
@@ -78,7 +93,10 @@ for e in "$FW"/*; do
         key=$port
         case "$key" in qt6-*) key=qt ;; glib2) key=glib ;; sqlite3) key=sqlite ;; esac
         if [ -z "$(ls -A "$out")" ] && [ -d "$FALLBACKS/$key" ]; then cp -f "$FALLBACKS/$key"/* "$out/"; fi
-        [ -n "$(ls -A "$out")" ] || { echo "error: port $port ($base) has no licence file in its contents and no fallback" >&2; exit 1; }
+        if [ -z "$(ls -A "$out")" ]; then
+            echo "error: port $port ($base) has no licence file in its contents and no fallback" >&2
+            mp_failed=1
+        fi
         continue
     fi
     formula=""
@@ -100,4 +118,5 @@ for e in "$FW"/*; do
     if [ -z "$(ls -A "$out")" ] && [ -d "$FALLBACKS/$key" ]; then cp -f "$FALLBACKS/$key"/* "$out/"; fi
     [ -n "$(ls -A "$out")" ] || { echo "error: formula $formula ($base) has no licence file in $keg and no fallback" >&2; exit 1; }
 done
+[ "$mp_failed" -eq 0 ] || exit 1
 echo "bundle-licenses: licences shipped under $DEST/bundled"

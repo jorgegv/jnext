@@ -470,7 +470,8 @@ build passes `15.0`) becomes `CMAKE_OSX_DEPLOYMENT_TARGET` in both PGO trees and
 `verify-bundle.sh` (given `JNEXT_MACOS_MIN` by `make verify-macos-dmg`) reads the
 minimum OS version of every Mach-O (`LC_BUILD_VERSION` `minos`, or
 `LC_VERSION_MIN_MACOSX`) and fails on any file that needs a newer macOS, or
-whose minimum it cannot read: dyld refuses a library built for a newer macOS
+whose minimum it cannot read, or if `Info.plist` lacks the matching
+`LSMinimumSystemVersion`: dyld refuses a library built for a newer macOS
 than the running one, so a dependency bottled for the runner's OS would
 otherwise raise the app's floor unnoticed. It always prints the highest minimum
 and the file that carries it, set or not. `tools/pgo-build.sh` also runs the

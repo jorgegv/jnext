@@ -159,12 +159,19 @@ printf '  %s\n  %s\n' "$MP/lib/libpng16.16.dylib" "$MP/share/doc/libpng/COPYING"
 printf '  %s\n' "$MP/libexec/qt6/lib/QtCore.framework/Versions/A/QtCore" > "$MPX/contents.qt6-qtbase"
 cat > "$W/mpbin/port" <<'STUB'
 #!/usr/bin/env bash
-# port -q provides <file> | port -q contents <port>
+# Behaves as MacPorts 2.12.7 src/port/port.tcl does (action_provides, action_contents):
+#   port -q provides <file>  -> ONLY the bare port name; nothing at all if no port provides it
+#   port provides <file>     -> "<file> is provided by: <port>" / "<file> is not provided by a MacPorts port."
+#   port -q contents <port>  -> one "  <path>" line per file (the header is a non-quiet notice)
 echo "$*" >> "$MPX/calls"
-case "$2" in
-provides) p=$(grep -F -m1 "$3 " "$MPX/provides") || { echo "$3 is not provided by a MacPorts port."; exit 0; }
-          echo "$3 is provided by: ${p##* }" ;;
-contents) cat "$MPX/contents.$3" 2>/dev/null ;;
+quiet=0; [ "$1" = -q ] && { quiet=1; shift; }
+case "$1" in
+provides) p=$(grep -F -m1 "$2 " "$MPX/provides") || p=""
+          if [ -n "$p" ]; then
+              if [ "$quiet" -eq 1 ]; then echo "${p##* }"; else echo "$2 is provided by: ${p##* }"; fi
+          elif [ "$quiet" -eq 0 ]; then echo "$2 is not provided by a MacPorts port."; fi ;;
+contents) [ "$quiet" -eq 1 ] || echo "Port $2 contains:"
+          cat "$MPX/contents.$2" 2>/dev/null ;;
 esac
 STUB
 chmod +x "$W/mpbin/port"
@@ -213,6 +220,74 @@ else
 fi
 [ -z "$msg" ] && ok macports-unset-is-homebrew "MACPORTS_PREFIX unset: Homebrew lookup, port never run" \
               || bad macports-unset-is-homebrew "$msg"
+
+# mpapp <dir> <lib>...  - a bundle holding the named top-level Frameworks entries
+mpapp() { local d=$1; shift; mkdir -p "$d/Contents/Frameworks"; for l in "$@"; do touch "$d/Contents/Frameworks/$l"; done; }
+# mpown <real path> <port> [contents file...]  - register ownership and contents
+mpown() {
+    local path=$1 port=$2; shift 2
+    printf '%s %s\n' "$path" "$port" >> "$MPX/provides"
+    : > "$MPX/contents.$port"
+    printf '  %s\n' "$path" "$@" >> "$MPX/contents.$port"
+}
+
+# libexec/<port>/lib: openssl3 keeps its libraries there, not in <prefix>/lib.
+msg=""
+mkdir -p "$MP/libexec/openssl3/lib" "$MP/share/doc/openssl3"; touch "$MP/libexec/openssl3/lib/libssl.3.dylib" "$MP/share/doc/openssl3/LICENSE.txt"
+mpown "$MP/libexec/openssl3/lib/libssl.3.dylib" openssl3 "$MP/share/doc/openssl3/LICENSE.txt"
+mpapp "$W/mpapp5" libssl.3.dylib
+if ! runmp "$W/mpapp5" "$W/mpout5"; then msg="$msg script failed: $(tail -3 "$W/mpout5.log" | tr "\n" " ");"
+else [ -f "$W/mpout5/bundled/openssl3/LICENSE.txt" ] || msg="$msg openssl3 licence not shipped;"; fi
+[ -z "$msg" ] && ok macports-libexec-owner "a dylib under libexec/openssl3/lib is owned by openssl3" \
+              || bad macports-libexec-owner "$msg"
+
+# a licence that is not named LICENSE*/COPYING*/LICENCE* but sits under LICENSES/
+msg=""
+mkdir -p "$MP/lib" "$MP/share/licenses/foo/LICENSES"; touch "$MP/lib/libfoo.1.dylib" "$MP/share/licenses/foo/LICENSES/MIT.txt"
+mpown "$MP/lib/libfoo.1.dylib" foo "$MP/share/licenses/foo/LICENSES/MIT.txt"
+mpapp "$W/mpapp6" libfoo.1.dylib
+if ! runmp "$W/mpapp6" "$W/mpout6"; then msg="$msg script failed: $(tail -3 "$W/mpout6.log" | tr "\n" " ");"
+else [ -f "$W/mpout6/bundled/foo/MIT.txt" ] || msg="$msg a LICENSES/ file was not shipped;"; fi
+[ -z "$msg" ] && ok macports-licenses-dir "a file under a LICENSES/ directory is shipped as a licence" \
+              || bad macports-licenses-dir "$msg"
+
+# glib2 / sqlite3 have no licence in their contents; the fallback dirs are keyed glib / sqlite
+msg=""
+touch "$MP/lib/libglib-2.0.0.dylib" "$MP/lib/libsqlite3.0.dylib"
+mpown "$MP/lib/libglib-2.0.0.dylib" glib2
+mpown "$MP/lib/libsqlite3.0.dylib" sqlite3
+mpapp "$W/mpapp7" libglib-2.0.0.dylib libsqlite3.0.dylib
+if ! runmp "$W/mpapp7" "$W/mpout7"; then msg="$msg script failed: $(tail -3 "$W/mpout7.log" | tr "\n" " ");"
+else
+    [ -f "$W/mpout7/bundled/glib2/LGPL-2.1-or-later.txt" ] || msg="$msg glib2 fallback not shipped;"
+    [ -f "$W/mpout7/bundled/sqlite3/PUBLIC-DOMAIN.txt" ] || msg="$msg sqlite3 fallback not shipped;"
+fi
+[ -z "$msg" ] && ok macports-glib-sqlite-fallback "glib2 and sqlite3 get the glib and sqlite fallback texts" \
+              || bad macports-glib-sqlite-fallback "$msg"
+
+# EVERY failing library is reported, then the run fails: two licence-less ports
+# with no fallback, plus an unowned library, all named, exit non-zero.
+msg=""
+touch "$MP/lib/libbar.1.dylib" "$MP/lib/libbaz.1.dylib"
+mpown "$MP/lib/libbar.1.dylib" bar
+mpown "$MP/lib/libbaz.1.dylib" baz
+mpapp "$W/mpapp8" libbar.1.dylib libbaz.1.dylib libghost.1.dylib
+if runmp "$W/mpapp8" "$W/mpout8"; then msg="$msg licence-less ports without fallback were accepted;"
+else
+    grep -q 'port bar (libbar.1.dylib) has no licence' "$W/mpout8.log" || msg="$msg bar not named;"
+    grep -q 'port baz (libbaz.1.dylib) has no licence' "$W/mpout8.log" || msg="$msg baz not named (stopped at the first?);"
+    grep -q 'no MacPorts port owns libghost.1.dylib' "$W/mpout8.log" || msg="$msg the unowned library not named;"
+fi
+[ -z "$msg" ] && ok macports-reports-all "licence-less and unowned libraries are all named, then the run fails" \
+              || bad macports-reports-all "$msg"
+
+# a licence-less port with no fallback is fatal ON ITS OWN (no unowned library to fail the run)
+msg=""
+mpapp "$W/mpapp9" libbar.1.dylib
+if runmp "$W/mpapp9" "$W/mpout9"; then msg="$msg a licence-less port without fallback was accepted;"
+elif ! grep -q 'port bar (libbar.1.dylib) has no licence' "$W/mpout9.log"; then msg="$msg refused without naming bar: $(cat "$W/mpout9.log");"; fi
+[ -z "$msg" ] && ok macports-licenceless-fails "a port with no licence and no fallback fails the run by itself" \
+              || bad macports-licenceless-fails "$msg"
 
 printf "\nTotal: %d  Pass: %d  Fail: %d\n" $((pass+fail)) "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -3104,7 +3104,9 @@ uploads each package it built as a run artifact; the steps are
 uploads the <code>.dmg</code>,
 <strong><code>macos-intel</code></strong> does the same on <code>macos-15-intel</code> for the Intel package, with
 the dependencies from MacPorts (<code>MACPORTS_PREFIX=/opt/local</code>; Homebrew builds no
-Intel bottles) and <code>MACOS_DEPLOYMENT_TARGET=15.0</code>, then runs
+Intel bottles; the MacPorts OpenSSL lives under <code>libexec/openssl3</code>, so the build
+is given <code>OPENSSL_ROOT_DIR=/opt/local/libexec/openssl3</code>) and
+<code>MACOS_DEPLOYMENT_TARGET=15.0</code>, then runs
 <code>make unit-test-sdl</code> in the same job: GitHub allows five concurrent macOS jobs
 to a plan, shared by every run, so one job per architecture keeps a run at four
 (the regression suite is not repeated on Intel, since no source is

@@ -526,15 +526,18 @@ if(APPLE AND MACOS_APP_BUNDLE)
     # MACOS_DEPLOYMENT_TARGET), say so in the bundle: on an older macOS the Finder
     # then refuses with "requires macOS N or later" instead of the app dying in
     # dyld. Unset, no key is written (an empty <string/> would read as "any").
+    # A plain DIRECTORY variable, not a target property: CMake's Info.plist
+    # generation turns only its 8 named MACOSX_BUNDLE_* properties into variables,
+    # then substitutes the template from the directory's variables. verify-bundle.sh
+    # checks the key is really there when it is given a floor.
     if(CMAKE_OSX_DEPLOYMENT_TARGET)
-        set(JNEXT_MIN_SYSTEM_VERSION_ENTRY
+        set(MACOSX_BUNDLE_MIN_SYSTEM_VERSION_ENTRY
             "<key>LSMinimumSystemVersion</key>\n\t<string>${CMAKE_OSX_DEPLOYMENT_TARGET}</string>")
     else()
-        set(JNEXT_MIN_SYSTEM_VERSION_ENTRY "")
+        set(MACOSX_BUNDLE_MIN_SYSTEM_VERSION_ENTRY "")
     endif()
     set_target_properties(jnext PROPERTIES
         MACOSX_BUNDLE TRUE
-        MACOSX_BUNDLE_MIN_SYSTEM_VERSION_ENTRY "${JNEXT_MIN_SYSTEM_VERSION_ENTRY}"
         MACOSX_BUNDLE_BUNDLE_NAME "jnext"
         MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.zxjogv.jnext"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"

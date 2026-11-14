@@ -99,7 +99,8 @@ build) the owner is the MacPorts port that `port provides` names for the
 library, the licences are the `LICENSE*`, `COPYING*` and `LICENCE*` files in
 `port contents`, and the same two failures apply: a library no port owns
 (for instance one that leaked in from another prefix on the build machine) or
-a port with no licence and no fallback stops the package.
+a port with no licence and no fallback stops the package, after every such
+library has been named, so one run shows the whole list.
 
 ### The macOS architectures and the minimum macOS
 
@@ -121,8 +122,10 @@ the Finder say "requires macOS N or later" on an older release. Then
 `verify-bundle.sh` reads the minimum OS version of every Mach-O in the mounted
 `.dmg` (`LC_BUILD_VERSION` `minos`, or `LC_VERSION_MIN_MACOSX`). It always
 prints the highest one and the file that carries it; with the target set, it
-fails the package for any file that needs a newer macOS, and for a file whose
-minimum it cannot read.
+fails the package for any file that needs a newer macOS, for a file whose
+minimum it cannot read, and unless `Contents/Info.plist` carries
+`LSMinimumSystemVersion` equal to the target (so the Finder refuses an older
+macOS instead of dyld killing the app).
 
 ## `version.yaml` is the single source of truth
 
