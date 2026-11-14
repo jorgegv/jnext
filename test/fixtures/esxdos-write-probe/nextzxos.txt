@@ -1,14 +1,14 @@
 # NextZXOS answers to the esxDOS write calls, recorded by esxdos-write-probe-measure.sh
 # oracle: real NextZXOS booted in jnext, probe NEX run with .nexload; nothing here is computed
-# image: cspect-next-1gb-fixed.img sha256 845428d92f71cb724acb34503fa192effb7a39ceb3ac42cbc56384a1d5cf94a9
-# M_DOSVERSION: S0000 F0 A** 4E580209 (B,C='N','X'; DE=0x0209 is NextZXOS 2.09)
-# probe NEX sha256 d456447254f893a8b03f10368e1766c95ea8ccfe16d1e6dfa140018be5a84e54 W457RW.NEX
+# image: cspect-next-1gb-fixed.img sha256 981489921be74e44acfee069a1e0a69b6eb94a3b202a77a6cc69a2de137fb9bd
+# M_DOSVERSION: S0000 F0 A** 4E580210 (B,C='N','X'; DE=0x0210 is NextZXOS 2.10)
+# probe NEX sha256 5b85f8288b17e256bfad35fe2965682537c893f26d848dbaf2dfcc508c0f4223 W457RW.NEX
 # probe NEX sha256 840780f86d82ab1f0493a6f900b55f302ac58e283a031d962800659bea2e442e W457RO.NEX
-# jnext 1.2.26, RTC 2026-07-10T08:55:00, measured 2026-11-12
+# jnext 1.2.35, RTC 2026-07-10T08:55:00, measured 2026-11-14
 # line: S<step> F<carry> A<hex or **> [extra] ; <step description>. A** = A masked on success (it is whatever the
 # register held; NextZXOS leaves junk there), or a handle number
 [rw]
-S0000 F0 A** 4E580209 ; M_DOSVERSION (header, not compared)
+S0000 F0 A** 4E580210 ; M_DOSVERSION (header, not compared)
 S0001 F0 A** ; F_CHDIR C:/
 S0002 F0 A** ; F_MKDIR C:/W457 
 S0003 F0 A** ; F_CHDIR C:/W457
@@ -585,7 +585,7 @@ S023D F0 A** ; [rename] close
 S023E F0 A** ; [rename] F_STAT C:/W457/r/o.txt (exists?)
 S023F F1 A05 ; [rename] F_STAT C:/W457/r/o2.txt (exists?)
 S0240 F0 A** ; [rename] F_RENAME C:/W457/r/ro.txt -> C:/W457/r/ro2.txt (a read-only file)
-S0241 F0 A** 21 42000000 ; [rename] F_STAT C:/W457/r/ro2.txt (still read-only?)
+S0241 F0 A** 01 42000000 ; [rename] F_STAT C:/W457/r/ro2.txt (still read-only?)
 S0242 F1 A07 ; [rename] F_RENAME C:/W457/r/*.txt -> C:/W457/r/zz.txt (wildcard source)
 S0243 F1 A07 ; [rename] F_RENAME C:/W457/r/o.txt -> C:/W457/r/z*.txt (wildcard destination)
 S0244 F1 A05 ; [rename] F_RENAME C:/W457/r/none.txt -> C:/W457/r/n2.txt (missing source)
@@ -790,7 +790,7 @@ S030A F0 A** 0064 ; [trunc] write 100 bytes
 S030B F0 A** ; [trunc] close
 S030C F0 A** ; [trunc] F_CHMOD C:/W457/t/r.txt B=00 C=01 (read-only)
 S030D F1 A18 ; [trunc] F_TRUNCATE C:/W457/t/r.txt to 10 (read-only file)
-S030E F0 A** 21 64000000 ; [trunc] F_STAT C:/W457/t/r.txt 
+S030E F0 A** 01 64000000 ; [trunc] F_STAT C:/W457/t/r.txt 
 S030F F0 A** ; [trunc] create C:/W457/t/f.txt (100 bytes) 
 S0310 F0 A** 0064 ; [trunc] write 100 bytes
 S0311 F0 A** ; [trunc] close
@@ -817,67 +817,67 @@ S0325 F0 A** 0065 ; [chmod] write 101 bytes
 S0326 F0 A** ; [chmod] close
 S0327 F0 A** ; [chmod] F_MKDIR C:/W457/c/dd 
 S0328 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=01 (A_WRITE clear)
-S0329 F0 A** 21 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0329 F0 A** 01 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S032A F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 (A_WRITE set)
-S032B F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S032B F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S032C F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=80 (A_READ clear)
-S032D F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S032D F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S032E F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=80 C=80 (A_READ set)
-S032F F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S032F F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0330 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=02 C=02 (A_HIDDEN set)
-S0331 F0 A** 26 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0331 F0 A** 06 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0332 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=02 (A_HIDDEN clear)
-S0333 F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0333 F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0334 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=04 C=04 (A_SYSTEM set)
-S0335 F0 A** 26 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0335 F0 A** 06 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0336 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=04 (A_SYSTEM clear)
-S0337 F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0337 F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0338 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=20 (A_ARCH clear)
-S0339 F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0339 F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S033A F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 (A_ARCH set)
-S033B F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S033B F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S033C F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=00 (mask 0)
-S033D F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S033D F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S033E F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=FF (all bits clear $FF)
-S033F F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S033F F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0340 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=FF C=FF (all bits set $FF)
-S0341 F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0341 F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0342 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=26 (mask $26 clear)
-S0343 F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0343 F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0344 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=26 C=26 (mask $26 set)
-S0345 F0 A** 21 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0345 F0 A** 01 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0346 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
 S0347 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
 S0348 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=81 (write+read clear)
-S0349 F0 A** 21 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0349 F0 A** 01 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S034A F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
 S034B F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
 S034C F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=81 C=81 (write+read set)
-S034D F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S034D F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S034E F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
 S034F F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
 S0350 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=81 (write set, read clear)
-S0351 F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0351 F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0352 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
 S0353 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
 S0354 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=80 C=81 (write clear, read set)
-S0355 F0 A** 21 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0355 F0 A** 01 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0356 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
 S0357 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
 S0358 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=00 C=21 (write+arch clear)
-S0359 F0 A** 01 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0359 F0 A** 21 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S035A F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
 S035B F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
 S035C F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=21 C=21 (write+arch set)
-S035D F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S035D F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S035E F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
 S035F F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
 S0360 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=21 (write set, arch clear)
-S0361 F0 A** 00 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0361 F0 A** 20 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0362 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
 S0363 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
 S0364 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=21 (write clear, arch set)
-S0365 F0 A** 21 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
+S0365 F0 A** 01 65000000 ; [chmod] F_STAT C:/W457/c/f.txt 
 S0366 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
 S0367 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=20 C=20 
 S0368 F0 A** ; [chmod] F_MKDIR C:/W457/c/pd 
@@ -906,7 +906,7 @@ S037E F0 A** ; [chmod] F_CHMOD C:/W457/c/pd/dd B=00 C=20 (directory, A_ARCH clea
 S037F F0 A** ; [chmod] F_OPENDIR c/pd after A_ARCH clear
 S0380 F0 A01 10 . ; [chmod] F_READDIR entry 0
 S0381 F0 A01 10 .. ; [chmod] F_READDIR entry 1
-S0382 F0 A01 17 dd ; [chmod] F_READDIR entry 2
+S0382 F0 A01 37 dd ; [chmod] F_READDIR entry 2
 S0383 F0 A00 ; [chmod] F_READDIR entry 3
 S0384 F0 A** ; [chmod] close
 S0385 F0 A** ; [chmod] F_CHMOD C:/W457/c/f.txt B=01 C=01 
@@ -918,8 +918,8 @@ S038A F0 A** ; [chmod] create C:/W457/c/w2.txt (103 bytes)
 S038B F0 A** 0067 ; [chmod] write 103 bytes
 S038C F0 A** ; [chmod] close
 S038D F0 A** ; [chmod] F_CHMOD C:/W457/c/w*.txt B=00 C=01 (wildcard, A_WRITE clear)
-S038E F0 A** 21 66000000 ; [chmod] F_STAT C:/W457/c/w1.txt 
-S038F F0 A** 21 67000000 ; [chmod] F_STAT C:/W457/c/w2.txt 
+S038E F0 A** 01 66000000 ; [chmod] F_STAT C:/W457/c/w1.txt 
+S038F F0 A** 01 67000000 ; [chmod] F_STAT C:/W457/c/w2.txt 
 S0390 F1 A05 ; [chmod] F_CHMOD C:/W457/c/*.zzz B=00 C=01 (wildcard, no match)
 S0391 F0 A** ; [chmod] create C:/W457/c/o.txt (104 bytes) 
 S0392 F0 A** 0068 ; [chmod] write 104 bytes
@@ -934,7 +934,7 @@ S039A F0 A** ; [chmod] create C:/W457/c/Long Name.txt (105 bytes)
 S039B F0 A** 0069 ; [chmod] write 105 bytes
 S039C F0 A** ; [chmod] close
 S039D F0 A** ; [chmod] F_CHMOD C:/W457/c/LONGNA~1.TXT B=00 C=01 (8.3 name)
-S039E F0 A** 21 69000000 ; [chmod] F_STAT C:/W457/c/Long Name.txt 
+S039E F0 A** 01 69000000 ; [chmod] F_STAT C:/W457/c/Long Name.txt 
 S039F F1 A07 ; [chmod] F_CHMOD C:/ B=00 C=01 (the root)
 S03A0 F1 A07 ; [chmod] F_CHMOD  B=00 C=01 (empty)
 S03A1 F0 A** ; [openro] F_MKDIR C:/W457/o 
@@ -943,21 +943,21 @@ S03A3 F0 A** 006F ; [openro] write 111 bytes
 S03A4 F0 A** ; [openro] close
 S03A5 F0 A** ; [openro] F_CHMOD C:/W457/o/ro.txt B=00 C=01 (read-only)
 S03A6 F0 A** ; [openro] F_OPEN C:/W457/o/ro.txt mode 01 
-S03A7 F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03A7 F0 A** 01 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
 S03A8 F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 02 
-S03A9 F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03A9 F0 A** 01 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
 S03AA F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 03 
-S03AB F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03AB F0 A** 01 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
 S03AC F1 A12 ; [openro] F_OPEN C:/W457/o/ro.txt mode 04 
-S03AD F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03AD F0 A** 01 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
 S03AE F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 08 
-S03AF F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03AF F0 A** 01 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
 S03B0 F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 0C 
-S03B1 F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03B1 F0 A** 01 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
 S03B2 F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 0D 
-S03B3 F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03B3 F0 A** 01 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
 S03B4 F1 A18 ; [openro] F_OPEN C:/W457/o/ro.txt mode 0E 
-S03B5 F0 A** 21 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
+S03B5 F0 A** 01 6F000000 ; [openro] F_STAT C:/W457/o/ro.txt 
 S03B6 F0 A** ; [alias] F_MKDIR C:/W457/al 
 S03B7 F0 A** ; [alias] create C:/W457/al/Long Name a.txt (121 bytes) 
 S03B8 F0 A** 0079 ; [alias] write 121 bytes
@@ -1052,10 +1052,75 @@ S0410 F0 A** ; [tree] create C:/W457/RO/nd/n.txt (23 bytes)
 S0411 F0 A** 0017 ; [tree] write 23 bytes
 S0412 F0 A** ; [tree] close
 S0413 F0 A** 20 15000000 ; [tree] F_STAT C:/W457/RO/f.txt 
-S0414 F0 A** 21 16000000 ; [tree] F_STAT C:/W457/RO/ro.txt 
+S0414 F0 A** 01 16000000 ; [tree] F_STAT C:/W457/RO/ro.txt 
+S0415 F0 A** ; [arch] F_MKDIR C:/W457/AR 
+S0416 F0 A** ; [arch] create C:/W457/AR/f.txt (31 bytes) 
+S0417 F0 A** 001F ; [arch] write 31 bytes
+S0418 F0 A** ; [arch] close
+S0419 F0 A** ; [arch] create C:/W457/AR/g.txt (32 bytes) 
+S041A F0 A** 0020 ; [arch] write 32 bytes
+S041B F0 A** ; [arch] close
+S041C F0 A** 20 1F000000 ; [arch] F_STAT C:/W457/AR/f.txt (fresh)
+S041D F0 A** ; [arch] F_CHMOD C:/W457/AR/f.txt B=00 C=01 (A_WRITE clear)
+S041E F0 A** 01 1F000000 ; [arch] F_STAT C:/W457/AR/f.txt 
+S041F F0 A** ; [arch] F_CHMOD C:/W457/AR/f.txt B=01 C=01 (A_WRITE set)
+S0420 F0 A** 00 1F000000 ; [arch] F_STAT C:/W457/AR/f.txt 
+S0421 F0 A** ; [arch] open f.txt write
+S0422 F0 A** 0001 ; [arch] F_WRITE 1 byte through the handle
+S0423 F0 A** 00 1F000000 ; [arch] F_FSTAT of the open chmod-ed file
+S0424 F0 A** ; [arch] close
+S0425 F0 A** 20 1F000000 ; [arch] F_STAT C:/W457/AR/f.txt (written again after F_CHMOD)
+S0426 F0 A** ; [arch] open f.txt read
+S0427 F0 A** 20 1F000000 ; [arch] F_FSTAT of the open chmod-ed file (read handle)
+S0428 F0 A** ; [arch] close
+S0429 F0 A** ; [arch] F_OPENDIR AR
+S042A F0 A01 10 . ; [arch] F_READDIR entry 0 (. .. and the two files)
+S042B F0 A01 10 .. ; [arch] F_READDIR entry 1 (. .. and the two files)
+S042C F0 A01 20 f.txt ; [arch] F_READDIR entry 2 (. .. and the two files)
+S042D F0 A01 20 g.txt ; [arch] F_READDIR entry 3 (. .. and the two files)
+S042E F0 A** ; [arch] close
+S042F F0 A** ; [arch] F_CHMOD C:/W457/AR/f.txt B=00 C=20 (A_ARCH clear)
+S0430 F0 A** 20 1F000000 ; [arch] F_STAT C:/W457/AR/f.txt 
+S0431 F0 A** ; [arch] F_CHMOD C:/W457/AR/f.txt B=20 C=20 (A_ARCH set)
+S0432 F0 A** 00 1F000000 ; [arch] F_STAT C:/W457/AR/f.txt 
+S0433 F0 A** ; [arch] F_CHMOD C:/W457/AR/f.txt B=01 C=00 (mask 0 after A_ARCH set)
+S0434 F0 A** 00 1F000000 ; [arch] F_STAT C:/W457/AR/f.txt 
+S0435 F0 A** ; [arch] F_RENAME f.txt -> r.txt
+S0436 F0 A** 00 1F000000 ; [arch] F_STAT C:/W457/AR/r.txt (renamed)
+S0437 F0 A** ; [arch] F_UNLINK r.txt
+S0438 F0 A** ; [arch] create C:/W457/AR/r.txt (33 bytes) 
+S0439 F0 A** 0021 ; [arch] write 33 bytes
+S043A F0 A** ; [arch] close
+S043B F0 A** 20 21000000 ; [arch] F_STAT C:/W457/AR/r.txt (unlinked and created again)
+S043C F0 A** ; [arch] create C:/W457/AR/m.txt (34 bytes) 
+S043D F0 A** 0022 ; [arch] write 34 bytes
+S043E F0 A** ; [arch] close
+S043F F0 A** ; [arch] F_CHMOD C:/W457/AR/m.txt B=01 C=00 (mask 0 on a fresh file)
+S0440 F0 A** 00 22000000 ; [arch] F_STAT C:/W457/AR/m.txt 
+S0441 F0 A** ; [arch] F_CHMOD C:/W457/AR/g.txt B=80 C=80 (A_READ set)
+S0442 F0 A** 00 20000000 ; [arch] F_STAT C:/W457/AR/g.txt 
+S0443 F0 A** ; [arch] create C:/W457/AR/t.txt (35 bytes) 
+S0444 F0 A** 0023 ; [arch] write 35 bytes
+S0445 F0 A** ; [arch] close
+S0446 F0 A** ; [arch] F_CHMOD C:/W457/AR/t.txt B=01 C=01 (A_WRITE set)
+S0447 F0 A** 00 23000000 ; [arch] F_STAT C:/W457/AR/t.txt 
+S0448 F0 A** ; [arch] F_TRUNCATE t.txt to 10
+S0449 F0 A** 20 0A000000 ; [arch] F_STAT C:/W457/AR/t.txt (truncated after F_CHMOD)
+S044A F0 A** ; [arch] F_CHMOD C:/W457/AR/t.txt B=01 C=01 (A_WRITE set)
+S044B F0 A** 00 0A000000 ; [arch] F_STAT C:/W457/AR/t.txt 
+S044C F0 A** ; [arch] open t.txt write, write nothing
+S044D F0 A** ; [arch] close
+S044E F0 A** 20 0A000000 ; [arch] F_STAT C:/W457/AR/t.txt (opened for write and closed, nothing written)
+S044F F0 A** ; [arch] open t.txt write
+S0450 F0 A** ; [arch] F_FTRUNCATE the write handle to 5
+S0451 F0 A** ; [arch] close
+S0452 F0 A** 20 05000000 ; [arch] F_STAT C:/W457/AR/t.txt (F_FTRUNCATE after F_CHMOD)
+S0453 F0 A** ; [arch] F_CHMOD C:/W457/AR/t.txt B=01 C=01 (A_WRITE set)
+S0454 F0 A** ; [arch] F_RENAME t.txt -> u.txt over a chmod-ed name
+S0455 F0 A** 00 05000000 ; [arch] F_STAT C:/W457/AR/u.txt (renamed again)
 END
 [ro]
-S0000 F0 A** 4E580209 ; M_DOSVERSION (header, not compared)
+S0000 F0 A** 4E580210 ; M_DOSVERSION (header, not compared)
 S0001 F0 A** ; [ro] F_CHDIR C:/
 S0002 F0 A** ; [ro] F_CHDIR C:/W457/RO
 S0003 F0 A** C:/W457/RO/ ; [ro] F_GETCWD

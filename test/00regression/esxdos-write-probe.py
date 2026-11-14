@@ -251,7 +251,7 @@ def build(mode):
 
 def chmod_unserved(v, m):
     """True for a F_CHMOD request jnext refuses with esx_enosys (it has no host form)."""
-    return bool(m & ~0xA1) or bool((m & 0x20) and not (v & 0x20))
+    return bool(m & ~0xA1)
 
 def build_rw(g):
     T = g.T
@@ -692,6 +692,58 @@ def build_rw(g):
     g.mkdir(d + "/nd"); g.mkfile(d + "/nd/n.txt", 23)
     g.stat(d + "/f.txt"); g.stat(d + "/ro.txt")
 
+    # ── the archive bit of a file that went through F_CHMOD ─────────────────
+    # NextZXOS 2.10 reports a file's archive bit in F_STAT, F_FSTAT and F_READDIR as set until the
+    # first F_CHMOD with a non-zero mask, and afterwards by what that F_CHMOD did (see the recording).
+    # What a write, a rename and a re-create do to it is measured here, not assumed.
+    g.group = "arch"
+    d = W + "/AR"
+    f = d + "/f.txt"
+    g.mkdir(d)
+    g.mkfile(f, 31); g.mkfile(d + "/g.txt", 32)
+    g.stat(f, "(fresh)")
+    g.chmod(f, 0x00, 0x01, "(A_WRITE clear)"); g.stat(f)
+    g.chmod(f, 0x01, 0x01, "(A_WRITE set)"); g.stat(f)
+    g.T("open f.txt write", "F_OPEN", ix=f, bc=(0x02 << 8), store=0, mask=True)
+    g.T("F_WRITE 1 byte through the handle", "F_WRITE", slot=0, ix=PAT, bc=1, kind=1)
+    g.T("F_FSTAT of the open chmod-ed file", "F_FSTAT", slot=0, ix=STAT, kind=3)
+    g.T("close", "F_CLOSE", slot=0)
+    g.stat(f, "(written again after F_CHMOD)")
+    g.T("open f.txt read", "F_OPEN", ix=f, bc=(0x01 << 8), store=0, mask=True)
+    g.T("F_FSTAT of the open chmod-ed file (read handle)", "F_FSTAT", slot=0, ix=STAT, kind=3)
+    g.T("close", "F_CLOSE", slot=0)
+    g.T("F_OPENDIR AR", "F_OPENDIR", ix=d, bc=0x1000, store=2)
+    for i in range(4):
+        g.T("F_READDIR entry %d (. .. and the two files)" % i, "F_READDIR", slot=2, ix=BUF, de=0, kind=8, addr=BUF)
+    g.T("close", "F_CLOSE", slot=2)
+    g.chmod(f, 0x00, 0x20, "(A_ARCH clear)"); g.stat(f)
+    g.chmod(f, 0x20, 0x20, "(A_ARCH set)"); g.stat(f)
+    g.chmod(f, 0x01, 0x00, "(mask 0 after A_ARCH set)"); g.stat(f)
+    g.T("F_RENAME f.txt -> r.txt", "F_RENAME", ix=f, de=d + "/r.txt")
+    g.stat(d + "/r.txt", "(renamed)")
+    g.T("F_UNLINK r.txt", "F_UNLINK", ix=d + "/r.txt")
+    g.mkfile(d + "/r.txt", 33)
+    g.stat(d + "/r.txt", "(unlinked and created again)")
+    g.mkfile(d + "/m.txt", 34)
+    g.chmod(d + "/m.txt", 0x01, 0x00, "(mask 0 on a fresh file)"); g.stat(d + "/m.txt")
+    g.chmod(d + "/g.txt", 0x80, 0x80, "(A_READ set)"); g.stat(d + "/g.txt")
+    t = d + "/t.txt"
+    g.mkfile(t, 35)
+    g.chmod(t, 0x01, 0x01, "(A_WRITE set)"); g.stat(t)
+    g.T("F_TRUNCATE t.txt to 10", "F_TRUNCATE", ix=t, bc=0, de=10)
+    g.stat(t, "(truncated after F_CHMOD)")
+    g.chmod(t, 0x01, 0x01, "(A_WRITE set)"); g.stat(t)
+    g.T("open t.txt write, write nothing", "F_OPEN", ix=t, bc=(0x02 << 8), store=0, mask=True)
+    g.T("close", "F_CLOSE", slot=0)
+    g.stat(t, "(opened for write and closed, nothing written)")
+    g.T("open t.txt write", "F_OPEN", ix=t, bc=(0x02 << 8), store=0, mask=True)
+    g.T("F_FTRUNCATE the write handle to 5", "F_FTRUNCATE", slot=0, bc=0, de=5)
+    g.T("close", "F_CLOSE", slot=0)
+    g.stat(t, "(F_FTRUNCATE after F_CHMOD)")
+    g.chmod(t, 0x01, 0x01, "(A_WRITE set)")
+    g.T("F_RENAME t.txt -> u.txt over a chmod-ed name", "F_RENAME", ix=t, de=d + "/u.txt")
+    g.stat(d + "/u.txt", "(renamed again)")
+
 def build_ro(g):
     T = g.T
     g.group = "ro"
@@ -853,7 +905,7 @@ def read_transcript(path, mode=None):
 DIVERGE = {
     "cwd-follows-rename": "a renamed current directory shows its NEW name in F_GETCWD; NextZXOS keeps showing the old one",
     "trailing-space": "a name ending in a space is refused with esx_einval: NextZXOS keeps the space, a host may strip it",
-    "chmod-unserved": "an F_CHMOD change the host cannot store (hidden, system, archive cleared) is refused with "
+    "chmod-unserved": "an F_CHMOD change the host cannot store (hidden, system) is refused with "
                       "esx_enosys, refused and not faked; the state after it is the unchanged one",
     "chmod-dir": "an F_CHMOD of a directory that would change an attribute is refused with esx_enosys: a host "
                  "directory has no stored attribute for F_READDIR to show",

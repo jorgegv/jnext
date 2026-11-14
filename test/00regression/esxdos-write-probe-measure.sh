@@ -66,7 +66,9 @@ run ro w457ro.nex --sdcard-readonly
     echo "# NextZXOS answers to the esxDOS write calls, recorded by esxdos-write-probe-measure.sh"
     echo "# oracle: real NextZXOS booted in jnext, probe NEX run with .nexload; nothing here is computed"
     echo "# image: $(basename "$MASTER") sha256 $(cat "$WORK/sha256-master.txt")"
-    echo "# M_DOSVERSION: $(grep -m1 '^S0000 ' "$WORK/raw-rw.txt") (B,C='N','X'; DE=0x0209 is NextZXOS 2.09)"
+    dosver=$(grep -m1 '^S0000 ' "$WORK/raw-rw.txt")
+    dos_de=${dosver##* }; dos_de=${dos_de: -4}
+    echo "# M_DOSVERSION: $dosver (B,C='N','X'; DE=0x$dos_de is NextZXOS $((16#${dos_de:0:2})).${dos_de:2:2})"
     sed 's|^|# probe NEX sha256 |' "$WORK/sha256-nex.txt"
     echo "# jnext $("$JNEXT" --version 2>/dev/null | tail -n 1 | sed 's/^jnext //'), RTC $RTC, measured $(date +%F)"
     echo "# line: S<step> F<carry> A<hex or **> [extra] ; <step description>. A** = A masked on success (it is whatever the"
