@@ -18,7 +18,12 @@ on:
 
 jobs:
   macos-build:
-    runs-on: macos-latest
+    # D3 (GH #494): pinned to macos-15 (Sequoia, Xcode 16.4), not macos-latest. On
+    # macos-latest (macOS 26) the whole arm64 bundle needed macOS 26 (verify-bundle
+    # measured minos 26.0): Homebrew bottles are built for the OS they run on, and
+    # dyld refuses a library built for a newer macOS. The Sequoia bottles and
+    # MACOS_DEPLOYMENT_TARGET=15.0 make the .dmg run on macOS 15 and verify-bundle fails it if not.
+    runs-on: macos-15
     # Backstop. The per-phase bound in run-bounded.sh is the loud, specific
     # mechanism ("which phase"); this is the guarantee ("never again"). Two runs
     # had to be cancelled by hand after 16-21 minutes of silence.
@@ -62,7 +67,7 @@ jobs:
       - name: Package and verify (make package-macos)
         if: ${{ inputs.package }}
         timeout-minutes: 60
-        run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
+        run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
 
       - name: Upload package
         if: ${{ inputs.package }}

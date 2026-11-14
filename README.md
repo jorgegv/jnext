@@ -91,7 +91,7 @@ for your system from the
 | **Windows 10/11 (x64)**  | Download `jnext-*-windows-x64.zip`, unzip, run `jnext.exe`             |
 | **Windows 7/8 (x64)**    | Download `jnext-*-windows-x64-legacy.zip`, unzip, run `jnext.exe`     |
 | **Windows 32-bit (x86)** | Download `jnext-*-windows-x86-legacy.zip`, unzip, run `jnext.exe`     |
-| **macOS (Apple Silicon)** | Download `jnext-*-macos-arm64.dmg`, open it, drag **jnext** to Applications |
+| **macOS (Apple Silicon)** | Download `jnext-*-macos-arm64.dmg` (macOS 15 or later), open it, drag **jnext** to Applications |
 | **macOS (Intel)**        | Download `jnext-*-macos-x64.dmg` (macOS 15 or later), open it, drag **jnext** to Applications |
 
 The Linux packages put a `jnext` command on your `PATH`.

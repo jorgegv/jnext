@@ -261,7 +261,7 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
   asserting its contents, then (GH #359) uploads each as a run artifact
   (Windows zips, rpm, source zip; 14-day retention, success only; the
   Fedora-built deb is not uploaded); **`macos`** runs `make package-macos` on
-  `macos-latest` and uploads the dmg, **`macos-intel`** does the same on
+  `macos-15` and uploads the dmg, **`macos-intel`** does the same on
   `macos-15-intel` (MacPorts dependencies) and also runs `make unit-test-sdl`
   there; **`macos-unit`** runs `make unit-test-sdl`
   and **`macos-regression`** runs `make regression-macos` there; **`flatpak`**
@@ -288,7 +288,7 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
      two `-legacy` zips) in a `fedora:44` container; `flatpak` via
      `flatpak-builder` in the KDE 6.10 container (the one declared divergence
      from the make-target rule, §4);
-     macOS native on `macos-latest` via `make package-macos`, **no longer
+     macOS native on `macos-15` via `make package-macos`, **no longer
      `continue-on-error`** since issue #61 (it carries the GH #46
      `verify-bundle` gate, and a gate that cannot fail anything is not a gate);
      macOS Intel the same way on `macos-15-intel` with MacPorts dependencies,

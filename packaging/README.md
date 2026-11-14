@@ -432,7 +432,7 @@ and so the first to suspect, is that unblocking the zip *before* extraction
 suppresses the prompt for the extracted `jnext.exe`.
 
 **macOS** has no build host in this environment — the `macos` job builds it
-natively on `macos-latest` through the project's own `make package-macos`
+natively on `macos-15` through the project's own `make package-macos`
 target, so CI runs the same recipe a Mac developer would. There are two
 packages, named by architecture so the release assets cannot collide:
 `jnext-<ver>-macos-arm64.dmg` (Apple Silicon, Homebrew dependencies) and
@@ -562,7 +562,7 @@ jobs, when they run:
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
 | `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` + `package-win-qt5` + `package-win32-qt5` (MinGW cross-builds + DLL bundling) | 3× ZIP (`build/win-release/`, `build/win-qt5-release/`, `build/win32-qt5-release/`) | Yes — all three built here; the x64-Qt6 zip ran green on a real runner and shipped in v0.98.19, confirmed working on Windows hardware; both Qt5 zips confirmed by a tester on real Windows 8.1 (GH #108) |
 | `flatpak` | `ubuntu-latest` + KDE 6.10     | one `uses:` line calling `.github/workflows/flatpak-build.yml`: `flatpak-builder` (org.kde.Sdk//6.10), then `make verify-flatpak-permissions` on the bundle | `.flatpak` bundle              | Yes — built here against the installed `org.kde.Sdk//6.10`, then installed from the bundle and run; its sandbox permissions are asserted in-job by `verify-permissions.sh` (GH #271). *Blocking since v0.99.110.* |
-| `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `jnext-<ver>-macos-arm64.dmg` (`build/mac-release/`) | No — no macOS runner locally; the bundle's self-containment is asserted in-job by `verify-bundle.sh`. *Blocking since issue #61.* |
+| `macos`   | `macos-15`                    | `make package-macos` (Homebrew + CPack + `macdeployqt`, `MACOS_DEPLOYMENT_TARGET=15.0`) | DragNDrop `jnext-<ver>-macos-arm64.dmg` (`build/mac-release/`) | No — no macOS runner locally; the bundle's self-containment is asserted in-job by `verify-bundle.sh`. *Blocking since issue #61.* |
 | `macos-intel` | `macos-15-intel`          | `make package-macos` (MacPorts via `install-macports.sh`, `MACPORTS_PREFIX=/opt/local`, `MACOS_DEPLOYMENT_TARGET=15.0`) | DragNDrop `jnext-<ver>-macos-x64.dmg` (`build/mac-release/`) | No — no Intel Mac locally; same in-job gates, plus the minimum-macOS gate. Blocking: in `publish`'s `needs:`. |
 
 This workflow is separate from `ci.yml` (which runs the test suite on push/PR).

@@ -131,7 +131,7 @@ this job; the `flatpak` job below builds it, and only the tool-free
 uploads each package it built as a run artifact; the steps are
 `uses:` steps, so the make-target rule is untouched.
 
-**`macos`** runs `make package-macos` on a real `macos-latest` runner and
+**`macos`** runs `make package-macos` on a real `macos-15` runner (pinned, with `MACOS_DEPLOYMENT_TARGET=15.0`: on `macos-latest`, macOS 26, every Homebrew bottle and so the whole bundle needed macOS 26) and
 uploads the `.dmg`,
 **`macos-intel`** does the same on `macos-15-intel` for the Intel package, with
 the dependencies from MacPorts (`MACPORTS_PREFIX=/opt/local`; Homebrew builds no

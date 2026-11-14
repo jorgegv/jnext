@@ -30,7 +30,7 @@ name: Release
 #               (also dispatchable by hand); flatpak-builder against
 #               org.kde.Sdk//6.10, the same manifest + runtime as a local
 #               `make package-flatpak`
-#   * macos   → `make package-macos` native on macos-latest (proven green on a
+#   * macos   → `make package-macos` native on macos-15 (proven green on a
 #               real runner in v0.98.34). No longer continue-on-error since
 #               issue #61: it carries the GH #46 verify-bundle gate, and a gate
 #               that cannot fail anything is not a gate. `publish` requires
@@ -370,7 +370,12 @@ jobs:
   macos:
     needs: gate
     if: needs.gate.outputs.build == 'true'
-    runs-on: macos-latest
+    # D3 (GH #494): pinned to macos-15 (Sequoia, Xcode 16.4), not macos-latest. On
+    # macos-latest (macOS 26) the whole arm64 bundle needed macOS 26 (verify-bundle
+    # measured minos 26.0): Homebrew bottles are built for the OS they run on, and
+    # dyld refuses a library built for a newer macOS. The Sequoia bottles and
+    # MACOS_DEPLOYMENT_TARGET=15.0 make the .dmg run on macOS 15 and verify-bundle fails it if not.
+    runs-on: macos-15
     # NOT continue-on-error (issue #61). It was, which made the job fail-SAFE
     # but fail-SILENT: a bad .dmg was not shipped (verify-bundle fails -> no
     # upload), but nothing anywhere went red, so a release could quietly go out
@@ -423,7 +428,7 @@ jobs:
         # 30 -> 60 for GH #297: the package is a PGO build (an instrumented
         # build, a training run, an optimised build), roughly twice the work.
         timeout-minutes: 60
-        run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
+        run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
       - uses: actions/upload-artifact@v6
         with:
           name: jnext-macos-arm64-package
