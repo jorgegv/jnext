@@ -4479,13 +4479,18 @@ each started on its own and left to run for 600 frames:</p>
 <ul>
 <li>In Chrome 156, in Firefox 159 and in Chrome with its CPU throttled to half speed (a
   rough stand-in for a slow machine) every program kept full emulation speed, with no
-  audio underrun. On an otherwise idle machine every program also showed every picture
-  (the lowest figure was 99.5% of the pictures). With some other load on the machine the
+  audio underrun. On an otherwise idle machine every program also showed nearly every picture:
+  the lowest, one program that runs at 58 Hz, in Firefox, showed 98% to 99% of them, and
+  every other program showed 99.7% or more. With some other load on the machine the
   three heaviest programs at half speed (<code>shift</code>, <code>blue</code> and <code>menu</code>) showed 95% to 98% of
   the pictures.</li>
 </ul>
 <p>The CRT effect (10.2) is extra drawing work on the graphics chip of every frame, which is why it is off
-by default; the figures above are without it.</p>
+by default; the figures above are without it. With the TV look on, measured on the same machine with
+the same programs, the time a frame took grew by about 0.1 ms in Chrome, 0.2 ms in Chrome at half
+speed and 0.15 ms in Firefox on average (the largest single program, 1.1 ms), and the emulation and
+display rates stayed what they were without it. The soft scanlines and the PC monitor looks cost about
+the same as TV on the three heaviest programs.</p>
 <p>This is what one machine did, not a promise for another: a slower computer, a busy
 one or another browser will differ.</p>
 

@@ -88,6 +88,8 @@ record whose header is not a valid one (damaged, or in a format this version doe
 read) is refused as "not a jnext SD-writes file" and the reset does not remove it: clear the
 site's data in the browser, or delete the record from the `jnext-card-writes` database
 (store `journals`) with the browser's developer tools.
+A `.jns` snapshot (10.2) restored over a card that has newer saves leaves NextZXOS's in-memory
+picture of the card out of step with the card, as on the desktop (5.9).
 
 Browsers keep the storage of each origin (scheme, host and port) apart. Two pages of one
 origin share the image and the recording. A game inside an `iframe` of another site may
