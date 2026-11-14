@@ -311,7 +311,7 @@ QWidget* PreferencesDialog::build_audio_tab() {
     auto* form = new QFormLayout(tab);
 
     auto add_gain = [tab, form](const QString& label, const QString& object_name,
-                                      const QString& tooltip, QSlider*& slider) {
+                                const QString& tooltip, QSlider*& slider) {
         auto* row = new QWidget(tab);
         auto* h = new QHBoxLayout(row);
         h->setContentsMargins(0, 0, 0, 0);
