@@ -1940,7 +1940,7 @@ package-macos:
 	@# that line and make would still run the build+cpack lines that follow.
 	@if [ "$$(uname -s)" != "Darwin" ]; then \
 		printf "$(BADGE_SKIP) SKIP $(RESET) macOS packaging requires a Mac (or the GitHub Actions\n"; \
-		printf "  macos-latest runner — see the macos job in .github/workflows/release.yml).\n"; \
+		printf "  macos-15 / macos-15-intel runners — see the macos and macos-intel jobs in .github/workflows/release.yml).\n"; \
 		printf "  It cannot be produced on this $$(uname -s) host.\n"; \
 		exit 0; \
 	fi; \

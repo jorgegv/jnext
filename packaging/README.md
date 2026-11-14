@@ -460,12 +460,13 @@ the Qt frameworks, the Cocoa platform plugin and the non-Qt Homebrew dylibs into
 (`/opt/homebrew`, `/usr/local`, `/opt/local`, any other absolute path that is
 not `/usr/lib` or `/System`). It runs twice: at install/staging time from
 `CMakeLists.txt`, and again by `make verify-macos-dmg` against the `.dmg` **as
-mounted**, which also launches the bundled binary. A failure fails the job, so
+mounted**, and checks the bundle carries `Contents/Resources/48rom.map`. There is
+deliberately no launch smoke test (see the comment on that target). A failure fails the job, so
 no `.dmg` is uploaded and the release simply carries no macOS package — the
 right outcome when the alternative is one that aborts at launch.
 
-The **minimum macOS** is explicit too. `MACOS_DEPLOYMENT_TARGET` (the Intel
-build passes `15.0`) becomes `CMAKE_OSX_DEPLOYMENT_TARGET` in both PGO trees and
+The **minimum macOS** is explicit too. `MACOS_DEPLOYMENT_TARGET` (both builds pass
+`15.0`) becomes `CMAKE_OSX_DEPLOYMENT_TARGET` in both PGO trees and
 `LSMinimumSystemVersion` in `Info.plist`, and the mounted-`.dmg` run of
 `verify-bundle.sh` (given `JNEXT_MACOS_MIN` by `make verify-macos-dmg`) reads the
 minimum OS version of every Mach-O (`LC_BUILD_VERSION` `minos`, or

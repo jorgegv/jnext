@@ -8,8 +8,8 @@ for it. The other two are not native builds here:
   `make package-win` (the zip) run Fedora's MinGW toolchain on Linux. There is
   no MSVC build. Both targets are exercised on this dev host and in CI.
 - **macOS** must be built *on a Mac*: `make package-macos` prints a SKIP and
-  exits cleanly on any other platform. It is exercised on the `macos-latest`
-  GitHub Actions runner rather than on the Linux dev host.
+  exits cleanly on any other platform. It is exercised on the `macos-15` (Apple
+  Silicon) and `macos-15-intel` GitHub Actions runners rather than on the Linux dev host.
 
 The platform-specific detail for both — the MinGW package list and the DLL
 bundling, the `.app` bundle deployment and its verification — lives in

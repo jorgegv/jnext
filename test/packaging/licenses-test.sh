@@ -302,8 +302,7 @@ for pl in bzip2:libbz2.1.0.dylib:LICENSE dbus:libdbus-1.3.dylib:COPYING graphite
     mpapp "$W/mpappf-$pn" "$lb"
     if ! runmp "$W/mpappf-$pn" "$W/mpoutf-$pn"; then msg="$msg $pn failed: $(tail -2 "$W/mpoutf-$pn.log" | tr "\n" " ");"
     else
-        od=$pn; [ "$pn" = openssl ] && od=openssl
-        [ -f "$W/mpoutf-$pn/bundled/$od/$want" ] || msg="$msg $pn: $want not shipped;"
+        [ -f "$W/mpoutf-$pn/bundled/$pn/$want" ] || msg="$msg $pn: $want not shipped;"
     fi
 done
 [ -z "$msg" ] && ok macports-fallback-ports "bzip2, dbus, graphite2, libiconv, gettext-runtime and openssl ship their fallback texts" \
