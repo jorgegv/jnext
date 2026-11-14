@@ -261,7 +261,29 @@ sd_clone_for_run() {
         SD_CLONE_MODE=failed
         return 1
     fi
+    # The clone is a card jnext opens by its default path, so jnext would OFFER it the upgrade to
+    # the default distribution when it is another one (a GUI run blocks on that box). Rows never
+    # answer it: the clone carries the master's distribution sidecar, and when that is not the
+    # default distribution it also carries "do not ask again" for the default one (GH #476).
+    local want_dist have_dist="sn-emulator-24.11.zip"
+    want_dist=$(sd_expected_distro) || return 1
+    if [[ -f "$SD_MASTER_IMAGE.distro" ]]; then
+        have_dist=$(head -n1 "$SD_MASTER_IMAGE.distro" | tr -d '[:space:]')
+        cp "$SD_MASTER_IMAGE.distro" "$dst.distro"
+    fi
+    rm -f "$dst.distro-declined"
+    [[ "$have_dist" == "$want_dist" ]] || printf '%s\n' "$want_dist" > "$dst.distro-declined"
     return 0
+}
+
+# sd_expected_distro: the zip name of the default distribution, from its one definition
+# (sdcard::kDistroUrl in src/core/sdcard_provisioner.cpp: the line after the declaration).
+# Fails, printing nothing, unless exactly one name comes out.
+sd_expected_distro() {
+    local src="$PROJECT_DIR/src/core/sdcard_provisioner.cpp" n
+    n=$(sed -n '/^const char\* const kDistroUrl =$/{n;s#.*/\([^/"]*\)";$#\1#p}' "$src" 2>/dev/null)
+    [[ -n "$n" && "$n" != *$'\n'* ]] || return 1
+    printf '%s\n' "$n"
 }
 
 # sd_expected_recipe — print the fixed-image recipe number the jnext under test
