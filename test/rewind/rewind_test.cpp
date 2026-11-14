@@ -3793,6 +3793,29 @@ static int test_s4_restore_behaviour()
               "control byte beside it IS restored, and the stream still ends "
               "exactly where it should — the byte was consumed either way");
     }
+    // The OFFSET row `kPalPriorityOff` was declared for ("each pinned by its own
+    // OFFSET row") and never got (GH #418): the 2 x 256 layer2_priority bytes
+    // start right after the 14 scalars. Oracle: NR 0x44's second write latches
+    // b7 as nr_palette_priority(1) (zxnext.vhd:4920, :7039); layer2_priority_ is
+    // bank-major, so entry 0x30 of bank 0 is the byte at kPalPriorityOff + 0x30.
+    {
+        PaletteManager pal;
+        pal.write_control(0x10);          // target LAYER2_FIRST
+        pal.set_index(0x30);
+        pal.write_9bit(0xAA);
+        pal.write_9bit(0x80);             // second write: b7 = priority
+        const std::vector<uint8_t> buf = s4::save_bytes(pal);
+        check("S4-PALETTE-PRIORITY-OFFSET",
+              buf.size() == 4622 && s4::kPalPriorityOff == 4110 &&
+                  pal.layer2_priority_high(false, 0x30) &&
+                  (buf[s4::kPalPriorityOff + 0x30] & 0x02) != 0 &&
+                  buf[s4::kPalPriorityOff + 0x2F] == 0 &&
+                  buf[s4::kPalPriorityOff + 0x31] == 0 &&
+                  buf[s4::kPalPriorityOff + 256 + 0x30] == 0,
+              "the layer2 priority bytes start at offset 4 110 (bank-major, 256 per "
+              "bank, ending the 4 622-byte save): an NR 0x44 priority write to "
+              "bank 0 entry 0x30 is the byte at 4 110 + 0x30 and no neighbour");
+    }
 
     // ── Ula: screen_mode is an enum8 WITH HOLES ───────────────────────────
     //
