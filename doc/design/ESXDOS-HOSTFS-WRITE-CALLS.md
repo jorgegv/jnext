@@ -35,7 +35,7 @@ All exit Fc=0 on success, Fc=1 and the code in A on error.
 
 ## The oracle: a probe, not VHDL
 
-There is no VHDL for this: NextZXOS is software. The oracle is real NextZXOS 2.09
+There is no VHDL for this: NextZXOS is software. The oracle is real NextZXOS 2.10 (first measured under 2.09 and re-recorded under 2.10 with the 26.11 distribution)
 booted in jnext, running a probe NEX started with `.nexload`, with every answer
 recorded. Three runs were identical byte for byte.
 
@@ -43,7 +43,7 @@ recorded. Three runs were identical byte for byte.
   and an interpreter that prints one line per call through the magic port. The
   same program runs against NextZXOS and against jnext's host folder.
 - `test/fixtures/esxdos-write-probe/nextzxos.txt` is the recording, with the image
-  sha256, `M_DOSVERSION` (proving 2.09) and the sha256 of both probe NEX files in
+  sha256, `M_DOSVERSION` (proving 2.10) and the sha256 of both probe NEX files in
   its header. `esxdos-write-probe-measure.sh` re-measures.
 - Nothing in the transcript depends on a listing order or a timestamp: state is read
   back by `F_STAT` of named entries (and by `F_READDIR` for directory attributes).
