@@ -798,7 +798,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-24.11-recipe2-macos
+          key: sdcard-image-distro-26.11-recipe3-macos
 
       - name: make package-macos (build, package, verify self-containment and minimum macOS)
         run: MACPORTS_PREFIX=/opt/local OPENSSL_ROOT_DIR=/opt/local/libexec/openssl3 CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local MACOS_DEPLOYMENT_TARGET=15.0 make package-macos

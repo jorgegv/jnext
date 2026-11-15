@@ -495,7 +495,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-24.11-recipe2-macos
+          key: sdcard-image-distro-26.11-recipe3-macos
       # MACOS_DEPLOYMENT_TARGET=15.0: verify-bundle fails the package if any
       # Mach-O in the .dmg needs a newer macOS than Sequoia.
       - name: Package and verify (make package-macos)
