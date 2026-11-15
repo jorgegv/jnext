@@ -118,7 +118,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Cycle batching equivalence (peripherals) |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster-poll batch equivalence (engaged cases) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster-poll batch equivalence (gates and refusals) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Raster-poll batch equivalence (ESP and debugger client) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (ESP and debugger client) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (ESP, native builds) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster-poll batch equivalence (NextZXOS Guide viewer) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster-poll batch switch |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Costly-optimisation registry |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
