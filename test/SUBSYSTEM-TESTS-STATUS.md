@@ -50,9 +50,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD File Add (GH #269) |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (POSIX-only rows) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (case-sensitive host) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
-| FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
+| FAT32 Image           |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SHA-256 backends (GH #459) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SHA-256 backends (GH #459) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
+| minimal_card_test     |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "minimal_card_test" to the label map in refresh-subsystem-status.sh. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start (GH #234)  |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start on a real card (GH #464) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -215,6 +216,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16469**| **16469**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16488**| **16488**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
