@@ -5,6 +5,7 @@
 //   BCARD-22  a failed read of the chosen file: "the chosen file could not be read: ..."
 //   BCARD-23  the card could not be made here ("cannot write ..."): "the card could not be made in this browser: ..."
 //   BCARD-24  a structural refusal ("not a zip file"): "this file is not <file> from specnext.com (...)"
+//   BCARD-25  a failure AFTER a successful build (reading the card back throws): "the card could not be made in this browser: ..."
 import { createRequire } from 'module';
 import path from 'path';
 
@@ -16,11 +17,11 @@ const J = createRequire(import.meta.url)(path.join(ROOT, 'web/jnext-image.js'));
 const PINS = { url: 'https://example.invalid/sn-emulator-test.zip', file: 'sn-emulator-test.zip', size: 4096, zipSha256: '0'.repeat(64),
                cardSha256: '1'.repeat(64), standIn: false };
 // A stub of the wasm module: the card exports answer as the row says (feedRc 3 = a refusal with `err`).
-function stub(feedRc, err) {
+function stub(feedRc, err, afterBuild) {
   const mem = new Uint8Array(1 << 16);
-  return { FS: { mkdirTree() {}, unlink() {} }, HEAPU8: mem,
+  return { FS: { mkdirTree() {}, unlink() {}, readFile() { throw new Error(afterBuild); } }, HEAPU8: mem,
            stringToNewUTF8: () => 8, UTF8ToString: () => err, _free() {}, _malloc: () => 64,
-           _jnext_card_begin: () => 0, _jnext_card_feed: () => feedRc, _jnext_card_finish: () => 3,
+           _jnext_card_begin: () => 0, _jnext_card_feed: () => feedRc, _jnext_card_finish: () => (afterBuild ? 2 : 3),
            _jnext_card_error: () => 1, _jnext_card_sha256: () => 2 };
 }
 const goodStream = () => ({ getReader: () => { let n = 0; return { read: async () => (n++ ? { done: true } : { done: false, value: new Uint8Array(64) }), cancel() {} }; } });
@@ -45,6 +46,11 @@ row('BCARD-23', 'the card cannot be made here (cannot write ...): the message sa
 row('BCARD-24', 'a structural refusal (not a zip file) says this file is not the official one, naming the file', async () => {
   const m = await outcome(J.buildFromFile(stub(3, 'not a zip file'), PINS, file(goodStream()), () => {}));
   must(m === 'this file is not sn-emulator-test.zip from specnext.com (not a zip file)', m);
+});
+
+row('BCARD-25', 'a failure after the build succeeded (reading the card back throws): the card could not be made in this browser, not that the file is wrong', async () => {
+  const m = await outcome(J.buildFromFile(stub(0, 'abc', 'Cannot enlarge memory arrays'), PINS, file(goodStream()), () => {}));
+  must(m === 'the card could not be made in this browser: Cannot enlarge memory arrays', m);
 });
 
 let pass = 0, fail = 0;
