@@ -825,7 +825,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test
+unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test sdcard-image
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -908,27 +908,26 @@ unit-test-sdl: unit-test-sdl-build sdcard-image
 	@# targets, which is the same pair of commands a human types here.
 	@PATH="$(UNIT_TEST_PATH)" bash test/run-unit-tests.sh $(BUILD_DIR_SDL_UNIT_TEST)
 
-# Provision the NextZXOS SD image the unit suites read, with jnext's own download, if it is missing
+# Provision the NextZXOS SD image the unit suites read, with jnext's own download, if it is missing or not this tree's
 sdcard-image:
 	@# GH #214. sd_rom_extractor_test reads the real image and the harness does not
 	@# provision it (a missing image is a loud failure, never a smaller suite). On
 	@# Linux the PGO build (`make gui-release`) fetches it as a side effect; a macOS
 	@# runner or the Windows leg builds no PGO binary, so this does the same thing
 	@# the PGO training does -- jnext's own --sdcard-download-confirm, the code path
-	@# an end user hits -- with the SDL test tree's native jnext. A no-op when the
-	@# image is there, which is every developer machine after the first run.
-	@sd="$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
-	if [ -f "$$sd" ]; then exit 0; fi; \
-	printf "sdcard-image: no SD image at %s -- provisioning it (jnext's own download)\n" "$$sd"; \
+	@# an end user hits -- with the SDL test tree's native jnext.
+	@# GH #476: a master left by a tree that defaulted to another distribution or
+	@# image recipe is re-derived too, by tools/sd-master-ensure.sh (the gate the
+	@# regression row sdcard-provision runs). `--probe` first, so the usual case, a
+	@# current master, builds nothing and writes nothing.
+	@PATH="$(UNIT_TEST_PATH)" tools/sd-master-ensure.sh --probe; rc=$$?; \
+	if [ $$rc -eq 0 ]; then exit 0; fi; \
+	if [ $$rc -ne 10 ]; then printf "$(BADGE_FAIL) ERROR $(RESET) tools/sd-master-ensure.sh --probe failed (exit %s): see its message above; nothing was built.\n" "$$rc"; exit 1; fi; \
+	printf "sdcard-image: the SD master is missing or not this tree's -- provisioning it (jnext's own download)\n"; \
 	$(MAKE) --no-print-directory unit-test-sdl-build || exit 1; \
-	mkdir -p "$$HOME/.jnext/sdcard"; \
-	PATH="$(UNIT_TEST_PATH)" JNEXT_CONFIG_DIR="$$HOME/.jnext" timeout --kill-after=5s 1200s \
-		$(BUILD_DIR_SDL_UNIT_TEST)/jnext --headless --sdcard-download-confirm \
-		--delayed-automatic-exit 2 >/dev/null 2>&1 || true; \
-	if [ ! -f "$$sd" ]; then \
-		printf "$(BADGE_FAIL) ERROR $(RESET) the SD image could not be provisioned at %s (network?).\n" "$$sd"; \
-		exit 1; \
-	fi
+	PATH="$(UNIT_TEST_PATH)" tools/sd-master-ensure.sh $(BUILD_DIR_SDL_UNIT_TEST)/jnext || { \
+		printf "$(BADGE_FAIL) ERROR $(RESET) the SD image could not be provisioned at %s (network?).\n" "$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
+		exit 1; }
 
 # Configure + build the SDL-only test tree (prerequisite for unit-test-sdl)
 unit-test-sdl-build:

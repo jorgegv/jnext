@@ -937,7 +937,13 @@ Load-bearing rationale that used to live as long comments inside
   long option (BSD sed has none), in the test scripts macOS runs (not
   `test/packaging/`, not `harness-selftest.sh`). Edit through a temp file and
   `mv` instead. harness-selftest HS-170a/HS-170b prove the call is reached and
-  that its verdict turns the row red.
+  that its verdict turns the row red. The same lint refuses a second BSD-sed
+  hazard: a block closed straight after a command (`{n;p}`; BSD sed reads the
+  `}` as a flag and rejects the script, GNU sed accepts it; write `{n;p;}`).
+  That spelling in `sd_expected_distro` left the macOS clone without its
+  distribution sidecars and blocked every Qt GUI row (CI run 43653903261,
+  GH #476). harness-selftest HS-184a/HS-184b pin it; HS-184c/HS-184d pin the
+  provision row's clause for a clone that has no sidecars.
 - **render-skip engagement upper bound (590).** An early throttle bug (an
   INT64_MIN sentinel overflow in the now-last subtraction) skipped every
   single frame — 601 skips in 601 frames, frozen display. The `<= 590` bound
