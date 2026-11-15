@@ -106,7 +106,7 @@ FNode dirn(const std::string& n, uint8_t attr, uint16_t wd, uint16_t wt) {
     FNode f; f.name = n; f.dir = true; f.attr = attr; f.wdate = wd; f.wtime = wt; return f;
 }
 
-constexpr uint32_t kPartLba = 63, kSpc = 8, kBpc = kSpc * 512, kReserved = 32;
+constexpr uint32_t kSpc = 8, kBpc = kSpc * 512, kReserved = 32;
 
 struct Image {
     std::vector<uint8_t> bytes;
