@@ -417,12 +417,36 @@ recording and, on a miss, calls `record_warm_start_state()`, which
    recipe is done when the statement executes (`ERR_NR` $FF, `PPC` $FFFE). The
    keys go through `Keyboard::queue_auto_type()`, and the per-frame step is
    `Emulator::warm_start_recipe_tick()`. A state that does not come within 400
-   frames ends the recipe (four waits, so at most about 2000 frames in all at 50 Hz and 2400 at 60 Hz), and the capture check then refuses,
-4. checks `nextzxos_resident()` (once, when the clock passes frame 400, before
-   any key) and `warm_start_capture_ready()` (when the recipe is done or gave
-   up; its message names what the recipe was waiting for), and
+   frames ends the recipe. Before the first state the recipe waits for the
+   firmware to commit a machine type (see below), so there are five waits and at
+   most about 2400 frames in all at 50 Hz and 2880 at 60 Hz; the capture check then
+   refuses,
+4. checks `nextzxos_resident()` (once, at the checkpoint: frame 400, or the
+   frame the firmware commits a machine type if that is later; before any key)
+   and `warm_start_capture_ready()` (when the recipe is done or gave up; its
+   message names what the recipe was waiting for), and
 5. serialises it with `save_state()` — the same `Saveable` stream the rewind
    buffer uses.
+
+**The commit wait.** Frame 400 is the earliest the recipe looks at the machine,
+but a firmware that is still loading must not be looked at: a calm screen with
+stale system variables could get a SPACE, and the residency check refuses a
+machine whose firmware has not finished. From frame 400 the recipe stays in its
+first phase while the firmware is *loading*: the boot-ROM overlay is off but NR
+0x03 config mode is still set. In the VHDL (`zxnext.vhd`) any NR 0x03 write clears
+the overlay, a value of 7 in bits 2:0 sets config mode and any other non-zero value
+clears it, so the window between the IPL's handover write and the firmware's
+machine-type commit is exactly that state. The first frame from 400 on at which it
+is not loading is the checkpoint, where the residency check runs and the first
+look at the machine happens; `calm` keeps counting through the wait. The wait is
+bounded by frame 800 (frame 400 plus one budget; in emulated time, so 960 at 60
+Hz): a firmware that has not committed by then is given up, the checkpoint is the
+deadline and the refusal message says that the recorder waited. On the 24.11 card
+the commit is at frame 295, so the checkpoint is frame 400 and the recording is the
+same bytes as before the wait existed; on the 26.11 card it is at frame 472 and the
+recording takes about 777 frames. A boot-ROM overlay still active at frame 400 (the
+IPL never handed over) is not loading: the checkpoint is frame 400 and the
+residency check refuses there.
 
 Nothing is pressed at a fixed frame count. The first version pressed SPACE at
 frame 400, DOWN at 470, ENTER at 500, and was measured to work on the
@@ -433,7 +457,7 @@ both cards is a HALT at one instruction (with a different SP on each screen), an
 every busy phase moves the PC at each frame boundary. A wait loop that polls the
 keyboard without HALT would not be sampled at one instruction and would never read
 as idle, so the recipe would give up and the capture check refuse. The
-recording takes about 600 frames on the two cards measured, and is the same file
+recording takes about 600 frames on the two 24.11 cards measured (about 780 on the 26.11 card), and is the same file
 on every run of one card (the clock is pinned, below).
 
 Two things keep the recording a pure function of the card, the machine and the
@@ -820,7 +844,7 @@ them: NextZXOS is software, so the oracle is a PROBE, kept in the tree
 (`test/00regression/esxdos-write-probe.py`, the `nex` command writes the two
 NEX files), run under real NextZXOS booted in jnext on a scratch copy of the SD
 image, and the answers recorded in `test/fixtures/esxdos-write-probe/nextzxos.txt`
-with the image's sha256, `M_DOSVERSION` (2.09) and the sha256 of the probe NEX
+with the image's sha256, `M_DOSVERSION` (2.10) and the sha256 of the probe NEX
 files in its header. Every rule in the code names the recorded group it came
 from. The generator's `DIVERGE` table lists each place jnext deliberately
 answers otherwise, with its reason. To re-measure: `esxdos-write-probe-measure.sh`
@@ -833,8 +857,16 @@ success `A` is whatever the register held (junk), so the probe masks it, and
 the dispatcher returns 0; `F_UNLINK` of a directory is success and deletes
 nothing; `F_TRUNCATE` with a wildcard truncates the first match; `F_CHMOD`'s
 `A_WRITE` is the inverse of FAT's read-only bit, `A_READ` is inert, and hidden
-and system are set together, so only `A_WRITE`, `A_READ` and the archive bit
-set are served (everything else is `esx_enosys`: refused, not faked); a name with
+and system are set together, so only `A_WRITE`, `A_READ` and `A_ARCH` are served
+(everything else is `esx_enosys`: refused, not faked). The archive bit is the one
+attribute a host file cannot hold and 2.10 changes on `F_CHMOD`, so `EsxdosHostFs`
+keeps it per file in `archive_clear_` for the mount (session state: lost when jnext
+exits, which no recorded step can see): after any `F_CHMOD` of a file it reads clear,
+unless that call cleared `A_ARCH`, which leaves it set; closing a write handle,
+`F_TRUNCATE` and a re-create set it, a rename (a directory's too) carries it, and an
+entry whose file's size, modification time or inode no longer matches is stale and
+reads set. The `[arch]` group of the probe measured the write, truncate, rename and
+re-create cases; a name with
 `"`, `<`, `>`, `|`, `:` is `esx_einval` in every call; a trailing dot is dropped;
 a renamed current directory keeps its old name in `F_GETCWD` on a card (jnext
 shows the new one); `F_RENAME` of an empty destination means the current
@@ -1416,6 +1448,28 @@ upstream tbblue did after the 24.11 release), only when it is that exact file.
 That recipe is versioned (`kFixedImageRecipe`, recorded in a `.recipe` sidecar
 next to the image). jnext never rebuilds an existing image because its recipe
 is old: the image holds the user's own files.
+
+A distribution is identified by the file name of its zip (`sn-emulator-24.11.zip`),
+the basename of the effective download address. `provision_sd_card` records it in
+`<fixed>.distro` and `<raw>.distro`; an image with no such sidecar predates them,
+from when the address only ever named 24.11, so it is 24.11. A raw image is
+reused only when its sha sidecar verifies AND its `.distro` is the current one.
+When the default card exists and is of another distribution, the provisioner makes
+one offer through the `UpgradeFn` seam (Qt: a box with "Download and replace",
+"Keep my card" and a "Do not ask me again" check box; SDL: a three-button message
+box; no seam, as in `--headless` and `--sdcard-file-add`: no offer, one log line).
+The text names both versions and says the card's contents are lost. Keep goes on
+with the card, and "do not ask again" writes `<fixed>.distro-declined` with the
+current distribution, so only a later one asks again. `--sdcard-upgrade
+ask|yes|no|never` makes each choice without the dialog. An explicit card, from
+`--sdcard` or the Preferences path, returns before any of this and is never offered
+an upgrade. A card is replaced atomically: the new raw and card are made as
+`<name>.new` and moved over the old ones only when the derive worked, so a failed
+download or patch leaves the old card byte-identical (an accepted upgrade then
+goes on with it and reports a warning; `--sdcard-download-force`, which was asked to
+recover a card, fails). Recipe 3 gives each distribution's card its own FAT32 volume
+serial, the first 4 bytes of the raw image's SHA-256, written into the boot sector
+and its backup copy after the format.
 
 Downloads are resumable, by one contract for every caller of
 `DownloadFn` (the SD distro zip, the NextPi archive, its `.md5`, the mirror

@@ -821,6 +821,15 @@ target_link_libraries(halt_batch_observer_test PRIVATE
 target_include_directories(halt_batch_observer_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME halt_batch_observer_tests COMMAND halt_batch_observer_test)
 
+# GH #489 - the call-stack tracker fed from the CPU's own M1 fetch buffer.
+add_executable(call_stack_fetch_test core/call_stack_fetch_test.cpp)
+target_link_libraries(call_stack_fetch_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(call_stack_fetch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME call_stack_fetch_tests COMMAND call_stack_fetch_test)
+
 add_executable(halt_batch_boot_test core/halt_batch_boot_test.cpp)
 target_link_libraries(halt_batch_boot_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
@@ -1121,6 +1130,15 @@ add_executable(sdl_pointer_release_test platform/sdl_pointer_release_test.cpp
 target_include_directories(sdl_pointer_release_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(sdl_pointer_release_test PRIVATE ${JNEXT_SDL3_TARGET})
 add_test(NAME sdl_pointer_release_tests COMMAND sdl_pointer_release_test)
+
+# The SDL upgrade offer's button mapping: which choice each button of the message box means.
+# The box needs a display, so only the mapping is tested; sdcard_upgrade_box.cpp is compiled in
+# directly (SDL3 plus the core's distribution_title, nothing of the platform library).
+add_executable(sdcard_upgrade_box_test platform/sdcard_upgrade_box_test.cpp
+                                       ${CMAKE_SOURCE_DIR}/src/platform/sdcard_upgrade_box.cpp)
+target_include_directories(sdcard_upgrade_box_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(sdcard_upgrade_box_test PRIVATE jnext_core ZLIB::ZLIB ${JNEXT_SDL3_TARGET})
+add_test(NAME sdcard_upgrade_box_tests COMMAND sdcard_upgrade_box_test)
 
 # GH #155 — the SDL window title names the version. Drives the real
 # SdlDisplay::init() under SDL's dummy video driver: no display, ungated.

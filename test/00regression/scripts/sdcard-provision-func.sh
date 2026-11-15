@@ -42,6 +42,7 @@ if want sdcard-provision-func; then
     # real jnext it also records the recipe that made the image (GH #284):
     # mk_stub <home> [recipe], defaulting to the one this tree builds.
     WANT_RECIPE=$(sd_expected_recipe) || WANT_RECIPE=""
+    WANT_DISTRO=$(sd_expected_distro) || WANT_DISTRO=""
     mk_stub() {
         mkdir -p "$W/bin" "$1/.jnext/sdcard"
         cat > "$W/bin/jnext-stub" <<STUB
@@ -49,6 +50,7 @@ if want sdcard-provision-func; then
 echo x >> "$W/calls"
 printf 'PRISTINE-IMAGE-CONTENT\n' > "$1/.jnext/sdcard/cspect-next-1gb-fixed.img"
 printf '%s\n' '${2:-$WANT_RECIPE}' > "$1/.jnext/sdcard/cspect-next-1gb-fixed.img.recipe"
+printf '%s\n' '$WANT_DISTRO' > "$1/.jnext/sdcard/cspect-next-1gb-fixed.img.distro"
 exit 0
 STUB
         chmod +x "$W/bin/jnext-stub"
@@ -58,7 +60,8 @@ STUB
     # how many times the stub was called.
     run_row() {
         : > "$W/calls"
-        HOME="$1" JNEXT="$W/bin/jnext-stub" bash "$ROW" >"$W/out" 2>&1 || true
+        # The candidate-card seam is emptied: the row's master is the scratch HOME's.
+        JNEXT_REGRESSION_BOOT_ANCHOR=off JNEXT_REGRESSION_SD_STATE_DIR="" HOME="$1" JNEXT="$W/bin/jnext-stub" bash "$ROW" >"$W/out" 2>&1 || true
         wc -l < "$W/calls" | tr -d ' '
     }
 
@@ -125,6 +128,21 @@ STUB
     grep -q "FAIL" "$W/out" || faults+=("an image of the wrong recipe did not fail the row")
     [[ ! -f "$WIT" ]] || faults+=("an image of the wrong recipe was given a witness")
     mk_stub "$H"
+
+    # 8 — GH #476, THE DISTRIBUTION: a master that is healthy (witness and recipe match) but was
+    #     made from another distribution than the default is re-derived exactly once and the
+    #     reason is named; the next run touches nothing. (The state a host is left in by a tree
+    #     that still defaulted to the previous distribution.)
+    run_row "$H" >/dev/null
+    printf 'sn-emulator-24.11.zip\n' > "$IMG.distro"
+    n=$(run_row "$H")
+    [[ "$n" == "1" ]] || faults+=("a master of another distribution invoked jnext $n times, expected 1")
+    grep -q "made from distribution sn-emulator-24.11.zip" "$W/out" || faults+=("another distribution was not reported as the reason")
+    n=$(run_row "$H")
+    [[ "$n" == "0" ]] || faults+=("after a distribution re-derive the next run invoked jnext $n times, expected 0")
+    rm -f "$IMG.distro"
+    n=$(run_row "$H")
+    [[ "$n" == "1" ]] || faults+=("a master with no .distro (a legacy 24.11 one) invoked jnext $n times, expected 1")
 
     # 7 — provisioning failure must FAIL the row, not pass silently.
     cat > "$W/bin/jnext-stub" <<'STUB'

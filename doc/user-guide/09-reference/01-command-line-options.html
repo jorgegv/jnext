@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4362,6 +4362,18 @@ image</a>.</dd>
 <dd>Force re-download and re-patch of the default-location image, to
 recover a corrupted one. Also discards a half-finished download.
 Ignored when <strong>--sdcard</strong> is given: an explicit path always wins.</dd>
+<dt><strong>--sdcard-upgrade</strong> <em>MODE</em></dt>
+<dd>What to do when the default-location card is of an older NextZXOS
+distribution than the one jnext downloads now. <em>MODE</em> is <strong>ask</strong>
+(the default in the GUI: forget any “do not ask again” and ask),
+<strong>yes</strong> (replace the card without asking: everything saved on it is
+lost), <strong>no</strong> (keep the card for this run, no question) or <strong>never</strong>
+(keep it and do not offer this distribution again). Without the
+option, the GUI asks (once, unless “Do not ask me again” was ticked)
+and <strong>--headless</strong> keeps the card and logs one line. Refused
+together with <strong>--sdcard</strong>: an explicit card is never offered an
+upgrade. See <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
+image</a>.</dd>
 <dt><strong>--sdcard-readonly</strong></dt>
 <dd>Open the SD image read-only, so the host file is never modified. The
 emulated machine sees a write-protected card: writes are rejected

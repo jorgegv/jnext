@@ -25,7 +25,8 @@ if want esxdos-write-oracle-func; then
     rec="$PROJECT_DIR/test/fixtures/esxdos-write-probe/nextzxos.txt"
 
     m_rc=0
-    PROBE_FRAMES=3500 timeout --foreground --kill-after=5s 540s bash "$SCRIPT_DIR/esxdos-write-probe-measure.sh" \
+    oe_shift=$(boot_shift)   # the card's boot delay in frames (bf), applied by the measure script
+    BOOT_SHIFT=$oe_shift PROBE_FRAMES=3500 timeout --foreground --kill-after=5s 540s bash "$SCRIPT_DIR/esxdos-write-probe-measure.sh" \
         "$JNEXT" "$W" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" > "$W/measure.log" 2>&1 || m_rc=$?
 
     rw_rc=0 ro_rc=0
@@ -34,7 +35,7 @@ if want esxdos-write-oracle-func; then
     rm -rf "$W/card"
 
     if [[ $m_rc -eq 0 && $rw_rc -eq 0 && $ro_rc -eq 0 ]]; then
-        pass_row " (the probe, run under real NextZXOS 2.09 on a writable and on a write-protected card, reproduces the recorded transcript exactly)"
+        pass_row " (the probe, run under real NextZXOS 2.10 on a writable and on a write-protected card, reproduces the recorded transcript exactly)"
     else
         fail_row " (measure rc=$m_rc: '$(tail -n 2 "$W/measure.log" 2>/dev/null | tr '\n' ' ')'; rw compare rc=$rw_rc '$(grep -E -m2 '^(DIFFERS|no END)' <<<"$rw" | tr '\n' ' ' || true)'; ro compare rc=$ro_rc '$(grep -E -m2 '^(DIFFERS|no END)' <<<"$ro" | tr '\n' ' ' || true)')"
     fi

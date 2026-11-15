@@ -116,7 +116,7 @@ of a DMA port, which `dma_test` checks instead.
 
 Every fixture is in the repository except the MOD player. That one, and its MOD,
 are on the SD image the training already needs (`/apps/audio/NXModPlayer` in
-the 24.11 distribution), so nothing of the distribution is copied into the
+the 26.11 distribution), so nothing of the distribution is copied into the
 repository. jnext has no way to pull a file out of the image from the command
 line, and the player browses its MODs through NextZXOS anyway, so the run
 launches it the way a user would: NextZXOS's Browser down to the `.nex`, then

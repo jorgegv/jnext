@@ -398,6 +398,22 @@ palette-demo      next    test/00regression/nex/palette_demo.nex 3
 - `screenshot_delay_secs` is how long to wait before capturing
 - The auto-exit delay is automatically set to `screenshot_delay + 2`
 
+## Boot-timeline frames (`bf`)
+
+A row that presses a key, captures a screen or resets at a frame of a cold NextZXOS
+boot writes that frame with the boot-ready helper, so it keeps its meaning on a card
+whose firmware boots for a different number of frames. The anchor is the firmware's
+machine-type commit (first NR 0x03 write with bits 2:0 = 001..100), measured once per
+run by `boot-commit-probe.jds` in the `[sdcard-provision]` row (26.11: frame 472; a 24.11 card: 295). In
+a shell row: `shot=$(bf 400)`, `bf_keys 400 space 470 down ...` (fills `BF_KEYS`),
+`bf 900 2` for a frame after a hard reset (K = 2: the firmware runs again), and
+`bf_jds in.jds.in out.jds` for `{{bf N}}` placeholders; in `regression_tests.conf`,
+`@bf:N` or `@bf:N:K`. On the reference card every expansion is the literal, so the
+command lines are unchanged. The default master must commit at `BOOT_DEFAULT_COMMIT`
+(295) or `[sdcard-provision]` FAILS; a candidate card
+(`JNEXT_REGRESSION_SD_STATE_DIR`) may commit anywhere and the row reports where.
+Details: developer guide, section 4.3.
+
 ## Reference Screenshots
 
 Stored in `test/00regression/img/<test_name>-reference.png`. These are the known-good

@@ -138,6 +138,19 @@ with status 1.
     recover a corrupted one. Also discards a half-finished download.
     Ignored when **--sdcard** is given: an explicit path always wins.
 
+**--sdcard-upgrade** *MODE*
+:   What to do when the default-location card is of an older NextZXOS
+    distribution than the one jnext downloads now. *MODE* is **ask**
+    (the default in the GUI: forget any “do not ask again” and ask),
+    **yes** (replace the card without asking: everything saved on it is
+    lost), **no** (keep the card for this run, no question) or **never**
+    (keep it and do not offer this distribution again). Without the
+    option, the GUI asks (once, unless “Do not ask me again” was ticked)
+    and **--headless** keeps the card and logs one line. Refused
+    together with **--sdcard**: an explicit card is never offered an
+    upgrade. See [Why JNEXT needs an SD-card
+    image](../03-first-run/01-why-jnext-needs-an-sd-card-image.md).
+
 **--sdcard-readonly**
 :   Open the SD image read-only, so the host file is never modified. The
     emulated machine sees a write-protected card: writes are rejected

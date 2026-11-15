@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3163,8 +3163,10 @@ trace" or "no earlier source breakpoint in the retained trace".</p>
 <h2 id="the-call-stack-the-steps-lean-on">The call stack the steps lean on<a class="headerlink" href="#the-call-stack-the-steps-lean-on" title="Permanent link">&para;</a></h2>
 <p><code>CallStack</code> (<code>debug/call_stack.h</code>) is a debug-only shadow of the machine's calls. It
 is told about each instruction by <code>Emulator::step_one_instruction()</code>
-(<code>on_instruction_pre()</code> with the opcode and its predicted memory, then
-<code>on_instruction_post()</code> with the new SP and PC and the recorded fetch) and about an
+(after <code>execute()</code>, <code>on_instruction_pre()</code> with the SP and PC from before the slot
+and the M1 bytes the CPU fetched, <code>Z80Cpu::last_m1_byte()</code>, with the memory
+predicted only in a slot that may accept an interrupt; then <code>on_instruction_post()</code>
+with the new SP and PC and the recorded fetch) and about an
 accepted <code>INT</code> or <code>NMI</code> by <code>on_interrupt()</code>. Frames are oldest first, up to
 <code>MAX_DEPTH</code> = 256. A frame is a <code>CALL</code>, an <code>RST</code>, an <code>INT</code> or an <code>NMI</code>
 (<code>CallType</code>), with <code>caller_pc</code>, <code>target_pc</code>, <code>sp_at_call</code> and the two memories of

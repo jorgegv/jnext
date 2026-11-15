@@ -100,6 +100,13 @@ run_row_launch() {
             ln "$SHARED_SD" "$rdir/sdcard/" \
                 || harness_fault "could not link the run's SD clone into row ${BOLD}$row${RESET}'s $rdir/sdcard"
         fi
+        # The clone's sidecars (its distribution, and the standing "do not offer the upgrade" of
+        # sd_clone_for_run): small files, a row's own copy, so a GUI row is never offered one.
+        local sc
+        for sc in distro distro-declined; do
+            [[ ! -f "$SHARED_SD.$sc" ]] || cp "$SHARED_SD.$sc" "$rdir/sdcard/" \
+                || harness_fault "could not copy the run's SD clone sidecar $sc into row ${BOLD}$row${RESET}'s $rdir/sdcard"
+        done
     fi
     if [[ -d "$RUN_DIR/warm-start" ]]; then
         cp -r --reflink=auto "$RUN_DIR/warm-start" "$rdir/" \

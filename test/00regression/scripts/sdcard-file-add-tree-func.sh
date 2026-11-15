@@ -69,6 +69,9 @@ if want sdcard-file-add-tree-func; then
 
     add_tree() {    # add_tree <name> <host tree> — via the feature under test
         local rc=0
+        # boot-timeline frames (bf)
+        bt_shot=$(bf 1127); bt_exit=$(bf 1147)
+        bf_keys 577 space 647 down 677 enter 737 . 752 l 767 s 782 space 797 g 812 h 827 2 842 9 857 2 872 sym+v 887 s 902 u 917 b 937 enter
         JNEXT_CONFIG_DIR="$BASE/$1" timeout --foreground --kill-after=5s 120s \
             "$JNEXT" --sdcard-file-add "$2" --sdcard-file-dest /GH292 \
             > "$W/add-$1.log" 2>&1 || rc=$?
@@ -80,26 +83,10 @@ if want sdcard-file-add-tree-func; then
         # The menu keys are boot-nextzxos-dotls's; '/' is SYMBOL SHIFT + V.
         JNEXT_CONFIG_DIR="$BASE/$1" timeout --foreground --kill-after=5s 180s \
             "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
-                     --delayed-keypress-frames 400 space \
-                     --delayed-keypress-frames 470 down \
-                     --delayed-keypress-frames 500 enter \
-                     --delayed-keypress-frames 560 . \
-                     --delayed-keypress-frames 575 l \
-                     --delayed-keypress-frames 590 s \
-                     --delayed-keypress-frames 605 space \
-                     --delayed-keypress-frames 620 g \
-                     --delayed-keypress-frames 635 h \
-                     --delayed-keypress-frames 650 2 \
-                     --delayed-keypress-frames 665 9 \
-                     --delayed-keypress-frames 680 2 \
-                     --delayed-keypress-frames 695 sym+v \
-                     --delayed-keypress-frames 710 s \
-                     --delayed-keypress-frames 725 u \
-                     --delayed-keypress-frames 740 b \
-                     --delayed-keypress-frames 760 enter \
+                     "${BF_KEYS[@]}" \
                      --delayed-screenshot "$W/$1.png" \
-                     --delayed-screenshot-frames 950 \
-                     --delayed-automatic-exit-frames 970 \
+                     --delayed-screenshot-frames "$bt_shot" \
+                     --delayed-automatic-exit-frames "$bt_exit" \
             > "$W/boot-$1.log" 2>&1 || rc=$?
         [[ $rc -eq 0 ]] || faults+=("$1: the NextZXOS boot exited $rc (log: $(tail -n 2 "$W/boot-$1.log" 2>/dev/null | tr '\n' ' ' || true))")
         [[ -f "$W/$1.png" ]] || faults+=("$1: no screenshot was produced")

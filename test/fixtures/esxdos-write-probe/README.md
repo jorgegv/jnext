@@ -1,7 +1,7 @@
 # esxdos-write-probe: what real NextZXOS answers to the esxDOS calls that change files
 
 `nextzxos.txt` is a RECORDING, not a computed expectation: the answers of real
-NextZXOS 2.09 (M_DOSVERSION in its header) to F_UNLINK, F_RENAME, F_MKDIR,
+NextZXOS 2.10 (M_DOSVERSION in its header) to F_UNLINK, F_RENAME, F_MKDIR,
 F_RMDIR, F_TRUNCATE, F_FTRUNCATE, F_CHMOD and M_GETERR, and to the read calls
 that observe their effects, one line per call. It is the oracle of the jnext
 host-folder write calls (there is no VHDL for this: NextZXOS is software).

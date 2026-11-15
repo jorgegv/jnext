@@ -50,10 +50,14 @@ The gate is in `Mmu`, not around panel refreshes, so it does not depend on the
 caller.
 
 Its counterpart `DebugState::InspectionScope` covers the debugger readers that
-run *inside* execution. The trace log captures four opcode bytes at PC and the
-call-stack tracker three, whatever the instruction's real length, so both read
-bytes the CPU never fetches. An event delivery, `Mmu::peek()` and
-`poke(MemSpace::cpu())` take the same scope.
+run *inside* execution. The trace log captures four opcode bytes at PC,
+whatever the instruction's real length, so it reads bytes the CPU never fetches.
+The call-stack tracker reads no memory per instruction: it is fed after
+`execute()` from the M1 bytes the CPU fetched (`Z80Cpu::last_m1_byte()`) and the
+PC it ended on, which is a taken `CALL`'s operand. Only a slot that may accept an
+interrupt (an NMI pending, or an INT pending with IFF1 set) predicts the fetch
+space, under this scope, for the frame's `caller_space`. An event delivery,
+`Mmu::peek()` and `poke(MemSpace::cpu())` take the same scope.
 
 `DebugState::SuspendScope` clears every arm bit for its lifetime. A save that
 has to advance to a frame boundary runs under it, so the advance does not stop

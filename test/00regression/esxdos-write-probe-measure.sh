@@ -17,7 +17,11 @@ WORK=$2
 MASTER=${3:-$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RTC="2026-07-10T08:55:00"
-FRAMES=${PROBE_FRAMES:-6000}
+# BOOT_SHIFT: the card's boot delay in frames, the firmware's machine-type commit frame minus the
+# reference card's (test-functions.inc, "The boot-ready helper"). The regression row passes it
+# (boot_shift); run by hand on the reference card it is 0, and on another card pass the shift.
+BOOT_SHIFT=${BOOT_SHIFT:-0}
+FRAMES=$(( ${PROBE_FRAMES:-6177} + BOOT_SHIFT ))
 
 mkdir -p "$WORK/card/sdcard"
 trap 'rm -rf "$WORK/card"' EXIT
@@ -38,9 +42,10 @@ done
 # then `.nexload w457rw.nex` is typed.
 run() {       # run <rw|ro> <file> [extra jnext args]
     local mode=$1 nex=$2; shift 2
-    local keys=(--delayed-keypress-frames 400 space --delayed-keypress-frames 470 down
-                --delayed-keypress-frames 500 enter)
-    local f=560 i c cmd=".nexload $nex"
+    local keys=(--delayed-keypress-frames $((577 + BOOT_SHIFT)) space
+                --delayed-keypress-frames $((647 + BOOT_SHIFT)) down
+                --delayed-keypress-frames $((677 + BOOT_SHIFT)) enter)
+    local f=$((737 + BOOT_SHIFT)) i c cmd=".nexload $nex"
     for ((i = 0; i < ${#cmd}; i++)); do
         c=${cmd:i:1}; [[ $c == " " ]] && c=space
         keys+=(--delayed-keypress-frames "$f" "$c"); f=$((f + 15))
@@ -61,7 +66,9 @@ run ro w457ro.nex --sdcard-readonly
     echo "# NextZXOS answers to the esxDOS write calls, recorded by esxdos-write-probe-measure.sh"
     echo "# oracle: real NextZXOS booted in jnext, probe NEX run with .nexload; nothing here is computed"
     echo "# image: $(basename "$MASTER") sha256 $(cat "$WORK/sha256-master.txt")"
-    echo "# M_DOSVERSION: $(grep -m1 '^S0000 ' "$WORK/raw-rw.txt") (B,C='N','X'; DE=0x0209 is NextZXOS 2.09)"
+    dosver=$(grep -m1 '^S0000 ' "$WORK/raw-rw.txt")
+    dos_de=${dosver##* }; dos_de=${dos_de: -4}
+    echo "# M_DOSVERSION: $dosver (B,C='N','X'; DE=0x$dos_de is NextZXOS $((16#${dos_de:0:2})).${dos_de:2:2})"
     sed 's|^|# probe NEX sha256 |' "$WORK/sha256-nex.txt"
     echo "# jnext $("$JNEXT" --version 2>/dev/null | tail -n 1 | sed 's/^jnext //'), RTC $RTC, measured $(date +%F)"
     echo "# line: S<step> F<carry> A<hex or **> [extra] ; <step description>. A** = A masked on success (it is whatever the"

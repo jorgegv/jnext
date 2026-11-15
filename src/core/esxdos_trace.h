@@ -97,7 +97,7 @@ inline const char* esxdos_call_name(uint8_t code) {
 
 /// The text M_GETERR ($93, B=1) copies for an error code, without the bit-7
 /// terminator the call puts on the last character. NOT from the two files above:
-/// MEASURED from real NextZXOS 2.09, one M_GETERR per code 1..31 plus out-of-range
+/// MEASURED from real NextZXOS 2.10, one M_GETERR per code 1..31 plus out-of-range
 /// codes (recorded in test/fixtures/esxdos-write-probe/nextzxos.txt, group
 /// [geterr]). Codes 32 and up, and 0, answer "Unknown error" as NextZXOS does; a
 /// custom message for A=0 is the caller's, read from IX.

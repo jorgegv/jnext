@@ -52,13 +52,14 @@ on io_write 0xE3 do set e3 = VALUE end
 on execute dot.c:8 do set h8 = h8 + 1 end
 on execute dot.c:14 do set h14 = h14 + 1 end
 on execute 0x2D62 when (e3 & 0x8F) != 0x82 do set rom14 = rom14 + 1 end
-on frame 800 do log "DOTSRC 2D4F=${h8:d} 2D62=${h14:d} 2D62-elsewhere=${rom14:d}" end
+on frame {{bf 977}} do log "DOTSRC 2D4F=${h8:d} 2D62=${h14:d} 2D62-elsewhere=${rom14:d}" end
 JDS
-        for k in "400 space" "470 down" "500 enter" "560 ." "575 p" "590 r" "605 o" "620 g" "635 enter"; do
-            printf 'on frame %d do press "%s" end\non frame %d do release "%s" end\n' \
+        for k in "577 space" "647 down" "677 enter" "737 ." "752 p" "767 r" "782 o" "797 g" "812 enter"; do
+            printf 'on frame {{bf %d}} do press "%s" end\non frame {{bf %d}} do release "%s" end\n' \
                 "${k%% *}" "${k#* }" "$(( ${k%% *} + 5 ))" "${k#* }"
         done
-    } > "$W/count.jds"
+    } > "$W/count.jds.in"
+    bf_jds "$W/count.jds.in" "$W/count.jds"   # boot-timeline frames (bf), expanded for this card
 
     faults=()
 
@@ -67,13 +68,14 @@ JDS
         mkdir -p "$BASE/$1/sdcard"
         cp --reflink=auto "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" \
                           "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
+        sd_card_sidecars "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
         JNEXT_CONFIG_DIR="$BASE/$1" timeout --foreground --kill-after=5s 120s \
             "$JNEXT" --sdcard-file-add "$fx/PROG" --sdcard-file-dest /DOT/PROG \
             > "$W/add-$1.log" 2>&1 || rc=$?
         [[ $rc -eq 0 ]] || faults+=("$1: --sdcard-file-add exited $rc (log: $(tail -n 2 "$W/add-$1.log" 2>/dev/null | tr '\n' ' ' || true))")
     }
 
-    FRAMES=810
+    FRAMES=$(bf 987)
 
     # run_dot <frontend> <name> <map-dir> <args...>: the output of one run is in $W/<name>-<frontend>.log
     # and its exit status in $W/<name>-<frontend>.rc.

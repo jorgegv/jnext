@@ -145,8 +145,10 @@ trace" or "no earlier source breakpoint in the retained trace".
 
 `CallStack` (`debug/call_stack.h`) is a debug-only shadow of the machine's calls. It
 is told about each instruction by `Emulator::step_one_instruction()`
-(`on_instruction_pre()` with the opcode and its predicted memory, then
-`on_instruction_post()` with the new SP and PC and the recorded fetch) and about an
+(after `execute()`, `on_instruction_pre()` with the SP and PC from before the slot
+and the M1 bytes the CPU fetched, `Z80Cpu::last_m1_byte()`, with the memory
+predicted only in a slot that may accept an interrupt; then `on_instruction_post()`
+with the new SP and PC and the recorded fetch) and about an
 accepted `INT` or `NMI` by `on_interrupt()`. Frames are oldest first, up to
 `MAX_DEPTH` = 256. A frame is a `CALL`, an `RST`, an `INT` or an `NMI`
 (`CallType`), with `caller_pc`, `target_pc`, `sp_at_call` and the two memories of
