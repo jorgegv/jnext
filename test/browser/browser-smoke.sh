@@ -8,7 +8,7 @@
 # (rows WBI-PW-01..08, the SD-card image and the warm start in the browser) and `api.mjs:31`
 # (rows WEBAPI-01..31, the JavaScript API: jnext.mount and its controller) and `package.mjs:1`
 # (row WEBPKG-BR-01: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
-# boots the example page), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
+# boots the example page), `card.mjs:21` (rows BCARD-01..21: the card flow of the page and the poster), `card-errors.mjs:4` (rows BCARD-22..25: how the pick path words a refusal, no browser), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
 # guide's two embedding snippets, run verbatim), `touch.mjs:17` (rows TKB-01..17: the on-screen keyboard
 # under touch-device emulation) and `writes.mjs:17` (rows WBW-01..17: the guest's writes
 # kept across page loads, against a native journal oracle), `snapshots.mjs:11` (rows BSN-01..11: .sna, .z80,
@@ -25,7 +25,7 @@
 # What it provides to the specs, all in ONE scratch directory under ~/tmp that is
 # deleted at the end:
 #   card.img      the 40 MiB minimal NextZXOS card, built from the cached distribution
-#                 image by tools/make-minimal-sdcard-image.sh. It is copyrighted
+#                 image by tools/make-minimal-card (the builder the page runs). It is copyrighted
 #                 content: it lives only here, the page gets it through the harness's
 #                 request handler, and it is never committed, uploaded or traced
 #                 (Playwright tracing, HAR and video stay off).
@@ -42,7 +42,7 @@ export LC_ALL=C LANG=C
 
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
-SPECS=("smoke.mjs:34" "image.mjs:8" "api.mjs:31" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "$@")
+SPECS=("smoke.mjs:34" "image.mjs:8" "api.mjs:31" "package.mjs:1" "widget.mjs:17" "writes.mjs:17" "touch.mjs:17" "snapshots.mjs:11" "../bench/web/bench-stats-test.mjs:12" "crt.mjs:13" "rzx.mjs:12" "card.mjs:21" "card-errors.mjs:4" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -57,7 +57,7 @@ NATIVE="$ROOT/build/sdl-release/jnext"
 [[ -x "$NATIVE" ]] || die "$NATIVE is not built (make sdl-release): it is the oracle"
 DIST="${JNEXT_BROWSER_DIST_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb.img}"
 [[ -f "$DIST" ]] || die "no distribution SD image at $DIST (make sdcard-image)"
-for t in mcopy sfdisk python3 timeout; do command -v "$t" >/dev/null 2>&1 || die "required tool missing: $t"; done
+for t in python3 timeout mformat mcopy mmd sfdisk truncate; do command -v "$t" >/dev/null 2>&1 || die "required tool missing: $t"; done
 
 BUILD_VERSION=$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' "$BUILD/CMakeCache.txt")
 VERSION=$(sed -n 's/^version: *//p' "$ROOT/version.yaml")
@@ -71,11 +71,13 @@ SCRATCH=$(mktemp -d "$HOME/tmp/jnext-browser-smoke.XXXXXX")
 trap 'rm -rf "$SCRATCH"' EXIT
 mkdir "$SCRATCH/oracle" "$SCRATCH/out"
 
-bash "$ROOT/tools/make-minimal-sdcard-image.sh" "$DIST" "$SCRATCH/card.img" >"$SCRATCH/out/card.log" 2>&1 \
+CARD_TOOL="${MAKE_MINIMAL_CARD:-$ROOT/build/sdl-release/tools/make-minimal-card/make-minimal-card}"
+[[ -x "$CARD_TOOL" ]] || die "$CARD_TOOL is not built (make sdl-release)"
+"$CARD_TOOL" "$DIST" "$SCRATCH/card.img" >"$SCRATCH/out/card.log" 2>&1 \
     || { cat "$SCRATCH/out/card.log" >&2; die "cannot build the minimal card"; }
 # For image.mjs: the card's sha256 and a ZIP of it made by a FOREIGN writer (CPython zipfile,
-# deflate), both computed here at run time (the card is reproducible for one mtools version
-# only, so no digest is ever pinned). Same scratch directory, same deletion.
+# deflate), both computed here at run time. The card is the builder's PINNED one (kDistribution,
+# which the tool enforces), the same bytes on every platform. Same scratch directory, same deletion.
 CARD_SHA256=$(sha256sum "$SCRATCH/card.img" | cut -d' ' -f1)
 python3 -I -c 'import sys, zipfile
 with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED) as z:
@@ -222,8 +224,29 @@ oracle rzxplay128 sdl     --load "$SCRATCH/s128.rzx" --delayed-screenshot "$O/rz
 oracle keys352   headless --machine 48k --delayed-keypress-frames 200 p --delayed-keypress-frames 215 1 --delayed-keypress-frames 230 2 \
                           --delayed-keypress-frames 245 enter --delayed-screenshot "$O/keys352.png" --delayed-screenshot-frames 352 --delayed-automatic-exit-frames 500
 
+# The card flow (card.mjs, BCARD-01..): a SYNTHETIC distribution zip (invented files, mtools + python,
+# licence-clean) and the card the native tool makes from it (the byte oracle), and, for BCARD-13 only,
+# a zip of the cached real image made by python (deflate), so the page builds the real card in wasm
+# from real data. All in the scratch directory, deleted with it; nothing of it is ever committed.
+bash "$HERE/make-synthetic-distro.sh" "$SCRATCH/syn" || die "cannot build the synthetic distribution"
+"$CARD_TOOL" --unpinned "$SCRATCH/syn/synthetic-distro.zip" "$SCRATCH/syn/synthetic-card.img" >"$SCRATCH/out/syn-card.log" 2>&1 \
+    || { cat "$SCRATCH/out/syn-card.log" >&2; die "cannot build the card of the synthetic distribution"; }
+SYN_CARD_SHA256=$(sha256sum "$SCRATCH/syn/synthetic-card.img" | cut -d' ' -f1)
+SYN_ZIP_SHA256=$(sha256sum "$SCRATCH/syn/synthetic-distro.zip" | cut -d' ' -f1)
+SYN_ZIP_SIZE=$(stat -c %s "$SCRATCH/syn/synthetic-distro.zip")
+python3 -I -c 'import sys, zipfile
+with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
+    z.write(sys.argv[1], "cspect-next-1gb.img")
+    z.writestr("enNextZX.rom", b"x")' "$DIST" "$SCRATCH/real-distro.zip" || die "cannot zip the distribution image"
+REAL_ZIP_SHA256=$(sha256sum "$SCRATCH/real-distro.zip" | cut -d' ' -f1)
+REAL_ZIP_SIZE=$(stat -c %s "$SCRATCH/real-distro.zip")
+PINNED_CARD_SHA256=$(sed -n '/^const Pins kDistribution/,/^};/p' "$ROOT/src/core/sdcard_provisioner.cpp" | grep -oE '"[0-9a-f]{64}"' | sed -n 3p | tr -d '"')
+PINNED_URL=$(sed -n 's/^ *"\(https:[^"]*\)";$/\1/p' "$ROOT/src/core/sdcard_provisioner.cpp" | head -n1)
+
 export JNEXT_PLAYWRIGHT_DIR="$PW" SMOKE_BUILD="$BUILD" SMOKE_ROOT="$ROOT" SMOKE_SCRATCH="$SCRATCH" \
-       SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg"
+       SMOKE_ORACLE="$O" SMOKE_CARD_SHA256="$CARD_SHA256" SMOKE_ZIP_SHA256="$ZIP_SHA256" SMOKE_OUT="$SCRATCH/out" SMOKE_VERSION="$VERSION" SMOKE_BUILD_VERSION="$BUILD_VERSION" SMOKE_PKG="$SCRATCH/pkg" \
+       SMOKE_SYN_DIR="$SCRATCH/syn" SMOKE_SYN_CARD_SHA256="$SYN_CARD_SHA256" SMOKE_SYN_ZIP_SHA256="$SYN_ZIP_SHA256" SMOKE_SYN_ZIP_SIZE="$SYN_ZIP_SIZE" \
+       SMOKE_REAL_ZIP_SHA256="$REAL_ZIP_SHA256" SMOKE_REAL_ZIP_SIZE="$REAL_ZIP_SIZE" SMOKE_PINNED_CARD_SHA256="$PINNED_CARD_SHA256" SMOKE_DISTRO_URL="$PINNED_URL"
 
 TOTAL=0; PASS=0; FAIL=0; SKIP=0; FAULT=0
 for spec in "${SPECS[@]}"; do

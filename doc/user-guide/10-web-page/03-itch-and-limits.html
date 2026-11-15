@@ -4356,7 +4356,7 @@
   <span class="md-ellipsis">
     
   
-    10.4 The SD-card image, and what the browser keeps
+    10.4 NextZXOS, the SD card, and what the browser keeps
   
 
     
@@ -4433,9 +4433,8 @@ itch.io page. itch.io embeds your page in an <code>iframe</code> of its own site
 <ul>
 <li>Game controllers need <code>allow="gamepad"</code> on that <code>iframe</code>; <code>itch-host.html</code> shows the markup.</li>
 <li>Browsers keep storage per origin and may give an embedded page storage of its own, so
-  the image may download again on the embedding site (see 10.4, "What the browser
+  the SD card may be made again on the embedding site (see 10.4, "What the browser
   keeps, and where").</li>
-<li>The image's server must allow cross-origin reads, as for any page.</li>
 <li><code>itch-game.html</code> tells the page that embeds it when the game is running
   (<code>jnext-ready</code>) or has failed (<code>jnext-error: &lt;message&gt;</code>), as <code>postMessage</code> text.</li>
 </ul>
@@ -4463,8 +4462,8 @@ Game controllers are page-wide: give the other players
   the old save, as on a real Next. A save made this way does not make the next visit record
   the machine again. Files such a page writes to a host directory it names with
   <code>--esxdos-stub-root</code> live in memory only.</li>
-<li>With <code>keepWrites</code>, one image on one page has one set of saves: two <code>keepWrites</code> players of
-  the same image on the same page share it, and the last one to store wins. After the program
+<li>With <code>keepWrites</code>, one card on one page has one set of saves: two <code>keepWrites</code> players of
+  the same card on the same page share it, and the last one to store wins. After the program
   has saved, the next visit starts NextZXOS again and records the machine once more (the
   card is no longer the one the recording was made on), which takes as long as a first visit's
   <code>warm-start</code> step; a visit that follows one that saved nothing is restored as usual.</li>

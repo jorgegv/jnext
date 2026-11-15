@@ -168,29 +168,33 @@ const IDB_FILES = () => new Promise((res, rej) => {
 });
 
 // ---- rows ------------------------------------------------------------------------------------
-row('WEBAPI-01', 'mount() resolves; player.argv is the documented command line, its first four elements equal installImage\'s; state is waiting', async () => {
+row('WEBAPI-01', 'mount() resolves with the player in state waiting; before the click nothing is fetched, no progress is reported and argv does not exist yet', async () => {
   main = await newPage(); attach(main);
+  const n = bLog.length;
   await open(main, [RED]);
   const r = await rec(main);
   must(!r.mountError, 'mount: ' + r.mountError);
+  must(r.state === 'waiting', 'state ' + r.state);
+  must(r.argv == null && r.progress.length === 0, `argv ${JSON.stringify(r.argv)} progress ${JSON.stringify(r.progress)}`);
+  must(bLog.length === n, `${bLog.length - n} request(s) reached the image host before the click`);
+});
+
+row('WEBAPI-02', 'the click gets the card: player.argv is the documented command line, its first four elements equal installImage\'s; every onProgress phase is documented; download fractions in [0,1], never decreasing, ending at 1', async () => {
+  await click(main);
+  await waitFor(main, () => window.apiTest.players[0].player.argv !== undefined || window.apiTest.players[0].errors.length > 0, null, 300000);
+  const r = await rec(main);
   const inst = await main.evaluate((sha) => JnextImage.installImage(
     { FS: { mkdirTree() {}, writeFile() {} } }, { bytes: new Uint8Array(0), sha256: sha, zipped: false }), SHA);
   const want = ['--sdcard', '/sdcard/image.img', '--sdcard-sha256', SHA, '--machine', 'next', '--load', '/media/0-red.nex',
                 '--set', 'startup.silent=true'];
   must(JSON.stringify(r.argv) === JSON.stringify(want), 'argv ' + JSON.stringify(r.argv));
   must(JSON.stringify(r.argv.slice(0, 4)) === JSON.stringify(inst), 'installImage ' + JSON.stringify(inst));
-  must(r.state === 'waiting', 'state ' + r.state);
-});
-
-row('WEBAPI-02', 'first visit: every mount-time onProgress phase is documented; download fractions in [0,1], never decreasing, ending at 1', async () => {
-  const r = await rec(main);
   const dl = r.progress.filter((p) => p[0] === 'download').map((p) => p[1]);
-  must(r.progress.every((p) => ['download', 'warm-start', 'restore'].includes(p[0])), JSON.stringify(r.progress.map((p) => p[0])));
+  must(r.progress.every((p) => ['download', 'build', 'choose', 'warm-start', 'restore'].includes(p[0])), JSON.stringify(r.progress.map((p) => p[0])));
   must(dl.length > 0 && dl.every((f, i) => f >= 0 && f <= 1 && (i === 0 || f >= dl[i - 1])) && dl[dl.length - 1] === 1, 'download ' + JSON.stringify(dl));
 });
 
 row('WEBAPI-03', 'after the click: warm-start progress reaches 1, exactly one onReady after every onProgress, ready resolves, no onError, state running', async () => {
-  await click(main);
   await waitReady(main, 0, 1);
   const r = await rec(main);
   const ws = r.progress.filter((p) => p[0] === 'warm-start').map((p) => p[1]);
@@ -397,11 +401,13 @@ row('WEBAPI-17', 'destroy() resolves after the machine exits, removes the player
 
 row('WEBAPI-18', 'itch-style: a host page embeds the game page from another site (iframe); a click inside gives onReady and a red canvas', async () => {
   const page = await newPage(); attach(page);
-  const game = `${CURL}/build/itch-game.html?` + new URLSearchParams({ image: IMAGE.url, sha256: SHA, file: `${CURL}/nex/red.nex` });
+  // The card goes in through the localhost-only development seam (the game page is on 127.0.0.1): a page names no card.
+  await page.ctx.addInitScript((card) => { window['jnextDev'] = { card }; }, IMAGE);
+  const game = `${CURL}/build/itch-game.html?` + new URLSearchParams({ file: `${CURL}/nex/red.nex` });
   await page.goto(AURL + '/build/itch-host.html?game=' + encodeURIComponent(game));
   const frm = page.frameLocator('#game');
   await frm.locator('.jnext-overlay').waitFor({ timeout: 300000 });
-  // The overlay says "Loading..." until the image is installed, then "Click to start".
+  // The overlay says "Click to start" as soon as the module is up: nothing is fetched before the click.
   await frm.locator('.jnext-overlay', { hasText: 'Click to start' }).waitFor({ timeout: 300000 });
   await frm.locator('.jnext-overlay').click({ timeout: 600000, noWaitAfter: true });
   await waitFor(page, () => window.messages.includes('jnext-ready') || window.messages.some((m) => m.startsWith('jnext-error')), null, 300000);
@@ -460,9 +466,10 @@ row('WEBAPI-21', 'a real image host that sends Access-Control-Allow-Origin: the 
   const n = bLog.length;
   await open(page, [{ machine: '48k', muted: true }]);
   const r = await rec(page);
-  const mine = bLog.slice(n).filter((x) => x.url === '/card.img');
   must(!r.mountError && r.state === 'waiting', 'mount: ' + r.mountError);
+  must(bLog.length === n, 'the card was asked for before the click');
   await click(page); await waitReady(page, 0, 1);
+  const mine = bLog.slice(n).filter((x) => x.url === '/card.img');
   console.log('# WEBAPI-21 memory, one 48K player: ' + JSON.stringify(await memInfo(page)));
   must(mine.length === 1 && mine[0].origin === AURL, 'server log ' + JSON.stringify(bLog.slice(n)));
   await page.ctx.close();
@@ -502,7 +509,8 @@ row('WEBAPI-24', 'a width string with declarations in it sets no other style of 
 
 row('WEBAPI-25', 'plain.html: the status line follows the player (click to start, ready, error) and its Mute and Pause buttons act', async () => {
   const page = await newPage(); attach(page);
-  const q = new URLSearchParams({ image: IMAGE.url, sha256: SHA, file: '/nex/red.nex' });
+  await page.ctx.addInitScript((card) => { window['jnextDev'] = { card }; }, IMAGE);
+  const q = new URLSearchParams({ file: '/nex/red.nex' });
   await page.goto(`${AURL}/build/plain.html?` + q.toString());
   await waitFor(page, () => document.getElementById('status').textContent === 'click the player to start', null, 300000);
   await page.click('.jnext-overlay', { timeout: 600000, noWaitAfter: true });
@@ -513,9 +521,13 @@ row('WEBAPI-25', 'plain.html: the status line follows the player (click to start
   const st = await page.evaluate(() => window.player.state);
   must(db === -120 && st === 'paused', `gain ${db}, state ${st}`);
   const bad = await newPage(); attach(bad);
-  await bad.goto(`${AURL}/build/plain.html`);
+  await bad.ctx.addInitScript((card) => { window['jnextDev'] = { card }; }, IMAGE);
+  await bad.goto(`${AURL}/build/plain.html?` + new URLSearchParams({ file: '/nex/missing.nex' }).toString());
+  await waitFor(bad, () => document.getElementById('status').textContent === 'click the player to start', null, 300000);
+  await bad.click('.jnext-overlay', { timeout: 600000, noWaitAfter: true });
+  await waitFor(bad, () => document.getElementById('status').textContent.startsWith('error: '), null, 300000);
   const txt = await bad.evaluate(() => document.getElementById('status').textContent);
-  must(/no URL configured/.test(txt), 'status with no image: ' + txt);
+  must(/cannot fetch .*missing\.nex: HTTP 404/.test(txt), 'status with a missing program: ' + txt);
   await page.ctx.close(); await bad.ctx.close();
 });
 
@@ -595,10 +607,10 @@ row('WEBAPI-30', 'file: a .wav tape: --load is the MEMFS copy, ready has the loa
   const page = await newPage(); attach(page);
   await open(page, [{ machine: '48k', muted: true, file: '/scratch/beeper_demo.wav',
                       args: ['--delayed-screenshot', '/tmp/s.png', '--delayed-screenshot-frames', String(WAV_F)] }]);
+  await click(page); await waitReady(page, 0, 1);   // argv exists once the click has got the card
   const r0 = await rec(page);
   const i = r0.argv.indexOf('--load');
   must(i >= 0 && r0.argv[i + 1] === '/media/0-beeper_demo.wav', 'argv ' + JSON.stringify(r0.argv));
-  await click(page); await waitReady(page, 0, 1);
   const r = await rec(page);
   must(r.applied === 1 && r.errors.length === 0, `applied ${r.applied} errors ${JSON.stringify(r.errors)}`);
   must(page.msgs.some((m) => /WAV: loaded/.test(m)) && page.msgs.some((m) => /WAV: tape attached/.test(m)),

@@ -203,7 +203,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
+       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
@@ -706,7 +706,7 @@ web-package-test:
 
 # Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
 wasm-browser-test: wasm-web package-web playwright sdl-release sdcard-image
-	@# BRW-01..34, WBI-PW-01..08, WEBAPI-01..31, WEBPKG-BR-01, WIDGET-01..17, TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# BRW-01..34, WBI-PW-01..08, WEBAPI-01..31, WEBPKG-BR-01, WIDGET-01..17, BCARD-01..25 (the card flow, the poster and the wording of the pick path's refusals), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core
@@ -948,7 +948,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test minimal-image-test sdcard-image
+unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card-selftest traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test minimal-image-test sdcard-image
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -1165,6 +1165,20 @@ lint-ascii-text:
 	@# `unit-test` and `regression`, like lint-thread-detach.
 	@bash test/lint-ascii-text.sh
 
+# Fail if a user-facing text describes making, serving or hosting an SD card (GH #458)
+lint-user-docs-card:
+	@# NextZXOS is SpecNext's copyrighted software and only specnext.com hosts it, so
+	@# the user guide, man page, README, FEATURES, the Unreleased ChangeLog entry and
+	@# the web package's README must carry no recipe, example URL or page option for a
+	@# card or image (owner, 2026-11-15). Banned shapes plus the three statements of
+	@# user guide 10.4; the developer guide is out of scope on purpose. A prerequisite
+	@# of docs-check, so it runs on every `make unit-test` and `make regression`.
+	@bash test/lint-user-docs-card.sh
+
+# Self-test lint-user-docs-card: each banned pattern fails, the developer guide is out of scope
+lint-user-docs-card-selftest:
+	@bash test/lint-user-docs-card-selftest.sh
+
 # Fail if a NEW tautological assertion appeared in test/ (baseline-relative)
 lint-assertions:
 	@# A missing ripgrep is a hard FAILURE here, like every other missing test tool.
@@ -1256,7 +1270,7 @@ bench:
 	@JNEXT_BENCH_BUILD=$(BENCH_BUILD) bash test/bench/bench.sh
 
 # Run the browser bench over the regression NEX set in the host's Chrome (also at 2x CPU throttle) and Firefox
-bench-web: wasm-web playwright sdcard-image
+bench-web: wasm-web playwright sdl-release sdcard-image
 	@# The shipped jnext.mount() page, one wasm instance per program, pinned to the fastest
 	@# physical cores. Writes test/bench/web-baseline-<sha>.txt. Needs a quiet host (it waits
 	@# for load <= 1.5 at each pass start). Optional: CONFIGS=chrome,chrome-x2,firefox
@@ -1456,6 +1470,7 @@ docs-check:
 	@# its own remediation line: sharing one shell block let a mkdocs-missing
 	@# failure print "run 'make docs-man'", which cannot fix it.
 	@rc=0; \
+	 $(MAKE) --no-print-directory lint-user-docs-card || rc=1; \
 	 $(MAKE) --no-print-directory docs-man-check || rc=1; \
 	 $(MAKE) --no-print-directory docs-userguide-check || rc=1; \
 	 $(MAKE) --no-print-directory docs-devguide-check || rc=1; \
@@ -2191,9 +2206,9 @@ packaging-selftest:
 package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
 
-# Test tools/make-minimal-sdcard-image.sh (18 rows) against the cached distribution image - Linux only; needs mtools + sfdisk
-minimal-image-test:
-	@bash test/minimal-sdcard-image-test.sh
+# Test tools/make-minimal-card (15 rows) against the cached distribution image and a synthetic zip - Linux only; needs mtools + sfdisk + python3
+minimal-image-test: unit-test-build
+	@bash test/minimal-card-test.sh
 
 # Contract-test the packaging scripts + package-* recipes (no builds) — hermetic, ~4s
 package-contract-test: web-package-test

@@ -751,7 +751,10 @@ regression_lib_init() {
     # tree. Exported so a row process inherits them.
     JNEXT_SDL="${JNEXT_SDL:-$PROJECT_DIR/build/sdl-release/jnext}"
     TEST_BIN_DIR="${TEST_BIN_DIR:-$PROJECT_DIR/build/test}"
-    export JNEXT_SDL TEST_BIN_DIR
+    # The minimal-card builder (GH #458, tools/make-minimal-card), built in the same tree as the
+    # native helpers above: the card the rows that boot a minimal NextZXOS card are made with.
+    MAKE_MINIMAL_CARD="${MAKE_MINIMAL_CARD:-$TEST_BIN_DIR/../tools/make-minimal-card/make-minimal-card}"
+    export JNEXT_SDL TEST_BIN_DIR MAKE_MINIMAL_CARD
     REWIND_TEST="$TEST_BIN_DIR/rewind_test"
     CONF="${JNEXT_REGRESSION_CONF:-$SCRIPT_DIR/regression_tests.conf}"
     FUNC_CONF="${JNEXT_REGRESSION_FUNC_CONF:-$SCRIPT_DIR/functional_tests.conf}"

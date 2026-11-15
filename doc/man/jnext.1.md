@@ -2932,12 +2932,17 @@ snapshot or a recording runs on the machine it was made on. A `.wav` plays in re
 cassette, and only while the machine runs: `pause()` or a hidden tab stops the tape
 where it is.
 
-The page supplies the SD-card image by URL and SHA-256 (the browser fetches it,
-checks it on every visit and keeps it in its cache); the machine starts when the
-visitor clicks the player, because browsers allow sound only after a click. The
-image is fetched from another origin, so that server must send an
-`Access-Control-Allow-Origin` header. The page must be a secure context:
-`https://`, `http://localhost` or `http://127.0.0.1`.
+NextZXOS, the operating system of the ZX Spectrum Next, is SpecNext's copyrighted
+software. JNEXT does not ship, host or serve it, and neither does a page. The player
+makes its SD card in the visitor's browser from the official distribution zip on
+specnext.com, which the page cannot name or replace: when specnext.com allows the
+page to read the file, the page downloads it; otherwise the player shows a link to
+download it from specnext.com and a button to choose the downloaded file. Either way
+the card the browser makes is kept in the browser's cache for that site, checked
+against its SHA-256 on every visit, and the downloaded file itself is not kept. Nothing
+is downloaded or built until the visitor clicks the player: the click is also what
+starts the machine, because browsers allow sound only after a click. The page must be
+a secure context: `https://`, `http://localhost` or `http://127.0.0.1`.
 
 The CRT effect of the desktop window is available too, off by default: a page asks
 for it with the option **\--crt** *EFFECT* (in `args`) or the three `startup.crt_*`
@@ -2950,9 +2955,18 @@ asked), with the plain picture otherwise.
 
 ## JavaScript options
 
-`image` *{url, sha256}*
-:   Required. **\--sdcard** and **\--sdcard-sha256**, after the page has fetched
-    and checked the image.
+`card` *{source}*
+:   Not a jnext setting: how the page gets NextZXOS's SD card. `source` is `'auto'`
+    (the default: fetch the official file from specnext.com when it allows the page to
+    read it, otherwise ask the visitor to download it and choose it), `'fetch'` (only
+    fetch; a failure is an error) or `'pick'` (always ask the visitor). The SD card
+    reaches the emulator as **\--sdcard** and **\--sdcard-sha256**, set by the page
+    layer; the page never names the card.
+
+`poster` *URL*
+:   Not a jnext setting: a picture, a screenshot of the program, shown in the player
+    area before the click so the player is not black on load. The emulator replaces it
+    when the visitor starts the player. Without it nothing is shown there.
 
 `file` *URL | {url} | {data, name}*
 :   **\--load**. The program to run (`.nex`, `.tap`, `.tzx`, `.wav`, a `.rzx` recording, or a `.jns`, `.sna`,
@@ -2962,7 +2976,7 @@ asked), with the plain picture otherwise.
 :   **\--sdcard-writes**, with a file the page manages: what the program writes
     to the card (saves, high scores) is kept in the visitor's browser
     (IndexedDB) and is there at the next visit. Off by default. The record is
-    keyed by the image's SHA-256 and the page's path, so another image or another
+    keyed by the card's SHA-256 and the page's path, so another card or another
     page has its own, and it holds only the sectors written, never the card.
     The page can clear it with `resetCard()`, or with `args:
     ['--sdcard-writes-reset']` for one start. The file a NEX loaded with `file`
@@ -2998,7 +3012,9 @@ asked), with the plain picture otherwise.
 
 `onProgress`, `onReady`, `onError` *function*
 :   Not a jnext setting: functions of the page, called with `(phase, fraction)`
-    while the image loads or the first boot is recorded, when the program is in the
+    while the SD card is fetched (`download`) or made from a file the visitor chose
+    (`build`), when the page is waiting for that file (`choose`), while the first boot
+    is recorded (`warm-start`) or restored (`restore`), when the program is in the
     machine and a frame has been shown, and with a message on every failure.
 
 ## The player

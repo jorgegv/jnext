@@ -4263,7 +4263,7 @@
   <span class="md-ellipsis">
     
   
-    10.4 The SD-card image, and what the browser keeps
+    10.4 NextZXOS, the SD card, and what the browser keeps
   
 
     
@@ -4406,8 +4406,8 @@
 you want full control of the layout, the controls and the messages. Pick the widget
 when you want a good-looking player with a title bar, a progress bar and a toolbar
 from one <code>div</code> and one script tag. Both are in the release's <code>jnext-VERSION-web.zip</code>, and
-both need the same things: the SD-card image's URL and SHA-256 (10.4) and a page
-served over <code>https://</code> or <code>http://localhost</code> (10.1).</p>
+both get NextZXOS the same way (10.4) and need a page served over <code>https://</code> or
+<code>http://localhost</code> (10.1).</p>
 <h2 id="your-own-page-jnextmount">Your own page: <code>jnext.mount()</code><a class="headerlink" href="#your-own-page-jnextmount" title="Permanent link">&para;</a></h2>
 <p>The shortest working page. <code>jnext-VERSION.js</code> and <code>jnext-VERSION.wasm</code> sit beside it:</p>
 <pre><code class="language-html">&lt;!doctype html&gt;
@@ -4415,9 +4415,9 @@ served over <code>https://</code> or <code>http://localhost</code> (10.1).</p>
 &lt;script src=&quot;jnext-VERSION.js&quot;&gt;&lt;/script&gt;
 &lt;script&gt;
   jnext.mount(document.getElementById('player'), {
-    image: { url: 'https://example.com/card.img', sha256: '...64 hex digits...' },
     file: 'game.nex',
-    width: 640, height: 512
+    width: 640, height: 512,
+    card: { source: 'auto' }   // optional: 'auto' (default), 'fetch' or 'pick' (10.4)
   });
 &lt;/script&gt;
 </code></pre>
@@ -4429,18 +4429,20 @@ served over <code>https://</code> or <code>http://localhost</code> (10.1).</p>
 unless the page has loaded it already:</p>
 <pre><code class="language-html">&lt;!doctype html&gt;
 &lt;div class=&quot;jnext-widget&quot;
-     data-image=&quot;https://example.com/card.img&quot;
-     data-sha256=&quot;...64 hex digits...&quot;
      data-file=&quot;game.nex&quot;&gt;&lt;/div&gt;
 &lt;script src=&quot;jnext-widget.js&quot;&gt;&lt;/script&gt;
 </code></pre>
 <p>Every element with the class <code>jnext-widget</code> gets a player, so a page can hold several.
-The widget draws a rounded frame with a title bar, a progress bar while the image
-downloads and the machine starts, the usual "click to start" overlay, a toolbar
+The widget draws a rounded frame with a title bar, a progress bar while NextZXOS's card is made
+and the machine starts, the usual "click to start" overlay (over the <code>data-poster</code> picture
+when there is one), a toolbar
 (Pause or Resume, Reset, Mute or Unmute, Fullscreen) and a status line that also
-shows errors: a refused option, a bad digest or an image that cannot be fetched, a
-missing <code>data-image</code>, or a <code>jnext-VERSION.js</code> that cannot be loaded. The buttons stay
-disabled then. Fullscreen enlarges the screen to fill the display, between the title bar
+shows errors: a refused option, a <code>data-card-source</code> of <code>fetch</code> that cannot read the file,
+a program that does not load, or a
+<code>jnext-VERSION.js</code> that cannot be loaded. A NextZXOS file the visitor chose that is not the
+official one is refused on the player's panel (10.4), not in the status line. While the visitor
+is asked to choose the NextZXOS file the status line says so; that is not an error.
+Fullscreen enlarges the screen to fill the display, between the title bar
 and the toolbar. The labels and the status line follow the player, so they stay right when
 the page itself calls <code>pause()</code> or <code>setVolume()</code>. The player behind it is the element's <code>jnextPlayer</code> property, with the
 members of 10.2.</p>
@@ -4454,14 +4456,14 @@ members of 10.2.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>data-image</code></td>
-<td>the SD-card image URL (<code>image.url</code>); required</td>
-<td></td>
+<td><code>data-card-source</code></td>
+<td>how the page gets NextZXOS's SD card (<code>card.source</code>, 10.4): <code>auto</code>, <code>fetch</code> or <code>pick</code></td>
+<td><code>auto</code></td>
 </tr>
 <tr>
-<td><code>data-sha256</code></td>
-<td>its SHA-256 (<code>image.sha256</code>), 64 hex digits; required</td>
-<td></td>
+<td><code>data-poster</code></td>
+<td>a picture shown in the player before the click (<code>poster</code>, 10.2)</td>
+<td>none</td>
 </tr>
 <tr>
 <td><code>data-file</code></td>
@@ -4502,7 +4504,7 @@ properties, so the page's own rules for <code>div</code>, <code>button</code> or
 widget and the widget changes nothing else on the page. The limit: a page rule that is
 more specific than a class (one with an <code>id</code> selector, such as <code>#content div</code>) or marked
 <code>!important</code> still reaches the widget's parts, and the widget does not try to beat it. <code>widget.html</code> in the zip is the snippet
-with the image, digest and program also readable from the query string, like <code>plain.html</code>.</p>
+with the program also readable from the query string, like <code>plain.html</code>.</p>
 
 
 

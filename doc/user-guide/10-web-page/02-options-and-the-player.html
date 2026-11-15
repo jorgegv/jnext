@@ -4417,7 +4417,7 @@
   <span class="md-ellipsis">
     
   
-    10.4 The SD-card image, and what the browser keeps
+    10.4 NextZXOS, the SD card, and what the browser keeps
   
 
     
@@ -4498,9 +4498,14 @@
 </thead>
 <tbody>
 <tr>
-<td><code>image</code></td>
-<td><code>{url, sha256}</code>, required</td>
-<td>The SD-card image, as <code>--sdcard</code> and <code>--sdcard-sha256</code>.</td>
+<td><code>card</code></td>
+<td><code>{source}</code></td>
+<td>How the page gets NextZXOS's SD card (10.4): <code>source</code> is <code>'auto'</code> (default: the page fetches the official file from specnext.com when specnext.com allows it, and otherwise asks the visitor to download it and choose it), <code>'fetch'</code> (only fetch; a failure is an error) or <code>'pick'</code> (always ask the visitor). The page never names an address or a digest.</td>
+</tr>
+<tr>
+<td><code>poster</code></td>
+<td>URL</td>
+<td>A picture, a screenshot of the game or program, shown in the player area before the click, so the player is not black on load. The emulator replaces it when the visitor starts the player. Without it nothing is shown there.</td>
 </tr>
 <tr>
 <td><code>keepWrites</code></td>
@@ -4554,20 +4559,23 @@
 </tr>
 </tbody>
 </table>
-<p><code>player.argv</code> is the equivalent command line, without the program name.</p>
+<p><code>player.argv</code> is the equivalent command line, without the program name; it exists once the visitor has clicked and the player has its SD card (until then it is undefined).</p>
 <h2 id="events">Events<a class="headerlink" href="#events" title="Permanent link">&para;</a></h2>
 <ul>
-<li><code>onProgress(phase, fraction)</code>: <code>phase</code> is <code>download</code>, <code>warm-start</code> or <code>restore</code>;
-  <code>fraction</code> runs from 0 to 1.</li>
+<li><code>onProgress(phase, fraction)</code>: <code>phase</code> is <code>download</code>, <code>build</code>, <code>choose</code>, <code>warm-start</code> or <code>restore</code>;
+  <code>fraction</code> runs from 0 to 1. <code>download</code> is the fetch of NextZXOS from specnext.com;
+  <code>build</code> is the making of the card from the file the visitor chose; <code>choose</code> (reported
+  once, with 0) means the page is waiting for the visitor to choose that file (10.4).</li>
 <li><code>onReady()</code>: after the mount's click, after <code>load()</code> and after <code>reset()</code>: the
   program is in the machine and a frame has been shown. A load the program itself
   asks for (a NEX that runs another) is not the page's: it fires no <code>onReady</code> and
   <code>reset()</code> still restarts the page's program. For a <code>.wav</code>, <code>onReady</code> comes when the
   tape is in the deck; the program then loads as the tape plays, in real time (a 48K game
   takes minutes), and the tape stops while the player is paused or the tab is hidden.</li>
-<li><code>onError(message)</code>: on every failure (a refused option, a bad image, a program that
+<li><code>onError(message)</code>: on every failure (a refused option, a card that <code>card.source: 'fetch'</code> could not get, a program that
   does not load, an exit with an error). The promise of the call that failed rejects
-  with the same message.</li>
+  with the same message. A file the visitor chose that is not the official one is not such a
+  failure: it is refused on the player's panel (10.4) and the visitor can choose again.</li>
 </ul>
 <h2 id="the-player">The player<a class="headerlink" href="#the-player" title="Permanent link">&para;</a></h2>
 <table>
@@ -4643,9 +4651,9 @@ loaded.</p>
 <p>The desktop window's CRT effect (5.3) runs in the page too, off by default, with the same five
 looks and the same parameters. There is no extra option: use <code>args</code> with <code>--crt</code> and one of
 <code>off</code>, <code>scanlines</code>, <code>soft</code>, <code>tv</code> or <code>pc</code>, or the three settings it stands for in <code>set</code>:</p>
-<pre><code class="language-js">jnext.mount(el, { image: img, args: ['--crt', 'tv'] });
+<pre><code class="language-js">jnext.mount(el, { args: ['--crt', 'tv'] });
 
-jnext.mount(el, { image: img, set: { 'startup.crt_shader': true, 'startup.crt_shader_style': 1 } });
+jnext.mount(el, { set: { 'startup.crt_shader': true, 'startup.crt_shader_style': 1 } });
 // style 0 is tv, 1 is pc, 2 is soft; 'startup.crt_filter': true is the plain scanlines
 </code></pre>
 <ul>

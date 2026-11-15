@@ -70,7 +70,7 @@ Result run(const std::string& json)
 }
 
 const std::string HEX = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-const std::string IMG = "\"image\":{\"path\":\"/sdcard/image.img\",\"sha256\":\"" + HEX + "\"}";
+const std::string IMG = "\"$card\":{\"path\":\"/sdcard/image.img\",\"sha256\":\"" + HEX + "\"}";
 
 bool refused_naming(const std::string& json, const char* name)
 {
@@ -201,7 +201,7 @@ int main()
             if ((o.kind == web_api::Kind::Image) != o.opt2.has_value()) { all = false; bad += " opt2:" + std::string(o.name); }
             if ((o.kind == web_api::Kind::Image || o.kind == web_api::Kind::Flag) != o.opt.has_value()) { all = false; bad += " opt:" + std::string(o.name); }
         }
-        // n: image (2) + keepWrites + file + machine + touchKeyboard = 6 mapped option rows (owner-approved
+        // n: $card (2) + keepWrites + file + machine + touchKeyboard = 6 mapped option rows (owner-approved
         // pin bumps: 4 -> 5 when keepWrites was added, 5 -> 6 for touchKeyboard).
         check("WAPI-01", "every Flag and Image row's OptId has a Documented spelling in cli::OPTIONS, arity 1",
               all && n == 6, bad + " n=" + std::to_string(n));
@@ -270,8 +270,9 @@ int main()
             {"args", "{" + IMG + ",\"args\":\"x\"}"},
             {"args", "{" + IMG + ",\"args\":[1]}"},
             {"onReady", "{" + IMG + ",\"onReady\":5}"},
-            {"image", "{\"image\":\"x\"}"},
-            {"image", "{\"image\":{\"path\":1,\"sha256\":\"" + HEX + "\"}}"},
+            {"$card", "{\"$card\":\"x\"}"},
+            {"$card", "{\"$card\":{\"path\":1,\"sha256\":\"" + HEX + "\"}}"},
+            {"poster", "{" + IMG + ",\"poster\":5}"},
             {"file", "{" + IMG + ",\"file\":7}"},
             {"width", "{" + IMG + ",\"width\":true}"},
             {"wasmUrl", "{" + IMG + ",\"wasmUrl\":3}"},
@@ -283,11 +284,11 @@ int main()
         check("WAPI-06", "wrong types are refused, each naming its option", bad.empty(), bad);
     }
 
-    // --- WAPI-07: `image` is required ----------------------------------------------------------
+    // --- WAPI-07: the internal `$card` is required ---------------------------------------------
     {
         const Result r = run("{\"machine\":\"next\"}");
-        check("WAPI-07", "no image: refused, \"image is required\"",
-              !r.ok && r.why == "image is required", r.why);
+        check("WAPI-07", "no $card: refused, \"the SD card is missing (an internal error of the page layer)\"",
+              !r.ok && r.why == "the SD card is missing (an internal error of the page layer)", r.why);
     }
 
     // --- WAPI-08: set values as text; order named < set < args ---------------------------------
@@ -311,6 +312,7 @@ int main()
         for (const JsEntry& e : entries) for (const auto& n : e.names) man_names.insert(n);
         std::string bad;
         for (const web_api::Option& o : web_api::WEB_OPTIONS) {
+            if (o.internal) continue;   // set by the page layer, never documented (WAPI-CARD-03)
             table_names.insert(o.name);
             const JsEntry* e = nullptr;
             for (const JsEntry& c : entries) for (const auto& n : c.names) if (n == o.name) e = &c;
@@ -448,8 +450,8 @@ int main()
     // --- WAPI-17: an all-zero digest never goes through ----------------------------------------
     {
         const std::string zero(64, '0');
-        const Result r = run("{\"image\":{\"path\":\"/sdcard/image.img\",\"sha256\":\"" + zero + "\"}}");
-        check("WAPI-17", "an image with an all-zero sha256 is refused (the cache's \"no digest\" never reaches the core)",
+        const Result r = run("{\"$card\":{\"path\":\"/sdcard/image.img\",\"sha256\":\"" + zero + "\"}}");
+        check("WAPI-17", "a $card with an all-zero sha256 is refused (the cache's \"no digest\" never reaches the core)",
               !r.ok && r.argv.empty() && r.why.find("all zeros") != std::string::npos, r.why);
     }
 
@@ -507,6 +509,57 @@ int main()
               refused_naming("{" + IMG + ",\"touchKeyboard\":5}", "touchKeyboard") &&
               refused_naming("{" + IMG + ",\"touchKeyboard\":null}", "touchKeyboard") &&
               refused_naming("{" + IMG + ",\"touchKeyboard\":{}}", "touchKeyboard"));
+    }
+
+    // --- WAPI-CARD-01: card:{source} -------------------------------------------------------------
+    {
+        bool good = true;
+        for (const char* v : {"auto", "fetch", "pick"}) {
+            const Result r = run("{" + IMG + ",\"card\":{\"source\":\"" + std::string(v) + "\"}}");
+            if (!r.ok || r.argv != Argv{"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX}) good = false;
+        }
+        const Result empty = run("{" + IMG + ",\"card\":{}}");
+        if (!empty.ok) good = false;
+        std::string bad;
+        for (const char* j : {"\"x\"", "5", "[]", "{\"url\":\"u\"}", "{\"source\":\"auto\",\"url\":\"u\"}",
+                              "{\"source\":\"x\"}", "{\"source\":5}"})
+            if (!refused_naming("{" + IMG + ",\"card\":" + j + "}", "card")) bad += std::string(" ") + j;
+        check("WAPI-CARD-01", "card accepts {}, {source:auto|fetch|pick} and adds nothing to argv; 'x', 5, [], {url}, {source, url}, {source:'x'}, {source:5} are refused naming card",
+              good && bad.empty(), bad);
+    }
+
+    // --- WAPI-CARD-02: the old `image` option is gone --------------------------------------------
+    {
+        const Result r = run("{" + IMG + ",\"image\":{\"url\":\"u\",\"sha256\":\"" + HEX + "\"}}");
+        check("WAPI-CARD-02", "an image option is refused as \"unknown option 'image'\"",
+              !r.ok && r.argv.empty() && r.why == "unknown option 'image'", r.why);
+    }
+
+    // --- WAPI-CARD-03: internal rows are marked, start with '$', and are not in the man page -----
+    {
+        std::string bad;
+        int internal = 0;
+        const auto entries = man_js_entries();
+        for (const web_api::Option& o : web_api::WEB_OPTIONS) {
+            const bool dollar = o.name[0] == '$';
+            if (o.internal != dollar) bad += std::string(" mismatch:") + o.name;
+            if (!o.internal) continue;
+            ++internal;
+            for (const JsEntry& e : entries) for (const auto& n : e.names) if (n == o.name) bad += std::string(" documented:") + o.name;
+        }
+        check("WAPI-CARD-03", "every internal row's name starts with '$' (and only those do), and none is in the man page's JavaScript options",
+              bad.empty() && internal >= 1 && !entries.empty(), bad);
+    }
+
+    // --- WAPI-POSTER-01: poster is a string and adds nothing to argv -----------------------------
+    {
+        const Result r = run("{" + IMG + ",\"poster\":\"shot.png\"}");
+        check("WAPI-POSTER-01", "poster:<string> is accepted and adds nothing to the command line; a number, null and {} are refused naming poster",
+              r.ok && r.argv == Argv{"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX} &&
+              refused_naming("{" + IMG + ",\"poster\":5}", "poster") &&
+              refused_naming("{" + IMG + ",\"poster\":null}", "poster") &&
+              refused_naming("{" + IMG + ",\"poster\":{}}", "poster"),
+              r.ok ? join(r.argv) : r.why);
     }
 
     std::printf("\n====================================================\n");

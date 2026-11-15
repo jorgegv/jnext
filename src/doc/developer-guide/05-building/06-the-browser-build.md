@@ -228,16 +228,39 @@ NextPi audio thread sleep in their own thread bodies, and neither is reachable
 from `tick()`: the flags that start them are refused, and a thread cannot start
 without shared memory.
 
-*The card and the warm start in the browser.* `web/jnext-image.js` gets the SD
-card into the page: it fetches the image cross-origin (`mode: 'cors'`, no
-credentials), checks its SHA-256 against the digest the page was given on every
-visit, and keeps the verified bytes in the Cache API (keyed by URL; an entry that
-no longer hashes right is dropped and fetched again). The card is a plain file in
-the in-memory filesystem, read one 512-byte block at a time through a stream, so
-the SD code needed no block-device seam. The page then passes
-`--sdcard FILE --sdcard-sha256 HEX`: the warm-start recording is keyed on that
-digest, because the page rewrites the card on every visit and its modification
-time would never match. A zipped image is extracted in `main()` with the
+*The card and the warm start in the browser.* The page makes the SD card itself, from
+the official NextZXOS zip (`minimal_card::kDistribution`, [5.3](03-packaging-and-release.md)),
+and never takes a card or a digest from the page's author. `web/jnext-image.js` runs the
+flow, and the builder (`src/core/minimal_card.cpp`, the same code as the native
+`make-minimal-card`) does the work in wasm through the `jnext_card_*` exports of
+`card_builder_web.cpp` (`begin`, `feed`, `finish`, `error`, `inflated`):
+- *Cache.* The key is `https://card.jnext.invalid/<card sha256>` (the `.invalid` host is
+  never fetched) in Cache API `jnext-sdcard-v1`. A hit is hashed again and compared with
+  the card digest; a mismatch deletes the entry. On a hit, any other entry of that host is
+  removed.
+- *Probe.* A `HEAD` of `kDistroUrl` (`mode: 'cors'`, no credentials, 15 s bound) says whether
+  the page may read the file. It is available when the answer is `ok` and, when `Content-Length` is
+  present, equals the pinned size. A TypeError (no `Access-Control-Allow-Origin`, or offline: the
+  page cannot tell them apart), an abort or a bad status means not available.
+- *Fetch.* `fetch(url)` of the zip streams straight into `feed()`, one chunk at a time
+  through one reusable staging buffer: the zip is never held whole in JavaScript or in wasm,
+  and never stored. `finish()` verifies the zip digest, builds the card in the in-memory
+  file system and checks the card digest; the card is then stored in the Cache.
+- *Pick.* When the probe or the fetch fails, or `card.source` is `'pick'`, the API's overlay
+  shows the pick panel (the copyright statement, the link to specnext.com, a file button).
+  The chosen file's size is compared with the pinned size first, and its bytes go through the
+  same builder (`onProgress('build', ...)`). There is no File System Access API or
+  drag-and-drop.
+- *The internal card.* After the card is ready the layer gives `jnext_web_argv` an internal
+  option `$card`, `{path, sha256}`, which becomes `--sdcard PATH --sdcard-sha256 HEX`. A
+  page option of that name is refused by the layer, and `web_api_test` proves internal
+  names start with `$` and are not in the man page. The page's `card` option
+  (`{source: 'auto'|'fetch'|'pick'}`) is a host option and adds nothing to argv.
+
+The card is a plain file in the in-memory filesystem, read one 512-byte block at a time
+through a stream, so the SD code needed no block-device seam. The warm-start recording is keyed on the card's digest, because the page
+rewrites the card on every visit and its modification time would never match. A zipped
+card (reachable only through the local-development seam below) is extracted in `main()` with the
 program-archive reader (exactly one `.img` member; the zip's digest stands for
 it) and the extracted card is removed when the run ends. The recording is the
 only thing kept between visits by default: IndexedDB (IDBFS) is mounted on the warm-start
@@ -247,7 +270,7 @@ that flushes it. Guest writes to the card live in memory and are gone at
 reload unless the page asks for `keepWrites` (below). A first NEX load records the NextZXOS machine in steps: `SdlApp::tick()`
 calls `Emulator::prepare_warm_start()` for a time budget per tick and reports
 `Module.jnextProgress(phase, fraction)` (`'warm-start'` while recording,
-`'restore'` for a cached recording; the page adds `'download'`), so the page can
+`'restore'` for a cached recording; the page adds `'download'`, `'build'` and `'choose'`), so the page can
 repaint and show progress instead of freezing for the length of the boot. With no
 image the provisioner declines the download without reading stdin (a stdin read
 is `window.prompt()` in a browser).
@@ -285,9 +308,9 @@ the viewport size), listed in `third_party/crtemu/README.jnext.md`.
 [3.8](../03-subsystems/08-media-and-loaders.md), with a file in the in-memory filesystem
 (`/jnext/card-writes/<key>.jsdw`) that `web/jnext-image.js` brings in from, and stores back
 to, its own IndexedDB database `jnext-card-writes` (store `journals`, one record per key).
-The key is the image's SHA-256 and the first 16 hex digits of the SHA-256 of
-`location.pathname` (`cardWritesKey`), so one image has one record per page and a changed
-image never reuses the old one. A second IDBFS mount was rejected: it would create a database
+The key is the card's SHA-256 and the first 16 hex digits of the SHA-256 of
+`location.pathname` (`cardWritesKey`), so one card has one record per page and a changed
+card never reuses the old one. A second IDBFS mount was rejected: it would create a database
 at mount, and the warm-start database is the only one a plain page makes; the store is
 written whole (the file is a few KB) and the database is created only for a page that uses
 the option. The option is opt-in: it adds a flag to the command line the API documents.
@@ -305,10 +328,10 @@ and the stand-in's in-memory file, which a cold boot would otherwise carry over)
 same restart as `reset('program')`. A NEX loaded with `file` is answered by the esxDOS stand-in (3.8), which keeps one file; the
 journal stores it as a second kind of record, when the program closes the file, so it travels in
 the same record, needs no other flag or store, and is reset with the card. The record has no
-program in its key: a changed NEX on the same page and image reads the old save. The stand-in's
+program in its key: a changed NEX on the same page and card reads the old save. The stand-in's
 file is not card state, so a save through it leaves the warm-start key alone and the next visit
 restores the recording instead of making it again. Files in a host directory a page names with
-`--esxdos-stub-root` are in memory only. Two `keepWrites` players of one image on one page share
+`--esxdos-stub-root` are in memory only. Two `keepWrites` players of one card on one page share
 a key; the last store wins. A visit after the program saved records the warm start again, because the card
 the recording was made on is not the one it now boots from.
 
@@ -316,17 +339,17 @@ the recording was made on is not the one it now boots from.
 
 | target | tree | what runs | rows or suites | CI leg |
 |---|---|---|---|---|
-| `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..15 | with `regression-wasm` |
+| `make wasm-core` | `build/wasm-core` | `test/wasm-core-check.sh` under the SDK's node, and `sha256_test` | the WCORE rows, SHA256-02..16 | with `regression-wasm` |
 | `make unit-test-wasm` | `build/wasm-unit-test` | the SDL-only unit suites under node, through `test/node-run.sh`; suites marked `# os: native` are absent by name | the manifest | `unit-wasm` |
 | `make regression-wasm` | `build/wasm-core` | the regression suite's screenshot rows, each pixel-equal to the native reference, plus the functional rows whose `os=` names `emscripten` | `regression_tests.conf` | `regression-wasm` |
-| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-34, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-31 (WEBAPI-30 and 31 load a WAV, made at run time from `demo/beeper_demo`'s TAP by `tap2wav.py` beside `tap2tzx.py`, and compare the page with a native run and with `tap-demo-reference.png`), WIDGET-01 to WIDGET-17, TKB-01 to TKB-17 (the on-screen keyboard, `touch.mjs`: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's `keymaps.vhd`, `membrane.vhd` and `zxnext.vhd`, with `demo/key_matrix_demo`, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run `kmx.log` as oracle), WBW-01 to WBW-17 (the kept writes, `writes.mjs`: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BRZ-01 to BRZ-12 (RZX in a page, `rzx.mjs`: `keys48.rzx` and `s128.rzx` are recorded at run time by the native jnext from our own inputs; a page's replay equals the native replay, and `stopRzxRecording()`'s file replays natively), BSN-01 to BSN-11 (snapshots, `snapshots.mjs`: a `.sna`, `.z80`, `.szx` and `.jns` loaded in the page equal the native run of the same file, and `saveSnapshot()` is read back by the page and by the native jnext), BCRT-01 to BCRT-13 (the CRT effect: `test/browser/crt.mjs`, structure derived from the vendored shaders, not reference images), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
+| `make wasm-browser-test` | `build/wasm-core` | the browser frontend in the pinned Chromium headless shell | BRW-01 to BRW-34, WBI-PW-01 to WBI-PW-08, WEBAPI-01 to WEBAPI-31 (WEBAPI-30 and 31 load a WAV, made at run time from `demo/beeper_demo`'s TAP by `tap2wav.py` beside `tap2tzx.py`, and compare the page with a native run and with `tap-demo-reference.png`), WIDGET-01 to WIDGET-17, BCARD-01 to BCARD-25 (the card flow and the poster, `card.mjs`: a synthetic distribution through the localhost seam, and BCARD-13 on real data; BCARD-22 to 25, `card-errors.mjs`: the wording of the pick path's refusals, driven with a stub module under node, no browser and no seam), TKB-01 to TKB-17 (the on-screen keyboard, `touch.mjs`: real touch input through the DevTools protocol on a Chromium touch-device emulation, against the spec's own table of the Next keyboard from the FPGA's `keymaps.vhd`, `membrane.vhd` and `zxnext.vhd`, with `demo/key_matrix_demo`, a 48K program that writes the half-rows and NextReg 0xB0/0xB1 to the magic port, and its native run `kmx.log` as oracle), WBW-01 to WBW-17 (the kept writes, `writes.mjs`: the stored record is compared byte for byte with the journal of a native run of the same program, WBW-13 to WBW-17 for the file the esxDOS stand-in keeps), BRZ-01 to BRZ-12 (RZX in a page, `rzx.mjs`: `keys48.rzx` and `s128.rzx` are recorded at run time by the native jnext from our own inputs; a page's replay equals the native replay, and `stopRzxRecording()`'s file replays natively), BSN-01 to BSN-11 (snapshots, `snapshots.mjs`: a `.sna`, `.z80`, `.szx` and `.jns` loaded in the page equal the native run of the same file, and `saveSnapshot()` is read back by the page and by the native jnext), BCRT-01 to BCRT-13 (the CRT effect: `test/browser/crt.mjs`, structure derived from the vendored shaders, not reference images), WBENCH-01 to WBENCH-12 (the browser bench's arithmetic, `test/bench/web/bench-stats-test.mjs`), and WEBPKG-BR-01, which boots `plain.html` from the extracted `make package-web` zip (the `SPECS` of `test/browser/browser-smoke.sh`) | `browser` |
 
 - `make wasm-core` proves the module starts, imports no shared memory, catches an exception,
   refuses what the browser cannot do, and hashes correctly on the portable SHA-256.
 - `make unit-test-wasm` and `make regression-wasm` prove the core computes the same
   thing as the native build under the WebAssembly compiler: the second to the pixel.
 - `make wasm-browser-test` proves the page: the frame loop and pacing, input and sound
-  policy, the image download, cache and warm start, and the JavaScript API, with the
+  policy, the card build, cache and warm start, and the JavaScript API, with the
   example pages. Details: [5.1](01-make-targets.md), [5.4](04-continuous-integration.md),
   [4.2](../04-testing/02-declared-suites-and-pinned-counts.md) and
   [4.3](../04-testing/03-the-regression-suite.md).
@@ -349,15 +372,67 @@ the recording was made on is not the one it now boots from.
 
 What none of this proves: Firefox or Safari, a real GPU, a phone, or itch.io itself.
 
-## The image never enters the tree
+## The card never enters the tree
 
-The SD-card image is copyrighted content. Four rules keep it out of the repository and
-off GitHub:
+NextZXOS is SpecNext's copyrighted software, and only specnext.com hosts it. Four rules
+keep it, and every card made from it, out of the repository and off GitHub:
 
-- The tests build the minimal card at run time, into a scratch directory under `~/tmp`
-  that is deleted when the run ends.
+- The tests build the minimal card at run time from the developer's own cached
+  distribution, into a scratch directory under `~/tmp` that is deleted when the run ends
+  (`~/.jnext/sdcard` is only read, in place). Tests that need a zip use a synthetic one
+  made at run time.
 - Playwright's trace, HAR and video are off.
 - No CI artifact path reaches the card.
-- JNEXT never serves it: a page names an image it can reach, and the browser fetches it.
+- JNEXT never serves it: the page reads the official zip from specnext.com, or the
+  visitor's own copy of it. Nobody hosts a card: not JNEXT, not a page author, not
+  SpecNext, and a developer's local one is never published.
 
-The minimal card itself is described in [5.3](03-packaging-and-release.md).
+The minimal card itself is described in [5.3](03-packaging-and-release.md). The user
+guide (chapter 10) tells page authors and visitors none of what follows; the
+`lint-user-docs-card` check (part of `make docs-check`) fails if a user-facing text
+describes making, serving or hosting a card (the developer guide is out of its scope).
+
+## Trying a page locally with a card of your own
+
+This section is local development and testing only, on your own download of the official
+distribution. It is not a way to publish anything: a card made this way is copyrighted
+NextZXOS content, stays on your machine, and is never hosted or served beyond
+`localhost`.
+
+1. Make the card from your download with `make-minimal-card` ([5.3](03-packaging-and-release.md))
+   and take its SHA-256 from the last line it prints.
+2. Put it next to the page in a scratch directory under `~/tmp` (with
+   `jnext-VERSION.js`, `jnext-VERSION.wasm`, `plain.html` and a program, `game.nex`
+   here) and serve that directory on localhost: `python3 -m http.server 8000`.
+3. Give the page the local test seam before its scripts run. `window.jnextDev` is read once
+   at `mount()` and is honoured only when the page's host is `localhost`, `127.0.0.1` or
+   `[::1]`; on any other origin it is ignored with one console warning. It is not an option
+   and no shipped file sets it. Playwright injects it with `page.addInitScript`; in a
+   browser you can set it from a small extra script or the console before `mount()`:
+
+   ```js
+   window.jnextDev = { card: { url: 'card-file-name', sha256: '<the card digest>' } };
+   ```
+
+4. Open `http://localhost:8000/plain.html?file=game.nex` and click the player. A
+   page opened from disk (`file://`) does not work: the browser refuses to load the `.wasm`
+   file from a `file://` address and the page's status line reads
+   `error: Aborted(both async and sync fetching of the wasm failed ...)`.
+5. Delete the scratch directory when you are done.
+
+The seam's fields:
+
+- `card: {url, sha256}`: use that file as the card, skipping the distribution flow. It is the
+  older fetch path: the file may be a `.img` or a zip holding exactly one `.img` (then the digest
+  is the zip's), it is checked against the digest on every visit and cached under its URL.
+- `distribution: {url, size, sha256, cardSha256}`: a stand-in for the official zip, for the
+  tests (a synthetic zip, or a zip of the cached image made at run time). With `cardSha256`
+  omitted the pinned card digest is kept.
+- `probeTimeoutMs`: the probe's time bound.
+
+The cross-origin tests serve the page from `http://127.0.0.1:<port>`, not from another host
+name, so the seam is honoured there too.
+
+Rows: BCARD (`test/browser/card.mjs`: the probe, fetch, pick, cache and seam paths, and the
+build of the real distribution when cached) and LUDC (`test/lint-user-docs-card-selftest.sh`:
+the user-facing-docs lint and its scope).

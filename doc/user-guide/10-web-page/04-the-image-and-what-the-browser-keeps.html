@@ -25,7 +25,7 @@
     
     
       
-        <title>10.4 The SD-card image, and what the browser keeps - JNEXT User Guide</title>
+        <title>10.4 NextZXOS, the SD card, and what the browser keeps - JNEXT User Guide</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#104-the-sd-card-image-and-what-the-browser-keeps" class="md-skip">
+        <a href="#104-nextzxos-the-sd-card-and-what-the-browser-keeps" class="md-skip">
           Skip to content
         </a>
       
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              10.4 The SD-card image, and what the browser keeps
+              10.4 NextZXOS, the SD card, and what the browser keeps
             
           </span>
         </div>
@@ -4274,7 +4274,7 @@
   <span class="md-ellipsis">
     
   
-    10.4 The SD-card image, and what the browser keeps
+    10.4 NextZXOS, the SD card, and what the browser keeps
   
 
     
@@ -4292,7 +4292,7 @@
   <span class="md-ellipsis">
     
   
-    10.4 The SD-card image, and what the browser keeps
+    10.4 NextZXOS, the SD card, and what the browser keeps
   
 
     
@@ -4318,10 +4318,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-image" class="md-nav__link">
+  <a href="#nextzxos" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The image
+        NextZXOS
       
     </span>
   </a>
@@ -4329,10 +4329,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-first-visit" class="md-nav__link">
+  <a href="#the-first-visit-two-ways" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The first visit
+        The first visit, two ways
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#for-page-authors-cardsource" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        For page authors: card.source
       
     </span>
   </a>
@@ -4453,75 +4464,104 @@
   
 
 
-<h1 id="104-the-sd-card-image-and-what-the-browser-keeps">10.4 The SD-card image, and what the browser keeps<a class="headerlink" href="#104-the-sd-card-image-and-what-the-browser-keeps" title="Permanent link">&para;</a></h1>
-<h2 id="the-image">The image<a class="headerlink" href="#the-image" title="Permanent link">&para;</a></h2>
-<p>JNEXT runs NextZXOS from an SD card in the browser too. The page names one by
-<code>image: {url, sha256}</code>. JNEXT does not ship, host or serve the image. The browser
-build is made and tested for the small NextZXOS boot card (40 MiB), not for the 1 GB
-distribution image.</p>
-<p>The image may also be a <code>.zip</code> holding exactly one <code>.img</code> file. The page recognises it
-by its content, and the <code>sha256</code> you give is the digest of the zip, not of the card
-inside it.</p>
-<p>To try a page on your own computer, make the small card from the distribution image
-JNEXT downloaded for the desktop emulator (chapter 3), with
-<code>tools/make-minimal-sdcard-image.sh</code> from a JNEXT source checkout. The script runs on Linux
-only and needs <code>mtools</code>, <code>sfdisk</code> (util-linux; the <code>fdisk</code> package on Debian and
-Ubuntu), coreutils, grep and sed; it says which are missing before it starts. It also
-needs a destination directory on a file system that supports hard links. Then serve it next to the page:</p>
-<pre><code class="language-console">$ tools/make-minimal-sdcard-image.sh ~/.jnext/sdcard/cspect-next-1gb.img card.img
-$ sha256sum card.img
-$ python3 -m http.server 8000
-</code></pre>
-<p>The directory you serve holds <code>jnext-VERSION.js</code>, <code>jnext-VERSION.wasm</code>, <code>plain.html</code>,
-<code>card.img</code> and the program (<code>game.nex</code> here). Open
-<code>http://localhost:8000/plain.html?image=card.img&amp;sha256=&lt;the digest&gt;&amp;file=game.nex</code>
-and click the player. A page opened from disk (<code>file://</code>) does not work: the browser
-refuses to load the <code>.wasm</code> file from a <code>file://</code> address and the page's status line
-reads <code>error: Aborted(both async and sync fetching of the wasm failed ...)</code>.</p>
-<h2 id="the-first-visit">The first visit<a class="headerlink" href="#the-first-visit" title="Permanent link">&para;</a></h2>
-<p>The visitor sees these steps, in this order:</p>
+<h1 id="104-nextzxos-the-sd-card-and-what-the-browser-keeps">10.4 NextZXOS, the SD card, and what the browser keeps<a class="headerlink" href="#104-nextzxos-the-sd-card-and-what-the-browser-keeps" title="Permanent link">&para;</a></h1>
+<h2 id="nextzxos">NextZXOS<a class="headerlink" href="#nextzxos" title="Permanent link">&para;</a></h2>
+<p>JNEXT runs NextZXOS, the ZX Spectrum Next's operating system, from an SD card. In the
+browser the page needs that card too, and this is how it gets it.</p>
+<ul>
+<li>NextZXOS is SpecNext's copyrighted software. JNEXT does not ship, host or serve it,
+  and neither does a page that embeds JNEXT: the only place that offers it is
+  specnext.com.</li>
+<li>The player makes its SD card in the visitor's browser, from the official NextZXOS
+  file from specnext.com (<code>sn-emulator-26.11.zip</code>, 67 MB, for this release), unchanged.
+  Another file, or a changed copy, is refused.</li>
+<li>The card the browser makes stays in the visitor's browser (Cache Storage, for that
+  site only). Nothing is sent anywhere, and the page's author never receives it.</li>
+</ul>
+<p>The card is a small boot card (40 MiB) with only what NextZXOS needs to reach its menu
+and to warm-start a program, not the 1 GB distribution image. The browser build is made
+and tested for that card.</p>
+<h2 id="the-first-visit-two-ways">The first visit, two ways<a class="headerlink" href="#the-first-visit-two-ways" title="Permanent link">&para;</a></h2>
+<p>The first visit to a site, after the visitor clicks the player (the click is what
+starts anything: nothing is downloaded or built before it), goes one of two ways.</p>
 <ol>
-<li><code>download</code>: the image is fetched and its SHA-256 is checked. An image that does not
-   match the digest is refused.</li>
-<li>"Click to start".</li>
-<li>For a <code>.nex</code> program only, <code>warm-start</code>: NextZXOS boots once and the machine is
-   recorded.</li>
-<li><code>onReady</code>.</li>
+<li><strong>specnext.com allows the page to read the file.</strong> The page downloads the official
+   file (<code>onProgress('download', fraction)</code>), makes the card in the browser
+   (<code>onProgress('build', 1)</code>) and keeps the card. The downloaded file itself is not kept.</li>
+<li><strong>specnext.com does not allow it</strong> (the case with this release: a browser lets a page
+   read a file from another site only when that site says so). The player then shows what
+   to do: a link to download the official file from specnext.com, and a button to choose
+   the downloaded file. <code>onProgress('choose', 0)</code> reports it. When the visitor chooses
+   the file, the browser makes the card from it (<code>onProgress('build', fraction)</code>) and keeps the card.
+   A file that is not the official one is refused, with the reason on the screen, and the
+   visitor can choose again.</li>
 </ol>
-<p>The download is a cross-origin read made without credentials, so the image's server
-must send <code>Access-Control-Allow-Origin</code>. The page can report the progress of the
-download only when the server sends <code>Content-Length</code> and does not compress the file;
-otherwise <code>onProgress</code> reports only 0 and 1.</p>
+<p>Either way the visitor sees these steps, in this order: the click, <code>download</code> or <code>choose</code>
+and <code>build</code>, then for a <code>.nex</code> program only <code>warm-start</code> (NextZXOS boots once and the
+machine is recorded), then <code>onReady</code>. The download's progress is measured against the
+<code>Content-Length</code> specnext.com sends when it does not compress the file, and otherwise against
+the known size of the official file, so it is reported either way.</p>
+<h2 id="for-page-authors-cardsource">For page authors: <code>card.source</code><a class="headerlink" href="#for-page-authors-cardsource" title="Permanent link">&para;</a></h2>
+<p>The page does not name the file or its address, and has nothing to host. It can choose
+how the first visit goes with the <code>card</code> option (<code>data-card-source</code> on the widget, 10.5):</p>
+<table>
+<thead>
+<tr>
+<th><code>card.source</code></th>
+<th>the first visit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>'auto'</code> (default)</td>
+<td>The page checks whether specnext.com allows it to read the official file. If so, it downloads it (way 1); if not, or if the download fails, the player asks the visitor (way 2) and shows the reason.</td>
+</tr>
+<tr>
+<td><code>'fetch'</code></td>
+<td>Only way 1. Use it once specnext.com allows pages to read the file; if it cannot be read, the page reports an error (<code>onError</code>) and does not ask the visitor.</td>
+</tr>
+<tr>
+<td><code>'pick'</code></td>
+<td>Only way 2: the page always shows the download link and the file button, and makes no request to specnext.com.</td>
+</tr>
+</tbody>
+</table>
+<p>The widget and the example pages show the same player panel. A page that shows its own
+status text can use <code>onProgress</code> (10.2): <code>'choose'</code> is the moment to say "choose the
+NextZXOS file".</p>
 <h2 id="later-visits">Later visits<a class="headerlink" href="#later-visits" title="Permanent link">&para;</a></h2>
-<p>A later visit makes no request for the image. The cached copy is hashed again every
-time, and a copy that no longer matches the digest is deleted and fetched again.</p>
+<p>A later visit to the same site needs no download and no file: the card the browser kept
+is checked against its SHA-256 every time, and a card that no longer matches is deleted
+and made again, as on a first visit.</p>
 <p>For a <code>.nex</code> program the recorded machine is brought back (<code>restore</code>) instead of booting
 NextZXOS again. A corrupted recording is made again. A <code>.tap</code>, a <code>.tzx</code> or a <code>.wav</code> starts directly in 48K
 BASIC, and an <code>.rzx</code> on the machine it was recorded on, without NextZXOS, so there is nothing to record. A Next page with no program boots
 NextZXOS on every visit and records nothing.</p>
 <h2 id="what-the-browser-keeps-and-where">What the browser keeps, and where<a class="headerlink" href="#what-the-browser-keeps-and-where" title="Permanent link">&para;</a></h2>
 <ul>
-<li>The image is kept in the browser's Cache Storage, under its URL.</li>
+<li>The SD card is kept in the browser's Cache Storage: one entry of about 40 MiB, named
+  by the card's SHA-256 (so a JNEXT release with a newer NextZXOS replaces it). The
+  official file the card was made from is not kept.</li>
 <li>The warm-start recording is kept in IndexedDB.</li>
 <li>With <code>keepWrites</code>, the sectors the program writes to the card are kept in IndexedDB, in
   a database of their own (<code>jnext-card-writes</code>) that exists only for a page that uses it.
-  There is one record per image and page: its name is the image's SHA-256 and a short
-  digest of the page's path, so another image, or another page of the same site, has
-  its own saves, and a changed image never reuses the old ones. Only the written sectors
+  There is one record per card and page: its name is the card's SHA-256 and a short
+  digest of the page's path, so another card, or another page of the same site, has
+  its own saves, and a changed card never reuses the old ones. Only the written sectors
   are stored (516 bytes each; the card itself is never written), and they stay in the
   visitor's browser: nothing is sent anywhere.</li>
 <li>Nothing else is kept: no settings, nor screenshots or snapshots (10.3).</li>
 <li>Several players on one page share the recording.</li>
-<li>If the browser's storage is full, the session still runs and the next visit downloads
-  the image again.</li>
+<li>If the browser's storage is full, the session still runs and the next visit makes the
+  card again.</li>
 </ul>
 <h3 id="keeping-the-saves">Keeping the saves<a class="headerlink" href="#keeping-the-saves" title="Permanent link">&para;</a></h3>
-<pre><code class="language-js">jnext.mount(el, { image: {...}, file: 'game.nex', keepWrites: true });
+<pre><code class="language-js">jnext.mount(el, { file: 'game.nex', keepWrites: true });
 </code></pre>
 <p>Whatever the program writes to the card is there at the next visit, and so is the one file a
 NEX loaded with <code>file</code> saves through esxDOS (10.3). <code>player.resetCard()</code> clears both (10.2). A save is stored a moment after the program makes it: a reload within moments of a save can lose it (the store on leaving the page is best effort).
-The saves belong to the image: a page that now names another image, even one that
-differs in one byte, starts with none. A record made for another image is refused with a message naming
+The saves belong to the card: a visit whose card differs, even in one byte (a JNEXT
+release that moves to a newer NextZXOS makes a different card), starts with none. A record made for another card is refused with a message naming
 <code>--sdcard-writes-reset</code>: mount once with <code>args: ['--sdcard-writes-reset']</code> to discard it. A
 record whose header is not a valid one (damaged, or in a format this version does not
 read) is refused as "not a jnext SD-writes file" and the reset does not remove it: clear the
@@ -4530,13 +4570,14 @@ site's data in the browser, or delete the record from the <code>jnext-card-write
 A <code>.jns</code> snapshot (10.2) restored over a card that has newer saves leaves NextZXOS's in-memory
 picture of the card out of step with the card, as on the desktop (5.9).</p>
 <p>Browsers keep the storage of each origin (scheme, host and port) apart. Two pages of one
-origin share the image and the recording. A game inside an <code>iframe</code> of another site may
+origin share the card and the recording. A game inside an <code>iframe</code> of another site may
 or may not see the storage its own origin has: that depends on the browser, its version
 and its privacy settings (in the Chromium used to test JNEXT it did), so do not rely on
-either. Clearing the site's data in the browser makes the next visit a first visit.</p>
+either. Clearing the site's data in the browser makes the next visit a first visit: the card is made again.</p>
 <h2 id="if-it-does-not-start">If it does not start<a class="headerlink" href="#if-it-does-not-start" title="Permanent link">&para;</a></h2>
 <p>The page reports these messages through <code>onError</code>, and the example pages show them in
-their status line.</p>
+their status line. The exception is a file the visitor chose that is not the official one:
+it is refused on the player's panel only (no <code>onError</code>), because the visitor can choose again.</p>
 <table>
 <thead>
 <tr>
@@ -4546,47 +4587,43 @@ their status line.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>unknown option '&lt;name&gt;'</code>, <code>image is required</code> or <code>option '&lt;name&gt;' must be ...</code></td>
-<td>A <code>mount()</code> option is misspelt, missing or of the wrong type. Nothing has been downloaded yet.</td>
+<td><code>unknown option '&lt;name&gt;'</code> or <code>option '&lt;name&gt;' must be ...</code></td>
+<td>A <code>mount()</code> option is misspelt or of the wrong type. Nothing has been downloaded yet.</td>
 </tr>
 <tr>
-<td><code>no image url</code></td>
-<td><code>image.url</code> is empty.</td>
+<td><code>option 'card' must be an object {source}</code>, <code>option 'card': unknown key '&lt;key&gt;'</code> or <code>option 'card': source must be 'auto', 'fetch' or 'pick'</code></td>
+<td>The <code>card</code> option is not what 10.2 and this page describe.</td>
 </tr>
 <tr>
-<td><code>image: no URL configured</code></td>
-<td><code>plain.html</code> was opened with no <code>?image=</code> and no URL in its constants.</td>
+<td><code>this file is not sn-emulator-26.11.zip from specnext.com ...</code></td>
+<td>The visitor chose a different file: the message gives its size, or says its SHA-256 differs. The visitor has to download the official file from specnext.com (the link is on the panel) and choose that one.</td>
 </tr>
 <tr>
-<td><code>the image sha256 is not 64 hex digits</code></td>
-<td>The digest is a string, but not 64 hex digits: it is mistyped.</td>
+<td><code>the chosen file could not be read: ...</code> or <code>the card could not be made in this browser: ...</code></td>
+<td>On the panel. The browser could not read the file the visitor chose (it changed or moved after it was chosen), or could not make or store the card (memory or storage). The file is not at fault: choose it again, or free some space.</td>
 </tr>
 <tr>
-<td><code>option 'image' must be an object {path, sha256}</code></td>
-<td>The digest is missing or is not a string.</td>
+<td><code>cannot read the NextZXOS distribution from specnext.com: ...</code></td>
+<td><code>card.source</code> is <code>'fetch'</code> and the file could not be read: specnext.com does not allow the page to read it, the visitor is offline, or the download failed. Use <code>'auto'</code> or <code>'pick'</code>.</td>
 </tr>
 <tr>
-<td><code>option 'image': the sha256 is all zeros</code></td>
-<td>The digest is 64 zeros, which never names a real image.</td>
+<td><code>the card built from the distribution is not the expected one ...</code></td>
+<td>The card the browser made does not have the SHA-256 this JNEXT release expects. The message gives both digests. It is a fault of the build or of the browser: report it. With <code>card.source: 'fetch'</code> it reaches <code>onError</code> after <code>cannot read the NextZXOS distribution from specnext.com: &lt;address&gt;:</code>; with <code>'auto'</code> the player falls back to the panel and shows it there; with <code>'pick'</code> it is shown on the panel.</td>
 </tr>
 <tr>
 <td><code>cannot fetch &lt;url&gt;: a network error, or the server does not allow cross-origin reads (no Access-Control-Allow-Origin header)</code></td>
-<td>The server is unreachable, or it does not send <code>Access-Control-Allow-Origin</code>. Make it send the header.</td>
+<td>A program file on another site: its server is unreachable, or it does not send <code>Access-Control-Allow-Origin</code>. Make it send the header.</td>
 </tr>
 <tr>
 <td><code>cannot fetch &lt;url&gt;: HTTP &lt;status&gt;</code></td>
-<td>The server answered with an error, for the image or for the program file: check the URL.</td>
+<td>The server answered with an error for the program file: check the URL.</td>
 </tr>
 <tr>
 <td><code>Failed to fetch</code></td>
 <td>The browser's own text (Chromium's is shown; Firefox words it differently) for a program file it could not read: the program is on another site whose server does not send <code>Access-Control-Allow-Origin</code> (make it send the header, or give <code>{data, name}</code> to avoid the network), or its server cannot be reached.</td>
 </tr>
 <tr>
-<td><code>SHA-256 mismatch for &lt;url&gt;: got ..., expected ...</code></td>
-<td>The file served is not the one the digest names. Recompute the digest with <code>sha256sum</code>.</td>
-</tr>
-<tr>
-<td><code>the SD-card image needs a secure context (https, or http://localhost): ...</code></td>
+<td><code>the SD card needs a secure context (https, or http://localhost): ...</code></td>
 <td>The page is not served over <code>https://</code>, <code>http://localhost</code> or <code>http://127.0.0.1</code>.</td>
 </tr>
 <tr>

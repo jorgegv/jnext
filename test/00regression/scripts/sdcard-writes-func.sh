@@ -13,7 +13,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # and prints "SAVE <n> OK" on the magic port. (Not an esxDOS file: a directly loaded NEX's RST $08 calls are
 # answered by jnext's own stand-in and never reach the card.)
 #
-# Two private minimal NextZXOS cards (tools/make-minimal-sdcard-image.sh, built
+# Two private minimal NextZXOS cards (tools/make-minimal-card, built
 # here, deleted at the end, never kept): R takes the writes itself (the
 # reference), B is the pristine card the journal is used on.
 #   (a) refusals, each exit 1 with its message: --sdcard-writes-reset alone;
@@ -38,12 +38,14 @@ if want sdcard-writes-func; then
 
     sw_faults=()
     sw_missing=()
-    for tool in mformat mcopy mdir minfo mmd sfdisk truncate sha256sum realpath python3 cmp od dd; do
+    for tool in mdir sha256sum python3 cmp od dd; do
         command -v "$tool" &>/dev/null || sw_missing+=("$tool")
     done
 
     if [[ ${#sw_missing[@]} -gt 0 ]]; then
-        fail_row " (tools absent: ${sw_missing[*]} - install mtools and util-linux)"
+        fail_row " (tools absent: ${sw_missing[*]} - install mtools, python3 and coreutils)"
+    elif [[ ! -x "$MAKE_MINIMAL_CARD" ]]; then
+        fail_row " (the card builder $MAKE_MINIMAL_CARD is not built: make unit-test-build)"
     elif [[ ! -f "$SD_MASTER_DIR/cspect-next-1gb.img" ]]; then
         fail_row " (the distribution image $SD_MASTER_DIR/cspect-next-1gb.img is absent)"
     else
@@ -72,10 +74,10 @@ if want sdcard-writes-func; then
         }
 
         sw_rc=0
-        bash "$PROJECT_DIR/tools/make-minimal-sdcard-image.sh" \
+        "$MAKE_MINIMAL_CARD" \
             "$SD_MASTER_DIR/cspect-next-1gb.img" "$sw_r" >"$sw_dir/build.out" 2>"$sw_dir/build.err" \
             || sw_rc=$?
-        [[ "$sw_rc" == 0 ]] || sw_faults+=("build: the script exited $sw_rc")
+        [[ "$sw_rc" == 0 ]] || sw_faults+=("build: the card builder exited $sw_rc")
 
         if [[ "$sw_rc" == 0 ]]; then
             cp --reflink=auto "$sw_r" "$sw_b"

@@ -632,11 +632,13 @@ row('TKB-15', 'accessibility: a labelled group, role=button keys with the spec\'
 });
 
 const widgetPage = (attrs, hostile = '') => `<!doctype html>${hostile ? `<style>${hostile}</style>` : ''}<body>` +
-  `<div class="jnext-widget" data-image="${BURL}/card.img" data-sha256="${SHA}" data-file="${BURL}/red.nex" ${attrs}></div>` +
+  `<div class="jnext-widget" data-file="${BURL}/red.nex" ${attrs}></div>` +
   `<script src="/build/jnext-widget.js"></script></body>`;
 async function widgetOpen(name, html, ctxOpts = { viewport: { width: 1000, height: 900 }, deviceScaleFactor: 1 }) {
   vpages[name] = html;
   const ctx = await h.browser.newContext(ctxOpts);
+  // A page names no SD card: the run-time card goes in through the localhost-only development seam.
+  await ctx.addInitScript((card) => { window['jnextDev'] = { card }; }, IMAGE);
   const page = await ctx.newPage();
   page.ctx = ctx; page.msgs = [];
   page.on('pageerror', (e) => page.msgs.push('PAGEERROR ' + e.message));

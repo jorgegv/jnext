@@ -119,8 +119,11 @@
         document.head.appendChild(s);
       });
       let ready = false, err = null;
+      // The run-time card of the bench goes in through the localhost-only development seam (the
+      // bench page is served from 127.0.0.1): a page has no option to name a card.
+      window['jnextDev'] = { card: cell.image };
       const player = await window.jnext.mount(document.getElementById('box'), {
-        image: cell.image, file: cell.file, machine: 'next', width: 640, height: 512, ...(cell.args ? { args: cell.args } : {}),
+        file: cell.file, machine: 'next', width: 640, height: 512, ...(cell.args ? { args: cell.args } : {}),
         onReady: () => { ready = true; }, onError: (m) => { err = m; },
       });
       S.mod = player._module;

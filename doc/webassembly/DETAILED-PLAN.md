@@ -1,5 +1,17 @@
 # JNEXT in the browser: detailed plan (epic #14)
 
+**UPDATE 2026-11-15 (GH #458, owner).** Only specnext.com hosts NextZXOS, and only its
+official distribution zip: nobody hosts a minimal card (not JNEXT, not a page author, not
+SpecNext). The browser builds the card itself, in the visitor's browser, from that zip: the
+page fetches it when specnext.com allows cross-origin reads, and otherwise asks the visitor to
+download it from specnext.com and choose the file; the built card is cached per site. The
+page's options are `card: {source: 'auto'|'fetch'|'pick'}` (and `poster`), not `image`. This
+supersedes, where marked below: R11, D1's ask (now one CORS header on `/distro/*`, not
+hosting), D2's "send Phoebus the script and a tested image", §4.4 step 1, the §4.5 `image`
+option, the §5 row on building the card from the zip (it is no longer superseded: it is the
+design), and S0's "once hosted" acceptance. The recipe is the native tool `make-minimal-card`
+(replacing the script); the old text stays below as the record of past decisions.
+
 Status: **DRAFT for owner review** (2026-11-06; the owner's decisions of
 2026-11-06 are folded in, §3). Nothing in this plan is started. When the
 owner approves it, its stages become the sub-issues of #14.
@@ -59,7 +71,7 @@ across page reloads.
 | R8 | Don't hit specnext.com on every start: cache on the client | dcrespo3d |
 | R9 | NextZXOS may be redistributed only "in its entirety"; unlicensed parts are closed source | janko-jj, quoting the tbblue LICENSE.md |
 | R10 | Minimal NextZXOS boot image, downloaded on first use and cached in the browser | jorgegv 2026-07-29, 2026-09-26 |
-| R11 | Phoebus Dokos will host a minimal NextZXOS image; it **must** be hosted on SpecNext, nowhere else; who prepares it is open | jorgegv 2026-11-05 |
+| R11 | ~~Phoebus Dokos will host a minimal NextZXOS image; it **must** be hosted on SpecNext, nowhere else; who prepares it is open~~ (superseded 2026-11-15: nobody hosts a card; the browser builds it from the official zip) | jorgegv 2026-11-05 |
 | R12 | Does `--load file.nex --esxdos-stub-root` avoid the SD image? | vmorilla |
 
 R12, answered: not on `main`. `main.cpp:1806-1838` refuses to start without an
@@ -98,8 +110,8 @@ Rejected suggestions, with the reason:
 
 | # | question | decision |
 |---|---|---|
-| D1 | **CORS on SpecNext.** Today `www.specnext.com` sends no `Access-Control-Allow-Origin` (checked 2026-11-06, also by Shrek in October), so a page on any other origin cannot fetch the image. | The owner asks Phoebus Dokos, with the image request: `Access-Control-Allow-Origin: *` on the image URL, a stable **versioned** URL, a published sha256 and size. Without it the only fallback is "the visitor picks the file by hand" (Shrek's current page). This is the critical path of the epic (S0). |
-| D2 | **The image recipe** | **The boot set only**: TBBLUE.FW, MACHINES, NEXTZXOS and SYS, plus the licences (about 2.4 MB of clusters on the CSpect image). No DOT, APPS, games, demos or docs. Correctly clustered, so the browser needs no `patch_image_fat32` step; small enough to hold in memory. **We make it** (owner, 2026-11-06), with a small Bash script that turns the distribution image into the minimal one (§4.4, S0), and send Phoebus the script and a tested image with D1. |
+| D1 | **CORS on SpecNext.** Today `www.specnext.com` sends no `Access-Control-Allow-Origin` (checked 2026-11-06, also by Shrek in October), so a page on any other origin cannot fetch the image. | ~~The owner asks Phoebus Dokos, with the image request: `Access-Control-Allow-Origin: *` on the image URL, a stable **versioned** URL, a published sha256 and size.~~ (2026-11-15: the ask is one header, `Access-Control-Allow-Origin: *` on GET and HEAD of the `/distro/*` zip, no hosting.) Without it the only fallback is "the visitor picks the file by hand" (Shrek's current page). This is the critical path of the epic (S0). |
+| D2 | **The image recipe** | **The boot set only**: TBBLUE.FW, MACHINES, NEXTZXOS and SYS, plus the licences (about 2.4 MB of clusters on the CSpect image). No DOT, APPS, games, demos or docs. Correctly clustered, so the browser needs no `patch_image_fat32` step; small enough to hold in memory. **We make it** (owner, 2026-11-06), with a small Bash script that turns the distribution image into the minimal one (§4.4, S0), ~~and send Phoebus the script and a tested image with D1~~ (2026-11-15: nothing is sent; the recipe is the native tool `make-minimal-card`). |
 | D3 | A "direct NEX without NextZXOS" mode (Shrek's default: a 48K ROM file injected into the ROM area) | **No.** It breaks C1, runs programs on a synthetic machine that needs invented register values (Shrek forces NR 0x4A and MAXBNK), and duplicates what the warm start gives: the NextZXOS boot is a one-time cost per visitor. |
 | D4 | Formats in v1 | **`.nex`, `.tap` and `.tzx`.** Snapshots and the other desktop formats later, one sub-issue each. |
 | D5 | Guest writes surviving a reload (saves, high scores) | **Not in v1**: guest writes live in memory for the session. A follow-on stage (S11). |
@@ -182,8 +194,10 @@ hides the loop structure the browser needs.
 
 The faithful path `main` already uses, moved into the browser:
 
-1. **First visit.** JS fetches the minimal image from its SpecNext URL (D1,
-   D2), checks its sha256, and stores it in the Cache API (or IndexedDB).
+1. **First visit.** ~~JS fetches the minimal image from its SpecNext URL (D1,
+   D2), checks its sha256, and stores it in the Cache API (or IndexedDB).~~
+   (2026-11-15: the page builds the card from the official zip, fetched or chosen by the
+   visitor, and stores the card in the Cache API.)
 2. JS hands the image to the emulator before `callMain` (the Emscripten
    filesystem). The provisioner never downloads or asks on stdin in the
    browser: `sdcard::cli_confirm` reads `std::cin`
@@ -260,7 +274,7 @@ const player = await jnext.mount(document.getElementById('game'), {
   file:   { url: 'game.nex' },          // --load (.nex, .tap, .tzx)
   width:  640, height: 512,             // canvas size; letterboxed
   machine: 'next',                      // --machine
-  image:  { url: '<SpecNext URL>', sha256: '<published hash>' },
+  // image: { url: '<SpecNext URL>', sha256: '<published hash>' },  // superseded 2026-11-15: card: { source: 'auto' }
   muted:  false,                        // --set audio...
   set:    { 'startup.cpu_speed': '28' },// any --set key
   args:   [],                           // any other CLI flag
@@ -328,7 +342,7 @@ Disposition, item by item:
 | `web/CMakeLists.txt` | **Rework** (keep the link options; guards in our CMake) | S1, S5 |
 | `web_compat.h` | **Reject**, fix the cause (rename `PAGE_SIZE`) | S1 |
 | `jnext_web.cpp` (exported C API, A/B seams) | **Reimplement from the idea** (it bypasses `Rom`/MMU to inject the ROM, reimplements reset and pacing, global raw `new`) | S5/S7 (or D7's fallback) |
-| `sd_card_web.cpp` (sparse card, IndexedDB persistence, batched warm-start recording with progress) | **Reimplement from the idea**; building the card from the distro ZIP in the browser is superseded by the SpecNext image | S6, S11 |
+| `sd_card_web.cpp` (sparse card, IndexedDB persistence, batched warm-start recording with progress) | **Reimplement from the idea**; building the card from the distro ZIP in the browser ~~is superseded by the SpecNext image~~ is the design (2026-11-15) | S6, S11 |
 | `SdBackingFile`, `ffconf.h` per-platform | **Reject the form**; the seam is reconsidered in S6 (D2) | S6 |
 | `build.ps1`, `JNEXT_WEB_DIR` / `JNEXT_ANDROID_DIR` / `JNEXT_SERVER_DIR` hooks | **Reject** (make targets, in-tree code) | S1 |
 

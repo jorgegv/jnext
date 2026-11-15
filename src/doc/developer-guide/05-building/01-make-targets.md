@@ -66,7 +66,7 @@ to keep that combination building.
 `make unit-test` builds `build/` and runs every declared subsystem suite, and
 `make regression` runs the screenshot and functional suite headless. Between
 them they pull in a set of structural gates as prerequisites —
-`lint-assertions`, `lint-makefile-help`, `lint-thread-detach`, `lint-ascii-text`, `cli-check`,
+`lint-assertions`, `lint-makefile-help`, `lint-thread-detach`, `lint-ascii-text`, `lint-user-docs-card`, `cli-check`,
 `docs-check` (which includes `docs-devguide-cites-check`),
 `traceability-check` and friends — which is deliberate: it puts those checks in
 your inner loop instead of leaving them for CI to discover. `make regression`

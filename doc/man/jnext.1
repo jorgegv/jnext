@@ -3915,12 +3915,20 @@ A \f[CR].wav\f[R] plays in real time, as from a cassette, and only while
 the machine runs: \f[CR]pause()\f[R] or a hidden tab stops the tape
 where it is.
 .PP
-The page supplies the SD\-card image by URL and SHA\-256 (the browser
-fetches it, checks it on every visit and keeps it in its cache); the
-machine starts when the visitor clicks the player, because browsers
-allow sound only after a click.
-The image is fetched from another origin, so that server must send an
-\f[CR]Access\-Control\-Allow\-Origin\f[R] header.
+NextZXOS, the operating system of the ZX Spectrum Next, is SpecNext\(cqs
+copyrighted software.
+JNEXT does not ship, host or serve it, and neither does a page.
+The player makes its SD card in the visitor\(cqs browser from the
+official distribution zip on specnext.com, which the page cannot name or
+replace: when specnext.com allows the page to read the file, the page
+downloads it; otherwise the player shows a link to download it from
+specnext.com and a button to choose the downloaded file.
+Either way the card the browser makes is kept in the browser\(cqs cache
+for that site, checked against its SHA\-256 on every visit, and the
+downloaded file itself is not kept.
+Nothing is downloaded or built until the visitor clicks the player: the
+click is also what starts the machine, because browsers allow sound only
+after a click.
 The page must be a secure context: \f[CR]https://\f[R],
 \f[CR]http://localhost\f[R] or \f[CR]http://127.0.0.1\f[R].
 .PP
@@ -3937,10 +3945,22 @@ If the shader cannot run, the player logs one line starting
 plain picture otherwise.
 .SS JavaScript options
 .TP
-\f[CR]image\f[R] \f[I]{url, sha256}\f[R]
-Required.
-\f[B]\-\-sdcard\f[R] and \f[B]\-\-sdcard\-sha256\f[R], after the page
-has fetched and checked the image.
+\f[CR]card\f[R] \f[I]{source}\f[R]
+Not a jnext setting: how the page gets NextZXOS\(cqs SD card.
+\f[CR]source\f[R] is \f[CR]\(aqauto\(aq\f[R] (the default: fetch the
+official file from specnext.com when it allows the page to read it,
+otherwise ask the visitor to download it and choose it),
+\f[CR]\(aqfetch\(aq\f[R] (only fetch; a failure is an error) or
+\f[CR]\(aqpick\(aq\f[R] (always ask the visitor).
+The SD card reaches the emulator as \f[B]\-\-sdcard\f[R] and
+\f[B]\-\-sdcard\-sha256\f[R], set by the page layer; the page never
+names the card.
+.TP
+\f[CR]poster\f[R] \f[I]URL\f[R]
+Not a jnext setting: a picture, a screenshot of the program, shown in
+the player area before the click so the player is not black on load.
+The emulator replaces it when the visitor starts the player.
+Without it nothing is shown there.
 .TP
 \f[CR]file\f[R] \f[I]URL | {url} | {data, name}\f[R]
 \f[B]\-\-load\f[R].
@@ -3954,9 +3974,9 @@ it the machine boots to the NextZXOS menu.
 program writes to the card (saves, high scores) is kept in the
 visitor\(cqs browser (IndexedDB) and is there at the next visit.
 Off by default.
-The record is keyed by the image\(cqs SHA\-256 and the page\(cqs path,
-so another image or another page has its own, and it holds only the
-sectors written, never the card.
+The record is keyed by the card\(cqs SHA\-256 and the page\(cqs path, so
+another card or another page has its own, and it holds only the sectors
+written, never the card.
 The page can clear it with \f[CR]resetCard()\f[R], or with
 \f[CR]args: [\(aq\-\-sdcard\-writes\-reset\(aq]\f[R] for one start.
 The file a NEX loaded with \f[CR]file\f[R] saves through esxDOS is kept
@@ -3996,9 +4016,13 @@ from.
 .TP
 \f[CR]onProgress\f[R], \f[CR]onReady\f[R], \f[CR]onError\f[R] \f[I]function\f[R]
 Not a jnext setting: functions of the page, called with
-\f[CR](phase, fraction)\f[R] while the image loads or the first boot is
-recorded, when the program is in the machine and a frame has been shown,
-and with a message on every failure.
+\f[CR](phase, fraction)\f[R] while the SD card is fetched
+(\f[CR]download\f[R]) or made from a file the visitor chose
+(\f[CR]build\f[R]), when the page is waiting for that file
+(\f[CR]choose\f[R]), while the first boot is recorded
+(\f[CR]warm\-start\f[R]) or restored (\f[CR]restore\f[R]), when the
+program is in the machine and a frame has been shown, and with a message
+on every failure.
 .SS The player
 \f[CR]state\f[R] is \f[CR]waiting\f[R], \f[CR]starting\f[R],
 \f[CR]running\f[R], \f[CR]paused\f[R], \f[CR]exited\f[R] or

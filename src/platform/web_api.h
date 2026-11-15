@@ -6,11 +6,12 @@
 // the native suite web_api_test drives it.
 //
 // jnext_api.js carries no flag spelling and no --set key. It hands the whole
-// options object to build_argv() (through jnext_web_argv()), with four
-// substitutions made on its side: every function value becomes `true`, `file`
-// becomes its in-memory path, `image` becomes {path, sha256}, and `keepWrites`
-// (a boolean to the page) becomes the in-memory path of the writes file, or is
-// dropped when false.
+// options object to build_argv() (through jnext_web_argv()), with these changes
+// made on its side: every function value becomes `true`, `file` becomes its
+// in-memory path, `keepWrites` (a boolean to the page) becomes the in-memory
+// path of the writes file (or is dropped when false), and the internal `$card`
+// row, {path, sha256} of the SD card the page layer made, is ADDED. A page never
+// supplies `$card`: the layer refuses that name before it gets here.
 #include "core/cli_options.h"
 #include "platform/config_keys.h"
 
@@ -41,11 +42,18 @@ struct Option {
     bool                               required;
     const char*                        not_setting;  // Host, Callback: why it is not a jnext setting
     const char*                        help;         // one line
+    bool                               internal = false;  // set by jnext_api.js, never documented
 };
 
 inline constexpr Option WEB_OPTIONS[] = {
-    { "image", Kind::Image, cli::OptId::Sdcard, cli::OptId::SdcardSha256, std::nullopt, true, nullptr,
-      "The SD-card image: {url, sha256}, fetched, checked and cached by the page" },
+    { "$card", Kind::Image, cli::OptId::Sdcard, cli::OptId::SdcardSha256, std::nullopt, true, nullptr,
+      "Internal: the SD card the page layer made ({path, sha256}); never given by a page", true },
+    { "card", Kind::Host, std::nullopt, std::nullopt, std::nullopt, false,
+      "how the page obtains the SD card",
+      "How the page gets NextZXOS's SD card: {source: 'auto' | 'fetch' | 'pick'}" },
+    { "poster", Kind::Host, std::nullopt, std::nullopt, std::nullopt, false,
+      "a picture the page shows before the click",
+      "A picture shown in the player area before the player is started" },
     { "keepWrites", Kind::Flag, cli::OptId::SdcardWrites, std::nullopt, std::nullopt, false, nullptr,
       "Keep the guest's writes to the card (saves, high scores) in this browser across reloads" },
     { "file", Kind::Flag, cli::OptId::Load, std::nullopt, std::nullopt, false, nullptr,
@@ -67,7 +75,7 @@ inline constexpr Option WEB_OPTIONS[] = {
     { "wasmUrl", Kind::Host, std::nullopt, std::nullopt, std::nullopt, false,
       "where the page serves the .wasm file from", "Where the emulator's .wasm file is served from" },
     { "onProgress", Kind::Callback, std::nullopt, std::nullopt, std::nullopt, false,
-      "a function of the page", "Called with (phase, fraction) while the image loads or the first boot is recorded" },
+      "a function of the page", "Called with (phase, fraction) while the SD card is fetched or made, and the first boot is recorded" },
     { "onReady", Kind::Callback, std::nullopt, std::nullopt, std::nullopt, false,
       "a function of the page", "Called when the program is in the machine and a frame has been shown" },
     { "onError", Kind::Callback, std::nullopt, std::nullopt, std::nullopt, false,
@@ -80,7 +88,7 @@ const char* flag_spelling(cli::OptId id);
 std::string key_spelling(config_keys::KeyId id);
 
 /// Turn the options object (JSON text, see above) into the command line, without
-/// the program name. Checks names, shapes, types and the required `image` only:
+/// the program name. Checks names, shapes, types and the required `$card` only:
 /// every value is validated where it is used, by main(). On a refusal `argv` is
 /// left empty and `why` names the option.
 bool build_argv(std::string_view options_json, std::vector<std::string>& argv, std::string& why);

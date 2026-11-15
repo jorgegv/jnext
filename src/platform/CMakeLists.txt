@@ -5,7 +5,7 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp")
 list(FILTER SOURCES EXCLUDE REGEX "${JNEXT_GENERATED_DIR_REGEX}")
 # The browser frontend is a source of the jnext_web target only (top-level CMakeLists.txt).
 list(FILTER SOURCES EXCLUDE REGEX "browser_frontend\\.cpp$")
-list(FILTER SOURCES EXCLUDE REGEX "web/web_controller\\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX "web/(web_controller|card_builder_web)\\.cpp$")
 # The browser build's CRT effect (crtemu on SDL's WebGL context) exists only there.
 if(NOT EMSCRIPTEN)
   list(FILTER SOURCES EXCLUDE REGEX "(browser_crt|crtemu_browser_impl)\\.cpp$")

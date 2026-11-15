@@ -11,8 +11,8 @@ widget (`jnext-widget.js`), four example pages (`plain.html`, `widget.html`,
 `itch-game.html`, `itch-host.html`), a `README.txt`
 with the link to the source of that build, `LICENSE`, `CREDITS.md` and a
 `licenses/` directory. Host `jnext-VERSION.js` and `jnext-VERSION.wasm` together,
-and keep the licence files beside them. There is no NextZXOS in the zip: the
-page fetches the system image from the address you give it.
+and keep the licence files beside them. There is no NextZXOS in the zip: NextZXOS is SpecNext's
+copyrighted software, and the player gets it from specnext.com (10.4).
 
 Everything the player is told is a command-line flag or a `--set` key of the
 desktop emulator; the reference list is in the man page section "THE BROWSER
@@ -20,6 +20,6 @@ BUILD". The player's `argv` property shows the command line your options became.
 
 This chapter has five pages: a page with a game (10.1), the options and the
 player's controls (10.2), putting it on itch.io, plus what the browser build does
-not do (10.3), the SD-card image, what the browser keeps and what to do when a
+not do (10.3), NextZXOS and the SD card, what the browser keeps and what to do when a
 page does not start (10.4), and the two ways to embed JNEXT, your own page or the
 ready-made widget, each as a complete page to copy (10.5).

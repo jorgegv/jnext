@@ -4,11 +4,13 @@
 // jnext.mount(). If `jnext` is not loaded yet, the script loads
 // jnext-@PROJECT_VERSION@.js from the directory it was loaded from.
 //
-//   <div class="jnext-widget" data-image="https://.../card.img"
-//        data-sha256="64 hex digits" data-file="game.nex"></div>
+//   <div class="jnext-widget" data-file="game.nex" data-poster="game.png"></div>
 //   <script src="jnext-widget.js"></script>
 //
-// data-image, data-sha256, data-file  the mount() options image.url, image.sha256, file
+// data-file                           the mount() option file: the program to run
+// data-poster                         the mount() option poster: a picture shown before the click
+// data-card-source                    the mount() option card.source: auto (default), fetch or pick:
+//                                     how the player gets NextZXOS's SD card (user guide 10.4)
 // data-width, data-height             the screen size in CSS pixels (640 x 512)
 // data-keep-writes                    the mount() option keepWrites: keep the program's saves across
 //                                     reloads (any value but "false"); el.jnextPlayer.resetCard() clears them
@@ -61,6 +63,18 @@
     W + '.jw-status{all:initial;display:block;flex:1;min-width:0;overflow:hidden;white-space:nowrap;' +
       'text-overflow:ellipsis;text-align:right;color:var(--jw-fg);font:12px/1.3 ui-monospace,monospace}' +
     W + '.jw-status.jw-error{color:var(--jw-err)}' +
+    // The panel that asks the visitor for the NextZXOS file (built by the player, inside its overlay):
+    // every element resets its own properties first, so a page's rules for p, a, button or input
+    // do not reach it.
+    W + '.jnext-pick{all:initial;display:block;box-sizing:border-box;max-width:92%;text-align:center;' +
+      'color:var(--jw-fg);font:13px/1.4 system-ui,sans-serif}' +
+    W + '.jnext-pick p{all:initial;display:block;margin:5px 0;color:var(--jw-fg);font:13px/1.4 system-ui,sans-serif}' +
+    W + '.jnext-pick a{all:initial;color:var(--jw-accent);text-decoration:underline;cursor:pointer;' +
+      'font:13px/1.4 system-ui,sans-serif}' +
+    W + '.jnext-pick button{all:initial;display:inline-block;box-sizing:border-box;padding:3px 10px;cursor:pointer;' +
+      'background:var(--jw-btn);color:var(--jw-fg);border:1px solid var(--jw-line);border-radius:6px;' +
+      'font:13px/1.4 system-ui,sans-serif}' +
+    W + '.jnext-pick input{all:initial;display:none}' +
     // The elements the player itself creates: its inline styles stay, a page's rules for div and
     // canvas (any property) go.
     W + '.jnext-player{all:initial;display:block;box-sizing:content-box}' +
@@ -170,19 +184,22 @@
   // Mounts the player of one built widget.
   function run(ui) {
     var el = ui.el;
-    var image = el.getAttribute('data-image');
-    if (!image) { ui.say('error: data-image is missing', true); return; }
     var options = {
-      image: { url: image, sha256: el.getAttribute('data-sha256') || '' },
       width: ui.width,
       height: ui.height,
       onProgress: function (phase, fraction) {
         ui.bar.style.width = Math.round(fraction * 100) + '%';
-        ui.say(phase + ' ' + Math.round(fraction * 100) + '%');
+        // 'choose' is not an error: the visitor is asked for the NextZXOS file on the screen.
+        if (phase === 'choose') ui.say('choose the NextZXOS file (see the screen)');
+        else ui.say(phase + ' ' + Math.round(fraction * 100) + '%');
       },
       onReady: function () { ui.bar.style.width = '0'; ui.started = true; ui.sync(); },
-      onError: function (message) { ui.say('error: ' + message, true); }
+      // An error before the program ever started (the SD card could not be made, a refused file) leaves
+      // nothing to control: the toolbar goes back to disabled. Later errors leave a running player alone.
+      onError: function (message) { ui.say('error: ' + message, true); if (!ui.started) ui.disable(); }
     };
+    if (el.getAttribute('data-card-source')) options.card = { source: el.getAttribute('data-card-source') };
+    if (el.getAttribute('data-poster')) options.poster = el.getAttribute('data-poster');
     if (el.getAttribute('data-file')) options.file = el.getAttribute('data-file');
     if (el.getAttribute('data-touch-keyboard')) options.touchKeyboard = el.getAttribute('data-touch-keyboard');
     if (el.hasAttribute('data-keep-writes') && el.getAttribute('data-keep-writes') !== 'false') options.keepWrites = true;

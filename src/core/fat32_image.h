@@ -40,7 +40,31 @@ struct Fat32Node {
     bool                 is_dir = false;
     std::vector<uint8_t> data;      // file contents (empty for directories)
     std::vector<Fat32Node> children; // directory entries (empty for files)
+    // The source entry's attribute byte and write date/time (FAT encoding). fat32_read_tree
+    // fills them; fat32_format_and_populate writes them only with apply_meta (the minimal
+    // card does, the 1 GB image recipe does not). A file made by fat32_tree_upsert is
+    // 1980-01-01 00:00 with the archive bit; a directory it makes has no attribute bits.
+    uint8_t              attr  = 0x20;
+    uint16_t             wdate = 0x0021;
+    uint16_t             wtime = 0;
 };
+
+/// One entry of a FAT directory, as fat32_parse_dir decodes it.
+struct Fat32Entry {
+    std::string name;       // long name if present, else the 8.3 name; "." and ".." never appear
+    bool        is_dir = false;
+    uint32_t    cluster = 0;  // first cluster (0 = none)
+    uint32_t    size = 0;
+    uint8_t     attr = 0;
+    uint16_t    wdate = 0;
+    uint16_t    wtime = 0;
+};
+
+/// Decode the entries of a directory's raw bytes (its whole cluster chain, in order): VFAT long
+/// names are reassembled across slots (and cluster boundaries), deleted entries and the volume
+/// label are skipped, parsing stops at the first end-of-directory marker. The one directory
+/// parser: the tree reader and the minimal-card builder both use it.
+std::vector<Fat32Entry> fat32_parse_dir(const std::vector<uint8_t>& bytes);
 
 // The root directory's direct children.
 struct Fat32Tree {
@@ -76,6 +100,14 @@ void fat32_tree_upsert(Fat32Tree& tree, const std::string& path,
 /// FatFs f_mkfs), then write the whole `tree` into it (directories + files via
 /// f_mkdir / f_open / f_write). The image's MBR and the partition's start LBA
 /// and size are preserved. Returns true on success, else sets `err`.
+///
+/// `opts` (defaults = the 1 GB image recipe): `au_size` is the cluster size in bytes,
+/// `apply_meta` also gives every node its source attribute bits (R/H/S/A) and write time.
+struct Fat32WriteOptions {
+    uint32_t au_size = 8192;
+    bool     apply_meta = false;
+};
 bool fat32_format_and_populate(const std::string& image_path, uint32_t part_lba,
                                uint32_t total_sectors, const Fat32Tree& tree,
-                               std::string& err);
+                               std::string& err,
+                               const Fat32WriteOptions& opts = Fat32WriteOptions());

@@ -4323,7 +4323,7 @@
   <span class="md-ellipsis">
     
   
-    10.4 The SD-card image, and what the browser keeps
+    10.4 NextZXOS, the SD card, and what the browser keeps
   
 
     
@@ -4398,9 +4398,9 @@
 &lt;script src=&quot;jnext-VERSION.js&quot;&gt;&lt;/script&gt;
 &lt;script&gt;
   jnext.mount(document.getElementById('player'), {
-    image: { url: 'https://example.com/card.img', sha256: '...64 hex digits...' },
     file: 'game.nex',
     width: 640, height: 512,
+    poster: 'game.png',   // optional: a picture shown before the click
     onProgress: (phase, fraction) =&gt; { /* show a progress bar */ },
     onReady: () =&gt; { /* the program is running */ },
     onError: (message) =&gt; { /* tell the visitor */ }
@@ -4410,13 +4410,17 @@
 <p>What happens, in order:</p>
 <ol>
 <li><code>mount()</code> checks the options. A name it does not know, or a value of the wrong
-   type, rejects the promise at once and names the option; the SD-card image is not downloaded.</li>
-<li>The page fetches the SD-card image from <code>image.url</code>, checks its SHA-256 and keeps
-   it in the browser's cache. The next visit checks the cached copy and does not
-   download it again. <code>onProgress('download', fraction)</code> reports the download.</li>
-<li>The program in <code>file</code> is fetched too, and the promise resolves with the player.
-   The overlay says "Click to start".</li>
-<li>The visitor clicks. The machine starts (browsers allow sound only after a click).
+   type, rejects the promise at once and names the option; nothing is downloaded.</li>
+<li>The player shows "Click to start", over the <code>poster</code> picture when the page gave one
+   (without it the player area is empty until the click). Nothing has been downloaded
+   or built yet.</li>
+<li>The visitor clicks. Now the page gets NextZXOS's SD card (10.4): the card the browser
+   kept on an earlier visit, or one it makes from the official NextZXOS file from
+   specnext.com. <code>onProgress('download', fraction)</code> reports a download,
+   <code>onProgress('build', fraction)</code> the making of the card from a file the visitor chose,
+   and <code>onProgress('choose', 0)</code> says the visitor is being asked to choose that file.</li>
+<li>The program in <code>file</code> is fetched, and the machine starts (browsers allow sound only
+   after a click).
    When the program is a <code>.nex</code>, the first time the machine boots NextZXOS in a
    browser it is recorded, so that the next visit starts in a moment:
    <code>onProgress('warm-start', fraction)</code> reports it, and <code>onProgress('restore', 1)</code>
@@ -4427,22 +4431,24 @@
 </ol>
 <p>Requirements:</p>
 <ul>
-<li>The image's server must send <code>Access-Control-Allow-Origin</code> (the page reads the
-  card from another origin). So must the server of a program file on another site,
-  because the page fetches it too; <code>file: {data, name}</code> needs no request.</li>
+<li>A program file on another site needs that site's server to send
+  <code>Access-Control-Allow-Origin</code>, because the page fetches it; <code>file: {data, name}</code>
+  needs no request.</li>
 <li>Serve the <code>.wasm</code> file as <code>application/wasm</code>. With another type the page still
   starts, after a warning in the browser's console. No special headers are needed
   otherwise.</li>
 <li>The page must be a secure context: <code>https://</code>, <code>http://localhost</code> or
   <code>http://127.0.0.1</code>. The cache and the SHA-256 check need it.</li>
-<li>The SD-card image is not part of JNEXT and is not shipped with it: you supply
-  its URL and digest (10.4).</li>
+<li>NextZXOS is not part of JNEXT and is not shipped with it. You give the player nothing
+  to find it with: it gets it from specnext.com, or asks the visitor to download it from
+  there (10.4).</li>
 </ul>
 <h2 id="the-example-pages">The example pages<a class="headerlink" href="#the-example-pages" title="Permanent link">&para;</a></h2>
-<p><code>plain.html</code> reads its settings from the query string: <code>?image=</code> (the image URL),
-<code>&amp;sha256=</code> (its digest), <code>&amp;file=</code> (the program) and <code>&amp;other=</code> (the program the "Load
-other" button loads). Without them it uses the constants at the top of its script.
-<code>itch-game.html</code> takes <code>?image=</code>, <code>&amp;sha256=</code> and <code>&amp;file=</code>, and posts <code>jnext-ready</code>
+<p><code>plain.html</code> reads its settings from the query string: <code>?file=</code> (the program) and
+<code>&amp;other=</code> (the program the "Load other" button loads). Without them it uses the
+constants at the top of its script, which also choose how the page gets NextZXOS
+(<code>card.source</code>, 10.2).
+<code>itch-game.html</code> takes <code>?file=</code>, and posts <code>jnext-ready</code>
 or <code>jnext-error: &lt;message&gt;</code> to the page that embeds it. <code>itch-host.html</code> embeds
 <code>itch-game.html</code>, or the page named by <code>?game=</code> (an <code>http://</code> or <code>https://</code> URL only).</p>
 

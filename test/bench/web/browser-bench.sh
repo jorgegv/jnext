@@ -23,7 +23,7 @@
 #
 # Everything it creates lives in ONE scratch directory under ~/tmp that is deleted at the end,
 # the minimal NextZXOS card included (copyrighted: built from the cached distribution image at
-# run time by tools/make-minimal-sdcard-image.sh, served from here only, never committed,
+# run time by tools/make-minimal-card, served from here only, never committed,
 # uploaded or traced). The browser runs pinned to the fastest physical cores, as bench.sh derives
 # them, and nothing is audible (Chrome --mute-audio, Firefox volume 0).
 set -uo pipefail
@@ -42,7 +42,7 @@ NODE=$(ls -d "$EMSDK"/node/*/bin/node)
 PW=$(bash "$ROOT/test/provision-playwright.sh" --print-path) || die "no provisioned Playwright (make playwright)"
 DIST="${JNEXT_BROWSER_DIST_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb.img}"
 [[ -f "$DIST" ]] || die "no distribution SD image at $DIST (make sdcard-image)"
-for t in mcopy sfdisk python3 timeout taskset flock git; do command -v "$t" >/dev/null 2>&1 || die "required tool missing: $t"; done
+for t in python3 timeout taskset flock git; do command -v "$t" >/dev/null 2>&1 || die "required tool missing: $t"; done
 CONFIGS=${CONFIGS:-chrome,chrome-x2,firefox}
 case ",$CONFIGS," in *,firefox,*) command -v firefox >/dev/null 2>&1 || die "no firefox on PATH";; esac
 CHROME=${JNEXT_BENCH_CHROME:-/usr/bin/google-chrome}
@@ -77,7 +77,9 @@ trap 'bench_cleanup' EXIT
 trap 'bench_cleanup; exit 130' INT
 trap 'bench_cleanup; exit 143' TERM
 
-bash "$ROOT/tools/make-minimal-sdcard-image.sh" "$DIST" "$SCRATCH/card.img" >"$SCRATCH/card.log" 2>&1 \
+CARD_TOOL="${MAKE_MINIMAL_CARD:-$ROOT/build/sdl-release/tools/make-minimal-card/make-minimal-card}"
+[[ -x "$CARD_TOOL" ]] || die "$CARD_TOOL is not built (make sdl-release)"
+"$CARD_TOOL" "$DIST" "$SCRATCH/card.img" >"$SCRATCH/card.log" 2>&1 \
     || { cat "$SCRATCH/card.log" >&2; die "cannot build the minimal card"; }
 CARD_SHA256=$(sha256sum "$SCRATCH/card.img" | cut -d' ' -f1)
 

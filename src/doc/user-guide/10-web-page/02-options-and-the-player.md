@@ -4,7 +4,8 @@
 
 | option | type | what it is |
 |---|---|---|
-| `image` | `{url, sha256}`, required | The SD-card image, as `--sdcard` and `--sdcard-sha256`. |
+| `card` | `{source}` | How the page gets NextZXOS's SD card (10.4): `source` is `'auto'` (default: the page fetches the official file from specnext.com when specnext.com allows it, and otherwise asks the visitor to download it and choose it), `'fetch'` (only fetch; a failure is an error) or `'pick'` (always ask the visitor). The page never names an address or a digest. |
+| `poster` | URL | A picture, a screenshot of the game or program, shown in the player area before the click, so the player is not black on load. The emulator replaces it when the visitor starts the player. Without it nothing is shown there. |
 | `keepWrites` | boolean | `--sdcard-writes`, with a file the page manages: what the program writes to the card, and the file a NEX saves through esxDOS (saves, high scores), is kept in the visitor's browser and is there at the next visit. Off by default; what it keeps, and what it cannot, is in 10.3 and 10.4. |
 | `file` | URL, `{url}` or `{data, name}` | The program to run, as `--load`. `.nex`, `.tap`, `.tzx`, `.wav`, an `.rzx` recording, or a `.jns`, `.sna`, `.szx` or `.z80` snapshot, which runs on the machine it was saved on (see "Saving the game" below; recordings: "Recording a game"). Without it the machine boots to the NextZXOS menu. |
 | `machine` | string | `--machine`. |
@@ -16,21 +17,24 @@
 | `wasmUrl` | string | Where the `.wasm` is served from. Default: beside the script. |
 | `onProgress`, `onReady`, `onError` | functions | Events, below. |
 
-`player.argv` is the equivalent command line, without the program name.
+`player.argv` is the equivalent command line, without the program name; it exists once the visitor has clicked and the player has its SD card (until then it is undefined).
 
 ## Events
 
-- `onProgress(phase, fraction)`: `phase` is `download`, `warm-start` or `restore`;
-  `fraction` runs from 0 to 1.
+- `onProgress(phase, fraction)`: `phase` is `download`, `build`, `choose`, `warm-start` or `restore`;
+  `fraction` runs from 0 to 1. `download` is the fetch of NextZXOS from specnext.com;
+  `build` is the making of the card from the file the visitor chose; `choose` (reported
+  once, with 0) means the page is waiting for the visitor to choose that file (10.4).
 - `onReady()`: after the mount's click, after `load()` and after `reset()`: the
   program is in the machine and a frame has been shown. A load the program itself
   asks for (a NEX that runs another) is not the page's: it fires no `onReady` and
   `reset()` still restarts the page's program. For a `.wav`, `onReady` comes when the
   tape is in the deck; the program then loads as the tape plays, in real time (a 48K game
   takes minutes), and the tape stops while the player is paused or the tab is hidden.
-- `onError(message)`: on every failure (a refused option, a bad image, a program that
+- `onError(message)`: on every failure (a refused option, a card that `card.source: 'fetch'` could not get, a program that
   does not load, an exit with an error). The promise of the call that failed rejects
-  with the same message.
+  with the same message. A file the visitor chose that is not the official one is not such a
+  failure: it is refused on the player's panel (10.4) and the visitor can choose again.
 
 ## The player
 
@@ -69,9 +73,9 @@ looks and the same parameters. There is no extra option: use `args` with `--crt`
 `off`, `scanlines`, `soft`, `tv` or `pc`, or the three settings it stands for in `set`:
 
 ```js
-jnext.mount(el, { image: img, args: ['--crt', 'tv'] });
+jnext.mount(el, { args: ['--crt', 'tv'] });
 
-jnext.mount(el, { image: img, set: { 'startup.crt_shader': true, 'startup.crt_shader_style': 1 } });
+jnext.mount(el, { set: { 'startup.crt_shader': true, 'startup.crt_shader_style': 1 } });
 // style 0 is tv, 1 is pc, 2 is soft; 'startup.crt_filter': true is the plain scanlines
 ```
 

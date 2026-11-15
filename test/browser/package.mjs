@@ -54,7 +54,9 @@ row('WEBPKG-BR-01', 'the extracted zip alone boots plain.html: click to start, r
   const page = await ctx.newPage();
   const msgs = [];
   page.on('pageerror', (e) => msgs.push('PAGEERROR ' + e.message));
-  const q = new URLSearchParams({ image: BURL + '/card.img', sha256: SHA, file: BURL + '/red.nex' });
+  // The run-time card goes in through the localhost-only development seam: a page names no card.
+  await ctx.addInitScript((card) => { window['jnextDev'] = { card }; }, { url: BURL + '/card.img', sha256: SHA });
+  const q = new URLSearchParams({ file: BURL + '/red.nex' });
   await page.goto(`${AURL}/plain.html?` + q.toString());
   await waitFor(page, () => document.getElementById('status').textContent === 'click the player to start', null, 300000);
   await page.click('.jnext-overlay', { timeout: 600000, noWaitAfter: true });

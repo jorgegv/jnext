@@ -15,7 +15,9 @@
 // Standalone runner, no GoogleTest, no Qt.
 
 #include "core/sha256.h"
+#include "core/sha256_stream.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -158,6 +160,32 @@ int main() {
         check("SHA256-15", "sha256_file of 536870913 zero bytes (bit length above 2^32: the high word of the length field)",
               !rec && got == want, rec ? rec.message() : diff(got, want));
         fs::remove(big, rec);
+    }
+
+    {
+        // Sha256Stream, the incremental SHA-256 the minimal-card builder and the browser's
+        // sha256_hex/sha256_file use: the FIPS 180-4 B.1, B.2 and B.3 vectors, fed in pieces of
+        // 1, 63, 64 and 65 bytes, so a block boundary falls in every position.
+        struct Vec { std::string msg; const char* want; };
+        const std::vector<Vec> vecs = {
+            {"abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
+            {"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"},
+            {std::string(1000000, 'a'), "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"},
+        };
+        std::string bad;
+        for (const Vec& v : vecs)
+            for (size_t piece : {size_t{1}, size_t{63}, size_t{64}, size_t{65}}) {
+                sdcard::Sha256Stream h;
+                for (size_t off = 0; off < v.msg.size(); off += piece) {
+                    const size_t n = std::min(piece, v.msg.size() - off);
+                    h.update(reinterpret_cast<const uint8_t*>(v.msg.data()) + off, n);
+                }
+                const std::string got = h.final_hex();
+                if (got != v.want) bad += " len" + std::to_string(v.msg.size()) + "/piece" + std::to_string(piece) + ":" + got;
+            }
+        check("SHA256-16", "Sha256Stream: FIPS 180-4 'abc', the 448-bit and the million-'a' vectors in pieces of 1, 63, 64 and 65 bytes",
+              bad.empty(), bad);
     }
 
     std::error_code ec;
