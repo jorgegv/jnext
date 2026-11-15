@@ -43,10 +43,6 @@ static inline bool is_wait(uint16_t instr) {
     return (instr & 0x8000) != 0;
 }
 
-static inline bool is_move(uint16_t instr) {
-    return (instr & 0x8000) == 0;
-}
-
 /// Width of the VHDL `hcount_i` port, and therefore of the WAIT threshold
 /// arithmetic below (copper.vhd:35 — `hcount_i : in unsigned(8 downto 0)`).
 static constexpr int kHcountBits = 9;

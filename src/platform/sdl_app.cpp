@@ -23,7 +23,7 @@
 #include <cmath>
 #include <ctime>
 
-bool SdlApp::init(int argc, char* argv[]) {
+bool SdlApp::init(int /*argc*/, char* /*argv*/[]) {
     // SDL3 SDL_Init returns bool (true = success); SDL2 returned 0 on
     // success and a negative on failure, so the SENSE of this test is
     // inverted, not just the spelling.

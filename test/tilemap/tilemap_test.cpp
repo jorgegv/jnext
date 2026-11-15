@@ -114,11 +114,6 @@ void check_pred(const char* id, bool cond, const char* note) {
     }
 }
 
-void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skipped.push_back({id, reason});
-}
-
 // ── RAM / map helpers (mechanical byte writers, not oracles) ────────────
 
 // VHDL bank 5 physical base (5 * 16K).

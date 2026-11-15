@@ -3,7 +3,7 @@
 // Design: doc/design/NEXT-SNAPSHOT-FORMAT.md §9.3, §13.2(3)/(4), §16.3.
 //
 // Usage:
-//   gen-snapshot-schema --overlay src/save/jns-schema-overlay.json \
+//   gen-snapshot-schema --overlay src/save/jns-schema-overlay.json
 //                       --out doc/formats/jns-snapshot.schema.json
 //   gen-snapshot-schema --overlay ... --stdout      (print, write nothing)
 //

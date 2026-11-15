@@ -79,13 +79,6 @@ static void check(const char* id, const char* desc, bool cond,
     }
 }
 
-static void stub(const char* id, const char* desc, const char* reason) {
-    ++g_stub;
-    TestResult r{g_group, id, desc, false, true, reason};
-    g_results.push_back(r);
-    printf("  STUB %s: %s [%s]\n", id, desc, reason);
-}
-
 static char g_buf[512];
 #define DETAIL(...) (snprintf(g_buf, sizeof(g_buf), __VA_ARGS__), g_buf)
 

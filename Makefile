@@ -1727,7 +1727,7 @@ package-src:
 # Build an RPM package via CPack (Fedora/RHEL); needs rpmbuild
 package-rpm:
 	@# GH #297: the packaged binary is a PGO build (needs the SD image to train).
-	$(call PGO_BUILD,$(BUILD_DIR_RPM_RELEASE),$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF)
+	$(call PGO_BUILD,$(BUILD_DIR_RPM_RELEASE),$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DJNEXT_WERROR=OFF)
 	cd $(BUILD_DIR_RPM_RELEASE) && cpack -G RPM
 	@printf "$(BOLD)RPM(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_RPM_RELEASE)/*.rpm
 
@@ -1744,7 +1744,7 @@ package-deb: sdl3-vendor
 	@# add — keeping this target the SAME command locally and in CI, on both.
 	@# GH #297: the packaged binary is a PGO build (needs the SD image to train).
 	$(call PGO_BUILD,$(BUILD_DIR_DEB_RELEASE),$(CMAKE) -S . \
-		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
+		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DJNEXT_WERROR=OFF \
 		$$([ -d build/sdl3-vendor/prefix ] && echo "-DCMAKE_PREFIX_PATH=$(CURDIR)/build/sdl3-vendor/prefix -DJNEXT_SDL3_VENDORED=ON"))
 	cd $(BUILD_DIR_DEB_RELEASE) && cpack -G DEB
 	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_DEB_RELEASE)/*.deb
@@ -1977,7 +1977,7 @@ package-macos:
 	fi; \
 	$(MACOS_BOUND) 3600 "PGO build: instrument, train, rebuild (mac-release; GH #297)" \
 		env JOBS=$(JOBS) FUSE_CASES=$(FUSE_CASES) bash tools/pgo-build.sh $(BUILD_DIR_MAC_RELEASE) -- \
-		$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
+		$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DJNEXT_WERROR=OFF \
 		-DMACOS_APP_BUNDLE=ON $(if $(MACOS_DEPLOYMENT_TARGET),-DCMAKE_OSX_DEPLOYMENT_TARGET=$(MACOS_DEPLOYMENT_TARGET)) && \
 	( cd $(BUILD_DIR_MAC_RELEASE) && $(MACOS_BOUND) 900 "cpack -G DragNDrop" cpack -G DragNDrop ) && \
 	$(MAKE) verify-macos-dmg

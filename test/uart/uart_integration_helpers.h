@@ -16,19 +16,19 @@ static bool build_next_emulator(Emulator& emu) {
 // Fresh-state idiom: re-initialise the emulator before each scenario so
 // cross-test state (scheduler queues, latched interrupt status, etc.)
 // cannot leak between scopes.
-static void fresh(Emulator& emu) {
+[[maybe_unused]] static void fresh(Emulator& emu) {
     build_next_emulator(emu);
 }
 
 // Read NextREG register through the real port path (OUT 0x243B,reg;
 // IN 0x253B). Mirrors the idiom used by ctc_interrupts_test.cpp.
-static uint8_t nr_read(Emulator& emu, uint8_t reg) {
+[[maybe_unused]] static uint8_t nr_read(Emulator& emu, uint8_t reg) {
     emu.port().out(0x243B, reg);
     return emu.port().in(0x253B);
 }
 
 // Write NextREG register through the real port path.
-static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
+[[maybe_unused]] static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
     emu.port().out(0x243B, reg);
     emu.port().out(0x253B, val);
 }
@@ -42,7 +42,7 @@ static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
 // default 115200-baud/28MHz prescaler). A single full frame is ~567k
 // master cycles — comfortably more than enough to drain a few-byte TX
 // FIFO and fire `on_tx_empty`.
-static void settle(Emulator& emu) {
+[[maybe_unused]] static void settle(Emulator& emu) {
     emu.run_frame();
 }
 
@@ -105,7 +105,7 @@ static void settle(Emulator& emu) {
 // default Next config runs UART 0 at 115200 @ 28 MHz → ~243 * 10 =
 // 2430 master cycles for one 8N1 byte. Tick generously to guarantee
 // completion of a single byte regardless of framing changes.
-static void tick_uart_byte(Emulator& emu) {
+[[maybe_unused]] static void tick_uart_byte(Emulator& emu) {
     emu.uart().tick(8000);
 }
 
@@ -183,7 +183,7 @@ namespace {
 
 /// Bytes rendered with CR/LF as escapes, so a failing byte-stream row reads
 /// on one line and a stray terminator cannot hide in the output.
-std::string visible(const std::string& s) {
+[[maybe_unused]] std::string visible(const std::string& s) {
     std::string out;
     for (char c : s) {
         if (c == '\r')      out += "\\r";
@@ -193,7 +193,7 @@ std::string visible(const std::string& s) {
     return out;
 }
 
-EmulatorConfig esp_config(bool enabled) {
+[[maybe_unused]] EmulatorConfig esp_config(bool enabled) {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZXN_ISSUE2;
     cfg.rewind_buffer_frames = 0;
@@ -201,7 +201,7 @@ EmulatorConfig esp_config(bool enabled) {
     return cfg;
 }
 
-void uart0_send(Emulator& emu, const std::string& line) {
+[[maybe_unused]] void uart0_send(Emulator& emu, const std::string& line) {
     emu.port().out(0x153B, 0x00);           // select channel 0 (the ESP)
     for (char c : line) emu.port().out(0x133B, static_cast<uint8_t>(c));
 }
@@ -262,7 +262,7 @@ constexpr int ESP_MAX_FRAMES = 20000;
 /// full timeout to learn it.
 ///
 /// Draining across frames is what a real program does too.
-Drained uart0_drain(Emulator& emu, const std::string& want) {
+[[maybe_unused]] Drained uart0_drain(Emulator& emu, const std::string& want) {
     Drained  d;
     const auto start    = std::chrono::steady_clock::now();
     const auto deadline = start + std::chrono::milliseconds(ESP_WAIT_MS);
@@ -289,7 +289,7 @@ Drained uart0_drain(Emulator& emu, const std::string& want) {
 }
 
 /// The wait as a row's failure text renders it.
-std::string waited(const Drained& d) {
+[[maybe_unused]] std::string waited(const Drained& d) {
     return fmt("after %d frames / %.0f ms", d.frames, d.ms);
 }
 
@@ -369,7 +369,7 @@ struct CableFrame {
 // counter before the snapshot is taken. A schedule keyed off it would therefore
 // drift by one frame across the rewind and the replay would no longer be a
 // replay of the same run.
-CableFrame run_cable_frame(Emulator& emu, uint8_t nr_0b) {
+[[maybe_unused]] CableFrame run_cable_frame(Emulator& emu, uint8_t nr_0b) {
     CableFrame f;
     if (const JoyUartSource* src = emu.joy_uart_source()) {
         f.delivered = src->delivered();
@@ -391,7 +391,7 @@ CableFrame run_cable_frame(Emulator& emu, uint8_t nr_0b) {
 // matched" assertion becomes a comparison of empty frames against empty frames.
 // (It used to arm the machine too, by the `active()` bit this also cleared; GH
 // #278 WP3 stopped that and WP4c retired the bit.)
-bool rewind_and_resume(Emulator& emu, uint32_t frame) {
+[[maybe_unused]] bool rewind_and_resume(Emulator& emu, uint32_t frame) {
     if (!emu.rewind_to_frame(frame)) return false;
     emu.debug_state().resume();
     return true;
@@ -399,7 +399,7 @@ bool rewind_and_resume(Emulator& emu, uint32_t frame) {
 
 // Index of the first step at which two runs disagree, or -1 if they agree over
 // `count` steps starting at `base` in `forward`.
-int first_divergent_step(const std::vector<CableFrame>& forward, int base,
+[[maybe_unused]] int first_divergent_step(const std::vector<CableFrame>& forward, int base,
                          const std::vector<CableFrame>& replay) {
     for (std::size_t j = 0; j < replay.size(); ++j) {
         const std::size_t f = static_cast<std::size_t>(base) + j;
@@ -411,7 +411,7 @@ int first_divergent_step(const std::vector<CableFrame>& forward, int base,
 
 // A stream long enough to outlive the whole run — an exhausted cursor cannot
 // move, and every assertion below would pass trivially against one.
-std::vector<uint8_t> cable_stream() {
+[[maybe_unused]] std::vector<uint8_t> cable_stream() {
     std::vector<uint8_t> s(8192);
     for (std::size_t i = 0; i < s.size(); ++i)
         s[i] = static_cast<uint8_t>((i * 7 + 1) & 0xFF);
@@ -419,7 +419,7 @@ std::vector<uint8_t> cable_stream() {
 }
 
 // Config for a Next with a joystick serial cable attached.
-EmulatorConfig joy_config(const std::string& file, int connector,
+[[maybe_unused]] EmulatorConfig joy_config(const std::string& file, int connector,
                           uint32_t delay_frames) {
     EmulatorConfig cfg;
     cfg.type                     = MachineType::ZXN_ISSUE2;
@@ -434,7 +434,7 @@ EmulatorConfig joy_config(const std::string& file, int connector,
 // FIFO through the real port path after each one. The NR is re-asserted every
 // frame because the boot firmware is running underneath and this row must
 // observe the mux it asked for, not whatever the ROM last left behind.
-std::vector<uint8_t> run_and_drain(Emulator& emu, uint8_t nr_0b, int channel,
+[[maybe_unused]] std::vector<uint8_t> run_and_drain(Emulator& emu, uint8_t nr_0b, int channel,
                                    int frames) {
     std::vector<uint8_t> got;
     for (int f = 0; f < frames; ++f) {
@@ -550,7 +550,7 @@ private:
 };
 
 // Config for a Next with a LIVE joystick cable attached.
-EmulatorConfig link_config(const std::string& base, int connector) {
+[[maybe_unused]] EmulatorConfig link_config(const std::string& base, int connector) {
     EmulatorConfig cfg;
     cfg.type                 = MachineType::ZXN_ISSUE2;
     cfg.rewind_buffer_frames = 0;
@@ -562,7 +562,7 @@ EmulatorConfig link_config(const std::string& base, int connector) {
 // Transmit one byte from the guest on `channel` with NR 0x0B held at `nr_0b`,
 // and run a whole frame so the byte-level TX engine completes it and the
 // cable's once-per-frame poll() runs.
-void guest_transmit_frame(Emulator& emu, uint8_t nr_0b, int channel, uint8_t byte) {
+[[maybe_unused]] void guest_transmit_frame(Emulator& emu, uint8_t nr_0b, int channel, uint8_t byte) {
     emu.nextreg().write(0x0B, nr_0b);
     emu.port().out(0x153B, static_cast<uint8_t>(channel ? 0x40 : 0x00));
     emu.port().out(0x133B, byte);
@@ -586,7 +586,7 @@ void guest_transmit_frame(Emulator& emu, uint8_t nr_0b, int channel, uint8_t byt
 
 namespace {
 
-EmulatorConfig pi_config(const std::string& base) {
+[[maybe_unused]] EmulatorConfig pi_config(const std::string& base) {
     EmulatorConfig cfg;
     cfg.type                 = MachineType::ZXN_ISSUE2;
     cfg.rewind_buffer_frames = 0;
@@ -599,7 +599,7 @@ EmulatorConfig pi_config(const std::string& base) {
 // selected, then drain UART 1's RX FIFO through port 0x143B. NR 0xA0 is
 // re-written every frame for the reason the JOY rows re-write NR 0x0B: the
 // guest's own ROM runs inside run_frame() and owns the register too.
-std::vector<uint8_t> pi_frame(Emulator& emu, uint8_t nr_a0, uint8_t nr_0b = 0x00) {
+[[maybe_unused]] std::vector<uint8_t> pi_frame(Emulator& emu, uint8_t nr_a0, uint8_t nr_0b = 0x00) {
     emu.nextreg().write(0xA0, nr_a0);
     emu.nextreg().write(0x0B, nr_0b);
     emu.run_frame();
@@ -612,7 +612,7 @@ std::vector<uint8_t> pi_frame(Emulator& emu, uint8_t nr_a0, uint8_t nr_0b = 0x00
 
 // The guest transmits `byte` on UART 1 with the registers held as above, and a
 // whole frame runs so the TX engine completes it and the link's poll() flushes.
-void pi_transmit_frame(Emulator& emu, uint8_t nr_a0, uint8_t byte, uint8_t nr_0b = 0x00) {
+[[maybe_unused]] void pi_transmit_frame(Emulator& emu, uint8_t nr_a0, uint8_t byte, uint8_t nr_0b = 0x00) {
     emu.nextreg().write(0xA0, nr_a0);
     emu.nextreg().write(0x0B, nr_0b);
     emu.port().out(0x153B, 0x40);
@@ -759,7 +759,7 @@ private:
     bool                  ok_ = false;
 };
 
-EmulatorConfig pi_qemu_config(const PiQemu& qemu) {
+[[maybe_unused]] EmulatorConfig pi_qemu_config(const PiQemu& qemu) {
     EmulatorConfig cfg;
     cfg.type                 = MachineType::ZXN_ISSUE2;
     cfg.rewind_buffer_frames = 0;
@@ -798,7 +798,7 @@ bool process_alive(int pid) {
 #endif
 }
 
-bool contains(const std::vector<std::string>& v, const std::string& a, const std::string& b) {
+[[maybe_unused]] bool contains(const std::vector<std::string>& v, const std::string& a, const std::string& b) {
     for (std::size_t i = 0; i + 1 < v.size(); ++i)
         if (v[i] == a && v[i + 1] == b) return true;
     return false;
@@ -814,7 +814,7 @@ bool contains(const std::vector<std::string>& v, const std::string& a, const std
 namespace {
 
 /// Wait up to `ms` for `pid` to be gone (reaped or never ours: kill fails).
-bool gone_within(int pid, int ms) {
+[[maybe_unused]] bool gone_within(int pid, int ms) {
     for (int waited = 0; waited <= ms; waited += 20) {
         if (!process_alive(pid)) return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -833,7 +833,7 @@ bool gone_within(int pid, int ms) {
 namespace {
 
 /// The descriptors this process has open below 1024.
-std::set<int> open_fds() {
+[[maybe_unused]] std::set<int> open_fds() {
     std::set<int> fds;
 #ifndef _WIN32
     for (int fd = 0; fd < 1024; ++fd)

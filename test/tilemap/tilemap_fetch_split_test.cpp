@@ -511,7 +511,7 @@ void test_clip_window_split() {
     const bool kept = rows_match(fb, 80,
         [](int) { return SPLIT_RED; },
         inside, sizeof(inside), "column 80 (inside the window)");
-    char both[512];
+    char both[520];
     std::snprintf(both, sizeof(both), "%s; %s", detail, inside);
     check("TM-SPLIT-06",
           // VHDL tilemap.vhd:412-424 — xsv/xev/ysv/yev re-latch clip_*_i every

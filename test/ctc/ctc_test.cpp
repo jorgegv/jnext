@@ -89,11 +89,6 @@ void check(const char* id, bool cond, const char* desc, const std::string& detai
     }
 }
 
-void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skipped.push_back({id, reason});
-}
-
 std::string fmt(const char* fmt_str, ...) {
     char buf[512];
     va_list ap;

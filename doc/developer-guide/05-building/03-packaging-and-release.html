@@ -3056,6 +3056,12 @@ you read it; it is not a replacement for it.</p>
 </tr>
 </tbody>
 </table>
+<p>The rpm, deb, Flatpak and macOS packaging builds (including the rpm spec and the
+Debian <code>rules</code>) configure with <code>-DJNEXT_WERROR=OFF</code>; the Windows zips keep the
+default, because they are built with the same MinGW toolchains the gate uses.
+A warning from a distribution's own compiler therefore prints but never fails
+a release; see
+<a href="02-build-configurations.html#compiler-warnings">5.2 Build configurations</a>.</p>
 <p>The source tarball is deliberately not a <code>git archive</code>. That would produce an
 <em>empty</em> <code>third_party/spdlog</code> directory, which fails CMake configure the moment
 anyone tries to build from it; <code>package-src</code> instead runs
