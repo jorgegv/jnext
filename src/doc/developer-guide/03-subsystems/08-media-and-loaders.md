@@ -1548,7 +1548,7 @@ explicit 64-bit offset.
 `provision_sd_card` wraps the SD distro zip in a retry loop: one attempt is the
 `DownloadFn` call plus the extraction of the image from the zip, because the
 distribution server sometimes answers with a short page that "downloads" fine and
-only fails to unzip. A failed attempt (not a user cancel) is repeated up to
+only fails to unzip. A failed attempt (not a user cancel, nor an HTTP 4xx answer other than 408 or 429: the server refused, asking again only delays it) is repeated up to
 `ProvisionOptions::retries` (3) more times, after 2, 4 and 8 s, each retry noted
 on stderr and in the log (the GUI also in the dialog, which stays alive through the wait:
 `SdcardGuiProvisioner::retry_wait` pumps the event loop, Cancel works, and the next
