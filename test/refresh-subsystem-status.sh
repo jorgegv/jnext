@@ -115,6 +115,7 @@ BEGIN {
     M["fat32_image_test"]              = "FAT32 Image"
     M["sdcard_provisioner_test"]       = "SD Card Provisioner"
     M["sha256_test"]                   = "SHA-256 backends (GH #459)"
+    M["minimal_card_test"]             = "Minimal NextZXOS card builder (GH #458)"
     M["sdcard_provisioner_posix_test"] = "SD Card Provisioner (POSIX-only rows)"
     M["warm_start_test"]               = "Warm start (GH #234)"
     M["warm_start_card_test"]          = "Warm start on a real card (GH #464)"
