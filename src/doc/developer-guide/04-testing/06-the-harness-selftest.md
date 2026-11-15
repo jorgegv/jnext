@@ -103,7 +103,7 @@ os-restricted suite without the `?`, likewise; a gated-out suite is a NOTICE
 naming the OS; a Windows build's `NAME.exe` registration matches the manifest and
 the runner prefix reaches the `.exe`; a bash older than 4, a host without GNU
 `timeout` or without perl is a refusal; and `JNEXT_UNIT_TEST_JOBS` serialises
-two lock-holding suites (with the uncapped control that they do overlap). The packaging self-test's `PS-05` pins that a contract
+two lock-holding suites (with the control that an explicit `0`, no cap, lets them overlap); unset, the default is one suite per CPU (`HS-88e`: a host whose `nproc` says 1 never overlaps them) and each suite's PASS and FAIL row ends with its wall time (`HS-88g` the PASS row, `HS-88h` the FAIL row). The packaging self-test's `PS-05` pins that a contract
 sub-test printing SKIP and exiting 0 is a SKIP row. `HS-73` runs the real confirm
 path in a throwaway repository whose one row invokes the harness again, as
 harness-selftest-func does, and requires it to complete and stamp: a nested

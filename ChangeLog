@@ -6,10 +6,11 @@
 - `--esxdos-stub` now serves a loaded NEX its own directory when no `--esxdos-stub-root` is given
 - esxDOS host folder: delete (wildcards too), rename, make/remove directories, truncate, read-only bit and error messages, answered as NextZXOS does (from @shrek128's WebAssembly port)
 - Much faster emulation of programs that HALT or wait on the Copper: 20 to 84 % fewer host instructions per frame, same output (suggested by @shrek128)
+- macOS Intel (x64) builds: a second .dmg for Intel Macs, alongside Apple Silicon; both need macOS 15 or later
 
 ### Developer Features
 - Source tab opens any file the source map names (File list), to browse it and set breakpoints in its gutter
-- Magic breakpoint recognises FD 00, the sjasmplus break opcode (CSpect 2.19.9.1+); ED FF now runs as the hardware NOP
+- Magic breakpoint also recognises FD 00 (sjasmplus `break`, CSpect 2.19.9.1+), beside ED FF (ZEsarUX) and DD 01
 
 ### Bug Fixes
 - NextPi: an idle Pi costs far less CPU (QEMU no longer adds a USB hub for the Pi's sound card) (@janko-jj)
@@ -25,6 +26,9 @@
 - Idle programs keep their low CPU use with the ESP-01 enabled or the debugger window open; Preferences OK no longer resets the CPU speed
 - NextZXOS no longer freezes on a blank grey screen when an interrupt lands right after LD A,I (e.g. a quick SPACE at the Welcome screen)
 - The packages now include the 48K ROM symbol map, so the debugger can name ROM routines (Map > Load MAP File > Simple Format)
+
+### Internal JNEXT Development
+- Builds use -Wall -Wextra on every platform, with the reported warnings fixed and new ones failing the build (the Linux and macOS packages only print them)
 
 ### Contributors in this release
 - @shrek128, @vmorilla, @Luzie, @shadowphiar, @janko-jj
@@ -71,7 +75,6 @@
 - Developer guide chapter on the source-level debugger; docs-check verifies its code citations against the tree
 - Faster test cycle: AY mix recomputed only on change, cheaper CLI suite; mistyped regression row names are refused
 - Build warnings fixed at their causes, -Werror on test executables; the rpm links spdlog statically
-- Builds use -Wall -Wextra on every platform, with the reported warnings fixed and new ones failing the build (packaging builds only print them)
 
 ### Contributors in this release
 - @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj, @jattree, @tofro, @jsmolina

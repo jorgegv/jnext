@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.42</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.42</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3076,7 +3076,7 @@ everything look as though it were registered twice. It refuses when:</p>
   build registers <code>NAME.exe</code>: the harness strips the suffix to match the
   manifest, checks for the <code>.exe</code>, and prefixes every suite with
   <code>JNEXT_TEST_RUNNER</code> (wine, see <a href="../05-building/01-make-targets.html#test">5.1</a>),
-  and <code>JNEXT_UNIT_TEST_JOBS</code> caps how many run at once (unset: all of them).</li>
+  and <code>JNEXT_UNIT_TEST_JOBS</code> caps how many run at once (unset: one per CPU, from <code>nproc</code>; <code>0</code>: no cap). Starting every suite at once made the 300 s per-suite bound measure the host's queue, not the suite: on a 4-vCPU macOS Intel runner the longest suite took 89% of the bound, and new work pushed fourteen over it. Each suite's wall time is printed at the end of its result row.</li>
 <li>the run cannot make its <strong>private clone of the SD master</strong> under
   <code>~/.jnext/runs/</code> (no space, no permission): the run fails naming the cause,
   and never falls back to reading the shared master, which every other run

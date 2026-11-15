@@ -680,8 +680,15 @@ public:
                   "for a in \"$@\"; do case \"$a\" in wav,*path=*) au=\"${a#*path=}\"; au=\"${au%%,*}\" ;; esac; done\n"
                   "if [ -n \"$au\" ] && [ -f \"$here/tone.wav\" ]; then cat \"$here/tone.wav\" > \"$au\" & fi\n"
                   "echo $$ > \"$here/pid\"\n"
+                  // A slow start-up (a loaded 4-CPU runner), made on purpose: sleep
+                  // JNEXT_FAKE_NEXTPI_DELAY seconds between the pid record and
+                  // opening the FIFOs, the window a row must not assume away.
+                  "[ -n \"$JNEXT_FAKE_NEXTPI_DELAY\" ] && sleep \"$JNEXT_FAKE_NEXTPI_DELAY\"\n"
                   "exec 3<>\"$base.in\" 4<>\"$base.out\"\n"
                   "printf 'SUP> ' >&4\n"
+                  // The pipe chardev is open on both sides and `SUP> ` is in it: bytes
+                  // sent from now on are not lost. `pid` is NOT that signal (it comes first).
+                  "echo ready > \"$here/ready\"\n"
                   "exec cat <&3 >> \"$here/received\"\n";
         ok_ = write_script(root_ / "bin" / "qemu-system-arm", "#!/bin/sh\n" + body)
            // A QEMU that ignores SIGTERM (it is inherited across exec).
@@ -725,6 +732,17 @@ public:
     std::string file(const char* name) const {
         std::ifstream f(root_ / "bin" / name);
         return std::string(std::istreambuf_iterator<char>(f), {});
+    }
+    /// Poll until the stand-in has opened both ends of its pipe chardev (the `ready`
+    /// record), up to ten seconds of wall clock. jnext's TX side is opened lazily and a
+    /// byte written while nobody has the FIFO open is dropped, so a row that drives the
+    /// emulator must wait for this, never assume start() returning means the Pi is up.
+    bool wait_ready() const {
+        for (int i = 0; i < 400; ++i) {
+            if (!file("ready").empty()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        }
+        return false;
     }
     /// The stand-in's own pid, once it has started (0 if it never did).
     int child_pid() const {

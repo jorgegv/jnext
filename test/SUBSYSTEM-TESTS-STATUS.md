@@ -96,7 +96,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options / docs    |       63 |       63 |      0 |       0 |    100% | 🟢 All tests pass. |
-| jnext.conf key table (GH #417) |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
+| jnext.conf key table (GH #417) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       54 |       54 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |      157 |      157 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |      117 |      117 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -142,7 +142,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | C value formatting (frames and values) |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (backend) |      531 |      531 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Backend (GH #276) |     1579 |     1579 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Backend (GH #276) |     1585 |     1585 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -203,6 +203,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16332**| **16332**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16341**| **16341**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

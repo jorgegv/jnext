@@ -8,8 +8,8 @@ for it. The other two are not native builds here:
   `make package-win` (the zip) run Fedora's MinGW toolchain on Linux. There is
   no MSVC build. Both targets are exercised on this dev host and in CI.
 - **macOS** must be built *on a Mac*: `make package-macos` prints a SKIP and
-  exits cleanly on any other platform. It is exercised on the `macos-latest`
-  GitHub Actions runner rather than on the Linux dev host.
+  exits cleanly on any other platform. It is exercised on the `macos-15` (Apple
+  Silicon) and `macos-15-intel` GitHub Actions runners rather than on the Linux dev host.
 
 The platform-specific detail for both — the MinGW package list and the DLL
 bundling, the `.app` bundle deployment and its verification — lives in
@@ -187,6 +187,7 @@ The `make` targets pass these for you; use them when invoking CMake directly.
 | `ENABLE_QT_UI`    | **OFF** | Build the Qt6 native UI. `make gui-*` turns it on — a plain `cmake` without it gives the SDL frontend                                |
 | `ENABLE_DEBUGGER` | **ON**  | Include the Qt debugger UI. It is opened from the Qt main window, so it is only reachable in a build that also has `ENABLE_QT_UI=ON` |
 | `ENABLE_TESTS`    | ON      | Build the unit-test binaries                                                                                                         |
+| `JNEXT_WERROR`    | ON      | Treat compiler warnings as errors (`-Wall -Wextra -Werror`). Pass OFF when building with a compiler our CI does not use, as the packaging builds do |
 | `USE_CCACHE`      | ON      | Use ccache as the compiler launcher when it is found (no-op if it is not)                                                            |
 | `CYCLE_ACCURATE`  | OFF     | 28 MHz cycle-accurate mode                                                                                                           |
 | `JNEXT_PGO`       | OFF     | Profile-guided optimisation stage: `GENERATE` (instrument) or `USE` (optimise with the profile in `JNEXT_PGO_DIR`). The make targets drive it |

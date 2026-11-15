@@ -155,8 +155,8 @@ get none.
 - **Packaging builds pass `-DJNEXT_WERROR=OFF`**: `package-rpm`, `package-deb`,
   `package-macos`, the rpm spec, the Debian `rules` and the Flatpak manifest. A
   release must not fail on a warning that a distribution's newer compiler adds
-  and that no gate of ours runs. They still print the warnings. `package-win`
-  keeps the default: it is built with the gate's own MinGW compiler.
+  and that no gate of ours runs. They still print the warnings. The Windows
+  zips keep the default: they are built with the gate's own MinGW compiler.
 - **Compile time only.** The flags are not on the link line. Under LTO and PGO
   the flow-sensitive warnings (`-Wmaybe-uninitialized`, `-Warray-bounds`) run
   at link time and would depend on the trained profile; the non-LTO test trees

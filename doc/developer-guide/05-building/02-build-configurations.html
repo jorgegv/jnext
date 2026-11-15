@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.42</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.42</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3171,8 +3171,8 @@ get none.</p>
 <li><strong>Packaging builds pass <code>-DJNEXT_WERROR=OFF</code></strong>: <code>package-rpm</code>, <code>package-deb</code>,
   <code>package-macos</code>, the rpm spec, the Debian <code>rules</code> and the Flatpak manifest. A
   release must not fail on a warning that a distribution's newer compiler adds
-  and that no gate of ours runs. They still print the warnings. <code>package-win</code>
-  keeps the default: it is built with the gate's own MinGW compiler.</li>
+  and that no gate of ours runs. They still print the warnings. The Windows
+  zips keep the default: they are built with the gate's own MinGW compiler.</li>
 <li><strong>Compile time only.</strong> The flags are not on the link line. Under LTO and PGO
   the flow-sensitive warnings (<code>-Wmaybe-uninitialized</code>, <code>-Warray-bounds</code>) run
   at link time and would depend on the trained profile; the non-LTO test trees

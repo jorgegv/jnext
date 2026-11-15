@@ -870,7 +870,7 @@ static void test_pi_qemu() {
 
         std::vector<uint8_t> heard;
         bool sent = false;
-        if (started) {
+        if (started && fake.wait_ready()) {   // the Pi has its chardev open: start() returning does not say so
             Emulator emu;
             emu.init(pi_qemu_config(*qemu));
             for (int f = 0; f < 4 && heard.size() < 5; ++f) {
@@ -924,7 +924,7 @@ static void test_pi_qemu() {
         const int  pid     = qemu.pid();
 
         bool first = false, second = false;
-        if (started) {
+        if (started && fake.wait_ready()) {   // the Pi has its chardev open: start() returning does not say so
             {
                 Emulator emu;
                 emu.init(pi_qemu_config(qemu));

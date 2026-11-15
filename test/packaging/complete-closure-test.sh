@@ -9,6 +9,7 @@
 # does not prove.
 #
 set -u
+unset MACPORTS_PREFIX   # an inherited prefix must not switch the Homebrew rows into MacPorts mode
 
 cd "$(dirname "$0")/../.." || exit 2   # repo root
 
@@ -19,8 +20,8 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 pass=0; fail=0
-ok()  { printf "  ${GREEN}PASS${RESET} %-22s %s\n" "$1" "$2"; pass=$((pass+1)); }
-bad() { printf "  ${RED}FAIL${RESET} %-22s %s\n" "$1" "$2"; fail=$((fail+1)); }
+ok()  { printf "  ${GREEN}PASS${RESET} %-24s %s\n" "$1" "$2"; pass=$((pass+1)); }
+bad() { printf "  ${RED}FAIL${RESET} %-24s %s\n" "$1" "$2"; fail=$((fail+1)); }
 
 mkdir -p "$WORK/bin"
 cat >"$WORK/bin/otool" <<'STUB'
@@ -179,6 +180,28 @@ rc=$(run "$APP")
 if grep -q 'cannot find libnowhere.9.dylib' "$WORK/out.log"; then
     ok CC-06 "unfindable library reported by name"
 else bad CC-06 "no report for an unfindable library: $(cat "$WORK/out.log")"; fi
+
+# --- CC-07: MACPORTS_PREFIX searches only <prefix>/lib ------------------------
+# The Intel build's prefix is MacPorts'. The runner also has its own Homebrew
+# (/usr/local), and a same-named library in the Homebrew layout must NOT be used.
+APP=$WORK/macports.app
+macho "$APP" Contents/MacOS/jnext '@rpath/libfoo.1.dylib'
+rpaths "$APP" Contents/MacOS/jnext '@executable_path/../Frameworks'
+MPFX=$WORK/macports; mkdir -p "$MPFX/lib" "$MPFX/opt/x/lib"
+echo "macports mach-o" > "$MPFX/lib/libfoo.1.dylib"
+brewlib_deps "$MPFX/lib/libfoo.1.dylib" '/usr/lib/libSystem.B.dylib'
+rc=0; MACPORTS_PREFIX="$MPFX" HOMEBREW_PREFIX="$BREW" bash "$SCRIPT" "$APP" >"$WORK/out.log" 2>&1 || rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$APP/Contents/Frameworks/libfoo.1.dylib" 2>/dev/null)" = "macports mach-o" ]; then
+    ok macports-prefix-search "library copied from <MACPORTS_PREFIX>/lib"
+else bad macports-prefix-search "expected the MacPorts copy, got $rc: $(cat "$WORK/out.log")"; fi
+APP=$WORK/macports-decoy.app
+macho "$APP" Contents/MacOS/jnext '@rpath/libdecoy.1.dylib'
+rpaths "$APP" Contents/MacOS/jnext '@executable_path/../Frameworks'
+echo "homebrew layout" > "$MPFX/opt/x/lib/libdecoy.1.dylib"
+rc=0; MACPORTS_PREFIX="$MPFX" HOMEBREW_PREFIX="$BREW" bash "$SCRIPT" "$APP" >"$WORK/out.log" 2>&1 || rc=$?
+if [ ! -e "$APP/Contents/Frameworks/libdecoy.1.dylib" ] && grep -q 'cannot find libdecoy.1.dylib' "$WORK/out.log"; then
+    ok macports-prefix-decoy "a same-named library under <prefix>/opt/*/lib is NOT used"
+else bad macports-prefix-decoy "decoy was used or not reported: $(cat "$WORK/out.log")"; fi
 
 printf "\n${BOLD}Total: %d pass, %d fail${RESET}\n" "$pass" "$fail"
 [ "$fail" -eq 0 ]

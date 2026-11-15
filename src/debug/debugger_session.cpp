@@ -571,6 +571,13 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
     impl_->sync_notifications();
     for (Service* s : impl_->services) s->flush_notifications();
 
+    // Tombstones from this pump's commands (a remote client's remove_breakpoint) go now:
+    // `draining` is false here (the early return above), so no loop is walking the table.
+    // Not in unsubscribe(): condition callbacks are called while the table is walked
+    // outside a drain (debugger_events.cpp). Every `events.entries()` loop runs inside
+    // one call and none spans a pump.
+    if (impl_->events.has_tombstones()) impl_->events.compact();
+
     hint.remote_attached = impl_->any_peer_connected();
     hint.paused          = impl_->ds().paused();
     return hint;

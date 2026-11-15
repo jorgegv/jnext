@@ -26,6 +26,7 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+	${MACOSX_BUNDLE_MIN_SYSTEM_VERSION_ENTRY}
 	<key>CSResourcesFileMapped</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
