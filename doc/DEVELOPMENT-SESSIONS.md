@@ -228,4 +228,16 @@
 | 4/11    |      | #446 ffmpeg PATH lookup (janko-jj); #449 DZRP startup race. v1.1.116->1.1.117                          |
 | 5-6/11  |      | epic #353 C variables merged; #450 keys at the frame INT (jsmolina, Ms. Nam-Pac); #451                 |
 |         |      | v1.1.118->1.1.120; v1.2.0 PUBLIC RELEASE                                                               |
+| 7/11    |      | #454 NEX sysvars and border; #453 ULA clip; #455 read-only SD writes; #477 C variables under wine      |
+|         |      | v1.2.1->1.2.10                                                                                         |
+| 8/11    |      | #452 HALT/Copper batch (shrek128); #481 warm start at the Command Line; #484 .szx AY; #454 NEX V1.3    |
+|         |      | PR #479 (vmorilla). v1.2.11->1.2.20                                                                    |
+| 11/11   |      | PR #493 macOS Finder open (shadowphiar). v1.2.21                                                       |
+| 12/11   |      | #491 LD A,I grey-screen freeze; #490 #457 esxDOS root and writes; #485 48K ROM map; #489 idle CPU      |
+|         |      | #480 Source tab any file; #456 FD 00 magic breakpoint. v1.2.22->1.2.28                                 |
+| 13/11   |      | #489 NextPi sound card on the Pi's USB port; licence texts in every package. v1.2.29->1.2.34           |
+| 14/11   |      | #476 NextZXOS 26.11 default card; #489 debugger window CPU (janko-jj); #487 shipped binaries tested    |
+|         |      | v1.2.35->1.2.39                                                                                        |
+| 15/11   |      | #494 macOS Intel (neosquid); #418 -Wall -Wextra; #497 download retries; #496 raster-poll (janko-jj)    |
+|         |      | epic #14 WebAssembly merged (#458 browser card). v1.2.40->1.2.45; v1.3.0 PUBLIC RELEASE                |
 | TOTAL:  | 666h |                                                                                                        |
