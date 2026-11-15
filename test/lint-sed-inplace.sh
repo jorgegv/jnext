@@ -39,8 +39,13 @@
 # by macOS's `make regression-macos` or `make unit-test-sdl`. Each in-scope file
 # is scanned to its last line; the lint refuses (exit 2) if it was not.
 #
+# MAY WRONGLY FLAG (second hazard): a `$(...)` or `$((...))` expansion OUTSIDE
+# double quotes in a script word (`${...}` is read as the digit 1 either way).
+# Also: after `-f prog.sed` every later non-option word is taken as an input file.
 # CANNOT CATCH (EXAMPLES, not exhaustive), second hazard: a script spanning
-# physical lines; a sed reached through a variable; every OTHER GNU-only sed
+# physical lines; a label branch into the block (`-e ':a' -e '/x/{N;ba}'`: GNU
+# ends the label at `}`, BSD reads `a}`; `b`/`t` take the rest of the line here);
+# a sed reached through a variable; every OTHER GNU-only sed
 # spelling (`\x1b`, `\t`, `\S`, `\L`, the I/M flags, a `b`/`t` label followed by
 # `;`): a different class, not covered here. First hazard: a quoted string spanning physical
 # lines (quote state is reset at each line end, so the closing line of a
@@ -190,6 +195,7 @@ scan_awk() {
         function sed_block_unclosed(s,   t, toks, nt, j, k, insed, have_e, got, expect_e, skipn, script) {
             t = s
             gsub(/[;&|()`]/, " SEP ", t)
+            gsub(/\$\{[^}]*\}/, "1", t)
             gsub(/\$\{?/, " ", t)
             nt = split(t, toks, /[[:space:]]+/)
             insed = 0; script = ""
@@ -208,7 +214,7 @@ scan_awk() {
                 if (skipn) { skipn = 0; continue }
                 if (k ~ /^-[A-Za-z]*e$/) { expect_e = 1; have_e = 1; continue }
                 if (k ~ /^-e./) { script = script (script == "" ? "" : "\n") piece_text(substr(k, 3)); have_e = 1; continue }
-                if (k ~ /^-[A-Za-z]*f$/) { skipn = 1; continue }
+                if (k ~ /^-[A-Za-z]*f$/) { skipn = 1; have_e = 1; continue }
                 if (k ~ /^-/) continue
                 if (!have_e && !got) { script = piece_text(k); got = 1 }
             }
@@ -335,6 +341,14 @@ selftest() {
         0 'brace in s RE (-E)'        "sed -E 's/^(P[0-9]{2}):/\\1/' f"
         0 'dquote ${var}p'            'sed -n "${first}p" f'
         0 'dquote ${n}p (n is a command)' 'sed -n "${n}p" f'
+        1 'block close: -e word, then -e block'  "sed -n -e 'p' -e '/x/{p}' f"
+        1 'block close: attached -e'  "sed -n -e'/x/{p}' f"
+        0 'rest-of-line command (r) ends at the newline' "sed -e '/x/{r f}' -e '}' f"
+        0 'brace as the y replacement' "sed 'y/a/}/' f"
+        0 'escaped delimiter then brace in s' "sed -n '/x/{s/a/b\/}/;}' f"
+        0 'empty block {}'            "sed -n '/x/{}' f"
+        0 'unquoted ${n}p'            'sed -n ${n}p f'
+        0 '-f script file, input named later' "sed -f prog.sed '/x/{p}' f"
         0 'dquote $(( ))p'            'sed -n "$(( a + 1 ))p" f'
         0 'brace in an address RE'    "sed -n '/^menu_index() {/,/^}/p' f"
         0 'braces in y'               "sed 'y/{}/()/' f"
