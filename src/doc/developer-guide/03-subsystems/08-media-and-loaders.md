@@ -1494,6 +1494,16 @@ only the final rename failed) is finished with no request and never refetched; a
 Oversize or Stale one is discarded; a Resumable one is continued, appended at an
 explicit 64-bit offset.
 
+`provision_sd_card` wraps the SD distro zip in a retry loop: one attempt is the
+`DownloadFn` call plus the extraction of the image from the zip, because the
+distribution server sometimes answers with a short page that "downloads" fine and
+only fails to unzip. A failed attempt (not a user cancel) is repeated up to
+`ProvisionOptions::retries` (3) more times, after 2, 4 and 8 s, each retry noted
+on stderr and in the log; the last failure is the one reported. A partial kept by
+a failed attempt is continued by the next one, by the contract above. The wait is
+the `SleepFn` seam (`ProvisionOptions::sleep`); `$JNEXT_SDCARD_RETRY_BACKOFF_MS`
+replaces the 2 s base for test processes.
+
 A dropped network must neither freeze the window nor take minutes to be noticed. The same contract on `DownloadFn` says how both backends behave while a
 transfer is under way. They call the `ProgressFn` at least every `tick_ms` (200),
 whatever the network does: connecting, waiting for headers, a silent body. A

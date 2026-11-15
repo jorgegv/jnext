@@ -211,7 +211,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra
+       package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions flatpak-prefetch z88dk-gdb skoolkit ghidra
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -1787,6 +1787,10 @@ package-flatpak:
 	@# verify-macos-dmg: the gate is part of producing the artifact, not a
 	@# separate thing someone has to remember to run.
 	$(MAKE) verify-flatpak-permissions
+
+# Fetch the Flatpak manifest's source zip into flatpak-builder's cache, retrying (GH #497)
+flatpak-prefetch:
+	@bash packaging/flatpak/prefetch-sources.sh
 
 # Prove the built Flatpak bundle carries the permissions jnext needs (GH #271)
 verify-flatpak-permissions:
