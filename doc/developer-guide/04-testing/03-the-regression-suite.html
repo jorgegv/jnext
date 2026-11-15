@@ -3131,7 +3131,16 @@ lookup instead, and the suite provisions that image for itself in the
   when the image is derived, so it cannot notice that jnext now derives a
   different image. The gate therefore also re-derives when the image's
   <code>.recipe</code> sidecar, written by jnext, does not hold the
-  <code>sdcard::kFixedImageRecipe</code> of the tree under test.</li>
+  <code>sdcard::kFixedImageRecipe</code> of the tree under test.
+  The same goes for the distribution: a master whose <code>.distro</code> sidecar names
+  another distribution than the tree's default is replaced.
+  The gate is one function, <code>sd_master_gate</code> in <code>test-functions.inc</code>, shared with
+  <code>tools/sd-master-ensure.sh</code>: <code>make gui-release</code> (the PGO training) and the
+  unit-test targets (<code>make sdcard-image</code>, a prerequisite of <code>make unit-test</code>)
+  run it too, so a host left with the previous distribution's card is repaired
+  before anything reads it, under the same lock; a current master is not
+  touched. <code>sdcard-ensure-func</code> tests the tool. With a candidate card
+  (<code>JNEXT_REGRESSION_SD_STATE_DIR</code>) the tool does nothing.</li>
 <li><strong>A per-run clone</strong> points <code>JNEXT_CONFIG_DIR</code> at a private directory, so the
   run boots its own copy and every non-headless invocation starts from clean
   GUI preferences. That directory lives under <code>$HOME</code> rather than <code>/tmp</code>,
