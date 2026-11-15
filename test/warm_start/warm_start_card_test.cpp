@@ -207,11 +207,10 @@ int main() {
         } while (p.status == Emulator::WarmStartProgress::Status::Recording && calls < 1000);
         const bool ready = p.status == Emulator::WarmStartProgress::Status::Ready;
         check("WSCARD-02",
-              "a recording stepped 7 frames per call advances exactly 7 each time (up to the nominal total), ends after "
-              "ceil(frames/7) calls (the length is the card's boot, not pinned: 605 on 24.11, "
-              "777 on 26.11), and is byte-identical to the one-shot recording",
-              ready && steps_ok && p.frames_done > 400 && calls == (p.frames_done + 6) / 7 &&
-                  !state1.empty() &&
+              "a recording stepped 7 frames per call advances exactly 7 each time (up to the nominal "
+              "total), ends at 777 frames after 111 calls (the default 26.11 card's boot; 605 / 87 on "
+              "24.11), and is byte-identical to the one-shot recording",
+              ready && steps_ok && calls == 111 && p.frames_done == 777 && !state1.empty() &&
                   e.warm_start_state() == state1,
               det("ready=%d steps_ok=%d calls=%u done=%u same=%d", ready, steps_ok, calls,
                   p.frames_done, e.warm_start_state() == state1));

@@ -378,6 +378,14 @@ public:
     /// new process would have it (tests only).
     static void reset_warm_start_memo_for_test();
 
+    /// Install `rec` as the recording in progress, so prepare_warm_start() steps it
+    /// (tests only: a recorder that never commits a machine type needs no firmware).
+    void set_warm_start_recorder_for_test(std::unique_ptr<Emulator> rec) {
+        warm_start_recorder_ = std::move(rec);
+        warm_start_recorded_frames_ = 0;
+        warm_start_recorded_units_ = 0;
+    }
+
     /// The recorded state, empty until ensure_warm_start_state() succeeds.
     const std::vector<uint8_t>& warm_start_state() const { return warm_start_state_; }
 

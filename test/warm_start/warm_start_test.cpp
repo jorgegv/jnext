@@ -63,7 +63,7 @@
 //                 Command Line, statement)
 //   WSR-RDY-01..05, 17  the recipe drives on the machine's state: a slow welcome, 60 Hz,
 //                 a disabled welcome, a machine that never arrives, a custom menu
-//   WSR-CMT-01..08  the recipe waits (to frame 800) for the firmware's machine-type commit
+//   WSR-CMT-01..09  the recipe waits (to frame 800) for the firmware's machine-type commit
 //                 before it looks at the machine: a loading machine gets no checkpoint and no
 //                 key, the give-up is counted from the checkpoint, 60 Hz, the boundary
 //   WSR-RCP-01..04  the recording recipe tick (GH #481): SPACE only over a
@@ -1406,6 +1406,33 @@ int main()
                          "falls back to the synthetic machine." &&
                   none.find("waited") == std::string::npos,
               m50 + " | " + m60 + " | " + none);
+    }
+
+    {   // the stepped recording (prepare_warm_start) gives up waiting for the commit
+        // WSR-CMT-09: the refusal it logs is the merged wording, with the wait clause.
+        auto rec = std::make_unique<Emulator>();
+        make_next(*rec);
+        rec->mmu().set_boot_rom_enabled(false);
+        rec->nextreg().apply_nr_03_config_mode_transition(7);   // overlay off, config mode set: nothing commits
+        Emulator host;
+        make_next(host);
+        host.set_warm_start_recorder_for_test(std::move(rec));
+        LogTap tap(Log::emulator());
+        Emulator::WarmStartProgress p;
+        uint32_t calls = 0;
+        do {
+            p = host.prepare_warm_start(50);
+        } while (p.status == Emulator::WarmStartProgress::Status::Recording && ++calls < 100);
+        check("WSR-CMT-09",
+              "a stepped recording that never sees the machine-type commit is refused at the "
+              "commit deadline (frame 800) with the line naming the wait: 'after 800 frames of "
+              "boot' and 'the recorder waited from frame 400', once",
+              p.status == Emulator::WarmStartProgress::Status::Unavailable &&
+                  tap.count("after 800 frames of boot") == 1 &&
+                  tap.count("the recorder waited from frame 400 for the firmware to commit one") == 1,
+              det("status=%d at-800=%d waited=%d", static_cast<int>(p.status),
+                  tap.count("after 800 frames of boot"),
+                  tap.count("the recorder waited from frame 400")));
     }
 
     // ── GH #481 follow-up: the recipe drives on the machine's state ──

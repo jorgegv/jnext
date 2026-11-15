@@ -263,12 +263,18 @@ esac
 # the measurement (the row sdcard-provision-func drives this script with a stub jnext whose
 # every call it counts).
 #
-# The WebAssembly build has no debugger, so it cannot run the probe script. It runs the same core on
-# the same default card, whose commit frame the Linux run of this row has already pinned at
-# BOOT_DEFAULT_COMMIT, so a WebAssembly run takes that number instead of measuring it.
+# The WebAssembly build has no debugger, so it cannot run the probe script. On the DEFAULT card it
+# runs the same core as the native build, whose commit frame the Linux run of this row has already
+# pinned at BOOT_DEFAULT_COMMIT, so a WebAssembly run takes that number instead of measuring it.
+# A candidate card (the seam) may commit anywhere and cannot be measured here: that run FAILS.
 if [[ "$sd_verdict" == pass && "${JNEXT_REGRESSION_BOOT_ANCHOR:-on}" != off && "${JNEXT_TARGET_OS:-linux}" == emscripten ]]; then
-    export BOOT_COMMIT_MEASURED=$BOOT_DEFAULT_COMMIT
-    sd_text+="; no debugger in the WebAssembly build: the boot anchor is the default card's pinned commit frame $BOOT_DEFAULT_COMMIT (boot-relative frames shift by 0)"
+    if [[ -n "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]]; then
+        sd_verdict=fail
+        sd_text+="; a candidate card's commit frame cannot be measured without a debugger (the WebAssembly build has none): run the candidate natively"
+    else
+        export BOOT_COMMIT_MEASURED=$BOOT_DEFAULT_COMMIT
+        sd_text+="; no debugger in the WebAssembly build: the boot anchor is the default card's pinned commit frame $BOOT_DEFAULT_COMMIT (boot-relative frames shift by $((BOOT_COMMIT_MEASURED - BOOT_REF_COMMIT)))"
+    fi
 elif [[ "$sd_verdict" == pass && "${JNEXT_REGRESSION_BOOT_ANCHOR:-on}" != off ]]; then
     if boot_c=$(boot_commit_measure); then
         export BOOT_COMMIT_MEASURED=$boot_c
