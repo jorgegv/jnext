@@ -29,7 +29,7 @@ Bytes djnz_loop() {
     a.label("L").op({0x3E, 0x25, 0xDB, 0x3B, 0xFE, 0xB4}).jr(0x28, "T").jr(0x10, "L").jr(0x18, "S");
     a.label("T");
     count_up(a);
-    a.label("W").op({0x3E, 0x25, 0xDB, 0x3B, 0xFE, 0xB4}).jr(0x28, "W").jr(0x18, "S");
+    a.jr(0x18, "S");
     return a.done();
 }
 
@@ -78,16 +78,17 @@ int main() {
     check_poll("RPB-24", "guide loop with LD A,R in the pass: identical per frame, REFUSED (R is read)",
                {poll_fx("ld-a-r", 3, 0xFF, guide_loop(0xC000, kCount, {0x57, 0xED, 0x5F, 0x7A}))}, Poll::Refused);
 
-    // RPB-25: the IN must be a read of NR 0x1E / 0x1F: here it reads the register-select port.
-    check_poll("RPB-25", "guide loop that also reads port 0x243B: identical per frame, REFUSED (an IN that is no raster read)",
-               {poll_fx("select-port-in", 3, 0xFF, guide_loop(0xC000, kCount, {0x57, 0x05, 0xED, 0x78, 0x04, 0x7A}))}, Poll::Refused);
+    // RPB-25: every IN of the pass must be a read of NR 0x1E / 0x1F: here an IN A,(n) of the AY register
+    // port 0xFFFD (A = 0xFF on the high byte) is not.
+    check_poll("RPB-25", "guide loop that also reads the AY port 0xFFFD with IN A,(n): identical per frame, REFUSED (an IN that is no raster read)",
+               {poll_fx("ay-port-in", 3, 0xFF, guide_loop(0xC000, kCount, {0x57, 0x3E, 0xFF, 0xDB, 0xFD, 0x7A}))}, Poll::Refused);
 
     // RPB-26: the esxDOS shim and the NMI source react to the address of a fetch (0x3Dxx is a DivMMC automap
     // entry): a pass with one M1 on such an address is refused, whatever the DivMMC's state.
-    check_poll("RPB-26", "guide loop whose code crosses 0x3D00 (RAM over the ROM slot): identical per frame, REFUSED (an automap address)",
-               {poll_fx("automap-address", 3, 0xFF, guide_loop(0x3CF0), 30, 0x3CF0, [](Emulator& e) {
+    check_poll("RPB-26", "guide loop whose wait crosses 0x3D00 (RAM over the ROM slot): identical per frame, REFUSED (an automap address)",
+               {poll_fx("automap-address", 3, 0xFF, guide_loop(0x3CF8), 30, 0x3CF8, [](Emulator& e) {
                     nr(e, 0x51, 0x10);
-                    poke(e, 0x3CF0, guide_loop(0x3CF0));
+                    poke(e, 0x3CF8, guide_loop(0x3CF8));
                 })}, Poll::Refused);
 
     // RPB-28: D1 - a read routine called from the loop (PUSH, POP, CALL, RET) is not batched.
