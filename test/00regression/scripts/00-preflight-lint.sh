@@ -108,14 +108,15 @@ echo ""
 # BSD sed (macOS) takes the word after -i as the backup suffix, so a GNU-style
 # `sed -i 's/a/b/' f` dies there with "-I or -i may not be used with stdin".
 # warm-start-chans-func did exactly that on CI's macos-regression job while
-# passing on every Linux run. Scope: every tracked test script macOS runs
+# passing on every Linux run. The same lint also catches a sed block closed
+# straight after a command (`{n;p}`; BSD sed wants `{n;p;}`), GH #476. Scope: every tracked test script macOS runs
 # (test/packaging/ and harness-selftest.sh are Linux-only and excluded).
-echo -e "${BOLD}[lint-sed-i] Scanning test shell scripts for an in-place sed with no attached suffix...${RESET}"
+echo -e "${BOLD}[lint-sed-i] Scanning test shell scripts for an in-place sed with no attached suffix, or a sed block closed without ';'...${RESET}"
 CURRENT_ROW=lint-sed-i
 if bash "$PROJECT_DIR/test/lint-sed-inplace.sh"; then
-    printf "  "; pass_row ": no test script uses a bare in-place sed"
+    printf "  "; pass_row ": no test script uses a bare in-place sed or closes a sed block without ';'"
 else
-    printf "  "; fail_row ": a test script runs a bare in-place sed, which BSD sed rejects (see above)"
+    printf "  "; fail_row ": a test script runs a bare in-place sed or a sed block closed without ';', which BSD sed (macOS) rejects (see above)"
 fi
 echo ""
 

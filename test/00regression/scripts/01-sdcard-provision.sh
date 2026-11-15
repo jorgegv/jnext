@@ -251,6 +251,12 @@ case "$SD_CLONE_MODE" in
     copy)    sd_text+="; run image COPIED (no reflink on this filesystem) to $RUN_DIR/sdcard" ;;
     *)       sd_verdict=fail; sd_text+="; per-run clone $SD_CLONE_MODE — this run would share the master" ;;
 esac
+# A clone without its distribution sidecars looks like a legacy card to jnext, which offers it the
+# upgrade; a GUI run blocks on that box. Never present such a clone as usable (GH #476).
+if [[ "${SD_CLONE_SIDECARS:-}" == missing ]]; then
+    sd_verdict=fail
+    sd_text+="; the run's card carries no distribution sidecars, so every Qt GUI run will stop at the offer of the default distribution"
+fi
 
 # A run on a candidate card (JNEXT_REGRESSION_SD_STATE_DIR) says so in its row.
 [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] || sd_text+="; master in use $FALLBACK_SD_IMAGE (JNEXT_REGRESSION_SD_STATE_DIR)"
