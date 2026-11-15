@@ -514,7 +514,13 @@ struct ProvisionOptions {
     // that, four times that... between attempts (2 s, 4 s, 8 s; the first wait is
     // $JNEXT_SDCARD_RETRY_BACKOFF_MS when set, a test seam like $JNEXT_SDCARD_DISTRO_URL,
     // never documented to users). A cancel is not retried.
+#ifdef __EMSCRIPTEN__
+    // The browser build has no download at all (sdcard_provisioner_net_web.cpp declines at once):
+    // a retry would only block the page's thread for 14 s of backoff before the same refusal.
+    int         retries = 0;
+#else
     int         retries = 3;
+#endif
     SleepFn     sleep;              // defaults to a real sleep
     CopyFn      copy;               // defaults to default_copy_file
     BusyFn      busy;               // optional; wraps the copy+patch step
