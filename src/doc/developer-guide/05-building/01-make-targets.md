@@ -98,7 +98,8 @@ administrator. The test executables
 link with an 8 MB stack (their fixtures hold emulators on the stack; Linux gives
 a main thread 8 MB, MinGW 2 MB), while `jnext.exe` keeps the default and its
 frame gate. Both need the SD image, which `make sdcard-image` provisions through
-jnext's own download if it is missing. `make unit-test-win` is two steps,
+jnext's own download if it is missing or was made for another distribution or image
+recipe (`make unit-test` runs it too; see the SD image section of the regression suite chapter). `make unit-test-win` is two steps,
 `unit-test-win-build` (cross-build the tree) and `unit-test-win-run` (run it under
 wine, no compiler needed), so the run step could later be taken over by a real
 Windows host; it is part of the merge gate for every code change.

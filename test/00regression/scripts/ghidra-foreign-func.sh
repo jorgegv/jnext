@@ -98,7 +98,7 @@ if want ghidra-foreign-func; then
             # Expected: every line of the two files, in Ghidra's spelling.
             sed -E 's/^(\S+) (P[0-9A-Fa-f]{2}):0x([0-9A-Fa-f]{4}) l$/\1 \2::\L\3/' "$gf_dir/G/P04.ghidra.txt" >"$gf_dir/want.p04"
             sed -E 's/^(\S+) 0x([0-9A-Fa-f]{4}) l$/\1 ram:\L\2/' "$gf_dir/G/view.ghidra.txt" >"$gf_dir/want.view"
-            sed -n '/JNEXT-ROW DUMP positive/,/JNEXT-ROW MARK control/{s/^JNEXT-ROW LABEL //p}' "$gf_dir/ghidra.log" \
+            sed -n '/JNEXT-ROW DUMP positive/,/JNEXT-ROW MARK control/{s/^JNEXT-ROW LABEL //p;}' "$gf_dir/ghidra.log" \
                 | sort >"$gf_dir/got.positive"
             cat "$gf_dir/want.p04" "$gf_dir/want.view" | sort >"$gf_dir/want.positive"
             if ! cmp -s "$gf_dir/want.positive" "$gf_dir/got.positive"; then
