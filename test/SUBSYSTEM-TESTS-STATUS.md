@@ -117,6 +117,13 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ZIP program archives  |       76 |       76 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (fixtures) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (peripherals) |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (engaged cases) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (gates and refusals) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (ESP and debugger client) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (ESP, native builds) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch equivalence (NextZXOS Guide viewer) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Raster-poll batch switch |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Costly-optimisation registry |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (ESP and debugger client) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (ESP, native builds) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Call-stack tracker fetch feed |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -216,6 +223,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      285 |      285 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **16548**| **16548**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **16588**| **16588**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
