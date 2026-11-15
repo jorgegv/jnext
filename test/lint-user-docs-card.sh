@@ -45,10 +45,12 @@ done
 ROOT=${ROOT:-$ROOT_DEFAULT}
 cd "$ROOT" || { echo "lint-user-docs-card: no such directory: $ROOT" >&2; exit 2; }
 
+# globstar: `**/` reaches every depth of the user guide (a page two levels down is as much a user-facing
+# text as one at the top).
+shopt -s globstar
 # Files in scope: every entry must match at least one file.
 SCOPE=(
-    'src/doc/user-guide/*.md'
-    'src/doc/user-guide/*/*.md'
+    'src/doc/user-guide/**/*.md'
     'doc/man/jnext.1.md'
     'README.md'
     'FEATURES.md'
@@ -69,9 +71,11 @@ GUIDE_104='src/doc/user-guide/10-web-page/04-*.md'
 # shipped JavaScript legitimately contains as CODE (the internal card entry's name, the
 # development seam's name, an internal variable) apply here only, not to the four web files;
 # the rest of the table applies to those too, comments included. Owner/reviewer choice: narrow
-# the lint to prose rather than disguise the names in code (a comment cannot be told from code
-# by a regex, and a spelling trick would only hide the name from the lint, not from the reader).
-PROSE='src/doc/*|doc/man/*|README.md|FEATURES.md|packaging/web/*|ChangeLog'
+# the lint to prose rather than disguise the names in code. In the four web files those three
+# patterns are applied to COMMENT TEXT only (what follows `//`, `<!--` or `/*`, or a `*` line), so
+# the names the code itself uses pass while a comment that describes the seam to a page author does not.
+PROSE='src/doc/*|doc/man/*|README.md|FEATURES.md|packaging/web/*|ChangeLog|web/*'
+COMMENT_ONLY='jnextdev dollar-card image-url'
 
 # pat NAME REGEX REASON [SCOPE-GLOB]
 PAT_NAME=(); PAT_RE=(); PAT_WHY=(); PAT_SCOPE=()
@@ -124,8 +128,14 @@ scan() {  # scan FILE-LABEL INPUT-FILE
             for g in "${gl[@]}"; do [[ "$label" == $g ]] && ok=1; done
             [[ $ok -eq 1 ]] || continue
         fi
-        local out
-        out=$(grep -nEi -e "${PAT_RE[$i]}" "$in" 2>/dev/null) || continue
+        local out src=$in
+        if [[ "$label" == web/* && " $COMMENT_ONLY " == *" ${PAT_NAME[$i]} "* ]]; then
+            # keep the line numbers: only the comment part of a line survives, the rest is blanked
+            src=$(mktemp) || exit 2
+            awk '{ if (match($0, /(^|[ \t;{}(,])(\/\/|<!--|\/\*)/)) print substr($0, RSTART); else if ($0 ~ /^[ \t]*\*/) print; else print "" }' "$in" >"$src"
+        fi
+        out=$(grep -nEi -e "${PAT_RE[$i]}" "$src" 2>/dev/null) || { [[ "$src" == "$in" ]] || rm -f "$src"; continue; }
+        [[ "$src" == "$in" ]] || rm -f "$src"
         while IFS= read -r line; do
             echo "$label:${line%%:*}: [${PAT_NAME[$i]}] ${PAT_WHY[$i]}"
             hits=$((hits + 1))

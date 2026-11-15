@@ -1,4 +1,4 @@
-// Browser rows BCARD-01..17: the card flow of the JavaScript API (GH #458), in headless Chromium
+// Browser rows BCARD-01..21: the card flow of the JavaScript API (GH #458), in headless Chromium
 // (make wasm-browser-test, spec card.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // The player makes NextZXOS's SD card in the page from the official distribution zip, after the
@@ -56,7 +56,8 @@ const A = http.createServer((req, res) => { aLog.push(new URL(req.url, 'http://x
 await new Promise((r) => A.listen(0, '127.0.0.1', r));
 
 // A distribution host: serves the synthetic zip and the real one, HEAD and GET, logging every request.
-// mode 'cors': Access-Control-Allow-Origin: *; 'nocors': none; 'hang': a HEAD is never answered.
+// mode 'cors': Access-Control-Allow-Origin: *; 'nocors': none; 'hang': a HEAD is never answered;
+// 'get500': a good HEAD, then every GET fails with HTTP 500; 'badlen': a HEAD that claims another length.
 function distHost(mode) {
   const log = [];
   const srv = http.createServer((req, res) => {
@@ -66,15 +67,17 @@ function distHost(mode) {
     if (!f) { res.writeHead(404); res.end(); return; }
     const size = fs.statSync(f).size;
     const hd = { 'Content-Type': 'application/zip', 'Content-Length': size };
-    if (mode === 'cors') hd['Access-Control-Allow-Origin'] = '*';
+    if (mode !== 'nocors') hd['Access-Control-Allow-Origin'] = '*';
+    if (mode === 'badlen' && req.method === 'HEAD') hd['Content-Length'] = size + 7;
+    if (mode === 'get500' && req.method === 'GET') { res.writeHead(500, { 'Access-Control-Allow-Origin': '*' }); res.end(); return; }
     res.writeHead(200, hd);
     if (req.method === 'HEAD') { res.end(); return; }
     fs.createReadStream(f).pipe(res);
   });
   return { srv, log };
 }
-const D = distHost('cors'), N = distHost('nocors'), F = distHost('hang');
-for (const x of [D, N, F]) await new Promise((r) => x.srv.listen(0, '127.0.0.1', r));
+const D = distHost('cors'), N = distHost('nocors'), F = distHost('hang'), G = distHost('get500'), L = distHost('badlen');
+for (const x of [D, N, F, G, L]) await new Promise((r) => x.srv.listen(0, '127.0.0.1', r));
 const AURL = `http://localhost:${A.address().port}`;
 const url = (x, p) => `http://127.0.0.1:${x.srv.address().port}${p}`;
 
@@ -460,6 +463,67 @@ row('BCARD-17', 'the widget: data-poster shows the picture before the click; a b
   await p.ctx.close(); await bad.ctx.close();
 });
 
+row('BCARD-18', 'auto: a download that fails (HTTP 500) after a good probe falls back to the pick panel with the reason on it; no onError; the player waits', async () => {
+  const p = await newPage();
+  await open(p, [P48], SYNSEAM(G));
+  await click(p);
+  await waitPanel(p);
+  must(JSON.stringify(kinds(G.log)) === '["HEAD","GET"]', 'requests ' + JSON.stringify(G.log));
+  const why = await lastLine(p), r = await rec(p);
+  must(/HTTP 500/.test(why), 'reason: ' + why);
+  must(r.errors.length === 0 && r.ready === 0 && r.state === 'starting', JSON.stringify(r));
+  await p.ctx.close();
+});
+
+row('BCARD-19', 'a HEAD that claims another length than the official file: one HEAD, no GET, the panel at once with the sizes as the reason', async () => {
+  const p = await newPage();
+  await open(p, [P48], SYNSEAM(L));
+  await click(p);
+  await waitPanel(p);
+  must(JSON.stringify(kinds(L.log)) === '["HEAD"]', 'requests ' + JSON.stringify(L.log));
+  const why = await lastLine(p);
+  must(new RegExp(`${SYN.size + 7} bytes, not the official ${SYN.size}`).test(why), 'reason: ' + why);
+  await p.ctx.close();
+});
+
+row('BCARD-20', 'the pick panel: a same-size valid zip with another digest is refused as "its SHA-256 differs", naming the official file', async () => {
+  const p = await newPage();
+  await open(p, [P48], SYNSEAM(N));
+  await click(p);
+  await waitPanel(p);
+  const z = Buffer.from(fs.readFileSync(SYN_ZIP));
+  z[z.length - 1] ^= 1;   // the end-of-central-directory comment length: the builder never reads it
+  const other = path.join(SCRATCH, 'other-digest.zip');
+  fs.writeFileSync(other, z);
+  await p.setInputFiles('#p0 .jnext-pick input[type=file]', other);
+  await waitFor(p, () => /this file is not/.test(document.querySelector('#p0 .jnext-pick-reason').textContent), null, 60000);
+  const why = await lastLine(p);
+  must(why.includes('synthetic-distro.zip') && why.includes('its SHA-256 differs'), 'refusal: ' + why);
+  must(await p.evaluate(() => !!document.querySelector('#p0 .jnext-pick')) && (await rec(p)).ready === 0, 'panel gone or started');
+  fs.rmSync(other);
+  await p.ctx.close();
+});
+
+row('BCARD-21', 'a cache hit removes an older card entry (another digest under the card key host) and keeps entries of other hosts', async () => {
+  const p = await newPage();
+  await open(p, [P48], SYNSEAM(D));
+  await click(p);
+  await waitReady(p);
+  await p.evaluate(async ([name]) => {
+    const c = await caches.open(name);
+    await c.put('https://card.jnext.invalid/' + 'e'.repeat(64), new Response(new Uint8Array(16)));
+    await c.put('https://elsewhere.invalid/keep-me', new Response(new Uint8Array(16)));
+  }, [CACHE]);
+  const n = D.log.length;
+  await open(p, [P48], SYNSEAM(D));
+  await click(p);
+  await waitReady(p);
+  must(D.log.length === n, 'the second visit made requests: ' + JSON.stringify(D.log.slice(n)));
+  const keys = (await cacheKeys(p)).sort();
+  must(JSON.stringify(keys) === JSON.stringify(['https://elsewhere.invalid/keep-me', KEY(SYN.cardSha256)].sort()), 'cache ' + JSON.stringify(keys));
+  await p.ctx.close();
+});
+
 // ---- run -------------------------------------------------------------------------------------
 let pass = 0, fail = 0;
 for (const r of rows) {
@@ -469,7 +533,7 @@ for (const r of rows) {
     pass++; console.log(`PASS ${r.id} ${r.text}`); }
   catch (e) { fail++; console.log(`FAIL ${r.id} ${r.text} [${String(e.message || e).slice(0, 700)}]`); }
 }
-for (const x of [A, D.srv, N.srv, F.srv]) x.close();
+for (const x of [A, D.srv, N.srv, F.srv, G.srv, L.srv]) x.close();
 await h.close();
 console.log(`\nTotal: ${String(rows.length).padStart(4)}  Passed: ${String(pass).padStart(4)}  Failed: ${String(fail).padStart(4)}  Skipped: ${String(0).padStart(4)}`);
 process.exit(fail ? 1 : 0);

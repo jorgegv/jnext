@@ -71,7 +71,12 @@
     }
     var reader = resp.body.getReader(), chunks = [], got = 0;
     function pump() {
-      return reader.read().then(function (r) {
+      return reader.read().catch(function (e) {
+        // The source of the bytes failed (a file that changed or moved, a dropped download).
+        var re = new Error(e && e.message ? e.message : String(e));
+        re.fromRead = true;
+        throw re;
+      }).then(function (r) {
         if (r.done) return null;
         chunks.push(r.value);
         got += r.value.length;
@@ -250,7 +255,9 @@
       release();
       try { Module.FS.unlink(CARD_PATH); } catch (e) { /* not there */ }
       try { reader.cancel(); } catch (e) { /* done */ }
-      return new Error(Module.UTF8ToString(Module._jnext_card_error()));
+      var be = new Error(Module.UTF8ToString(Module._jnext_card_error()));
+      be.fromBuilder = true;   // a refusal of the builder, as opposed to a failed read of the stream
+      return be;
     }
     Module.FS.mkdirTree('/sdcard');
     try { Module.FS.unlink(CARD_PATH); } catch (e) { /* not there */ }
@@ -322,8 +329,17 @@
       return buildFromStream(Module, pins, stream, file.size, 'build', onProgress);
     }).catch(function (e) {
       var m = e && e.message ? e.message : String(e);
+      if (/secure context/.test(m)) throw e;
+      // A failed READ of the chosen file (it changed or moved after it was chosen): the visitor's
+      // file is not at fault.
+      if (e && e.fromRead) throw new Error('the chosen file could not be read: ' + m);
+      if (!e || !e.fromBuilder) throw new Error('the card could not be made in this browser: ' + m);
       if (/^this is not /.test(m)) throw notIt('its SHA-256 differs');
-      if (/not the expected one/.test(m) || /secure context/.test(m)) throw e;
+      // The card could not be made or stored here (memory, storage, the builder's own check of its
+      // result): the official file would fail the same way, so it is not the file's fault.
+      if (/not the expected one|^cannot |^destination exists|^inflateInit2|^f_mkfs|^metadata of|^f_(open|write|mkdir)|too few clusters/.test(m)) {
+        throw new Error('the card could not be made in this browser: ' + m);
+      }
       throw notIt(m);
     });
   }

@@ -36,9 +36,9 @@ starts anything: nothing is downloaded or built before it), goes one of two ways
 
 Either way the visitor sees these steps, in this order: the click, `download` or `choose`
 and `build`, then for a `.nex` program only `warm-start` (NextZXOS boots once and the
-machine is recorded), then `onReady`. The download's progress can be reported only when
-specnext.com sends `Content-Length` and does not compress the file; otherwise
-`onProgress` reports only 0 and 1.
+machine is recorded), then `onReady`. The download's progress is measured against the
+`Content-Length` specnext.com sends when it does not compress the file, and otherwise against
+the known size of the official file, so it is reported either way.
 
 ## For page authors: `card.source`
 
@@ -119,8 +119,9 @@ it is refused on the player's panel only (no `onError`), because the visitor can
 | `unknown option '<name>'` or `option '<name>' must be ...` | A `mount()` option is misspelt or of the wrong type. Nothing has been downloaded yet. |
 | `option 'card' must be an object {source}`, `option 'card': unknown key '<key>'` or `option 'card': source must be 'auto', 'fetch' or 'pick'` | The `card` option is not what 10.2 and this page describe. |
 | `this file is not sn-emulator-26.11.zip from specnext.com ...` | The visitor chose a different file: the message gives its size, or says its SHA-256 differs. The visitor has to download the official file from specnext.com (the link is on the panel) and choose that one. |
+| `the chosen file could not be read: ...` or `the card could not be made in this browser: ...` | On the panel. The browser could not read the file the visitor chose (it changed or moved after it was chosen), or could not make or store the card (memory or storage). The file is not at fault: choose it again, or free some space. |
 | `cannot read the NextZXOS distribution from specnext.com: ...` | `card.source` is `'fetch'` and the file could not be read: specnext.com does not allow the page to read it, the visitor is offline, or the download failed. Use `'auto'` or `'pick'`. |
-| `the card built from the distribution is not the expected one ...` | The card the browser made does not have the SHA-256 this JNEXT release expects. The message gives both digests. It is a fault of the build or of the browser: report it. |
+| `the card built from the distribution is not the expected one ...` | The card the browser made does not have the SHA-256 this JNEXT release expects. The message gives both digests. It is a fault of the build or of the browser: report it. With `card.source: 'fetch'` it reaches `onError` after `cannot read the NextZXOS distribution from specnext.com: <address>: `; with `'auto'` the player falls back to the panel and shows it there; with `'pick'` it is shown on the panel. |
 | `cannot fetch <url>: a network error, or the server does not allow cross-origin reads (no Access-Control-Allow-Origin header)` | A program file on another site: its server is unreachable, or it does not send `Access-Control-Allow-Origin`. Make it send the header. |
 | `cannot fetch <url>: HTTP <status>` | The server answered with an error for the program file: check the URL. |
 | `Failed to fetch` | The browser's own text (Chromium's is shown; Firefox words it differently) for a program file it could not read: the program is on another site whose server does not send `Access-Control-Allow-Origin` (make it send the header, or give `{data, name}` to avoid the network), or its server cannot be reached. |

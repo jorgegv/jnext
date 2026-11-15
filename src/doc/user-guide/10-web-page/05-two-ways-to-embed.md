@@ -45,11 +45,12 @@ The widget draws a rounded frame with a title bar, a progress bar while NextZXOS
 and the machine starts, the usual "click to start" overlay (over the `data-poster` picture
 when there is one), a toolbar
 (Pause or Resume, Reset, Mute or Unmute, Fullscreen) and a status line that also
-shows errors: a refused option, a NextZXOS file the visitor chose that is not the
-official one, a `data-card-source` of `fetch` that cannot read the file, or a
-`jnext-VERSION.js` that cannot be loaded. While the visitor is asked to choose the NextZXOS file
-(10.4) the status line says so; that is not an error. The buttons stay
-disabled then. Fullscreen enlarges the screen to fill the display, between the title bar
+shows errors: a refused option, a `data-card-source` of `fetch` that cannot read the file,
+a program that does not load, or a
+`jnext-VERSION.js` that cannot be loaded. A NextZXOS file the visitor chose that is not the
+official one is refused on the player's panel (10.4), not in the status line. While the visitor
+is asked to choose the NextZXOS file the status line says so; that is not an error.
+Fullscreen enlarges the screen to fill the display, between the title bar
 and the toolbar. The labels and the status line follow the player, so they stay right when
 the page itself calls `pause()` or `setVolume()`. The player behind it is the element's `jnextPlayer` property, with the
 members of 10.2.

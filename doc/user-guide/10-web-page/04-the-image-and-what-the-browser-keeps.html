@@ -4498,9 +4498,9 @@ starts anything: nothing is downloaded or built before it), goes one of two ways
 </ol>
 <p>Either way the visitor sees these steps, in this order: the click, <code>download</code> or <code>choose</code>
 and <code>build</code>, then for a <code>.nex</code> program only <code>warm-start</code> (NextZXOS boots once and the
-machine is recorded), then <code>onReady</code>. The download's progress can be reported only when
-specnext.com sends <code>Content-Length</code> and does not compress the file; otherwise
-<code>onProgress</code> reports only 0 and 1.</p>
+machine is recorded), then <code>onReady</code>. The download's progress is measured against the
+<code>Content-Length</code> specnext.com sends when it does not compress the file, and otherwise against
+the known size of the official file, so it is reported either way.</p>
 <h2 id="for-page-authors-cardsource">For page authors: <code>card.source</code><a class="headerlink" href="#for-page-authors-cardsource" title="Permanent link">&para;</a></h2>
 <p>The page does not name the file or its address, and has nothing to host. It can choose
 how the first visit goes with the <code>card</code> option (<code>data-card-source</code> on the widget, 10.5):</p>
@@ -4599,12 +4599,16 @@ it is refused on the player's panel only (no <code>onError</code>), because the 
 <td>The visitor chose a different file: the message gives its size, or says its SHA-256 differs. The visitor has to download the official file from specnext.com (the link is on the panel) and choose that one.</td>
 </tr>
 <tr>
+<td><code>the chosen file could not be read: ...</code> or <code>the card could not be made in this browser: ...</code></td>
+<td>On the panel. The browser could not read the file the visitor chose (it changed or moved after it was chosen), or could not make or store the card (memory or storage). The file is not at fault: choose it again, or free some space.</td>
+</tr>
+<tr>
 <td><code>cannot read the NextZXOS distribution from specnext.com: ...</code></td>
 <td><code>card.source</code> is <code>'fetch'</code> and the file could not be read: specnext.com does not allow the page to read it, the visitor is offline, or the download failed. Use <code>'auto'</code> or <code>'pick'</code>.</td>
 </tr>
 <tr>
 <td><code>the card built from the distribution is not the expected one ...</code></td>
-<td>The card the browser made does not have the SHA-256 this JNEXT release expects. The message gives both digests. It is a fault of the build or of the browser: report it.</td>
+<td>The card the browser made does not have the SHA-256 this JNEXT release expects. The message gives both digests. It is a fault of the build or of the browser: report it. With <code>card.source: 'fetch'</code> it reaches <code>onError</code> after <code>cannot read the NextZXOS distribution from specnext.com: &lt;address&gt;:</code>; with <code>'auto'</code> the player falls back to the panel and shows it there; with <code>'pick'</code> it is shown on the panel.</td>
 </tr>
 <tr>
 <td><code>cannot fetch &lt;url&gt;: a network error, or the server does not allow cross-origin reads (no Access-Control-Allow-Origin header)</code></td>

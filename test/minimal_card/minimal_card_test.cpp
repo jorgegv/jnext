@@ -914,16 +914,25 @@ int main() {
         std::remove(c2.c_str());
     }
 
-    // MCARD-26: the ZIP64 marker in the entry's compressed size.
+    // MCARD-26: the ZIP64 marker in the entry's compressed size (bytes 18..21) and, separately, in its
+    // uncompressed size (22..25): each alone is refused.
     {
         const std::string c2 = tmp_path("card-zip64.img");
-        std::remove(c2.c_str());
-        std::vector<uint8_t> z64 = zip;
-        for (size_t k = 18; k < 22; ++k) z64[k] = 0xFF;
-        const Run r = build(minimal_card::Input::Zip, z64, c2, ex0);
-        check("MCARD-26", "a ZIP64 size marker in the image entry: refused naming ZIP64, no output file",
-              r.st == minimal_card::Status::Error && r.err.find("ZIP64") != std::string::npos && !exists(c2), r.err);
-        std::remove(c2.c_str());
+        bool both = true;
+        std::string d;
+        for (size_t from : {size_t{18}, size_t{22}}) {
+            std::remove(c2.c_str());
+            std::vector<uint8_t> z64 = zip;
+            for (size_t k = from; k < from + 4; ++k) z64[k] = 0xFF;
+            const Run r = build(minimal_card::Input::Zip, z64, c2, ex0);
+            if (!(r.st == minimal_card::Status::Error && r.err.find("ZIP64") != std::string::npos && !exists(c2))) {
+                both = false;
+                d += " field@" + std::to_string(from) + ":" + r.err;
+            }
+            std::remove(c2.c_str());
+        }
+        check("MCARD-26", "a ZIP64 size marker in the image entry's compressed or uncompressed size: refused naming ZIP64, no output file",
+              both, d);
     }
 
     // MCARD-27: two root entries of one name (different case): the first wins, as the old script's head -n1.

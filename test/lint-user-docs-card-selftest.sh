@@ -11,7 +11,9 @@
 #                  developer-guide path is in scope
 #   LUDC-06        the four web code files are in scope: a recipe planted in one fails, but the
 #                  names the code itself uses (the development seam, the internal card entry,
-#                  an internal variable) do not, and the same names in prose still fail
+#                  an internal variable) do not, the same names in a COMMENT of a web file fail,
+#                  and in prose they still fail
+#   LUDC-07        a banned string planted in a user-guide page two directories down fails
 #
 # Row IDs are literals (see test/row_id.h's reason): every row is spelt out.
 set -uo pipefail
@@ -19,7 +21,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 LINT="$HERE/lint-user-docs-card.sh"
-EXPECTED_ROWS=17
+EXPECTED_ROWS=18
 TARGET=src/doc/user-guide/10-web-page/01-a-page-with-a-game.md
 DEV=src/doc/developer-guide/05-building/06-the-browser-build.md
 
@@ -84,9 +86,16 @@ row LUDC-05 $([[ $RC -eq 0 && "$inscope" == 0 ]] && echo 1 || echo 0) "recipes i
 WEBJS=web/jnext_api.js.in
 fresh; printf '\n// run tools/make-minimal-card on it\n' >>"$W/t/$WEBJS"; run; rc_recipe=$RC; out_recipe=$OUT
 fresh; printf '\nvar x = root.jnextDev, y = o[\x27$card\x27], z = image.sha256;\n' >>"$W/t/$WEBJS"; run; rc_code=$RC
+fresh; printf '\n// To use a card of your own, set window.jnextDev = { card: { url: "x" } } and pass $card\n' >>"$W/t/$WEBJS"; run; rc_comment=$RC; out_comment=$OUT
+fresh; printf '\n<!-- window.jnextDev = {} -->\n' >>"$W/t/web/examples/plain.html.in"; run; rc_html=$RC
 fresh; printf '\nset window.jnextDev first\n' >>"$W/t/$TARGET"; run; rc_prose=$RC
 inlist=$(bash "$LINT" --list "$W/t" 2>/dev/null | grep -c '^web/' || true)
-row LUDC-06 $([[ $rc_recipe -eq 1 && "$out_recipe" == *"[make-minimal]"* && $rc_code -eq 0 && $rc_prose -eq 1 && "$inlist" -ge 4 ]] && echo 1 || echo 0) "web files in scope ($inlist): a recipe in one fails (exit $rc_recipe), the seam/card/variable names as code pass (exit $rc_code), the seam name in prose fails (exit $rc_prose)"
+row LUDC-06 $([[ $rc_recipe -eq 1 && "$out_recipe" == *"[make-minimal]"* && $rc_code -eq 0 && $rc_comment -eq 1 && "$out_comment" == *"[jnextdev]"* && $rc_html -eq 1 && $rc_prose -eq 1 && "$inlist" -ge 4 ]] && echo 1 || echo 0) "web files in scope ($inlist): a recipe fails (exit $rc_recipe), the seam/card/variable names as code pass (exit $rc_code), the seam named in a // comment (exit $rc_comment) or an html comment (exit $rc_html) fails, in prose fails (exit $rc_prose)"
+
+# LUDC-07
+NESTED=$(cd "$ROOT" && bash "$LINT" --list | grep -E '^src/doc/user-guide/[^/]+/[^/]+/[^/]+\.md$' | head -n1)
+fresh; printf '\nRun make-minimal-card and python3 -m http.server then host card.img\n' >>"$W/t/$NESTED"; run
+row LUDC-07 $([[ -n "$NESTED" && $RC -eq 1 && "$OUT" == *"$NESTED"* ]] && echo 1 || echo 0) "a recipe planted in a page two directories down ($NESTED) fails (exit $RC)"
 
 printf 'Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n' "$total" "$passed" "$failed" 0
 if [[ $total -ne $EXPECTED_ROWS ]]; then echo "FAIL: reported $total rows, expected $EXPECTED_ROWS"; exit 1; fi

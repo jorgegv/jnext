@@ -31,9 +31,10 @@
   `reset()` still restarts the page's program. For a `.wav`, `onReady` comes when the
   tape is in the deck; the program then loads as the tape plays, in real time (a 48K game
   takes minutes), and the tape stops while the player is paused or the tab is hidden.
-- `onError(message)`: on every failure (a refused option, a NextZXOS file that cannot be used, a program that
+- `onError(message)`: on every failure (a refused option, a card that `card.source: 'fetch'` could not get, a program that
   does not load, an exit with an error). The promise of the call that failed rejects
-  with the same message.
+  with the same message. A file the visitor chose that is not the official one is not such a
+  failure: it is refused on the player's panel (10.4) and the visitor can choose again.
 
 ## The player
 
