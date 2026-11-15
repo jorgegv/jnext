@@ -22,7 +22,8 @@ are untested development builds, for people helping to check a fix.
     | Windows 10 / 11, 64-bit | `jnext-windows-x64-zip` |
     | Windows 7 SP1 or later, 64-bit | `jnext-windows-x64-legacy-zip` |
     | Windows 7 SP1 or later, 32-bit | `jnext-windows-x86-legacy-zip` |
-    | macOS | `jnext-macos-dmg` |
+    | macOS, Apple Silicon | `jnext-macos-arm64-dmg` |
+    | macOS, Intel | `jnext-macos-x64-dmg` |
     | Fedora / RHEL | `jnext-linux-rpm` |
     | Any Linux (Flatpak) | `jnext-linux-flatpak` |
     | Source code | `jnext-source-zip` |

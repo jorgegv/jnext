@@ -19,6 +19,16 @@
 # library and another .dmg that runs nowhere but the CI runner. It must FAIL the
 # build, never warn.
 #
+# MINIMUM macOS. Every Mach-O's minimum OS version (LC_BUILD_VERSION minos, or
+# LC_VERSION_MIN_MACOSX version) is read; the highest one and the file that
+# carries it are always printed. When JNEXT_MACOS_MIN is set (the dmg-time call
+# of `make package-macos` passes MACOS_DEPLOYMENT_TARGET), any file whose minimum
+# is NEWER fails the build, and so does a file whose minimum cannot be read: an
+# unknown minimum is not "old enough", and the bundle's Info.plist must carry
+# LSMinimumSystemVersion equal to the floor. dyld refuses a library built for a newer
+# macOS than the one running, so a dependency bottled for the runner's OS would
+# otherwise raise the app's real floor with no warning to anyone.
+#
 # Run by the install step (see the APPLE branch in CMakeLists.txt) and by
 # `make package-macos`.
 #
@@ -48,6 +58,41 @@ ALLOWED_RE='^(@executable_path|@loader_path|@rpath)/|^/usr/lib/|^/System/'
 # shellcheck source=packaging/macos/macho-refs.sh
 . "$(dirname "$0")/macho-refs.sh"
 
+# ver_gt <a> <b> - succeed iff version a > version b, compared per numeric
+# component (15.10 > 15.9; macOS has no `sort -V`). Missing components are 0.
+ver_gt() {
+    awk -v a="$1" -v b="$2" 'BEGIN {
+        na = split(a, x, "."); nb = split(b, y, ".")
+        n = (na > nb) ? na : nb
+        for (i = 1; i <= n; i++) {
+            if (x[i] + 0 > y[i] + 0) exit 0
+            if (x[i] + 0 < y[i] + 0) exit 1
+        }
+        exit 1
+    }'
+}
+
+# macho_minos <file> - the highest minimum macOS version the file declares
+# (one per slice of a universal binary), empty if it declares none.
+# otool -l layout: "      cmd LC_BUILD_VERSION" ... "    minos 15.0", or
+# "      cmd LC_VERSION_MIN_MACOSX" ... "  version 10.13".
+macho_minos() {
+    local v best=""
+    while IFS= read -r v; do
+        [ -n "$v" ] || continue
+        if [ -z "$best" ] || ver_gt "$v" "$best"; then best=$v; fi
+    done < <(otool -l "$1" 2>/dev/null | awk '
+        /^ *cmd / { mode = ($2 == "LC_BUILD_VERSION") ? "minos" : ($2 == "LC_VERSION_MIN_MACOSX") ? "version" : ""; next }
+        mode != "" && $1 == mode { print $2; mode = "" }
+    ' || true)
+    echo "$best"
+}
+
+MIN_FLOOR=${JNEXT_MACOS_MIN:-}
+max_minos=""
+max_minos_file=""
+minos_over=0
+minos_unknown=0
 violations=0
 stale_ids=0
 dangling=0
@@ -75,6 +120,31 @@ while IFS= read -r macho; do
     own_id=$(macho_id "$macho")
     # Once per FILE, not once per reference — see search_rpaths in macho-refs.sh.
     rplist=$(search_rpaths "$macho")
+
+    # Minimum macOS of this file: tracked for the report, gated when a floor is set.
+    mv=$(macho_minos "$macho")
+    if [ -z "$mv" ]; then
+        if [ -n "$MIN_FLOOR" ]; then
+            if [ "$minos_unknown" -eq 0 ] && [ "$minos_over" -eq 0 ]; then
+                note "FAIL: minimum macOS version (floor $MIN_FLOOR):"
+                note
+            fi
+            note "  ${macho#"$APP"/}"$'\n'"      -> minos UNREADABLE (no LC_BUILD_VERSION / LC_VERSION_MIN_MACOSX)"
+            minos_unknown=$((minos_unknown + 1))
+        fi
+    else
+        if [ -z "$max_minos" ] || ver_gt "$mv" "$max_minos"; then
+            max_minos=$mv; max_minos_file=${macho#"$APP"/}
+        fi
+        if [ -n "$MIN_FLOOR" ] && ver_gt "$mv" "$MIN_FLOOR"; then
+            if [ "$minos_unknown" -eq 0 ] && [ "$minos_over" -eq 0 ]; then
+                note "FAIL: minimum macOS version (floor $MIN_FLOOR):"
+                note
+            fi
+            note "  ${macho#"$APP"/}"$'\n'"      -> minos $mv (newer than $MIN_FLOOR)"
+            minos_over=$((minos_over + 1))
+        fi
+    fi
 
     # otool -L prints the file name on line 1, then one dependency per line as
     # "\t<path> (compatibility version ...)". Drop line 1, keep the path field.
@@ -143,6 +213,38 @@ done < <(macho_files "$APP")
 
 if [ "$checked" -eq 0 ]; then
     note "error: no Mach-O files found in $APP - the bundle is empty or malformed"
+    exit 1
+fi
+
+if [ -n "$max_minos" ]; then
+    printf '%s\n' "verify-bundle: highest minos $max_minos ($max_minos_file)" || true
+else
+    printf '%s\n' "verify-bundle: highest minos unknown (no file declares one)" || true
+fi
+
+# With a floor, the bundle must SAY it: Info.plist's LSMinimumSystemVersion equal
+# to the floor, so the Finder refuses an older macOS instead of dyld killing the
+# app. Whitespace is stripped so the key and its <string> may sit on separate lines.
+plist_bad=0
+if [ -n "$MIN_FLOOR" ]; then
+    plist_val=""
+    if [ -f "$APP/Contents/Info.plist" ]; then
+        plist_val=$(tr -d ' \t\r\n' < "$APP/Contents/Info.plist" |
+            sed -n 's|.*<key>LSMinimumSystemVersion</key><string>\([^<]*\)</string>.*|\1|p' || true)
+    fi
+    if [ "$plist_val" != "$MIN_FLOOR" ]; then
+        note "FAIL: Contents/Info.plist LSMinimumSystemVersion is '${plist_val:-<absent>}', expected '$MIN_FLOOR'"
+        plist_bad=1
+    fi
+fi
+
+if [ "$minos_over" -gt 0 ] || [ "$minos_unknown" -gt 0 ] || [ "$plist_bad" -ne 0 ]; then
+    note
+    if [ "$minos_over" -gt 0 ] || [ "$minos_unknown" -gt 0 ]; then
+        note "$minos_over file(s) newer than macOS $MIN_FLOOR and $minos_unknown with no"
+        note "readable minimum, across $checked Mach-O file(s)."
+    fi
+    [ "$plist_bad" -eq 0 ] || note "Info.plist does not declare LSMinimumSystemVersion $MIN_FLOOR."
     exit 1
 fi
 

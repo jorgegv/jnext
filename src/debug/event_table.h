@@ -40,7 +40,8 @@
 //  4. A REMOVED SUBSCRIPTION IS A TOMBSTONE, NOT AN ERASE. `subs_` never
 //     shrinks while a drain is in flight, because a `Handler` may
 //     `unsubscribe()` — its own id included — and the drain is iterating.
-//     `compact()` runs when no drain is in flight.
+//     `compact()` runs when no drain is in flight: when the outermost delivery
+//     ends, and at the end of every `Debugger::pump()`.
 // ---------------------------------------------------------------------------
 
 #include <array>
@@ -348,6 +349,12 @@ public:
     /// Remove tombstoned rows. NEVER call while a drain is iterating.
     void compact();
 
+    /// Is there a tombstone to compact? `Debugger::pump()` compacts at its end, where
+    /// no drain is in flight, only when this is true: without that, a client that adds
+    /// and removes subscriptions (DZRP-EDGE-08: 65535 breakpoint pairs) grows `subs_`
+    /// and every add/erase walks every row ever added, O(n^2).
+    bool has_tombstones() const { return tombstones_ != 0; }
+
     /// How many times `compact()` has run. Contract 4 says compaction is
     /// deferred to the OUTER delivery frame, and that is otherwise pinned only by
     /// UB: erasing a row under the drain's index is undefined, not reliably
@@ -389,6 +396,8 @@ private:
     size_t history_first_ = 0;
     std::vector<Hit> hits_;
     size_t compactions_ = 0;
+    /// Rows marked `removed` since the last `compact()`.
+    size_t tombstones_ = 0;
 
     /// GH #276 B3 — see `revision()`. Bumped in `refresh()`.
     uint64_t revision_ = 0;

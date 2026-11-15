@@ -522,6 +522,20 @@ endif()
 # build/gui-release/jnext. Only the shipped package needs to be relocatable; a
 # developer's own Mac build keeps the plain executable and its Homebrew libs.
 if(APPLE AND MACOS_APP_BUNDLE)
+    # When the build names a deployment target (make package-macos passes
+    # MACOS_DEPLOYMENT_TARGET), say so in the bundle: on an older macOS the Finder
+    # then refuses with "requires macOS N or later" instead of the app dying in
+    # dyld. Unset, no key is written (an empty <string/> would read as "any").
+    # A plain DIRECTORY variable, not a target property: CMake's Info.plist
+    # generation turns only its 8 named MACOSX_BUNDLE_* properties into variables,
+    # then substitutes the template from the directory's variables. verify-bundle.sh
+    # checks the key is really there when it is given a floor.
+    if(CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(MACOSX_BUNDLE_MIN_SYSTEM_VERSION_ENTRY
+            "<key>LSMinimumSystemVersion</key>\n\t<string>${CMAKE_OSX_DEPLOYMENT_TARGET}</string>")
+    else()
+        set(MACOSX_BUNDLE_MIN_SYSTEM_VERSION_ENTRY "")
+    endif()
     set_target_properties(jnext PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_BUNDLE_NAME "jnext"
@@ -885,6 +899,16 @@ if(APPLE AND MACOS_APP_BUNDLE)
     # would bury jnext.app under usr/ inside the disk image (GH #46 — what the
     # reporter dragged to /Applications was that buried bare binary).
     set(CPACK_PACKAGING_INSTALL_PREFIX "/")
+    # jnext-<version>-macos-arm64.dmg / -macos-x64.dmg. CPack's default name
+    # ("-Darwin") is the same for both architectures, which would collide in the
+    # release assets and tell an Intel user nothing (GH #494).
+    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+        set(CPACK_SYSTEM_NAME "macos-arm64")
+    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+        set(CPACK_SYSTEM_NAME "macos-x64")
+    else()
+        message(FATAL_ERROR "macOS package: unsupported CMAKE_SYSTEM_PROCESSOR '${CMAKE_SYSTEM_PROCESSOR}' (expected arm64 or x86_64)")
+    endif()
 else()
     set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 endif()

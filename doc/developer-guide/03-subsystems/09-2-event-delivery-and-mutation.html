@@ -3224,7 +3224,9 @@ span would stop it short. So the gate and the drain both return at once while
 <p><strong>A handler may subscribe and unsubscribe.</strong> The delivery walks the table by
 index, so a subscription added during a delivery is not visited for that event,
 and an unsubscribe only marks the row; the table is compacted once the
-outermost delivery ends. <code>raise_host_event()</code> may be called from a handler and
+outermost delivery ends, and again at the end of every <code>pump()</code>, where no delivery is in
+flight (a remote client that adds and removes breakpoints would otherwise grow it without
+bound). <code>raise_host_event()</code> may be called from a handler and
 nests.</p>
 <h2 id="the-ring-is-bounded-and-says-so">The ring is bounded, and says so<a class="headerlink" href="#the-ring-is-bounded-and-says-so" title="Permanent link">&para;</a></h2>
 <p>The ring holds 512 entries. The bound comes from the Copper, which executes once

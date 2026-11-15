@@ -27,8 +27,8 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 pass=0; fail=0
-ok()  { printf "  ${GREEN}PASS${RESET} %-22s %s\n" "$1" "$2"; pass=$((pass+1)); }
-bad() { printf "  ${RED}FAIL${RESET} %-22s %s\n" "$1" "$2"; fail=$((fail+1)); }
+ok()  { printf "  ${GREEN}PASS${RESET} %-24s %s\n" "$1" "$2"; pass=$((pass+1)); }
+bad() { printf "  ${RED}FAIL${RESET} %-24s %s\n" "$1" "$2"; fail=$((fail+1)); }
 
 # --- stubs -------------------------------------------------------------------
 mkdir -p "$WORK/bin"
@@ -48,7 +48,24 @@ case "$1" in
     exit 0
     ;;
 -l)
-    # Only the LC_RPATH load commands matter here; mimic otool's layout.
+    # The LC_RPATH load commands and the minimum-OS command matter here; mimic
+    # otool's layout. Real otool -l prints (Apple's layout, not derived from
+    # the script):
+    #       cmd LC_BUILD_VERSION      |       cmd LC_VERSION_MIN_MACOSX
+    #   cmdsize 32                    |   cmdsize 16
+    #  platform 1                     |   version 10.13
+    #     minos 15.0                  |       sdk 10.15
+    #       sdk 26.0
+    # <file>.minos -> LC_BUILD_VERSION minos; <file>.vmin -> LC_VERSION_MIN_MACOSX.
+    # One block per line of <file>.minos: a universal binary has one per slice.
+    if [ -f "$f.minos" ]; then
+        while IFS= read -r mv; do
+            printf '      cmd LC_BUILD_VERSION\n  cmdsize 32\n platform 1\n    minos %s\n      sdk 26.0\n   ntools 1\n' "$mv"
+        done < "$f.minos"
+    fi
+    if [ -f "$f.vmin" ]; then
+        printf '      cmd LC_VERSION_MIN_MACOSX\n  cmdsize 16\n  version %s\n      sdk 10.15\n' "$(cat "$f.vmin")"
+    fi
     if [ -f "$f.rpaths" ]; then
         while IFS= read -r rp; do
             printf '          cmd LC_RPATH\n'
@@ -110,6 +127,22 @@ install_id() { printf '%s\n' "$3" > "$1/$2.id"; }
 rpaths() { local app=$1 rel=$2; shift 2; printf '%s\n' "$@" > "$app/$rel.rpaths"; }
 
 run() { bash "$SCRIPT" "$1" >"$WORK/out.log" 2>&1; echo $?; }
+
+# minos <app> <relative-path> <version>   - give a file an LC_BUILD_VERSION minos
+minos() { printf '%s\n' "$3" > "$1/$2.minos"; }
+# vmin <app> <relative-path> <version>    - give a file LC_VERSION_MIN_MACOSX
+vmin() { printf '%s\n' "$3" > "$1/$2.vmin"; }
+# plist <app> <version>                   - Info.plist with LSMinimumSystemVersion
+plist() {
+    mkdir -p "$1/Contents"
+    printf '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n\t<key>CFBundleName</key>\n\t<string>jnext</string>\n\t<key>LSMinimumSystemVersion</key>\n\t<string>%s</string>\n</dict>\n</plist>\n' "$2" > "$1/Contents/Info.plist"
+}
+# runfloor <app> <floor>                  - run with JNEXT_MACOS_MIN set; the app gets
+# an Info.plist that carries the floor first, so each row tests one thing
+runfloor() {
+    plist "$1" "$2"
+    JNEXT_MACOS_MIN=$2 bash "$SCRIPT" "$1" >"$WORK/out.log" 2>&1; echo $?
+}
 
 printf "${BOLD}=== verify-bundle.sh contract tests ===${RESET}\n\n"
 
@@ -331,6 +364,108 @@ for case_ in "homebrew.app:1" "dangling.app:1" "badsig.app:1" "empty.app:1" \
 done
 if [ -z "$vb18" ]; then ok VB-18 "every failing verdict keeps its exit code with stderr unwritable"
 else bad VB-18 "wrong exit code(s):$vb18"; fi
+
+# --- minimum macOS (JNEXT_MACOS_MIN) -----------------------------------------
+# A bundled dylib built for a newer macOS than the target raises the app's real
+# floor: dyld refuses it on the older OS. The gate reads every Mach-O's minos.
+# mkminosapp <dir> - an app with an executable, a dylib and a plugin, all at 15.0
+mkminosapp() {
+    local app=$1
+    macho "$app" Contents/MacOS/jnext '/usr/lib/libSystem.B.dylib'
+    macho "$app" Contents/Frameworks/libpng16.16.dylib '/usr/lib/libSystem.B.dylib'
+    macho "$app" Contents/PlugIns/platforms/libqcocoa.dylib '/usr/lib/libSystem.B.dylib'
+    minos "$app" Contents/MacOS/jnext 15.0
+    minos "$app" Contents/Frameworks/libpng16.16.dylib 15.0
+    minos "$app" Contents/PlugIns/platforms/libqcocoa.dylib 15.0
+}
+
+APP=$WORK/minos-ok.app; mkminosapp "$APP"
+rc=$(runfloor "$APP" 15.0)
+if [ "$rc" -eq 0 ]; then ok minos-under-floor "all files at 15.0, floor 15.0 accepted"
+else bad minos-under-floor "expected 0, got $rc: $(cat "$WORK/out.log")"; fi
+
+APP=$WORK/minos-dylib.app; mkminosapp "$APP"
+minos "$APP" Contents/Frameworks/libpng16.16.dylib 26.0
+rc=$(runfloor "$APP" 15.0)
+if [ "$rc" -ne 0 ] && grep -q 'libpng16' "$WORK/out.log" && grep -q '26.0' "$WORK/out.log"; then
+    ok minos-dylib-over-floor "dylib at 26.0 over floor 15.0 rejected, named"
+else bad minos-dylib-over-floor "expected non-zero naming libpng16 and 26.0, got $rc: $(cat "$WORK/out.log")"; fi
+
+APP=$WORK/minos-plugin.app; mkminosapp "$APP"
+minos "$APP" Contents/PlugIns/platforms/libqcocoa.dylib 15.4
+rc=$(runfloor "$APP" 15.0)
+if [ "$rc" -ne 0 ] && grep -q 'libqcocoa' "$WORK/out.log"; then
+    ok minos-plugin-over-floor "nested plugin at 15.4 over floor 15.0 rejected"
+else bad minos-plugin-over-floor "expected non-zero naming libqcocoa, got $rc: $(cat "$WORK/out.log")"; fi
+
+APP=$WORK/minos-num.app; mkminosapp "$APP"
+minos "$APP" Contents/Frameworks/libpng16.16.dylib 15.10
+rc_a=$(runfloor "$APP" 15.9)
+minos "$APP" Contents/Frameworks/libpng16.16.dylib 15.9
+rc_b=$(runfloor "$APP" 15.10)
+if [ "$rc_a" -ne 0 ] && [ "$rc_b" -eq 0 ]; then
+    ok minos-numeric-compare "15.10 over floor 15.9 rejected; 15.9 under floor 15.10 accepted"
+else bad minos-numeric-compare "expected rejected/accepted, got 15.10>15.9=$rc_a 15.9<15.10=$rc_b"; fi
+
+APP=$WORK/minos-legacy.app; mkminosapp "$APP"
+rm -f "$APP/Contents/Frameworks/libpng16.16.dylib.minos"
+vmin "$APP" Contents/Frameworks/libpng16.16.dylib 10.13
+rc=$(runfloor "$APP" 15.0)
+if [ "$rc" -eq 0 ]; then ok minos-legacy-cmd "LC_VERSION_MIN_MACOSX 10.13 under floor 15.0 accepted"
+else bad minos-legacy-cmd "expected 0, got $rc: $(cat "$WORK/out.log")"; fi
+
+APP=$WORK/minos-report.app; mkminosapp "$APP"
+minos "$APP" Contents/Frameworks/libpng16.16.dylib 26.0
+rc=$(run "$APP")
+if [ "$rc" -eq 0 ] && grep -q 'highest minos 26.0' "$WORK/out.log" && grep -q 'libpng16' "$WORK/out.log"; then
+    ok minos-no-floor-reports "no floor: accepted, highest minos 26.0 and its file reported"
+else bad minos-no-floor-reports "expected 0 naming 26.0 and libpng16, got $rc: $(cat "$WORK/out.log")"; fi
+
+APP=$WORK/minos-unreadable.app; mkminosapp "$APP"
+rm -f "$APP/Contents/Frameworks/libpng16.16.dylib.minos"
+rc=$(runfloor "$APP" 15.0)
+if [ "$rc" -ne 0 ] && grep -q 'UNREADABLE' "$WORK/out.log" && grep -q 'libpng16' "$WORK/out.log"; then
+    ok minos-unreadable "Mach-O with no minimum command rejected under a floor"
+else bad minos-unreadable "expected non-zero naming UNREADABLE libpng16, got $rc: $(cat "$WORK/out.log")"; fi
+
+# --- minos: component counts, universal slices, Info.plist ------------------
+# R1: versions with a different number of components compare as if padded with 0.
+APP=$WORK/minos-short.app; mkminosapp "$APP"
+minos "$APP" Contents/Frameworks/libpng16.16.dylib 15.4
+rc_a=$(runfloor "$APP" 15)
+minos "$APP" Contents/Frameworks/libpng16.16.dylib 15.0.1
+rc_b=$(runfloor "$APP" 15.0)
+minos "$APP" Contents/Frameworks/libpng16.16.dylib 15
+rc_c=$(runfloor "$APP" 15.0)
+if [ "$rc_a" -ne 0 ] && [ "$rc_b" -ne 0 ] && [ "$rc_c" -eq 0 ]; then
+    ok minos-component-count "15.4 over floor 15 and 15.0.1 over 15.0 rejected; 15 under 15.0 accepted"
+else bad minos-component-count "expected fail/fail/pass, got $rc_a/$rc_b/$rc_c"; fi
+
+# R3: a universal binary declares one minimum per slice; the HIGHEST counts, in either order.
+APP=$WORK/minos-univ.app; mkminosapp "$APP"
+printf '14.0\n26.0\n' > "$APP/Contents/Frameworks/libpng16.16.dylib.minos"
+rc_a=$(runfloor "$APP" 15.0)
+printf '26.0\n14.0\n' > "$APP/Contents/Frameworks/libpng16.16.dylib.minos"
+rc_b=$(runfloor "$APP" 15.0)
+if [ "$rc_a" -ne 0 ] && [ "$rc_b" -ne 0 ] && grep -q '26.0' "$WORK/out.log"; then
+    ok minos-universal-slices "two-slice file at 14.0 and 26.0 rejected in either order, 26.0 named"
+else bad minos-universal-slices "expected non-zero twice naming 26.0, got $rc_a/$rc_b: $(cat "$WORK/out.log")"; fi
+
+# F2: with a floor the bundle must carry LSMinimumSystemVersion equal to it.
+APP=$WORK/minos-noplist.app; mkminosapp "$APP"
+rc=0; JNEXT_MACOS_MIN=15.0 bash "$SCRIPT" "$APP" >"$WORK/out.log" 2>&1 || rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'LSMinimumSystemVersion' "$WORK/out.log"; then
+    ok minos-plist-missing "no Info.plist key under a floor rejected"
+else bad minos-plist-missing "expected non-zero naming LSMinimumSystemVersion, got $rc: $(cat "$WORK/out.log")"; fi
+APP=$WORK/minos-plistwrong.app; mkminosapp "$APP"; plist "$APP" 14.0
+rc=0; JNEXT_MACOS_MIN=15.0 bash "$SCRIPT" "$APP" >"$WORK/out.log" 2>&1 || rc=$?
+if [ "$rc" -ne 0 ] && grep -q "'14.0'" "$WORK/out.log"; then
+    ok minos-plist-wrong "Info.plist key 14.0 under floor 15.0 rejected"
+else bad minos-plist-wrong "expected non-zero naming 14.0, got $rc: $(cat "$WORK/out.log")"; fi
+APP=$WORK/minos-plistfree.app; mkminosapp "$APP"
+rc=$(run "$APP")
+if [ "$rc" -eq 0 ]; then ok minos-plist-no-floor "no floor: a bundle without the key is accepted"
+else bad minos-plist-no-floor "expected 0, got $rc: $(cat "$WORK/out.log")"; fi
 
 printf "\n${BOLD}Total: %d pass, %d fail${RESET}\n" "$pass" "$fail"
 [ "$fail" -eq 0 ]
