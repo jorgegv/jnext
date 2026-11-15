@@ -16,8 +16,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # screenshots, so the pictures alone cannot prove which card booted.
 #
 # The minimal card's welcome screen finishes drawing later than the full
-# card's (frame ~410 against 390-400), so SPACE goes in at frame 500 and the
-# screenshot 50 frames later; SPACE at 400 captures the welcome screen. The
+# card's (about 15 frames), so SPACE goes in 100 frames after the full card's welcome
+# (boot-relative frame 677 = 577 + 100; it was 500 on the 24.11 card, whose welcome was at 400)
+# and the screenshot 50 frames later; SPACE at the welcome's own frame captures the
+# welcome screen. The frames are boot-relative (bf, anchored on the firmware's commit). The
 # warm-start cache goes to this row's own $JNEXT_CONFIG_DIR. The card lives
 # under $RUN_DIR/private and is removed at the end; it is never kept.
 if want minimal-sdcard-image-func; then
@@ -48,9 +50,9 @@ if want minimal-sdcard-image-func; then
             ms_shot_menu="$TMP_DIR/minimal-menu.png"
             ms_menu=$(timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
                 --sdcard "$ms_card" --rtc "$NEXTZXOS_RTC" \
-                --delayed-keypress-frames 500 space \
-                --delayed-screenshot "$ms_shot_menu" --delayed-screenshot-frames 550 \
-                --delayed-automatic-exit-frames 560 2>&1 || true)
+                --delayed-keypress-frames "$(bf 677)" space \
+                --delayed-screenshot "$ms_shot_menu" --delayed-screenshot-frames "$(bf 727)" \
+                --delayed-automatic-exit-frames "$(bf 737)" 2>&1 || true)
             grep -qF "SD card image mounted: '$ms_card'" <<<"$ms_menu" \
                 || ms_faults+=("menu: the run did not mount the minimal card")
             if [[ -f "$ms_shot_menu" ]]; then
