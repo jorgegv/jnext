@@ -54,15 +54,18 @@ const B = http.createServer((req, res) => {
 });
 await new Promise((r) => B.listen(0, '127.0.0.1', r));
 const AURL = `http://localhost:${A.address().port}`, BURL = `http://127.0.0.1:${B.address().port}`;
-const QUERY = new URLSearchParams({ image: BURL + '/card.img', sha256: SHA, file: BURL + '/red.nex' }).toString();
+const QUERY = new URLSearchParams({ file: BURL + '/red.nex' }).toString();
+// A page names no SD card: the run-time card goes in through the localhost-only development seam.
+const CARD_SEAM = { card: { url: BURL + '/card.img', sha256: SHA } };
 
 await h.launch();
 const rows = [];
 const row = (id, text, fn) => { if (!ONLY.length || ONLY.includes(id)) rows.push({ id, text, fn }); };
 const must = (cond, detail) => { if (!cond) throw new Error(detail || 'condition failed'); };
 
-async function open(url, ctxOpts = {}) {
+async function open(url, ctxOpts = {}, seam = CARD_SEAM) {
   const ctx = await h.browser.newContext({ viewport: { width: 1000, height: 900 }, deviceScaleFactor: 1, ...(E.WIDGET_SCHEME ? { colorScheme: E.WIDGET_SCHEME } : {}), ...ctxOpts });
+  await ctx.addInitScript((d) => { window['jnextDev'] = d; }, seam);
   const page = await ctx.newPage();
   page.msgs = [];
   page.on('pageerror', (e) => page.msgs.push('PAGEERROR ' + e.message));
@@ -91,8 +94,6 @@ function guideBlocks() {
   const blocks = [...md.matchAll(/```html\n([\s\S]*?)```/g)].map((m) => m[1]);
   must(blocks.length === 2, 'the guide section has ' + blocks.length + ' html blocks, expected 2');
   return blocks.map((b) => b.split('jnext-VERSION.js').join(`jnext-${VERSION}.js`)
-    .split('https://example.com/card.img').join(BURL + '/card.img')
-    .split('...64 hex digits...').join(SHA)
     .split('game.nex').join(BURL + '/red.nex'));
 }
 
@@ -189,7 +190,7 @@ row('WIDGET-03', 'toolbar: Pause/Resume toggles the player state and stops the f
 });
 
 row('WIDGET-04', 'two widgets on one page are independent: own player, own state, own toolbar', async () => {
-  const one = `<div class="jnext-widget" data-image="${BURL}/card.img" data-sha256="${SHA}" data-file="${BURL}/red.nex"></div>`;
+  const one = `<div class="jnext-widget" data-file="${BURL}/red.nex"></div>`;
   pages['two.html'] = `<!doctype html><body>${one}${one.replace('data-file', 'data-title="Second" data-file')}<script src="jnext-widget.js"></script></body>`;
   const page = await open(`${AURL}/two.html`);
   await waitClickable(page, 0);
@@ -223,7 +224,7 @@ canvas{filter:blur(2px);opacity:.5;border:4px solid #f0f}
 button{display:block;width:100%;height:80px;padding:20px;margin:9px;background:#f00;color:#0f0;font:italic 40px serif}
 body div,body button{text-transform:uppercase;line-height:90px}`;
   const side = `<div id="o1">outside div</div><button id="o2">outside button</button>`;
-  pages['hostile.html'] = `<!doctype html><style>${hostile}</style><body>${side}<div class="jnext-widget" data-title="Hostile" data-image="${BURL}/card.img" data-sha256="${SHA}" data-file="${BURL}/red.nex"></div><script src="jnext-widget.js"></script></body>`;
+  pages['hostile.html'] = `<!doctype html><style>${hostile}</style><body>${side}<div class="jnext-widget" data-title="Hostile" data-file="${BURL}/red.nex"></div><script src="jnext-widget.js"></script></body>`;
   pages['bare.html'] = `<!doctype html><style>${hostile}</style><body>${side}</body>`;
   const probe = (page) => page.evaluate(() => ['o1', 'o2'].map((id) => {
     const cs = getComputedStyle(document.getElementById(id)), r = document.getElementById(id).getBoundingClientRect();
@@ -267,6 +268,7 @@ body div,body button{text-transform:uppercase;line-height:90px}`;
 row('WIDGET-06', 'the guide\'s own-page snippet (jnext.mount, verbatim) boots: click to start, then the player runs', async () => {
   pages['own.html'] = guideBlocks()[0];
   const ctx = await h.browser.newContext({ viewport: { width: 1000, height: 900 }, deviceScaleFactor: 1 });
+  await ctx.addInitScript((d) => { window['jnextDev'] = d; }, CARD_SEAM);   // a page names no card
   const page = await ctx.newPage();
   const msgs = [];
   page.on('pageerror', (e) => msgs.push('PAGEERROR ' + e.message));
@@ -342,8 +344,9 @@ row('WIDGET-08', 'real fullscreen with the game running: the screen fills the sp
 });
 
 row('WIDGET-09', 'progress bar: topmost at its position while the image downloads, and its width follows the download', async () => {
-  const q = new URLSearchParams({ image: BURL + '/slow.img', sha256: SHA, file: BURL + '/red.nex' });
-  const page = await open(`${AURL}/widget.html?` + q.toString());
+  const page = await open(`${AURL}/widget.html?` + QUERY, {}, { card: { url: BURL + '/slow.img', sha256: SHA } });
+  await waitClickable(page);
+  await clickStart(page);   // nothing is fetched before the click
   const probe = () => page.evaluate(() => {
     const e = document.querySelector('.jnext-widget'), bar = e.querySelector('.jw-progress'), b = bar.getBoundingClientRect();
     const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
@@ -356,7 +359,7 @@ row('WIDGET-09', 'progress bar: topmost at its position while the image download
   const mid = await probe();
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'progress.png') });
   releaseSlow();
-  await waitClickable(page);
+  await waitRunning(page);   // the card, then the program: the bar is back to 0 at onReady
   const done = await probe();
   await page.context().close();
   must(mid.top, 'the progress bar is covered by another element at 40%');
@@ -392,8 +395,9 @@ row('WIDGET-10', 'the toolbar and status follow the player when the page itself 
 });
 
 row('WIDGET-11', 'an image that fails (wrong digest): the status line says error in the error colour, the buttons stay disabled', async () => {
-  const q = new URLSearchParams({ image: BURL + '/card.img', sha256: 'a'.repeat(64), file: BURL + '/red.nex' });
-  const page = await open(`${AURL}/widget.html?` + q.toString());
+  const page = await open(`${AURL}/widget.html?` + QUERY, {}, { card: { url: BURL + '/card.img', sha256: 'a'.repeat(64) } });
+  await waitClickable(page);
+  await clickStart(page);   // the card is fetched at the click
   await waitFor(page, () => document.querySelector('.jnext-widget .jw-status').textContent.startsWith('error: '), null, 300000);
   const st = await statusOf(page), dis = await buttonsDisabled(page);
   await page.context().close();
@@ -401,18 +405,18 @@ row('WIDGET-11', 'an image that fails (wrong digest): the status line says error
   must(dis, 'a button is enabled after the error');
 });
 
-row('WIDGET-12', 'no data-image: the status line says so in the error colour, the buttons stay disabled', async () => {
-  pages['noimg.html'] = '<!doctype html><body><div class="jnext-widget"></div><script src="jnext-widget.js"></script></body>';
-  const page = await open(`${AURL}/noimg.html`);
-  await waitFor(page, () => document.querySelector('.jnext-widget .jw-status').textContent.startsWith('error: '), null, 60000);
+row('WIDGET-12', "data-card-source='x': the status line refuses it in the error colour, the buttons stay disabled", async () => {
+  pages['badsource.html'] = '<!doctype html><body><div class="jnext-widget" data-card-source="x"></div><script src="jnext-widget.js"></script></body>';
+  const page = await open(`${AURL}/badsource.html`);
+  await waitFor(page, () => document.querySelector('.jnext-widget .jw-status').textContent.startsWith('error: '), null, 120000);
   const st = await statusOf(page), dis = await buttonsDisabled(page);
   await page.context().close();
-  must(st.text === 'error: data-image is missing' && st.cls.includes('jw-error') && st.color === ERR_LIGHT, 'status ' + JSON.stringify(st));
+  must(st.text === "error: option 'card': source must be 'auto', 'fetch' or 'pick'" && st.cls.includes('jw-error') && st.color === ERR_LIGHT, 'status ' + JSON.stringify(st));
   must(dis, 'a button is enabled');
 });
 
 row('WIDGET-13', 'jnext-<ver>.js cannot be loaded: the framed widget shows the error in its status line', async () => {
-  pages['nocore.html'] = '<!doctype html><body><div class="jnext-widget" data-image="x" data-sha256="y"></div><script src="/nocore/jnext-widget.js"></script></body>';
+  pages['nocore.html'] = '<!doctype html><body><div class="jnext-widget"></div><script src="/nocore/jnext-widget.js"></script></body>';
   const page = await open(`${AURL}/nocore.html`);
   await waitFor(page, () => document.querySelector('.jnext-widget .jw-status') && document.querySelector('.jnext-widget .jw-status').textContent.startsWith('error: '), null, 60000);
   const st = await statusOf(page), dis = await buttonsDisabled(page);
@@ -459,12 +463,14 @@ row('WIDGET-16', 'a page-side destroy(): the toolbar is disabled, the status say
 });
 
 row('WIDGET-17', 'data-keep-writes gives a widget player whose command line carries --sdcard-writes, and el.jnextPlayer.resetCard is a function; without the attribute, and with data-keep-writes="false", neither', async () => {
-  const one = `<div class="jnext-widget" data-image="${BURL}/card.img" data-sha256="${SHA}" data-file="${BURL}/red.nex"`;
+  const one = `<div class="jnext-widget" data-file="${BURL}/red.nex"`;
   pages['keep.html'] = `<!doctype html><body>${one} data-keep-writes></div>${one}></div>${one} data-keep-writes="false"></div><script src="jnext-widget.js"></script></body>`;
   const page = await open(`${AURL}/keep.html`);
   await waitClickable(page, 0);
   await waitClickable(page, 1);
   await waitClickable(page, 2);
+  for (const i of [0, 1, 2]) await clickStart(page, i);   // argv exists once the click has got the card
+  await waitFor(page, () => [...document.querySelectorAll('.jnext-widget')].every((e) => e.jnextPlayer.argv), null, 600000);
   const r = await page.evaluate(() => [...document.querySelectorAll('.jnext-widget')].map((e) => ({
     argv: e.jnextPlayer.argv, fn: typeof e.jnextPlayer.resetCard })));
   await page.context().close();

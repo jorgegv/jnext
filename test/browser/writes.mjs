@@ -177,9 +177,10 @@ row('WBW-01', 'first visit with keepWrites: SAVE 1 OK; the stored record (key im
   await slowPersist(main, 150, 'resolve');
   const r = await rec(main);
   must(!r.mountError, 'mount: ' + r.mountError);
-  must(r.argv.includes('--sdcard-writes'), 'argv ' + JSON.stringify(r.argv));
   await click(main);
   await waitMsg(main, 'SAVE 1 OK');
+  const r1 = await rec(main);   // argv exists once the click has got the card
+  must(r1.argv.includes('--sdcard-writes'), 'argv ' + JSON.stringify(r1.argv));
   const s = await storedWithin(main, 5000, (s) => Object.keys(s).length === 1 && sameBytes(s[K1], W1));
   must(s && Object.keys(s).length === 1 && Object.keys(s)[0] === K1, 'records ' + desc(s) + ' want ' + K1);
   must(sameBytes(s[K1], W1), `the record (${s[K1].length} bytes) differs from the native journal (${W1.length} bytes)`);
@@ -270,7 +271,7 @@ row('WBW-08', 'keepWrites:\'yes\' rejects mount() with a TypeError naming keepWr
   const before = page.reqs.length;
   const r = await page.evaluate(() => {
     const el = document.createElement('div'); document.body.appendChild(el);
-    return jnext.mount(el, { image: { url: 'http://127.0.0.1:1/x.img', sha256: 'a'.repeat(64) }, keepWrites: 'yes' })
+    return jnext.mount(el, { keepWrites: 'yes' })
       .then(() => 'resolved', (e) => (e instanceof TypeError ? 'TypeError: ' : 'other: ') + e.message);
   });
   const fetched = page.reqs.slice(before).filter((q) => !q.url.startsWith(AURL));
@@ -335,8 +336,10 @@ row('WBW-11', 'a --sdcard-writes-reset start that writes nothing (no program: th
 row('WBW-12', 'keepWrites:false is the documented boolean: mount() resolves, the command line has no --sdcard-writes, and no jnext-card-writes database appears', async () => {
   const page = await newPage();
   await open(page, [GUEST({ keepWrites: false })]);
+  must(!(await rec(page)).mountError, 'mount failed');
+  await click(page);
+  await waitFor(page, () => window.apiTest.players[0].player.argv !== undefined, null, 300000);   // the click got the card
   const r = await rec(page);
-  must(!r.mountError, 'mount: ' + r.mountError);
   must(r.argv && !r.argv.includes('--sdcard-writes'), 'argv ' + JSON.stringify(r.argv));
   const names = await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name));
   await page.ctx.close();

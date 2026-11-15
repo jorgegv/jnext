@@ -194,7 +194,9 @@
         else ui.say(phase + ' ' + Math.round(fraction * 100) + '%');
       },
       onReady: function () { ui.bar.style.width = '0'; ui.started = true; ui.sync(); },
-      onError: function (message) { ui.say('error: ' + message, true); }
+      // An error before the program ever started (the SD card could not be made, a refused file) leaves
+      // nothing to control: the toolbar goes back to disabled. Later errors leave a running player alone.
+      onError: function (message) { ui.say('error: ' + message, true); if (!ui.started) ui.disable(); }
     };
     if (el.getAttribute('data-card-source')) options.card = { source: el.getAttribute('data-card-source') };
     if (el.getAttribute('data-poster')) options.poster = el.getAttribute('data-poster');
