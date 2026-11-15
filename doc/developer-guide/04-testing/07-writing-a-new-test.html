@@ -530,6 +530,8 @@
       
         
       
+        
+      
     
     
     
@@ -706,6 +708,34 @@
     
   
     2.5 Save state, rewind and determinism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/06-adding-a-costly-optimisation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.6 Adding a costly optimisation
   
 
     
@@ -3159,9 +3189,11 @@ not appear in comments either.</p>
 <h2 id="proving-an-optimisation-bit-identical">Proving an optimisation bit-identical<a class="headerlink" href="#proving-an-optimisation-bit-identical" title="Permanent link">&para;</a></h2>
 <p>A change whose whole claim is "same result, faster" has no VHDL row to cite. Its oracle is
 the unoptimised path of the same binary, and the claim is held by an A/B harness
-(<code>test/core/batch_ab.h</code>, used by <code>halt_batch_equiv_test</code>, <code>halt_batch_boot_test</code> and
-<code>halt_batch_corpus_*_test</code>): build the same machine twice, one with the optimisation switched
-off through a <code>_for_test</code> hook, run the same scripted input, and compare the framebuffer, the
+(<code>test/core/batch_ab.h</code>, used by <code>halt_batch_equiv_test</code>, <code>halt_batch_boot_test</code>,
+<code>halt_batch_corpus_*_test</code> and the <code>raster_poll_batch_*_test</code> suites): build the same machine twice, one with the optimisation switched
+off through a <code>_for_test</code> hook (<code>set_cycle_batching_for_test(halt, copper, poll)</code>; <code>batch_ab::run()</code>
+takes the first two and, as its optional last argument, the raster-poll batch's, which follows the
+HALT batch's when left out), run the same scripted input, and compare the framebuffer, the
 drained audio and the whole <code>save_state()</code> stream after every frame. Four rules keep it honest:</p>
 <ul>
 <li><strong>The OFF run is checked to be off.</strong> Every row asserts the optimisation's counters are 0 in

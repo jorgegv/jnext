@@ -81,7 +81,7 @@ and no waits at the second.
 
 ## Frame start
 
-`run_frame()` (`src/core/emulator.cpp:10354`) opens with two steps that have to
+`run_frame()` (`src/core/emulator.cpp:10362`) opens with two steps that have to
 come before anything else. `service_esp_frame()` applies the replay gate and
 mirrors the ESP worker thread's state into the flag the hot path reads, and the
 rewind step modes get their chance to return early — if the debugger has asked
@@ -101,7 +101,7 @@ rather than start a fresh one. Calling `begin_new_frame()` in the middle of a
 frame would re-baseline the per-scanline change logs the compositor replays.
 The visible symptom is a frame that renders flat.
 
-`begin_new_frame()` (`src/core/emulator.cpp:9418`) does the following, in order:
+`begin_new_frame()` (`src/core/emulator.cpp:9426`) does the following, in order:
 
 1. Take a rewind snapshot, if rewind is enabled. Frame boundaries are chosen
    for this precisely because the scheduler queue is empty at that instant, so
@@ -154,7 +154,7 @@ A `.tzx` or `.wav` save also samples the tape-out level
 end of the frame; see
 [3.8](../03-subsystems/08-media-and-loaders.md).
 
-**Then `step_one_instruction()`** (`src/core/emulator.cpp:10941`), the one shared per-instruction
+**Then `step_one_instruction()`** (`src/core/emulator.cpp:10952`), the one shared per-instruction
 body. It picks exactly one of four things to do:
 
 - If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -197,6 +197,36 @@ predicate repeat what each coverage set already does). The DivMMC and Multiface 
 does not react to by address, every transition of either converges within one M1 edge, which
 the real repeat already is, so a gate on their state was removed as provably redundant.
 
+**A loop that waits for a raster line can be one slot too.** A program that does not `HALT` can still
+spend its frame in a loop that re-reads NR 0x1E / 0x1F until the line it wants arrives (the NextZXOS Guide
+viewer does, in a seven-instruction loop with interrupts disabled; several games do). Each read of either
+register by the guest (the read handlers installed in `Emulator::init()`, only while the CPU is inside
+`execute()`, so a debugger panel reading them does not count) notes itself and raises `poll_watch_`.
+`run_frame()` then calls `poll_slot_()` after the slots that follow, from the same place as the HALT batch
+and with one test of that flag per slot as the whole cost to a program that never reads the raster. The
+method is observation, not recognition of code: `poll_slot_()` snapshots the CPU after the slot that
+read a raster register (`Z80Cpu::capture_loop_state()`: every register, the hidden latches, the interrupt
+state; not the 7-bit `R` counter, which every instruction advances), and then checks each following slot
+until one that reads a raster register leaves PC where the first one did. Every instruction of that pass
+must be on a whitelist of instructions that do nothing outside the CPU (register-only loads and ALU,
+jumps, the CB register forms, `IN r,(C)`, `IN A,(n)`, `OUT (C),r`), the only I/O allowed is a raster read
+and the select of NR 0x1E or 0x1F, and no M1 of the pass may be an address the DivMMC automap or the NMI source
+reacts to. If the CPU is then in the state it started in, the pass was a deterministic function of that
+state and of the values its reads returned, so a further pass that reads the same values does the same
+again. How many further passes there are comes from the shared gates and bounds (`batch_window_limit_()`,
+the one function the HALT batch calls too: debugger observers, trace, tape, RZX, DMA, UART, a pending
+`/INT`, speed or contention commit, the next scanline, interrupt request, CTC event, DMA gate and
+Copper action) and from asking `cvc_at()`, through the same `raster_reg_value_at_()` the read handlers
+use, what each read of each absorbed pass would return; the pass whose read would differ runs for real,
+after the window. Contention must not be able to apply (`ContentionModel::contention_possible()`: not at
+3.5 MHz), so a pass costs the same whatever the beam does. `Z80Cpu::repeat_loop()` then adds the passes'
+T-states, `R` and `execute()` serial, the clock and the DMA prescaler timer advance, and the PSG and the
+mixer are replayed slot by slot through `halt_batch_replay_()`, the HALT batch's own replay, before the
+cluster runs once over the window. Every batch is preceded by its own watched pass: nothing is cached
+between batches. The fixed cost to every program is that one flag test; it was measured against the
+branch point on the non-polling bench workloads, under gcc and under clang, and is small enough that the
+optimisation is always on rather than a costly one (page 2.6).
+
 Around that choice it also records the trace entry, notes what the end-of-slot
 interrupt tick will need (the instruction's T-states, its first edge, its opcode
 fetches), counts RZX instructions, ticks real-time tape playback, and advances
@@ -208,7 +238,7 @@ stepping.
 
 **Then a data-breakpoint check**, which returns early if one fired.
 
-**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11642`), the
+**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11653`), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -253,7 +283,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13629`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13911`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

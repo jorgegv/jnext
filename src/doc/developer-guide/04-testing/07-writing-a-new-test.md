@@ -161,9 +161,11 @@ not appear in comments either.
 
 A change whose whole claim is "same result, faster" has no VHDL row to cite. Its oracle is
 the unoptimised path of the same binary, and the claim is held by an A/B harness
-(`test/core/batch_ab.h`, used by `halt_batch_equiv_test`, `halt_batch_boot_test` and
-`halt_batch_corpus_*_test`): build the same machine twice, one with the optimisation switched
-off through a `_for_test` hook, run the same scripted input, and compare the framebuffer, the
+(`test/core/batch_ab.h`, used by `halt_batch_equiv_test`, `halt_batch_boot_test`,
+`halt_batch_corpus_*_test` and the `raster_poll_batch_*_test` suites): build the same machine twice, one with the optimisation switched
+off through a `_for_test` hook (`set_cycle_batching_for_test(halt, copper, poll)`; `batch_ab::run()`
+takes the first two and, as its optional last argument, the raster-poll batch's, which follows the
+HALT batch's when left out), run the same scripted input, and compare the framebuffer, the
 drained audio and the whole `save_state()` stream after every frame. Four rules keep it honest:
 
 - **The OFF run is checked to be off.** Every row asserts the optimisation's counters are 0 in
