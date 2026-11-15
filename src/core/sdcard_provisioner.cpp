@@ -16,15 +16,30 @@
 #include <string>
 #include <sys/types.h>
 
-// The one distribution this release accepts for the browser's minimal card (GH #458),
-// next to the URL it is downloaded from. A release that moves to a new distribution
-// changes ALL of this in one commit: the size and the two SHA-256s come from the
-// developer's own download, card_sha256 from `make-minimal-card` on it (recipe stays
-// unless the builder's output changed). MCARD-16 and `make-minimal-card` fail on a
-// partial update.
+namespace sdcard {
+
+const char* const kDistroUrl =
+    "https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip";
+const char* const kImageFileName = "cspect-next-1gb.img";
+const char* const kFixedImageFileName = "cspect-next-1gb-fixed.img";
+const int kFixedImageRecipe = 3;
+const char* const kFixedImageRecipeSuffix = ".recipe";
+const char* const kDistroSuffix = ".distro";
+const char* const kLegacyDistribution = "sn-emulator-24.11.zip";
+const char* const kDeclinedSuffix = ".distro-declined";
+const char* const kZx81Rom16kSha256 =
+    "c294e4b60a0eba85c02a3d8b37f77de6c4516d873682dcf333813bd392d82aac";
+}  // namespace sdcard
+
+// The one distribution this release accepts for the browser's minimal card (GH #458), next to
+// the URL it is downloaded from (the URL is written once, in kDistroUrl above). A release that
+// moves to a new distribution changes kDistroUrl and ALL of this in one commit: the size and the
+// two input SHA-256s come from the developer's own download, card_sha256 from
+// `make-minimal-card --unpinned` on it (recipe stays unless the builder's output changed).
+// MCARD-16 and `make minimal-image-test` fail on a partial update.
 namespace minimal_card {
-constexpr Pins kDistribution = {
-    "https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip",
+const Pins kDistribution = {
+    sdcard::kDistroUrl,
     "sn-emulator-26.11.zip",
     70286227ull,
     "81fe97d37ef4e373643b4d399c22ab2acca631c02a778e8d01e136e0c7c5d2d6",
@@ -35,17 +50,6 @@ constexpr Pins kDistribution = {
 }  // namespace minimal_card
 
 namespace sdcard {
-
-const char* const kDistroUrl = minimal_card::kDistribution.url;
-const char* const kImageFileName = "cspect-next-1gb.img";
-const char* const kFixedImageFileName = "cspect-next-1gb-fixed.img";
-const int kFixedImageRecipe = 3;
-const char* const kFixedImageRecipeSuffix = ".recipe";
-const char* const kDistroSuffix = ".distro";
-const char* const kLegacyDistribution = "sn-emulator-24.11.zip";
-const char* const kDeclinedSuffix = ".distro-declined";
-const char* const kZx81Rom16kSha256 =
-    "c294e4b60a0eba85c02a3d8b37f77de6c4516d873682dcf333813bd392d82aac";
 
 // ---------------------------------------------------------------------------
 // Paths

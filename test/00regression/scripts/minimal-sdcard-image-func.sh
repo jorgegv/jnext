@@ -48,7 +48,7 @@ if want minimal-sdcard-image-func; then
         # in PINNED-card mode. The zip pin is replaced by this zip's own digest; the pinned card
         # digest (kDistribution) must come out, byte for byte.
         ms_zip="$ms_dir/distro.zip"
-        ms_pinned=$(sed -n '/constexpr Pins kDistribution/,/^};/p' "$PROJECT_DIR/src/core/sdcard_provisioner.cpp" \
+        ms_pinned=$(sed -n '/^const Pins kDistribution/,/^};/p' "$PROJECT_DIR/src/core/sdcard_provisioner.cpp" \
             | grep -oE '"[0-9a-f]{64}"' | sed -n 3p | tr -d '"' || true)
         python3 -I -c '
 import sys, zipfile

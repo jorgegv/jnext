@@ -61,7 +61,7 @@ finish() {
 }
 
 # The pinned card digest: the third SHA-256 of kDistribution (zip, image, card).
-pinned_card=$(sed -n '/constexpr Pins kDistribution/,/^};/p' "$PROV" | grep -oE '"[0-9a-f]{64}"' | sed -n 3p | tr -d '"' || true)
+pinned_card=$(sed -n '/^const Pins kDistribution/,/^};/p' "$PROV" | grep -oE '"[0-9a-f]{64}"' | sed -n 3p | tr -d '"' || true)
 
 # ---- MINIMG-01: tools, source, a build ----
 missing=()
@@ -296,8 +296,8 @@ row MINIMG-19 "$ok" "a synthetic distribution (mtools image, python zip) builds 
 
 # ---- MINIMG-20: pinned mode refuses a zip that is not the official one ----
 rc=0; err=$("$TOOL" "$S/synth.zip" "$T/e/pinned.img" 2>&1 >/dev/null) || rc=$?
-zsz=$(grep -oE 'kDistribution = \{' "$PROV" >/dev/null && sed -n '/constexpr Pins kDistribution/,/^};/p' "$PROV" | grep -oE '[0-9]{7,}ull' | tr -d 'ul' || true)
-zhash=$(sed -n '/constexpr Pins kDistribution/,/^};/p' "$PROV" | grep -oE '"[0-9a-f]{64}"' | sed -n 1p | tr -d '"')
+zsz=$(grep -oE 'kDistribution = \{' "$PROV" >/dev/null && sed -n '/^const Pins kDistribution/,/^};/p' "$PROV" | grep -oE '[0-9]{7,}ull' | tr -d 'ul' || true)
+zhash=$(sed -n '/^const Pins kDistribution/,/^};/p' "$PROV" | grep -oE '"[0-9a-f]{64}"' | sed -n 1p | tr -d '"')
 ok=0
 if [[ $rc == 1 && "$err" == *"sn-emulator-26.11.zip"* && "$err" == *"$zhash"* && "$err" == *"$zsz"* \
       && "$err" == *"$(sha256sum "$S/synth.zip" | cut -d' ' -f1)"* && ! -e "$T/e/pinned.img" ]]; then ok=1; fi
