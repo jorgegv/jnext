@@ -37,7 +37,8 @@
 namespace minimal_card {
 
 /// The identity of the one distribution this release accepts. Defined in
-/// sdcard_provisioner.cpp next to kDistroUrl (which is initialised from `url`).
+/// sdcard_provisioner.cpp right after kDistroUrl's constants; `url` IS sdcard::kDistroUrl (the
+/// literal stays in kDistroUrl, where the test harness's sed reads it).
 struct Pins {
     const char* url;          // == sdcard::kDistroUrl
     const char* file;         // "sn-emulator-26.11.zip" (the last path element of url)

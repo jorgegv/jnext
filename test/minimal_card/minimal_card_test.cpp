@@ -94,7 +94,9 @@ struct FNode {
     uint8_t attr = 0x20;            // the R/H/S/A bits (the writer adds the directory bit)
     uint16_t wdate = 0, wtime = 0;
     std::vector<FNode> kids;
-    uint32_t cluster = 0, nclusters = 0;   // laid out by build_image
+    uint32_t cluster = 0, nclusters = 0;   // laid out by build_image (cluster = chain[0])
+    std::vector<uint32_t> chain;
+    uint32_t entry_cluster = 0;            // when non-zero, the cluster the directory entry claims
     std::string sfn;
 };
 
@@ -111,6 +113,7 @@ struct Image {
     std::vector<uint8_t> bytes;
     uint64_t data_off = 0;
     uint32_t last_boot_cluster = 0;
+    std::map<std::string, std::vector<uint32_t>> chains;   // by node name
 };
 
 bool is_83(const std::string& n, bool& all_lower) {
@@ -176,7 +179,9 @@ void dir_entries(const FNode& d, const FNode* parent, std::vector<uint8_t>& out)
         std::memcpy(e.data(), s11.data(), 11);
         e[11] = attr;
         e[12] = nt;
-        w16(e, 14, wt); w16(e, 16, wd); w16(e, 18, wd);      // create time/date, access date
+        // create time/date and access date are DISTINCT from the write stamp (offsets 22/24),
+        // so a reader that takes the wrong pair is caught (MCARD-03)
+        w16(e, 14, wt ^ 0x0505); w16(e, 16, wd ^ 0x0100); w16(e, 18, wd ^ 0x0300);
         w16(e, 20, cl >> 16);
         w16(e, 22, wt); w16(e, 24, wd);
         w16(e, 26, cl & 0xFFFF);
@@ -209,7 +214,7 @@ void dir_entries(const FNode& d, const FNode* parent, std::vector<uint8_t>& out)
             }
         }
         const uint8_t nt = plain && lo ? (k.name.find('.') == std::string::npos ? 0x08 : 0x18) : 0;
-        sfn_entry(k.sfn, attr, nt, k.cluster, k.dir ? 0 : static_cast<uint32_t>(k.declared ? k.declared : k.data.size()),
+        sfn_entry(k.sfn, attr, nt, k.entry_cluster ? k.entry_cluster : k.cluster, k.dir ? 0 : static_cast<uint32_t>(k.declared ? k.declared : k.data.size()),
                   k.wdate, k.wtime);
     }
 }
@@ -219,53 +224,71 @@ void collect(FNode& n, std::vector<FNode*>& order) {
     for (auto& k : n.kids) collect(k, order);
 }
 
-// early_name: allocate that node's clusters before the root's (MCARD-10).
-// trim_before: drop the image's bytes from the first cluster of the node of that name on.
-Image build_image(FNode root, const std::string& early_name = "", const std::string& trim_before = "",
-                  const std::string& boot_last = "APPS") {
+// How the fixture is laid out in the image.
+struct LayoutOpts {
+    std::string early_name;       // allocate that node's clusters before the root's (MCARD-10)
+    std::string trim_before;      // drop the image's bytes from the first cluster of that node on
+    std::string boot_last = "APPS";
+    uint32_t lba = 63;            // partition start
+    uint8_t ptype = 0x0C;         // partition type
+    // Nodes whose cluster chain runs DOWNWARD (second cluster below the first): the chain is
+    // assembled by index, not by arrival order. a.sys is a file, next a directory.
+    std::set<std::string> reverse = {"a.sys", "next"};
+    std::string short_chain;      // that node's FAT chain ends after its first cluster
+    std::map<std::string, std::string> alias;   // node X's directory entry claims node Y's cluster
+};
+
+Image build_image(FNode root, const LayoutOpts& o = LayoutOpts()) {
     root.name = "<root>";
     set_sfns(root);
     std::vector<FNode*> order;
     collect(root, order);
-    if (!early_name.empty()) {
-        auto it = std::find_if(order.begin(), order.end(), [&](FNode* p) { return p->name == early_name; });
+    if (!o.early_name.empty()) {
+        auto it = std::find_if(order.begin(), order.end(), [&](FNode* p) { return p->name == o.early_name; });
         if (it != order.end()) { FNode* p = *it; order.erase(it); order.insert(order.begin(), p); }
     }
     // directory sizes need the entry count: lay out directories first (entry count is known)
     uint32_t next = 2;
-    std::vector<std::vector<uint8_t>> dirbytes(order.size());
     for (FNode* p : order) {
         std::vector<uint8_t> tmp;
-        if (p->dir) { FNode copy = *p; std::vector<uint8_t> t; dir_entries(copy, nullptr, t); tmp = t; }
+        if (p->dir) { FNode copy = *p; dir_entries(copy, nullptr, tmp); }
         const uint64_t bytes = p->dir ? std::max<uint64_t>(tmp.size() + 32, 1) : (p->declared ? p->declared : p->data.size());
         p->nclusters = bytes ? static_cast<uint32_t>((bytes + kBpc - 1) / kBpc) : 0;
-        p->cluster = p->nclusters ? next : 0;
+        p->chain.clear();
+        for (uint32_t i = 0; i < p->nclusters; ++i) p->chain.push_back(next + i);
+        if (o.reverse.count(p->name) && p->chain.size() > 1) std::reverse(p->chain.begin(), p->chain.end());
+        p->cluster = p->chain.empty() ? 0 : p->chain[0];
         next += p->nclusters;
+    }
+    for (auto& al : o.alias) {
+        FNode *x = nullptr, *y = nullptr;
+        for (FNode* p : order) { if (p->name == al.first) x = p; if (p->name == al.second) y = p; }
+        if (x && y) x->entry_cluster = y->cluster;
     }
     const uint32_t nclst = next - 2;
     const uint32_t fat_sectors = ((nclst + 2) * 4 + 511) / 512;
     const uint32_t data_sector = kReserved + 2 * fat_sectors;
     const uint32_t total = data_sector + nclst * kSpc;
     Image im;
-    im.data_off = static_cast<uint64_t>(kPartLba + data_sector) * 512;
-    size_t size = static_cast<size_t>(kPartLba + total) * 512;
-    if (!trim_before.empty())
+    im.data_off = static_cast<uint64_t>(o.lba + data_sector) * 512;
+    size_t size = static_cast<size_t>(o.lba + total) * 512;
+    if (!o.trim_before.empty())
         for (FNode* p : order)
-            if (p->name == trim_before) size = static_cast<size_t>(im.data_off) + static_cast<size_t>(p->cluster - 2) * kBpc;
+            if (p->name == o.trim_before) size = static_cast<size_t>(im.data_off) + static_cast<size_t>(p->cluster - 2) * kBpc;
     im.bytes.assign(size, 0);
     auto& b = im.bytes;
     // MBR
     uint8_t* pe = b.data() + 0x1BE;
-    pe[0] = 0x80; pe[4] = 0x0C;
-    w32(b, 0x1BE + 8, kPartLba); w32(b, 0x1BE + 12, total);
+    pe[0] = 0x80; pe[4] = o.ptype;
+    w32(b, 0x1BE + 8, o.lba); w32(b, 0x1BE + 12, total);
     b[510] = 0x55; b[511] = 0xAA;
     // BPB
-    const size_t v = static_cast<size_t>(kPartLba) * 512;
+    const size_t v = static_cast<size_t>(o.lba) * 512;
     b[v] = 0xEB; b[v + 1] = 0x58; b[v + 2] = 0x90;
     std::memcpy(&b[v + 3], "MSWIN4.1", 8);
     w16(b, v + 11, 512); b[v + 13] = kSpc; w16(b, v + 14, kReserved); b[v + 16] = 2;
-    b[v + 21] = 0xF8; w16(b, v + 24, 63); w16(b, v + 26, 255); w32(b, v + 28, kPartLba);
-    w32(b, v + 32, total); w32(b, v + 36, fat_sectors); w32(b, v + 44, 0);   // root: set below
+    b[v + 21] = 0xF8; w16(b, v + 24, 63); w16(b, v + 26, 255); w32(b, v + 28, o.lba);
+    w32(b, v + 32, total); w32(b, v + 36, fat_sectors);
     b[v + 510] = 0x55; b[v + 511] = 0xAA;
     w32(b, v + 44, root.cluster);
     // FATs and data
@@ -275,37 +298,44 @@ Image build_image(FNode root, const std::string& early_name = "", const std::str
     };
     set_fat(0, 0x0FFFFFF8); set_fat(1, 0x0FFFFFFF);
     for (FNode* p : order) {
-        for (uint32_t i = 0; i < p->nclusters; ++i)
-            set_fat(p->cluster + i, i + 1 == p->nclusters ? 0x0FFFFFFF : p->cluster + i + 1);
+        im.chains[p->name] = p->chain;
+        for (uint32_t i = 0; i < p->nclusters; ++i) {
+            const bool last = i + 1 == p->nclusters || (p->name == o.short_chain && i == 0);
+            set_fat(p->chain[i], last ? 0x0FFFFFFF : p->chain[i + 1]);
+        }
         const FNode* par = nullptr;
         for (FNode* q : order) for (auto& k : q->kids) if (&k == p) par = q;
         std::vector<uint8_t> content = p->data;
         if (p->dir) { content.clear(); dir_entries(*p, par, content); }
-        if (p->cluster && !p->declared && !content.empty() &&
-            static_cast<size_t>(im.data_off) + static_cast<size_t>(p->cluster - 2) * kBpc + content.size() <= b.size())
-            std::memcpy(&b[static_cast<size_t>(im.data_off) + static_cast<size_t>(p->cluster - 2) * kBpc], content.data(), content.size());
+        if (p->declared) continue;
+        for (uint32_t i = 0; i < p->nclusters; ++i) {
+            const size_t from = static_cast<size_t>(i) * kBpc;
+            if (from >= content.size()) break;
+            const size_t n = std::min<size_t>(kBpc, content.size() - from);
+            const size_t at = static_cast<size_t>(im.data_off) + static_cast<size_t>(p->chain[i] - 2) * kBpc;
+            if (at + n <= b.size()) std::memcpy(&b[at], content.data() + from, n);
+        }
     }
     // the last cluster of the boot set = the highest cluster of any node outside the last top-level dir
     for (FNode* p : order) {
         if (p == &root || p->nclusters == 0) continue;
         bool in_last = false;
         for (const FNode* q = p; q; ) {
-            if (q->name == boot_last || q->name == "OTHER.TXT") { in_last = true; break; }
+            if (q->name == o.boot_last || q->name == "OTHER.TXT") { in_last = true; break; }
             const FNode* par = nullptr;
             for (FNode* r : order) for (auto& k : r->kids) if (&k == q) par = r;
             q = (par && par != &root) ? par : nullptr;
         }
-        if (!in_last) im.last_boot_cluster = std::max(im.last_boot_cluster, p->cluster + p->nclusters - 1);
+        if (!in_last) im.last_boot_cluster = std::max(im.last_boot_cluster, *std::max_element(p->chain.begin(), p->chain.end()));
     }
-    // root cluster field in the BPB after layout
-    w32(b, v + 44, root.cluster);
     return im;
 }
 
 // The fixture tree. Boot set + APPS (not in it) + OTHER.TXT (not in it).
-FNode fixture(bool with_sys = true, bool big = false) {
+FNode fixture(bool with_sys = true, bool big = false, bool dup_root = false) {
     FNode root = dirn("<root>", 0, 0, 0);
     root.kids.push_back(file("TBBLUE.FW", pattern(3000, 1), 0x24, 0x5A21, 0x6C41));
+    if (dup_root) root.kids.push_back(file("TbBlue.fw", pattern(3000, 99), 0x20, 0x5A21, 0x6C41));   // the same name: the first one wins
     FNode mach = dirn("machines", 0x00, 0x5A22, 0x7000);
     FNode next = dirn("next", 0x00, 0x5A23, 0x7200);
     next.kids.push_back(file("48.rom", pattern(16384, 2), 0x21, 0x5A24, 0x7400));
@@ -661,7 +691,7 @@ int main() {
     {
         const std::string c2 = tmp_path("card-order.img");
         std::remove(c2.c_str());
-        const Run r = build(minimal_card::Input::Zip, make_zip(build_image(fx, "a.sys").bytes), c2, ex0);
+        const Run r = build(minimal_card::Input::Zip, make_zip(build_image(fx, [] { LayoutOpts o; o.early_name = "a.sys"; return o; }()).bytes), c2, ex0);
         check("MCARD-10", "a file whose cluster comes before its directory: refused, naming 'second pass' and the path",
               r.st == minimal_card::Status::Error && r.err.find("second pass") != std::string::npos &&
                   r.err.find("/nextzxos/a.sys") != std::string::npos && !exists(c2),
@@ -737,7 +767,7 @@ int main() {
     {
         const std::string c2 = tmp_path("card-big.img");
         std::remove(c2.c_str());
-        const Image bigim = build_image(fixture(true, true), "", "big.bin");
+        const Image bigim = build_image(fixture(true, true), [] { LayoutOpts o; o.trim_before = "big.bin"; return o; }());
         const Run r = build(minimal_card::Input::Image, bigim.bytes, c2, ex0);
         check("MCARD-14", "a boot-set file beyond the 32 MiB retention cap: refused ('boot set is larger than the card')",
               r.st == minimal_card::Status::Error && r.err.find("larger than the card") != std::string::npos && !exists(c2), r.err);
@@ -778,6 +808,137 @@ int main() {
         const Run r = build(minimal_card::Input::Zip, zip, c2, e);
         check("MCARD-18", "a 32 MiB card: refused 'too few clusters for FAT32', no output file",
               r.st == minimal_card::Status::Error && r.err.find("too few clusters for FAT32") != std::string::npos && !exists(c2), r.err);
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-19: a wrong IMAGE digest is refused before anything is written (the twin of MCARD-07).
+    {
+        const std::string c2 = tmp_path("card-wrongimg.img");
+        std::remove(c2.c_str());
+        minimal_card::Expect e = ex0;
+        e.image_sha256 = std::string(64, '3');
+        e.file = "sn-emulator-test.zip";
+        const Run r = build(minimal_card::Input::Image, im.bytes, c2, e);
+        const std::string real = sha_of(im.bytes);
+        check("MCARD-19", "Input::Image with a wrong image sha256: refused naming both digests and the file, no output file",
+              r.st == minimal_card::Status::Error && r.err.find(real) != std::string::npos &&
+                  r.err.find(e.image_sha256) != std::string::npos && r.err.find("sn-emulator-test.zip") != std::string::npos &&
+                  !exists(c2),
+              r.err);
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-20: pinned() takes every field from kDistribution, for both kinds of input.
+    {
+        const auto& p = minimal_card::kDistribution;
+        const minimal_card::Expect z = minimal_card::pinned(minimal_card::Input::Zip);
+        const minimal_card::Expect i = minimal_card::pinned(minimal_card::Input::Image);
+        check("MCARD-20", "pinned(Zip) carries file, zip sha256, zip size and card sha256 from kDistribution (no image digest); pinned(Image) file, image sha256 and card sha256 (no zip digest or size)",
+              z.file == p.file && z.zip_sha256 == p.zip_sha256 && z.zip_size == p.zip_size && z.card_sha256 == p.card_sha256 &&
+                  z.image_sha256.empty() && i.file == p.file && i.image_sha256 == p.image_sha256 &&
+                  i.card_sha256 == p.card_sha256 && i.zip_sha256.empty() && i.zip_size == 0 &&
+                  z.zx81_known_sha256 == sdcard::kZx81Rom16kSha256 && i.card_sectors == 40 * 2048);
+    }
+
+    // MCARD-21: chains assembled by index. The fixture's a.sys (a file) and next (a directory) run
+    // DOWNWARD; the card equals the one made from the same tree laid out ascending.
+    {
+        const std::string c2 = tmp_path("card-asc.img");
+        std::remove(c2.c_str());
+        LayoutOpts o;
+        o.reverse.clear();
+        const Image asc = build_image(fx, o);
+        const Run r = build(minimal_card::Input::Zip, make_zip(asc.bytes), c2, ex0);
+        const auto& a = im.chains.at("a.sys");
+        const auto& n = im.chains.at("next");
+        const bool down = a.size() > 1 && a[1] < a[0] && n.size() > 1 && n[1] < n[0] &&
+                          asc.chains.at("a.sys")[1] > asc.chains.at("a.sys")[0];
+        check("MCARD-21", "a file and a directory whose chains run downward build the same card as the ascending layout",
+              built && down && r.st == minimal_card::Status::Done && r.sha == main_run.sha,
+              std::string(down ? "" : "fixture not downward ") + r.err);
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-22: the partition start is read from the MBR (LBA 2048, as sfdisk and the distribution
+    // after 24.11 place it), and partition type 0x0B is taken as FAT32 too.
+    {
+        const std::string c2 = tmp_path("card-lba.img");
+        std::remove(c2.c_str());
+        LayoutOpts o;
+        o.lba = 2048;
+        const Run r = build(minimal_card::Input::Zip, make_zip(build_image(fx, o).bytes), c2, ex0);
+        std::remove(c2.c_str());
+        LayoutOpts o2;
+        o2.ptype = 0x0B;
+        const Run r2 = build(minimal_card::Input::Zip, make_zip(build_image(fx, o2).bytes), c2, ex0);
+        std::remove(c2.c_str());
+        check("MCARD-22", "a partition at LBA 2048, and one of type 0x0B, build the same card as LBA 63 type 0x0C",
+              built && r.st == minimal_card::Status::Done && r.sha == main_run.sha &&
+                  r2.st == minimal_card::Status::Done && r2.sha == main_run.sha,
+              r.err + "|" + r2.err);
+    }
+
+    // MCARD-23: a STORED (method 0) image entry gives the same card as the deflated one (twin of MCARD-12).
+    {
+        const std::string c2 = tmp_path("card-stored.img");
+        std::remove(c2.c_str());
+        ZipOpts o;
+        o.method = 0;
+        const Run r = build(minimal_card::Input::Zip, make_zip(im.bytes, o), c2, ex0);
+        check("MCARD-23", "a stored zip of the fixture gives the same card sha256 as the deflated one",
+              built && r.st == minimal_card::Status::Done && r.sha == main_run.sha, r.err);
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-24: two files of one directory claiming the same cluster.
+    {
+        const std::string c2 = tmp_path("card-shared.img");
+        std::remove(c2.c_str());
+        LayoutOpts o;
+        o.alias["LICENSE.md"] = "README.md";
+        const Run r = build(minimal_card::Input::Zip, make_zip(build_image(fx, o).bytes), c2, ex0);
+        check("MCARD-24", "two files sharing a cluster: refused ('shared with another file'), no output file",
+              r.st == minimal_card::Status::Error && r.err.find("shared with another file") != std::string::npos && !exists(c2), r.err);
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-25: a file whose FAT chain ends before its size does.
+    {
+        const std::string c2 = tmp_path("card-short.img");
+        std::remove(c2.c_str());
+        LayoutOpts o;
+        o.short_chain = "a.sys";
+        const Run r = build(minimal_card::Input::Zip, make_zip(build_image(fx, o).bytes), c2, ex0);
+        check("MCARD-25", "a chain shorter than the file's size: refused ('shorter on disk'), no output file",
+              r.st == minimal_card::Status::Error && r.err.find("shorter on disk") != std::string::npos && !exists(c2), r.err);
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-26: the ZIP64 marker in the entry's compressed size.
+    {
+        const std::string c2 = tmp_path("card-zip64.img");
+        std::remove(c2.c_str());
+        std::vector<uint8_t> z64 = zip;
+        for (size_t k = 18; k < 22; ++k) z64[k] = 0xFF;
+        const Run r = build(minimal_card::Input::Zip, z64, c2, ex0);
+        check("MCARD-26", "a ZIP64 size marker in the image entry: refused naming ZIP64, no output file",
+              r.st == minimal_card::Status::Error && r.err.find("ZIP64") != std::string::npos && !exists(c2), r.err);
+        std::remove(c2.c_str());
+    }
+
+    // MCARD-27: two root entries of one name (different case): the first wins, as the old script's head -n1.
+    {
+        const std::string c2 = tmp_path("card-dup.img");
+        std::remove(c2.c_str());
+        const Run r = build(minimal_card::Input::Zip, make_zip(build_image(fixture(true, false, true)).bytes), c2, ex0);
+        bool first = false;
+        if (r.st == minimal_card::Status::Done) {
+            Card c(c2);
+            std::vector<uint8_t> d;
+            first = c.read("0:/TBBLUE.FW", d) && d == pattern(3000, 1);
+        }
+        check("MCARD-27", "a duplicate root name: the first entry is the one copied (the card equals the one without the duplicate)",
+              r.st == minimal_card::Status::Done && first && r.sha == main_run.sha, r.err);
         std::remove(c2.c_str());
     }
 

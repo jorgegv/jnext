@@ -233,14 +233,25 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
 PYEOF
 
 # ---- MINIMG-10: missing boot-set path refused ----
-# The same synthetic image without SYS (--unpinned: the pinned image digest would refuse first).
-cp "$S/synth.img" "$S/nosys.img"
-mdeltree -i "$S/nosys.img@@32256" ::/sys >/dev/null 2>&1 || mdel -i "$S/nosys.img@@32256" ::/sys/b.bas ::/sys >/dev/null 2>&1 || true
+# A synthetic (mtools-built) source with its partition at sector 2048 and without SYS
+# (--unpinned: the pinned image digest would refuse first). It also proves the partition start
+# is read from the MBR (the other synthetic and the real image start at 63).
+truncate -s 48M "$S/nosys.img"
+printf 'label: dos\nunit: sectors\n\nstart=2048, type=c\n' | sfdisk -q "$S/nosys.img" >/dev/null 2>&1
+NI="$S/nosys.img@@$((2048 * 512))"
+mformat -F -c 1 -i "$NI" :: >/dev/null 2>&1
+mmd -i "$NI" ::/machines ::/nextzxos >/dev/null 2>&1
+mcopy -i "$NI" "$S/files/TBBLUE.FW" "$S/files/LICENSE.md" "$S/files/README.md" ::/ >/dev/null 2>&1
 rc=0; err=$("$TOOL" --unpinned "$S/nosys.img" "$T/e/out.img" 2>&1 >/dev/null) || rc=$?
 ok=0
 if [[ $rc == 1 && "$err" == *"SYS is not in"* && ! -e "$T/e/out.img" ]]; then ok=1; fi
-row MINIMG-10 "$ok" "a source without SYS (partition at sector 63, mtools-built) is refused naming SYS"
-[[ $ok == 1 ]] || echo "  rc=$rc err=$err"
+# and the same source WITH SYS builds (the refusal is about SYS, not about the geometry)
+mmd -i "$NI" ::/sys >/dev/null 2>&1
+mcopy -i "$NI" "$S/files/sys/b.bas" ::/sys/ >/dev/null 2>&1
+rc2=0; "$TOOL" --unpinned "$S/nosys.img" "$T/e/with-sys.img" >/dev/null 2>&1 || rc2=$?
+[[ $rc2 == 0 && -s "$T/e/with-sys.img" ]] || ok=0
+row MINIMG-10 "$ok" "a source without SYS (partition at sector 2048, mtools-built) is refused naming SYS; with SYS it builds"
+[[ $ok == 1 ]] || echo "  rc=$rc err=$err rc2=$rc2"
 
 # ---- MINIMG-12: no partition table ----
 mkdir -p "$T/g"

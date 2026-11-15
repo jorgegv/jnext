@@ -42,8 +42,8 @@ struct Fat32Node {
     std::vector<Fat32Node> children; // directory entries (empty for files)
     // The source entry's attribute byte and write date/time (FAT encoding). fat32_read_tree
     // fills them; fat32_format_and_populate writes them only with apply_meta (the minimal
-    // card does, the 1 GB image recipe does not). A node made by fat32_tree_upsert is
-    // 1980-01-01 00:00 with the archive bit.
+    // card does, the 1 GB image recipe does not). A file made by fat32_tree_upsert is
+    // 1980-01-01 00:00 with the archive bit; a directory it makes has no attribute bits.
     uint8_t              attr  = 0x20;
     uint16_t             wdate = 0x0021;
     uint16_t             wtime = 0;
