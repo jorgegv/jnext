@@ -106,6 +106,13 @@
 //                  why, "URL: <the address asked for>", what happens next, for each
 //                  state of the partial (01-03), a download that is no zip (04),
 //                  the shape itself (05) and the sandbox note coming last (06).
+//   PROV-RETRY-01..12  GH #497 - a failed attempt (transport error, or a body that
+//                  does not unzip) is retried up to 3 more times, waiting 2 s, 4 s, 8 s:
+//                  success on the 2nd / 3rd attempt (02, 03), giving up after the limit
+//                  with the error of the last attempt (04, 05, 11), a kept partial
+//                  surviving into the next attempt (06), the cancel not retried (07),
+//                  retries=0 (08), the first-wait env seam (09), the DEFAULT options
+//                  retrying 3 times (10), the retry note on stderr (12).
 //   PROV-UNZIP-01  Extract a STORED entry from a crafted zip.
 //   PROV-UNZIP-02  Extract a DEFLATED entry from a crafted zip.
 //   PROV-UNZIP-03  Missing entry → false.
@@ -153,6 +160,7 @@
 #include <vector>
 
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include "../row_id.h"
 #include "../test_portable.h"
@@ -675,6 +683,7 @@ void test_resume_rows() {
         jtp::set_env("JNEXT_SDCARD_DISTRO_URL", srv.url("/sn.zip").c_str());
         sdcard::ProvisionOptions po;
         po.auto_confirm = true;
+        po.retries = 0;   // GH #497: this row pins ONE attempt per start; the retries have their own rows
         const auto r1 = sdcard::provision_sd_card(po);
         const std::string part = sddir + "/sn-emulator.zip.part";
         const bool first_ok = r1.status == sdcard::ProvisionStatus::Failed &&
@@ -1223,6 +1232,7 @@ void test_stall_rows() {
             jtp::set_env("JNEXT_SDCARD_DISTRO_URL", srv.url("/sn.zip").c_str());
             sdcard::ProvisionOptions po;
             po.auto_confirm = true;
+            po.retries = 0;   // GH #497: this row pins ONE attempt; the retries have their own rows
             po.download = [&](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p, std::string& e) {
                 return sdcard::http_download(u, dest, p, e, fast);
             };
@@ -2303,7 +2313,7 @@ void test_upgrade_rows() {
         clean();
         write_file(raw, {'r', 'a', 'w'}); write_sha256_sidecar(raw, sdcard::sha256_file(raw));   // no .distro: 24.11
         downloads = 0;
-        sdcard::ProvisionOptions o; o.download = failing_dl; o.auto_confirm = true;
+        sdcard::ProvisionOptions o; o.download = failing_dl; o.auto_confirm = true; o.retries = 0;   // GH #497: one attempt
         (void)sdcard::provision_sd_card(o);
         check("PROV-DIST-09", "a trusted 24.11 raw is NOT reused for distribution 99.99: the download is called",
               downloads == 1 && seen_url == url_new, std::to_string(downloads));
@@ -2338,7 +2348,7 @@ void test_upgrade_rows() {
         check("PROV-DIST-11c", "no keeps the card for this run: no UI, nothing recorded",
               sp.calls == 0 && !file_exists(declined) && read_file(fixed) == user_card);
         user_card_only(); downloads = 0;
-        o.upgrade_mode = sdcard::UpgradeMode::Yes; o.download = failing_dl;
+        o.upgrade_mode = sdcard::UpgradeMode::Yes; o.download = failing_dl; o.retries = 0;   // GH #497: one attempt
         auto r = sdcard::provision_sd_card(o);
         check("PROV-DIST-11d", "yes replaces without asking (the UI is not called, the download is)",
               sp.calls == 0 && downloads == 1 && r.status == sdcard::ProvisionStatus::Ok && !r.warning.empty());
@@ -2388,11 +2398,183 @@ void test_upgrade_rows() {
     jtp::unset_env("JNEXT_CONFIG_DIR");
 }
 
+
+// GH #497 - retry with exponential backoff. The "server" is a stub DownloadFn; the clock is a recording
+// SleepFn, so no row waits. Oracle: the issue's "up to 3 times, exponential backoff" (2, 4, 8 s).
+void test_retry_rows() {
+    const std::string cfg = g_tmpdir + "/retry";
+    jtp::set_env("JNEXT_CONFIG_DIR", cfg.c_str());
+    jtp::make_dir(cfg.c_str());
+    jtp::make_dir((cfg + "/sdcard").c_str());
+    const std::string dir = sdcard::default_sdcard_dir();
+    const std::string raw = sdcard::default_sdcard_raw_image_path();
+    const std::string fixed = sdcard::default_sdcard_image_path();
+    const std::string zip = dir + "/sn-emulator.zip";
+    auto clean = [&] {
+        for (const std::string& f : {raw, raw + ".sha256", raw + sdcard::kDistroSuffix, fixed,
+                                     fixed + sdcard::kDistroSuffix, fixed + sdcard::kFixedImageRecipeSuffix,
+                                     zip})
+            std::remove(f.c_str());
+        sdcard::discard_partial(zip);
+    };
+    const std::string src = g_tmpdir + "/retry-src.img", good_zip = g_tmpdir + "/retry-good.zip";
+    std::string serr;
+    const bool src_ok = make_fat32_source(src, 63, 1228800, serr) &&
+                        make_zip_file(good_zip, "cspect-next-1gb.img", src);
+    check("PROV-RETRY-01", "the offline fixtures (a FAT32 source image and its zip) are built", src_ok, serr);
+    if (!src_ok) { jtp::unset_env("JNEXT_CONFIG_DIR"); return; }
+    jtp::unset_env("JNEXT_SDCARD_RETRY_BACKOFF_MS");   // the real 2 s base for these rows
+
+    std::vector<unsigned> waits;
+    int calls = 0;
+    auto good = [&](const std::string& dst) {
+        std::error_code ec;
+        std::filesystem::copy_file(good_zip, dst, std::filesystem::copy_options::overwrite_existing, ec);
+        return !ec;
+    };
+    // a download that fails `n_bad` times (kind: "net" = transport error, "body" = a 12 KB page that is no
+    // zip), then serves the zip
+    auto server = [&](int n_bad, const char* kind) {
+        return [&, n_bad, kind](const std::string&, const std::string& dst, const sdcard::ProgressFn&, std::string& err) {
+            ++calls;
+            if (calls <= n_bad) {
+                if (std::string(kind) == "net") { err = "stub: no network"; return false; }
+                write_file(dst, std::vector<uint8_t>(12288, '<'));
+                return true;
+            }
+            return good(dst);
+        };
+    };
+    auto run = [&](sdcard::DownloadFn dl, int retries = 3) {
+        clean(); calls = 0; waits.clear();
+        sdcard::ProvisionOptions o;
+        o.auto_confirm = true;
+        o.download = dl;
+        o.retries = retries;
+        o.sleep = [&](unsigned ms, const std::string&) { waits.push_back(ms); };
+        o.sandbox_marker = tp("no-such-flatpak-info-retry");
+        return sdcard::provision_sd_card(o);
+    };
+    const std::vector<unsigned> w2 = {2000, 4000}, w3 = {2000, 4000, 8000};
+
+    {   // 02: fails twice, succeeds on the third attempt
+        const auto r = run(server(2, "net"));
+        check("PROV-RETRY-02", "a download that fails twice then works succeeds on the 3rd attempt after waits of 2 s and 4 s",
+              r.status == sdcard::ProvisionStatus::Ok && calls == 3 && waits == w2, r.error);
+    }
+    {   // 03: a wrong body (no zip) counts as a failed attempt; the 2nd attempt works
+        const auto r = run(server(1, "body"));
+        check("PROV-RETRY-03", "a 12 KB body that is no zip counts as a failed attempt and is fetched again after 2 s",
+              r.status == sdcard::ProvisionStatus::Ok && calls == 2 && waits == std::vector<unsigned>{2000}, r.error);
+    }
+    {   // 04: gives up after 1 + 3 attempts with the LAST error, nothing left behind
+        const auto r = run(server(99, "net"));
+        check("PROV-RETRY-04", "a download that always fails stops after 4 attempts (waits 2 s, 4 s, 8 s) and reports the error",
+              r.status == sdcard::ProvisionStatus::Failed && calls == 4 && waits == w3 &&
+              r.error.find("download failed: stub: no network") == 0, r.error);
+        const auto rb = run(server(99, "body"));
+        check("PROV-RETRY-05", "a body that never unzips stops after 4 attempts with 'unzip failed' and no zip or raw left",
+              rb.status == sdcard::ProvisionStatus::Failed && calls == 4 && waits == w3 &&
+              rb.error.find("unzip failed") == 0 && !file_exists(zip) && !file_exists(raw), rb.error);
+    }
+    {   // 06: a partial kept by a failed attempt is still there for the next one (resume, GH #358)
+        bool saw_partial = false;
+        const auto r = run([&](const std::string& url, const std::string& dst, const sdcard::ProgressFn&, std::string& err) {
+            ++calls;
+            if (calls == 1) {
+                write_file(sdcard::partial_path(dst), std::vector<uint8_t>(1000, 'p'));
+                sdcard::ResumeInfo ri;
+                ri.url = url; ri.validator_kind = "etag"; ri.validator = "\"v1\""; ri.total = 5000;
+                sdcard::write_resume_info(dst, ri);
+                err = "stub: connection lost";
+                return false;
+            }
+            uint64_t have = 0, total = 0;
+            saw_partial = sdcard::resumable_partial(dst, url, have, total) && have == 1000 && total == 5000;
+            sdcard::discard_partial(dst);
+            return good(dst);
+        });
+        check("PROV-RETRY-06", "the partial a failed attempt left is intact and resumable when the retry starts",
+              r.status == sdcard::ProvisionStatus::Ok && calls == 2 && saw_partial, r.error);
+    }
+    {   // 07: a cancel is final
+        const auto r = run([&](const std::string&, const std::string&, const sdcard::ProgressFn&, std::string& err) {
+            ++calls; err = "cancelled by user"; return false;
+        });
+        check("PROV-RETRY-07", "a user cancel is not retried: one attempt, no wait",
+              r.status == sdcard::ProvisionStatus::Failed && calls == 1 && waits.empty(), r.error);
+    }
+    {   // 08: retries = 0 is the old behaviour
+        const auto r = run(server(99, "net"), 0);
+        check("PROV-RETRY-08", "with retries = 0 a failing download is attempted once, no wait",
+              r.status == sdcard::ProvisionStatus::Failed && calls == 1 && waits.empty(), r.error);
+    }
+    {   // 09: the first-wait seam
+        jtp::set_env("JNEXT_SDCARD_RETRY_BACKOFF_MS", "5");
+        (void)run(server(99, "net"));
+        jtp::unset_env("JNEXT_SDCARD_RETRY_BACKOFF_MS");   // rows 10-12 want the real 2 s base
+        check("PROV-RETRY-09", "$JNEXT_SDCARD_RETRY_BACKOFF_MS sets the first wait; each later one doubles it",
+              waits == std::vector<unsigned>({5, 10, 20}));
+    }
+    {   // 10: nothing set but the seams: the DEFAULT is 3 retries
+        clean(); calls = 0; waits.clear();
+        sdcard::ProvisionOptions o;   // retries NOT assigned
+        o.auto_confirm = true;
+        o.download = server(99, "net");
+        o.sleep = [&](unsigned ms, const std::string&) { waits.push_back(ms); };
+        o.sandbox_marker = tp("no-such-flatpak-info-retry");
+        (void)sdcard::provision_sd_card(o);
+        check("PROV-RETRY-10", "default-constructed ProvisionOptions retry 3 times: 4 attempts, waits 2 s, 4 s, 8 s",
+              calls == 4 && waits == w3);
+    }
+    {   // 11: attempts that fail DIFFERENTLY: the error reported is the last one's
+        const auto r = run([&](const std::string&, const std::string& dst, const sdcard::ProgressFn&, std::string& err) {
+            ++calls;
+            if (calls == 1) { err = "stub: first no network"; return false; }
+            write_file(dst, std::vector<uint8_t>(12288, '<'));   // later attempts: a body that is no zip
+            return true;
+        });
+        check("PROV-RETRY-11", "when the attempts fail differently the error reported is the LAST attempt's, not the first's",
+              r.status == sdcard::ProvisionStatus::Failed && calls == 4 && r.error.find("unzip failed") == 0 &&
+              r.error.find("first no network") == std::string::npos, r.error);
+        const auto r2 = run([&](const std::string&, const std::string& dst, const sdcard::ProgressFn&, std::string& err) {
+            ++calls;
+            if (calls == 1) { write_file(dst, std::vector<uint8_t>(12288, '<')); return true; }
+            err = "stub: last no network"; return false;
+        });
+        check("PROV-RETRY-11b", "and the other way round: a transport error last replaces an unzip failure first",
+              r2.status == sdcard::ProvisionStatus::Failed && calls == 4 &&
+              r2.error.find("download failed: stub: last no network") == 0, r2.error);
+    }
+    {   // 12: the terminal says so, on stderr (the man page's promise)
+        const std::string cap = tp("retry-stderr.txt");
+        std::fflush(stderr);
+        const int saved = dup(2);
+        const int fd = open(cap.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        dup2(fd, 2); close(fd);
+        (void)run(server(2, "net"));
+        std::fflush(stderr);
+        dup2(saved, 2); close(saved);
+        const std::string text = slurp_text(cap);
+        check("PROV-RETRY-12", "each retry is noted on stderr: 'Retry 1 of 3 in 2 s' then 'Retry 2 of 3 in 4 s', with the reason",
+              text.find("\nRetry 1 of 3 in 2 s...\n") != std::string::npos &&   // the terminal line, not the log record's copy
+              text.find("\nRetry 2 of 3 in 4 s...\n") != std::string::npos &&
+              text.find("Retry 3 of 3") == std::string::npos && text.find("stub: no network") != std::string::npos, text);
+    }
+    jtp::set_env("JNEXT_SDCARD_RETRY_BACKOFF_MS", "0");   // back to the suite's no-wait setting
+    clean();
+    std::remove(src.c_str());
+    std::remove(good_zip.c_str());
+    jtp::unset_env("JNEXT_CONFIG_DIR");
+}
+
 int main() {
     // Isolated HOME so path/default-location tests are hermetic.
     g_tmpdir = jtp::make_temp_dir("jnext_prov_");
     if (g_tmpdir.empty()) { std::printf("cannot mkdtemp\n"); return 1; }
     jtp::set_env("HOME", g_tmpdir.c_str());
+    // GH #497: a failing download is retried with a wait; no row waits (the retry rows set their own).
+    jtp::set_env("JNEXT_SDCARD_RETRY_BACKOFF_MS", "0");
 
     // -- PROV-PATH-01 --
     {
@@ -2637,6 +2819,7 @@ int main() {
         int progress_calls = 0;
         sdcard::ProvisionOptions o;
         o.auto_confirm = true; // skip the confirm prompt
+        o.retries = 0;         // GH #497: one attempt, so the stub's three progress calls are counted once
         o.progress = [&](uint64_t dl, uint64_t total) {
             ++progress_calls; (void)dl; (void)total; return true;
         };
@@ -3278,6 +3461,7 @@ int main() {
     test_stall_rows();
     test_reason_rows();
     test_failure_message_rows();
+    test_retry_rows();
     test_console_rows();
     test_upgrade_rows();
 

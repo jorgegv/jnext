@@ -188,6 +188,24 @@ bool SdcardGuiProvisioner::progress(uint64_t downloaded, uint64_t total) {
     return true;
 }
 
+void SdcardGuiProvisioner::retry_wait(unsigned ms, const std::string& note) {
+    ensure_app();
+    if (cancelled_) return;
+    if (dialog_) {
+        dialog_->setLabelText(QString::fromStdString(download_label_ + "\n\n" + note));
+        dialog_->setValue(0);
+        shown_note_ = note;   // not the stall note: the next refresh puts the plain label back
+    }
+    const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    while (std::chrono::steady_clock::now() < end) {
+        QApplication::processEvents();
+        if (dialog_ && dialog_->wasCanceled()) { cancelled_ = true; return; }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    // A new attempt: its silence is counted from here, not from the last byte of the failed one.
+    watch_ = sdcard::StallWatch(now_());
+}
+
 bool SdcardGuiProvisioner::short_fetch(const std::string& label,
                                        const std::function<bool(const sdcard::ProgressFn&)>& fetch) {
     ensure_app();

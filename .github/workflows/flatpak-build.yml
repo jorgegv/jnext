@@ -148,6 +148,14 @@ jobs:
         id: ver
         run: echo "ver=$(awk '/^version:/{print $2}' version.yaml)" >> "$GITHUB_OUTPUT"
 
+      # GH #497 — specnext.com sometimes serves a ~12 KB page instead of the
+      # distro zip and flatpak-builder has no retry. This plain make target
+      # fetches the zip into flatpak-builder's download cache with checked
+      # retries and backoff, so the action finds it there; if it still fails,
+      # flatpak-builder makes its own attempt as before.
+      - name: Prefetch sources with retry (make flatpak-prefetch)
+        run: make flatpak-prefetch
+
       # The action produces the .flatpak bundle and uploads it as a run
       # artifact itself (named jnext-linux-flatpak, GH #359; the file inside
       # keeps the bundle name, so the release asset is unchanged), which

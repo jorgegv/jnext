@@ -3134,7 +3134,12 @@ some platforms need more:</p>
   manifest source, jnext's own provisioner turns it into the SD image there,
   and the FUSE Z80 suite must pass against the PGO-built CPU core before the
   bundle is installed — the KDE SDK's gcc is the one that miscompiles jnext
-  under LTO, so its output gets that extra check;</li>
+  under LTO, so its output gets that extra check. flatpak-builder has no retry of
+  its own, so <code>make flatpak-prefetch</code> (<code>packaging/flatpak/prefetch-sources.sh</code>,
+  run by the shared workflow before the builder action) first puts that zip in
+  flatpak-builder's download cache (<code>.flatpak-builder/downloads/&lt;sha256&gt;/</code>),
+  checking the manifest's sha256 and retrying a wrong body up to three times, after
+  2, 4 and 8 s; if it still fails, flatpak-builder makes its own attempt as before;</li>
 <li><strong>macOS</strong> uses clang's instrumentation (<code>-fprofile-instr-generate</code>, merged
   with <code>llvm-profdata</code> from Xcode). There a stale profile is an error but a
   translation unit with no profile at all is only a warning, and the library
