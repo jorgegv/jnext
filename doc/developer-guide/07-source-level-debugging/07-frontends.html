@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.42</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.42</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3556,7 +3556,7 @@ subscribes one <code>Execute</code> per start, each with the <code>space</code> 
 (<code>space</code>, <code>script_engine.cpp:346</code>); an unknown line is a diagnostic that names the reason. <code>--map</code> loads symbols
 with <code>MapFormat::Z88dkOrSjasmplus</code> (<code>script_host.cpp:187</code>, <a href="03-loaders.html">7.3</a>). Held scripts and the
 rest of the language are in <a href="../03-subsystems/13-the-debugger-scripting-language.html">3.10.6</a>.</p>
-<p><code>cvar(PATH)</code> is the one atom that reads a C variable: <code>eval_int()</code> (<code>evaluator.cpp:276</code>) calls
+<p><code>cvar(PATH)</code> is the one atom that reads a C variable: <code>eval_int()</code> (<code>evaluator.cpp:275</code>) calls
 <code>read_c_value(0, path)</code> (frame 0, where the CPU is) and <code>c_int32_scalar()</code> (<a href="10-c-frames-and-values.html">7.10</a>) and returns
 the int32. The store is looked up at each evaluation, so a script compiled before the program loaded works once the sidecars
 attach, and every refusal is an <code>EvalError</code>, never a 0.

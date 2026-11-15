@@ -506,7 +506,6 @@ static void copper_set_mode(Emulator& emu, uint8_t mode) {
     emu.nextreg().write(0x62, static_cast<uint8_t>(((mode & 3) << 6) | hi));
 }
 static void copper_start(Emulator& emu) { copper_set_mode(emu, 1); }
-static void copper_stop(Emulator& emu)  { copper_set_mode(emu, 0); }
 
 
 // ===========================================================================

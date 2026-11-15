@@ -27,8 +27,12 @@
 - NextZXOS no longer freezes on a blank grey screen when an interrupt lands right after LD A,I (e.g. a quick SPACE at the Welcome screen)
 - The packages now include the 48K ROM symbol map, so the debugger can name ROM routines (Map > Load MAP File > Simple Format)
 
+### Internal JNEXT Development
+- Builds use -Wall -Wextra on every platform, with the reported warnings fixed and new ones failing the build (the Linux and macOS packages only print them)
+
 ### Contributors in this release
 - @shrek128, @vmorilla, @Luzie, @shadowphiar, @janko-jj
+- Special thanks to @janko-jj for identifying, proposing and testing the performance improvements of recent releases: JNEXT would be slower without his help
 
 ## v1.2.0 (2026-11-06)
 

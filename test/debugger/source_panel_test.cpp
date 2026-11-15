@@ -7244,7 +7244,8 @@ void test_source_sync() {
         const SC& light = SourceHighlighter::scheme_colours(SourceScheme::Light);
         const SC& dark = SourceHighlighter::scheme_colours(SourceScheme::Dark);
         const SC& bor = SourceHighlighter::scheme_colours(SourceScheme::Borland);
-        for (const auto& e : {std::make_pair("light", &light), std::make_pair("dark", &dark), std::make_pair("borland", &bor)}) {
+        const std::pair<const char*, const SC*> schemes[] = {{"light", &light}, {"dark", &dark}, {"borland", &bor}};
+        for (const auto& e : schemes) {
             const SC& c = *e.second;
             for (int r = 0; r < SourceHighlighter::kRoles; ++r)
                 if (contrast(c.role[r], c.linked_line) < 4.5) bad += std::string(e.first) + ":R5(" + std::to_string(r) + ") ";

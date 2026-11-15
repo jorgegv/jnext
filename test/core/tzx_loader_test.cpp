@@ -358,7 +358,7 @@ int main(int argc, char** argv) {
         {"TZXC-48", "TZXC-49", "30-comment", concat({{0x30}, pstr("comment")})},
         {"TZXC-50", "TZXC-51", "31-message", concat({{0x31, 5}, pstr("msg")})},
         {"TZXC-52", "TZXC-53", "32-archive",
-         concat({{0x32}, le16(12), {2, 0x00}, pstr("Game"), {0x02}, pstr("Me")})},
+         concat({{0x32}, le16(11), {2, 0x00}, pstr("Game"), {0x02}, pstr("Me")})},
         {"TZXC-54", "TZXC-55", "33-hardware", concat({{0x33, 1, 0x00, 0x03, 0x01}})},
         {"TZXC-56", "TZXC-57", "35-custom",
          concat({{0x35}, str("CUSTOMINFO      "), le32(2), {'x', 'y'}})},
@@ -475,6 +475,43 @@ int main(int argc, char** argv) {
         const int edges = realtime_edges(write_file(n + "-real.tzx", concat({kHeader, r.block, tone})));
         check(r.id_real, (n + ": real-time playback skips it — the tone after it still plays").c_str(),
               edges >= 9, "edges=" + std::to_string(edges));
+    }
+    // TZXC-112..130 (GH #418) — the fast-load skip of every non-data block that
+    // next_data_block() steps over by a size of its own: a hdr block, the block
+    // under test (well-formed, its length fields > 0 where it has any), then a
+    // data block; the LD-BYTES trap must serve the data block's bytes, so a skip
+    // one byte long or short, or a guard that stops early, fails its row.
+    // Oracle: the TZX v1.20 block layouts (worldofspectrum.net/TZXformat.html),
+    // the same fixtures TZXC-20..59 load. $19 is TZXC-88 above.
+    struct FastCase { const char* id; const char* name; Bytes block; };
+    const FastCase fast_cases[] = {
+        {"TZXC-112", cases[2].name, cases[2].block},
+        {"TZXC-113", cases[3].name, cases[3].block},
+        {"TZXC-114", cases[4].name, cases[4].block},
+        {"TZXC-115", cases[5].name, cases[5].block},
+        {"TZXC-116", cases[7].name, cases[7].block},
+        {"TZXC-117", cases[8].name, cases[8].block},
+        {"TZXC-118", cases[9].name, cases[9].block},
+        {"TZXC-119", cases[10].name, cases[10].block},
+        {"TZXC-120", cases[11].name, cases[11].block},
+        {"TZXC-121", cases[12].name, cases[12].block},
+        {"TZXC-122", cases[13].name, cases[13].block},
+        {"TZXC-123", cases[14].name, cases[14].block},
+        {"TZXC-124", cases[15].name, cases[15].block},
+        {"TZXC-125", cases[16].name, cases[16].block},
+        {"TZXC-126", cases[17].name, cases[17].block},
+        {"TZXC-127", cases[18].name, cases[18].block},
+        {"TZXC-128", cases[19].name, cases[19].block},
+        {"TZXC-129", "22-group-end", Bytes{0x22}},
+        {"TZXC-130", "25-loop-end", Bytes{0x25}},
+    };
+    for (const auto& f : fast_cases) {
+        const std::string n = f.name;
+        const std::string path = write_file(n + "-skip.tzx",
+            concat({kHeader, b10(hdr_body()), f.block, b10(data_body())}));
+        check(f.id, (n + ": fast load steps over it by its TZX-spec size; the data block after it "
+                         "is served by the LD-BYTES trap").c_str(),
+              fast_load_reaches_data(path));
     }
     // TZXC-78 — a $16 whose "whole block" length is below the 4 bytes of the
     // length field itself is inconsistent, and refused. The fixture declares
@@ -782,6 +819,45 @@ int main(int argc, char** argv) {
                   "survives a move construction and a move assignment, and eject() clears it",
                   abs_ok && ctor_ok && assign_ok && c.path().empty(),
                   "path=" + want);
+        }
+        {   // TZXC-111 (GH #418)
+            // Oracle: TZX v1.20, block 0x35 = 16-byte ID + 4-byte length + data, so a
+            // 0x35 with fewer than 20 bytes after its ID is truncated, not skippable.
+            // A .jns can restore fast_offset onto any byte of the file (restore_deck()
+            // checks only header <= offset <= size), here the 0x35 inside the payload of
+            // a valid 0x10 block, 15 bytes from the end of the file. The last 6 payload
+            // bytes read as a complete 0x10 block (data byte 0xAB), exactly 10 bytes
+            // past that 0x35: the old fall-through into the 0x5A skip would serve it.
+            Bytes body(20, 0x00);
+            body[4] = 0x35;
+            const Bytes fake = {0x10, 0x00, 0x00, 0x01, 0x00, 0xAB};
+            for (size_t i = 0; i < fake.size(); ++i) body[14 + i] = fake[i];
+            const std::string path = write_file("t111.tzx", concat({kHeader, b10(body)}));
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZX48K;
+            cfg.rewind_buffer_frames = 0;
+            TzxLoader t;
+            std::string why;
+            bool restored = false;
+            if (emu->init(cfg) && t.load(path)) {
+                t.start_playback(0);
+                TzxLoader::DeckState d = t.deck_state(0);
+                d.fast_offset = 10 + 1 + 4 + 4;                 // the 0x35 byte
+                restored = t.restore_deck(d, 0, why);
+            }
+            bool served = true;
+            if (restored) {
+                Z80Registers r = emu->cpu().get_registers();
+                r.AF2 = 0xFF01; r.IX = 0x8100; r.DE = 1; r.SP = 0x9000;
+                emu->mmu().write(0x9000, 0x34);
+                emu->mmu().write(0x9001, 0x12);
+                emu->cpu().set_registers(r);
+                served = t.handle_ld_bytes_trap(*emu);
+            }
+            check("TZXC-111", "fast-load at a 0x35 with fewer than 20 bytes after it serves no block (it stops) "
+                  "instead of falling into the 0x5A skip and serving the bytes 10 on",
+                  restored && !served, why);
         }
     }
 

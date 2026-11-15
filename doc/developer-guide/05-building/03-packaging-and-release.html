@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.42</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.42</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3086,6 +3086,12 @@ you read it; it is not a replacement for it.</p>
 </tr>
 </tbody>
 </table>
+<p>The rpm, deb, Flatpak and macOS packaging builds (including the rpm spec and the
+Debian <code>rules</code>) configure with <code>-DJNEXT_WERROR=OFF</code>; the Windows zips keep the
+default, because they are built with the same MinGW toolchains the gate uses.
+A warning from a distribution's own compiler therefore prints but never fails
+a release; see
+<a href="02-build-configurations.html#compiler-warnings">5.2 Build configurations</a>.</p>
 <p>The source tarball is deliberately not a <code>git archive</code>. That would produce an
 <em>empty</em> <code>third_party/spdlog</code> directory, which fails CMake configure the moment
 anyone tries to build from it; <code>package-src</code> instead runs
@@ -3158,7 +3164,12 @@ some platforms need more:</p>
   manifest source, jnext's own provisioner turns it into the SD image there,
   and the FUSE Z80 suite must pass against the PGO-built CPU core before the
   bundle is installed — the KDE SDK's gcc is the one that miscompiles jnext
-  under LTO, so its output gets that extra check;</li>
+  under LTO, so its output gets that extra check. flatpak-builder has no retry of
+  its own, so <code>make flatpak-prefetch</code> (<code>packaging/flatpak/prefetch-sources.sh</code>,
+  run by the shared workflow before the builder action) first puts that zip in
+  flatpak-builder's download cache (<code>.flatpak-builder/downloads/&lt;sha256&gt;/</code>),
+  checking the manifest's sha256 and retrying a wrong body up to three times, after
+  2, 4 and 8 s; if it still fails, flatpak-builder makes its own attempt as before;</li>
 <li><strong>macOS</strong> uses clang's instrumentation (<code>-fprofile-instr-generate</code>, merged
   with <code>llvm-profdata</code> from Xcode). There a stale profile is an error but a
   translation unit with no profile at all is only a warning, and the library

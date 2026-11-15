@@ -60,7 +60,7 @@ void put32(std::vector<uint8_t>& b, std::size_t at, uint32_t v) {
 /// A 64-sector disk: MBR, one FAT32 (type 0x0C) partition at LBA 8 with one
 /// sector per cluster, kernel.img (8.3) and bcm2708-rpi-zero.dtb (VFAT long
 /// name) in its root directory. Small files only (one cluster each).
-std::vector<uint8_t> fake_nextpi_disk(const std::string& kernel, const std::string& dtb) {
+[[maybe_unused]] std::vector<uint8_t> fake_nextpi_disk(const std::string& kernel, const std::string& dtb) {
     std::vector<uint8_t> d(64 * 512, 0);
     const std::size_t part = 8 * 512;
     d[0x1BE + 4] = 0x0C;                 // FAT32 LBA
@@ -121,7 +121,9 @@ std::string tar_header(const std::string& name, uint64_t size, char type, bool b
         h[124] = static_cast<char>(0x80);
         for (int i = 0; i < 8; ++i) h[135 - i] = static_cast<char>(size >> (8 * i));
     } else {
-        std::snprintf(&h[124], 12, "%011llo", static_cast<unsigned long long>(size));
+        char oct[24];   // 11 octal digits fit any size reaching this branch; the field takes 11 + NUL
+        std::snprintf(oct, sizeof(oct), "%011llo", static_cast<unsigned long long>(size));
+        std::memcpy(&h[124], oct, 12);
     }
     h[156] = type;
     std::memcpy(&h[257], "ustar  ", 8);                      // GNU magic, like NextPi's
@@ -205,12 +207,12 @@ struct FakeMirror {
     }
 };
 
-std::string slurp(const std::filesystem::path& p) {
+[[maybe_unused]] std::string slurp(const std::filesystem::path& p) {
     std::ifstream f(p, std::ios::binary);
     return std::string(std::istreambuf_iterator<char>(f), {});
 }
 
-nextpi::ProvisionOptions nextpi_options(FakeMirror& mirror, const std::string& dir,
+[[maybe_unused]] nextpi::ProvisionOptions nextpi_options(FakeMirror& mirror, const std::string& dir,
                                         const std::string& release, int& confirms, bool answer = true) {
     nextpi::ProvisionOptions o;
     o.dir          = dir;
@@ -224,7 +226,7 @@ nextpi::ProvisionOptions nextpi_options(FakeMirror& mirror, const std::string& d
 
 
 /// A tar.gz of `entries` (already-built tar blocks) plus the end marker.
-bool write_tar_gz(const std::string& path, const std::string& tar_body) {
+[[maybe_unused]] bool write_tar_gz(const std::string& path, const std::string& tar_body) {
     const std::string tar = tar_body + std::string(1024, '\0');
     gzFile gz = gzopen(path.c_str(), "wb");
     if (!gz) return false;
@@ -237,7 +239,7 @@ bool write_tar_gz(const std::string& path, const std::string& tar_body) {
 /// 44.1 kHz) holding `frames` frames of a square wave flipping every `half`
 /// frames: left +amp/-amp and right -r_amp/+r_amp. A right amplitude different
 /// from the left one lets a row tell the two channels apart.
-void write_tone(const std::string& path, int frames, int16_t amp, int half, int16_t r_amp) {
+[[maybe_unused]] void write_tone(const std::string& path, int frames, int16_t amp, int half, int16_t r_amp) {
     std::ofstream f(path, std::ios::binary);
     auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) f.put(static_cast<char>(v >> (8 * i))); };
     auto u16 = [&](uint16_t v) { f.put(static_cast<char>(v)); f.put(static_cast<char>(v >> 8)); };
@@ -278,7 +280,7 @@ MixerLevels mixer_levels(Emulator& emu, uint8_t a2, int frames) {
 }
 
 /// The left and right peak-to-peak of the mixer's output (see mixer_levels).
-std::pair<int, int> mixer_swing(Emulator& emu, uint8_t a2, int frames) {
+[[maybe_unused]] std::pair<int, int> mixer_swing(Emulator& emu, uint8_t a2, int frames) {
     const MixerLevels m = mixer_levels(emu, a2, frames);
     return {m.hi_l - m.lo_l, m.hi_r - m.lo_r};
 }

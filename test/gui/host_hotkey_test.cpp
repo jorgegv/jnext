@@ -182,7 +182,7 @@ bool key_down(const Keyboard& kb, int row, int col) {
     return (kb.read_rows(addr_high) & (1u << col)) == 0;
 }
 
-std::string matrix_detail(const Keyboard& kb, int row, int col) {
+std::string matrix_detail(const Keyboard& kb, int row, int /*col*/) {
     char buf[128];
     std::snprintf(buf, sizeof(buf), "sym_row7=0x%02X letter_row%d=0x%02X",
                   kb.read_rows(static_cast<uint8_t>(~(1u << SYM_ROW))),

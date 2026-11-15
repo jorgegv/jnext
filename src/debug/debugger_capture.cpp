@@ -208,7 +208,7 @@ Result Debugger::screenshot(ClientId by, const std::string& path, uint8_t layer_
 }
 
 void Debugger::Impl::arm_capture_head() {
-    emu.renderer().set_layer_mask(captures.empty() ? Renderer::LAYER_ALL
+    emu.renderer().set_layer_mask(captures.empty() ? static_cast<uint8_t>(Renderer::LAYER_ALL)
                                                    : captures.front().layer_mask);
     ds().set_capture_render(!captures.empty());
 }

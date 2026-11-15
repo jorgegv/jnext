@@ -101,7 +101,7 @@ void AudioPanel::create_ui() {
     // from lying about what is actually audible. On a fresh machine the mask is
     // AudioMute::NONE, so this still comes up all-checked.
     // Done BEFORE the connects below, so seeding does not itself emit toggled().
-    const uint8_t mask = dbg_ ? dbg_->audio_mute_mask() : AudioMute::NONE;   // INS-10
+    const uint8_t mask = dbg_ ? dbg_->audio_mute_mask() : static_cast<uint8_t>(AudioMute::NONE);   // INS-10
     mute_ay0_->setChecked(!(mask & AudioMute::AY0));
     mute_ay1_->setChecked(!(mask & AudioMute::AY1));
     mute_ay2_->setChecked(!(mask & AudioMute::AY2));

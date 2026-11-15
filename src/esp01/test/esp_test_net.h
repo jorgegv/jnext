@@ -52,7 +52,7 @@ int net_accept(int fd) {
     const SOCKET s = ::accept(static_cast<SOCKET>(fd), nullptr, nullptr);
     return s == INVALID_SOCKET ? -1 : static_cast<int>(s);
 }
-int net_getpid() { return ::_getpid(); }
+[[maybe_unused]] int net_getpid() { return ::_getpid(); }
 #else
 void net_init() {}
 int net_socket(int domain, int type, int proto) { return ::socket(domain, type, proto); }
@@ -62,7 +62,7 @@ int net_setsockopt(int fd, int level, int opt, const void* val, int len) {
     return ::setsockopt(fd, level, opt, val, static_cast<socklen_t>(len));
 }
 int net_accept(int fd) { return ::accept(fd, nullptr, nullptr); }
-int net_getpid() { return static_cast<int>(::getpid()); }
+[[maybe_unused]] int net_getpid() { return static_cast<int>(::getpid()); }
 #endif
 
 void sleep_ms(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }

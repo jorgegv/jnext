@@ -2706,7 +2706,7 @@ static void test_session_debug_keys()
 static void test_source_dirs_wiring()
 {
     set_group("MWSRC");
-    const QString sep(QLatin1Char(source_search::kListSeparator));
+    const QString sep{QLatin1Char(source_search::kListSeparator)};
     const QByteArray prev = qgetenv("JNEXT_CONFIG_DIR");
     QTemporaryDir home;
     const QString conf = home.path() + QStringLiteral("/jnext.conf");

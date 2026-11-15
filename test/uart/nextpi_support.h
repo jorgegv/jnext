@@ -40,7 +40,7 @@ public:
 private:
     unsigned long pid_ = 0;
     long          read_end_ = -1;       // fd, or a HANDLE value on Windows
-    void*         process_  = nullptr;  // Windows process HANDLE
+    [[maybe_unused]] void* process_  = nullptr;  // Windows process HANDLE
 };
 
 /// One-instance named-pipe servers held on `names` (Windows only; on POSIX it

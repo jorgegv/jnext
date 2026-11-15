@@ -42,9 +42,11 @@ target_link_libraries(jnext_debug PRIVATE jnext_core)
 # no sentinel — they do — and omitted `LogLevel`, which has none.)
 #
 # As a plain WARNING this would notice nothing, and not merely because a warning
-# scrolls past: this project passes no `-Wall` at all, so `-Wswitch` is not
-# otherwise enabled. Compiler-gated exactly as in the `jnext` case, so a
-# non-GNU/Clang toolchain still builds. PRIVATE: consumers of this library do
+# scrolls past. Since GH #418 `-Wall` enables `-Wswitch` and `-Werror` is on for
+# dev, test and CI builds, but the packaging builds pass JNEXT_WERROR=OFF; this
+# targeted gate stays so a missing enumerator still fails a release build.
+# Compiler-gated exactly as in the `jnext` case, so a non-GNU/Clang toolchain
+# still builds. PRIVATE: consumers of this library do
 # not inherit it.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(jnext_debug PRIVATE -Werror=switch)

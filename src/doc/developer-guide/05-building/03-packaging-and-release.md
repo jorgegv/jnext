@@ -19,6 +19,13 @@ you read it; it is not a replacement for it.
 | `make package-test` | builds every package except macOS and Flatpak and **asserts its contents** (a missing tool fails) |
 | `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain |
 
+The rpm, deb, Flatpak and macOS packaging builds (including the rpm spec and the
+Debian `rules`) configure with `-DJNEXT_WERROR=OFF`; the Windows zips keep the
+default, because they are built with the same MinGW toolchains the gate uses.
+A warning from a distribution's own compiler therefore prints but never fails
+a release; see
+[5.2 Build configurations](02-build-configurations.md#compiler-warnings).
+
 The source tarball is deliberately not a `git archive`. That would produce an
 *empty* `third_party/spdlog` directory, which fails CMake configure the moment
 anyone tries to build from it; `package-src` instead runs
@@ -81,7 +88,12 @@ some platforms need more:
   manifest source, jnext's own provisioner turns it into the SD image there,
   and the FUSE Z80 suite must pass against the PGO-built CPU core before the
   bundle is installed — the KDE SDK's gcc is the one that miscompiles jnext
-  under LTO, so its output gets that extra check;
+  under LTO, so its output gets that extra check. flatpak-builder has no retry of
+  its own, so `make flatpak-prefetch` (`packaging/flatpak/prefetch-sources.sh`,
+  run by the shared workflow before the builder action) first puts that zip in
+  flatpak-builder's download cache (`.flatpak-builder/downloads/<sha256>/`),
+  checking the manifest's sha256 and retrying a wrong body up to three times, after
+  2, 4 and 8 s; if it still fails, flatpak-builder makes its own attempt as before;
 - **macOS** uses clang's instrumentation (`-fprofile-instr-generate`, merged
   with `llvm-profdata` from Xcode). There a stale profile is an error but a
   translation unit with no profile at all is only a warning, and the library
