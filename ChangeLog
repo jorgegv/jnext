@@ -29,6 +29,7 @@
 
 ### Contributors in this release
 - @shrek128, @vmorilla, @Luzie, @shadowphiar, @janko-jj
+- Special thanks to @janko-jj for identifying, proposing and testing the performance improvements of recent releases: JNEXT would be slower without his help
 
 ## v1.2.0 (2026-11-06)
 
