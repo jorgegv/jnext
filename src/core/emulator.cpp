@@ -7725,7 +7725,7 @@ std::string hex4(unsigned v) { char t[8]; std::snprintf(t, sizeof t, "%04X", v);
 std::string hex2(unsigned v) { char t[8]; std::snprintf(t, sizeof t, "%02X", v); return t; }
 }  // namespace
 
-bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t after)
+bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t /*before*/, uint32_t after)
 {
     constexpr int kHold = 5;   // frames each typed key is held
     WsRecipe& r = rec.ws_recipe_;
