@@ -207,13 +207,21 @@ if [[ -f "$SD_MASTER" && -f "$PROFILE_DIR/.trained" ]] &&
 fi
 
 # --- The SD master: provision it exactly as the regression suite does -------
-# A master that exists but is not this tree's (another distribution or image recipe: GH #476) is
-# re-derived by the regression suite's own gate. Linux, native runs only: the gate needs bash 4,
-# and a runner (wine) cannot derive a card natively.
-if [[ -f "$SD_MASTER" && "$(uname -s)" == Linux && ${#RUNNER[@]} -eq 0 && -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]]; then
-    "$PROJECT_DIR/tools/sd-master-ensure.sh" "$BIN" || die "the SD master $SD_MASTER is not this tree's and could not be re-derived"
+# The SD master is the regression suite's own gate (tools/sd-master-ensure.sh, GH #476): it derives
+# a missing master (witness included), re-derives one of another distribution or image recipe, and
+# leaves a current one alone. Linux, native runs only: it needs bash 4, and a runner (wine) cannot
+# derive a card natively; those, and a candidate card, keep the plain missing-master provisioning below.
+SD_NATIVE=0
+[[ "$(uname -s)" == Linux && ${#RUNNER[@]} -eq 0 && -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] && SD_NATIVE=1
+if [[ $SD_NATIVE == 1 ]]; then
+    "$PROJECT_DIR/tools/sd-master-ensure.sh" "$BIN" || {
+        echo "pgo-train: ERROR: the PGO build needs the NextZXOS SD image to train its profile," >&2
+        echo "pgo-train: ERROR: and $SD_MASTER is missing or not this tree's and could not be provisioned (network?)." >&2
+        die "${JNEXT_PGO_NO_SD_HINT:-Build without PGO instead:  make gui-release-non-pgo}"
+    }
 fi
-if [[ ! -f "$SD_MASTER" ]]; then
+
+if [[ $SD_NATIVE == 0 && ! -f "$SD_MASTER" ]]; then
     echo "pgo-train: no SD image at $SD_MASTER — provisioning it (jnext's own download)"
     mkdir -p "$SD_MASTER_DIR"
     {

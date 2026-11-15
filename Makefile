@@ -912,7 +912,9 @@ sdcard-image:
 	@# image recipe is re-derived too, by tools/sd-master-ensure.sh (the gate the
 	@# regression row sdcard-provision runs). `--probe` first, so the usual case, a
 	@# current master, builds nothing and writes nothing.
-	@if PATH="$(UNIT_TEST_PATH)" tools/sd-master-ensure.sh --probe; then exit 0; fi; \
+	@PATH="$(UNIT_TEST_PATH)" tools/sd-master-ensure.sh --probe; rc=$$?; \
+	if [ $$rc -eq 0 ]; then exit 0; fi; \
+	if [ $$rc -ne 10 ]; then printf "$(BADGE_FAIL) ERROR $(RESET) tools/sd-master-ensure.sh --probe failed (exit %s): see its message above; nothing was built.\n" "$$rc"; exit 1; fi; \
 	printf "sdcard-image: the SD master is missing or not this tree's -- provisioning it (jnext's own download)\n"; \
 	$(MAKE) --no-print-directory unit-test-sdl-build || exit 1; \
 	PATH="$(UNIT_TEST_PATH)" tools/sd-master-ensure.sh $(BUILD_DIR_SDL_UNIT_TEST)/jnext || { \

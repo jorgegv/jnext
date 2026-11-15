@@ -93,9 +93,74 @@ STUB
     HOME="$H" JNEXT_REGRESSION_SD_STATE_DIR="$W/cand" bash "$TOOL" "$W/bin/jnext-stub" >"$W/out" 2>&1 || rc=$?
     [[ "$rc" == 0 && ! -s "$W/calls" && ! -e "$W/cand" ]] || faults+=("with the candidate-card seam the tool acted (exit $rc)")
 
-    # 7 - the callers use it: the Makefile's sdcard-image target and the PGO training.
-    grep -q 'tools/sd-master-ensure.sh --probe' "$PROJECT_DIR/Makefile" || faults+=("make sdcard-image does not probe with tools/sd-master-ensure.sh")
-    grep -q 'tools/sd-master-ensure.sh" "$BIN"' "$PROJECT_DIR/tools/pgo-train.sh" || faults+=("tools/pgo-train.sh does not call tools/sd-master-ensure.sh")
+    # 7 - a probe makes no run directory, no clone and no trap (the library is sourced without its
+    #     initialisation): it leaves no $HOME/.jnext/runs behind.
+    run_tool "$W/bin/jnext-stub" >/dev/null           # a current master again
+    rm -rf "$H/.jnext/runs"
+    n=$(run_tool --probe)
+    [[ ! -e "$H/.jnext/runs" ]] || faults+=("a probe left \$HOME/.jnext/runs behind (the library initialised)")
+
+    # 8 - the Makefile's sdcard-image target itself (what make unit-test, unit-test-sdl and unit-test-win
+    #     run), with the SDL tree build replaced by `true` and the SDL jnext by the stub.
+    cp "$W/bin/jnext-stub" "$W/bin/jnext"
+    run_mk() {   # <make dir>: prints the stub's call count, leaves the exit status in $W/rc
+        local r=0
+        : > "$W/calls"
+        HOME="$H" JNEXT_REGRESSION_SD_STATE_DIR="" make -C "$1" sdcard-image MAKE=true BUILD_DIR_SDL_UNIT_TEST="$W/bin" >"$W/out" 2>&1 || r=$?
+        echo "$r" > "$W/rc"
+        wc -l < "$W/calls" | tr -d ' '
+    }
+    before=$(stat -c '%i:%Y:%s' "$IMG")
+    n=$(run_mk "$PROJECT_DIR")
+    [[ "$n" == 0 && "$(rcof)" == 0 && "$(stat -c '%i:%Y:%s' "$IMG")" == "$before" ]] \
+        || faults+=("make sdcard-image on a current master: stub called $n times (want 0), exit $(rcof), or the card changed")
+    printf 'sn-emulator-24.11.zip\n' > "$IMG.distro"
+    n=$(run_mk "$PROJECT_DIR")
+    [[ "$n" == 1 && "$(rcof)" == 0 && "$(head -n1 "$IMG.distro")" == "$WANT_DISTRO" ]] \
+        || faults+=("make sdcard-image on a stale-distro master: stub called $n times (want 1), exit $(rcof)")
+    # a tree whose provisioner source the gate cannot read (a probe error): fail at once, build and derive nothing
+    NT="$W/nt"; mkdir -p "$NT/tools" "$NT/src/core"
+    cp "$PROJECT_DIR/Makefile" "$NT/Makefile"
+    ln -s "$PROJECT_DIR/tools/sd-master-ensure.sh" "$NT/tools/sd-master-ensure.sh"
+    ln -s "$PROJECT_DIR/test" "$NT/test"
+    printf '// no distribution here\n' > "$NT/src/core/sdcard_provisioner.cpp"
+    printf 'sn-emulator-24.11.zip\n' > "$IMG.distro"
+    n=$(run_mk "$NT")
+    [[ "$n" == 0 && "$(rcof)" != 0 ]] || faults+=("make sdcard-image with an unreadable provisioner: stub called $n times, exit $(rcof) (want 0 calls, non-zero)")
+    ! grep -q "provisioning it" "$W/out" || faults+=("make sdcard-image went on to build and provision after a probe error")
+    grep -q "nothing was built" "$W/out" || faults+=("make sdcard-image did not say it stopped at the probe error")
+
+    # 9 - concurrent runs on a stale master derive it once (the provisioning lock).
+    { printf '#!/usr/bin/env bash\nsleep 2\n'; tail -n +2 "$W/bin/jnext-stub"; } > "$W/bin/jnext-slow"
+    chmod +x "$W/bin/jnext-slow"
+    printf 'sn-emulator-24.11.zip\n' > "$IMG.distro"
+    : > "$W/calls"
+    for c in 1 2 3; do HOME="$H" JNEXT_REGRESSION_SD_STATE_DIR="" bash "$TOOL" "$W/bin/jnext-slow" >"$W/out.$c" 2>&1 & done
+    wait
+    n=$(wc -l < "$W/calls" | tr -d ' ')
+    [[ "$n" == 1 ]] || faults+=("three concurrent runs on a stale master derived it $n times, want 1 (no lock)")
+
+    # 10 - tools/pgo-train.sh (what make gui-release runs) repairs the master before it trains, and
+    #      writes the witness of one it derives. Run for real against the stub binary in a scratch
+    #      HOME; it dies later in training (the stub trains nothing), which is not what is asserted.
+    mkdir -p "$W/pt"
+    printf 'CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/g++\n' > "$W/pt/CMakeCache.txt"
+    # derives only when asked to, as the real jnext does: its training runs must not repair the card
+    { printf '#!/usr/bin/env bash\ncase " $* " in *" --sdcard-download-confirm "*) ;; *) exit 0 ;; esac\n'; tail -n +2 "$W/bin/jnext-stub"; } > "$W/pt/jnext"
+    chmod +x "$W/pt/jnext"
+    run_pgo() {
+        : > "$W/calls"
+        env -u JNEXT_PGO_RUNNER HOME="$H" JNEXT_REGRESSION_SD_STATE_DIR="" \
+            timeout --foreground --kill-after=5s 120s bash "$PROJECT_DIR/tools/pgo-train.sh" "$W/pt/jnext" "$W/pt/prof" >"$W/out" 2>&1 || true
+    }
+    printf 'sn-emulator-24.11.zip\n' > "$IMG.distro"
+    run_pgo
+    [[ "$(head -n1 "$IMG.distro")" == "$WANT_DISTRO" ]] || faults+=("pgo-train left a 24.11 master in place")
+    rm -f "$IMG" "$IMG.sha256" "$IMG.recipe" "$IMG.distro"
+    run_pgo
+    [[ -f "$IMG" && -f "$IMG.sha256" ]] || faults+=("pgo-train on a missing master made no card or no witness")
+
+    # 11 - the call sites exist in the shipped files (the behaviour above is what is tested)
     grep -qE '^unit-test:.* sdcard-image$' "$PROJECT_DIR/Makefile" || faults+=("make unit-test does not depend on sdcard-image")
 
     rm -rf "$W"
