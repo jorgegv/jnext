@@ -925,6 +925,19 @@ target_link_libraries(raster_poll_batch_observer_test PRIVATE
 target_include_directories(raster_poll_batch_observer_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME raster_poll_batch_observer_tests COMMAND raster_poll_batch_observer_test)
 
+# RPB-15 of the above: it builds the real ThreadedEsp, which needs a worker thread (the WebAssembly
+# build has none), so it runs on native builds only.
+if(NOT EMSCRIPTEN)
+    add_executable(raster_poll_batch_observer_native_test core/raster_poll_batch_observer_native_test.cpp)
+    target_link_libraries(raster_poll_batch_observer_native_test PRIVATE
+        jnext_platform
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(raster_poll_batch_observer_native_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME raster_poll_batch_observer_native_tests COMMAND raster_poll_batch_observer_native_test)
+endif()
+
 add_executable(raster_poll_batch_switch_test core/raster_poll_batch_switch_test.cpp)
 target_link_libraries(raster_poll_batch_switch_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video

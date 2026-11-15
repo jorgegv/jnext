@@ -207,6 +207,7 @@ BEGIN {
     M["raster_poll_batch_test"]         = "Raster-poll batch equivalence (engaged cases)"
     M["raster_poll_batch_refuse_test"]  = "Raster-poll batch equivalence (gates and refusals)"
     M["raster_poll_batch_observer_test"] = "Raster-poll batch equivalence (ESP and debugger client)"
+    M["raster_poll_batch_observer_native_test"] = "Raster-poll batch equivalence (ESP, native builds)"
     M["raster_poll_batch_boot_test"]    = "Raster-poll batch equivalence (NextZXOS Guide viewer)"
     M["raster_poll_batch_switch_test"]  = "Raster-poll batch switch"
     M["costly_optimizations_test"]      = "Costly-optimisation registry"

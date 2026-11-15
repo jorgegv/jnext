@@ -999,6 +999,7 @@ my %NO_MATRIX_SECTION = (
     'raster_poll_batch_test'  => 'raster-poll batch equivalence (GH #496): the batch off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal); each row cites the hardware behaviour a batched window must not move in its own source',
     'raster_poll_batch_refuse_test' => 'raster-poll batch gates and refusals (GH #496): the batch off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'raster_poll_batch_observer_test' => 'raster-poll batch with an ESP-01 or a debugger client attached (GH #496): the batch off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
+    'raster_poll_batch_observer_native_test' => 'raster-poll batch with an ESP-01 attached and the debugger window open (GH #496): the row that needs a live ESP worker thread; batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'raster_poll_batch_boot_test' => 'raster-poll batch on the NextZXOS Guide viewer (GH #496): the batch off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'raster_poll_batch_switch_test' => 'the raster-poll batch\'s switch (GH #496): jnext-internal configuration, no hardware counterpart',
     'costly_optimizations_test' => 'the costly-optimisation registry parser (GH #496): a host-side command-line value list, no hardware counterpart',
