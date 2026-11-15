@@ -396,6 +396,8 @@ add_subdirectory(src/save)
 # so it has to exist wherever the test tree does. It links jnext_save alone and
 # costs about a second.
 add_subdirectory(tools/gen-snapshot-schema)
+# The minimal-card builder tool (GH #458); the browser build skips it.
+add_subdirectory(tools/make-minimal-card)
 
 # GH #108 Phase A — Qt major selection, decided ONCE here and consumed by
 # src/gui and src/debugger (find_package(Qt${JNEXT_QT_MAJOR})) and the WIN32

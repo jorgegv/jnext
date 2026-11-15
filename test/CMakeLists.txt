@@ -521,6 +521,13 @@ add_executable(sha256_test core/sha256_test.cpp)
 target_link_libraries(sha256_test PRIVATE jnext_core)
 target_include_directories(sha256_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sha256_tests COMMAND sha256_test)
+
+# The minimal NextZXOS card builder (GH #458): a synthetic FAT32 distribution + zip built
+# in the test, so it needs no SD image, process, thread or socket and runs on every platform.
+add_executable(minimal_card_test minimal_card/minimal_card_test.cpp)
+target_link_libraries(minimal_card_test PRIVATE jnext_core ZLIB::ZLIB)
+target_include_directories(minimal_card_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
+add_test(NAME minimal_card_tests COMMAND minimal_card_test)
 # The rows that need libcurl's own behaviour (a proxy put in front of it through the
 # environment, which the WinHTTP twin has no counterpart of): POSIX only (GH #385).
 if(NOT WIN32 AND NOT EMSCRIPTEN)

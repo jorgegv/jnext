@@ -26,6 +26,10 @@
 //                   SFN-based extract_sd_rom() resolves them (regression guard
 //                   for the ~N-mangling bug — FatFs must not number them).
 //   FATFS-PATCH-05  Long-name file "CONTRIBUTING.md" reads back byte-for-byte.
+//   MCARD-17        Recipe 3 is unchanged by the minimal-card work (GH #458): the
+//                   patched synthetic image's SHA-256 is the one the BASE commit
+//                   (df023b328, before the shared directory parser, the write
+//                   options and FF_USE_CHMOD) produced for the same fixture.
 //   FAT32-UPSERT-01 fat32_tree_upsert creates missing dirs (case-insensitive)
 //                   and replaces an existing file (unchanged unit).
 
@@ -33,6 +37,7 @@
 #include "core/fatfs_diskio.h"
 #include "core/sd_rom_extractor.h"
 #include "core/sdcard_provisioner.h"
+#include "core/sha256.h"
 
 extern "C" {
 #include "third_party/fatfs/ff.h"
@@ -240,6 +245,11 @@ int main() {
         check("FATFS-PATCH-04b", "enNextMf.rom resolvable by natural SFN",
               mf_ok && mf.size() == 8192 && mf[0] == 0x5a,
               "ok=" + std::to_string(mf_ok) + " size=" + std::to_string(mf.size()));
+
+        // -- MCARD-17: the recipe-3 output is byte-identical to the base commit's --
+        const std::string got = sdcard::sha256_file(src);
+        check("MCARD-17", "patch_image_fat32 output equals the base commit's (recipe 3 unchanged)",
+              got == "37d13f05a53a72a6b04c1db9102910a52a59968db1d3a99ef8ce28085884ba16", "sha256=" + got);
     }
 
     std::remove(src.c_str());

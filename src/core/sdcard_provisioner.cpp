@@ -1,6 +1,7 @@
 #include "core/sdcard_provisioner.h"
 #include "core/fat32_image.h"
 #include "core/log.h"
+#include "core/minimal_card.h"
 
 #include <zlib.h>
 
@@ -15,10 +16,27 @@
 #include <string>
 #include <sys/types.h>
 
+// The one distribution this release accepts for the browser's minimal card (GH #458),
+// next to the URL it is downloaded from. A release that moves to a new distribution
+// changes ALL of this in one commit: the size and the two SHA-256s come from the
+// developer's own download, card_sha256 from `make-minimal-card` on it (recipe stays
+// unless the builder's output changed). MCARD-16 and `make-minimal-card` fail on a
+// partial update.
+namespace minimal_card {
+constexpr Pins kDistribution = {
+    "https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip",
+    "sn-emulator-26.11.zip",
+    70286227ull,
+    "81fe97d37ef4e373643b4d399c22ab2acca631c02a778e8d01e136e0c7c5d2d6",
+    "144d503e976e2b802d41e304375f362b8b854bd94ede7d78a7f3885271994fd7",
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    1,
+};
+}  // namespace minimal_card
+
 namespace sdcard {
 
-const char* const kDistroUrl =
-    "https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip";
+const char* const kDistroUrl = minimal_card::kDistribution.url;
 const char* const kImageFileName = "cspect-next-1gb.img";
 const char* const kFixedImageFileName = "cspect-next-1gb-fixed.img";
 const int kFixedImageRecipe = 3;
