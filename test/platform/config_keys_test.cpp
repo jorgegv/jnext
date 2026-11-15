@@ -517,7 +517,7 @@ int main() {
               bad.empty(), bad);
     }
 
-    // SETK-21 (GH #459): the browser build refuses --set of exactly the keys whose
+    // SETK-24 (GH #459): the browser build refuses --set of exactly the keys whose
     // dedicated flag it refuses (cli::browser_refusal): the eight esp.* / nextpi.* ones.
     {
         const std::set<std::string> want = {
@@ -533,7 +533,7 @@ int main() {
             if ((sec == "esp" || sec == "nextpi") && !refused) bad += full_name(k) + " not refused ";
         }
         if (got != want) bad += "refused set differs";
-        check("SETK-21", "the keys refused by the browser build are exactly the 8 esp.* and nextpi.* ones, "
+        check("SETK-24", "the keys refused by the browser build are exactly the 8 esp.* and nextpi.* ones, "
                          "and every key of those two sections is among them", bad.empty(), bad);
     }
 
