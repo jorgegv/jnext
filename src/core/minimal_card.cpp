@@ -5,6 +5,12 @@
 
 #include <zlib.h>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#include <sys/stat.h>
+#endif
+
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
@@ -62,6 +68,22 @@ void chs(uint32_t lba, uint8_t out[3]) {
     out[0] = static_cast<uint8_t>((lba / 63u) % 255u);
     out[1] = static_cast<uint8_t>(((lba % 63u) + 1u) | ((cyl >> 2) & 0xC0u));
     out[2] = static_cast<uint8_t>(cyl & 0xFFu);
+}
+
+// Create `path` for writing, EXCLUSIVELY: any existing entry (a file, a dangling symlink) is
+// refused with EEXIST, with no race between a check and the create. C11 "x" does it where the C
+// library has it; MinGW's msvcrt ignores the "x" and would truncate the file (GH #458), so
+// Windows asks _open for O_EXCL.
+std::FILE* create_exclusive(const std::string& path) {
+#ifdef _WIN32
+    const int fd = _open(path.c_str(), _O_CREAT | _O_EXCL | _O_WRONLY | _O_BINARY, _S_IREAD | _S_IWRITE);
+    if (fd < 0) return nullptr;
+    std::FILE* f = _fdopen(fd, "wb");
+    if (!f) _close(fd);
+    return f;
+#else
+    return std::fopen(path.c_str(), "wbx");
+#endif
 }
 
 }  // namespace
@@ -482,7 +504,7 @@ struct Builder::Impl {
 
     bool write_card(const Fat32Tree& tree) {
         const uint64_t bytes = static_cast<uint64_t>(ex.card_sectors) * 512;
-        std::FILE* f = std::fopen(out.c_str(), "wbx");
+        std::FILE* f = create_exclusive(out);
         if (!f) {
             if (errno == EEXIST) fail("destination exists, not overwritten: " + out);
             else fail("cannot create " + out + ": " + std::strerror(errno));
