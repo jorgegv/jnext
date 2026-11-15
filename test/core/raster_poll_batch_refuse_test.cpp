@@ -94,7 +94,7 @@ int main() {
                 e.debug_state().resume();
                 e.debug_state().set_persistent_breakpoints(false);
             };
-            s.alive = [=](Emulator& e) { return *stops > 0; };
+            s.alive = [=](Emulator&) { return *stops > 0; };
             return s;
         };
         check_poll("RPB-34", "Set PC back to the loop head, and a patch of the loop's JR offset, while paused mid-pass: identical per frame, engaged on the other frames",

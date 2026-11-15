@@ -107,7 +107,7 @@ Scenario poll_fx(const char* name, uint8_t speed, uint8_t page6, const Bytes& co
 enum class Poll { Engaged, Refused };
 
 // Identical per frame, alive in both runs, the OFF run really off, and the batch engaged (or refused).
-void check_poll(const char* id, const char* desc, const std::vector<Scenario>& list, Poll expect = Poll::Engaged,
+[[maybe_unused]] void check_poll(const char* id, const char* desc, const std::vector<Scenario>& list, Poll expect = Poll::Engaged,
                 bool extra_ok = true, const std::string& extra_detail = {}) {
     std::string detail = extra_ok ? std::string() : extra_detail + "; ";
     bool ok = extra_ok;
@@ -133,7 +133,7 @@ void check_poll(const char* id, const char* desc, const std::vector<Scenario>& l
 
 // The DMA program every burst fixture uses (see halt_batch_periph_test): A -> B burst, source memory 0x9000
 // incrementing, port B the DAC or memory, `len` bytes, prescaler `presc`; LOAD, ENABLE.
-void dma_program(Emulator& e, uint16_t len, uint8_t presc, bool b_is_dac, uint8_t mode_byte) {
+[[maybe_unused]] void dma_program(Emulator& e, uint16_t len, uint8_t presc, bool b_is_dac, uint8_t mode_byte) {
     for (int i = 0; i < 2048; ++i) e.mmu().write(static_cast<uint16_t>(0x9000 + i), static_cast<uint8_t>(i * 7 + 3));
     std::vector<uint8_t> prog = {
         0x7D, 0x00, 0x90, static_cast<uint8_t>(len & 0xFF), static_cast<uint8_t>(len >> 8),
