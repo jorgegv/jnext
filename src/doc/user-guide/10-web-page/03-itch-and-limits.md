@@ -8,9 +8,8 @@ itch.io page. itch.io embeds your page in an `iframe` of its own site, so:
 
 - Game controllers need `allow="gamepad"` on that `iframe`; `itch-host.html` shows the markup.
 - Browsers keep storage per origin and may give an embedded page storage of its own, so
-  the image may download again on the embedding site (see 10.4, "What the browser
+  the SD card may be made again on the embedding site (see 10.4, "What the browser
   keeps, and where").
-- The image's server must allow cross-origin reads, as for any page.
 - `itch-game.html` tells the page that embeds it when the game is running
   (`jnext-ready`) or has failed (`jnext-error: <message>`), as `postMessage` text.
 
@@ -40,8 +39,8 @@ Game controllers are page-wide: give the other players
   the old save, as on a real Next. A save made this way does not make the next visit record
   the machine again. Files such a page writes to a host directory it names with
   `--esxdos-stub-root` live in memory only.
-- With `keepWrites`, one image on one page has one set of saves: two `keepWrites` players of
-  the same image on the same page share it, and the last one to store wins. After the program
+- With `keepWrites`, one card on one page has one set of saves: two `keepWrites` players of
+  the same card on the same page share it, and the last one to store wins. After the program
   has saved, the next visit starts NextZXOS again and records the machine once more (the
   card is no longer the one the recording was made on), which takes as long as a first visit's
   `warm-start` step; a visit that follows one that saved nothing is restored as usual.
