@@ -10,7 +10,9 @@
 # every Intel job missed the cache and downloaded the card, and would have saved a new
 # card under an old key. The source is the oracle; this reads it the way the
 # regression harness does (sd_expected_distro / sd_expected_recipe), with sed and
-# grep only, since it runs on every OS.
+# grep only. It runs under `make package-contract-test` (Linux only), but the sed is
+# spelled the portable way anyway (a block closed with `;}` after the `p` flag, which
+# BSD sed requires).
 #
 #   CIKEY-01  every key names <distro>-recipe<N> read from the source
 #   CIKEY-02  the macOS keys are ONE key (arm64 and Intel jobs share the cache entry)
@@ -31,7 +33,7 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 # read_expected <source.cpp> - print "<distro> <recipe>", e.g. "26.11 3"; fail printing nothing.
 read_expected() {
     local src=$1 zip distro recipe pat='^const int kFixedImageRecipe = [0-9]+;$'
-    zip=$(sed -n '/^const char\* const kDistroUrl =$/{n;s#.*/\([^/"]*\)";$#\1#p}' "$src" 2>/dev/null)
+    zip=$(sed -n '/^const char\* const kDistroUrl =$/{n;s#.*/\([^/"]*\)";$#\1#p;}' "$src" 2>/dev/null)
     [[ -n "$zip" && "$zip" != *$'\n'* ]] || return 1
     distro=${zip#sn-emulator-}; distro=${distro%.zip}
     [[ "$distro" != "$zip" && "$distro" =~ ^[0-9][0-9.]*$ ]] || return 1
