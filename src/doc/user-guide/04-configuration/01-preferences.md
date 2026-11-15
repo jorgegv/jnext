@@ -89,6 +89,11 @@ nothing from the command line is saved. How the two combine is in
 scale or a joystick source and it happens immediately, with nothing lost.
 **OK** does the same and closes the dialog; **Cancel** discards.
 
+The **CPU speed** is applied to the running machine only when you change that
+field. An OK that left it alone does not touch the speed the running program (or
+the **CPU Speed** menu) has set: a NextZXOS session running at 28 MHz keeps
+running at 28 MHz.
+
 Two settings cannot work that way, and both say so:
 
 - **Machine type** is a power cycle. If you change it, JNEXT asks whether to

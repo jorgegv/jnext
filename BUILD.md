@@ -362,8 +362,10 @@ make regression     # screenshot comparisons + functional tests, headless
   ./build/test/fuse_z80_test build/test/fuse
   ```
 
-  `build/` is not the shipped build, so `make regression` also runs the FUSE
-  suite against the PGO build's CPU core (`make fuse-pgo`).
+  `build/` is not a Release build, so `make regression` also runs the FUSE
+  suite against the PGO build's CPU core (`make fuse-pgo`). That build is made
+  like the Linux packages but is not their file: each package's own binary is
+  tested by `make regression-package PACKAGE=<p>`, which `release.yml` runs.
 
 - **`make regression`** runs the screenshot and functional tests headless and
   compares the output against the reference images. Details, and how to add a

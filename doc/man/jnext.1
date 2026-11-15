@@ -175,6 +175,21 @@ Also discards a half\-finished download.
 Ignored when \f[B]\-\-sdcard\f[R] is given: an explicit path always
 wins.
 .TP
+\f[B]\-\-sdcard\-upgrade\f[R] \f[I]MODE\f[R]
+What to do when the default\-location card is of an older NextZXOS
+distribution than the one jnext downloads now.
+\f[I]MODE\f[R] is \f[B]ask\f[R] (the default in the GUI: forget any
+\(lqdo not ask again\(rq and ask), \f[B]yes\f[R] (replace the card
+without asking: everything saved on it is lost), \f[B]no\f[R] (keep the
+card for this run, no question) or \f[B]never\f[R] (keep it and do not
+offer this distribution again).
+Without the option, the GUI asks (once, unless \(lqDo not ask me
+again\(rq was ticked) and \f[B]\-\-headless\f[R] keeps the card and logs
+one line.
+Refused together with \f[B]\-\-sdcard\f[R]: an explicit card is never
+offered an upgrade.
+See \f[B]SD CARD AND ROMS\f[R].
+.TP
 \f[B]\-\-sdcard\-readonly\f[R]
 Open the SD image read\-only, so the host file is never modified.
 The emulated machine sees a write\-protected card: writes are rejected
@@ -710,12 +725,24 @@ For programs run without NextZXOS; a directly loaded NEX gets a fuller
 set automatically (see \f[B]LOADING PROGRAMS\f[R]).
 With NextZXOS booted it answers in front of NextZXOS\(cqs own esxDOS for
 those calls, and NextZXOS\(cqs file commands stop working.
+.RS
+.PP
+With a NEX to load (\f[B]\-\-load\f[R], or a bare file name) and no
+\f[B]\-\-esxdos\-stub\-root\f[R], the directory the NEX is in is served
+to it as if it had been given as \f[I]DIR\f[R] (below): read\-only
+unless \f[B]\-\-esxdos\-stub\-writable\f[R] is also given, and in place
+of the in\-memory file.
+To keep the in\-memory file, load the NEX without
+\f[B]\-\-esxdos\-stub\f[R].
+.RE
 .TP
 \f[B]\-\-esxdos\-stub\-root\f[R] \f[I]DIR\f[R]
 Serve the host directory \f[I]DIR\f[R] to the guest through the esxDOS
 file and directory calls, instead of the single in\-memory file.
 Implies \f[B]\-\-esxdos\-stub\f[R].
 Read\-only unless \f[B]\-\-esxdos\-stub\-writable\f[R] is also given.
+\f[I]DIR\f[R] replaces the default of \f[B]\-\-esxdos\-stub\f[R], the
+directory of the loaded NEX.
 .RS
 .PP
 \f[B]Which programs see \f[BI]DIR\f[B], and which do not.\f[R] A NEX
@@ -758,12 +785,14 @@ This option is for programs jnext loads itself.
 .RE
 .TP
 \f[B]\-\-esxdos\-stub\-writable\f[R]
-Allow the guest to create, truncate and write files under
-\f[B]\-\-esxdos\-stub\-root\f[R].
+Allow the guest to create, truncate, write, delete and rename files,
+make and remove directories, and set or clear the read\-only bit of
+files under \f[B]\-\-esxdos\-stub\-root\f[R], or in the directory of the
+loaded NEX when no root is given: the program can delete any file there.
 Off by default, and deliberately a separate flag: a guest write changes
 a real file on the host immediately, and rewinding the emulator cannot
 undo it.
-Reads are fully rewindable; writes are not.
+Reads are fully rewindable; writes, deletions and renames are not.
 .TP
 \f[B]\-\-rtc\f[R] \f[I]\(lqYYYY\-MM\-DD HH:MM:SS\(rq\f[R]
 Pin the RTC to a fixed date and time (a frozen clock) instead of
@@ -1252,8 +1281,8 @@ example \f[CR]sym+m\f[R] is \f[CR].\f[R]).
 .SS Debugging
 .TP
 \f[B]\-\-magic\-breakpoint\f[R]
-Enable the magic\-breakpoint opcodes (\f[CR]ED FF\f[R] and
-\f[CR]DD 01\f[R]).
+Enable the magic\-breakpoint opcodes (\f[CR]ED FF\f[R], \f[CR]FD 00\f[R]
+and \f[CR]DD 01\f[R]).
 .TP
 \f[B]\-\-persistent\-breakpoints\f[R]
 Keep breakpoints and watchpoints armed while the debugger window is
@@ -1813,6 +1842,25 @@ without data) is kept (\f[CR]sn\-emulator.zip.part\f[R]) and continues
 on the next run.
 An explicit \f[B]\-\-sdcard\f[R] always wins over both.
 .PP
+When the default card is of an older NextZXOS distribution than the one
+jnext downloads now, jnext tells you a newer one is available, and in
+the GUI asks what to do.
+\f[B]Download and replace\f[R] downloads the new image and replaces the
+card: \f[B]everything you saved on the old card is lost\f[R], and the
+old card stays untouched until the new one is complete, so a failed
+download or patch changes nothing.
+\f[B]Keep my card\f[R] goes on using the old one, and asks again next
+time; ticking \f[B]Do not ask me again\f[R] stops the offer for this
+distribution (a later one asks once more).
+A terminal or scripted run (\f[B]\-\-headless\f[R],
+\f[B]\-\-sdcard\-file\-add\f[R]) never asks: it keeps the card and logs
+one line.
+The choice can be made without the GUI with
+\f[B]\-\-sdcard\-upgrade\f[R].
+A card you name yourself, with \f[B]\-\-sdcard\f[R] or in Preferences,
+is never offered an upgrade.
+Each distribution\(cqs card has its own FAT32 volume serial.
+.PP
 Note that jnext opens the image \f[B]read\-write\f[R] by default, and
 writes the emulated machine makes to the SD card are persisted to the
 file.
@@ -2062,12 +2110,20 @@ file when the program closes it, and the next run starts with it;
 \f[CR]run NAME.nex\f[R] (\f[CR]M_EXECCMD\f[R]), which loads another NEX
 file from the same directory;
 .IP \(bu 2
+the error message query (\f[CR]M_GETERR\f[R], with \f[CR]B\f[R]=1): the
+text NextZXOS gives for an error code, copied to the buffer in
+\f[CR]DE\f[R] with bit 7 set on its last character.
+\f[CR]B\f[R]=0, which raises a BASIC error report and does not return on
+a Next, gets the error below;
+.IP \(bu 2
 for a NEX whose header asks for its file to stay open: reading that
 file, including data appended after its banks (also through the
 block\-streaming calls), and reading, never writing, other files in the
 same directory by name.
-Such a NEX gets the host files instead of the in\-memory file (unless
-\f[B]\-\-esxdos\-stub\f[R] is also given).
+Such a NEX gets the host files instead of the in\-memory file (with
+\f[B]\-\-esxdos\-stub\f[R] it gets its directory through the host
+directory below instead, which also lets it open several files, list the
+directory and see names in any case).
 .PP
 Every other call from \f[CR]$80\f[R] to \f[CR]$B1\f[R] returns an error
 (carry set, \f[CR]A\f[R]=2), including calls NextZXOS does implement,
@@ -2078,10 +2134,13 @@ message.
 Codes above \f[CR]$B1\f[R] are not esxDOS calls and go to the code at
 \f[CR]$0008\f[R].
 .PP
-Without \f[B]\-\-esxdos\-stub\-root\f[R] this is not a filesystem.
+Without \f[B]\-\-esxdos\-stub\f[R] or \f[B]\-\-esxdos\-stub\-root\f[R]
+this is not a filesystem.
 Apart from the kept\-open case above the program cannot see files on the
 host or on the SD card, so a program that needs data files has to be
-copied to the SD card with them and started from NextZXOS.
+copied to the SD card with them and started from NextZXOS, or loaded
+with \f[B]\-\-esxdos\-stub\f[R], which serves the directory the NEX is
+in (next section).
 .SS A host directory for directly loaded programs
 \f[B]\-\-esxdos\-stub\-root\f[R] \f[I]DIR\f[R] replaces the single
 in\-memory file with the real host directory \f[I]DIR\f[R].
@@ -2095,6 +2154,18 @@ real files, and \f[CR]F_OPENDIR\f[R], \f[CR]F_READDIR\f[R],
 It is meant for developing a program that reads data files: edit them in
 place and re\-run, instead of copying them into the SD\-card image each
 time.
+.PP
+With \f[B]\-\-esxdos\-stub\-writable\f[R] it also changes the host
+files: \f[CR]F_UNLINK\f[R] (wildcards too), \f[CR]F_RENAME\f[R],
+\f[CR]F_MKDIR\f[R], \f[CR]F_RMDIR\f[R], \f[CR]F_TRUNCATE\f[R],
+\f[CR]F_FTRUNCATE\f[R] and \f[CR]F_CHMOD\f[R], and \f[CR]M_GETERR\f[R]
+gives the text of an error code.
+Each answers as NextZXOS 2.10 was measured to answer it (the probe and
+its recording are in the source tree), including which error code a
+refusal carries.
+A write\-protected root (no \f[B]\-\-esxdos\-stub\-writable\f[R])
+answers every call that would write with \f[CR]esx_edevicebusy\f[R],
+after every check that does not write, and changes nothing.
 .PP
 \f[B]It does not make the host directory the SD card.\f[R] Only programs
 that reach the filesystem through \f[CR]RST $08\f[R] can see it \(em a
@@ -2134,14 +2205,88 @@ The error codes for missing and mistyped paths are the ones NextZXOS
 returns.
 .PP
 Paths are confined to \f[I]DIR\f[R].
-A path that climbs out of it is refused, whichever separator it uses, a
-guest absolute path such as \f[CR]/data/x.bin\f[R] means
-\f[CR]DIR/data/x.bin\f[R] and never the host\(cqs own \f[CR]/data\f[R],
-and symbolic links are refused rather than followed.
+A path that climbs out of it is refused with \f[CR]esx_enotdir\f[R] (a
+bare \f[CR]..\f[R] above the root, which NextZXOS treats as a missing
+name), whichever separator it uses, a guest absolute path such as
+\f[CR]/data/x.bin\f[R] means \f[CR]DIR/data/x.bin\f[R] and never the
+host\(cqs own \f[CR]/data\f[R], and symbolic links are refused rather
+than followed.
+.PP
+What the write calls do, where it is not obvious.
+\f[CR]F_UNLINK\f[R] deletes files only: a directory is matched and left
+alone, with success, as on NextZXOS; \f[CR]F_RMDIR\f[R] removes an empty
+directory, refuses the current one, and calls a non\-empty one
+\f[CR]esx_enospc\f[R].
+A wildcard in \f[CR]F_UNLINK\f[R] and \f[CR]F_CHMOD\f[R] is matched as
+NextZXOS matches it (the name and the extension, split at the last dot,
+each matched alone, \f[CR]?\f[R] for one character or none, \f[CR]*\f[R]
+only as the last character of either half, long or 8.3 name, any case);
+it works in the name only, never in a directory, \f[CR]F_TRUNCATE\f[R]
+takes the first file it matches and \f[CR]F_RENAME\f[R],
+\f[CR]F_MKDIR\f[R] and \f[CR]F_RMDIR\f[R] refuse a wildcard.
+\f[CR]F_RENAME\f[R] never replaces a file, moves a source into an
+existing directory, and a directory it renames keeps its open files and
+its place as the current directory.
+The read\-only bit of a file follows the host: a file without write
+permission is read\-only for \f[CR]F_STAT\f[R], \f[CR]F_FSTAT\f[R],
+\f[CR]F_READDIR\f[R], \f[CR]F_OPEN\f[R] for writing, \f[CR]F_UNLINK\f[R]
+and \f[CR]F_TRUNCATE\f[R], and \f[CR]F_CHMOD\f[R] with
+\f[CR]A_WRITE\f[R] changes that permission.
+The archive bit of a file answers as NextZXOS 2.10\(cqs does: set until
+an \f[CR]F_CHMOD\f[R], then clear after any \f[CR]F_CHMOD\f[R] of that
+file (set when the call itself cleared \f[CR]A_ARCH\f[R], which 2.10
+reads that way), and set again by closing a handle opened for writing,
+by \f[CR]F_TRUNCATE\f[R], and by creating the file anew; a rename keeps
+it.
+A host file has no such bit, so JNEXT keeps it while it runs and
+\f[B]forgets it when it exits\f[R] (on a card it would be in the
+directory entry), and a file changed on the host reads as set again.
+An 8.3 short name (\f[CR]LONGNA\(ti1.TXT\f[R]) keeps naming the same
+file after others are deleted, as on FAT, and a name the host answers to
+that the directory listing does not hold (an NTFS short name, a
+differently normalised spelling) is refused rather than reaching another
+file.
+.PP
+Where it differs from NextZXOS, deliberately: \f[CR]F_CHMOD\f[R] of the
+hidden and system bits, and of a directory is refused with
+\f[CR]esx_enosys\f[R] (a host file has no such attributes; faking it
+would make \f[CR]F_STAT\f[R] contradict the answer); a name ending in a
+space is refused with \f[CR]esx_einval\f[R] (NextZXOS keeps the space, a
+host may strip it); a renamed current directory shows its new name in
+\f[CR]F_GETCWD\f[R]; \f[CR]F_TRUNCATE\f[R] on a write\-protected root is
+refused where NextZXOS answers success and loses the write;
+\f[CR]F_OPEN\f[R] for writing on a write\-protected root is
+\f[CR]esx_erdonly\f[R]; an \f[CR]F_OPEN\f[R] mode with neither the read
+nor the write bit (\f[CR]$04\f[R], \f[CR]$08\f[R], \f[CR]$0C\f[R]) is
+\f[CR]esx_einval\f[R] where NextZXOS opens or creates; and creating a
+file through the 8.3 short name of an existing long\-named file
+truncates that file and keeps its name, where a FAT volume rewrites the
+entry and loses the long name.
 .PP
 A \f[I]DIR\f[R] that does not exist, or is not a directory, is an error
 at start\-up: jnext says so and exits non\-zero rather than running with
 the option silently inert.
+.PP
+\f[B]Without a \f[BI]DIR\f[B], the directory of the NEX.\f[R]
+\f[B]\-\-esxdos\-stub\f[R] alone, with a NEX to load
+(\f[B]\-\-load\f[R], or a bare file name), serves the directory the NEX
+is in, exactly as \f[B]\-\-esxdos\-stub\-root\f[R] with that directory
+would: \f[CR]jnext \-\-esxdos\-stub \-\-load mygame/game.nex\f[R] lets
+the program open \f[CR]mygame/data.bin\f[R] by name.
+It is read\-only unless \f[B]\-\-esxdos\-stub\-writable\f[R] is given,
+and it replaces the single in\-memory file (a program that saves a file
+then gets an error instead of the in\-memory copy; load it without
+\f[B]\-\-esxdos\-stub\f[R] to keep that).
+An explicit \f[B]\-\-esxdos\-stub\-root\f[R] takes precedence.
+The directory is the one the path names (for a symbolic link, the
+link\(cqs own directory).
+It lasts from the NEX load until the next reset, soft reset or load: a
+NEX loaded later, through \f[B]File > Load NEX File\&...\f[R], a recent
+file, \f[CR]run NAME.nex\f[R] or the debugger, gets its own directory.
+A NEX taken out of a \f[CR].zip\f[R] has no directory on disk and gets
+none, and neither do a snapshot, a tape or a program injected with
+\f[B]\-\-inject\f[R].
+A \f[CR].jns\f[R] does not record it.
 .PP
 And it is not for use alongside a booted NextZXOS.
 Implying \f[B]\-\-esxdos\-stub\f[R] means it inherits the same
@@ -3152,10 +3297,11 @@ there is none) and where it is; paused only.
 Double\-click a value to edit it; right\-click a row to watch it
 .IP \(bu 2
 \f[B]Source\f[R] \- with a source map (a z88dk \f[CR]\-debug\f[R] map or
-a sjasmplus SLD), the source line the CPU is on, with line numbers, a
-breakpoint column, a current\-line arrow, coverage tint and the
-Disassembly\(cqs right\-click menu; source Step Into, Over, Out, Back
-and Reverse, also in \f[B]Debug > Source\f[R]
+a sjasmplus SLD), the source line the CPU is on, or any file the map
+names (a File list, also \f[B]Debug > Source > Open Source
+File\&...\f[R]), with line numbers, a breakpoint column, a current\-line
+arrow, coverage tint and the Disassembly\(cqs right\-click menu; source
+Step Into, Over, Out, Back and Reverse, also in \f[B]Debug > Source\f[R]
 .IP \(bu 2
 \f[B]Breakpoints\f[R] \- execution, read, write and I/O watchpoints, in
 one panel.
@@ -3729,13 +3875,17 @@ Its default \f[CR]resetOnLaunch: true\f[R] starts each session with
 does not step over interrupt routines (\f[CR]set\-debug\-settings\f[R]
 bit 5 is refused, and DeZog shows that once as a warning).
 .SH MAGIC BREAKPOINT AND MAGIC PORT
-The magic breakpoint uses the \f[CR]ED FF\f[R] (ZEsarUX) and
-\f[CR]DD 01\f[R] (CSpect) opcodes to pause the debugger when enabled;
-execution then resumes right after the two bytes.
-When disabled, and on real hardware, \f[CR]ED FF\f[R] is a two\-byte
-NOP, but \f[CR]DD 01\f[R] is not: the \f[CR]DD\f[R] prefix is ignored
-and \f[CR]01 nn nn\f[R] executes as \f[CR]LD BC,nn\f[R], consuming the
-two bytes that follow and overwriting \f[CR]BC\f[R].
+The magic breakpoint uses the \f[CR]ED FF\f[R] (ZEsarUX),
+\f[CR]FD 00\f[R] (CSpect 2.19.9.1 and later; the sjasmplus
+\f[CR]break\f[R] instruction since 1.21.0, which needs
+\f[CR]\-\-zxnext=cspect\f[R] or \f[CR]OPT \-\-zxnext=cspect\f[R]) and
+\f[CR]DD 01\f[R] (older CSpect and sjasmplus) opcodes to pause the
+debugger when enabled; execution then resumes right after the two bytes.
+When disabled, and on real hardware, \f[CR]ED FF\f[R] and
+\f[CR]FD 00\f[R] are two\-byte NOPs, but \f[CR]DD 01\f[R] is not: the
+\f[CR]DD\f[R] prefix is ignored and \f[CR]01 nn nn\f[R] executes as
+\f[CR]LD BC,nn\f[R], consuming the two bytes that follow and overwriting
+\f[CR]BC\f[R].
 Enable it with \f[B]\-\-magic\-breakpoint\f[R] or \f[B]Debug > Magic
 Breakpoint\f[R].
 .PP
@@ -4133,6 +4283,18 @@ The default SD\-card image, used when \f[B]\-\-sdcard\f[R] is not given.
 .TP
 \f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb.img\f[R]
 The canonical distribution image the patched one above is produced from.
+.TP
+\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img.distro\f[R], \f[CR]cspect\-next\-1gb.img.distro\f[R]
+The distribution (the zip file name,
+e.g.\ \f[CR]sn\-emulator\-24.11.zip\f[R]) each of the two images came
+from.
+Without one, the image is taken to be 24.11.
+.TP
+\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img.distro\-declined\f[R]
+The distribution whose upgrade offer you turned down with \(lqDo not ask
+me again\(rq (or \f[B]\-\-sdcard\-upgrade\f[R] \f[CR]never\f[R]).
+Delete it, or use \f[B]\-\-sdcard\-upgrade\f[R] \f[CR]ask\f[R], to be
+asked again.
 .TP
 \f[CR]\(ti/.jnext/nextpi/\f[R]
 The NextPi directory: \f[CR]nextpi.img\f[R] (the release\(cqs SD\-card

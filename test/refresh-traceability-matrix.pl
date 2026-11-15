@@ -984,6 +984,9 @@ my %NO_MATRIX_SECTION = (
     'program_archive_test'    => 'ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart',
     'halt_batch_equiv_test'   => 'cycle-batching equivalence (GH #452): the oracle is the unbatched path of the same emulator, held to the VHDL by the other suites; each row cites the hardware behaviour a batch span must not move in its own source (jnext-internal)',
     'halt_batch_periph_test'  => 'cycle-batching equivalence on peripheral, observer and host-input fixtures (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
+    'halt_batch_observer_test'=> 'cycle-batching equivalence with an ESP-01 or a debugger client attached (GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
+    'halt_batch_observer_native_test'=> 'cycle-batching equivalence with an ESP-01 attached (GH #489): the rows that need a live ESP worker thread; batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
+    'call_stack_fetch_test'   => 'debugger call-stack tracker fed from the CPU\'s M1 fetch buffer (GH #489): frames through the emulator path; the oracle is Z80/Z80N instruction semantics and the interrupt response, the tracker itself being jnext-internal',
     'halt_batch_boot_test'    => 'cycle-batching equivalence on the NextZXOS cold boot (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'halt_batch_corpus_1_test'=> 'cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'halt_batch_corpus_2_test'=> 'cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal)',
@@ -1072,6 +1075,7 @@ my %NO_MATRIX_SECTION = (
     # core has no loader and no dialog, so there is nothing to cite. The
     # policy predicate/probe/enforcement rows live in nex_loader_test.
     'nex_v13_dialog_test' => 'experimental NEX V1.3 warning dialog (GUI), no core counterpart',
+    'desktop_open_test'   => 'files the desktop (macOS Finder) opens with JNext (host GUI), no core counterpart',
 
     # ── POK trainer files ────────────────────────────────────────────
     # GH #381. The oracle is the World of Spectrum POKformat.txt (a host file
@@ -1121,6 +1125,7 @@ my %NO_MATRIX_SECTION = (
     'color_scheme_test'   => 'GUI light/dark scheme from the desktop portal (host GUI, GH #363)',
     'color_scheme_linux_test' => 'GH #414: the private dbus-daemon of color_scheme_test dies with a SIGKILLed or normally exiting suite; Linux-only test infrastructure (guard process, /proc), the FPGA core has no counterpart',
     'sdcard_dialog_test'  => 'SD-card/NextPi download dialog through a dropped network (host GUI, GH #358)',
+    'sdcard_upgrade_box_test' => 'SDL message box offering a newer NextZXOS image (host UI, GH #476)',
     'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
     'sdl_app_tick_test' => 'SdlApp::tick() host frame-loop iteration (host UI, GH #462)',
     'web_api_test' => 'browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465)',
@@ -1215,6 +1220,7 @@ my %NO_MATRIX_SECTION = (
     # hardware each command reads or writes is traced in its own section.
     'zrcp_adapter_test'         => 'ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger',
     'debugger_persistent_bp_test' => 'debugger window raise-on-hit (host GUI lifecycle, GH #219)',
+    'debugger_halt_batch_test' => 'debugger window open vs the HALT batch (host GUI lifecycle, GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'debugger_inspect_watchpoint_test' => 'debugger INSPECTION reads vs watchpoints (jnext-internal); the T80N core has no panels reading its bus',
     'debugger_video_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build)',
     'debugger_audio_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build)',

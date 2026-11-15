@@ -8,8 +8,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
 # GH #325 — the 48K, 128K and +3 (and Pentagon) personalities start with the
 # port enables the real firmware gives them. The oracle is tbblue.fw booting
-# `--machine next` on a clone whose config.ini says default=2 (48K), 3 (128K),
-# 5 (+3) or 14 (Pentagon) (menu.def): boot.c's mode 0/1/2/3 writes NR 0x03 =
+# `--machine next` on a clone whose config.ini says default=N, N being the menu
+# file's index of the 48K (mode 0, 48.rom), 128K (1, 128.rom), +3 (2, plus3.rom)
+# or Pentagon (3, 128.rom) line, found by menu_index in test-functions.inc as
+# the firmware counts them (config.c): boot.c's mode 0/1/2/3 writes NR 0x03 =
 # 0x91/0xA2/0xB3/0xC4 and the NR 0x82-0x85 enables itself. A headless
 # standalone run of the same machine must agree on every bit the firmware
 # writes the same whatever config.ini says:
@@ -55,14 +57,17 @@ on frame 100 once do
     $state_line
 end
 JDS
-        cat >"$jds_fw" <<JDS
+        # the firmware-boot script: its frame is a boot-timeline frame (bf), expanded from a template
+        cat >"$jds_fw.in" <<JDS
 on nextreg 0x03 do
     log "NRW 03 = \${VALUE:x2}"
 end
-on frame 700 once do
+on frame {{bf 877}} once do
     $state_line
 end
 JDS
+        bf_jds "$jds_fw.in" "$jds_fw"
+        mpe_exit=$(bf 887)
     fi
 
     field() {   # $1 = log, $2 = key: the value of `key=` on its STATE line, upper-cased
@@ -76,10 +81,10 @@ JDS
     why=""
     summary=""
     if [[ -z "$verdict" ]]; then
-        # name machine default= firmware-NR03 want82 want83 want84 want85 mask84
-        for spec in "48k 48k 2 91 C0 3F FE 03 01" "128k 128k 3 A2 C2 3F FF 03 00" \
-                    "plus3 plus3 5 B3 DA 3F FF 03 00" "pentagon pentagon 14 C4 C6 3F FB 03 04"; do
-            read -r nm mach def fwc w82 w83 w84 w85 m84 <<<"$spec"
+        # name machine menu-mode menu-rom firmware-NR03 want82 want83 want84 want85 mask84
+        for spec in "48k 48k 0 48.rom 91 C0 3F FE 03 01" "128k 128k 1 128.rom A2 C2 3F FF 03 00" \
+                    "plus3 plus3 2 plus3.rom B3 DA 3F FF 03 00" "pentagon pentagon 3 128.rom C4 C6 3F FB 03 04"; do
+            read -r nm mach mmode mrom fwc w82 w83 w84 w85 m84 <<<"$spec"
             log_a="$TMP_DIR/machine_port_enables_${nm}_a.log"
             log_b="$TMP_DIR/machine_port_enables_${nm}_b.log"
             rm -f "$log_a" "$log_b"
@@ -88,6 +93,10 @@ JDS
                 "${SD_CARD_ARGS[@]}" --script "$jds_a" \
                 --delayed-automatic-exit-frames 110 >"$log_a" 2>&1 || true
 
+            if ! def=$(menu_index "$sd_image" "$mmode" "$mrom"); then
+                why+=" $nm: no menu line with mode $mmode and ROM $mrom (or more than one) on the card;"
+                continue
+            fi
             { grep -v '^default=' "$cfg_in" || true; printf 'default=%s\n' "$def"; } >"$cfg_out"
             if ! "$sdfile" put "$sd_image" machines/next/config.ini "$cfg_out" >"$io_log" 2>&1; then
                 why+=" $nm: could not write config.ini: $(tr -d '\n' <"$io_log");"
@@ -95,7 +104,7 @@ JDS
             fi
             LANG=C timeout --foreground --kill-after=5s 240s "$JNEXT" --headless --machine next \
                 "${SD_CARD_ARGS[@]}" --script "$jds_fw" \
-                --delayed-automatic-exit-frames 710 >"$log_b" 2>&1 || true
+                --delayed-automatic-exit-frames "$mpe_exit" >"$log_b" 2>&1 || true
 
             a03=$(field "$log_a" nr03); a82=$(field "$log_a" nr82); a83=$(field "$log_a" nr83)
             a84=$(field "$log_a" nr84); a85=$(field "$log_a" nr85)

@@ -182,6 +182,11 @@ public:
     /// it, i.e. `SourceLocation::file`), by line. Empty for a file not in the map.
     std::vector<FileRange> file_ranges(const std::string& file) const;
 
+    /// Every file the map names (ranges, zero-width ones included, and aliases),
+    /// normalised as `SourceLocation::file`, in byte order. Empty when the map is
+    /// empty; valid until the next replace() / clear().
+    const std::set<std::string>& files() const { return files_; }
+
     void clear();
     bool empty() const { return ranges_.empty(); }
     size_t size() const { return ranges_.size(); }   // ranges, zero-width included

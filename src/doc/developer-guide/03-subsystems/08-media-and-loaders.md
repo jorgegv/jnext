@@ -32,7 +32,7 @@ the guest's own driver talks to. Both are called out below.
 | `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
-(the `ext` chain, `src/main.cpp:2831-2889`), and again in the GUI's file dialogs and in the headless
+(the `ext` chain, `src/main.cpp:2895-2953`), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -418,12 +418,36 @@ recording and, on a miss, records one (`begin_warm_start_recording()` and
    recipe is done when the statement executes (`ERR_NR` $FF, `PPC` $FFFE). The
    keys go through `Keyboard::queue_auto_type()`, and the per-frame step is
    `Emulator::warm_start_recipe_tick()`. A state that does not come within 400
-   frames ends the recipe (four waits, so at most about 2000 frames in all at 50 Hz and 2400 at 60 Hz), and the capture check then refuses,
-4. checks `nextzxos_resident()` (once, when the clock passes frame 400, before
-   any key) and `warm_start_capture_ready()` (when the recipe is done or gave
-   up; its message names what the recipe was waiting for), and
+   frames ends the recipe. Before the first state the recipe waits for the
+   firmware to commit a machine type (see below), so there are five waits and at
+   most about 2400 frames in all at 50 Hz and 2880 at 60 Hz; the capture check then
+   refuses,
+4. checks `nextzxos_resident()` (once, at the checkpoint: frame 400, or the
+   frame the firmware commits a machine type if that is later; before any key)
+   and `warm_start_capture_ready()` (when the recipe is done or gave up; its
+   message names what the recipe was waiting for), and
 5. serialises it with `save_state()` — the same `Saveable` stream the rewind
    buffer uses.
+
+**The commit wait.** Frame 400 is the earliest the recipe looks at the machine,
+but a firmware that is still loading must not be looked at: a calm screen with
+stale system variables could get a SPACE, and the residency check refuses a
+machine whose firmware has not finished. From frame 400 the recipe stays in its
+first phase while the firmware is *loading*: the boot-ROM overlay is off but NR
+0x03 config mode is still set. In the VHDL (`zxnext.vhd`) any NR 0x03 write clears
+the overlay, a value of 7 in bits 2:0 sets config mode and any other non-zero value
+clears it, so the window between the IPL's handover write and the firmware's
+machine-type commit is exactly that state. The first frame from 400 on at which it
+is not loading is the checkpoint, where the residency check runs and the first
+look at the machine happens; `calm` keeps counting through the wait. The wait is
+bounded by frame 800 (frame 400 plus one budget; in emulated time, so 960 at 60
+Hz): a firmware that has not committed by then is given up, the checkpoint is the
+deadline and the refusal message says that the recorder waited. On the 24.11 card
+the commit is at frame 295, so the checkpoint is frame 400 and the recording is the
+same bytes as before the wait existed; on the 26.11 card it is at frame 472 and the
+recording takes about 777 frames. A boot-ROM overlay still active at frame 400 (the
+IPL never handed over) is not loading: the checkpoint is frame 400 and the
+residency check refuses there.
 
 Nothing is pressed at a fixed frame count. The first version pressed SPACE at
 frame 400, DOWN at 470, ENTER at 500, and was measured to work on the
@@ -434,7 +458,7 @@ both cards is a HALT at one instruction (with a different SP on each screen), an
 every busy phase moves the PC at each frame boundary. A wait loop that polls the
 keyboard without HALT would not be sampled at one instruction and would never read
 as idle, so the recipe would give up and the capture check refuse. The
-recording takes about 600 frames on the two cards measured, and is the same file
+recording takes about 600 frames on the two 24.11 cards measured (about 780 on the 26.11 card), and is the same file
 on every run of one card (the clock is pinned, below).
 
 Two things keep the recording a pure function of the card, the machine and the
@@ -680,7 +704,10 @@ loaded from the GUI after start-up.
   it. `load_tap()`, `load_tzx()` and `load_wav()` deliberately do not: they
   attach tape media to the running machine, so a NEX still running keeps its
   stand-in.
-- `EmulatorConfig::esxdos_stub` (`--esxdos-stub`), for the whole session.
+- `EmulatorConfig::esxdos_stub` (`--esxdos-stub`), for the whole session. With a
+  NEX loaded and no `--esxdos-stub-root`, `load_nex()` also points
+  `EsxdosHostFs` at the NEX's directory (below), so the host directory, not the
+  in-memory file, then answers.
 - The extended-NEX host bridge (`extended_nex_host_`), open when the NEX
   header's `file_handle` is non-zero. Only `load_nex()` opens it, so it never
   exists without `direct_nex_esxdos_`; `init()` closes it, so both resets and
@@ -701,8 +728,9 @@ precondition: the DivMMC automap that takes `$0008` to NextZXOS needs
 | `$85`-`$87` `DISK_FILEMAP` / `STRMSTART` / `STRMEND` | with the host bridge, block streaming from the NEX file; without it, the catch-all error below | falls through |
 | `$88` `M_DOSVERSION` | `BC`=`'NX'`; `DE`=`$0194`, or `$0202` with the host bridge | same, `$0194` |
 | `$89` `M_GETSETDRV` | get or set `C:` returns `A`=`$10`; any other drive, carry set, `A`=`$0B` | falls through |
+| `$93` `M_GETERR` | `B`=1: the message for the error code in `A` (`A`=0: the bit-7-terminated one at `IX`) copied to the 32-byte buffer at `DE`, bit 7 on its last character; carry clear, `A`=`$02`. `B`=0 gets the catch-all error | the same, only while `--esxdos-stub-root` or an implicit root is active; otherwise falls through |
 | `$8F` `M_EXECCMD` | `run NAME.nex` for a plain name in the same directory: chain-loads it through `nex_load_request_` | same |
-| `$9A` `F_OPEN` | host bridge: the NEX's own file or a read-only sibling regular file (no symlinks, no paths) on host handles 2/3, other names refused unless `--esxdos-stub` is also given; otherwise the in-memory file | in-memory file |
+| `$9A` `F_OPEN` | host bridge: the NEX's own file or a read-only sibling regular file (no symlinks, no paths) on host handles 2/3, other names refused unless `--esxdos-stub` is also given, in which case the host directory of the NEX answers them; otherwise the in-memory file | in-memory file |
 | `$9B` / `$9D` `F_CLOSE` / `F_READ` | host handles 2/3, else the in-memory file | in-memory file |
 | `$9E` `F_WRITE` | the in-memory file only; there is no host-handle branch, so a write to host handle 2 or 3 fails (carry set, `A`=5) | in-memory file |
 | `$9F` / `$A0` / `$A1` `F_SEEK` / `F_FGETPOS` / `F_FSTAT` | host handles; otherwise `F_SEEK` fails (`A`=5) and the other two get the catch-all error | `F_SEEK` fails (`A`=5); the other two fall through |
@@ -775,12 +803,32 @@ the sandbox, the handle table and the 8.3/timestamp synthesis; the dispatcher
 block sits in `handle_esxdos` between the extended-NEX bridge and the legacy
 in-memory switch.
 
+**Two ways a root is configured.** An explicit root (`--esxdos-stub-root`) is
+configured by `init()` from `EmulatorConfig::esxdos_stub_root`, lasts the
+session and is re-applied by every re-init. The implicit root has no config
+field: `load_nex()`, after the load, calls `configure()` with the parent of
+`active_nex_path_` (absolute, lexically normal, not `canonical()`: the
+directory the path names, as `run NAME.nex` and the kept-open sibling lookup
+use; a symbolic link's own directory) when `esxdos_stub` is set, no explicit
+root exists and the NEX was not extracted from an archive
+(`program_archive::extracted_from()`: the scratch copy has no directory of its
+own). It is therefore set again by every NEX load, in place or through a cold
+boot, whichever frontend asked, and `init()` ends it with
+`EsxdosHostFs::clear()` (a soft reset, or any re-initialising load), as it ends
+`direct_nex_esxdos_`. It is not written to the config, which would pin the
+first NEX's directory for every later menu load, and not recorded by a `.jns`
+(a `.jns` restore does not re-arm the direct-NEX context either). The root's
+writability follows `esxdos_stub_writable`. A directory that cannot be served is
+logged and the in-memory file stays.
+
 **Handle spaces.** 1 is the in-memory file, 2 and 3 are `ExtendedNexHost`, and
 `EsxdosHostFs` owns `$04..$0B` for files and `$84..$87` for directories. The
 dispatcher claims a handle-keyed call only for handles in its own range, so the
 three back ends never contend; path-keyed calls (`F_OPEN`, `F_STAT`,
-`F_OPENDIR`, `F_CHDIR`, `F_GETCWD`, `F_GETFREE`, `M_GETDATE`) it claims
-outright, since with a root there is exactly one volume. The one interaction
+`F_OPENDIR`, `F_CHDIR`, `F_GETCWD`, `F_GETFREE`, `M_GETDATE`, and the write
+calls `F_UNLINK`, `F_RENAME`, `F_MKDIR`, `F_RMDIR`, `F_TRUNCATE`, `F_CHMOD`) it
+claims outright, since with a root there is exactly one volume; `F_FTRUNCATE` is
+handle-keyed and follows the handle rule. The one interaction
 worth knowing: with a root configured, the extended-NEX bridge's *sibling*
 lookup is skipped, so only the NEX's own filename still resolves beside the
 NEX — otherwise one name could mean two files.
@@ -809,7 +857,14 @@ the same function, so the two cannot disagree.
 
 **Containment.** Primary confinement is LEXICAL and consults nothing: the guest
 path is split, `.` dropped, `..` popped, and a pop that would leave the root
-refused with `esx_epath`. An escaping path is therefore never constructed. A
+refused. An escaping path is therefore never constructed. The code is the one
+real NextZXOS gives, which treats `..` above the root as a name missing from the
+root directory: `esx_enotdir` when more path follows, for every call. A bare
+`..` is, per call, what a missing last name is: `esx_enoent` for lookups
+(`F_STAT` included),
+`esx_einval` for a create, `esx_enotdir` for `F_OPENDIR` and `F_CHDIR`;
+`resolve()` returns the internal marker `kBareDotDot` (not an esxDOS code) for
+it and each call maps it. A
 guest absolute path is absolute *within* the root. Both `/` and `\` separate
 components, on every host: FAT forbids a backslash inside a name, and treating
 it as an ordinary character would leave `std::filesystem::path` re-splitting it
@@ -833,11 +888,80 @@ deleting the explicit check is enough. The full note is in
 `.cpp`: closing it needs an `openat(O_NOFOLLOW)` walk with no portable form
 across the Linux, macOS and MinGW builds.
 
+**The write calls.** `unlink`, `rename`, `mkdir`, `rmdir`, `truncate`,
+`ftruncate` and `chmod` on `EsxdosHostFs`, and `M_GETERR` in the dispatcher
+(its texts are `esxdos_error_message()` in `esxdos_trace.h`). There is no VHDL for
+them: NextZXOS is software, so the oracle is a PROBE, kept in the tree
+(`test/00regression/esxdos-write-probe.py`, the `nex` command writes the two
+NEX files), run under real NextZXOS booted in jnext on a scratch copy of the SD
+image, and the answers recorded in `test/fixtures/esxdos-write-probe/nextzxos.txt`
+with the image's sha256, `M_DOSVERSION` (2.10) and the sha256 of the probe NEX
+files in its header. Every rule in the code names the recorded group it came
+from. The generator's `DIVERGE` table lists each place jnext deliberately
+answers otherwise, with its reason. To re-measure: `esxdos-write-probe-measure.sh`
+(the fixture's `README.md`). The order of checks is the measured one: lookups
+and the checks that do not write first, then, on a write-protected root,
+`esx_edevicebusy`, then the host change.
+
+What the measurements showed, in the places a reader would guess otherwise: on
+success `A` is whatever the register held (junk), so the probe masks it, and
+the dispatcher returns 0; `F_UNLINK` of a directory is success and deletes
+nothing; `F_TRUNCATE` with a wildcard truncates the first match; `F_CHMOD`'s
+`A_WRITE` is the inverse of FAT's read-only bit, `A_READ` is inert, and hidden
+and system are set together, so only `A_WRITE`, `A_READ` and `A_ARCH` are served
+(everything else is `esx_enosys`: refused, not faked). The archive bit is the one
+attribute a host file cannot hold and 2.10 changes on `F_CHMOD`, so `EsxdosHostFs`
+keeps it per file in `archive_clear_` for the mount (session state: lost when jnext
+exits, which no recorded step can see): after any `F_CHMOD` of a file it reads clear,
+unless that call cleared `A_ARCH`, which leaves it set; closing a write handle,
+`F_TRUNCATE` and a re-create set it, a rename (a directory's too) carries it, and an
+entry whose file's size, modification time or inode no longer matches is stale and
+reads set. The `[arch]` group of the probe measured the write, truncate, rename and
+re-create cases; a name with
+`"`, `<`, `>`, `|`, `:` is `esx_einval` in every call; a trailing dot is dropped;
+a renamed current directory keeps its old name in `F_GETCWD` on a card (jnext
+shows the new one); `F_RENAME` of an empty destination means the current
+directory. A file is read-only when its host write permission is absent
+(`host_read_only()`, from the permission bits, never from whether the OS would
+refuse: the gate runs as root); F_STAT, F_FSTAT, F_READDIR and F_OPEN agree.
+An open file of ours (`is_open_file()`, `fs::equivalent`) refuses
+`F_UNLINK`, `F_RENAME` and `F_TRUNCATE` before any host call, so Windows' own
+refusal never decides. The NEX file a kept-open NEX reads through the
+extended-NEX bridge is not one of ours and is not protected from deleting itself.
+`F_RENAME` refuses an existing destination before the host call (POSIX
+`rename(2)` and MinGW's replace it). A directory rename closes our streams under
+it, renames, reopens them under the new path on every host (so the reopen path
+is exercised on Linux too), rebases the file and directory handle paths, and
+moves the CWD with it.
+
+Two structural fixes came with these calls, because deleting makes them
+dangerous. The 8.3 aliases are no longer renumbered on every listing: a FAT
+alias is fixed when the file is created, and a program that deleted
+`LONGNA~1.TXT` must not find `LONGNA~2.TXT` naming another file. `list_host_dir()`
+keeps the aliases it handed out per directory (`aliases_`, not in a snapshot:
+it follows host changes no rewind undoes), the first listing numbers in sorted
+order, a later one keeps them, forgets the vanished, reserves every kept alias of
+a name still there (and every native 8.3 name) BEFORE giving a new name the lowest
+free tail, so a newcomer that sorts first never takes an existing file's short
+name, and a name that is itself 8.3 always keeps it. `unlink`,
+`rmdir` and `rename` free the alias of the name that goes at once
+(`forget_alias()`), as a FAT volume does, so a name created next takes it. And `resolve()`
+no longer takes a name merely because the host answers to it: a component
+counts as present only when the directory LISTING holds it byte for byte (or by
+case, or by its 8.3 name); a name the host answers to that the listing does not
+(Windows' own short name, numbered by creation order; macOS's normalisation)
+is refused with `esx_eacces`, so it cannot reach a different file than the
+listing shows under it, and the guest's spelling is never stored as the
+current directory.
+
 **Rewind.** An open `std::fstream` is not snapshottable, so `save_state` writes
 only `(handle, is_dir, mode, position, path)` per open handle plus the guest
 CWD, and `load_state` reopens from that. Reads therefore rewind exactly.
 Writes cannot — the host side effect already happened — which is the whole
-reason writes are behind a second flag.
+reason writes are behind a second flag. That covers every call above: a
+snapshot taken before an `F_UNLINK` or `F_RENAME` does not bring the file back,
+and `restore()` drops a handle whose file is gone (the open fails and the slot
+stays closed), so `F_READ` on it is `esx_ebadf`.
 
 **Exact answers, or refusals.** A listing mode is served only where the answer
 is exactly NextZXOS's, and refused with `esx_enosys` everywhere else: a caller
@@ -903,18 +1027,38 @@ volume at the block layer, which the project declined
 `--help`, the man page and the user guide because the flag's name invites the
 opposite assumption.
 
+**Tests, write calls.** `HFW-01..121` and `GETERR-01..06` in
+`test/esxdos_stub/esxdos_write_rows.cpp` (class level, then the dispatcher's
+registers, then rewind), every expected value a line of the recording or a
+declared divergence, each row's comment naming its group; `HFW-130..134` in
+`esxdos_symlink_test` (no write call acts on a symlink); the regression row
+`esxdos-write-func` runs the probe NEX on a writable root and on a
+write-protected one and judges every line against the recording (and refuses a
+probe edited without re-measuring), `esxdos-write-oracle-func` runs it under
+real NextZXOS on a scratch copy of the SD image and requires the recording back
+exactly, so the fixture cannot silently stop being reproducible.
+
 **Tests.** `HFS-01..122` in `test/esxdos_stub/esxdos_hostfs_rows.cpp` (linked
 into `esxdos_stub_test`): the sandbox and the 8.3/timestamp synthesis against
 the class, every register convention through the real dispatcher. The
 regression row `esxdos-hostfs-func` runs a real guest program that opens, seeks
 to offset 6, reads and prints a real host file through `RST $08`, then probes
-the sandbox from inside the guest — with a control run, no root, that must not
-produce the content.
+the sandbox from inside the guest — with a control run, `--esxdos-stub` alone, whose implicit root holds no such
+file, that must not produce the content. `NXROOT-01..12` in
+`esxdos_stub_test` and `NXROOT-13` in `esxdos_symlink_test` pin the implicit
+root (the NEX's directory, an explicit root winning, no root without a NEX or
+without the stub, read-only and writable, following an in-place and a
+cold-boot load, ending at a soft reset, the kept-open NEX, a symlinked NEX);
+the regression row `esxdos-nexdir-func` runs the same guest program from the
+CLI with the root implicit (absolute and bare relative path), overridden, taken
+from a `.zip` and absent.
 
-**Known gaps.** Without `--esxdos-stub-root` a directly loaded program still
-cannot reach host files other than the kept-open NEX and its siblings, and the
+**Known gaps.** Without `--esxdos-stub` or `--esxdos-stub-root` a directly
+loaded program still cannot reach host files other than the kept-open NEX and
+its siblings, a NEX from an archive gets no directory, and the
 in-memory file still has no `F_SEEK`. `M_DOSVERSION` reports 1.94 without the
-host bridge. `M_GETERR` is not implemented in either back end.
+host bridge. `M_GETERR` is answered for a directly loaded NEX and with a host
+root; `B`=0, which raises a BASIC error report on a Next, is not.
 
 ## RZX
 
@@ -1355,6 +1499,28 @@ upstream tbblue did after the 24.11 release), only when it is that exact file.
 That recipe is versioned (`kFixedImageRecipe`, recorded in a `.recipe` sidecar
 next to the image). jnext never rebuilds an existing image because its recipe
 is old: the image holds the user's own files.
+
+A distribution is identified by the file name of its zip (`sn-emulator-24.11.zip`),
+the basename of the effective download address. `provision_sd_card` records it in
+`<fixed>.distro` and `<raw>.distro`; an image with no such sidecar predates them,
+from when the address only ever named 24.11, so it is 24.11. A raw image is
+reused only when its sha sidecar verifies AND its `.distro` is the current one.
+When the default card exists and is of another distribution, the provisioner makes
+one offer through the `UpgradeFn` seam (Qt: a box with "Download and replace",
+"Keep my card" and a "Do not ask me again" check box; SDL: a three-button message
+box; no seam, as in `--headless` and `--sdcard-file-add`: no offer, one log line).
+The text names both versions and says the card's contents are lost. Keep goes on
+with the card, and "do not ask again" writes `<fixed>.distro-declined` with the
+current distribution, so only a later one asks again. `--sdcard-upgrade
+ask|yes|no|never` makes each choice without the dialog. An explicit card, from
+`--sdcard` or the Preferences path, returns before any of this and is never offered
+an upgrade. A card is replaced atomically: the new raw and card are made as
+`<name>.new` and moved over the old ones only when the derive worked, so a failed
+download or patch leaves the old card byte-identical (an accepted upgrade then
+goes on with it and reports a warning; `--sdcard-download-force`, which was asked to
+recover a card, fails). Recipe 3 gives each distribution's card its own FAT32 volume
+serial, the first 4 bytes of the raw image's SHA-256, written into the boot sector
+and its backup copy after the format.
 
 Downloads are resumable, by one contract for every caller of
 `DownloadFn` (the SD distro zip, the NextPi archive, its `.md5`, the mirror

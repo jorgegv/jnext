@@ -2640,6 +2640,116 @@ void test_nextpi_extra_args_rows() {
               why + fmt("plain sizes %zu %zu", plain_fifo.size(), plain_sock.size()));
     }
 
+    // PIT-66 / PIT-67a-e - the Pi's sound card goes on the Pi's only USB port (`port=1`, no QEMU hub)
+    // unless the extras add a USB device, which then needs the hub's ports (GH #489; QEMU 10.2.2
+    // behaviour as measured, jnext-only, no VHDL counterpart).
+    {
+        const std::string direct = "usb-audio,audiodev=snd0,buffer=16384,port=1";
+        const std::string hub    = "usb-audio,audiodev=snd0,buffer=16384";
+        // The -device values of the four lists (two transports) for the given extras.
+        auto cards = [&](const Strs& extras) {
+            PiQemu::Spec spec;
+            spec.dir          = "n";
+            spec.extra_args   = extras;
+            const Strs lists[2] = {PiQemu::build_args(spec, "base"),
+                                   PiQemu::build_args(spec, std::uint16_t{40123}, "ab")};
+            Strs out;
+            for (const Strs& l : lists) {
+                // jnext's own -device is the first one (the extras come last).
+                for (std::size_t i = 0; i + 1 < l.size(); ++i)
+                    if (l[i] == "-device") { out.push_back(l[i + 1]); break; }
+            }
+            return out;
+        };
+        auto count_devices_own = [&](const Strs& extras) {
+            PiQemu::Spec spec;
+            spec.dir        = "n";
+            spec.extra_args = extras;
+            const Strs l = PiQemu::build_args(spec, "base");
+            std::size_t n = 0;
+            for (std::size_t i = 0; i + 1 < l.size() - extras.size(); ++i)
+                if (l[i] == "-device") ++n;
+            return n;
+        };
+        auto tail_ok = [&](const Strs& extras) {
+            PiQemu::Spec spec;
+            spec.dir        = "n";
+            spec.extra_args = extras;
+            const Strs l[2] = {PiQemu::build_args(spec, "base"),
+                               PiQemu::build_args(spec, std::uint16_t{40123}, "ab")};
+            for (const Strs& x : l)
+                if (x.size() < extras.size() ||
+                    !std::equal(extras.begin(), extras.end(), x.end() - extras.size()))
+                    return false;
+            return true;
+        };
+        auto all_eq = [](const Strs& v, const std::string& want) {
+            if (v.size() != 2) return false;
+            for (const std::string& s : v)
+                if (s != want) return false;
+            return true;
+        };
+
+        const Strs none;
+        const Strs no_usb = {"-serial", "telnet:127.0.0.1:2357,server,nowait", "-name", "my pi"};
+        const bool p66 = all_eq(cards(none), direct) && all_eq(cards(no_usb), direct) &&
+                         count_devices_own(none) == 1 && count_devices_own(no_usb) == 1 &&
+                         !PiQemu::extra_args_may_add_device(none) &&
+                         !PiQemu::extra_args_may_add_device(no_usb);
+        check("PIT-66",
+              "build_args, on the FIFO and the socket transport, with no extras and with extras that add no device, "
+              "has exactly one -device of its own and it attaches the sound card with port=1 "
+              "(QEMU adds no USB hub)",
+              p66, fmt("p66=%d", p66 ? 1 : 0));
+
+        auto usb_case = [&](const Strs& extras) {
+            return all_eq(cards(extras), hub) && tail_ok(extras) &&
+                   PiQemu::extra_args_may_add_device(extras);
+        };
+        const bool a = usb_case({"-device", "usb-net,netdev=n0", "-netdev", "user,id=n0"});
+        const bool b = usb_case({"-device", "driver=usb-kbd"});
+        const bool c = usb_case({"-usbdevice", "keyboard"});
+        const bool d = usb_case({"--device", "usb-hub"});
+        const bool e = all_eq(cards({"-name", "x"}), direct) && tail_ok({"-name", "x"}) &&
+                       !PiQemu::extra_args_may_add_device({"-name", "x"});
+        // The coarse rule: any device option keeps the hub, whatever the value (QEMU's grammar is
+        // not parsed; a wrong "yes" costs CPU, a wrong "no" stops QEMU: "no free ports").
+        const bool f = usb_case({"-device", "id=k,driver=usb-kbd"});
+        const bool g = usb_case({"-device", "{\"driver\":\"usb-kbd\"}"});
+        const bool h = usb_case({"-device", "u2f-passthru"});
+        const bool i = usb_case({"--usbdevice", "keyboard"});
+        const bool j = usb_case({"-readconfig", "x.cfg"}) && usb_case({"--readconfig", "x.cfg"});
+        const bool k = usb_case({"-name", "x", "-device"});    // trailing, no value: no out-of-range read
+        const bool l = usb_case({"-name", "x", "--device"});
+        const bool m = usb_case({"-device", "loader,file=x"}); // not USB, still keeps the hub (coarse rule)
+        check("PIT-67a", "extras -device usb-net,... -netdev ...: the sound card keeps QEMU's hub (no port=), extras last",
+              a, fmt("a=%d", a ? 1 : 0));
+        check("PIT-67b", "extras -device driver=usb-kbd: the sound card keeps QEMU's hub (no port=), extras last",
+              b, fmt("b=%d", b ? 1 : 0));
+        check("PIT-67c", "extras -usbdevice keyboard (legacy option): the sound card keeps QEMU's hub (no port=), extras last",
+              c, fmt("c=%d", c ? 1 : 0));
+        check("PIT-67d", "extras --device usb-hub (double dash): the sound card keeps QEMU's hub (no port=), extras last",
+              d, fmt("d=%d", d ? 1 : 0));
+        check("PIT-67e", "extras -name x (no device option): the sound card gets port=1, extras last",
+              e, fmt("e=%d", e ? 1 : 0));
+        check("PIT-67f", "extras -device id=k,driver=usb-kbd (driver= not first): the hub is kept (no port=)",
+              f, fmt("f=%d", f ? 1 : 0));
+        check("PIT-67g", "extras -device with a JSON value {\"driver\":\"usb-kbd\"}: the hub is kept (no port=)",
+              g, fmt("g=%d", g ? 1 : 0));
+        check("PIT-67h", "extras -device u2f-passthru (a USB device without the usb- prefix): the hub is kept",
+              h, fmt("h=%d", h ? 1 : 0));
+        check("PIT-67i", "extras --usbdevice keyboard (double dash): the hub is kept",
+              i, fmt("i=%d", i ? 1 : 0));
+        check("PIT-67j", "extras -readconfig x.cfg and --readconfig x.cfg (a file JNEXT cannot read): the hub is kept",
+              j, fmt("j=%d", j ? 1 : 0));
+        check("PIT-67k", "extras ending in a bare -device: the hub is kept, no out-of-range read",
+              k, fmt("k=%d", k ? 1 : 0));
+        check("PIT-67l", "extras ending in a bare --device: the hub is kept, no out-of-range read",
+              l, fmt("l=%d", l ? 1 : 0));
+        check("PIT-67m", "extras -device loader,file=x (not USB): the hub is still kept (coarse rule)",
+              m, fmt("m=%d", m ? 1 : 0));
+    }
+
     // PIT-62 - end to end through the real spawn (POSIX watchdog + posix_spawn; Windows CreateProcessW +
     // quote_arg, parsed by the stand-in's own CRT): the hard arguments reach the child byte for byte.
     {
@@ -2735,7 +2845,7 @@ int main(int argc, char** argv) {
             has("-drive", "file=" + (d / "overlay.qcow2").string() + ",if=sd,format=qcow2") &&
             has("-chardev", "socket,id=pi,host=127.0.0.1,port=40123,server=on,wait=off,nodelay=on") &&
             has("-serial", "chardev:pi") && has("-monitor", monitor) && has("-display", "none") &&
-            has("-device", "usb-audio,audiodev=snd0,buffer=16384");
+            has("-device", "usb-audio,audiodev=snd0,buffer=16384,port=1");
         check("PIT-02",
               "the socket transport's QEMU command line puts the console UART on a loopback-only, "
               "non-waiting listening socket chardev (host=127.0.0.1, server=on, wait=off) with no "
@@ -3533,7 +3643,7 @@ int main(int argc, char** argv) {
     // end to end (PI-48 for the socket transport; on Windows the named pipe,
     // written by another process's fopen). The stand-in opens the audio path as
     // QEMU's wav back-end does and writes a tone. NR 0xA2 gates it exactly as on
-    // the board (zxnext.vhd:2358-2359): 0x00 silent, 0xC0 both channels. The
+    // the board (zxnext.vhd:2674-2675): 0x00 silent, 0xC0 both channels. The
     // levels are exact: left +-16384 is to_i2s 768/256, +-256 from the 0x200 rest,
     // which the mixer outputs as +1024/-1024 (MX-06/07's x4); right +-8192 gives
     // +512/-512 (i2s.vhd:177-180).
@@ -3568,7 +3678,7 @@ int main(int argc, char** argv) {
               "NextPi's sound reaches the Next's mixer over I2S on every OS: QEMU's wav back-end writes "
               "it to the FIFO (a named pipe on Windows) PiQemu serves, and NR 0xA2 gates it (0x00 "
               "silent, 0xC0 the square wave, left +-1024 and right +-512) (i2s.vhd:177-180, "
-              "zxnext.vhd:2358-2359)",
+              "zxnext.vhd:2674-2675)",
               started && arrived && argv_ok && audio_rec == "opened\n" && closed.first <= 16 &&
                   closed.second <= 16 && open.n > 0 && open.lo_l == -1024 && open.hi_l == 1024 &&
                   open.lo_r == -512 && open.hi_r == 512,

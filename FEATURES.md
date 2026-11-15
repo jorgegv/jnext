@@ -77,8 +77,9 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--nex-args "LINE"`: argument line for a NEX V1.3 program, delivered in its CLI buffer
 - esxDOS answers for a directly loaded NEX: default drive, `run NAME.nex` chain-loading, in-memory file I/O, errors for other calls
 - `--esxdos-stub` gives the same esxDOS answers to programs loaded any other way
-- Host directory for a directly loaded program: `--esxdos-stub-root DIR` serves real host files through the esxDOS file and directory calls
-- `--esxdos-stub-writable` allows guest writes to that host directory (read-only by default)
+- Host directory for a directly loaded program: `--esxdos-stub-root DIR`, or with `--esxdos-stub` the NEX's own directory by default, serves real host files through the esxDOS file and directory calls
+- `--esxdos-stub-writable` allows guest writes to that host directory (read-only by default): create, write, truncate, delete (wildcards), rename, make and remove directories, set the read-only bit, answered as NextZXOS 2.10 does (a kept probe NEX and its recording are the oracle)
+- `M_GETERR` gives the text of an esxDOS error code to a directly loaded NEX
 - The host directory is for NEX programs and dot commands only, not for a booted NextZXOS (user guide: Host files for a directly loaded program)
 - Warm start (Next only, the default for `--load` of a `.nex`): the program runs on a cached recording of a real firmware boot
 - `--warm-start-regenerate` forces a fresh warm-start recording after the card's firmware changes
@@ -148,11 +149,11 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - PC/data/read/write breakpoints with watchpoints
 - I/O port breakpoints: IO Read on `IN`, IO Write on `OUT`, by low byte or exact 16-bit port
 - Breakpoint enable/disable per row, plus a master switch
-- Symbol table from Z88DK MAP files and sjasmplus `--sym` / `--exp` files (`--map` or the Map menu), with inline symbol names in disassembly
+- Symbol table from Z88DK MAP files and sjasmplus `--sym` / `--exp` files (`--map` or the Map menu), with inline symbol names in disassembly, and the 48K ROM's names from the symbol map every package ships (Map > Load MAP File > Simple Format)
 - **Source-level debugging**: z88dk `-debug` maps and listings and sjasmplus SLD maps give C and assembly source lines, NextBuild / Boriel `Memory.txt` gives symbols (`--source-map FILE`) (user guide: The Source Debugger)
 - Banked code matched by page, with identity checks against the linker's section binaries
 - z88dk dot commands debugged from their map (`jnext --source-map prog.map`, also with RZX replay)
-- Source tab: current line, statement stepping (Into, Over, Out, Back, Reverse Continue), search path for sources (`--source-dir`)
+- Source tab: current line, any file the map names (File list, gutter breakpoints), statement stepping (Into, Over, Out, Back, Reverse Continue), search path for sources (`--source-dir`)
 - Source breakpoints by `file:line` or symbol, with gutter click, right-click menu and syntax colouring in selectable schemes
 - Source tab and Disassembly stay in sync, and the Call Stack shows each call's source line
 - **C variables**: Variables tab shows parameters, locals, globals and statics with C types, structs, arrays, pointers and z88dk floats
@@ -164,7 +165,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Backwards execution (rewind): frame snapshot ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider
 - Rewind preserves the SD card's SPI protocol state, so streaming programs resume correctly
 - Save Snapshot while paused mid-frame completes the frame and saves at the boundary
-- Magic breakpoint: `ED FF` (ZEsarUX) / `DD 01` (CSpect) triggers debugger pause
+- Magic breakpoint: `ED FF` (ZEsarUX), `FD 00` (CSpect, sjasmplus `break`) and `DD 01` (older CSpect) trigger a debugger pause
 - **Which memory an address is in**: every debugger view names the memory behind an address (`P0E`, `ROM0`, `DIVROM`, ...)
 - Debug > Physical Addresses (`--set debugger.physical_addresses=true`) shows the byte's place in the Next's memory
 - **Your own labels and comments**: right-click to add, rename or remove labels and comments in the Disassembly or Source tab

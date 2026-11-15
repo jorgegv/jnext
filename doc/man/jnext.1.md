@@ -150,6 +150,17 @@ naming the option and the value, and exits with status 1.
     corrupted one. Also discards a half-finished download. Ignored when
     **\--sdcard** is given: an explicit path always wins.
 
+**\--sdcard-upgrade** *MODE*
+:   What to do when the default-location card is of an older NextZXOS
+    distribution than the one jnext downloads now. *MODE* is **ask** (the
+    default in the GUI: forget any "do not ask again" and ask), **yes** (replace
+    the card without asking: everything saved on it is lost), **no** (keep the
+    card for this run, no question) or **never** (keep it and do not offer
+    this distribution again). Without the option, the GUI asks (once, unless
+    "Do not ask me again" was ticked) and **\--headless** keeps the card and
+    logs one line. Refused together with **\--sdcard**: an explicit card is
+    never offered an upgrade. See **SD CARD AND ROMS**.
+
 **\--sdcard-readonly**
 :   Open the SD image read-only, so the host file is never modified. The
     emulated machine sees a write-protected card: writes are rejected with the
@@ -570,11 +581,18 @@ naming the option and the value, and exits with status 1.
     PROGRAMS**). With NextZXOS booted it answers in front of NextZXOS's own
     esxDOS for those calls, and NextZXOS's file commands stop working.
 
+    With a NEX to load (**\--load**, or a bare file name) and no
+    **\--esxdos-stub-root**, the directory the NEX is in is served to it as if
+    it had been given as *DIR* (below): read-only unless
+    **\--esxdos-stub-writable** is also given, and in place of the in-memory
+    file. To keep the in-memory file, load the NEX without **\--esxdos-stub**.
+
 **\--esxdos-stub-root** *DIR*
 :   Serve the host directory *DIR* to the guest through the esxDOS file and
     directory calls, instead of the single in-memory file. Implies
     **\--esxdos-stub**. Read-only unless **\--esxdos-stub-writable** is also
-    given.
+    given. *DIR* replaces the default of **\--esxdos-stub**, the directory of
+    the loaded NEX.
 
     **Which programs see *DIR*, and which do not.** A NEX loaded with
     **\--load** sees it, and so do dot commands: those reach the filesystem
@@ -607,10 +625,13 @@ naming the option and the value, and exits with status 1.
     programs jnext loads itself.
 
 **\--esxdos-stub-writable**
-:   Allow the guest to create, truncate and write files under
-    **\--esxdos-stub-root**. Off by default, and deliberately a separate flag:
-    a guest write changes a real file on the host immediately, and rewinding
-    the emulator cannot undo it. Reads are fully rewindable; writes are not.
+:   Allow the guest to create, truncate, write, delete and rename files, make
+    and remove directories, and set or clear the read-only bit of files under
+    **\--esxdos-stub-root**, or in the directory of the loaded NEX when no
+    root is given: the program can delete any file there. Off by default, and
+    deliberately a separate flag: a guest write changes a real file on the host
+    immediately, and rewinding the emulator cannot undo it. Reads are fully
+    rewindable; writes, deletions and renames are not.
 
 **\--rtc** *"YYYY-MM-DD HH:MM:SS"*
 :   Pin the RTC to a fixed date and time (a frozen clock) instead of following
@@ -1008,7 +1029,7 @@ naming the option and the value, and exits with status 1.
 ## Debugging
 
 **\--magic-breakpoint**
-:   Enable the magic-breakpoint opcodes (`ED FF` and `DD 01`).
+:   Enable the magic-breakpoint opcodes (`ED FF`, `FD 00` and `DD 01`).
 
 **\--persistent-breakpoints**
 :   Keep breakpoints and watchpoints armed while the debugger window is
@@ -1449,6 +1470,19 @@ cached image. An interrupted download (Cancel, a dropped connection, or 30
 seconds without data) is kept (`sn-emulator.zip.part`) and continues on the next
 run. An explicit **\--sdcard** always wins over both.
 
+When the default card is of an older NextZXOS distribution than the one jnext
+downloads now, jnext tells you a newer one is available, and in the GUI asks
+what to do. **Download and replace** downloads the new image and replaces the
+card: **everything you saved on the old card is lost**, and the old card stays
+untouched until the new one is complete, so a failed download or patch changes
+nothing. **Keep my card** goes on using the old one, and asks again next time;
+ticking **Do not ask me again** stops the offer for this distribution (a later
+one asks once more). A terminal or scripted run (**\--headless**,
+**\--sdcard-file-add**) never asks: it keeps the card and logs one line. The
+choice can be made without the GUI with **\--sdcard-upgrade**. A card you name
+yourself, with **\--sdcard** or in Preferences, is never offered an upgrade.
+Each distribution's card has its own FAT32 volume serial.
+
 Note that jnext opens the image **read-write** by default, and writes the
 emulated machine makes to the SD card are persisted to the file. Two runs
 sharing one image are therefore not independent: a run that boots NextZXOS
@@ -1650,11 +1684,17 @@ answers:
   program closes it, and the next run starts with it;
 - `run NAME.nex` (`M_EXECCMD`), which loads another NEX file from the same
   directory;
+- the error message query (`M_GETERR`, with `B`=1): the text NextZXOS gives for
+  an error code, copied to the buffer in `DE` with bit 7 set on its last
+  character. `B`=0, which raises a BASIC error report and does not return on a
+  Next, gets the error below;
 - for a NEX whose header asks for its file to stay open: reading that file,
   including data appended after its banks (also through the block-streaming
   calls), and reading, never writing, other files in the same directory by
   name. Such a NEX gets the host files instead of the in-memory file
-  (unless **\--esxdos-stub** is also given).
+  (with **\--esxdos-stub** it gets its directory through the host directory
+  below instead, which also lets it open several files, list the directory and
+  see names in any case).
 
 Every other call from `$80` to `$B1` returns an error (carry set, `A`=2),
 including calls NextZXOS does implement, such as reading the current
@@ -1662,10 +1702,11 @@ directory, listing a directory or reading the date. A program that needs one of
 those usually stops with its own error message. Codes above `$B1` are not
 esxDOS calls and go to the code at `$0008`.
 
-Without **\--esxdos-stub-root** this is not a filesystem. Apart from the
-kept-open case above the program cannot see files on the host or on the SD
-card, so a program that needs data files has to be copied to the SD card with
-them and started from NextZXOS.
+Without **\--esxdos-stub** or **\--esxdos-stub-root** this is not a filesystem.
+Apart from the kept-open case above the program cannot see files on the host or
+on the SD card, so a program that needs data files has to be copied to the SD
+card with them and started from NextZXOS, or loaded with **\--esxdos-stub**,
+which serves the directory the NEX is in (next section).
 
 ## A host directory for directly loaded programs
 
@@ -1676,6 +1717,14 @@ host directory *DIR*. `F_OPEN`, `F_CLOSE`, `F_READ`, `F_WRITE`, `F_SEEK`,
 `F_CHDIR`, `F_GETFREE` and `M_GETDATE` work as well. It is meant for developing
 a program that reads data files: edit them in place and re-run, instead of
 copying them into the SD-card image each time.
+
+With **\--esxdos-stub-writable** it also changes the host files: `F_UNLINK`
+(wildcards too), `F_RENAME`, `F_MKDIR`, `F_RMDIR`, `F_TRUNCATE`, `F_FTRUNCATE`
+and `F_CHMOD`, and `M_GETERR` gives the text of an error code. Each answers as
+NextZXOS 2.10 was measured to answer it (the probe and its recording are in the
+source tree), including which error code a refusal carries. A write-protected
+root (no **\--esxdos-stub-writable**) answers every call that would write with
+`esx_edevicebusy`, after every check that does not write, and changes nothing.
 
 **It does not make the host directory the SD card.** Only programs that reach
 the filesystem through `RST $08` can see it — a directly loaded NEX, and dot
@@ -1706,14 +1755,69 @@ followed by `/` (for example `C:/MYGAME~1/DATA/`), so a program that builds a
 path as the current directory plus a name gets one that works. The error codes
 for missing and mistyped paths are the ones NextZXOS returns.
 
-Paths are confined to *DIR*. A path that climbs out of it is refused, whichever
-separator it uses, a guest absolute path such as `/data/x.bin` means
+Paths are confined to *DIR*. A path that climbs out of it is refused with
+`esx_enotdir` (a bare `..` above the root, which NextZXOS treats as a missing
+name), whichever separator it uses, a guest absolute path such as `/data/x.bin` means
 `DIR/data/x.bin` and never the host's own `/data`, and symbolic links are
 refused rather than followed.
+
+What the write calls do, where it is not obvious. `F_UNLINK` deletes files only:
+a directory is matched and left alone, with success, as on NextZXOS;
+`F_RMDIR` removes an empty directory, refuses the current one, and calls a
+non-empty one `esx_enospc`. A wildcard in `F_UNLINK` and `F_CHMOD` is matched as
+NextZXOS matches it (the name and the extension, split at the last dot, each
+matched alone, `?` for one character or none, `*` only as the last character of
+either half, long or 8.3 name, any case); it works in the name only, never in a
+directory, `F_TRUNCATE` takes the first file it matches and `F_RENAME`,
+`F_MKDIR` and `F_RMDIR` refuse a wildcard. `F_RENAME` never replaces a file,
+moves a source into an existing directory, and a directory it renames keeps its
+open files and its place as the current directory. The read-only bit of a file
+follows the host: a file without write permission is read-only for `F_STAT`,
+`F_FSTAT`, `F_READDIR`, `F_OPEN` for writing, `F_UNLINK` and `F_TRUNCATE`, and
+`F_CHMOD` with `A_WRITE` changes that permission. The archive bit of a file
+answers as NextZXOS 2.10's does: set until an `F_CHMOD`, then clear after any
+`F_CHMOD` of that file (set when the call itself cleared `A_ARCH`, which 2.10
+reads that way), and set again by closing a handle opened for writing, by
+`F_TRUNCATE`, and by creating the file anew; a rename keeps it. A host file has
+no such bit, so JNEXT keeps it while it runs and **forgets it when it exits**
+(on a card it would be in the directory entry), and a file changed on the host
+reads as set again. An 8.3 short name
+(`LONGNA~1.TXT`) keeps naming the same file after others are deleted, as on FAT,
+and a name the host answers to that the directory listing does not hold (an NTFS
+short name, a differently normalised spelling) is refused rather than reaching
+another file.
+
+Where it differs from NextZXOS, deliberately: `F_CHMOD` of the hidden and system
+bits, and of a directory is refused with
+`esx_enosys` (a host file has no such attributes; faking it would make
+`F_STAT` contradict the answer); a name ending in a space is refused with
+`esx_einval` (NextZXOS keeps the space, a host may strip it); a renamed current
+directory shows its new name in `F_GETCWD`; `F_TRUNCATE` on a write-protected
+root is refused where NextZXOS answers success and loses the write;
+`F_OPEN` for writing on a write-protected root is `esx_erdonly`; an `F_OPEN` mode
+with neither the read nor the write bit (`$04`, `$08`, `$0C`) is `esx_einval`
+where NextZXOS opens or creates; and creating a file through the 8.3 short name
+of an existing long-named file truncates that file and keeps its name, where a
+FAT volume rewrites the entry and loses the long name.
 
 A *DIR* that does not exist, or is not a directory, is an error at start-up:
 jnext says so and exits non-zero rather than running with the option silently
 inert.
+
+**Without a *DIR*, the directory of the NEX.** **\--esxdos-stub** alone, with a
+NEX to load (**\--load**, or a bare file name), serves the directory the NEX is
+in, exactly as **\--esxdos-stub-root** with that directory would:
+`jnext --esxdos-stub --load mygame/game.nex` lets the program open
+`mygame/data.bin` by name. It is read-only unless **\--esxdos-stub-writable** is
+given, and it replaces the single in-memory file (a program that saves a file
+then gets an error instead of the in-memory copy; load it without
+**\--esxdos-stub** to keep that). An explicit **\--esxdos-stub-root** takes
+precedence. The directory is the one the path names (for a symbolic link, the
+link's own directory). It lasts from the NEX load until the next reset, soft
+reset or load: a NEX loaded later, through **File > Load NEX File...**, a recent
+file, `run NAME.nex` or the debugger, gets its own directory. A NEX taken out
+of a `.zip` has no directory on disk and gets none, and neither do a snapshot,
+a tape or a program injected with **\--inject**. A `.jns` does not record it.
 
 And it is not for use alongside a booted NextZXOS. Implying
 **\--esxdos-stub** means it inherits the same shadowing: with NextZXOS running,
@@ -2407,9 +2511,10 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
   points at; the type, the value (or why there is none) and where it is; paused
   only. Double-click a value to edit it; right-click a row to watch it
 - **Source** - with a source map (a z88dk `-debug` map or a sjasmplus SLD), the
-  source line the CPU is on, with line numbers, a breakpoint column, a
-  current-line arrow, coverage tint and the Disassembly's right-click menu; source
-  Step Into, Over, Out, Back and Reverse, also in **Debug > Source**
+  source line the CPU is on, or any file the map names (a File list, also
+  **Debug > Source > Open Source File...**), with line numbers, a breakpoint
+  column, a current-line arrow, coverage tint and the Disassembly's right-click
+  menu; source Step Into, Over, Out, Back and Reverse, also in **Debug > Source**
 - **Breakpoints** - execution, read, write and I/O watchpoints, in one panel.
   An I/O watchpoint address of **00**-**FF** matches any port with that low
   byte (**FE** catches every ULA access, whatever the high byte holds);
@@ -2799,10 +2904,12 @@ that once as a warning).
 
 # MAGIC BREAKPOINT AND MAGIC PORT
 
-The magic breakpoint uses the `ED FF` (ZEsarUX) and `DD 01` (CSpect) opcodes to
+The magic breakpoint uses the `ED FF` (ZEsarUX), `FD 00` (CSpect 2.19.9.1 and
+later; the sjasmplus `break` instruction since 1.21.0, which needs `--zxnext=cspect`
+or `OPT --zxnext=cspect`) and `DD 01` (older CSpect and sjasmplus) opcodes to
 pause the debugger when enabled; execution then resumes right after the two
-bytes. When disabled, and on real hardware, `ED FF` is a two-byte NOP, but
-`DD 01` is not: the `DD` prefix is ignored and `01 nn nn` executes as
+bytes. When disabled, and on real hardware, `ED FF` and `FD 00` are two-byte
+NOPs, but `DD 01` is not: the `DD` prefix is ignored and `01 nn nn` executes as
 `LD BC,nn`, consuming the two bytes that follow and overwriting `BC`. Enable it with
 **\--magic-breakpoint** or **Debug > Magic Breakpoint**.
 
@@ -3099,6 +3206,15 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 
 `~/.jnext/sdcard/cspect-next-1gb.img`
 :   The canonical distribution image the patched one above is produced from.
+
+`~/.jnext/sdcard/cspect-next-1gb-fixed.img.distro`, `cspect-next-1gb.img.distro`
+:   The distribution (the zip file name, e.g. `sn-emulator-24.11.zip`) each of
+    the two images came from. Without one, the image is taken to be 24.11.
+
+`~/.jnext/sdcard/cspect-next-1gb-fixed.img.distro-declined`
+:   The distribution whose upgrade offer you turned down with "Do not ask me
+    again" (or **\--sdcard-upgrade** `never`). Delete it, or use
+    **\--sdcard-upgrade** `ask`, to be asked again.
 
 `~/.jnext/nextpi/`
 :   The NextPi directory: `nextpi.img` (the release's SD-card image,

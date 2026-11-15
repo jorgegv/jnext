@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.20</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3134,6 +3134,9 @@ silent at this level; the caller turns an empty result into its own message.</p>
 as the map holds it</em> (<code>SourceLocation::file</code>, no suffix matching): every
 non-zero-width range as <code>{line, space, lo, hi_excl}</code>, ordered by line. Coverage
 uses it (<a href="01-which-memory.html">7.1</a>).</p>
+<p><code>files()</code> is the set of every file the map names (ranges, zero-width ones included, and aliases),
+under the same exact names, in byte order; the Source tab's File list shows it
+(<a href="07-frontends.html">7.7</a>).</p>
 <h2 id="embedded-texts">Embedded texts<a class="headerlink" href="#embedded-texts" title="Permanent link">&para;</a></h2>
 <p><code>SourceText { origin, lines }</code> is the text of a source file the toolchain did
 not keep: <code>lines[i]</code> is line <code>i + 1</code>, empty where the listing shows nothing, and

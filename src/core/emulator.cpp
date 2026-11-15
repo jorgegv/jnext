@@ -8,6 +8,7 @@
 #include "core/log.h"
 #include "core/esxdos_trace.h"
 #include "core/nex_loader.h"
+#include "core/program_archive.h"
 #include "core/sd_rom_extractor.h"
 #include "core/sdcard_provisioner.h"
 #include "core/program_archive.h"
@@ -1241,7 +1242,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // gate), so closing the debugger window no longer disarms.
     debug_state_.set_persistent_breakpoints(cfg.persistent_breakpoints);
 
-    // Magic breakpoint: ED FF (ZEsarUX) / DD 01 (CSpect) trigger debugger pause.
+    // Magic breakpoint: ED FF (ZEsarUX) / FD 00 (CSpect, sjasmplus break) / DD 01 (older CSpect) trigger debugger pause.
     set_magic_breakpoint(cfg.magic_breakpoint);
 
     // Host-side compatibility for directly loaded NEX programs.
@@ -1274,9 +1275,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 cfg.esxdos_stub_writable ? "read-write" : "read-only");
             if (cfg.esxdos_stub_writable)
                 Log::emulator()->warn(
-                    "--esxdos-stub-writable: guest writes change host files "
-                    "immediately; rewinding the emulator cannot undo them");
+                    "--esxdos-stub-writable: guest writes, deletions and renames "
+                    "change host files immediately; rewinding the emulator cannot "
+                    "undo them");
         }
+    } else {
+        // No explicit root: an implicit one (the loaded NEX's directory, set
+        // by load_nex()) does not outlive a re-init, like direct_nex_esxdos_.
+        esxdos_hostfs_.clear();
     }
     const bool esxdos_tracing = Log::esxdos()->should_log(spdlog::level::trace);
     bool direct_nex_load = false;
@@ -1829,6 +1835,47 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                                 esxdos_hostfs_.chdir(read_filespec(r.IX)))
                             return fail(err);
                         return done(0x00);
+                    // The calls that change the host folder (GH #457). Registers
+                    // from the z88dk asm_esx_f_*.asm headers; the answers are
+                    // NextZXOS 2.10's, measured (esxdos_hostfs.h). On success A
+                    // is whatever it was (NextZXOS leaves junk there): 0 here.
+                    case 0xAD:    // F_UNLINK: A=drive, IX=filespec (wildcards)
+                        if (const uint8_t err = esxdos_hostfs_.unlink(read_filespec(r.IX)))
+                            return fail(err);
+                        return done(0x00);
+                    case 0xB0:    // F_RENAME: A=drive, IX=source, DE=destination
+                        if (const uint8_t err = esxdos_hostfs_.rename(
+                                read_filespec(r.IX), read_filespec(r.DE)))
+                            return fail(err);
+                        return done(0x00);
+                    case 0xAA:    // F_MKDIR: A=drive, IX=path
+                        if (const uint8_t err = esxdos_hostfs_.mkdir(read_filespec(r.IX)))
+                            return fail(err);
+                        return done(0x00);
+                    case 0xAB:    // F_RMDIR: A=drive, IX=path
+                        if (const uint8_t err = esxdos_hostfs_.rmdir(read_filespec(r.IX)))
+                            return fail(err);
+                        return done(0x00);
+                    case 0xAE: {  // F_TRUNCATE: A=drive, IX=filespec, BCDE=new size
+                        const uint32_t size = (static_cast<uint32_t>(r.BC) << 16) | r.DE;
+                        if (const uint8_t err =
+                                esxdos_hostfs_.truncate(read_filespec(r.IX), size))
+                            return fail(err);
+                        return done(0x00);
+                    }
+                    case 0xA2: {  // F_FTRUNCATE: A=handle, BCDE=new size
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        const uint32_t size = (static_cast<uint32_t>(r.BC) << 16) | r.DE;
+                        if (const uint8_t err = esxdos_hostfs_.ftruncate(handle, size))
+                            return fail(err);
+                        return done(handle);
+                    }
+                    case 0xAF:    // F_CHMOD: A=drive, IX=filespec, B=values, C=mask
+                        if (const uint8_t err = esxdos_hostfs_.chmod(
+                                read_filespec(r.IX), static_cast<uint8_t>(r.BC >> 8),
+                                static_cast<uint8_t>(r.BC)))
+                            return fail(err);
+                        return done(0x00);
                     case 0xB1:    // F_GETFREE — A=drive; BCDE = 512-byte blocks
                         put_pos(esxdos_hostfs_.free_blocks());
                         return done(0x00);
@@ -1884,6 +1931,41 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         set_a_and_carry(kDriveC, false);
                     else
                         set_a_and_carry(0x0B, true);
+                    return true;
+                }
+                case 0x93: { // M_GETERR: A=code (0: custom message at IX), B=1, DE=buffer
+                    // Same scope gate as M_GETSETDRV. B=0 raises a BASIC error
+                    // report and does not return on a Next; there is no BASIC
+                    // behind a direct load, so it, and any other B, get the
+                    // default refusal below. B=1 copies the message into the
+                    // 32-byte buffer at DE, the last character with bit 7 set.
+                    // Measured under NextZXOS 2.10: Fc=0 and A=$02 for every code,
+                    // the texts in esxdos_error_message(), "Unknown error" above
+                    // 31 (GH #457).
+                    if (!direct_nex_esxdos_ && !esxdos_hostfs_.active())
+                        return false;
+                    if ((r.BC >> 8) != 1) {
+                        if (direct_nex_esxdos_) { set_a_and_carry(0x02, true); return true; }
+                        return false;
+                    }
+                    const uint8_t code = static_cast<uint8_t>(r.AF >> 8);
+                    uint8_t msg[32];
+                    std::size_t n = 0;
+                    if (code == 0) {
+                        // A custom message: bit-7 terminated, at most 32 bytes.
+                        while (n < 32) {
+                            msg[n] = mmu_.read(static_cast<uint16_t>(r.IX + n));
+                            if (msg[n++] & 0x80) break;
+                        }
+                    } else {
+                        const char* text = esxdos_error_message(code);
+                        for (; text[n] && n < 32; ++n)
+                            msg[n] = static_cast<uint8_t>(text[n]);
+                        msg[n - 1] |= 0x80;
+                    }
+                    for (std::size_t i = 0; i < n; ++i)
+                        mmu_.write(static_cast<uint16_t>(r.DE + i), msg[i]);
+                    set_a_and_carry(0x02, false);
                     return true;
                 }
                 case 0x8F: { // M_EXECCMD — support .RUN sibling.nex
@@ -6045,7 +6127,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // G112: NR 0x2C/0x2D/0x2E read handlers — Pi I2S input.
-    // VHDL zxnext.vhd:6006-6015:
+    // VHDL zxnext.vhd:6594-6603:
     //   NR 0x2C read → port_253b_dat <= pi_audio_L(9 downto 2);
     //                  nr_2d_i2s_sample <= pi_audio_L(1 downto 0);
     //   NR 0x2E read → port_253b_dat <= pi_audio_R(9 downto 2);
@@ -6064,9 +6146,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_destructive_read_handler(0x2C,
         [this]() -> uint8_t {
             // G113: read the GATED pi_audio_L (10-bit), not the raw I2s
-            // latch — VHDL zxnext.vhd:6007 reads `pi_audio_L`, which already
+            // latch — VHDL zxnext.vhd:6595 reads `pi_audio_L`, which already
             // applies the NR 0xA2 enable/mute/ear/cross-channel-mux gate at
-            // zxnext.vhd:2358. When NR 0xA2 disables I2S, pi_audio_L = 0x200
+            // zxnext.vhd:2674. When NR 0xA2 disables I2S, pi_audio_L = 0x200
             // (silence midpoint), so the high-8 bits = 0x80 and the latched
             // low-2 bits = 0b00.
             const uint16_t L = guest_pi_audio(true) & 0x3FF;
@@ -6091,15 +6173,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // G113 — NR 0xA2 Pi I2S control byte.
-    // VHDL zxnext.vhd:5564 stores the raw 8 bits in nr_a2_pi_i2s_ctl;
-    // zxnext.vhd:2283-2290 fans them out to pi_i2s_en[L/R], inout,
+    // VHDL zxnext.vhd:6127 stores the raw 8 bits in nr_a2_pi_i2s_ctl;
+    // zxnext.vhd:2593-2600 fans them out to pi_i2s_en[L/R], inout,
     // muteL/R, ear. The I2s class consumes those bits when computing
-    // pi_audio_L/R() per zxnext.vhd:2358-2359.
+    // pi_audio_L/R() per zxnext.vhd:2674-2675.
     nextreg_.set_write_handler(0xA2, [this](uint8_t v) -> uint8_t {
         with_pi_ear_tracking([&] { i2s_.set_nr_a2_ctl(v); });
         return v;
     });
-    // VHDL zxnext.vhd:6192:
+    // VHDL zxnext.vhd:6780:
     //   port_253b_dat <= nr_a2_pi_i2s_ctl(7 downto 6) & '0'
     //                    & nr_a2_pi_i2s_ctl(4 downto 2) & '1'
     //                    & nr_a2_pi_i2s_ctl(0);
@@ -7743,8 +7825,6 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
     constexpr int kHold = 5;   // frames each typed key is held
     WsRecipe& r = rec.ws_recipe_;
 
-    const bool t0 = before < kWarmStartT0Units && kWarmStartT0Units <= after;
-
     // Idle = the same PC and SP at this frame boundary as at the last one, with
     // no auto-typed key queued. NextZXOS waits for a key in a HALT loop (every
     // wait on the measured cards is a HALT at one instruction) and the sample
@@ -7757,9 +7837,29 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
     r.last_sp = sp;
     if (rec.keyboard_.auto_typing() || !same) r.calm = 0; else ++r.calm;
 
-    if (after < kWarmStartT0Units || r.phase == WsPhase::kDone || r.phase == WsPhase::kGaveUp)
-        return t0;
-    if (r.phase_start == 0) r.phase_start = after;   // the first look at the machine
+    // The commit wait. Before T0 nothing is looked at. From T0 the recipe stays in
+    // kCommit while the firmware is loading (overlay off, config mode still set:
+    // zxnext.vhd:5681-5711, any NR 0x03 write clears the overlay and any value in
+    // bits 2:0 other than 000 and 111 clears config mode), up to T0 + one per-state budget. The first frame that is not
+    // loading, or the deadline, is the checkpoint, reported once. `calm` is NOT
+    // reset here: it has been counting through the wait, as it counted from T0 on.
+    bool checkpoint = false;
+    if (r.phase == WsPhase::kCommit) {
+        if (after < kWarmStartT0Units) return false;
+        const bool loading = !rec.mmu_.boot_rom_enabled() && rec.nextreg_.nr_03_config_mode();
+        if (loading && after < kWarmStartT0Units + kWarmStartPhaseUnits) return false;
+        checkpoint = true;
+        if (loading) {
+            r.stuck = WsPhase::kCommit;
+            r.phase = WsPhase::kGaveUp;
+            return true;
+        }
+        r.phase = WsPhase::kMenu;
+        r.phase_start = after;   // the first look at the machine
+    }
+    if (r.phase == WsPhase::kDone || r.phase == WsPhase::kGaveUp)
+        return checkpoint;
+    if (r.phase_start == 0) r.phase_start = after;
 
     const uint8_t* b5 = rec.mmu_.bank5_vram();
     auto b = [&](uint16_t a) { return b5[a - 0x4000]; };
@@ -7832,13 +7932,29 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
         r.stuck = r.phase;
         r.phase = WsPhase::kGaveUp;
     }
-    return t0;
+    return checkpoint;
+}
+
+std::string Emulator::warm_start_refusal_message(uint32_t frames, const std::string& why) const
+{
+    // At the commit deadline the recorder had been waiting since T0 (frame 400 at
+    // 50 Hz, 480 at 60 Hz: T0 is emulated time): say so.
+    std::string waited;
+    if (ws_recipe_.phase == WsPhase::kGaveUp && ws_recipe_.stuck == WsPhase::kCommit) {
+        const uint32_t per = video_timing().refresh_60hz() ? kWarmStartUnitsPer60HzFrame
+                                                           : kWarmStartUnitsPer50HzFrame;
+        waited = fmt::format(" (the recorder waited from frame {} for the firmware to commit one)",
+                             kWarmStartT0Units / per);
+    }
+    return fmt::format("warm start: after {} frames of boot, {}{}. Not recording; this load "
+                       "falls back to the synthetic machine.", frames, why, waited);
 }
 
 std::string Emulator::warm_start_recipe_waiting_for() const
 {
     const WsPhase p = ws_recipe_.phase == WsPhase::kGaveUp ? ws_recipe_.stuck : ws_recipe_.phase;
     switch (p) {
+    case WsPhase::kCommit:    return "the firmware to commit a machine type (NextREG 0x03)";
     case WsPhase::kMenu:      return "the welcome program or the menu to be idle";
     case WsPhase::kDown:      return "the menu to be idle after the cursor key";
     case WsPhase::kEnter:     return "the Command Line to be idle";
@@ -8256,10 +8372,8 @@ Emulator::WarmStartProgress Emulator::prepare_warm_start(uint32_t max_frames)
         std::string why;
         if (warm_start_recipe_tick(rec, before, warm_start_recorded_units_) &&
             !rec.nextzxos_resident(why)) {
-            Log::emulator()->error(
-                "warm start: after {} frames of boot, {}. Not recording; this load "
-                "falls back to the synthetic machine.",
-                warm_start_recorded_frames_, why);
+            Log::emulator()->error("{}", rec.warm_start_refusal_message(
+                                             warm_start_recorded_frames_, why));
             const uint32_t done = warm_start_recorded_frames_;
             warm_start_recorder_.reset();
             warm_start_recorded_frames_ = 0;
@@ -8498,6 +8612,36 @@ bool Emulator::load_nex(const std::string& path)
 
     if (!loader.apply(*this)) return false;
     active_nex_path_ = std::filesystem::absolute(path).lexically_normal().string();
+
+    // With --esxdos-stub and no --esxdos-stub-root, the NEX's own directory is
+    // the esxDOS root (read-only unless --esxdos-stub-writable). It follows
+    // every NEX load, and init() ends it. A NEX extracted from an archive has
+    // no directory of its own on disk.
+    if (config_.esxdos_stub && config_.esxdos_stub_root.empty()) {
+        std::string archive, member;
+        if (program_archive::extracted_from(path, archive, member)) {
+            Log::emulator()->info(
+                "esxdos host directory: none, '{}' was extracted from an archive", path);
+        } else {
+            const std::string dir =
+                std::filesystem::path(active_nex_path_).parent_path().string();
+            std::string why;
+            if (!esxdos_hostfs_.configure(dir, config_.esxdos_stub_writable, why)) {
+                Log::emulator()->error(
+                    "esxdos host directory: cannot serve '{}': {}", dir, why);
+            } else {
+                Log::emulator()->info(
+                    "esxdos host directory: {} ({})",
+                    esxdos_hostfs_.root().string(),
+                    config_.esxdos_stub_writable ? "read-write" : "read-only");
+                if (config_.esxdos_stub_writable)
+                    Log::emulator()->warn(
+                        "--esxdos-stub-writable: guest writes, deletions and renames "
+                        "change host files immediately; rewinding the emulator "
+                        "cannot undo them");
+            }
+        }
+    }
 
     // nexload runs under NextZXOS, after its SD initialization handshake.
     // A direct load bypasses that code, so recreate the external card state
@@ -11321,20 +11465,26 @@ uint64_t Emulator::step_one_instruction()
                 }
             }
         }
-        // Call stack tracking (debugger only, gated by enabled flag).
-        if (call_stack_.enabled()) {
-            // Same shape as the trace record above: three bytes are
-            // read at PC whatever the instruction's length, so PC+1 and PC+2
-            // are the debugger's reads and must not fire the user's
-            // watchpoints. The call-stack tracker is switched on by the
-            // debugger, so this too only ever hurt the user who had it open.
-            DebugState::InspectionScope inspect(debug_state_);
+        // Call stack tracking (debugger only, gated by enabled flag). GH #489: nothing is
+        // PREDICTED per instruction any more. The tracker is fed after execute() from what the
+        // CPU fetched (see the post block); only the pre-slot state is captured here, and the
+        // fetch space only for a slot that may take an INT or NMI, whose frame records the
+        // interrupted PC's space (nothing is fetched there). execute() takes an NMI if one is
+        // pending when it starts, and an INT if one is pending with IFF1 set (Z80Cpu::execute():
+        // the request stays pending for its pulse whatever IFF1 says, but is accepted only with
+        // IFF1); nothing between here and there raises either or sets IFF1.
+        const bool cs_on = call_stack_.enabled();
+        uint16_t cs_pc = 0, cs_sp = 0;
+        jnext::dbg::MemSpace cs_space = jnext::dbg::MemSpace::cpu();
+        if (cs_on) {
             const Z80Registers& regs2 = cpu_.registers();
-            // Through the overlay the M1 selects, like the trace record above.
-            const PredictedInstr pi = predict_instruction_(regs2.PC);
-            call_stack_.on_instruction_pre(
-                regs2.PC, regs2.SP, pi.b[0], pi.b[1], pi.b[2],
-                pi.first.space);
+            cs_pc = regs2.PC;
+            cs_sp = regs2.SP;
+            if (cpu_.nmi_pending() || (cpu_.int_pending() && regs2.IFF1)) {
+                ++call_stack_predictions_;
+                DebugState::InspectionScope inspect(debug_state_);
+                cs_space = predict_fetch(cs_pc);
+            }
         }
 
         // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
@@ -11503,8 +11653,17 @@ uint64_t Emulator::step_one_instruction()
         // ASKED of the CPU: such a slot fetches no opcode, so the pre-slot
         // capture names an instruction that did not run, and a CALL or RST
         // waiting at PC would otherwise be recorded as taken.
-        if (call_stack_.enabled()) {
+        if (cs_on) {
             const Z80Registers& post = cpu_.registers();
+            // The pre-slot capture, completed with what the CPU fetched. The tracker reads the
+            // second byte only after a prefix, and the operand only for a CALL that pushed
+            // (a taken CALL), whose operand is the PC it jumped to; nothing else reads it.
+            const uint8_t cs_b0 = cpu_.last_m1_byte(0);
+            const bool prefixed = cs_b0 == 0xCB || cs_b0 == 0xED || cs_b0 == 0xDD || cs_b0 == 0xFD;
+            call_stack_.on_instruction_pre(
+                cs_pc, cs_sp, cs_b0,
+                prefixed ? cpu_.last_m1_byte(1) : uint8_t(post.PC & 0xFF),
+                prefixed ? uint8_t(0) : uint8_t(post.PC >> 8), cs_space);
             switch (cpu_.last_slot_kind()) {
                 case Z80Cpu::SlotKind::Int:
                     call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::INT);
@@ -12021,8 +12180,9 @@ void Emulator::pi_sample_thunk_(void* self)
     // the whole window when the slot was a HALT repeat that stands for several (halt_batch_after_slot_()
     // has absorbed the rest and halt_batch_replay_() has replayed the PSG and the mixer), 0 when not.
     // run_frame() then runs the device cluster over the window and calls halt_batch_end_(). Batching
-    // requires the debugger idle (G2), so the boundary drain and the data-breakpoint test between this
-    // call and the cluster are empty.
+    // requires no per-instruction debugger observation (G2: DebugState::halt_batch_blocked()), so the
+    // boundary drain and the data-breakpoint test between this call and the cluster stay empty: no
+    // watchpoint or subscription exists to latch, and a pending stop is a refusal.
     bool batched = false;
     const uint64_t total = halt_batch_after_slot_(master_cycles, batched);
     if (!batched) return 0;
@@ -12071,11 +12231,14 @@ void Emulator::pi_sample_thunk_(void* self)
     // expired pulse window, are per-slot decisions).
     if (cpu_.int_pending() || cpu_.nmi_pending()) return master_cycles;
 
-    // G2: nothing is observing the machine: breakpoints, watchpoints, events, step modes, the
-    // raster walk, coverage, trace, call stack, profiler, a rewind replay.
-    if (debug_state_.attached() || debug_state_.armed() || debug_state_.raster_live() ||
-        debug_state_.coverage_sink() || debug_state_.mem_gate_live() ||
-        trace_log_.enabled() || call_stack_.enabled() || profiler_.active() || replay_mode_)
+    // G2: nothing observes the machine per instruction: a breakpoint, watchpoint, subscription,
+    // step mode, coverage (DebugState::halt_batch_blocked(), which also holds a pause and every
+    // armed() contributor but an attached client), trace, profiler, a rewind replay. An attached
+    // client alone does not refuse (GH #489): the raster walk is advanced over the window below, and
+    // the call-stack tracker learns nothing from a HALT repeat (the real repeat has filled the newest
+    // frame's target space; no 0x76 path pushes or pops).
+    if (debug_state_.halt_batch_blocked() || trace_log_.enabled() || profiler_.active() ||
+        replay_mode_)
         return master_cycles;
 
     // G3: RZX counts instructions per frame and replays input per instruction.
@@ -12091,8 +12254,9 @@ void Emulator::pi_sample_thunk_(void* self)
     const bool dma_waiting = !dma_.idle_for_batch();
     if (dma_waiting && !dma_.burst_wait_quiescent()) return master_cycles;
 
-    // G10: the UART bit engine and the host serial sources tick per slot.
-    if (!uart_.tick_is_noop() || joy_uart_source_ || joy_uart_link_) return master_cycles;
+    // G10: the UART bit engine, an attached device that wants ticks, and the host serial sources
+    // tick per slot. An attached device that wants none (an idle ESP-01, GH #489) does not refuse.
+    if (!uart_.batch_quiescent() || joy_uart_source_ || joy_uart_link_) return master_cycles;
 
     // G11: no NR 0x07 / NR 0x08 b6 commit waiting for its edge (zxnext.vhd:5796-5828). The b6
     // half is NOT redundant with P2: a contended page is uncontended while the disable is in
@@ -12182,6 +12346,9 @@ void Emulator::pi_sample_thunk_(void* self)
     cpu_.repeat_halt(static_cast<uint32_t>(extra_repeats), static_cast<uint32_t>(tstates));
     clock_.tick(extra_repeats * p);
     dma_.tick_burst_wait(extra_repeats * static_cast<uint64_t>(tstates));
+    // The per-slot raster walk (run_frame()'s step_one_instruction() tail) is additive over the
+    // window: its inputs cannot change with no instruction running (B4 excludes Copper MOVEs).
+    if (debug_state_.raster_live()) video_timing_.advance(static_cast<int>(extra_repeats * tstates));
     slot_repeat_mc_ = p;
     halt_repeats_batched_ += extra_repeats;
     if (dma_waiting) halt_repeats_batched_dma_wait_ += extra_repeats;
@@ -15432,7 +15599,7 @@ void Emulator::debug_latch_magic_(uint16_t pc)
     e.kind = jnext::dbg::EventKind::Magic;
     // `pc` is NOT written into `e.pc`: the stamper owns that field. The two are
     // the same value — Z80Cpu passes the instruction's own PC to
-    // on_magic_breakpoint (z80_cpu.cpp, the `ED FF` / `DD 01` arms read the
+    // on_magic_breakpoint (z80_cpu.cpp, the `ED FF` / `FD 00` / `DD 01` forms read the
     // opcode AT `pc`), which is exactly what `debug_slot_pc_` holds. Asserting
     // the equality is debug_latch_magic_'s row in the suite, not a duplicate
     // write here.

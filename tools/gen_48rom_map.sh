@@ -449,11 +449,15 @@ print $fh "; Generated from https://skoolkid.github.io/rom/maps/all.html\n";
 print $fh ";\n";
 
 my $count = 0;
+my %seen;
 for my $line (@raw) {
     next unless $line =~ /^([0-9A-Fa-f]{4})\s+(.+)$/;
     my ($addr, $desc) = (uc($1), $2);
     my $symbol = clean_symbol($desc);
     next unless $symbol;
+    # A repeated name gets _2, _3 (like ERROR_2 in the ROM): the symbol table keeps the first of a name.
+    my $n = ++$seen{$symbol};
+    $symbol .= "_$n" if $n > 1;
     printf $fh "%-40s = \$%s\n", $symbol, $addr;
     $count++;
 }

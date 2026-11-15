@@ -109,7 +109,10 @@ row MINIMG-03 "$ok" "FAT32, 1-sector clusters, serial 4A4E5854, $clusters cluste
 card_list=$(mdir -/ -a -b -i "$CARD@@32256" ::/ 2>/dev/null | LC_ALL=C sort || true)
 start=$(sfdisk --dump "$SRC" 2>/dev/null | sed -n 's/^.* : start= *\([0-9]*\),.*/\1/p' | head -n1)
 src_all=$(mdir -/ -a -b -i "$SRC@@$((start * 512))" ::/ 2>/dev/null || true)
-src_list=$( { grep -iE '^::/(TBBLUE\.FW|machines|nextzxos|sys|LICENSE\.md|README\.md)(/|$)' <<<"$src_all" || true
+# A distribution that already carries CONFIG.INI (26.11 does, 24.11 did not) has it replaced by the
+# patched one, so the source's own entry is dropped whatever its case.
+src_list=$( { grep -iE '^::/(TBBLUE\.FW|machines|nextzxos|sys|LICENSE\.md|README\.md)(/|$)' <<<"$src_all" \
+                | grep -viFx '::/machines/next/config.ini' || true
               echo "::/machines/next/config.ini"; } | LC_ALL=C sort)
 ok=0
 if [[ -n "$card_list" && "$card_list" == "$src_list" ]]; then ok=1; fi
@@ -136,7 +139,7 @@ missing_t=$(comm -23 <(cat <<<"$tc") <(cat <<<"$ts") | head -n 3 || true)
 [[ -n "$tc" ]] || ok=0
 # Attributes (R/H/S/A) over the boot set; the two patched files and the root line are excluded.
 attr() { { mattrib -/ -i "$1" ::/ 2>/dev/null || true; } | { grep -iE '::/(TBBLUE\.FW|machines|nextzxos|sys|LICENSE\.md|README\.md)(/|$)' || true; } \
-         | { grep -v -e '::/machines/next/zx81\.rom$' -e '::/machines/next/config\.ini$' || true; } | LC_ALL=C sort; }
+         | { grep -vi -e '::/machines/next/zx81\.rom$' -e '::/machines/next/config\.ini$' || true; } | LC_ALL=C sort; }
 attr_c=$(attr "$CARD@@32256"); attr_s=$(attr "$SRC@@$((start * 512))")
 [[ -n "$attr_c" && "$attr_c" == "$attr_s" ]] || { ok=0; bad+=" attributes"; }
 row MINIMG-05 "$ok" "every copied file is byte-identical with the same mtime, and every entry has the source's attributes${bad:+ (bad:$bad)}"

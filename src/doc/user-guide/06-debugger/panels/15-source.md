@@ -1,14 +1,16 @@
 # Source
 
 The source line the CPU is running, read from the program's source map
-([The Source Debugger](../source-debugger/index.md)).
+([The Source Debugger](../source-debugger/index.md)), or any other file the map names.
 
 At the top, the source steps — **Into**, **Over**, **Out**, **Back** and
 **Reverse** — and **Load Source Map...** / **Load Memory.txt...** to load a source map (an SLD or a z88dk map)
 or NextBuild symbols by hand, and **Locate File...**, enabled while the tab says
 *source file not found*. The steps are available while the machine is
 paused and a source map is loaded; **Back** and **Reverse** also need the trace
-log and rewind. The same steps and loads are also in **Debug ▸ Source**.
+log and rewind. The same steps and loads are also in **Debug ▸ Source**. Under them, the **File** list opens any
+file the map names (see [Opening another file](#opening-another-file)); **Debug ▸ Source ▸ Open
+Source File...** raises this tab and opens the list.
 
 Under them, a line naming the position — `main.bas:120  $8A3C  P2E`, ending in the tag of the memory the
 opcode comes from (`ROM0`, `DIVROM` when it is not a RAM page; the physical
@@ -72,6 +74,25 @@ disassembly does; those of GDB, ZRCP, DeZog or a script are in the Breakpoints l
 never removes them ([whose breakpoints the gutters show and change](08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)). It works
 while the machine runs.
 
+### Opening another file
+
+The **File** list holds every file the source map names, by the name the map gives it (two
+`util.c` in different directories stay apart). It is available while the machine is paused and a
+source map is loaded, like the source steps. Choosing a file shows it from its first line, in
+[browsing](#following-the-disassembly) mode: the label reads `util.c  (browsing; the PC is at
+main.c:18, $8A3C)`, with no address of its own, and the highlight and the arrow stay on the CPU's
+line only when that line is in the file shown. The gutter, the right-click menu, **Run to Here**
+and **Copy with Addresses** act on the file shown, as for any other: click a line to set a
+breakpoint on it. A line of banked code whose page is not mapped now still takes a breakpoint,
+tied to its page (the tooltip says *not mapped now; click to set*); a line with no code adds
+nothing and says *no code at util.c:2*. A file the tab cannot find says *source file not found*
+with **Locate File...** available; a z88dk `.m4` file shows its m4 text when the listing was
+loaded with the map, and otherwise says its lines cannot be shown (use the disassembly).
+
+Choosing the file the CPU is in is **Go to PC Line**; choosing the file already open changes
+nothing. The view stays where you put it through the refreshes while paused, and the
+Disassembly tints the instructions of the first line without scrolling.
+
 ### Following the disassembly
 
 The Source tab and the [Disassembly](03-disassembly.md) follow each other's selection. They are
@@ -88,13 +109,13 @@ two views of the same code, and a selection in one lights what it covers in the 
   tinted the same violet. An address with no source line (the ROM, a library) leaves the Source tab
   as it was.
 
-When the line you clicked is not the line the CPU is on, the tab is **browsing**: the label describes
+When the line you clicked is not the line the CPU is on (or you chose a file from the **File** list), the tab is **browsing**: the label describes
 the address you clicked, not the PC, and ends `(browsing; the PC is at main.bas:10, $8000)` (or
 `the PC is in no source line`), and the Source tab shows that line's file, which may be another one
-than the PC's. The arrow stays on the CPU's own line, and the highlight too, when that line is in
+than the PC's. (A file chosen from the list is shown from its top, and its label has no address.) The arrow stays on the CPU's own line, and the highlight too, when that line is in
 the file shown. The view stays where you put it through the refreshes while paused. If the clicked line's file cannot be found, the tab says so and **Locate File...** and **Go to PC Line** stay available. Browsing ends at
 the next stop (a breakpoint, a step, a Pause, a rewind), when the machine runs, when the source
-map is cleared or another is loaded, and when you press **Go to PC Line**, which is enabled only while browsing and shows
+map is cleared or another is loaded (or no longer names the file), and when you press **Go to PC Line**, which is enabled only while browsing and shows
 the CPU's line again. A click on an instruction of the CPU's own line is not browsing.
 
 While the machine runs, neither tab follows the other.

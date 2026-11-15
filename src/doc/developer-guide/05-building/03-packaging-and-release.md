@@ -26,6 +26,39 @@ The source tarball is deliberately not a `git archive`. That would produce an
 anyone tries to build from it; `package-src` instead runs
 `packaging/make-dist-tarball.sh`, which vendors the submodule content properly.
 
+## Testing the packages
+
+`make regression` tests `build/gui-release`, a PGO build made like the Linux
+packages (same source, flags class and PGO method) but a different file: each
+package builds its own tree, trains its own profile, and the debs are compiled
+by Ubuntu's gcc against Ubuntu's Qt, which no Fedora host can execute. So the
+packages' own binaries are tested where they are built, by
+`make regression-package PACKAGE=<p>` (`test/regression-package.sh`; it first deletes the package's earlier-version artifacts), which
+`release.yml` runs after each package step and before the upload:
+
+| `PACKAGE` | artifact | how the binary under test is obtained |
+|-----------|----------|---------------------------------------|
+| `rpm`, `deb` | the `.rpm` / `.deb` | extracted (`rpm2cpio`, `dpkg-deb -x`) into `build/regression-package/<p>/`; `regression.sh` runs with `JNEXT=<dir>/usr/bin/jnext` |
+| `win`, `win-qt5`, `win32-qt5` | the three published zips | unzipped; only Qt's offscreen platform plugin (the difference between two `bundle-dlls.sh` stagings, with and without it, which must be exactly that one file) is added to that scratch copy, never over a zip member and never a file the zip lacks; `regression.sh --platform` runs with the copy as its Qt tree under wine, whose `PATH` carries no MinGW sysroot, so a DLL missing from the zip fails the run |
+
+The rows are every screenshot row of `regression_tests.conf` plus the 17
+functional rows listed once in the script (exit paths and CLI, Qt offscreen
+start and exit, snapshots, tape, RZX, audio, NextZXOS reset, esxDOS host
+files, and the DZRP, GDB and ZRCP servers). A package run is green only when
+the harness exits 0 with no FAIL and no SKIP and its total is exactly the
+lints, the SD provision, the screenshots and the functional rows (a filtered
+run skips the harness's own completeness check, so the script makes it). It is
+never stamped and not part of the batch gate. The Flatpak bundle is the one
+shipped artifact this does not cover: it keeps its in-build FUSE gate and
+permission gate.
+
+The packaging test (`make package-test`, the CI `package` job) pins the
+contract: the harness is handed the unpacked package's own binary, a Windows
+scratch copy equals the zip plus the plugin, and no shipped zip carries
+`platforms/qoffscreen.dll`.
+
+## Profile-guided packages
+
 Every package's `jnext` is a **PGO build**, the same as `make gui-release`
 ([5.5](05-performance-and-optimisation.md#profile-guided-optimisation)): the package
 targets call `tools/pgo-build.sh`, which configures an instrumented twin of the
@@ -37,7 +70,7 @@ some platforms need more:
   and are trained under **wine** with no display, the GUI run on Qt's
   offscreen platform (its plugin is bundled next to the instrumented exe
   only). No wine is a hard error; `WIN_PGO=0` (or `make win-release-non-pgo`)
-  builds without PGO.
+  builds without PGO. `make regression-win` tests this same PGO tree.
   The wine prefix is refreshed (`wineboot -u`) on every build, so a prefix
   made while the host wine was broken does not stay broken. After the
   optimised build, `tools/pgo-build.sh` builds `fuse_z80_test.exe` in the
@@ -59,7 +92,11 @@ some platforms need more:
 `package-test` matters more than its name suggests. It does not merely build
 each package: it then looks inside and checks what is there — that the rpm and
 deb carry `bin/jnext`, that the source zip carries the vendored submodule, that
-the Windows zip carries its DLLs and its platform plugin, and that `jnext.exe`
+the Windows zip carries its DLLs and its platform plugin, that the source
+tarball and zip, the rpm, the deb and the Windows zips carry the 48K ROM symbol
+map `48rom.map` (`share/jnext` in the rpm and deb, the zip root in the Windows
+zips; the Flatpak build checks its `share/jnext` too, and `verify-macos-dmg`
+checks the macOS bundle's `Contents/Resources`), and that `jnext.exe`
 is a GUI-subsystem binary with no stray console window attached. Each row
 checks the artifact named for the current `version.yaml` version, after
 deleting earlier ones: a build directory keeps every previous version's
@@ -69,6 +106,27 @@ actually invoked it, which is how a permanently-failing packaging row managed to
 survive 46 tags unnoticed. It now runs as its own parallel CI job,
 and its hermetic half, `package-contract-test`, is a prerequisite of
 `make unit-test`.
+
+## Licence texts
+
+Every package carries a `licenses/` folder with the licence of the third-party
+code compiled into jnext. The list is one file, `packaging/licenses.list`
+(shipped name, source file); a new vendored library under `third_party/` needs
+a line there and a stanza in `packaging/debian/copyright`, and the contract row
+`licenses` of `make package-contract-test` fails until both exist. CMake
+installs the list under `share/doc/jnext/licenses` (rpm, deb, tarball, Flatpak)
+and at the root of the macOS image; the Ubuntu deb that links a vendored SDL3
+adds its licence (`sdl3.txt`). The Windows zips get the folder from
+`packaging/windows/bundle-dlls.sh`, which also copies the licence files of the
+Fedora package that owns each bundled DLL into `licenses/bundled/<package>/`
+(Fedora's bzip2, win-iconv and zlib ship none: the texts in
+`packaging/windows/license-fallbacks/` stand in) and refuses to bundle when a
+DLL has no licence at all. On macOS,
+`packaging/macos/bundle-licenses.sh` does the same for the Homebrew libraries
+macdeployqt copies into the bundle (`licenses/bundled/<formula>/`, from the
+formula's keg) and fails the package when a library's formula has no licence. Homebrew copies only
+top-level licence files into a keg, so the Qt and glib kegs get texts from
+`packaging/macos/license-fallbacks/`.
 
 ## `version.yaml` is the single source of truth
 

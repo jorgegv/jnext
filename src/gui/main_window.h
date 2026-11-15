@@ -225,6 +225,24 @@ public:
     void startup_rzx_started(const std::string& file) { load_finished(file, true); }
 
     void on_recent_file(const QString& path);
+
+    /// A file the desktop asked JNext to open: on macOS a Finder double-click,
+    /// Open With, or a drop on the Dock icon (a QFileOpenEvent, see
+    /// gui/desktop_open.h). The window comes forward. `at_launch`: JNext was
+    /// started to open it, so it loads straight away, as File > Load would.
+    /// Otherwise whatever is running would be lost, so it asks first (Cancel
+    /// is the default); an unattended run asks nobody and loads nothing.
+    void open_from_desktop(const QString& path, bool at_launch);
+
+    /// The question open_from_desktop() asks a running window. Injectable for
+    /// the same reason as set_confirm_restart_callback(); when unset it is
+    /// confirm_desktop_open_dialog(). Returns true to load.
+    using ConfirmDesktopOpenCallback = std::function<bool(const QString& path)>;
+    void set_confirm_desktop_open_callback(ConfirmDesktopOpenCallback cb) {
+        confirm_desktop_open_callback_ = std::move(cb);
+    }
+    /// The real dialog: Open / Cancel, Cancel the default and the Esc button.
+    bool confirm_desktop_open_dialog(const QString& path);
     QString load_dialog_seed() const;
     /// GH #417 - the directory every file dialog that opens "where the last load was"
     /// starts in (Load, Open Tape, Open POK, Save to Tape): this session's value, else the
@@ -385,7 +403,11 @@ public:
     /// competitor and are not already baked into the EmulatorConfig used for
     /// Emulator::init() (machine type and silent are — see main.cpp's CLI/
     /// AppConfig merge). Called once at startup, after set_emulator().
-    void apply_startup_config(const AppConfigData& cfg);
+    ///
+    /// `program_cpu_speed` false leaves the running machine's CPU speed alone (GH #489):
+    /// Preferences passes it only when the CPU-speed field changed, because the machine's
+    /// speed is whatever the program or the menu set it to, not the dialog's value.
+    void apply_startup_config(const AppConfigData& cfg, bool program_cpu_speed = true);
 
     /// Access to the live, on-disk-backed preferences (Preferences dialog
     /// reads/writes through this).
@@ -568,6 +590,10 @@ private:
     std::unique_ptr<PokDialog> pok_dialog_;
     RebootCallback   reboot_callback_;
     ConfirmRestartCallback confirm_restart_callback_;
+    ConfirmDesktopOpenCallback confirm_desktop_open_callback_;
+    /// open_from_desktop() is asking: the question's own event loop can
+    /// deliver another desktop open, which must not stack a second question.
+    bool desktop_open_asking_ = false;
     EspConfigCallback esp_config_callback_;
 
     // Kempston-mouse host adapter (G43). Mirrors SdlApp's wiring pattern;
@@ -727,6 +753,9 @@ private:
     // applied, and write-through updated by file dialogs that remember a
     // directory (Load Program, Open Tape, Save Screenshot).
     AppConfig app_config_;
+    // GH #489 - the CPU speed the Preferences dialog last showed (the saved value at launch, then
+    // the last applied one): apply_preferences() programs NR 0x07 only when the field differs.
+    CpuSpeed prefs_cpu_speed_ = CpuSpeed::MHZ_3_5;
 
     // GH #1 — the debugger key bindings that are IN EFFECT, which is not
     // necessarily what app_config_ holds: apply_preferences() is the one place

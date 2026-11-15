@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QPointer>
+#include <QTextEdit>
 #include <QWidget>
 
 #include "platform/source_scheme.h"
@@ -14,12 +15,15 @@
 
 class BreakpointModel;
 class QAction;
+class QComboBox;
 class QLabel;
 class QMenu;
 class QPlainTextEdit;
 class QPushButton;
 class QTextBlock;
 class SourceHighlighter;
+struct SourceText;
+struct SourceLocation;
 enum class SourceLanguage;
 class WatchPanel;
 struct SymbolNameKey;
@@ -120,8 +124,17 @@ public:
     void show_address(uint16_t addr);
     /// Go to PC Line: end browsing and put the view on the PC's line.
     void go_to_pc_line();
-    /// Whether the label describes an address the Disassembly led to, not the PC.
-    bool browsing() const { return browse_addr_.has_value(); }
+    /// Whether the view is led away from the PC: an address the Disassembly led to, or a file
+    /// chosen from the File list (open_file()).
+    bool browsing() const { return browse_addr_.has_value() || !browse_file_.empty(); }
+    /// GH #480 - show `file` (a name the map has, see SourceMap::files()) from its top, in
+    /// browsing mode, and let the gutter set breakpoints in it. The PC's own file is Go to PC
+    /// Line; the file already browsed stays as the user left it. Ignored while the machine
+    /// runs, with no map, or for a name the map does not have.
+    void open_file(std::string file);
+    /// GH #480 - Debug > Source > Open Source File...: focus the File list and open its popup.
+    /// Nothing while the list is disabled.
+    void choose_file();
 
     /// What the panel shows right now (for tests and the status line).
     QString location_text() const;
@@ -199,11 +212,28 @@ private:
     /// While the machine runs there is no current line: say so, and drop the
     /// highlight of the last stop.
     void show_running();
+    /// GH #480 - the File list's items follow the map's file set (rebuilt only when it changes),
+    /// its current item the file shown or browsed, and it is enabled with the forward steps.
+    void sync_file_list_();
+    /// The tints of a file's lines: the executed ones (memory coverage) and the Disassembly's
+    /// range, appended to `out` (the PC bar is the caller's, last).
+    void add_tints_(QList<QTextEdit::ExtraSelection>& out, const std::string& file, int file_lines) const;
+    /// GH #480 - refresh_() while a file chosen from the File list is browsed.
+    void refresh_file_browse_(const SourceLocation* pc_loc, uint16_t pc, const QString& note);
+    /// The one text loader of refresh_() (the PC's line, an address browse, a file browse):
+    /// the embedded m4 text, the z88dk `.m4` message, the file on disk (reloaded on a change).
+    /// On false the message is already shown (`m4_message` / `missing_message` are the
+    /// callers' wordings, `note` is appended).
+    bool load_text_(const std::string& file, const QString& m4_message,
+                    const QString& missing_message, const QString& note,
+                    const SourceText*& embedded, QString& source_path);
 
     const jnext::dbg::Debugger* dbg_ = nullptr;
     jnext::dbg::Debugger* annot_ = nullptr;   // GH #387
     jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     QLabel* location_label_ = nullptr;
+    QComboBox* file_combo_ = nullptr;           // GH #480
+    std::vector<std::string> combo_files_;      // what the combo's items are now
     QPlainTextEdit* editor_ = nullptr;
     SourceHighlighter* highlighter_ = nullptr;
     QPushButton* into_btn_ = nullptr;
@@ -235,6 +265,7 @@ private:
     // and the map it was in. The Disassembly's range, whose lines are tinted. The guard around the
     // panel's own cursor moves, and the lines last announced.
     std::optional<uint16_t> browse_addr_;
+    std::string browse_file_;   // GH #480: the file chosen from the File list; exclusive with browse_addr_
     std::string browse_map_;
     struct DisasmRange { uint16_t lo, hi, caret; };
     std::optional<DisasmRange> disasm_range_;

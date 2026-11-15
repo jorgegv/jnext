@@ -93,6 +93,138 @@ lookup instead, and the suite provisions that image for itself in the
   because `cp --reflink` cannot cross a filesystem and `--reflink=auto` would
   quietly degrade to a real 1 GB copy into RAM.
 
+## Boot-timeline frames: the boot-ready helper
+
+A row that presses a key, captures a screen or resets "at frame N of a cold boot"
+must mean the same moment of the boot on every card, and a new NextZXOS distribution
+loads its firmware for a different number of frames before it reaches the same
+state (the 26.11 firmware commits its machine type at frame 472, the 24.11 one at
+frame 295). The anchor is the **firmware's machine-type commit**: the first NR
+0x03 write whose bits 2:0 are 001 to 100, which by `zxnext.vhd` is the write that
+clears config mode. It happens on every firmware boot whatever personality
+`config.ini` selects, and `boot-commit-probe.jds` reports its frame in a couple of
+seconds. `test-functions.inc` has the helper:
+
+- `BOOT_REF_COMMIT` is the commit frame of the boot the row literals were written
+  against, and `BOOT_DEFAULT_COMMIT` the frame the default card must give.
+- `bf N [K]` prints `N + K * (measured - BOOT_REF_COMMIT)`. Use `K = 2` for a frame
+  after a hard reset, which runs the firmware a second time; a soft reset does not
+  (`K = 1`). A malformed `N` or `K`, or a probe that finds no commit within 1500
+  frames, is a harness fault and never a pass-through.
+- `bf_keys <frame key>...` fills `BF_KEYS` with `--delayed-keypress-frames`
+  arguments; `bf_jds <template> <out>` expands `{{bf N}}` and `{{bf N K}}` in a
+  script template and refuses an output that keeps a `{{`.
+- `menu_index <image> <mode> <rom>` is not a timing helper but belongs with them: the
+  `config.ini` `default=` value of the card's own menu line with that mode and ROM, counted
+  as the firmware counts (it reads `menu.ini`, else `menu.def`, and counts only `menu=` lines
+  with a ROM field). A distribution may insert menu lines, so the machine-personality rows ask
+  the card instead of carrying a number; it fails when the key matches no line or more than one.
+- A screenshot row in `regression_tests.conf` writes `@bf:N` (or `@bf:N:K`) in its
+  frame field or among its extra arguments.
+
+Compute every `bf` into a variable first (`shot=$(bf 400)`): a failure inside an
+argument position would not stop the row. Only frames on the boot timeline AFTER
+the commit are adopted. A frame inside a program loaded by `--load` (the warm
+start rebases those to frame 500), a wall-clock bound, and a row that needs no
+NextZXOS (`beam-replay-func` injects a halt program at frame 160, before the
+firmware commits, and a shift does not help it) stay literals.
+
+There is one deliberate exception, `boot-nextzxos-splash`: its frame 429 is before the
+commit (472 on the 26.11 card), but it captures the firmware's own splash and the
+screen must be taken at the same stage of that boot on every card. It is adopted
+(`@bf:429`); on the 24.11 card (commit 295) the shifted frame 252 shows the same splash
+stage with the older firmware's text, so the shift keeps its distance to the commit.
+
+The literals are those of the default 26.11 card, whose shift is 0: every adopted row's
+command line, and every script it generates, is the literal one. (They were written
+against 24.11, commit 295, and rebased by `+177` per firmware run when 26.11 became the
+default: a 24.11 card now shifts by -177.) The `[sdcard-provision]` row reports the
+commit frame and the shift, and on the default master FAILS when the commit is not
+`BOOT_DEFAULT_COMMIT`: an emulator change that moves the boot is a red row, never a
+shift the helper quietly absorbs. On a candidate card (the seam below) any commit frame
+is allowed and reported.
+`esxdos-write-probe-measure.sh` takes the shift as `BOOT_SHIFT`.
+
+## Evaluating a new NextZXOS distribution
+
+The default card is the 26.11 distribution, and the references and pins are
+made against it. To find out what another distribution would change, without
+touching the machine-wide master that every concurrent run tests against, run
+the same tree twice (the same non-PGO `jnext`, master A = the default, master B
+= the candidate) and compare. Nothing here switches the default.
+
+1. **Provision B through jnext itself**, in a private state directory outside
+   the checkout, so the download, unzip and patch path is the one a user hits:
+
+   ```bash
+   JNEXT_CONFIG_DIR=$HOME/tmp/cand/state \
+   JNEXT_SDCARD_DISTRO_URL=<the candidate distribution zip URL> \
+   build/gui-release-non-pgo/jnext --headless --sdcard-download-confirm --delayed-automatic-exit 2
+   ```
+
+   The state directory then holds `sdcard/cspect-next-1gb.img` (the raw card),
+   its `.sha256` sidecar and `cspect-next-1gb-fixed.img` (the patched card).
+   Never run it without `JNEXT_CONFIG_DIR`: a forced download would replace the
+   shared master.
+2. **Say what differs**, with the read-only inventory tool. It prints the MBR
+   and BPB geometry, whether the card is a valid FAT32 volume, the size and
+   sha256 of the ROMs, `menu.def`, `TBBLUE.FW` and `TBBLUE.TBU`, the firmware
+   magic, the shape of `zx81.rom`, the core versions inside the `.TBU` and a
+   digest of the `/dot` name list:
+
+   ```bash
+   tools/sdcard-inventory.sh <card.img>
+   tools/sdcard-inventory.sh --diff <a.img> <b.img>    # exit 0 identical, 1 differ
+   ```
+3. **Boot it** before anything long: a headless `--machine next` run on a
+   reflinked copy of B, with a screenshot at a few frames, shows whether the
+   firmware starts on the emulated core and how many frames the boot takes. A
+   row whose keys are timed against the boot (a key at frame 400) is written
+   with the boot-ready helper (next section), so it moves with the boot.
+4. **Run the unit suites on B**: `JNEXT_TEST_SD_IMAGE=<a reflinked copy of B's
+   fixed card> make unit-test`. The harness honours a preset image; rows that pin
+   file sizes or magic bytes of the default distribution turn red by design.
+5. **Run the full regression twice, bare**, A and then B, with the same
+   non-PGO binary (bare `regression.sh` would otherwise pick the PGO build
+   first):
+
+   ```bash
+   JNEXT=$PWD/build/gui-release-non-pgo/jnext bash test/00regression/regression.sh
+   JNEXT=$PWD/build/gui-release-non-pgo/jnext \
+   JNEXT_REGRESSION_SD_STATE_DIR=$HOME/tmp/cand/state \
+   JNEXT_REGRESSION_SHOTS_DIR=$HOME/tmp/cand/shots \
+       bash test/00regression/regression.sh
+   ```
+
+   (`make regression-rows` pins that binary itself and is not refused under the
+   seam.) The two variables are validated by the driver:
+   `JNEXT_REGRESSION_SD_STATE_DIR` (the state directory whose `sdcard/` holds
+   the master, in place of `~/.jnext`) and `JNEXT_REGRESSION_SHOTS_DIR` (where a
+   failing screenshot row leaves its actual PNG, which is otherwise deleted with
+   the run directory; the driver creates it). Both must be absolute paths
+   without a `..` component, outside the checkout (`//` and `/./` are
+   collapsed before that test; a symlink into the checkout is not detected). A
+   run that sets the state directory is refused if it is stamped
+   (`JNEXT_REGRESSION_STAMP`, so `make regression` and `make regression-confirm`)
+   or asked to regenerate references (`--update`): the stamp and the references
+   certify the default card. Such a run is bare `regression.sh`, never stamped.
+   The `[sdcard-provision]` row names the master in use.
+
+   **What the seam directory must hold.** A candidate card is never deleted
+   unless a verified raw rebuilds it, and never replaced by a download. `sdcard/cspect-next-1gb-fixed.img` is the
+   card under test. With no witness beside it, the card is used as it is and a
+   witness is written. If the card is missing, or no longer matches its
+   witness, the row can only rebuild it from `sdcard/cspect-next-1gb.img` plus
+   `cspect-next-1gb.img.sha256` (what step 1 leaves behind) and fails, saying
+   why, when that raw does not verify. A card with the wrong recipe sidecar is
+   re-derived only from such a raw.
+
+The card, the distribution zip and anything derived from them (an MBR or BPB
+dump, a ROM, a screenshot of a candidate screen that is going to be posted) are
+copyrighted. They live under `~/tmp` and `~/.jnext`, never in the repository,
+an issue, a pull request, a release or a CI artifact. The tool that makes or
+reads a card is public; its output is not.
+
 ## Concurrency: one process per row, in phases
 
 The functional rows used to be *sourced* into the driver one after
@@ -128,7 +260,10 @@ follow every other row. `private-sd` marks a row that writes to the SD card,
 which then boots a copy of its own; every other row boots the run's clone
 through a hard link, and the driver fingerprints that clone after provisioning
 and again at the end, so an untagged writer is a harness fault rather than a
-row that quietly changes what its neighbours boot.
+row that quietly changes what its neighbours boot. `bound=<seconds>` gives one
+row its own kill bound in place of the 600 s default, for a row whose measured
+pass is slower (`harness-selftest-func` carries `bound=1500`); it takes a
+positive integer, at most once, and anything else is a harness fault.
 
 The driver keeps every accounting check and adds the ones a process boundary
 needs: a row process that dies without a result, or outlives its 600 s bound,
@@ -335,6 +470,12 @@ counts emulated seconds), but a row's `timeout` is widened by
 `SHOT_WALL_FACTOR` (4, set by the driver for this run only), because node runs the
 core slower than the native build the bound was written for.
 
+**Where the target OS comes from.** The OS is read from the binary's own tree, never
+from the caller: `JNEXT_TARGET_OS` in the tree's `CMakeCache.txt` or, for a dir with
+no cache (an unpacked Windows package, `make regression-package`), the PE header of
+its `jnext.exe` (`MZ`, then `PE\0\0` at the `e_lfanew` offset). A dir with neither
+is a harness fault.
+
 **The Windows runner.** `test/wine-run.sh --jnext` runs `jnext.exe` as `$JNEXT`
 (two one-line shims in the run's `$TMP_DIR` call it, so rows keep invoking
 `"$JNEXT"` as one word). Each of these was measured to be necessary under wine
@@ -369,7 +510,7 @@ core slower than the native build the bound was written for.
 7. wine cannot `CreateProcess` an ELF, so the `--record` rows (ffmpeg) are absent
    on Windows; the Windows spawn path is covered by the unit rows SF-*.
 8. The prefix is ~1.7 GB and lives under the build tree
-   (`build/win-release-non-pgo/wine-prefix`), never in `/tmp`.
+   (`build/win-release/wine-prefix`, or inside the unpacked package under `build/regression-package/`), never in `/tmp`.
 9. `dzrp-paused-headless-func` measures jnext's own CPU: under a wrapper
    "the first child" is a shell, so the row finds the process named `jnext` /
    `jnext.exe` among the descendants (deepest one) and reads its CPU from `/proc`
@@ -383,15 +524,18 @@ core slower than the native build the bound was written for.
     Windows.
 11. A stalled `jnext.exe` names its blocked call. With
     `JNEXT_WINE_CAPTURE_DIR` set (the driver exports
-    `build/regression-artifacts/wine-stall/<run>/`) the runner's watchdog fires once on a
-    process at least 20 s old whose CPU time has been flat for 10 s and totals 2 s or less, and
-    writes `wine-stall-<time>-<pid>.txt`: `/proc` threads, the prefix's processes, the
-    `winedevice.exe` threads, `winedbg info thread`, and one `Backtrace:` per thread of that
-    Windows pid (one `winedbg --file` session; never `bt all`, which real winedbg refuses). TERM
-    is forwarded at once. Before the first row the driver checks the capture on a real
-    `jnext.exe` blocked on the SD prompt and treats a capture with no `ReadFile` backtrace as a
-    harness fault. Every Windows run ends with a `wine prefix at the end:` line and lists any
-    captures.
+    `build/regression-artifacts/wine-stall/<run>/`) the runner's watchdog fires once on the exe
+    (the process of its name that carries the runner's `JNEXT_WINE_RUN_ID` marker: wine 11.20 runs
+    a 32-bit exe behind `start.exe` as a separate process) when it is at least 20 s old, its CPU
+    time has been flat for 10 s and totals 2 s or less. It writes `wine-stall-<time>-<pid>.txt`:
+    `/proc` threads, a `target:` line, the prefix's processes, the `winedevice.exe` threads,
+    `winedbg info thread`, and one `Backtrace:` per thread from `test/wine-stack.c` (built by
+    `make wine-stack-x64` / `wine-stack-x86`, a helper that attaches no debugger: winedbg's attach
+    kills a 32-bit process on that wine). TERM and INT are forwarded to both processes. Before the
+    first row the driver blocks a decoy and a target `jnext.exe` on the SD prompt, and treats a
+    capture that is not the target's, names no `ReadFile` frame, or leaves either process unable to
+    exit by itself as a harness fault. Every Windows run ends with a `wine prefix at the end:`
+    line and lists any captures.
 
 **On macOS** the SD image comes from `make sdcard-image`, the per-run clone falls
 back to a plain copy where `cp --reflink=always` does not exist (reported as

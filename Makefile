@@ -195,7 +195,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count kloc-count-detailed regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
+       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
@@ -318,7 +318,7 @@ gui-release-pgo-gen:
 		"-DJNEXT_PGO_DIR=$(PGO_PROFILE_ABS)"
 	$(CMAKE) --build $(BUILD_DIR_GUI_PGO_GEN) -j$(JOBS) --target jnext
 
-# Configure and build Qt GUI in Release mode with PGO: the shipped, tested binary (needs the SD image)
+# Configure and build Qt GUI in Release mode with PGO, like the shipped Linux packages (needs the SD image)
 gui-release: gui-release-pgo-gen
 	@# GH #297. Three steps, each skipped when it has nothing to do:
 	@#  1. gui-release-pgo-gen: the instrumented build (its own tree, so its
@@ -383,7 +383,7 @@ win-release:
 	@# in place (jnext.exe alone can't start — missing Qt6Core.dll and, even with
 	@# the DLLs, the platforms/qwindows.dll plugin).
 	@# WIN_EXTRA_QT_PLUGINS is empty for every shipped package; `make regression-win`
-	@# sets platforms/qoffscreen.dll on the non-PGO test tree only (GH #319).
+	@# sets platforms/qoffscreen.dll on this tree, which package-win never copies (GH #319, #487).
 	BUNDLE_EXTRA_QT_PLUGINS="$(WIN_EXTRA_QT_PLUGINS)" bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe $(BUILD_DIR_WIN_RELEASE)
 	@printf "$(BOLD)Windows executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_RELEASE)/jnext.exe\n"
 
@@ -515,22 +515,54 @@ gui-clean: gui-debug-clean gui-release-clean
 # Remove all build directories (sdl/gui + unit-test; build/ takes the rest with it)
 clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean wasm-core-clean
 
+# Build the stall capture's x64 stack helper (a test tool, never packaged): build/wine-stack/wine-stack-x64.exe
+wine-stack-x64:
+	@# GH #487. test/wine-stack.c names the call a stalled Windows process is blocked in without a
+	@# debugger; the helper's bitness must match its target's (x64 here, i686 for the 32-bit zip).
+	@command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 || { printf "$(BADGE_FAIL) ERROR $(RESET) MinGW x86_64 cross compiler not found (dnf install mingw64-gcc).\n"; exit 1; }
+	@mkdir -p build/wine-stack
+	x86_64-w64-mingw32-gcc -O1 -Wall -static test/wine-stack.c -o build/wine-stack/wine-stack-x64.exe -ldbghelp -lpsapi -lntdll
+
+# Build the stall capture's i686 stack helper (a test tool, never packaged): build/wine-stack/wine-stack-x86.exe
+wine-stack-x86:
+	@# GH #487. The i686 twin of wine-stack-x64: a 32-bit exe's stack is only readable by a 32-bit helper.
+	@command -v i686-w64-mingw32-gcc >/dev/null 2>&1 || { printf "$(BADGE_FAIL) ERROR $(RESET) MinGW i686 cross toolchain incomplete (dnf install mingw32-gcc).\n"; exit 1; }
+	@mkdir -p build/wine-stack
+	i686-w64-mingw32-gcc -O1 -Wall -static test/wine-stack.c -o build/wine-stack/wine-stack-x86.exe -ldbghelp -lpsapi -lntdll
+
 # Run the regression suite's Windows rows and screenshots: MinGW exes under wine (GH #319)
-regression-win: unit-test-sdl-build unit-test-win-build win-sdl-release z88dk-gdb sdcard-image
+regression-win: unit-test-sdl-build unit-test-win-build win-sdl-release wine-stack-x64 z88dk-gdb sdcard-image
 	@# `regression.sh --platform` against the Windows binaries: the Qt exe is the
-	@# shipped build minus PGO (Release + LTO, `win-release-non-pgo`) with Qt's
-	@# offscreen platform plugin bundled into THIS test tree only (never into a
-	@# package), the SDL-only exe is `win-sdl-release`, and the native helper tools
-	@# (rewind_test, sdfile_tool, the probes) come from the SDL unit-test tree. The one
+	@# shipped build, `win-release` (Release + LTO + PGO, the tree `package-win`
+	@# zips; GH #487), with Qt's offscreen platform plugin bundled into THIS tree
+	@# only: package-win stages a fresh dir with no extras, so the plugin never
+	@# reaches a zip (a packaging row pins that). The SDL-only exe is
+	@# `win-sdl-release`, and the native helper tools (rewind_test, sdfile_tool, the
+	@# probes) come from the SDL unit-test tree. The one
 	@# exception is nextpi-link-func's stand-in QEMU, which must be a PE: it comes from
 	@# the Windows unit-test tree (unit-test-win-build, GH #316).
 	@# Rows that cannot exist on Windows are declared absent with `os=` in
 	@# functional_tests.conf and printed by name, never skipped. A full run takes
 	@# the host lock like `make regression`; ROWS="a-func b-func" runs named rows.
 	@# It is not stamped: the stamp is the Linux run's.
-	@$(MAKE) --no-print-directory win-release-non-pgo WIN_EXTRA_QT_PLUGINS=platforms/qoffscreen.dll
-	JNEXT_TARGET_BUILD=build/win-release-non-pgo JNEXT_TARGET_SDL_BUILD=$(BUILD_DIR_WIN_SDL_RELEASE) \
+	@$(MAKE) --no-print-directory win-release WIN_EXTRA_QT_PLUGINS=platforms/qoffscreen.dll
+	JNEXT_TARGET_BUILD=$(BUILD_DIR_WIN_RELEASE) JNEXT_TARGET_SDL_BUILD=$(BUILD_DIR_WIN_SDL_RELEASE) \
 		TEST_BIN_DIR=$(BUILD_DIR_SDL_UNIT_TEST)/test bash test/00regression/regression.sh --platform $(ROWS)
+
+# Regression-test one package's OWN binary, unpacked from the artifact (PACKAGE=rpm|deb|win|win-qt5|win32-qt5)
+regression-package:
+	@# GH #487. Clears the package's earlier-version artifacts (a build dir keeps them), builds
+	@# the package (package-$(PACKAGE), so the artifact is this tree's),
+	@# unpacks it into build/regression-package/$(PACKAGE) and runs every screenshot row
+	@# plus a declared set of functional rows against that binary
+	@# (test/regression-package.sh). release.yml runs it after each package build,
+	@# before the upload. Never stamped, never the batch gate's.
+	@case "$(PACKAGE)" in rpm|deb) pre="";; win|win-qt5) pre="unit-test-sdl-build win-sdl-release wine-stack-x64 sdcard-image";; \
+	 win32-qt5) pre="unit-test-sdl-build win-sdl-release wine-stack-x64 wine-stack-x86 sdcard-image";; \
+	 *) printf "$(BADGE_FAIL) FAIL $(RESET) name the package: make regression-package PACKAGE=rpm|deb|win|win-qt5|win32-qt5\n"; exit 2;; esac; \
+	 bash test/regression-package.sh --clear $(PACKAGE) || exit $$?; \
+	 $(MAKE) --no-print-directory package-$(PACKAGE) $$pre || exit $$?; \
+	 bash test/regression-package.sh $(PACKAGE)
 
 # Run the regression suite's rows and screenshots against the macOS binaries (Darwin only; CI macos-regression)
 regression-macos: unit-test-sdl-build gui-release-non-pgo sdl-release z88dk-gdb sdcard-image
@@ -1956,7 +1988,7 @@ package-win: win-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Windows bundle.\n"; exit 1; \
 		fi; \
 	 done && \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_RELEASE)/$$name.zip" && \
 	 ( cd "$(BUILD_DIR_WIN_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
@@ -1981,7 +2013,7 @@ package-win-sdl: win-sdl-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \
 	 done && \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_SDL_RELEASE)/$$name.zip" && \
 	 ( cd "$(BUILD_DIR_WIN_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
@@ -2007,7 +2039,7 @@ package-win-qt5: win-qt5-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
 	 done && \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_QT5_RELEASE)/$$name.zip" && \
 	 ( cd "$(BUILD_DIR_WIN_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
@@ -2033,7 +2065,7 @@ package-win32-qt5: win32-qt5-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
 	 done && \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN32_QT5_RELEASE)/$$name.zip" && \
 	 ( cd "$(BUILD_DIR_WIN32_QT5_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
@@ -2059,7 +2091,7 @@ package-win32-sdl: win32-sdl-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \
 	 done && \
-	 cp LICENSE README.md ChangeLog USAGE.md "$$stage"/ && \
+	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN32_SDL_RELEASE)/$$name.zip" && \
 	 ( cd "$(BUILD_DIR_WIN32_SDL_RELEASE)/dist" && zip -rq "../$$name.zip" "$$name" ) && \
@@ -2129,6 +2161,8 @@ verify-macos-dmg:
 		hdiutil attach "$$dmg" -nobrowse -readonly -noverify -noautoopen -mountpoint "$$mnt" >/dev/null; \
 	$(MACOS_BOUND) 300 "verify-bundle (mounted dmg)" \
 		bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" </dev/null; \
+	test -f "$$mnt/jnext.app/Contents/Resources/48rom.map" \
+		|| { echo "error: the .dmg's jnext.app has no Contents/Resources/48rom.map" >&2; exit 1; }; \
 	printf "$(BOLD)dmg verified:$(RESET) $$dmg\n"
 
 # Self-test packaging-test.sh's failure path: a failing sub-test's log must surface inline (GH #80)

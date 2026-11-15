@@ -572,10 +572,18 @@ if(APPLE AND MACOS_APP_BUNDLE)
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_ICON_FILE "jnext.icns"
-        MACOSX_BUNDLE_COPYRIGHT "GPLv3")
+        MACOSX_BUNDLE_COPYRIGHT "GPLv3"
+        # CMake's default template plus the document types the Finder may
+        # open with JNext (doc/design/MACOS-FINDER-OPEN.md).
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/packaging/macos/Info.plist.in")
     # The icon must be INSIDE the bundle for MACOSX_BUNDLE_ICON_FILE to resolve.
     target_sources(jnext PRIVATE ${CMAKE_SOURCE_DIR}/packaging/assets/jnext.icns)
     set_source_files_properties(${CMAKE_SOURCE_DIR}/packaging/assets/jnext.icns
+        PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+    # The 48K ROM symbol map (Map > Load MAP File > Simple Format), copied in at
+    # build time so the install-time codesign seal covers it.
+    target_sources(jnext PRIVATE ${CMAKE_SOURCE_DIR}/data/48rom.map)
+    set_source_files_properties(${CMAKE_SOURCE_DIR}/data/48rom.map
         PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
     # Let the bundled dylibs in Contents/Frameworks be found at run time.
     set_target_properties(jnext PROPERTIES
@@ -735,6 +743,29 @@ jnext_apply_pgo(jnext)
 # `make gui-release` / `make unit-test` / plain `cmake --build`.
 include(GNUInstallDirs)
 
+# Licence texts of the third-party code in every binary (packaging/licenses.list),
+# installed under <dest>/licenses by every package layout; the vendored SDL3 of
+# the Ubuntu .deb adds its own (build-sdl3.sh puts it in the prefix).
+function(jnext_install_licenses dest)
+    # "." + "/licenses" would make DESTINATION "./licenses", which CMP0177 (CMake 3.31+) warns about.
+    if("${dest}" STREQUAL ".")
+        set(_dir "licenses")
+    else()
+        set(_dir "${dest}/licenses")
+    endif()
+    file(STRINGS "${CMAKE_SOURCE_DIR}/packaging/licenses.list" _lic REGEX "^[^#].*\\|")
+    foreach(_e IN LISTS _lic)
+        string(REPLACE "|" ";" _p "${_e}")
+        list(GET _p 0 _name)
+        list(GET _p 1 _src)
+        install(FILES "${CMAKE_SOURCE_DIR}/${_src}" DESTINATION "${_dir}" RENAME "${_name}")
+    endforeach()
+    if(JNEXT_SDL3_VENDORED)
+        install(FILES "${CMAKE_PREFIX_PATH}/share/licenses/SDL3-LICENSE.txt"
+            DESTINATION "${_dir}" RENAME sdl3.txt)
+    endif()
+endfunction()
+
 # macdeployqt lives next to qmake in the Qt installation, which is not on PATH
 # for a Homebrew qt@6. Resolve it from the imported Qt6::qmake target so the
 # lookup follows CMAKE_PREFIX_PATH rather than a hard-coded brew path.
@@ -767,6 +798,7 @@ if(APPLE AND MACOS_APP_BUNDLE)
 # Info.plist and Contents/Resources/jnext.icns do that job) and are not shipped.
 install(TARGETS jnext BUNDLE DESTINATION .)
 install(FILES LICENSE README.md ChangeLog USAGE.md DESTINATION .)
+jnext_install_licenses(.)
 install(DIRECTORY doc/user-guide DESTINATION .)
 
 # Deploy the dependency closure INTO the bundle and prove it worked.
@@ -843,6 +875,16 @@ install(CODE "
             message(FATAL_ERROR \"complete-closure failed or timed out (result: \${_rc})\")
         endif()
 
+        # Licence texts of the Homebrew libraries now in the bundle, next to the
+        # project ones (jnext_install_licenses(.) installs those at the image root).
+        execute_process(
+            COMMAND bash \"${CMAKE_SOURCE_DIR}/packaging/macos/bundle-licenses.sh\" \"\${_app}\" \"\${CMAKE_INSTALL_PREFIX}/licenses\"
+            TIMEOUT 300
+            RESULT_VARIABLE _rc)
+        if(NOT _rc EQUAL 0)
+            message(FATAL_ERROR \"bundle-licenses failed or timed out (result: \${_rc}) — see above\")
+        endif()
+
         # NOTE (GH #57): there used to be a bundle-dlopen-deps.sh step here,
         # copying in libSDL3 because Homebrew's `sdl2` was sdl2-compat and
         # dlopen()ed it by leaf name — invisible to every dependency walk, so
@@ -892,6 +934,11 @@ endif()
 
 install(FILES LICENSE README.md ChangeLog USAGE.md
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
+jnext_install_licenses(${CMAKE_INSTALL_DOCDIR})
+
+# The 48K ROM symbol map: load it with Map > Load MAP File > Simple Format.
+install(FILES data/48rom.map
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/jnext)
 
 # User guide. Committed pre-rendered (from src/doc/user-guide via
 # `make docs-userguide`), so installing needs no doc toolchain — same rationale

@@ -335,6 +335,19 @@ while jnext runs neither starts nor stops it. Three pieces:
   `'...'` and `"..."` literal, backslash ordinary, no expansion) goes after
   jnext's own arguments as argv entries: through the watchdog's `"$@"` on POSIX
   and a per-argument `quote_arg` on Windows, never a shell.
+  `PiQemu::build_args_with_chardev` attaches the sound card as
+  `usb-audio,...,port=1`, straight onto the raspi0's single dwc2 root port.
+  Without `port=`, QEMU inserts its own 8-port hub there, and the guest keeps a
+  transfer queued on the hub's interrupt endpoint, so QEMU's idle CPU at the
+  `SUP>` prompt is 6-8 times higher (measured on Linux; jnext's own work is the
+  same with or without the Pi). `PiQemu::extra_args_may_add_device` keeps the hub (no
+  `port=`) whenever the extras contain a `-device`, `--device`, `-usbdevice`,
+  `--usbdevice`, `-readconfig` or `--readconfig` argument, a trailing one with no
+  value included. It deliberately does not parse the value: QEMU's `-device`
+  grammar (`driver=` anywhere, JSON, escaped commas, USB names without the
+  `usb-` prefix such as `u2f-passthru`) is not worth reproducing, because a
+  wrong "yes" costs only CPU (today's behaviour) while a wrong "no" makes QEMU
+  refuse to start ("no free ports" in `qemu.log`) where it started before.
 * **`core/nextpi_provisioner.{h,cpp}`** makes the NextPi directory exist, on
   the SD provisioner's seams (`DownloadFn`, `ConfirmFn`, `ProgressFn`,
   `BusyFn`, so the same GUI dialogs and terminal prompts serve both): it asks,
@@ -505,7 +518,10 @@ Everything that couples the two sides lives on **jnext's** side of the line:
   RX FIFO, mirrors the core's tick gate, and binds the module's logging seam to
   jnext's `esp01` logger so `--log-level esp01=debug` works. It is five
   forwarding methods plus one flag; if it ever grows a state machine, something
-  has been put on the wrong side of the line.
+  has been put on the wrong side of the line. That flag is also what the HALT
+  batch reads: an attached device that does not want ticks (an idle ESP-01) does
+  not stop the batch (`Uart::batch_quiescent()`), because the per-instruction
+  service already skips it; one that does want ticks refuses it.
 - `esp_host_policy.{h,cpp}` holds what a reusable module cannot own, because it
   is about *this program's* relationship with *its* user: the optional
   `--esp-allow` hostname allowlist, and a bounded thread-safe connection log

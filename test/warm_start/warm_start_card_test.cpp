@@ -26,6 +26,7 @@
 #include "core/warm_start_cache.h"
 #include "peripheral/sd_card.h"
 
+#include <algorithm>
 #include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <cstdarg>
@@ -202,13 +203,15 @@ int main() {
             p = e.prepare_warm_start(7);
             ++calls;
             if (p.status == Emulator::WarmStartProgress::Status::Recording)
-                steps_ok = steps_ok && p.frames_done == calls * 7;
+                steps_ok = steps_ok && p.frames_done == std::min(calls * 7, p.frames_total);   // the figure stops at the nominal total
         } while (p.status == Emulator::WarmStartProgress::Status::Recording && calls < 1000);
         const bool ready = p.status == Emulator::WarmStartProgress::Status::Ready;
         check("WSCARD-02",
-              "a recording stepped 7 frames per call advances exactly 7 each time, ends at "
-              "605 frames after 87 calls, and is byte-identical to the one-shot recording",
-              ready && steps_ok && calls == 87 && p.frames_done == 605 && !state1.empty() &&
+              "a recording stepped 7 frames per call advances exactly 7 each time (up to the nominal total), ends after "
+              "ceil(frames/7) calls (the length is the card's boot, not pinned: 605 on 24.11, "
+              "777 on 26.11), and is byte-identical to the one-shot recording",
+              ready && steps_ok && p.frames_done > 400 && calls == (p.frames_done + 6) / 7 &&
+                  !state1.empty() &&
                   e.warm_start_state() == state1,
               det("ready=%d steps_ok=%d calls=%u done=%u same=%d", ready, steps_ok, calls,
                   p.frames_done, e.warm_start_state() == state1));

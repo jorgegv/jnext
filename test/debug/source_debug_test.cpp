@@ -2069,6 +2069,27 @@ int main() {
                                   "breakpoint fires",
                   hits == 1 && m.pc() == 0x0009, "hits=" + std::to_string(hits) + " " + m.where());
         }
+        {
+            // GH #456: the same for FD 00. The prefix chain's 00 at $0008 is RAM's (the hold of a
+            // delayed entry reaches the cycles AFTER that fetch, divmmc.vhd:127-143); a second read
+            // would see the DivMMC ROM's INC A there. FD 00 ran as the NOP (A unchanged), and the
+            // hook fired once.
+            auto mp = setup(0x02);
+            Machine& m = *mp;
+            int hits = 0;
+            m.emu.cpu().on_magic_breakpoint = [&hits](uint16_t) { ++hits; return true; };
+            m.emu.divmmc().rom_data()[0x0008] = 0x3C;                            // INC A, were it read
+            m.emu.mmu().write(0x0007, 0xFD); m.emu.mmu().write(0x0008, 0x00);   // FD 00: magic
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.AF = 0x1200;
+            m.emu.cpu().set_registers(r);
+            m.set_pc(0x0007);
+            (void)step_pair(m);
+            check("SRCDBG-ID-51", "FD 00 with the 00 at a delayed DivMMC entry: RAM's byte, so the magic "
+                                  "breakpoint fires and INC A does not run",
+                  hits == 1 && m.pc() == 0x0009 && (m.dbg->registers().AF >> 8) == 0x12,
+                  "hits=" + std::to_string(hits) + " A=" + hex(m.dbg->registers().AF >> 8) + " " + m.where());
+        }
     }
     {
         // The live gate (execute_gate, run while a machine RUNS with an Execute subscription) takes

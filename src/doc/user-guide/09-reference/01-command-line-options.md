@@ -151,6 +151,19 @@ with status 1.
     recover a corrupted one. Also discards a half-finished download.
     Ignored when **--sdcard** is given: an explicit path always wins.
 
+**--sdcard-upgrade** *MODE*
+:   What to do when the default-location card is of an older NextZXOS
+    distribution than the one jnext downloads now. *MODE* is **ask**
+    (the default in the GUI: forget any “do not ask again” and ask),
+    **yes** (replace the card without asking: everything saved on it is
+    lost), **no** (keep the card for this run, no question) or **never**
+    (keep it and do not offer this distribution again). Without the
+    option, the GUI asks (once, unless “Do not ask me again” was ticked)
+    and **--headless** keeps the card and logs one line. Refused
+    together with **--sdcard**: an explicit card is never offered an
+    upgrade. See [Why JNEXT needs an SD-card
+    image](../03-first-run/01-why-jnext-needs-an-sd-card-image.md).
+
 **--sdcard-readonly**
 :   Open the SD image read-only, so the host file is never modified. The
     emulated machine sees a write-protected card: writes are rejected
@@ -600,6 +613,7 @@ with status 1.
     replay.
 
 **--esxdos-stub**
+
 :   Answer a few `RST $08` esxDOS calls for any program, for the whole
     session: the version query, one in-memory file and `run sibling.nex`
     chaining. Every other call goes to the code at `$0008`. For programs
@@ -609,12 +623,20 @@ with status 1.
     With NextZXOS booted it answers in front of NextZXOS’s own esxDOS
     for those calls, and NextZXOS’s file commands stop working.
 
+    With a NEX to load (**--load**, or a bare file name) and no
+    **--esxdos-stub-root**, the directory the NEX is in is served to it
+    as if it had been given as *DIR* (below): read-only unless
+    **--esxdos-stub-writable** is also given, and in place of the
+    in-memory file. To keep the in-memory file, load the NEX without
+    **--esxdos-stub**.
+
 **--esxdos-stub-root** *DIR*
 
 :   Serve the host directory *DIR* to the guest through the esxDOS file
     and directory calls, instead of the single in-memory file. Implies
     **--esxdos-stub**. Read-only unless **--esxdos-stub-writable** is
-    also given.
+    also given. *DIR* replaces the default of **--esxdos-stub**, the
+    directory of the loaded NEX.
 
     **Which programs see *DIR*, and which do not.** A NEX loaded with
     **--load** sees it, and so do dot commands: those reach the
@@ -650,11 +672,14 @@ with status 1.
     option is for programs jnext loads itself.
 
 **--esxdos-stub-writable**
-:   Allow the guest to create, truncate and write files under
-    **--esxdos-stub-root**. Off by default, and deliberately a separate
-    flag: a guest write changes a real file on the host immediately, and
-    rewinding the emulator cannot undo it. Reads are fully rewindable;
-    writes are not.
+:   Allow the guest to create, truncate, write, delete and rename files,
+    make and remove directories, and set or clear the read-only bit of
+    files under **--esxdos-stub-root**, or in the directory of the
+    loaded NEX when no root is given: the program can delete any file
+    there. Off by default, and deliberately a separate flag: a guest
+    write changes a real file on the host immediately, and rewinding the
+    emulator cannot undo it. Reads are fully rewindable; writes,
+    deletions and renames are not.
 
 **--rtc** *“YYYY-MM-DD HH:MM:SS”*
 :   Pin the RTC to a fixed date and time (a frozen clock) instead of
@@ -1084,7 +1109,7 @@ with status 1.
 ## Debugging
 
 **--magic-breakpoint**
-:   Enable the magic-breakpoint opcodes (`ED FF` and `DD 01`).
+:   Enable the magic-breakpoint opcodes (`ED FF`, `FD 00` and `DD 01`).
 
 **--persistent-breakpoints**
 :   Keep breakpoints and watchpoints armed while the debugger window is

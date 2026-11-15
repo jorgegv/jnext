@@ -55,6 +55,8 @@ extern const char* const kFixedImageFileName;  // "cspect-next-1gb-fixed.img"
 //   1 — FAT32 re-cluster to 8 KB clusters + default config.ini (Task 27).
 //       Images made by this recipe carry no recipe sidecar.
 //   2 — also doubles the 16 KB zx81.rom (GH #284).
+//   3 - the FAT32 volume serial is the first 4 bytes of the raw image's SHA-256
+//       (kFixedImageRecipe 3: each distribution's card has its own serial).
 // provision_sd_card records it next to the image it derives, in
 // "<fixed image>" + kFixedImageRecipeSuffix, as the number and a newline.
 // jnext itself never rebuilds an existing image because that number is old or
@@ -64,6 +66,22 @@ extern const char* const kFixedImageFileName;  // "cspect-next-1gb-fixed.img"
 // definition on one line in the form `const int kFixedImageRecipe = N;`).
 extern const int kFixedImageRecipe;
 extern const char* const kFixedImageRecipeSuffix; // ".recipe"
+
+// The distribution a card came from. A distribution is identified by the FILE NAME
+// of its zip ("sn-emulator-24.11.zip"): the basename of the effective download
+// address ($JNEXT_SDCARD_DISTRO_URL when set, else kDistroUrl). provision_sd_card
+// records it beside the images it makes, in "<fixed image>.distro" and
+// "<raw image>.distro" (the name and a newline). A card with no such sidecar was made
+// before they existed, when kDistroUrl only ever named 24.11, so it IS that one.
+extern const char* const kDistroSuffix;            // ".distro"
+extern const char* const kLegacyDistribution;      // "sn-emulator-24.11.zip"
+// "<fixed image>.distro-declined": the distribution whose upgrade offer the user
+// turned down for good ("Do not ask me again"). A LATER distribution asks once more.
+extern const char* const kDeclinedSuffix;          // ".distro-declined"
+// The zip file name of `url`: the part after its last '/', without a query.
+std::string distribution_of_url(const std::string& url);
+// "NextZXOS 26.11" for "sn-emulator-26.11.zip", else the name as it is.
+std::string distribution_title(const std::string& distribution);
 
 // GH #284 — SHA-256 of the 16 KB /MACHINES/NEXT/zx81.rom the 24.11
 // distribution image ships (Paul Farrow's ZX81 emulator v3.13, tbblue commit
@@ -175,6 +193,29 @@ std::string fetch_failure(const std::string& what, const std::string& url,
 
 // Confirmation seam: returns true if the user agrees to download.
 using ConfirmFn = std::function<bool(const std::string& message)>;
+
+// What the user answered to the offer of a newer distribution (see UpgradeFn).
+enum class UpgradeChoice {
+    Replace,            // download the new image and replace the card with it
+    Keep,               // go on with the old card; ask again next start
+    KeepDontAskAgain    // go on with the old card and never offer THIS distribution again
+};
+// Upgrade-offer seam: the default card is of distribution `from` and the effective
+// distribution is `to` (zip file names). `message` is the whole text to show: it
+// names both versions and says plainly that replacing the card DELETES everything the
+// user saved on it. Closing or cancelling the offer is Keep. May be empty (a terminal
+// or scripted run): jnext then never asks, keeps the card and logs one line saying
+// how to upgrade (--sdcard-upgrade yes).
+using UpgradeFn = std::function<UpgradeChoice(const std::string& from, const std::string& to,
+                                              const std::string& message)>;
+// --sdcard-upgrade: what to do about a default card of an older distribution.
+//   Default  honour a "do not ask again" for this distribution; else ask (UpgradeFn),
+//            or, with no UpgradeFn, keep and log the one line
+//   Ask      forget any "do not ask again", then as Default
+//   Yes      replace the card without asking
+//   No       keep the card for this run, no question, nothing recorded
+//   Never    keep the card and record "do not ask again" for this distribution
+enum class UpgradeMode { Default, Ask, Yes, No, Never };
 
 // Busy-operation seam: run the slow post-download work (`work` — the raw→fixed
 // copy plus the multi-second FAT32 patch) while giving the user feedback under
@@ -443,8 +484,17 @@ bool double_known_zx81_rom(Fat32Tree& tree, const std::string& known_sha256);
 // success, else sets `err`. `zx81_known_sha256` is a test seam: tests cannot
 // ship the ROM, so they pass the hash of a stand-in file. Production callers
 // leave the default.
+//
+// `volume_id` (recipe 3): when non-zero it becomes the FAT32 volume serial
+// (BS_VolID32, and its copy in the backup boot sector) after the format, so every
+// distribution's card has a serial of its own. 0 leaves the one f_mkfs wrote.
 bool patch_image_fat32(const std::string& image_path, std::string& err,
-                       const std::string& zx81_known_sha256 = kZx81Rom16kSha256);
+                       const std::string& zx81_known_sha256 = kZx81Rom16kSha256,
+                       uint32_t volume_id = 0);
+// The volume serial recipe 3 gives the card derived from a raw image whose SHA-256
+// is `raw_sha256_hex`: its first 4 bytes, as the number the serial is displayed as
+// ("181e0161"). 0 when the hash is not 8 hex digits long at least.
+uint32_t volume_id_from_sha256(const std::string& raw_sha256_hex);
 
 struct ProvisionOptions {
     std::string explicit_path;      // --sdcard value ("" if not given)
@@ -455,6 +505,8 @@ struct ProvisionOptions {
     ProgressFn  progress;           // optional; passed into the download
     CopyFn      copy;               // defaults to default_copy_file
     BusyFn      busy;               // optional; wraps the copy+patch step
+    UpgradeFn   upgrade;            // the offer of a newer distribution; empty = never ask
+    UpgradeMode upgrade_mode = UpgradeMode::Default;   // --sdcard-upgrade
 
     // GH #271 — diagnosability seam. Path whose EXISTENCE means "this process
     // runs inside a Flatpak sandbox"; /.flatpak-info is the conventional
@@ -478,6 +530,9 @@ struct ProvisionResult {
     ProvisionStatus status = ProvisionStatus::Failed;
     std::string     path;   // resolved image path (valid when status == Ok)
     std::string     error;  // human-readable reason when not Ok
+    // Not empty when status is Ok but something the user asked for did not happen: an
+    // accepted upgrade that failed and left the old card in use. The frontends show it.
+    std::string     warning;
 };
 
 // Resolve (and if needed download+patch) the SD image path per the policy

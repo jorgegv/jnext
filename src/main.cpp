@@ -25,6 +25,7 @@
 #include "platform/pointer_capture.h"   // GH #365 --mouse-release
 #include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
 #include "platform/quit_signal.h"      // SIGINT/SIGTERM as a quit request (GH #364)
+#include "platform/sdcard_upgrade_box.h"   // the SDL frontend's upgrade offer
 #include "platform/pok_trainers.h"     // --delayed-pok-frames / --pok-trainers (GH #381)
 #include "core/screenshot.h"   // screenshot_format_for_path (GH #18)
 #include "video/renderer.h"
@@ -307,6 +308,8 @@ int main(int argc, char* argv[]) {
     std::string sdcard_writes_file;    // --sdcard-writes FILE
     bool        sdcard_writes_reset = false;
     bool        sdcard_download_force   = false;
+    std::string sdcard_upgrade_arg;          // --sdcard-upgrade MODE ("" = not given)
+    bool        sdcard_cli_given        = false; // --sdcard on the command line (not the Preferences path)
     // GH #269 — the copy-and-exit SD-card mode.
     std::string sdcard_file_add;       // host file or directory to copy onto the card
     std::string sdcard_file_dest;      // where it lands on the card ("" = root, GH #292)
@@ -713,12 +716,21 @@ int main(int argc, char* argv[]) {
                 // alias kept for backward compatibility. Both land here and
                 // both consume the FILE argument.
                 sd_card_image = v[0];
+                sdcard_cli_given = true;
                 break;
             case cli::OptId::SdcardDownloadConfirm:
                 sdcard_download_confirm = true;
                 break;
             case cli::OptId::SdcardDownloadForce:
                 sdcard_download_force = true;
+                break;
+            case cli::OptId::SdcardUpgrade:
+                if (std::strcmp(v[0], "ask") != 0 && std::strcmp(v[0], "yes") != 0 &&
+                    std::strcmp(v[0], "no") != 0 && std::strcmp(v[0], "never") != 0) {
+                    fprintf(stderr, "--sdcard-upgrade: '%s' is not ask, yes, no or never.\n", v[0]);
+                    return 1;
+                }
+                sdcard_upgrade_arg = v[0];
                 break;
             case cli::OptId::SdcardReadonly:
                 sdcard_readonly = true;
@@ -1876,9 +1888,21 @@ int main(int argc, char* argv[]) {
     // milliseconds ago (see win_console.h).
     win_console_note_app_running();
 #endif
+    // An explicit card (--sdcard, or the Preferences path) is never offered an upgrade: there is
+    // nothing of jnext's to upgrade. The option is refused with --sdcard, where it would be
+    // silently ignored; with the Preferences path it is ignored like the rest of the default flow.
+    if (!sdcard_upgrade_arg.empty() && sdcard_cli_given) {
+        fprintf(stderr, "--sdcard-upgrade cannot be used with --sdcard: an explicit SD card image is "
+                        "never offered an upgrade.\n");
+        return 1;
+    }
     {
         sdcard::ProvisionOptions opts;
         opts.explicit_path   = sd_card_image;
+        if (sdcard_upgrade_arg == "ask")        opts.upgrade_mode = sdcard::UpgradeMode::Ask;
+        else if (sdcard_upgrade_arg == "yes")   opts.upgrade_mode = sdcard::UpgradeMode::Yes;
+        else if (sdcard_upgrade_arg == "no")    opts.upgrade_mode = sdcard::UpgradeMode::No;
+        else if (sdcard_upgrade_arg == "never") opts.upgrade_mode = sdcard::UpgradeMode::Never;
         opts.auto_confirm    = sdcard_download_confirm;
         opts.force_download  = sdcard_download_force;
         opts.download        = sdcard::default_http_download;
@@ -1910,6 +1934,9 @@ int main(int argc, char* argv[]) {
             opts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
                 return gui_prov.busy(p, w);
             };
+            opts.upgrade  = [&](const std::string& f, const std::string& t, const std::string& m) {
+                return gui_prov.offer_upgrade(f, t, m);
+            };
         } else {
             opts.confirm  = sdcard::cli_confirm;
             opts.progress = sdcard::make_cli_progress();
@@ -1919,11 +1946,21 @@ int main(int argc, char* argv[]) {
         opts.confirm  = sdcard::cli_confirm;
         opts.progress = sdcard::make_cli_progress();
         opts.busy     = sdcard::cli_busy;
+        // The SDL window frontend asks with a message box; --headless and the terminal
+        // command --sdcard-file-add never ask (they log how to upgrade).
+        if (!headless && sdcard_file_add_count == 0) opts.upgrade = sdcard::sdl_offer_upgrade;
 #endif
 #endif   // __EMSCRIPTEN__
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
         if (res.status == sdcard::ProvisionStatus::Ok) {
             sd_card_image = res.path;
+            if (!res.warning.empty()) {
+                Log::emulator()->warn("SD-card image: {}", res.warning);
+                std::fprintf(stderr, "warning: %s\n", res.warning.c_str());
+#ifdef ENABLE_QT_UI
+                if (sd_gui_dialogs) gui_prov.warn(res.warning);
+#endif
+            }
         } else {
             bool logged = false;
 #ifdef ENABLE_QT_UI

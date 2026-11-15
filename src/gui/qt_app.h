@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <string>
 #include <cstdint>
 #include <memory>
@@ -217,6 +218,9 @@ private:
     QApplication* qapp_        = nullptr;
     MainWindow*   main_window_ = nullptr;
     QTimer*       frame_timer_ = nullptr;
+    /// When run() entered the event loop: a desktop open (gui/desktop_open.h)
+    /// inside desktop_open::kLaunchWindowMs of it is the launch. Unset = not yet.
+    std::optional<std::chrono::steady_clock::time_point> loop_started_;
     /// GH #155 — frame-timer wiring counters for the `ticks:` debug line
     /// (drained with it): arms made at the end of a tick, and re-anchors the
     /// post-tick check had to make because a tick ended with the timer

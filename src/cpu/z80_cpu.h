@@ -249,8 +249,9 @@ public:
     // compliance (1356/1356), since the FUSE suite does not install it.
     std::function<uint8_t()> on_int_ack;
 
-    // Magic breakpoint callback: fired when ED FF or DD 01 is executed.
-    // If set and returns true, CPU should break to debugger.
+    // Magic breakpoint callback: fired when ED FF, FD 00 or DD 01 is executed.
+    // ED FF and FD 00 are hardware NOPs: they run first, the hook fires after them and its return
+    // is ignored. DD 01 is not an instruction: when the hook returns true its two bytes are skipped.
     std::function<bool(uint16_t pc)> on_magic_breakpoint;
 
     // esxdos shim hook. Fired when PC reaches $0008 (RST $08 destination).
@@ -339,6 +340,12 @@ public:
     /// GH #452 - the first opcode byte the last execute() fetched at PC (valid when
     /// last_slot_kind() == Opcode). A HALT repeat is a slot whose opcode was 0x76.
     uint8_t last_opcode() const;
+
+    /// GH #489 - the i-th M1 byte the last execute() fetched: 0 = the opcode, 1 = the byte after a
+    /// CB/ED/DD/FD prefix (after a DD/FD chain, the next prefix or the opcode that ends it). 0xFF
+    /// past the bytes fetched (an accepted INT, or a slot that fetched no opcode, has none).
+    /// Read from the fetch buffer execute() fills anyway: no per-slot bookkeeping.
+    uint8_t last_m1_byte(unsigned i) const;
 
     /// GH #452 - account `count` MORE HALT repeats after one the caller has just run for
     /// real, each costing `each` T-states, without executing them. What `count` further

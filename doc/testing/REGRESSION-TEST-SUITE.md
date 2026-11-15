@@ -91,11 +91,15 @@ harness fault):
 - **`private-sd`** — the row writes to the SD card (`nextsync-func` formats
   it, `soft-reset-shadow-screen-func` stages a program onto it), so it gets a
   copy of its own. Every other row boots the run's clone through a hard link.
+- **`bound=<seconds>`** — this row's own kill bound, in place of the 600 s
+  default, for a row whose measured pass is slower than that
+  (`harness-selftest-func`, `bound=1500`). A positive integer, at most one per
+  row; anything else is a harness fault.
 
 What the driver checks, beyond the end-of-run accounting below: a row reports
 exactly one result under its own name (twice, or none, is a harness fault); a
 harness fault inside a row process is one of the run; a row that dies without a
-result or outlives `JNEXT_REGRESSION_ROW_TIMEOUT` (600 s) is a FAIL naming it,
+result or outlives `JNEXT_REGRESSION_ROW_TIMEOUT` (600 s, or the row's `bound=` tag) is a FAIL naming it,
 and the run goes on; a row that exits with its directories still there (its
 own trap replaced the library's) is a harness fault; a row directory that
 exists before its row starts, or is left over at the end, means some row wrote
@@ -146,7 +150,8 @@ subset of this one. `regression.sh --platform` runs the screenshots and the
 functional rows against another OS's binaries, taken from the build trees named
 by `JNEXT_TARGET_BUILD` (the Qt build) and `JNEXT_TARGET_SDL_BUILD` (the SDL-only
 build). The target OS is read from their `CMakeCache.txt` (`JNEXT_TARGET_OS`),
-never from the caller, and the two trees must agree. Use the make targets:
+never from the caller (a dir with no cache, an unpacked Windows package, is read
+from its `jnext.exe`'s PE header; GH #487), and the two trees must agree. Use the make targets:
 
 ```console
 $ make regression-win      # Linux host: MinGW exes under wine
@@ -154,9 +159,9 @@ $ make regression-macos    # macOS host (CI: macos-regression)
 $ make regression-wasm     # WebAssembly build under node (CI: regression-wasm)
 ```
 
-`regression-win` builds the Qt exe as the shipped build minus PGO (Release +
-LTO, `build/win-release-non-pgo`) with Qt's `qoffscreen.dll` bundled into that
-test tree only, and the SDL-only exe (`build/win-sdl-release`); the native helper
+`regression-win` builds the Qt exe as `package-win` zips it (the PGO tree,
+`build/win-release`; GH #487) with Qt's `qoffscreen.dll` bundled into that
+test tree only (the zip's staging never copies it), and the SDL-only exe (`build/win-sdl-release`); the native helper
 tools (`rewind_test`, `sdfile_tool`, the probes) come from the SDL unit-test
 tree (`TEST_BIN_DIR`). A full run takes the host lock like `make regression`.
 `ROWS="a-func b-func"` runs named rows. Platform runs are never stamped.
@@ -186,6 +191,28 @@ Rows reach the binaries through `$JNEXT` and `$JNEXT_SDL`, the helpers through
 `$TEST_BIN_DIR`, and read `$JNEXT_TARGET_OS` where a row must differ (offscreen
 instead of Xvfb off Linux, `core=-1@0kHz` in `--benchmark`, a failing-write file
 instead of `/dev/full` on macOS).
+
+### Package runs: each package's own binary (GH #487)
+
+`make regression` and `make regression-win` test build trees, not the files the
+release publishes (each package has its own PGO tree and profile, and the debs are
+built by Ubuntu's toolchain). `make regression-package PACKAGE=rpm|deb|win|win-qt5|win32-qt5`
+(`test/regression-package.sh`) builds one package, unpacks the artifact without
+installing it, and runs the harness against the binary inside:
+
+- `rpm`, `deb`: extracted under `build/regression-package/<p>/`, run with
+  `JNEXT=<dir>/usr/bin/jnext`.
+- `win*`: unzipped into a scratch copy that alone gets Qt's offscreen plugin: `bundle-dlls.sh`
+  stages the exe twice (with and without the plugin) and only the difference, which must be exactly
+  `platforms/qoffscreen.dll`, is copied, so a
+  file the zip lacks is never put back from the MinGW sysroot; then `regression.sh --platform`
+  with the copy as `JNEXT_TARGET_BUILD`. A package dir's wine runs get no sysroot on `PATH`
+  (`wine-run.sh --jnext` drops it when no `CMakeCache.txt` sits beside the exe), so a DLL missing from the zip fails the run. A sha256
+  manifest of the zip's members proves none changed, and the scratch copy is removed after a green run.
+- Rows: every screenshot row plus 17 functional rows named in the script. Green needs exit 0,
+  no FAIL, no SKIP and exactly lints (7 on Linux, 0 on Windows) + 1 SD provision + 68 + 17.
+- Never stamped, not in the batch gate; `release.yml` runs it after each package, before the upload.
+  The Flatpak is a documented gap.
 
 ### nextsync-func under wine: self-diagnosing (GH #319)
 
@@ -238,29 +265,50 @@ NONBLOCK covers the PCM, not pipewire-alsa's context setup, which blocks in `mod
 **The capture, in case a stall recurs.** When `JNEXT_WINE_CAPTURE_DIR` is set (the driver sets it to
 `build/regression-artifacts/wine-stall/<run>/`, which CI uploads on a red run), `wine-run.sh --jnext`
 starts a watchdog (`--watchdog`, stdio on `/dev/null`, so it holds none of the row's pipes). It
-reads `/proc/<wine pid>/stat` once a second and fires ONCE when the process is at least 20 s old, its
+reads `/proc/<exe pid>/stat` once a second and fires ONCE when the process is at least 20 s old, its
 CPU time has not moved for 10 s and the total is at most 2 s (a startup stall has 0.1-0.3 s; a starved
-but runnable process keeps advancing; one that worked then idled is over the cap). It writes
-`wine-stall-<time>-<pid>.txt`: the process's threads from `/proc`; the prefix's processes with thread
-counts; the threads of the `winedevice.exe` driver hosts (`/proc` only: attaching to one would pause
-every row's device I/O); `winedbg info thread`; and one `Backtrace:` per thread of that ONE Windows pid
-from a single `winedbg --file` session (attach, `bt <tid>` each, detach). It never uses `bt all`: real
-winedbg answers "can't debug several processes at once". The runner then prints one stderr line naming
-the file. TERM is forwarded at once and captures nothing: the v1.1.79 capture fired on every
-deliberate TERM (29 per green run) and its `bt all <pid>` never finished under load. At the end of
-every Windows run the driver prints `wine prefix at the end:` and lists any captures. Diagnostics
+but runnable process keeps advancing; one that worked then idled is over the cap).
+
+*Which process is the exe.* Wine 11.20 runs a 64-bit exe in the process the runner started, but a
+32-bit exe as `start.exe /exec <exe>`, which starts it as ANOTHER Linux process, reparented away from
+the runner; watching the runner's child would watch `start.exe`, whose CPU time stays near 0 for ever.
+So each runner exports a marker, `JNEXT_WINE_RUN_ID`, into wine's environment (it reaches the
+exe's `/proc/<pid>/environ` and its Windows environment), and the exe is the ONE process of its name
+in the prefix whose environment carries it (`exe_pid`): parallel rows share a prefix and an exe name, so
+the name alone never decides. TERM and INT are forwarded to both processes (`start.exe` does not pass
+INT on).
+
+*What it writes*, `wine-stall-<time>-<pid>.txt`: the exe's threads from `/proc`, and a `target:` line
+saying whether wine ran it in place or through `start.exe`; the prefix's processes with thread counts;
+the threads of the `winedevice.exe` driver hosts (`/proc` only: attaching to one would pause every row's
+device I/O); `winedbg info thread` (it attaches to nothing); and one `Backtrace:` per thread of the exe
+from a debugger-free helper, `test/wine-stack.c` (`make wine-stack-x64` / `wine-stack-x86`, test tools,
+never packaged). The helper finds the process by name and marker, suspends a thread only around
+`GetThreadContext` and walks its stack with `StackWalk64`. It replaces winedbg's `attach`/`bt`/`detach`
+session, which on wine 11.20 kills a 32-bit process (the attach's break-in thread faults on a truncated
+address) and which could not pick the right process anyway, since real winedbg prints no command line.
+Its bitness follows the exe's PE machine (an x64 helper on a 32-bit target loses the `ReadFile` frame);
+a missing helper is a line saying so in the capture, never a silent fallback. The runner then prints one
+stderr line naming the file. TERM is forwarded at once and captures nothing: the v1.1.79 capture fired
+on every deliberate TERM (29 per green run) and its `bt all <pid>` never finished under load. At the end
+of every Windows run the driver prints `wine prefix at the end:` and lists any captures. Diagnostics
 only: no exit status moves.
 
 **The capture is checked against a known answer, once per run.** After `--serve` and before the first
-row the driver blocks a real `jnext.exe` on purpose (`--headless`, an empty config dir and no
-`--sdcard`, so the SD prompt blocks in `std::getline(std::cin)` on a stdin pipe the driver holds
-open), with the watchdog at 3 s / 2 s (`JNEXT_WINE_STALL_AFTER_S` / `_FLAT_S`, test-only), and the
-capture must hold a `Backtrace:` naming wine's `ReadFile` or `ReadConsole` and no "can't debug several
-processes". Anything else is a HARNESS FAULT (exit 2): a capture that silently cannot capture reads as
-"no stall", which is what v1.1.79 shipped. It costs about 4 s and is not a row. Its capture lives in its
-own directory and is deleted on success, so the end-of-run captures line counts real stalls only.
-`JNEXT_WINE_STALL_AFTER_S`, `_FLAT_S`, `_POLL_S` and `JNEXT_WINE_DBG_BOUND_S` are test-only overrides (the driver unsets them before the rows). HS-99d-t pin the watchdog, the capture and the self-check; the harness-selftest stub winedbg mirrors
-real winedbg (the old stub answered `bt all <pid>`, which is how that bug passed review).
+row the driver blocks TWO real `jnext.exe` on purpose (`--headless`, an empty config dir and no
+`--sdcard`, so the SD prompt blocks in `std::getline(std::cin)` on a stdin pipe the driver holds open):
+a decoy (`--machine 128k`, no capture dir), started first so that it has the lower Windows pid, and the
+target (`--machine 48k`), with the watchdog at 3 s / 2 s (`JNEXT_WINE_STALL_AFTER_S` / `_FLAT_S`,
+test-only). The capture must be one file whose target threads are the exe's, hold a `Backtrace:` naming
+wine's `ReadFile` or `ReadConsole`, show the TARGET's command line (never the decoy's) and not say "can't
+debug several processes". It must also be harmless: answering `n` on both pipes must end both runners by
+themselves with status 1 and "no SD-card image available", with no "Unhandled" (the winedbg attach killed
+a 32-bit process). Anything else is a HARNESS FAULT (exit 2): a capture that silently cannot capture
+reads as "no stall", which is what v1.1.79 shipped. The success line echoes the `target:` line, the first
+target thread and the `ReadFile` frame. It runs on the 64-bit binaries in every `make regression-win`
+and on the 32-bit Qt exe in `make regression-package PACKAGE=win32-qt5`. Its capture lives in its own
+directory and is deleted on success, so the end-of-run captures line counts real stalls only.
+`JNEXT_WINE_STALL_AFTER_S`, `_FLAT_S`, `_POLL_S` and `JNEXT_WINE_DBG_BOUND_S` are test-only overrides (the driver unsets them before the rows). HS-99d-t and HS-182a-j pin the watchdog, the capture and the self-check. The harness-selftest stub wine mirrors real wine as measured on 11.20: `winedbg info thread` prints no command lines, a 32-bit exe is started by a script named `start.exe` as a separate detached process that ignores INT, and a stub helper picks the process by name and marker. (The earlier stub printed command lines real winedbg never prints, which is how the exact-match arm passed review while never firing on real wine.)
 
 ## One full run at a time, and green-run stamps (GH #295)
 
@@ -359,6 +407,22 @@ palette-demo      next    test/00regression/nex/palette_demo.nex 3
 - `BOOT` as the nex_file means "boot without loading a program" (tests ROM boot)
 - `screenshot_delay_secs` is how long to wait before capturing
 - The auto-exit delay is automatically set to `screenshot_delay + 2`
+
+## Boot-timeline frames (`bf`)
+
+A row that presses a key, captures a screen or resets at a frame of a cold NextZXOS
+boot writes that frame with the boot-ready helper, so it keeps its meaning on a card
+whose firmware boots for a different number of frames. The anchor is the firmware's
+machine-type commit (first NR 0x03 write with bits 2:0 = 001..100), measured once per
+run by `boot-commit-probe.jds` in the `[sdcard-provision]` row (26.11: frame 472; a 24.11 card: 295). In
+a shell row: `shot=$(bf 400)`, `bf_keys 400 space 470 down ...` (fills `BF_KEYS`),
+`bf 900 2` for a frame after a hard reset (K = 2: the firmware runs again), and
+`bf_jds in.jds.in out.jds` for `{{bf N}}` placeholders; in `regression_tests.conf`,
+`@bf:N` or `@bf:N:K`. On the reference card every expansion is the literal, so the
+command lines are unchanged. The default master must commit at `BOOT_DEFAULT_COMMIT`
+(295) or `[sdcard-provision]` FAILS; a candidate card
+(`JNEXT_REGRESSION_SD_STATE_DIR`) may commit anywhere and the row reports where.
+Details: developer guide, section 4.3.
 
 ## Reference Screenshots
 

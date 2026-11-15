@@ -11,14 +11,18 @@
 // symlink is ever traversed, whichever way it points -- and esxapi.def's
 // esx_eacces (8) for the refusal.
 
+#include "core/emulator.h"
+#include "core/emulator_config.h"
 #include "core/esxdos_hostfs.h"
 
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #include "../row_id.h"
 #include "../test_portable.h"
@@ -160,6 +164,209 @@ int main() {
             hcheck("HFS-12", "symlink fixtures unavailable on this host", false, "");
         }
 
+    }
+
+    // HFW-130..134 (GH #457) -- the calls that change the host folder never act on
+    // a symlink, whichever way it points (a link whose target is INSIDE the root,
+    // which containment cannot object to, so the policy is the only refusal).
+    // The answer for a link is esx_eacces, as for every other call.
+    {
+        const fs::path wbase = fs::temp_directory_path() /
+                               ("jnext-hfw-links-" + jtp::process_id_string());
+        const fs::path wroot = wbase / "root";
+        fs::remove_all(wbase, rm_ec);
+        put_file(wroot / "real.txt", "REAL");
+        put_file(wroot / "other.txt", "OTHER");
+        put_file(wroot / "sub" / "in.bin", "IN");
+        fs::create_directories(wroot / "only-link");
+        fs::create_directories(wroot / "emptyd");
+        std::error_code wln;
+        fs::create_symlink(wroot / "real.txt", wroot / "l.txt", wln);
+        const bool f1 = !wln;
+        fs::create_directory_symlink(wroot / "sub", wroot / "link-sub", wln);
+        const bool f2 = !wln;
+        fs::create_symlink(wroot / "real.txt", wroot / "only-link" / "k.txt", wln);
+        const bool f3 = !wln;
+        fs::create_directory_symlink(wroot / "emptyd", wroot / "link-empty", wln);
+        const bool f4 = !wln;
+        const bool fixtures = f1 && f2 && f3 && f4;
+        if (fixtures) {
+            EsxdosHostFs w;
+            std::string why;
+            w.configure(wroot.string(), true, why);
+            const bool real_was_writable =
+                (fs::status(wroot / "real.txt").permissions() & fs::perms::owner_write) !=
+                fs::perms::none;
+            const uint8_t ul = w.unlink("l.txt");
+            hcheck("HFW-130",
+                   "F_UNLINK of a symlink (target inside the root) is esx_eacces; the link "
+                   "and its target are intact",
+                   ul == EsxdosHostFs::kEacces && fs::is_symlink(wroot / "l.txt") &&
+                       fs::exists(wroot / "real.txt"),
+                   "A=" + hex2(ul));
+            // a link named "x" must not make a wildcard call in its directory refuse
+            std::error_code xln;
+            fs::create_symlink(wroot / "real.txt", wroot / "x", xln);
+            const uint8_t wu = w.unlink("only-link/*.txt");
+            hcheck("HFW-131",
+                   "wildcard F_UNLINK does not delete a symlink: \"*.txt\" in a directory "
+                   "holding only a link matches nothing (esx_enoent), and in the root deletes "
+                   "the regular files only",
+                   wu == EsxdosHostFs::kEnoent && fs::is_symlink(wroot / "only-link" / "k.txt") &&
+                       w.unlink("*.txt") == EsxdosHostFs::kOk && !fs::exists(wroot / "other.txt") &&
+                       !fs::exists(wroot / "real.txt") && fs::is_symlink(wroot / "l.txt"),
+                   "A=" + hex2(wu));
+            put_file(wroot / "real.txt", "REAL");
+            put_file(wroot / "other.txt", "OTHER");
+            const uint8_t r1 = w.rename("l.txt", "moved.txt");
+            const uint8_t r2 = w.rename("other.txt", "l.txt");
+            const uint8_t r3 = w.rename("other.txt", "link-sub/x.txt");
+            hcheck("HFW-132",
+                   "F_RENAME of a link, onto a link and through a linked directory is "
+                   "esx_eacces, and nothing moves",
+                   r1 == EsxdosHostFs::kEacces && r2 == EsxdosHostFs::kEacces &&
+                       r3 == EsxdosHostFs::kEacces && fs::is_symlink(wroot / "l.txt") &&
+                       fs::exists(wroot / "other.txt") && !fs::exists(wroot / "moved.txt") &&
+                       !fs::exists(wroot / "sub" / "x.txt"),
+                   "A=" + hex2(r1) + "," + hex2(r2) + "," + hex2(r3));
+            const uint8_t m1 = w.mkdir("link-sub/made");
+            const uint8_t t1 = w.truncate("l.txt", 1);
+            const uint8_t c1 = w.chmod("l.txt", 0, EsxdosHostFs::kChmodWrite);
+            const bool still_writable =
+                (fs::status(wroot / "real.txt").permissions() & fs::perms::owner_write) !=
+                fs::perms::none;
+            hcheck("HFW-133",
+                   "F_MKDIR through a linked directory, F_TRUNCATE and F_CHMOD of a link are "
+                   "esx_eacces; nothing changes",
+                   m1 == EsxdosHostFs::kEacces && t1 == EsxdosHostFs::kEacces &&
+                       c1 == EsxdosHostFs::kEacces && !fs::exists(wroot / "sub" / "made") &&
+                       fs::file_size(wroot / "real.txt") == 4 && still_writable == real_was_writable,
+                   "A=" + hex2(m1) + "," + hex2(t1) + "," + hex2(c1));
+            const uint8_t d1 = w.rmdir("link-empty");
+            const uint8_t d2 = w.rmdir("only-link");
+            hcheck("HFW-134",
+                   "F_RMDIR of a link to a directory is esx_eacces; of a directory holding "
+                   "only a link esx_enospc (empty means nothing on the host); both stay",
+                   d1 == EsxdosHostFs::kEacces && d2 == EsxdosHostFs::kEnospc &&
+                       fs::is_symlink(wroot / "link-empty") && fs::exists(wroot / "emptyd") &&
+                       fs::is_symlink(wroot / "only-link" / "k.txt"),
+                   "A=" + hex2(d1) + "," + hex2(d2));
+        } else {
+            for (const char* id : {"HFW-130", "HFW-131", "HFW-132", "HFW-133", "HFW-134"})
+                hcheck(id, "symlink fixtures unavailable on this host", false,
+                       "create_symlink failed");
+        }
+        fs::remove_all(wbase, rm_ec);
+    }
+
+    // HFW-180 (GH #476) -- the archive bit of a file F_UNLINK deleted does not come back with the
+    // same inode. The host keeps a hard link, jnext F_CHMODs and F_UNLINKs the name, the host moves
+    // the link back: same inode, size and modification time (an unlink changes only the ctime), so
+    // only F_UNLINK's own forgetting of the entry makes the file read archive-set (a new entry on
+    // the card). POSIX only, like the rest of this suite: Windows has no usable inode and wine no
+    // hard links; a host that cannot make the link FAILS the row, it never skips.
+    {
+        const fs::path hbase = fs::temp_directory_path() / ("jnext-hostfs-hl-" + jtp::process_id_string());
+        std::error_code hec;
+        fs::remove_all(hbase, hec);
+        put_file(hbase / "h1.txt", "hh");
+        std::error_code lec;
+        fs::create_hard_link(hbase / "h1.txt", hbase / "h1-keep.txt", lec);
+        const bool linked = !lec;
+        EsxdosHostFs hw;
+        std::string why;
+        hw.configure(hbase.string(), true, why);
+        uint8_t cm = 0xFF, ul = 0xFF, a_stat = 0xFF, a_fstat = 0xFF, a_before = 0xFF;
+        if (linked) {
+            cm = hw.chmod("h1.txt", EsxdosHostFs::kChmodWrite, EsxdosHostFs::kChmodWrite);
+            EsxdosHostFs::StatInfo sb;
+            hw.stat("h1.txt", sb);
+            a_before = sb.attr;
+            ul = hw.unlink("h1.txt");
+            std::error_code mec;
+            fs::rename(hbase / "h1-keep.txt", hbase / "h1.txt", mec);
+            EsxdosHostFs::StatInfo st;
+            if (!mec && hw.stat("h1.txt", st) == EsxdosHostFs::kOk) a_stat = st.attr;
+            uint8_t h = 0;
+            EsxdosHostFs::StatInfo fst;
+            if (hw.open("h1.txt", EsxdosHostFs::kModeRead, h) == EsxdosHostFs::kOk) {
+                if (hw.fstat(h, fst) == EsxdosHostFs::kOk) a_fstat = fst.attr;
+                hw.close(h);
+            }
+        }
+        hcheck("HFW-180",
+               "a name F_UNLINK deleted reads archive-set when the host puts the SAME file (same inode, "
+               "size and mtime, through a hard link) back under it: F_STAT and F_FSTAT 20, not the "
+               "'clear' F_CHMOD left (design; nothing of the old entry survives an unlink)",
+               linked && cm == EsxdosHostFs::kOk && a_before == 0 && ul == EsxdosHostFs::kOk &&
+                   a_stat == EsxdosHostFs::kAttrArchive && a_fstat == EsxdosHostFs::kAttrArchive,
+               std::string(linked ? "" : "hard link unavailable: ") + "chmod=" + hex2(cm) + " before=" +
+                   hex2(a_before) + " unlink=" + hex2(ul) + " stat=" + hex2(a_stat) + " fstat=" + hex2(a_fstat));
+        fs::remove_all(hbase, rm_ec);
+    }
+
+    // NXROOT-13 (GH #490) -- the implicit root of --esxdos-stub is the directory
+    // the NEX's PATH names, not its link target's: L/link.nex -> R/real.nex
+    // serves L (the directory `.RUN` and the kept-open sibling lookup already
+    // use). Needs a symlink, hence here and POSIX-only.
+    {
+        const fs::path nbase = fs::temp_directory_path() /
+                               ("jnext-gh490-links-" + jtp::process_id_string());
+        fs::remove_all(nbase, rm_ec);
+        fs::create_directories(nbase / "L");
+        fs::create_directories(nbase / "R");
+        put_file(nbase / "L" / "data.bin", "L");
+        put_file(nbase / "R" / "data.bin", "R");
+        {   // V1.2, one bank (bank 2), PC $8000 = JR $
+            std::vector<char> f(512, 0);
+            std::copy_n("NextV1.2", 8, f.begin());
+            f[9] = 1; f[12] = static_cast<char>(0xF0); f[13] = static_cast<char>(0xBF);
+            f[15] = static_cast<char>(0x80); f[18 + 2] = 1;
+            std::vector<char> bank(0x4000, 0);
+            bank[0] = 0x18; bank[1] = static_cast<char>(0xFE);
+            f.insert(f.end(), bank.begin(), bank.end());
+            std::ofstream o(nbase / "R" / "real.nex", std::ios::binary | std::ios::trunc);
+            o.write(f.data(), static_cast<std::streamsize>(f.size()));
+        }
+        std::error_code nln;
+        fs::create_symlink(nbase / "R" / "real.nex", nbase / "L" / "link.nex", nln);
+        bool ok = false;
+        std::string got;
+        std::string root;
+        if (!nln) {
+            EmulatorConfig c;
+            c.type = MachineType::ZXN_ISSUE2;
+            c.esxdos_stub = true;
+            c.rewind_buffer_frames = 0;
+            auto ep = std::make_unique<Emulator>();
+            Emulator& e = *ep;
+            ok = e.init(c) && e.load_nex((nbase / "L" / "link.nex").string());
+            root = e.esxdos_hostfs().root().string();
+            if (ok && e.cpu().on_esxdos_call) {
+                const std::string nm = "data.bin";
+                for (std::size_t i = 0; i <= nm.size(); ++i)
+                    e.mmu().write(static_cast<uint16_t>(0x9100 + i),
+                                  i < nm.size() ? static_cast<uint8_t>(nm[i]) : 0);
+                Z80Registers r{};
+                r.AF = static_cast<uint16_t>('*' << 8);
+                r.IX = 0x9100;
+                r.BC = static_cast<uint16_t>(EsxdosHostFs::kModeRead << 8);
+                if (e.cpu().on_esxdos_call(0x9A, r) && !(r.AF & 1)) {
+                    Z80Registers rd{};
+                    rd.AF = static_cast<uint16_t>(r.AF & 0xFF00);
+                    rd.IX = 0x9200;
+                    rd.BC = 1;
+                    if (e.cpu().on_esxdos_call(0x9D, rd) && !(rd.AF & 1))
+                        got.push_back(static_cast<char>(e.mmu().read(0x9200)));
+                }
+            }
+        }
+        hcheck("NXROOT-13",
+               "a NEX reached through a symlink serves the directory of the link, "
+               "not of its target",
+               !nln && ok && root == fs::canonical(nbase / "L").string() && got == "L",
+               "root=" + root + " got='" + got + "'");
+        fs::remove_all(nbase, rm_ec);
     }
 
     fs::remove_all(base, rm_ec);

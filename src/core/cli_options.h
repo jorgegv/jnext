@@ -52,6 +52,7 @@ enum class OptId {
     Sdcard,
     SdcardDownloadConfirm,
     SdcardDownloadForce,
+    SdcardUpgrade,
     SdcardReadonly,
     SdcardFileAdd,
     SdcardFileDest,
@@ -282,6 +283,15 @@ inline constexpr Option OPTIONS[] = {
       "Force re-download + re-patch of the default-location\n"
       "image (~/.jnext/sdcard/) to recover a corrupted one. Ignored\n"
       "when --sdcard is given (an explicit path always wins)." },
+    { "--sdcard-upgrade", 1, Doc::Documented, OptId::SdcardUpgrade,
+      "MODE",
+      "What to do when the default-location card is of an older\n"
+      "NextZXOS distribution than the one jnext downloads: ask (the\n"
+      "default in the GUI; forgets a \"do not ask again\"), yes\n"
+      "(replace it, losing what is saved on it), no (keep it this\n"
+      "run) or never (keep it and do not offer this distribution\n"
+      "again). Refused with --sdcard (an explicit card is never\n"
+      "offered an upgrade)." },
     { "--sdcard-readonly", 0, Doc::Documented, OptId::SdcardReadonly,
       "",
       "Open the SD image read-only; the host file is never written" },
@@ -496,12 +506,15 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Answer a few RST $08 esxDOS calls (version, one in-memory\n"
       "file, .RUN sibling NEX) for any program; a directly loaded\n"
-      "NEX gets more automatically. Not for use with NextZXOS" },
+      "NEX gets more automatically, and with no --esxdos-stub-root\n"
+      "its own directory is served read-only. Not for use with\n"
+      "NextZXOS" },
     { "--esxdos-stub-root", 1, Doc::Documented, OptId::EsxdosStubRoot,
       "DIR",
       "Serve host directory DIR to the guest through the esxDOS\n"
       "file and directory calls, instead of the single in-memory\n"
-      "file. Implies --esxdos-stub. Read-only unless\n"
+      "file. Overrides the default root, the directory of the\n"
+      "loaded NEX. Implies --esxdos-stub. Read-only unless\n"
       "--esxdos-stub-writable is also given.\n"
       "SEEN BY: a NEX loaded with --load, and dot commands.\n"
       "NOT SEEN BY: NextZXOS - its Browser, file selector, BASIC\n"
@@ -511,8 +524,10 @@ inline constexpr Option OPTIONS[] = {
       "NextZXOS can see it, copy it into the SD-card image." },
     { "--esxdos-stub-writable", 0, Doc::Documented, OptId::EsxdosStubWritable,
       "",
-      "Allow the guest to create, truncate and write files under\n"
-      "--esxdos-stub-root. Off by default: a guest write is a real\n"
+      "Allow the guest to create, truncate, write, delete and\n"
+      "rename files, make and remove directories and set the\n"
+      "read-only bit of files under --esxdos-stub-root (or the\n"
+      "NEX's directory). Off by default: a guest write is a real\n"
       "host side effect, and rewinding the emulator cannot undo it" },
     { "--rtc", 1, Doc::Documented, OptId::Rtc,
       "\"YYYY-MM-DD HH:MM:SS\"",
@@ -814,7 +829,7 @@ inline constexpr Option OPTIONS[] = {
     // Debugging
     { "--magic-breakpoint", 0, Doc::Documented, OptId::MagicBreakpoint,
       "",
-      "Enable magic breakpoints (ED FF / DD 01 trigger debugger)" },
+      "Enable magic breakpoints (ED FF / FD 00 / DD 01 trigger debugger)" },
     // GH #219. Accepted by EVERY build, including --headless, the SDL-only
     // frontend and -DENABLE_DEBUGGER=OFF, where it is simply inert: nothing
     // outside src/debugger/ can add a breakpoint, so the armed check never

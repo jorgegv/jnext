@@ -4,7 +4,10 @@
 
 #include <QApplication>
 #include <QEventLoop>
+#include <QAbstractButton>
+#include <QCheckBox>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QProgressDialog>
 #include <QString>
 #include <Qt>
@@ -52,6 +55,39 @@ bool SdcardGuiProvisioner::confirm(const std::string& message) {
     box.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
     box.setDefaultButton(QMessageBox::No);
     return box.exec() == QMessageBox::Yes;
+}
+
+SdcardGuiProvisioner::UpgradeBox SdcardGuiProvisioner::upgrade_box(const std::string& to,
+                                                                   const std::string& message) {
+    UpgradeBox u;
+    u.box = std::make_unique<QMessageBox>();
+    u.box->setWindowTitle(QString::fromStdString(sdcard::distribution_title(to) + " is available"));
+    u.box->setIcon(QMessageBox::Warning);
+    u.box->setText(QStringLiteral("<b>%1</b>").arg(
+        QString::fromStdString(sdcard::distribution_title(to) + " is available").toHtmlEscaped()));
+    u.box->setInformativeText(QString::fromStdString(message));
+    u.replace = u.box->addButton(QObject::tr("Download and replace"), QMessageBox::DestructiveRole);
+    u.keep    = u.box->addButton(QObject::tr("Keep my card"), QMessageBox::RejectRole);
+    u.box->setDefaultButton(qobject_cast<QPushButton*>(u.keep));
+    u.box->setEscapeButton(u.keep);
+    u.dont_ask = new QCheckBox(QObject::tr("Do not ask me again"));
+    u.box->setCheckBox(u.dont_ask);
+    return u;
+}
+
+sdcard::UpgradeChoice SdcardGuiProvisioner::upgrade_answer(const UpgradeBox& b,
+                                                           const QAbstractButton* pressed) {
+    if (pressed == b.replace) return sdcard::UpgradeChoice::Replace;
+    return b.dont_ask && b.dont_ask->isChecked() ? sdcard::UpgradeChoice::KeepDontAskAgain
+                                                 : sdcard::UpgradeChoice::Keep;
+}
+
+sdcard::UpgradeChoice SdcardGuiProvisioner::offer_upgrade(const std::string&, const std::string& to,
+                                                          const std::string& message) {
+    ensure_app();
+    UpgradeBox u = upgrade_box(to, message);
+    u.box->exec();
+    return upgrade_answer(u, u.box->clickedButton());
 }
 
 void SdcardGuiProvisioner::set_texts(const std::string& title, const std::string& headline,

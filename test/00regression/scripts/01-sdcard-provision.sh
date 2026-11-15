@@ -94,11 +94,27 @@ sd_hash() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
 # would trip `set -e` on exactly the images this exists to catch.
 sd_recipe() { { head -n1 "$SD_RECIPE" 2>/dev/null || true; } | tr -d '[:space:]'; }
 
+# sd_seam_raw_distro: the zip name the seam dir's raw came from: its .distro sidecar, else the
+# legacy 24.11 name (what jnext itself reads a raw with no sidecar as).
+sd_seam_raw_distro() {
+    local side="$SD_DIR/cspect-next-1gb.img.distro" d=""
+    [[ ! -f "$side" ]] || d=$(head -n1 "$side" | tr -d '[:space:]')
+    echo "${d:-sn-emulator-24.11.zip}"
+}
+
+# sd_master_distro: the zip name the master was made from: its .distro sidecar, else the legacy
+# 24.11 name (a master made before distributions were recorded).
+sd_master_distro() {
+    local d=""
+    [[ ! -f "$FALLBACK_SD_IMAGE.distro" ]] || d=$(head -n1 "$FALLBACK_SD_IMAGE.distro" | tr -d '[:space:]')
+    echo "${d:-sn-emulator-24.11.zip}"
+}
+
 sd_rederive() {
     # The witness rm is belt-and-braces: sd_rederive rewrites it on every
     # success anyway. It matters only on the FAILURE path, where it stops a
     # witness describing an image that no longer exists from surviving.
-    rm -f "$FALLBACK_SD_IMAGE" "$SD_WITNESS" "$SD_RECIPE"
+    rm -f "$FALLBACK_SD_IMAGE" "$SD_WITNESS" "$SD_RECIPE" "$FALLBACK_SD_IMAGE.distro"
     # JNEXT_CONFIG_DIR is pinned to the MASTER's directory for this one
     # invocation. It points at the per-run clone dir everywhere else, and the
     # provisioner honours it (src/core/sdcard_provisioner.cpp) — without the
@@ -107,7 +123,17 @@ sd_rederive() {
     # JNEXT_NATIVE (GH #319): a platform run for Windows derives the image with a
     # jnext of the HOST (the download is a network job, not worth running through
     # wine); unset, the binary under test does it, as before.
-    JNEXT_CONFIG_DIR="$HOME/.jnext" \
+    # With the candidate-card seam the derive is offline by construction: it only runs
+    # from a raw the sidecar verifies (sd_seam_raw_ok), and a download address that
+    # cannot be fetched makes any other path fail instead of fetching the default
+    # distribution into the candidate's directory. The address ENDS IN THE RAW'S OWN
+    # DISTRIBUTION NAME (its .distro sidecar, else sn-emulator-24.11.zip): jnext reuses a raw
+    # only when the distribution it was downloaded from is the one the address names (GH #476),
+    # so any other name makes it refuse the verified raw and try the download.
+    local sd_env=("JNEXT_CONFIG_DIR=${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}")
+    [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] \
+        || sd_env+=("JNEXT_SDCARD_DISTRO_URL=file:///nonexistent-candidate-card-never-download/$(sd_seam_raw_distro)")
+    env "${sd_env[@]}" \
         "${JNEXT_NATIVE:-$JNEXT}" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
     [[ -f "$FALLBACK_SD_IMAGE" ]] || return 1
     # No witness for an image of the wrong recipe: the next run re-derives it
@@ -122,6 +148,8 @@ sd_rederive() {
 # if it is somehow absent, fall through unlocked rather than refuse to test.
 sd_state=""
 sd_old_recipe=""
+sd_old_distro=""
+sd_want_distro=$(sd_expected_distro) || sd_want_distro=""
 # sd_derive_as <state> — re-derive, and name the outcome: <state> on success,
 # "wrongrecipe" when jnext derived an image of another recipe, else "failed".
 sd_derive_as() {
@@ -129,12 +157,55 @@ sd_derive_as() {
     sd_rederive || rc=$?
     case $rc in 0) sd_state=$1 ;; 2) sd_state=wrongrecipe ;; *) sd_state=failed ;; esac
 }
+# sd_seam_raw_ok: 0 when the seam dir holds the raw distribution image and its sidecar
+# names that image's sha256 (what jnext itself checks before it reuses a raw).
+sd_seam_raw_ok() {
+    local raw="$SD_DIR/cspect-next-1gb.img" side="$SD_DIR/cspect-next-1gb.img.sha256" want
+    [[ -f "$raw" && -f "$side" ]] || return 1
+    want=$(awk '{print $1; exit}' "$side")
+    [[ -n "$want" && "$(sd_hash "$raw")" == "$want" ]] || return 1
+    # The offline derive names the raw's distribution in its address: only a plain file name can be one.
+    [[ "$(sd_seam_raw_distro)" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+sd_seam_why=""
+# The candidate-card gate (JNEXT_REGRESSION_SD_STATE_DIR set). The candidate is the thing
+# under evaluation, so unlike the default master it is never deleted unless a verified raw
+# can rebuild it, and nothing is downloaded. Without a verified raw: a card with no
+# witness is adopted as it is (and witnessed); a missing card, or one that drifted from
+# its witness, FAILS the row and says why.
+sd_seam_gate() {
+    local have_raw=1
+    sd_seam_raw_ok || have_raw=0
+    if [[ ! -f "$FALLBACK_SD_IMAGE" ]]; then
+        if [[ $have_raw == 1 ]]; then sd_derive_as provisioned
+        else sd_state=seamfail; sd_seam_why="no card in the seam dir and no raw whose sidecar verifies, so it cannot be derived (nothing is downloaded)"; fi
+    elif [[ ! -f "$SD_WITNESS" ]]; then
+        printf '%s  %s\n' "$(sd_hash "$FALLBACK_SD_IMAGE")" "$(basename "$FALLBACK_SD_IMAGE")" > "$SD_WITNESS"
+        sd_state=adopted
+    elif [[ "$(sd_hash "$FALLBACK_SD_IMAGE")" != "$(awk '{print $1}' "$SD_WITNESS")" ]]; then
+        if [[ $have_raw == 1 ]]; then sd_derive_as repaired
+        else sd_state=seamfail; sd_seam_why="the card drifted from its witness and there is no raw whose sidecar verifies to rebuild it from (the card is left as it is)"; fi
+    elif [[ "$(sd_recipe)" != "$sd_want_recipe" && $have_raw == 1 ]]; then
+        sd_old_recipe=$(sd_recipe); sd_derive_as recipe
+    else
+        sd_state=pristine
+    fi
+}
 {
     flock 9 2>/dev/null || true
     if [[ -z "$sd_want_recipe" ]]; then
         sd_state="norecipe"
+    elif [[ -z "$sd_want_distro" ]]; then
+        sd_state="nodistro"
+    elif [[ -n "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]]; then
+        sd_seam_gate
     elif [[ ! -f "$FALLBACK_SD_IMAGE" || ! -f "$SD_WITNESS" ]]; then
         sd_derive_as provisioned
+    elif [[ "$(sd_master_distro)" != "$sd_want_distro" ]]; then
+        # The default distribution moved (GH #476): a master of another one is replaced, however
+        # healthy its witness and recipe, or every boot row runs on the wrong card.
+        sd_old_distro=$(sd_master_distro)
+        sd_derive_as distro
     elif [[ "$(sd_recipe)" != "$sd_want_recipe" ]]; then
         sd_old_recipe=$(sd_recipe)
         sd_derive_as recipe
@@ -158,11 +229,16 @@ sd_clone_for_run || true
 SD_MASTER_STAMP=$(stat -c '%i:%Y:%s' "$FALLBACK_SD_IMAGE" 2>/dev/null || echo "absent")
 
 case "$sd_state" in
-    pristine)    sd_verdict=pass; sd_text=": unchanged since it was derived" ;;
+    pristine)    sd_verdict=pass; sd_text=": unchanged since it was derived"
+                 [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] || sd_text=": candidate card unchanged since it was witnessed" ;;
     provisioned) sd_verdict=pass; sd_text=": derived $FALLBACK_SD_IMAGE" ;;
     repaired)    sd_verdict=pass; sd_text=": WAS MODIFIED — re-derived from the verified distribution image" ;;
+    distro)      sd_verdict=pass; sd_text=": made from distribution $sd_old_distro - re-derived from the default $sd_want_distro" ;;
     recipe)      sd_verdict=pass; sd_text=": made by image recipe ${sd_old_recipe:-(none recorded)} — re-derived with recipe $sd_want_recipe" ;;
+    adopted)     sd_verdict=pass; sd_text=": candidate card used as it is and witnessed (not re-derived: it has no witness yet, so it is taken as it is)" ;;
+    seamfail)    sd_verdict=fail; sd_text=": candidate card: $sd_seam_why" ;;
     wrongrecipe) sd_verdict=fail; sd_text=": jnext derived an image of recipe '${sd_got_recipe:-}', expected '$sd_want_recipe' — $JNEXT is not built from this tree" ;;
+    nodistro)    sd_verdict=fail; sd_text=": cannot read kDistroUrl from src/core/sdcard_provisioner.cpp" ;;
     norecipe)    sd_verdict=fail; sd_text=": cannot read kFixedImageRecipe from src/core/sdcard_provisioner.cpp" ;;
     *)           sd_verdict=fail; sd_text=": provisioning failed — $FALLBACK_SD_IMAGE was not produced" ;;
 esac
@@ -175,6 +251,30 @@ case "$SD_CLONE_MODE" in
     copy)    sd_text+="; run image COPIED (no reflink on this filesystem) to $RUN_DIR/sdcard" ;;
     *)       sd_verdict=fail; sd_text+="; per-run clone $SD_CLONE_MODE — this run would share the master" ;;
 esac
+
+# A run on a candidate card (JNEXT_REGRESSION_SD_STATE_DIR) says so in its row.
+[[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] || sd_text+="; master in use $FALLBACK_SD_IMAGE (JNEXT_REGRESSION_SD_STATE_DIR)"
+
+# The boot anchor (test-functions.inc, "The boot-ready helper"): the frame at which this card's
+# firmware commits a machine type, measured once here on the run's clone and exported, so every
+# row's bf shift is the same number. The DEFAULT master must give BOOT_DEFAULT_COMMIT: a change
+# that moves the boot is a red row, never a shift the helper absorbs. A candidate card (the
+# seam) may commit anywhere, and the row reports where. JNEXT_REGRESSION_BOOT_ANCHOR=off skips
+# the measurement (the row sdcard-provision-func drives this script with a stub jnext whose
+# every call it counts).
+if [[ "$sd_verdict" == pass && "${JNEXT_REGRESSION_BOOT_ANCHOR:-on}" != off ]]; then
+    if boot_c=$(boot_commit_measure); then
+        export BOOT_COMMIT_MEASURED=$boot_c
+        sd_text+="; firmware commits the machine type at frame $boot_c (reference $BOOT_REF_COMMIT): boot-relative frames shift by $((boot_c - BOOT_REF_COMMIT))"
+        if [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" && "$boot_c" != "$BOOT_DEFAULT_COMMIT" ]]; then
+            sd_verdict=fail
+            sd_text+=" - the default card must commit at frame $BOOT_DEFAULT_COMMIT: an emulator change moved the boot, or the master is not the default card"
+        fi
+    else
+        sd_verdict=fail
+        sd_text+="; the firmware never committed a machine type within 1500 frames"
+    fi
+fi
 
 CURRENT_ROW=sdcard-provision
 printf "  "

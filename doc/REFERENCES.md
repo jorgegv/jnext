@@ -109,6 +109,12 @@ Cited by tool, version and file path in [SOURCE-LEVEL-DEBUGGING.md](design/SOURC
 |---|---|
 | The `.z80` snapshot format (v1 header the browser tests' converter `test/browser/sna2z80.py` writes) | <https://worldofspectrum.org/faq/reference/z80format.htm> |
 
+## NextZXOS distributions (SD card images)
+
+| Reference | URL |
+|---|---|
+| NextZXOS 24.11 emulator distribution: the default card `kDistroUrl` downloads (`src/core/sdcard_provisioner.cpp`) | <https://www.specnext.com/distro/24.11/sn-emulator-24.11.zip> |
+| NextZXOS 26.11 emulator distribution (`sn-emulator-26.11`): the candidate card, tried with `JNEXT_SDCARD_DISTRO_URL` | <https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip> |
 
 ## Adding to this file
 

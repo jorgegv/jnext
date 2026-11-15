@@ -324,35 +324,24 @@ void test_pass4_z80n_q_hygiene_clears_q_at_dispatch(Result& res) {
 
 // FIX FOR REVIEWER COVERAGE GAP #4: Pass-4 iff2_read hygiene at top of
 // Z80N dispatch. Test that running a Z80N opcode after LD A,I (which
-// sets iff2_read=1 in FUSE z80_ed.c:138) clears iff2_read, so a
-// subsequent INT acceptance does NOT fire the NMOS LD A,I/R quirk
-// (P-flag clear in fuse_z80_core.c:126).
+// sets iff2_read=1 in FUSE z80_ed.c:137) leaves P/V intact when an INT
+// is accepted afterwards.
 //
-// VHDL/FUSE oracle:
-//   z80_ed.c:138 LD A,I  → z80.iff2_read = 1
-//   fuse_z80_core.c:126: if (z80.iff2_read && !IS_CMOS) F &= ~FLAG_P;
-//   Pass-4 fix: z80.iff2_read = 0 at top of Z80N dispatch (z80_cpu.cpp
-//   execute()).
+// Since the NMOS LD A,I/R P/V race was removed (the T80N has none:
+// t80n.vhd:1175, 1193, 1206, 1768-1771), iff2_read has no consumer: it is
+// still set by the vendored z80_ed.c, cleared by this hygiene at dispatch
+// and carried in the snapshot, but nothing reads it. The assertion below
+// therefore holds with or without the hygiene clear; the row is kept as it
+// was, and the LD A,I/R behaviour itself is pinned by CPU-LDAI-INT-01 and
+// the rows after it.
 //
 // Test sequence:
 //   1. Pre-set z80.iff2_read = 1 (mimic LD A,I aftermath).
 //   2. Pre-set IFF1=1 IM=1 with F.P=1 (P/V bit).
-//   3. Run Z80N SWAPNIB (no F write) — should clear iff2_read.
+//   3. Run Z80N SWAPNIB (no F write).
 //   4. Request an INT and execute() — INT acceptance.
-//   5. With fix: iff2_read=0 → P-flag preserved on stack.
-//      Without fix: iff2_read=1 → P-flag cleared on stack.
-//
-// Stack inspection: ISR frame at 0x0038 (IM=1) — we can't easily check
-// the P flag mid-ISR, but we CAN check what F is right at INT
-// acceptance: FUSE sets F &= ~FLAG_P inside fuse_z80_interrupt() but
-// only modifies the LIVE F (which is then carried into the ISR). The
-// pre-INT F is preserved on stack as PCH/PCL push only — F is NOT pushed
-// by IM=1 INT. So F mutation is observable in regs immediately after INT
-// acceptance via cpu.get_registers().
-//
-// Discriminative check protocol:
-//   Revert `z80.iff2_read = 0` in z80_cpu.cpp Z80N dispatch → P bit
-//   gets cleared at INT → assertion (F & FLAG_P) != 0 FAILS.
+//   5. F.P is preserved (F is not pushed by an IM=1 INT, so it is
+//      observable in regs immediately after acceptance).
 //
 // LIMITATION (class-c): the reviewer noted that in the live Emulator,
 // this code path is gated on `!im2_.is_im2_mode()` (Pass-10 carry-forward).
@@ -386,8 +375,7 @@ void test_pass4_z80n_iff2_read_hygiene_at_dispatch(Result& res) {
     // Manually inject the iff2_read=1 latch BEFORE the Z80N opcode runs.
     z80.iff2_read = 1;
 
-    // Run SWAPNIB. Pass-4 fix clears z80.iff2_read at dispatch top;
-    // SWAPNIB does not re-set it.
+    // Run SWAPNIB (clears z80.iff2_read at dispatch top; does not re-set it).
     cpu.execute();
 
     // After SWAPNIB, request an interrupt and run execute() to accept
@@ -396,8 +384,7 @@ void test_pass4_z80n_iff2_read_hygiene_at_dispatch(Result& res) {
     // current tstates.
     cpu.request_interrupt(0xFF);
 
-    // Drive INT acceptance. fuse_z80_interrupt() consults
-    // z80.iff2_read && !IS_CMOS to decide P-clear.
+    // Drive INT acceptance.
     cpu.execute();
     auto out = cpu.get_registers();
     uint8_t f_after = out.AF & 0xFF;
@@ -407,12 +394,215 @@ void test_pass4_z80n_iff2_read_hygiene_at_dispatch(Result& res) {
     char detail[240];
     std::snprintf(detail, sizeof(detail),
                   "Pre-set z80.iff2_read=1; ran SWAPNIB then accepted INT; "
-                  "post-INT F=0x%02x F.P=%d (expect 1 = preserved by Pass-4 "
-                  "iff2_read clear); PC=0x%04x (expect 0x0038)",
+                  "post-INT F=0x%02x F.P=%d (expect 1 = preserved); PC=0x%04x (expect 0x0038)",
                   f_after, p_preserved ? 1 : 0, out.PC);
     check(res, "Z80N-IFF2-READ-HYGIENE-AT-DISPATCH",
           "pass4 z80n iff2 read hygiene at dispatch [c84f9ea]",
           p_preserved && pc_at_isr, detail);
+}
+
+// ─── LD A,I / LD A,R and interrupt acceptance ──────────────────────────────
+//
+// The T80N writes F.P/V from IFF2 at T3 of the LD's M1 (t80n.vhd:1175 `if
+// TState = 3`; LD A,I at :1188-1193, LD A,R at :1206) and an accepted
+// interrupt clears IFF2 only at the end of the instruction (t80n.vhd:1768-1771),
+// so there is no NMOS "interrupt right after LD A,I/R clears P/V" race.
+
+// LD A,I / LD A,R (`op2` = 0x57 / 0x5F) with IFF1=IFF2=1, then an INT accepted
+// at the very next boundary. Returns F.P/V and whether the INT was taken.
+void ld_a_ir_then_int(uint8_t op2, uint8_t im, bool& p_set, bool& taken,
+                      uint16_t& pc, uint8_t& f) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0000;
+    regs.IFF1 = 1; regs.IFF2 = 1;
+    regs.IM = im;
+    regs.PC = 0x8000;
+    regs.I = 0x3F;
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = op2;
+    mem.ram[0x0038] = 0x76;          // IM 0 (RST 38) / IM 1: HALT at the ISR
+    mem.ram[0x3FFF] = 0x00;          // IM 2: vector word at (I<<8)|0xFF -> 0x9000
+    mem.ram[0x4000] = 0x90;
+    mem.ram[0x9000] = 0x76;          // IM 2: HALT at the ISR
+    cpu.execute();                   // LD A,I / LD A,R
+    cpu.request_interrupt(0xFF);
+    cpu.execute();                   // accepts the INT at the boundary
+    auto out = cpu.get_registers();
+    f = out.AF & 0xFF;
+    p_set = (f & 0x04) != 0;
+    taken = out.IFF1 == 0;
+    pc = out.PC;
+}
+
+void test_ldai_int_keeps_pv(Result& res) {
+    bool p, taken; uint16_t pc; uint8_t f;
+    ld_a_ir_then_int(0x57, 1, p, taken, pc, f);
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "LD A,I with IFF2=1 then INT at the next boundary: F=0x%02x "
+                  "F.P=%d (expect 1) IFF1=%d (expect 0 = INT taken) PC=0x%04x",
+                  f, p ? 1 : 0, taken ? 0 : 1, pc);
+    check(res, "CPU-LDAI-INT-01",
+          "LD A,I then INT keeps P/V = IFF2 [t80n.vhd:1175, 1193, 1768-1771]",
+          p && taken && (pc == 0x0038 || pc == 0x0039), detail);
+}
+
+void test_ldar_int_keeps_pv(Result& res) {
+    bool p, taken; uint16_t pc; uint8_t f;
+    ld_a_ir_then_int(0x5F, 1, p, taken, pc, f);
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "LD A,R with IFF2=1 then INT at the next boundary: F=0x%02x "
+                  "F.P=%d (expect 1) IFF1=%d (expect 0 = INT taken) PC=0x%04x",
+                  f, p ? 1 : 0, taken ? 0 : 1, pc);
+    check(res, "CPU-LDAR-INT-02",
+          "LD A,R then INT keeps P/V = IFF2 [t80n.vhd:1175, 1206, 1768-1771]",
+          p && taken && (pc == 0x0038 || pc == 0x0039), detail);
+}
+
+// LD A,I / LD A,R (`op2`) with the given IFF1/IFF2 and F preset, no INT.
+uint8_t ld_a_ir_no_int(uint8_t op2, uint8_t iff1, uint8_t iff2, uint16_t af) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+    auto regs = cpu.get_registers();
+    regs.AF = af;
+    regs.IFF1 = iff1; regs.IFF2 = iff2;
+    regs.PC = 0x8000;
+    regs.I = 0x3F;
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = op2;
+    cpu.execute();
+    return cpu.get_registers().AF & 0xFF;
+}
+
+// P/V follows IFF2 on both sides: IFF2=0 clears a previously set P/V.
+void test_ldai_iff2_clear(Result& res) {
+    uint8_t f = ld_a_ir_no_int(0x57, 0, 0, 0x0004);   // F.P set beforehand
+    char detail[120];
+    std::snprintf(detail, sizeof(detail),
+                  "LD A,I with IFF2=0, F.P preset: F=0x%02x (expect F.P=0)", f);
+    check(res, "CPU-LDAI-IFF2-03",
+          "LD A,I with IFF2=0 clears P/V [t80n.vhd:1193]",
+          (f & 0x04) == 0, detail);
+}
+
+// P/V comes from IFF2, not IFF1 (inside an NMI handler IFF1=0, IFF2=1).
+void test_ldai_pv_from_iff2_not_iff1(Result& res) {
+    uint8_t f = ld_a_ir_no_int(0x57, 0, 1, 0x0000);
+    char detail[120];
+    std::snprintf(detail, sizeof(detail),
+                  "LD A,I with IFF1=0 IFF2=1: F=0x%02x (expect F.P=1)", f);
+    check(res, "CPU-LDAI-NMI-04",
+          "LD A,I takes P/V from IFF2, not IFF1 [t80n.vhd:1193, 1765-1767]",
+          (f & 0x04) != 0, detail);
+}
+
+// The same two conditions for LD A,R (separate microcode special, :1206).
+void test_ldar_iff2_clear(Result& res) {
+    uint8_t f = ld_a_ir_no_int(0x5F, 0, 0, 0x0004);
+    char detail[120];
+    std::snprintf(detail, sizeof(detail),
+                  "LD A,R with IFF2=0, F.P preset: F=0x%02x (expect F.P=0)", f);
+    check(res, "CPU-LDAR-IFF2-08",
+          "LD A,R with IFF2=0 clears P/V [t80n.vhd:1206]",
+          (f & 0x04) == 0, detail);
+}
+
+void test_ldar_pv_from_iff2_not_iff1(Result& res) {
+    uint8_t f = ld_a_ir_no_int(0x5F, 0, 1, 0x0000);
+    char detail[120];
+    std::snprintf(detail, sizeof(detail),
+                  "LD A,R with IFF1=0 IFF2=1: F=0x%02x (expect F.P=1)", f);
+    check(res, "CPU-LDAR-NMI-09",
+          "LD A,R takes P/V from IFF2, not IFF1 [t80n.vhd:1206, 1765-1767]",
+          (f & 0x04) != 0, detail);
+}
+
+// LD A,I then an INT accepted at the next boundary in IM 0 and IM 2: P/V keeps
+// IFF2 in every interrupt mode (the INTACK M1 cannot rewrite F: t80n.vhd:500-513).
+void test_ldai_int_keeps_pv_im0(Result& res) {
+    bool p, taken; uint16_t pc; uint8_t f;
+    ld_a_ir_then_int(0x57, 0, p, taken, pc, f);
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "IM 0, LD A,I with IFF2=1 then INT: F=0x%02x F.P=%d (expect 1) "
+                  "IFF1=%d (expect 0) PC=0x%04x (expect 0x0038)",
+                  f, p ? 1 : 0, taken ? 0 : 1, pc);
+    check(res, "CPU-LDAI-INT-IM0-06",
+          "LD A,I then INT in IM 0 keeps P/V = IFF2 [t80n.vhd:1193, 1768-1771]",
+          p && taken && (pc == 0x0038 || pc == 0x0039), detail);
+}
+
+void test_ldai_int_keeps_pv_im2(Result& res) {
+    bool p, taken; uint16_t pc; uint8_t f;
+    ld_a_ir_then_int(0x57, 2, p, taken, pc, f);
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "IM 2, LD A,I with IFF2=1 then INT: F=0x%02x F.P=%d (expect 1) "
+                  "IFF1=%d (expect 0) PC=0x%04x (expect 0x9000)",
+                  f, p ? 1 : 0, taken ? 0 : 1, pc);
+    check(res, "CPU-LDAI-INT-IM2-07",
+          "LD A,I then INT in IM 2 keeps P/V = IFF2 [t80n.vhd:1193, 1768-1771]",
+          p && taken && (pc == 0x9000 || pc == 0x9001), detail);
+}
+
+// The +3DOS-style interrupt save/restore idiom survives an INT accepted
+// straight after the LD A,I: interrupts are re-enabled afterwards.
+//   8000 ED 57  LD A,I      800A 00     NOP
+//   8002 F3     DI          800B 76     HALT
+//   8003 F5     PUSH AF     0038 FB C9  EI; RET
+//   8004 C1     POP BC
+//   8005 CB 51  BIT 2,C
+//   8007 28 01  JR Z,+1
+//   8009 FB     EI
+void test_ldai_save_restore_idiom(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0000;
+    regs.IFF1 = 1; regs.IFF2 = 1;
+    regs.IM = 1;
+    regs.PC = 0x8000;
+    regs.I = 0x3F;
+    cpu.set_registers(regs);
+    static const uint8_t prog[] = {0xED, 0x57, 0xF3, 0xF5, 0xC1, 0xCB, 0x51,
+                                   0x28, 0x01, 0xFB, 0x00, 0x76};
+    for (unsigned i = 0; i < sizeof(prog); ++i) mem.ram[0x8000 + i] = prog[i];
+    mem.ram[0x0038] = 0xFB;          // EI
+    mem.ram[0x0039] = 0xC9;          // RET
+    cpu.execute();                   // LD A,I
+    int64_t b = *fuse_z80_tstates_ptr();
+    cpu.request_interrupt(0xFF, b, b);   // seen at this one boundary only
+    bool isr_ran = false, at_halt = false;
+    for (int i = 0; i < 50 && !at_halt; ++i) {
+        cpu.execute();
+        uint16_t pc = cpu.get_registers().PC;
+        if (pc == 0x0038 || pc == 0x0039) isr_ran = true;
+        at_halt = pc == 0x800B;
+    }
+    auto out = cpu.get_registers();
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "LD A,I; INT at that boundary; DI; save/restore idiom: "
+                  "reached HALT=%d ISR ran=%d IFF1=%d (expect 1,1,1)",
+                  at_halt ? 1 : 0, isr_ran ? 1 : 0, out.IFF1);
+    check(res, "CPU-LDAI-RESTORE-05",
+          "LD A,I save/restore idiom re-enables interrupts after an INT at "
+          "the LD A,I boundary [t80n.vhd:1193, 1768-1771]",
+          at_halt && isr_ran && out.IFF1 == 1, detail);
 }
 
 // Pass-4 (c84f9ea) — ADD HL,nn / ADD DE,nn / ADD BC,nn (ED 34/35/36)
@@ -3467,6 +3657,16 @@ int main() {
     test_pass4_z80n_q_hygiene_clears_q_at_dispatch(res);
     test_pass4_z80n_iff2_read_hygiene_at_dispatch(res);
     test_pass4_add_nn_memptr(res);
+    // GH #491: LD A,I / LD A,R and an INT at the next boundary
+    test_ldai_int_keeps_pv(res);
+    test_ldar_int_keeps_pv(res);
+    test_ldai_iff2_clear(res);
+    test_ldai_pv_from_iff2_not_iff1(res);
+    test_ldai_save_restore_idiom(res);
+    test_ldar_iff2_clear(res);
+    test_ldar_pv_from_iff2_not_iff1(res);
+    test_ldai_int_keeps_pv_im0(res);
+    test_ldai_int_keeps_pv_im2(res);
     test_pass4_save_load_iff2_read_interrupts_enabled_at_behavior(res);
     // Pass-5 (cb8daf7) + Pass-6 (b4af634)
     test_pass5_pass6_z80n_tstates_via_fuse_counter(res);

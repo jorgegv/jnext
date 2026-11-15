@@ -103,6 +103,15 @@ std::vector<std::string> PiQemu::build_args_with_chardev(const Spec& spec,
                                                          const std::string& chardev,
                                                          const std::string& audio_base) {
     const fs::path dir(spec.dir);
+    // `port=1` plugs the sound card straight into the Pi's only USB port. Without it QEMU
+    // inserts its own 8-port hub there and the guest services the hub's interrupt endpoint
+    // without pause: QEMU's idle CPU at the NextPi prompt is 6-8x higher with the hub
+    // (measured, GH #489). A device in the extras (possibly USB) needs the hub's free ports (QEMU
+    // refuses to start otherwise), so then the card is left without `port=`.
+    const std::string sound_card =
+        extra_args_may_add_device(spec.extra_args)
+            ? "usb-audio,audiodev=snd0,buffer=16384"
+            : "usb-audio,audiodev=snd0,buffer=16384,port=1";
     std::vector<std::string> args{
         "-M", "raspi0",
         "-kernel", (dir / "boot" / "kernel.img").string(),
@@ -110,7 +119,7 @@ std::vector<std::string> PiQemu::build_args_with_chardev(const Spec& spec,
         "-drive", "file=" + qemu_escape((dir / "overlay.qcow2").string()) + ",if=sd,format=qcow2",
         "-append", KERNEL_APPEND,
         "-audiodev", uses_mixer(spec) ? mixer_audiodev_arg(audio_base) : audiodev_arg(spec.audio),
-        "-device", "usb-audio,audiodev=snd0,buffer=16384",
+        "-device", sound_card,
         "-chardev", chardev,
         "-serial", "chardev:pi",
 #ifdef _WIN32
@@ -124,6 +133,17 @@ std::vector<std::string> PiQemu::build_args_with_chardev(const Spec& spec,
     // the console stays on the first (GH #407).
     args.insert(args.end(), spec.extra_args.begin(), spec.extra_args.end());
     return args;
+}
+
+bool PiQemu::extra_args_may_add_device(const std::vector<std::string>& extra) {
+    // Deliberately coarse: QEMU's `-device` grammar (driver= anywhere, JSON, escaped commas,
+    // non-"usb-" USB names such as u2f-passthru) is not parsed. A wrong "yes" costs only CPU
+    // (the hub, as before); a wrong "no" stops QEMU from starting ("no free ports").
+    for (const std::string& a : extra)
+        if (a == "-device" || a == "--device" || a == "-usbdevice" || a == "--usbdevice" ||
+            a == "-readconfig" || a == "--readconfig")
+            return true;
+    return false;
 }
 
 bool PiQemu::split_extra_args(const std::string& text, std::vector<std::string>& out,

@@ -3,9 +3,16 @@
 ## Unreleased (2026-11-07)
 
 ### User Features
+- `--esxdos-stub` now serves a loaded NEX its own directory when no `--esxdos-stub-root` is given
+- esxDOS host folder: delete (wildcards too), rename, make/remove directories, truncate, read-only bit and error messages, answered as NextZXOS does (from @shrek128's WebAssembly port)
 - Much faster emulation of programs that HALT or wait on the Copper: 20 to 84 % fewer host instructions per frame, same output (suggested by @shrek128)
 
+### Developer Features
+- Source tab opens any file the source map names (File list), to browse it and set breakpoints in its gutter
+- Magic breakpoint recognises FD 00, the sjasmplus break opcode (CSpect 2.19.9.1+); ED FF now runs as the hardware NOP
+
 ### Bug Fixes
+- NextPi: an idle Pi costs far less CPU (QEMU no longer adds a USB hub for the Pi's sound card) (@janko-jj)
 - Programs loaded on the Next that print through the ROM (RST $10) no longer hang; the warm start records NextZXOS at its Command Line
 - Loading a NEX keeps the NextZXOS system variables and screen pixels, and sets the border as the NEX loaders do
 - SD card: a refused write no longer leaves a read-only card unreadable (macOS) or lands later after a host write error
@@ -13,9 +20,14 @@
 - Source debugger: z88dk code and data in a section placed in a named bank block (BANK_n_*, PAGE_n_*) now map to the right page
 - NEX: header bit 6 and byte 152 follow the loaders: V1.3 non-zero skips classic screens, an unknown value loads, V1.2 ignores bit 6
 - A .szx saved from a 128K, +2A/+3 or Pentagon now keeps the AY registers, so music and effects survive a reload
+- macOS: a file opened from the Finder (double-click, Open With, Dock) now loads instead of being ignored
+- Busy programs use much less CPU with the Debugger window open (@janko-jj)
+- Idle programs keep their low CPU use with the ESP-01 enabled or the debugger window open; Preferences OK no longer resets the CPU speed
+- NextZXOS no longer freezes on a blank grey screen when an interrupt lands right after LD A,I (e.g. a quick SPACE at the Welcome screen)
+- The packages now include the 48K ROM symbol map, so the debugger can name ROM routines (Map > Load MAP File > Simple Format)
 
 ### Contributors in this release
-- @shrek128, @vmorilla, @Luzie
+- @shrek128, @vmorilla, @Luzie, @shadowphiar, @janko-jj
 
 ## v1.2.0 (2026-11-06)
 

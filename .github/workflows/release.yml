@@ -39,6 +39,11 @@ name: Release
 #               that cannot fail anything is not a gate. `publish` requires
 #               success(), so a failed .dmg withholds the release.
 #
+# The rpm, deb and Windows jobs also run `make regression-package` on each package's
+# own binary right after building it (GH #487), before the upload: a red run
+# withholds the release. The Flatpak bundle is a documented gap (it gets its
+# in-build FUSE gate and permission gate only).
+#
 # workflow_dispatch builds all packages for testing but never publishes.
 
 on:
@@ -110,7 +115,8 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
             cmake make g++ git file dpkg-dev curl ca-certificates \
             zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
-            qt6-base-dev qt6-svg-dev
+            qt6-base-dev qt6-svg-dev \
+            imagemagick python3 ripgrep
           # SDL3 (GH #57). Ubuntu 24.04 LTS has no libsdl3 at ANY version, and
           # neither does 24.10 — it first appears in 25.04. That one series
           # therefore installs nothing here: `make package-deb` depends on the
@@ -154,12 +160,21 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-24.11-recipe2-fedora44
+          key: sdcard-image-distro-26.11-recipe3-fedora44
       # The project's own target, byte-for-byte the command a developer runs
       # locally (CLAUDE.md: CI runs the EXACT same commands as a local run).
       # It configures + builds build/deb-release and runs cpack -G DEB there.
       - name: make package-deb
         run: make package-deb
+      # GH #487: the regression suite runs the binary INSIDE this deb (unpacked,
+      # never installed), built here by Ubuntu's own toolchain and Qt, which no
+      # other job can execute. Before the rename below, so the tested file is the
+      # one uploaded; a red run withholds the release (`publish` needs success()).
+      # The 7 preflight lints use git, which refuses a checkout owned by another uid.
+      - name: Mark the checkout safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: make regression-package (deb)
+        run: make regression-package PACKAGE=deb
       # CPack emits jnext_<ver>_amd64.deb; tag it with the Ubuntu release so the
       # two matrix legs' artifacts don't collide (version derived, not hardcoded).
       - name: Rename deb per Ubuntu release
@@ -193,7 +208,8 @@ jobs:
           dnf install -y \
             cmake make gcc-c++ git \
             SDL3-devel libcurl-devel openssl-devel zlib-devel libpng-devel \
-            qt6-qtbase-devel qt6-qtsvg-devel rpm-build
+            qt6-qtbase-devel qt6-qtsvg-devel rpm-build \
+            cpio ImageMagick python3 ripgrep file util-linux diffutils
       - uses: actions/checkout@v5
         with:
           submodules: recursive
@@ -206,12 +222,20 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-24.11-recipe2-fedora44
+          key: sdcard-image-distro-26.11-recipe3-fedora44
       # The project's own target, byte-for-byte the command a developer runs
       # locally (CLAUDE.md: CI runs the EXACT same commands as a local run).
       # It configures + builds build/rpm-release and runs cpack -G RPM there.
       - name: make package-rpm
         run: make package-rpm
+      # GH #487: the regression suite runs the binary INSIDE this rpm (unpacked,
+      # never installed), so the published file is the tested one. A red run
+      # withholds the release (`publish` needs success()). The 7 preflight lints
+      # use git, which refuses a checkout owned by another uid.
+      - name: Mark the checkout safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: make regression-package (rpm)
+        run: make regression-package PACKAGE=rpm
       - uses: actions/upload-artifact@v6
         with:
           name: jnext-linux-rpm
@@ -281,7 +305,9 @@ jobs:
             mingw32-qt5-qtbase mingw32-qt5-qtbase-devel mingw32-qt5-qmake mingw32-qt5-qtsvg \
             mingw32-zlib mingw32-libpng mingw32-winpthreads \
             qt6-qtbase-devel \
-            wine-core wine-common
+            wine-core wine-common \
+            cmake gcc-c++ SDL3-devel zlib-devel libpng-devel libcurl-devel openssl-devel \
+            ImageMagick python3 util-linux unzip
       - uses: actions/checkout@v5
         with:
           submodules: recursive
@@ -294,7 +320,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-24.11-recipe2-fedora44
+          key: sdcard-image-distro-26.11-recipe3-fedora44
       - name: make package-win
         run: make package-win
       # Qt5 full-GUI Win7/8 legacy variant (GH #108 Phase A) — same container,
@@ -309,6 +335,19 @@ jobs:
       # Windows artifact: jnext-<ver>-windows-x86-legacy.zip (Win7 SP1+, 32-bit).
       - name: make package-win32-qt5
         run: make package-win32-qt5
+      # GH #487: each published zip's own jnext.exe is regression-tested under
+      # wine, unpacked into a scratch copy that alone gets Qt's offscreen plugin
+      # (never the zip). A red run withholds the release (`publish` needs
+      # success()). The native toolchain installed above builds the SDL unit-test
+      # tree (the harness's helper tools) and win-sdl-release, which the run needs.
+      - name: Mark the checkout safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: make regression-package (x64 Qt6 zip)
+        run: make regression-package PACKAGE=win
+      - name: make regression-package (x64 Qt5 legacy zip)
+        run: make regression-package PACKAGE=win-qt5
+      - name: make regression-package (x86 Qt5 legacy zip)
+        run: make regression-package PACKAGE=win32-qt5
       - uses: actions/upload-artifact@v6
         with:
           name: jnext-windows-package
@@ -448,7 +487,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-24.11-recipe2-macos
+          key: sdcard-image-distro-26.11-recipe3-macos
       # The project's own target, same as a local Mac build: configure, build,
       # package, then mount the .dmg and assert with otool that nothing inside
       # it references Homebrew (GH #46 — the v0.98.34 .dmg did, and aborted in

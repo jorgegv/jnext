@@ -179,7 +179,8 @@ target_include_directories(nextreg_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/
 add_test(NAME nextreg_integration_tests COMMAND nextreg_integration_test)
 
 add_executable(esxdos_stub_test esxdos_stub/esxdos_stub_test.cpp
-                               esxdos_stub/esxdos_hostfs_rows.cpp)
+                               esxdos_stub/esxdos_hostfs_rows.cpp
+                               esxdos_stub/esxdos_write_rows.cpp)
 target_link_libraries(esxdos_stub_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
@@ -203,7 +204,10 @@ if(NOT WIN32 AND NOT EMSCRIPTEN)
         JNEXT_TEST_CMAKE="${CMAKE_COMMAND}" JNEXT_TEST_SRC="${CMAKE_SOURCE_DIR}")
     add_test(NAME pgo_map_parse_tests COMMAND pgo_map_parse_test)
     add_executable(esxdos_symlink_test esxdos_stub/esxdos_symlink_test.cpp)
-    target_link_libraries(esxdos_symlink_test PRIVATE jnext_core spdlog::spdlog)
+    target_link_libraries(esxdos_symlink_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(esxdos_symlink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME esxdos_symlink_tests COMMAND esxdos_symlink_test)
     # GH #446 -- the POSIX-only rows of the ffmpeg PATH lookup (exec bits, symlinks, decoy script).
@@ -890,6 +894,39 @@ target_link_libraries(halt_batch_periph_test PRIVATE
 target_include_directories(halt_batch_periph_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME halt_batch_periph_tests COMMAND halt_batch_periph_test)
 
+# GH #489 - the HALT batch with an ESP-01 or a debugger client attached. jnext_platform for
+# emulator_cold_boot() (HBQ-63/64).
+add_executable(halt_batch_observer_test core/halt_batch_observer_test.cpp)
+target_link_libraries(halt_batch_observer_test PRIVATE
+    jnext_platform
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(halt_batch_observer_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME halt_batch_observer_tests COMMAND halt_batch_observer_test)
+
+# HBQ-60/63/64 of the above: they build the real ThreadedEsp, which needs a worker thread
+# (the WebAssembly build has none), so they run on native builds only.
+if(NOT EMSCRIPTEN)
+    add_executable(halt_batch_observer_native_test core/halt_batch_observer_native_test.cpp)
+    target_link_libraries(halt_batch_observer_native_test PRIVATE
+        jnext_platform
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(halt_batch_observer_native_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME halt_batch_observer_native_tests COMMAND halt_batch_observer_native_test)
+endif()
+
+# GH #489 - the call-stack tracker fed from the CPU's own M1 fetch buffer.
+add_executable(call_stack_fetch_test core/call_stack_fetch_test.cpp)
+target_link_libraries(call_stack_fetch_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(call_stack_fetch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME call_stack_fetch_tests COMMAND call_stack_fetch_test)
+
 add_executable(halt_batch_boot_test core/halt_batch_boot_test.cpp)
 target_link_libraries(halt_batch_boot_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
@@ -1217,6 +1254,15 @@ target_include_directories(sdl_pointer_release_test PRIVATE ${CMAKE_SOURCE_DIR}/
 target_link_libraries(sdl_pointer_release_test PRIVATE ${JNEXT_SDL3_TARGET})
 add_test(NAME sdl_pointer_release_tests COMMAND sdl_pointer_release_test)
 
+# The SDL upgrade offer's button mapping: which choice each button of the message box means.
+# The box needs a display, so only the mapping is tested; sdcard_upgrade_box.cpp is compiled in
+# directly (SDL3 plus the core's distribution_title, nothing of the platform library).
+add_executable(sdcard_upgrade_box_test platform/sdcard_upgrade_box_test.cpp
+                                       ${CMAKE_SOURCE_DIR}/src/platform/sdcard_upgrade_box.cpp)
+target_include_directories(sdcard_upgrade_box_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(sdcard_upgrade_box_test PRIVATE jnext_core ZLIB::ZLIB ${JNEXT_SDL3_TARGET})
+add_test(NAME sdcard_upgrade_box_tests COMMAND sdcard_upgrade_box_test)
+
 # GH #155 — the SDL window title names the version. Drives the real
 # SdlDisplay::init() under SDL's dummy video driver: no display, ungated.
 add_executable(sdl_window_title_test platform/sdl_window_title_test.cpp)
@@ -1406,7 +1452,8 @@ target_include_directories(z88dk_map_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(z88dk_map_test PRIVATE
     JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk"
     JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap"
-    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+    JNEXT_ROM_MAP="${CMAKE_SOURCE_DIR}/data/48rom.map")
 add_test(NAME z88dk_map_tests COMMAND z88dk_map_test)
 # GH #348 — the z88dk --list listing adapter (pure): the committed z88dk fixtures'
 # listings and maps, and the listing text the rows build in z80asm's format.
@@ -1482,7 +1529,8 @@ target_include_directories(debugger_backend_test PRIVATE ${CMAKE_SOURCE_DIR}/src
 # (GH #390) the committed sjasmplus --sym / --exp ones, SYM-29/31/32 beside a z88dk map.
 target_compile_definitions(debugger_backend_test PRIVATE
     JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap"
-    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+    JNEXT_SJASMBREAK_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmbreak")
 add_test(NAME debugger_backend_tests COMMAND debugger_backend_test)
 
 # GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState
@@ -1827,6 +1875,14 @@ if(ENABLE_QT_UI)
     target_include_directories(nex_v13_dialog_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME nex_v13_dialog_tests COMMAND nex_v13_dialog_test)
 
+    add_executable(desktop_open_test gui/desktop_open_test.cpp)
+    target_link_libraries(desktop_open_test PRIVATE jnext_gui)
+    target_include_directories(desktop_open_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # DOP-12..14 read QtApp::init() / run() from the source tree.
+    target_compile_definitions(desktop_open_test PRIVATE
+        JNEXT_QT_APP_CPP="${CMAKE_SOURCE_DIR}/src/gui/qt_app.cpp")
+    add_test(NAME desktop_open_tests COMMAND desktop_open_test)
+
     # GH #381 - Machine > POK Trainers...: the real menu action, file picker,
     # trainers dialog and value prompt over a real MainWindow and 48K machine.
     # The decisions (where a poke lands, undo, states) are pok_trainers_test's,
@@ -2110,6 +2166,18 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_persistent_bp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_persistent_bp_tests COMMAND debugger_persistent_bp_test)
+
+    # GH #489 - the debugger window open must not take the HALT batch away on an idle program:
+    # the real DebuggerManager attach path and BreakpointModel against a real Emulator.
+    add_executable(debugger_halt_batch_test debugger/halt_batch_test.cpp)
+    set_target_properties(debugger_halt_batch_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_halt_batch_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_halt_batch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_halt_batch_tests COMMAND debugger_halt_batch_test)
 
     # A debugger INSPECTION read is not a guest access. Drives the
     # real DebuggerWindow panels (Watches / Stack / Disassembly / Memory, the

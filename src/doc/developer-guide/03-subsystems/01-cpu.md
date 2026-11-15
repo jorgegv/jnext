@@ -77,13 +77,22 @@ and consults `kZ80NOpcodeTable`, a 256-entry table built at static-init from the
 `Z80NOpcode` enum. A hit dispatches to `execute_z80n()` and never reaches FUSE,
 which would otherwise decode it as a NOP; a miss falls through untouched.
 
-Two encodings are checked before that table: `ED FF` and `DD 01`, the two magic
-breakpoints. A magic breakpoint is an instruction a program plants in its own
-code to stop the emulator at that exact spot and hand control to the debugger —
-the two encodings are the ones ZEsarUX and CSpect established, and JNEXT honours
-both. They only bite when `--magic-breakpoint` is given; otherwise they execute
-as on real silicon: `ED FF` as a two-byte NOP, `DD 01 nn nn` as `LD BC,nn`
-(the `DD` prefix ignored).
+Three encodings are magic breakpoints: `ED FF`, `FD 00` and `DD 01`. A magic
+breakpoint is an instruction a program plants in its own code to stop the
+emulator at that exact spot and hand control to the debugger — the encodings are
+the ones ZEsarUX, CSpect and sjasmplus's `break` established, and JNEXT honours
+all three. They only bite when `--magic-breakpoint` is given; otherwise they
+execute as on real silicon: `ED FF` and `FD 00` as two-byte NOPs, `DD 01 nn nn`
+as `LD BC,nn` (the `DD` prefix ignored).
+
+`ED FF` and `FD 00` are real hardware instructions (two M1 fetches, R += 2,
+8 T-states, no register change), so `execute()` runs them through FUSE like any
+other and fires the hook after the instruction, from the fetched prefix chain
+(never a second memory read). `DD 01` is not an instruction on the hardware, so
+`execute()` intercepts it before FUSE and, when the hook returns true, skips the
+two bytes like a two-byte NOP: both M1 callbacks, both fetches' contention
+(`contend_read()`, so the cost is at least 8 T-states), R += 2 and Q cleared.
+It consumes no operand.
 
 Z80N instructions account for their own time rather than quoting a table
 constant. The wrapper charges the two M1 fetches via `contend_read()`,
@@ -207,6 +216,15 @@ that never happens. The vector comes from
 a path of its own, including the Next's stackless mode (NR 0xC0 bit 3), which
 suppresses the stack writes and substitutes the live NR 0xC3:0xC2 pair on the
 matching RETN/RETI.
+
+The core has no NMOS `LD A,I` / `LD A,R` race (an interrupt accepted straight after
+either instruction clearing P/V). The T80N writes P/V from IFF2 at T3 of the instruction
+(`t80n.vhd:1175`, `t80n.vhd:1193`, `t80n.vhd:1206`) and an accepted interrupt clears IFF2 only at the end
+of the instruction (`t80n.vhd:1768-1771`), so P/V always holds the IFF2 from before the
+acceptance, and the `LD A,I; DI; ... EI` save/restore idiom of the +3DOS ROM works. The
+FUSE core's NMOS P/V clear in `fuse_z80_interrupt()` is therefore not modelled (removed
+on 2026-11-12), while the rest of the core stays NMOS (`OUT (C),0` writes 0,
+`t80n_mcode.vhd:2468-2479`).
 
 ## The IM2 fabric
 

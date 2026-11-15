@@ -16,7 +16,9 @@
 #                     natively, Windows as MinGW exes under wine, WebAssembly as
 #                     Emscripten modules under node. The target is read
 #                     from the build trees (JNEXT_TARGET_BUILD / JNEXT_TARGET_SDL_BUILD,
-#                     JNEXT_TARGET_OS in their CMakeCache.txt), never from the caller.
+#                     JNEXT_TARGET_OS in their CMakeCache.txt; a dir with no cache, an
+#                     unpacked Windows package, is read from its jnext.exe's PE header),
+#                     never from the caller.
 #                     Runs the screenshots and the functional rows whose `os=` tag in
 #                     functional_tests.conf admits that OS (emscripten only the rows
 #                     whose tag NAMES it); the 7 lints (tree checks) and the stamp
@@ -36,7 +38,7 @@
 #      ../test-functions.inc relative to their own directory and die loudly.
 #      JNEXT_TEST_JOBS caps the screenshot and parallel functional lanes
 #      (default: every CPU), JNEXT_TEST_QUIET_JOBS the quiet phase (default
-#      1); JNEXT_REGRESSION_ROW_TIMEOUT bounds one row (600 s);
+#      1); JNEXT_REGRESSION_ROW_TIMEOUT bounds one row (600 s; a row's bound= tag overrides it);
 #      JNEXT_REGRESSION_STAMP=1 (set by `make regression`) stamps a green run;
 #      =confirm (set by `make regression-confirm`) re-runs a full run's
 #      loaded-host FAILs solo and, if they pass, stamps it;
@@ -207,6 +209,10 @@ fi
 # would do the same.
 REG_STAMP_MODE=${JNEXT_REGRESSION_STAMP:-}
 export -n JNEXT_REGRESSION_STAMP JNEXT_REGRESSION_LOCK 2>/dev/null || true
+# The boot anchor (test-functions.inc) is measured by THIS run's [sdcard-provision] row and exported
+# to its rows; one inherited from an enclosing run (the harness self-test runs this driver inside
+# harness-selftest-func) would hide an unmeasurable boot.
+unset BOOT_COMMIT_MEASURED
 
 # Shared helpers/constants and the one-time environment setup (locale, jnext
 # binary resolution, SD args, manifest paths, TMP_DIR + EXIT trap, counters,
@@ -281,6 +287,42 @@ done
 declare -A IS_FILTERED
 for arg in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do IS_FILTERED["$arg"]=1; done
 
+# --- Candidate-card seams (evaluating a new NextZXOS distribution) ---
+# JNEXT_REGRESSION_SD_STATE_DIR: a jnext state dir whose sdcard/ holds the
+# master this run uses instead of ~/.jnext/sdcard. JNEXT_REGRESSION_SHOTS_DIR:
+# where a failing screenshot row leaves its actual PNG. The stamp and the
+# reference screenshots certify the DEFAULT card, so a seam run is never
+# stamped and never --update; and neither path may lie inside the checkout,
+# where a card or a screen of one could be committed by accident.
+for seam_var in JNEXT_REGRESSION_SD_STATE_DIR JNEXT_REGRESSION_SHOTS_DIR; do
+    seam_val=${!seam_var:-}
+    [[ -n "$seam_val" ]] || continue
+    [[ "$seam_val" == /* ]] || harness_fault "${BOLD}$seam_var${RESET} must be an absolute path" \
+                                             "Got '$seam_val'."
+    # Lexical check only: a '..' component is refused, a symlink into the
+    # checkout is not detected.
+    [[ "/$seam_val/" != *"/../"* ]] || harness_fault "${BOLD}$seam_var${RESET} must not contain a '..' component" \
+                                                    "Got '$seam_val'."
+    # '//' and '/./' (an easy product of "$DIR/" concatenation) are collapsed first, so
+    # they cannot hide the checkout prefix.
+    seam_norm="$seam_val/"
+    while [[ "$seam_norm" == *"//"* || "$seam_norm" == *"/./"* ]]; do
+        seam_norm=${seam_norm//\/\//\/}
+        seam_norm=${seam_norm//\/.\//\/}
+    done
+    seam_norm=${seam_norm%/}
+    [[ "$seam_norm" != "$PROJECT_DIR" && "$seam_norm" != "$PROJECT_DIR"/* ]] \
+        || harness_fault "${BOLD}$seam_var${RESET} is inside the checkout ($PROJECT_DIR)" \
+                         "Card images and their screens never go where git add can see them."
+done
+if [[ -n "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]]; then
+    [[ -z "$REG_STAMP_MODE" ]] || harness_fault "${BOLD}JNEXT_REGRESSION_SD_STATE_DIR${RESET} runs are never stamped" \
+                                  "The stamp certifies the default card; JNEXT_REGRESSION_STAMP is set."
+    ! $UPDATE_MODE || harness_fault "${BOLD}JNEXT_REGRESSION_SD_STATE_DIR${RESET} cannot be combined with --update" \
+                                  "The references belong to the default card."
+fi
+[[ -z "${JNEXT_REGRESSION_SHOTS_DIR:-}" ]] || mkdir -p -- "$JNEXT_REGRESSION_SHOTS_DIR"
+
 # Check prerequisites
 if ! $PLATFORM_MODE && [[ ! -x "$JNEXT" ]]; then
     echo -e "${RED}ERROR: jnext binary not found at $JNEXT — build first${RESET}"
@@ -297,10 +339,19 @@ fi
 # TARGET_OS is the OS whose binaries the run executes. Without --platform it is
 # linux, and the `os=` tags below admit every row (linux is mandatory in every
 # tag). With it, it is read out of the build trees' own CMakeCache.txt
-# (JNEXT_TARGET_OS, set by CMakeLists.txt from CMAKE_SYSTEM_NAME), never taken
-# from the caller; both trees (the Qt one and the SDL-only one) must agree.
+# (JNEXT_TARGET_OS, set by CMakeLists.txt from CMAKE_SYSTEM_NAME) or, for a dir
+# that has none (an unpacked package), from its jnext.exe's own PE header (GH #487),
+# never taken from the caller; both trees (the Qt one and the SDL-only one) must agree.
 TARGET_OS=linux
 SHOT_WALL_FACTOR=1   # widened for emscripten only (screenshots.sh)
+plat_exe_is_pe() {   # plat_exe_is_pe <file> -- a PE image: "MZ", and "PE\0\0" at the e_lfanew offset (0x3c)
+    local f=$1 off
+    [[ -f "$f" ]] || return 1
+    [[ "$(od -An -c -N 2 "$f" | tr -d ' ')" == MZ ]] || return 1
+    off=$(od -An -tu4 -j 0x3c -N 4 "$f" | tr -d ' ')
+    [[ "$off" =~ ^[0-9]+$ ]] || return 1
+    [[ "$(od -An -tx1 -j "$off" -N 4 "$f" | tr -d ' ')" == 50450000 ]]
+}
 if $PLATFORM_MODE; then
     $UPDATE_MODE && harness_fault "${BOLD}--platform${RESET} cannot be combined with --update" \
                                   "Reference screenshots are regenerated on Linux only."
@@ -312,10 +363,17 @@ if $PLATFORM_MODE; then
         [[ -n "$plat_dir" ]] || harness_fault "${BOLD}--platform${RESET} needs ${BOLD}$plat_var${RESET} (the build tree whose binary is under test)" \
                                               "Use ${BOLD}make regression-win${RESET}, ${BOLD}make regression-macos${RESET} or ${BOLD}make regression-wasm${RESET}."
         plat_cache="$plat_dir/CMakeCache.txt"
-        [[ -f "$plat_cache" ]] || harness_fault "no CMakeCache.txt in ${BOLD}$plat_dir${RESET} ($plat_var): not a configured build tree"
-        plat_os=$(grep -m1 -oP '^JNEXT_TARGET_OS:[A-Z]+=\K.*' "$plat_cache" || true)
-        [[ -n "$plat_os" ]] || harness_fault "$plat_cache does not define ${BOLD}JNEXT_TARGET_OS${RESET}" \
-                                             "Every build of this project sets it; the harness will not guess."
+        if [[ -f "$plat_cache" ]]; then
+            plat_os=$(grep -m1 -oP '^JNEXT_TARGET_OS:[A-Z]+=\K.*' "$plat_cache" || true)
+            [[ -n "$plat_os" ]] || harness_fault "$plat_cache does not define ${BOLD}JNEXT_TARGET_OS${RESET}" \
+                                                 "Every build of this project sets it; the harness will not guess."
+        elif plat_exe_is_pe "$plat_dir/jnext.exe"; then
+            # An unpacked package (make regression-package) has no cache: its OS is
+            # the binary's own PE header, which no caller-set variable can fake.
+            plat_os=windows
+        else
+            harness_fault "no CMakeCache.txt and no Windows jnext.exe in ${BOLD}$plat_dir${RESET} ($plat_var): not a configured build tree or an unpacked Windows package"
+        fi
         case $plat_os in
             macos|windows|emscripten) ;;
             linux) harness_fault "${BOLD}$plat_dir${RESET} targets linux: --platform is for another OS" \
@@ -405,10 +463,12 @@ done
 # runs: `quiet` — in the quiet phase after the parallel one, a lane at a time
 # (rows that pace against real time and fail under contention); `serial` —
 # alone, after everything else; `private-sd` — on a copy of the SD card of its
-# own (rows that write to the card). Untagged rows run in the parallel phase on
+# own (rows that write to the card); `bound=<seconds>` — this row's own kill
+# bound in place of the 600 s default (a row whose measured pass is slower).
+# Untagged rows run in the parallel phase on
 # the run's shared clone. An unknown tag is refused, not ignored.
 DECLARED_FUNC=()
-declare -A IS_PRIVATE_SD IS_QUIET IS_SERIAL FUNC_OS
+declare -A IS_PRIVATE_SD IS_QUIET IS_SERIAL FUNC_OS ROW_BOUND_OF
 FUNC_HAS_OS_TAG=false
 while read -r name tags; do
     [[ -z "$name" || "$name" == \#* ]] && continue
@@ -418,6 +478,15 @@ while read -r name tags; do
             quiet)      IS_QUIET["$name"]=1 ;;
             serial)     IS_SERIAL["$name"]=1 ;;
             private-sd) IS_PRIVATE_SD["$name"]=1 ;;
+            bound=*)
+                # `bound=<seconds>`: this row's kill bound (ROW_BOUND otherwise).
+                [[ -z "${ROW_BOUND_OF[$name]:-}" ]] \
+                    || harness_fault "functional test ${BOLD}$name${RESET} carries two ${BOLD}bound=${RESET} tags"
+                [[ ${tag#bound=} =~ ^[1-9][0-9]*$ ]] \
+                    || harness_fault "functional test ${BOLD}$name${RESET} carries a malformed ${BOLD}$tag${RESET}" \
+                                     "bound=<seconds> takes a positive integer."
+                ROW_BOUND_OF["$name"]=${tag#bound=}
+                ;;
             os=*)
                 # `os=<list>` (GH #319): the OSes whose run includes this row.
                 # A closed set, comma-separated; linux is mandatory, so a Linux
@@ -445,7 +514,7 @@ while read -r name tags; do
                 FUNC_HAS_OS_TAG=true
                 ;;
             *) harness_fault "functional test ${BOLD}$name${RESET} carries an unknown tag ${BOLD}$tag${RESET}" \
-                             "Known tags: quiet, serial, private-sd, os=<linux[,macos][,windows][,emscripten]>." ;;
+                             "Known tags: quiet, serial, private-sd, bound=<seconds>, os=<linux[,macos][,windows][,emscripten]>." ;;
         esac
     done
     [[ -z "${IS_QUIET[$name]:-}" || -z "${IS_SERIAL[$name]:-}" ]] \
@@ -535,57 +604,113 @@ done
 # guards are what make the denominator trustworthy.
 if $PREFLIGHT_ONLY; then
     echo -e "${GREEN}preflight OK${RESET}: $(declared_count "$CONF") screenshot + ${#DECLARED_FUNC[@]} functional tests declared, pins agree"
+    # The per-row kill bounds the driver will apply (the array it reads), so the
+    # self-test can pin the conf tag -> driver link.
+    rb=""
+    for name in "${DECLARED_FUNC[@]}"; do
+        [[ -z "${ROW_BOUND_OF[$name]:-}" ]] || rb+=" $name=${ROW_BOUND_OF[$name]}s"
+    done
+    [[ -z "$rb" ]] || echo "  row bounds:$rb"
     ! $PLATFORM_MODE || echo "  platform $TARGET_OS: ${#RUN_FUNC[@]} functional rows run, ${#ABSENT_FUNC[@]} declared absent"
     exit 0
 fi
 
-# --- The stall capture, checked against a known answer (GH #383) ---
+# --- The stall capture, checked against a known answer (GH #383, #487) ---
 # The capture exists to name the call a stalled jnext.exe is blocked in; v1.1.79 shipped one that
-# could not (it passed review on a stub that answered a command real winedbg never answers). So
-# once per run, on the real wine, a real jnext.exe is blocked on purpose and must be captured:
-# --headless with an empty config dir and no --sdcard makes sdcard::cli_confirm block in
-# std::getline(std::cin) on a stdin pipe this driver holds open. The runner's watchdog is given
-# 3 s / 2 s instead of 20 s / 10 s, takes its capture, and the capture must hold a Backtrace: with
-# wine's own symbol for the read (ReadFile or ReadConsole) and no "can't debug several processes".
-# Anything else is a HARNESS FAULT: a capture that silently cannot capture looks like "no stall".
+# could not (it passed review on a stub that answered a command real winedbg never answers), and the
+# first version of this check never met a 32-bit exe or a second jnext.exe. So once per run, on the
+# real wine, TWO real jnext.exe are blocked on purpose: --headless with an empty config dir and no
+# --sdcard makes sdcard::cli_confirm block in std::getline(std::cin) on a stdin pipe this driver holds
+# open. The DECOY (--machine 128k, no capture dir) starts first and so has the lower Windows pid; the
+# TARGET (--machine 48k) runs with the watchdog at 3 s / 2 s instead of 20 s / 10 s. The capture must
+#   (a) be exactly one file;
+#   (b) take its target threads from the exe (jnext.exe), never from start.exe, which is what wine
+#       runs a 32-bit exe behind;
+#   (c) hold a Backtrace: naming wine's own symbol for the read (ReadFile or ReadConsole);
+#   (d) show the command line of the TARGET (--machine 48k), not the decoy's;
+#   (e) not say "can't debug several processes".
+# And it must be harmless: answering `n` on both pipes must end BOTH runners by themselves, status 1,
+# with src/main.cpp's decline message and no "Unhandled" (a debugger attach killed a 32-bit process on
+# wine 11.20). Anything else is a HARNESS FAULT: a capture that silently cannot capture looks like
+# "no stall".
 wine_capture_selfcheck() {   # $1 = the Qt build dir
-    local dir=$TMP_DIR/wine-selfcheck sc_in sc_pid i f why= keep caps
-    mkdir -p "$dir/cfg"
-    mkfifo "$dir/stdin"
+    local dir=$TMP_DIR/wine-selfcheck sc_in dec_in sc_pid dec_pid i f why= keep caps tgt_sec rc_t=0 rc_d=0 decoy_ok=0
+    mkdir -p "$dir/cfg" "$dir/dcfg"
+    mkfifo "$dir/stdin" "$dir/dstdin"
     exec {sc_in}<>"$dir/stdin"
+    exec {dec_in}<>"$dir/dstdin"
+    env -u JNEXT_WINE_CAPTURE_DIR JNEXT_CONFIG_DIR=$dir/dcfg \
+        timeout --foreground --kill-after=5s 90s bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$1/jnext.exe" --headless --machine 128k \
+        <&"$dec_in" >"$dir/dout" 2>&1 &
+    dec_pid=$!
+    for ((i = 0; i < 600; i++)); do
+        grep -q 'No SD-card image was found' "$dir/dout" 2>/dev/null && break
+        kill -0 "$dec_pid" 2>/dev/null || break
+        /usr/bin/sleep 0.1
+    done
     JNEXT_CONFIG_DIR=$dir/cfg JNEXT_WINE_CAPTURE_DIR=$dir/cap JNEXT_WINE_STALL_AFTER_S=3 JNEXT_WINE_STALL_FLAT_S=2 \
-        timeout --foreground --kill-after=5s 30s bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$1/jnext.exe" --headless --machine 48k \
+        timeout --foreground --kill-after=5s 90s bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$1/jnext.exe" --headless --machine 48k \
         <&"$sc_in" >"$dir/out" 2>&1 &
     sc_pid=$!
     # The runner prints "state saved to" once the capture file is complete.
-    for ((i = 0; i < 300; i++)); do
+    for ((i = 0; i < 600; i++)); do
         grep -q 'state saved to' "$dir/out" 2>/dev/null && break
         kill -0 "$sc_pid" 2>/dev/null || break
         /usr/bin/sleep 0.1
     done
-    kill -TERM "$sc_pid" 2>/dev/null || true
-    wait "$sc_pid" 2>/dev/null || true
-    exec {sc_in}>&-
     shopt -s nullglob
     caps=("$dir"/cap/wine-stall-*.txt)
     shopt -u nullglob
     f=${caps[0]:-}
-    if ((${#caps[@]} != 1)); then why="${#caps[@]} capture files, expected exactly one"
+    tgt_sec=$(sed -n '/^== target threads/,/^$/p' "$f" 2>/dev/null || true)
+    # "picked among N" below counts the decoy only if it really reached its prompt.
+    ! grep -q 'No SD-card image was found' "$dir/dout" 2>/dev/null || decoy_ok=1
+    if [[ $decoy_ok -eq 0 ]]; then why="the decoy jnext.exe never reached its SD-card prompt (see decoy-output.txt)"
+    elif ((${#caps[@]} != 1)); then why="${#caps[@]} capture files, expected exactly one"
+    elif [[ $tgt_sec != *jnext.exe* || $tgt_sec == *start.exe* ]]; then why="the capture's target threads are not the exe's (jnext.exe), but wine's launcher"
     elif grep -q "can't debug several processes" "$f"; then why="winedbg refused: can't debug several processes"
     elif ! grep -q '^Backtrace:' "$f"; then why="the capture holds no Backtrace:"
     elif ! grep -qE 'ReadFile|ReadConsole' "$f"; then why="no Backtrace: names ReadFile or ReadConsole"
+    elif ! grep -q 'command line:.*--machine 48k' "$f" || grep -q -- '--machine 128k' "$f"; then why="the capture is not of the target (its command line is not --machine 48k, or it holds the decoy's 128k)"
     fi
+    if [[ -z $why ]]; then
+        # Harmless: both answer `n` and end by themselves, status 1, without a crash.
+        printf 'n\n' >&"$sc_in"; printf 'n\n' >&"$dec_in"
+        for ((i = 0; i < 200; i++)); do
+            kill -0 "$sc_pid" 2>/dev/null || kill -0 "$dec_pid" 2>/dev/null || break
+            /usr/bin/sleep 0.1
+        done
+        if kill -0 "$sc_pid" 2>/dev/null || kill -0 "$dec_pid" 2>/dev/null; then why="the capture killed or wedged its target or the decoy: a jnext.exe did not end within 20 s of answering n"
+        else
+            wait "$sc_pid" 2>/dev/null || rc_t=$?
+            wait "$dec_pid" 2>/dev/null || rc_d=$?
+            if [[ $rc_t -ne 1 || $rc_d -ne 1 ]]; then why="the capture killed or wedged its target or the decoy: after n the target ended with status $rc_t and the decoy with $rc_d, expected 1 and 1"
+            elif ! grep -q 'no SD-card image available' "$dir/out" || ! grep -q 'no SD-card image available' "$dir/dout" \
+                 || grep -q 'Unhandled' "$dir/out" "$dir/dout"; then why="the capture killed or wedged its target or the decoy: after n they did not both decline cleanly (no 'no SD-card image available', or an Unhandled exception)"
+            fi
+        fi
+    fi
+    kill -TERM "$sc_pid" "$dec_pid" 2>/dev/null || true
+    wait "$sc_pid" "$dec_pid" 2>/dev/null || true
+    exec {sc_in}>&- {dec_in}>&-
     if [[ -n $why ]]; then
         keep="$PROJECT_DIR/build/regression-artifacts/wine-stall/selfcheck-fault-$$"
         mkdir -p "$keep"
         cp -r "$dir/out" "$keep/runner-output.txt" 2>/dev/null || true
+        cp -r "$dir/dout" "$keep/decoy-output.txt" 2>/dev/null || true
         [[ -z $f ]] || cp "$f" "$keep/" 2>/dev/null || true
         harness_fault "the wine stall capture cannot name a blocked call (GH #383): $why" \
                       "Capture and runner output kept in ${BOLD}$keep${RESET}" \
                       "A capture that cannot capture reads as 'no stall'; see doc/testing/REGRESSION-TEST-SUITE.md."
     fi
+    local tl tt rf
+    tl=$(grep -m1 '^target:' "$f"); tt=$(sed -n '/^== target threads/,/^$/p' "$f" | sed -n 2p)
+    rf=$(grep -m1 -E 'ReadFile|ReadConsole' "$f")
     rm -rf "$dir"
-    echo -e "  ${GREEN}wine stall capture self-check passed${RESET} (a blocked jnext.exe was captured with a ReadFile backtrace, GH #383)"
+    echo -e "  ${GREEN}wine stall capture self-check passed${RESET} (a blocked jnext.exe was captured with a ReadFile backtrace, GH #383; target picked among $((decoy_ok + 1)), both survived)"
+    echo "    $tl"
+    echo "    first target thread: $tt"
+    echo "    frame: ${rf#"${rf%%[![:space:]]*}"}"
 }
 
 # --- Platform run: the binaries under test (GH #319) ---
@@ -633,6 +758,16 @@ if $PLATFORM_MODE; then
         # It also starts the desktop keeper and prints explorer.exe's pid (GH #329).
         REG_WINE_EXPLORER=$(bash "$PROJECT_DIR/test/wine-run.sh" --serve "$plat_qt_abs") \
             || harness_fault "cannot start a persistent wineserver and wine desktop"
+        # The stall capture's stack helper (test/wine-stack.c), one build per PE machine the binaries
+        # under test have; a missing one would read as "no stall", so it is refused here (GH #487).
+        export JNEXT_WINE_STACK_DIR=${JNEXT_WINE_STACK_DIR:-$PROJECT_DIR/build/wine-stack}
+        for plat_bin in "$plat_qt" "$plat_sdl"; do
+            plat_m=$(bash "$PROJECT_DIR/test/wine-run.sh" --pe-machine "$plat_bin")
+            case $plat_m in x86|x64) ;; *) harness_fault "cannot tell the PE machine of ${BOLD}$plat_bin${RESET} ($plat_m)" ;; esac
+            [[ -x "$JNEXT_WINE_STACK_DIR/wine-stack-$plat_m.exe" ]] \
+                || harness_fault "the stall capture's stack helper for $plat_m is not built: ${BOLD}$JNEXT_WINE_STACK_DIR/wine-stack-$plat_m.exe${RESET}" \
+                                 "Build it with ${BOLD}make wine-stack-$plat_m${RESET} (make regression-win and regression-package do)."
+        done
         wine_capture_selfcheck "$plat_qt_abs"
         mkdir -p "$TMP_DIR/platform"
         for plat_pair in "jnext:$plat_qt_abs" "jnext-sdl:$plat_sdl_abs"; do

@@ -50,10 +50,14 @@ The gate is in `Mmu`, not around panel refreshes, so it does not depend on the
 caller.
 
 Its counterpart `DebugState::InspectionScope` covers the debugger readers that
-run *inside* execution. The trace log captures four opcode bytes at PC and the
-call-stack tracker three, whatever the instruction's real length, so both read
-bytes the CPU never fetches. An event delivery, `Mmu::peek()` and
-`poke(MemSpace::cpu())` take the same scope.
+run *inside* execution. The trace log captures four opcode bytes at PC,
+whatever the instruction's real length, so it reads bytes the CPU never fetches.
+The call-stack tracker reads no memory per instruction: it is fed after
+`execute()` from the M1 bytes the CPU fetched (`Z80Cpu::last_m1_byte()`) and the
+PC it ended on, which is a taken `CALL`'s operand. Only a slot that may accept an
+interrupt (an NMI pending, or an INT pending with IFF1 set) predicts the fetch
+space, under this scope, for the frame's `caller_space`. An event delivery,
+`Mmu::peek()` and `poke(MemSpace::cpu())` take the same scope.
 
 `DebugState::SuspendScope` clears every arm bit for its lifetime. A save that
 has to advance to a frame boundary runs under it, so the advance does not stop
@@ -63,12 +67,22 @@ The hot path pays nothing for any of this: `Mmu::read` and `Mmu::write` compile
 to the same instructions they did without it, every difference being a
 structure offset.
 
-**The HALT batch stands aside for all of it.** `Emulator::halt_batch_after_slot_()` refuses while a
-client is attached, breakpoints or watchpoints are live, the raster walk, the coverage sets,
-the trace log, the call stack or the profiler is on, or a rewind replay runs: rewind turns the
-trace on, so a machine with rewind never batches. Stepping is untouched by construction:
-`step_frame_slot()` and `execute_single_instruction()` call the shared slot body without
-asking for a batch, so a Step over a `HALT` is one repeat.
+**The HALT batch stands aside for what observes instructions, not for an attached client.**
+`Emulator::halt_batch_after_slot_()` asks `DebugState::halt_batch_blocked()`, one predicate that
+lists every contributor together. It refuses on `--persistent-breakpoints`, a rewind replay, a
+magic-stop or verify hold, a pause, a step mode, a pending data-breakpoint hit, and on either
+coverage set; and, while a client arms the machine, on any breakpoint or watchpoint in the model
+(enabled or not, the one-shot included), on any live event subscription of any kind, and on a
+pending boundary drain. It also refuses on the trace log (rewind turns the trace on, so a machine
+with rewind never batches) and the profiler. This is deliberately conservative:
+one breakpoint anywhere keeps the batch off, even when nothing covers the `HALT`'s address. A
+client that is merely attached (the debugger window open on an idle program, a remote client with
+nothing set) does NOT refuse: with no breakpoint, subscription or step, the armed block, the
+watch gates and the boundary drain of an absorbed repeat are no-ops, the raster walk is advanced
+over the window in one call, and the call-stack tracker learns nothing from a `HALT` repeat. A
+closed window whose breakpoints stay in the backend arms nothing and never refuses. Stepping is
+untouched by construction: `step_frame_slot()` and `execute_single_instruction()` call the shared
+slot body without asking for a batch, so a Step over a `HALT` is one repeat.
 
 ## The step modes
 
@@ -235,12 +249,14 @@ Both are hooks a Z80 programmer puts in their own source; neither exists on
 real hardware.
 
 The **magic breakpoint** is an opcode that stops the machine where it executes.
-JNEXT intercepts it in `src/cpu/z80_cpu.cpp` before the FUSE core sees it, and
-recognises both community conventions: `ED FF` (ZEsarUX, Spectaculator) and
-`DD 01` (CSpect). With `--magic-breakpoint` set (or `set_magic_breakpoint(true)`),
+JNEXT recognises it in `src/cpu/z80_cpu.cpp`, in three community conventions:
+`ED FF` (ZEsarUX, Spectaculator), `FD 00` (CSpect 2.19.9.1 and later, the
+sjasmplus `break`) and `DD 01` (older CSpect and sjasmplus). With `--magic-breakpoint` set (or `set_magic_breakpoint(true)`),
 `Emulator::init` installs an `on_magic_breakpoint` callback that pauses and
-holds the stop (`hold_for_magic_stop()`); the opcode advances PC by two and
-costs 8 T-states. The hold exists because the hook fires on a machine nothing
+holds the stop (`hold_for_magic_stop()`); `ED FF` and `FD 00` run through the FUSE core as the
+8 T-state two-byte NOPs they are and the hook fires after them, while `DD 01`
+is intercepted before FUSE, advancing PC by two for its two M1 fetches (at
+least 8 T-states, more under contention). The hold exists because the hook fires on a machine nothing
 may arm — headless, SDL, a closed debugger window — and the hot loop honours a
 pause only inside its armed block. It arms nothing else, and the resume that
 ends the stop releases it. The stop's reason is `Magic`, which no client owns

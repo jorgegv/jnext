@@ -100,7 +100,7 @@ The single authoritative protocol for landing any implemented change on `main`:
    - **The batch gate** is the full gate, on `main`'s tip: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, **`make unit-test-win`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), `make regression`, **`make regression-win`**, **`make wasm-core`** (the WebAssembly build under node; owner, 2026-11-06), **`make wasm-browser-test`** (the browser smoke test under Playwright; owner, 2026-11-06), **`make unit-test-wasm`** and **`make regression-wasm`** (the unit suites and the screenshot rows under node; owner, 2026-11-06). No FAIL and no SKIP anywhere.
      - It runs once, on `main`'s tip, after all of a work session's landings and before any push of `main` (no limit on the number of landings).
      - It runs in a detached worktree of `main`'s tip (`~/tmp/worktrees/jnext/main-gate`), never in an author's worktree.
-     - `make gui-release` is the PGO build (GH #297), so `make regression` tests the shipped binary and also runs FUSE against the PGO build's CPU core (`make fuse-pgo`, a prerequisite).
+     - `make gui-release` is the PGO build (GH #297), so `make regression` tests a build made like the shipped Linux packages (same source, flags class and PGO method; the packages' own binaries are tested by `make regression-package` in `release.yml`, GH #487) and also runs FUSE against the PGO build's CPU core (`make fuse-pgo`, a prerequisite).
      - An epic branch gets the same gate before it merges into `main`, plus a green CI run on the pushed epic branch (`gh workflow run CI --ref epic<E>-<slug>`), because CI also covers the Qt5 build, macOS clang and the bare CI container, which no local gate reaches (owner, 2026-11-03, GH #444).
      - CI still runs everything again on every push to `main`.
    - **A red batch gate** means one of the batch's landings broke something.
@@ -457,7 +457,7 @@ into this file would go stale on the next branch that adds a suite.
 | `make unit-test-sdl` | macOS (native)                  | `build/sdl-unit-test`     | CI `macos-unit` (Homebrew `bash coreutils grep` required); suites marked `# os: linux` do not run (e.g. `sdcard_file_add_linux_test`: SDFA-T26 needs a case-sensitive filesystem; APFS is not) |
 | `make unit-test-win` | Windows, MinGW cross under wine | `build/win-sdl-unit-test` | local gate, CI `test (unit-win)`; suites marked `# os: posix` or `# os: linux` do not run |
 | `make unit-test-wasm` | WebAssembly (Emscripten) under node | `build/wasm-unit-test` | local gate, CI `test (unit-wasm)`; suites marked `# os: native`, `posix` or `linux` do not run |
-| `make regression-win` | Windows, MinGW exes under wine | `build/win-release-non-pgo`, `build/win-sdl-release` | local gate, CI `test (regression-win)`; rows pinned by `# expect-windows:` |
+| `make regression-win` | Windows, MinGW exes under wine | `build/win-release` (PGO, the tree `package-win` zips), `build/win-sdl-release` | local gate, CI `test (regression-win)`; rows pinned by `# expect-windows:` |
 | `make regression-macos` | macOS (native) | `build/gui-release-non-pgo`, `build/sdl-release` | CI `macos-regression`; rows pinned by `# expect-macos:` |
 | `make regression-wasm` | WebAssembly (Emscripten) under node | `build/wasm-core` | local gate, CI `test (regression-wasm)`; the screenshot rows, plus only the functional rows whose `os=` names `emscripten`, pinned by `# expect-emscripten:` |
 

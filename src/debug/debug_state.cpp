@@ -192,6 +192,7 @@ void DebugState::refresh_event_gates() {
         cycle_armed_   = false;
         execute_armed_ = false;
         nextreg_armed_ = false;
+        events_live_   = false;
         recompute_boundary_work_();
         return;
     }
@@ -205,6 +206,7 @@ void DebugState::refresh_event_gates() {
     cycle_armed_   = events_->has_kind(jnext::dbg::EventKind::Cycle);
     execute_armed_ = events_->has_kind(jnext::dbg::EventKind::Execute);
     nextreg_armed_ = events_->has_kind(jnext::dbg::EventKind::NextRegWrite);
+    events_live_   = events_->live_kinds() != 0;
     recompute_boundary_work_();
 }
 

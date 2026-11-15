@@ -3431,6 +3431,275 @@ static void b5_wire_verb_rows() {
               "client=" + std::to_string(a) + " " + b5_state(dbg));
     }
     {
+        // GH #456: FD 00 (sjasmplus `break`, CSpect 2.19.9.1+) is the IY-prefixed NOP: it runs as
+        // the hardware runs it (8 T, R += 2, no register change; t80n_mcode.vhd:1384-1387, :231-233,
+        // t80n.vhd:493, :513-519; FUSE opcodes_base.c:1171-1176 + z80_ddfd.c:556-565) and then the
+        // machine pauses after it.
+        Emulator emu;
+        b5_build(emu, { 0xFD, 0x00, 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        dbg.set_magic_breakpoint(true);
+        const uint64_t c0 = emu.clock().get();
+        const uint64_t t0 = emu.monotonic_tstates();
+        const Z80Registers r0 = emu.cpu().get_registers();
+        emu.run_frame();
+        const Z80Registers r1 = emu.cpu().get_registers();
+        const uint64_t dt = emu.monotonic_tstates() - t0;
+        check("WV-MAGIC-02", "set_magic_breakpoint(true): FD 00 stops the machine after it "
+                             "(pc 0x8002, cycle c0+64), reason Magic{addr 0x8000}, UNOWNED, "
+                             "having run as the 8-T IY-prefixed NOP: counter +8, R += 2, no "
+                             "register change",
+              dbg.state().pause_reason.addr == 0x8000 && dt == 8 &&
+                  ((r1.R & 0x7F) == ((r0.R + 2) & 0x7F)) &&
+                  r1.AF == r0.AF && r1.BC == r0.BC && r1.DE == r0.DE && r1.HL == r0.HL &&
+                  r1.IX == r0.IX && r1.IY == r0.IY && r1.SP == r0.SP &&
+                  b5_stopped_at(emu, dbg, 0x8002, c0 + 64, K::Magic,
+                                jnext::dbg::CLIENT_NONE),
+              "client=" + std::to_string(a) + " dt=" + std::to_string(dt) + " R " +
+                  std::to_string(r0.R) + "->" + std::to_string(r1.R) + " " + b5_state(dbg));
+    }
+    {
+        // The switch set and then cleared (the Debug-menu untick): FD 00 is the plain NOP.
+        Emulator emu;
+        b5_build(emu, { 0xFD, 0x00, 0x18, 0xFE });
+        Debugger dbg(emu);
+        (void)dbg.attach(client("B5"));
+        dbg.set_magic_breakpoint(true);
+        dbg.set_magic_breakpoint(false);
+        const uint64_t c0 = emu.clock().get();
+        bool ever_paused = false;
+        for (int i = 0; i < 3; ++i) { emu.run_frame(); ever_paused |= dbg.state().paused; }
+        check("WV-MAGIC-03", "set_magic_breakpoint(true) then (false): FD 00 never pauses; the "
+                             "program runs the NOP and parks on its JR at 0x8002",
+              !ever_paused && emu.cpu().pc() == 0x8002 &&
+                  emu.clock().get() > c0 + 2 * emu.timing().master_cycles_per_frame,
+              b5_state(dbg));
+    }
+    {
+        // The switch never set: FD 00 is exactly the hardware's 8-T NOP (the FUSE dd00 case's twin).
+        Emulator emu;
+        b5_build(emu, { 0xFD, 0x00, 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        dbg.pause(a);
+        const uint64_t c0 = emu.clock().get();
+        const uint64_t t0 = emu.monotonic_tstates();
+        const Z80Registers r0 = emu.cpu().get_registers();
+        dbg.step_into(a);
+        const Z80Registers r1 = emu.cpu().get_registers();
+        const uint64_t dt = emu.monotonic_tstates() - t0;
+        check("WV-MAGIC-04", "switch never set: FD 00 is the 8-T NOP (one step: pc 0x8002, cycle "
+                             "c0+64, reason Step, counter +8, R += 2, no register change)",
+              dt == 8 && ((r1.R & 0x7F) == ((r0.R + 2) & 0x7F)) &&
+                  r1.AF == r0.AF && r1.BC == r0.BC && r1.DE == r0.DE && r1.HL == r0.HL &&
+                  r1.IX == r0.IX && r1.IY == r0.IY && r1.SP == r0.SP &&
+                  b5_stopped_at(emu, dbg, 0x8002, c0 + 64, K::Step, a),
+              "dt=" + std::to_string(dt) + " R " + std::to_string(r0.R) + "->" +
+                  std::to_string(r1.R) + " " + b5_state(dbg));
+    }
+    {
+        // Near misses with the switch on: FD + a non-00 byte is an ordinary IY instruction, DD 00
+        // is CSpect's `exit` (ReadMe.txt:30), not a jnext magic form.
+        Emulator emu;
+        b5_build(emu, { 0xFD, 0x21, 0x34, 0x12, 0xDD, 0x00, 0x18, 0xFE });
+        Debugger dbg(emu);
+        (void)dbg.attach(client("B5"));
+        dbg.set_magic_breakpoint(true);
+        bool ever_paused = false;
+        for (int i = 0; i < 3; ++i) { emu.run_frame(); ever_paused |= dbg.state().paused; }
+        check("WV-MAGIC-05", "switch on: FD 21 nn nn and DD 00 do not stop; LD IY,0x1234 ran and "
+                             "the program parks on its JR at 0x8006",
+              !ever_paused && emu.cpu().get_registers().IY == 0x1234 &&
+                  emu.cpu().pc() == 0x8006,
+              b5_state(dbg));
+    }
+    {
+        // ED FF is the hardware's two-byte NOP (t80n_mcode.vhd:2586 `others => null`, :231-233;
+        // t80n.vhd:493): the stop at it must leave the CPU's T-state counter and R advanced with
+        // the clock (FUSE opcodes_base.c:1070-1075 + z80_ed.c default NOPD).
+        Emulator emu;
+        b5_build(emu, { 0xED, 0xFF, 0x18, 0xFE });
+        Debugger dbg(emu);
+        (void)dbg.attach(client("B5"));
+        dbg.set_magic_breakpoint(true);
+        const uint64_t c0 = emu.clock().get();
+        const uint64_t t0 = emu.monotonic_tstates();
+        const Z80Registers r0 = emu.cpu().get_registers();
+        emu.run_frame();
+        const Z80Registers r1 = emu.cpu().get_registers();
+        const uint64_t dt = emu.monotonic_tstates() - t0;
+        check("WV-MAGIC-06", "ED FF stop: pc 0x8002, cycle c0+64, Magic{0x8000}, unowned, and the "
+                             "CPU counter advanced 8 T and R by 2 with the clock",
+              dbg.state().pause_reason.addr == 0x8000 && dt == 8 &&
+                  ((r1.R & 0x7F) == ((r0.R + 2) & 0x7F)) &&
+                  b5_stopped_at(emu, dbg, 0x8002, c0 + 64, K::Magic, jnext::dbg::CLIENT_NONE),
+              "dt=" + std::to_string(dt) + " R " + std::to_string(r0.R) + "->" +
+                  std::to_string(r1.R) + " " + b5_state(dbg));
+    }
+    {
+        // DD 01 is not a hardware instruction (01 nn nn is LD BC,nn): the convention skips both
+        // bytes. Both were fetched as M1s (t80n_mcode.vhd:1384-1387, t80n.vhd:493), so the counter
+        // and R advance 8 T / 2 with the clock; no operand is consumed.
+        Emulator emu;
+        b5_build(emu, { 0xDD, 0x01, 0x18, 0xFE });
+        Debugger dbg(emu);
+        (void)dbg.attach(client("B5"));
+        dbg.set_magic_breakpoint(true);
+        const uint64_t c0 = emu.clock().get();
+        const uint64_t t0 = emu.monotonic_tstates();
+        const Z80Registers r0 = emu.cpu().get_registers();
+        emu.run_frame();
+        const Z80Registers r1 = emu.cpu().get_registers();
+        const uint64_t dt = emu.monotonic_tstates() - t0;
+        check("WV-MAGIC-07", "DD 01 stop: pc 0x8002, cycle c0+64, Magic{0x8000}, unowned, BC "
+                             "untouched, and the CPU counter advanced 8 T and R by 2 with the clock",
+              dbg.state().pause_reason.addr == 0x8000 && dt == 8 && r1.BC == r0.BC &&
+                  ((r1.R & 0x7F) == ((r0.R + 2) & 0x7F)) &&
+                  b5_stopped_at(emu, dbg, 0x8002, c0 + 64, K::Magic, jnext::dbg::CLIENT_NONE),
+              "dt=" + std::to_string(dt) + " R " + std::to_string(r0.R) + "->" +
+                  std::to_string(r1.R) + " " + b5_state(dbg));
+    }
+    {
+        // DD 01 in CONTENDED memory inside the display window (48K: $6000): each of its two M1
+        // fetches stretches by the ULA contention, so a skipped DD 01 takes at least 8 T, and the
+        // CPU counter must advance by exactly what the clock does (the return value is the elapsed
+        // delta, not a flat 8). Oracle: the two fetches are M1s (t80n_mcode.vhd:1384-1387,
+        // t80n.vhd:493) under the same contention as any M1; FUSE contend_read(PC,4).
+        Emulator emu;
+        b5_build(emu, { 0x00 });
+        emu.cpu().on_magic_breakpoint = [](uint16_t) { return true; };
+        const uint8_t prog[] = { 0xDD, 0x01, 0x18, 0xFC };
+        for (int i = 0; i < 4; ++i) emu.mmu().write(static_cast<uint16_t>(0x6000 + i), prog[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x6000;
+        emu.cpu().set_registers(r);
+        const uint64_t div = static_cast<uint64_t>(emu.clock().cpu_divisor());
+        int slots = 0, contended = 0, mismatched = 0;
+        for (int i = 0; i < 6000; ++i) {
+            const uint64_t c0 = emu.clock().get();
+            const uint64_t t0 = emu.monotonic_tstates();
+            const bool dd01 = emu.cpu().pc() == 0x6000;
+            emu.execute_single_instruction();
+            const uint64_t dc = emu.clock().get() - c0;
+            const uint64_t dt = emu.monotonic_tstates() - t0;
+            if (!dd01) continue;
+            ++slots;
+            if (dc > 8 * div) ++contended;
+            if (dc != dt * div) ++mismatched;
+        }
+        check("WV-MAGIC-09", "DD 01 in contended memory (48K $6000): at every skipped DD 01 the CPU "
+                             "counter advanced by exactly the clock's delta, and at least one was "
+                             "stretched past 8 T",
+              slots > 0 && mismatched == 0 && contended > 0,
+              "slots=" + std::to_string(slots) + " contended=" + std::to_string(contended) +
+                  " mismatched=" + std::to_string(mismatched));
+    }
+    {
+        // A skipped DD 01 leaves the machine as a two-byte NOP does (both are two M1s: every opcode
+        // starts with Q = 0, FUSE opcodes_base.c; t80n.vhd:493): SCF after LD A,0 ; CP $28 ; <mid>
+        // takes its X/Y from Q, which CP left set, so the F after SCF is the check; and the slot
+        // delivers both M1 callbacks (the IM2 decoder and the M1 count see every M1).
+        uint8_t f_after[2] = { 0, 0 };
+        int m1_mid[2] = { 0, 0 };
+        for (int variant = 0; variant < 2; ++variant) {
+            Emulator emu;
+            const uint8_t mid0 = variant ? 0x00 : 0xDD, mid1 = variant ? 0x00 : 0x01;
+            b5_build(emu, { 0x3E, 0x00, 0xFE, 0x28, mid0, mid1, 0x37, 0x18, 0xFE });
+            emu.cpu().on_magic_breakpoint = [](uint16_t) { return true; };
+            auto prev = emu.cpu().on_m1_cycle;
+            int m1 = 0;
+            emu.cpu().on_m1_cycle = [&m1, prev](uint16_t a, uint8_t o) { ++m1; if (prev) prev(a, o); };
+            emu.execute_single_instruction();            // LD A,0
+            emu.execute_single_instruction();            // CP $28
+            int before = m1;
+            emu.execute_single_instruction();            // DD 01 (skipped) | NOP
+            if (variant) { m1_mid[variant] = m1 - before; before = m1; emu.execute_single_instruction(); }
+            m1_mid[variant] += m1 - before;
+            emu.execute_single_instruction();            // SCF
+            f_after[variant] = static_cast<uint8_t>(emu.cpu().get_registers().AF & 0xFF);
+        }
+        check("WV-MAGIC-10", "SCF after a skipped DD 01 gives the F that SCF after NOP NOP gives "
+                             "(Q is cleared by the skip)",
+              f_after[0] == f_after[1],
+              "DD01 F=" + hex(f_after[0]) + " NOP,NOP F=" + hex(f_after[1]));
+        check("WV-MAGIC-11", "a skipped DD 01 delivers two M1 callbacks, as the NOP NOP it stands "
+                             "for does",
+              m1_mid[0] == 2 && m1_mid[1] == 2,
+              "DD01 m1=" + std::to_string(m1_mid[0]) + " NOP,NOP m1=" + std::to_string(m1_mid[1]));
+    }
+    {
+        // The skip delivers the right BYTES to the M1 callbacks, not just two calls: the IM2 RETI/RETN
+        // decoder (im2_control.vhd:158-209) follows the fetched bytes, so an ED 4D right after a
+        // skipped DD 01 is still decoded as RETI (as after NOP NOP). A second callback carrying DD
+        // instead of 01 would leave the decoder in its DD state and lose it.
+        Emulator emu;
+        b5_build(emu, { 0xDD, 0x01, 0xED, 0x4D });
+        emu.cpu().on_magic_breakpoint = [](uint16_t) { return true; };
+        emu.mmu().write(0x8010, 0x18); emu.mmu().write(0x8011, 0xFE);
+        Z80Registers r = emu.cpu().get_registers();
+        r.SP = static_cast<uint16_t>(r.SP - 2);
+        emu.cpu().set_registers(r);
+        emu.mmu().write(r.SP, 0x10); emu.mmu().write(static_cast<uint16_t>(r.SP + 1), 0x80);
+        const uint32_t n0 = emu.im2().reti_seen_count();
+        emu.execute_single_instruction();                // DD 01 (skipped)
+        emu.execute_single_instruction();                // ED 4D (RETI)
+        check("WV-MAGIC-12", "RETI right after a skipped DD 01 is decoded by the IM2 decoder "
+                             "(reti_seen +1) and returns to 0x8010",
+              emu.im2().reti_seen_count() - n0 == 1 && emu.cpu().pc() == 0x8010,
+              "reti_delta=" + std::to_string(emu.im2().reti_seen_count() - n0) + " pc=" + hex(emu.cpu().pc()));
+    }
+    {
+        // 28 MHz with the code in SRAM: every M1 carries the GH #92 SRAM wait (zxnext.vhd:3171-3181;
+        // contention_test: NOP at 28 MHz = 5 T), so the skipped DD 01 costs what NOP NOP costs (10 T).
+        uint64_t dt[2] = { 0, 0 }, dc[2] = { 0, 0 };
+        for (int variant = 0; variant < 2; ++variant) {
+            Emulator emu;
+            b5_build(emu, { 0x00 }, MachineType::ZXN_ISSUE2);
+            emu.cpu().on_magic_breakpoint = [](uint16_t) { return true; };
+            emu.nextreg().write(0x07, 3);
+            emu.clock().commit_pending_cpu_speed_on_bus_idle(true);
+            emu.contention().commit_pending_cpu_speed_on_bus_idle(true);
+            emu.nextreg().write(0x54, 0x20);
+            const uint8_t code[] = { static_cast<uint8_t>(variant ? 0x00 : 0xDD),
+                                     static_cast<uint8_t>(variant ? 0x00 : 0x01), 0x18, 0xFE };
+            for (int i = 0; i < 4; ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), code[i]);
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.halted = false;
+            emu.cpu().set_registers(r);
+            const uint64_t t0 = emu.monotonic_tstates(), c0 = emu.clock().get();
+            emu.execute_single_instruction();
+            if (variant) emu.execute_single_instruction();
+            dt[variant] = emu.monotonic_tstates() - t0;
+            dc[variant] = emu.clock().get() - c0;
+        }
+        check("WV-MAGIC-13", "28 MHz, code in SRAM: a skipped DD 01 costs 10 T, as NOP NOP does "
+                             "(each M1 carries the SRAM wait), counter and clock agreeing",
+              dt[0] == 10 && dt[0] == dt[1] && dc[0] == dc[1],
+              "DD01 dt=" + std::to_string(dt[0]) + " clock=" + std::to_string(dc[0]) +
+                  " NOP,NOP dt=" + std::to_string(dt[1]) + " clock=" + std::to_string(dc[1]));
+    }
+    {
+        // The FOREIGN producer: sjasmplus 1.23.1 `break` (z80.cpp:594-601), committed output.
+        std::ifstream f(JNEXT_SJASMBREAK_DIR "/break.bin", std::ios::binary);
+        const std::vector<uint8_t> bin((std::istreambuf_iterator<char>(f)),
+                                       std::istreambuf_iterator<char>());
+        Emulator emu;
+        b5_build(emu, bin.empty() ? std::vector<uint8_t>{ 0x18, 0xFE } : bin);
+        Debugger dbg(emu);
+        (void)dbg.attach(client("B5"));
+        dbg.set_magic_breakpoint(true);
+        const uint64_t c0 = emu.clock().get();
+        emu.run_frame();
+        check("WV-MAGIC-08", "sjasmplus break.bin (3E 5A FD 00 18 FE): LD A,n then FD 00 stop at "
+                             "0x8004, cycle c0+120, Magic{0x8002}, unowned, A == 0x5A",
+              bin.size() == 6 && bin[2] == 0xFD && bin[3] == 0x00 &&
+                  dbg.state().pause_reason.addr == 0x8002 &&
+                  (emu.cpu().get_registers().AF >> 8) == 0x5A &&
+                  b5_stopped_at(emu, dbg, 0x8004, c0 + 120, K::Magic, jnext::dbg::CLIENT_NONE),
+              "size=" + std::to_string(bin.size()) + " " + b5_state(dbg));
+    }
+    {
         // THE CONTROL: the same program on the same ARMED machine (a client
         // attached — CTL-00-01 runs unarmed), no verb. It passes every stop point
         // above and never pauses.
