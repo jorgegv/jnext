@@ -3291,55 +3291,66 @@ gates — see <a href="04-continuous-integration.html">5.4</a> and
 <a href="../04-testing/05-documentation-and-cli-gates.html">4.5</a> for what those gates do
 and do not prove.</p>
 <h2 id="the-minimal-nextzxos-image">The minimal NextZXOS image<a class="headerlink" href="#the-minimal-nextzxos-image" title="Permanent link">&para;</a></h2>
-<p>The browser build does not use the 1 GB distribution SD image. It uses a small
-boot card, a 40 MiB FAT32 volume with 512-byte clusters that holds only what
-NextZXOS needs to reach its menu and to warm-start a program. NextZXOS is
-SpecNext's copyrighted software and only specnext.com hosts it; this section is
-about making the card from the official distribution you downloaded yourself,
-for local development and testing. The card is never published, hosted or
-attached anywhere.</p>
-<p>One C++ builder, <code>src/core/minimal_card.cpp</code>, makes the card in every build:
-the <code>make-minimal-card</code> tool (<code>tools/make-minimal-card</code>, built in every native
-tree, never installed or packaged) and the browser build run the same code, so
-the card the tests boot is the card a visitor's browser makes, byte for byte.
-The tool takes the official zip, the <code>cspect-next-1gb.img</code> inside it, or <code>-</code>
-for the zip on standard input:</p>
-<pre><code class="language-bash">make-minimal-card ~/.jnext/sdcard/cspect-next-1gb.img ~/tmp/nextzxos-minimal.img
-curl -s &lt;kDistroUrl&gt; | make-minimal-card - ~/tmp/nextzxos-minimal.img   # no zip on disk
+<p>The browser build does not use the 1 GB distribution SD image. It makes a small boot
+card, a 40 MiB FAT32 volume with 512-byte clusters that holds only what NextZXOS needs
+to reach its menu and to warm-start a program, from the official NextZXOS distribution
+zip. NextZXOS is SpecNext's copyrighted software, and only specnext.com hosts it: the
+card is made on the machine that needs it (the visitor's browser; the developer's own
+machine for tests) and is never published or hosted, by JNEXT or anyone else.</p>
+<p>One C++ implementation makes it, <code>minimal_card::Builder</code> (<code>src/core/minimal_card.h</code>),
+used by the page (compiled to WebAssembly, fed the zip as a stream) and by the native
+developer tool <code>make-minimal-card</code> (<code>tools/make-minimal-card/</code>, built in every native
+tree, not installed and not packaged). The tool replaced an earlier mtools shell script: there is no
+mtools, <code>sfdisk</code>, root or hard link in the way any more, and it runs wherever JNEXT builds.</p>
+<pre><code class="language-bash">make-minimal-card [--unpinned] [--expect-zip-sha256 HEX] &lt;INPUT&gt; &lt;card.img&gt;
 </code></pre>
-<p>The kind of input is detected from its bytes. The input is read once, in order,
-and the builder keeps a few MiB at most: zlib's window, the image's FAT, and the
-boot set itself (<code>TBBLUE.FW</code>, <code>MACHINES</code>, <code>NEXTZXOS</code>, <code>SYS</code>, <code>LICENSE.md</code>,
-<code>README.md</code>, 2.3 MB for 26.11). It stops inflating as soon as the last wanted
-cluster has gone by (about 166 MB into the image's 1 GiB), hashes the rest of the
-input, and then writes the card. That single forward pass needs every directory
-to come before its contents in the image, which holds for 26.11; a layout that
-breaks it is refused with a message naming "second pass".</p>
-<p>The identity of the one distribution a release accepts is <code>kDistribution</code>, next to
-<code>kDistroUrl</code> in <code>src/core/sdcard_provisioner.cpp</code>: the zip's size and SHA-256, the
-image's SHA-256, and the SHA-256 of the card made from it. The tool enforces them
-by default and refuses a wrong input before it writes anything; <code>--unpinned</code> skips
-them for synthetic test fixtures and prints the card's digest. To move a release to a
-new distribution, change <code>kDistroUrl</code> and all of <code>kDistribution</code> in one commit: the
-size and the two input digests come from your download, the card digest from
-<code>make-minimal-card --unpinned</code> on it. <code>MCARD-16</code> and <code>make minimal-image-test</code> fail
-on a partial update.</p>
-<p>The card is deterministic: no clock, the source's own directory order and
-spelling of every name, its write times and R/H/S/A attributes, volume serial
-<code>4A4E5854</code>, hidden sectors 63. The output is the same bytes on every platform.
-jnext's two patches (the default <code>config.ini</code> and the doubled 24.11 <code>zx81.rom</code>)
-are the provisioner's own functions, so there is no second copy to drift. The
-builder creates the output exclusively and refuses a card with too few clusters
-for FatFs to take it as FAT32.</p>
-<p>The output is copyrighted NextZXOS content. It is never committed, attached to an
-issue or a package, or uploaded.</p>
-<p>Tests: <code>minimal_card_test</code> (<code>MCARD-01..18</code>, in every unit configuration including
-WebAssembly: a synthetic distribution built in the test); <code>make minimal-image-test</code>
-(15 rows, part of <code>make unit-test</code>: the tool on the cached distribution image and on a
-synthetic zip, read back with mtools, sfdisk and Python's zipfile); and the
-<code>minimal-sdcard-image-func</code> regression row, which builds the card from a zip of the
-cached image made at run time (the pinned digest must come out), boots it to the
-NextZXOS menu and warm-starts a NEX, both compared with the full card's references.</p>
+<p>It is built with the rest of the tree, as <code>build/tools/make-minimal-card/make-minimal-card</code>
+(likewise in the SDL and Windows trees).</p>
+<p><code>INPUT</code> is the distribution zip, the <code>cspect-next-1gb.img</code> inside it, or <code>-</code> for the zip
+on standard input. The kind is read from the content (<code>PK\3\4</code> is a zip, an MBR
+signature at byte 510 is an image); anything else is refused. On success the last
+line is <code>&lt;card.img&gt;: &lt;bytes&gt; bytes, sha256 &lt;hex&gt;</code> and the exit status is 0; a refusal
+exits 1 with the reason on standard error and leaves the destination untouched or
+uncreated; a usage error exits 2. An existing destination is never overwritten.</p>
+<p>On your own download of the official zip, for local development and tests:</p>
+<pre><code class="language-bash">make-minimal-card ~/Downloads/sn-emulator-26.11.zip ~/tmp/nextzxos-minimal.img
+curl -s &lt;the zip's URL&gt; | make-minimal-card - ~/tmp/nextzxos-minimal.img
+</code></pre>
+<p>The second form is the one manual check against the real file, with no zip on disk. Keep
+what you make under <code>~/tmp</code> and delete it when you are done: it is copyrighted NextZXOS
+content, and it is never committed, attached to an issue or a package, uploaded, served to
+anyone, or hosted anywhere.</p>
+<p><strong>Pinned by default.</strong> The distribution this release accepts is identified by
+<code>minimal_card::kDistribution</code>, right after <code>kDistroUrl</code>'s constants in <code>sdcard_provisioner.cpp</code> (declared in <code>minimal_card.h</code>): the file
+name, the zip's size and SHA-256, the inflated image's SHA-256 and the SHA-256 of the
+card it must produce, plus a recipe number. The zip or image digest is checked before
+anything is written, and the card digest after; a wrong one is refused and no usable output
+remains. <code>--unpinned</code> skips every pinned digest and prints the card's: it exists for the
+synthetic fixtures of the tests and is not for real distributions. <code>--expect-zip-sha256 HEX</code>
+is test tooling: it replaces the pinned zip digest (and drops the size check) with the digest
+of a zip made at run time from the image, and the pinned card digest still applies; the
+<code>minimal-sdcard-image-func</code> regression row uses it.</p>
+<p><strong>One pass.</strong> The builder reads the zip once, from byte 0, in the order it is stored: the
+image is its first entry, the inflated image is read by offset, and a directory is parsed
+when its whole chain has gone by. A distribution whose layout would need a second pass (a
+directory's contents stored before the directory) is refused with a message naming the
+cluster; it is not worked around. Its memory is bounded: about 3 MB of heap for the 26.11
+distribution, under 50 MiB before any refusal (the FAT copy is capped at 16 MiB and the
+boot set at 32 MiB), and the card itself is a file (MEMFS in the browser, not the wasm
+heap).</p>
+<p>The boot set (<code>TBBLUE.FW</code>, <code>MACHINES</code>, <code>NEXTZXOS</code>, <code>SYS</code>, <code>LICENSE.md</code>, <code>README.md</code>)
+is copied with the source's own spelling and metadata, and JNEXT's two patches (the
+<code>config.ini</code> and the doubled <code>zx81.rom</code>) are the functions the SD provisioner uses, not
+copies. The output is reproducible and the same bytes on every platform: no clock, the source's directory order, spelling, write times and R/H/S/A attributes, volume serial <code>4A4E5854</code>, hidden sectors 63.</p>
+<p><strong>A new distribution.</strong> A release that moves to a new distribution changes <code>kDistroUrl</code>
+and all of <code>kDistribution</code> in one commit: the size, the zip digest and the image digest
+from your own download, the card digest from <code>make-minimal-card</code> on it, and the recipe
+number only if the builder changed what it writes. The tests (MINIMG-01 and the
+<code>minimal-sdcard-image-func</code> regression row) fail on a partial update.</p>
+<p>Tests: <code>minimal_card_test</code> (<code>MCARD-01..16</code> and <code>18..27</code>, on a synthetic distribution built in the test; <code>MCARD-17</code>, recipe 3 unchanged, is in <code>fat32_image_test</code>; every tree, the wasm one included), the
+<code>make minimal-image-test</code> shell suite (15 rows: the tool on the cached image and on a synthetic zip, read back with mtools, sfdisk and python's zipfile) and the <code>minimal-sdcard-image-func</code> regression row,
+which boots the card to the NextZXOS menu and warm-starts a NEX, both compared with the
+full card's references.</p>
 <h2 id="the-browser-package">The browser package<a class="headerlink" href="#the-browser-package" title="Permanent link">&para;</a></h2>
 <p><code>make package-web</code> zips the output of <code>make wasm-web</code> as
 <code>build/wasm-core/jnext-&lt;ver&gt;-web.zip</code>, through <code>packaging/web/package-web.sh</code>. The

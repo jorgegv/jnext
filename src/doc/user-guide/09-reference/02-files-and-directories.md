@@ -11,7 +11,7 @@ Everything JNEXT keeps for you lives under `~/.jnext`.
 | `~/.jnext/snapshots/`                      | Where **File ▸ Quick Save Snapshot** writes and **Quick Load Snapshot** reads the newest `.jns` ([5.9 Snapshots](../05-running-programs/09-snapshots.md#quick-save-and-quick-load)). Created on the first save. Quick Save keeps the newest 20 files it made (`--quick-snapshot-keep`). |
 | `~/.jnext/screenshots/`                    | Where **File ▸ Quick Screenshot** writes, unless Preferences says otherwise ([5.3 Display](../05-running-programs/03-display.md)). Created on the first capture. |
 
-In a web page JNEXT keeps only the SD-card image and the warm-start recording, in the
+In a web page JNEXT keeps only the SD card it made and the warm-start recording, in the
 browser's storage for the page's origin ([10.4](../10-web-page/04-the-image-and-what-the-browser-keeps.md)).
 
 Beside a program you load, JNEXT also reads the debugger's files when they are
