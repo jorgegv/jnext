@@ -36,6 +36,18 @@ Scenario with_window(Scenario s, std::shared_ptr<Window> w) {
     return s;
 }
 
+// The call stack and the raster walk (the beam position the debugger window shows), as text.
+std::string debug_snapshot(Emulator& e) {
+    std::string s;
+    for (const CallFrame& f : e.call_stack().frames()) {
+        s += std::to_string(f.caller_pc) + "," + std::to_string(f.target_pc) + "," + std::to_string(f.sp_at_call) + "," +
+             std::to_string(static_cast<int>(f.type)) + ";";
+    }
+    const VideoTiming& t = e.video_timing();
+    s += "|" + std::to_string(t.pos().hc) + "," + std::to_string(t.pos().vc) + "," + std::to_string(t.frame_complete());
+    return s;
+}
+
 } // namespace
 
 int main() {
@@ -48,10 +60,42 @@ int main() {
     {
         Scenario esp = poll_fx("esp-idle", 3, 0xFF, guide_loop());
         esp.config = [](EmulatorConfig& c) { c.esp_enabled = true; };
-        auto w = std::make_shared<Window>();
-        Scenario win = with_window(poll_fx("debugger-window", 3, 0xFF, preselected_loop(0xB4, true)), w);
-        check_poll("RPB-15", "an idle ESP-01, and the debugger window open (a client with the live raster and call-stack tracker): identical per frame, engaged",
-                   {esp, win});
+        // The window fixture also compares the call stack and the raster walk after every frame and at a
+        // mid-frame stop every third frame (run-to-cycle), where the window reads the beam: the walk is
+        // advanced over each absorbed pass, and a pass leaves the call stack as the last real one did.
+        std::vector<std::string> off, on;
+        auto run_window = [&](bool poll, std::vector<std::string>& snaps) {
+            auto w = std::make_shared<Window>();
+            Scenario win = with_window(poll_fx("debugger-window", 3, 0xFF, preselected_loop(0xB4, true), 30), w);
+            auto after = win.after_frame;
+            win.after_frame = [=, &snaps](Emulator& e, int f) {
+                after(e, f);
+                snaps.push_back(debug_snapshot(e));
+            };
+            win.before_frame = [&snaps](Emulator& e, int f) {
+                if (f < 4 || f % 3 != 1) return;
+                e.debug_state().run_to_cycle(e.clock().get() + 250000 + static_cast<uint64_t>(f) * 53);
+                e.run_frame();                       // stops mid-frame
+                snaps.push_back("stop:" + std::to_string(e.debug_state().paused()) + ":" + debug_snapshot(e));
+                e.debug_state().resume();
+            };
+            return batch_ab::run(win, poll, poll, g_scratch, poll ? 1 : 0);
+        };
+        const Run ra = run_window(false, off);
+        const Run rb = run_window(true, on);
+        const std::string d = batch_ab::first_diff(ra, rb);
+        size_t bad = 0;
+        while (bad < off.size() && bad < on.size() && off[bad] == on[bad]) ++bad;
+        bool stops = false;
+        for (const auto& x : off) stops |= x.rfind("stop:1", 0) == 0;
+        std::printf("  RPB-15 debugger-window: poll_passes_batched=%llu, %zu snapshots, first differing %zu\n",
+                    static_cast<unsigned long long>(rb.poll_batched), on.size(), bad);
+        const bool window_ok = d.empty() && off == on && stops && rb.poll_batched > 0 && ra.poll_batched == 0;
+        check_poll("RPB-15", "an idle ESP-01, and the debugger window open (a client with the live raster and call-stack tracker; mid-frame stops): identical per frame, engaged; the call stack and the raster walk identical after every frame and at every stop",
+                   {esp}, Poll::Engaged, window_ok,
+                   "debugger window: diff=" + d + " snapshots " + std::to_string(off.size()) + "/" + std::to_string(on.size()) +
+                   " first=" + std::to_string(bad) + " stops=" + std::to_string(stops) +
+                   " engaged=" + std::to_string(rb.poll_batched));
     }
 
     // RPB-27: a persistent breakpoint set elsewhere refuses the batch (G2); one INSIDE the loop stops the

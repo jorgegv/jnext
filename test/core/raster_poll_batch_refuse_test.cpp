@@ -76,6 +76,37 @@ int main() {
     check_poll("RPB-33", "guide loop that also does OUT (C),A to the sprite attribute port 0x57 through BC': identical per frame, REFUSED (an OUT (C),r that is not the select)",
                {poll_fx("out-c-other", 3, 0xFF, guide_loop(0xC000, kCount, {0x57, 0xD9, 0x01, 0x57, 0x00, 0x3E, 0x05, 0xED, 0x79, 0xD9, 0x7A}))}, Poll::Refused);
 
+    // RPB-34: the machine edited from outside between two slots of a watched pass (the debugger paused it mid-frame,
+    // and the user sets PC, or patches the loop's own code, and resumes): the pass watched before the edit is not
+    // the pass that runs after it, so run_frame() drops it. Two stops per case, identical per frame with the batch on.
+    {
+        auto edited = [](const char* name, std::function<void(Emulator&)> edit) {
+            Scenario s = poll_fx(name, 3, 0xFF, guide_loop(), 40);
+            auto stops = std::make_shared<int>(0);
+            s.setup = [=, base = s.setup](Emulator& e) { base(e); *stops = 0; };
+            s.before_frame = [=](Emulator& e, int f) {
+                if (f < 10 || f > 30 || (f % 2) != 0) return;
+                e.debug_state().set_persistent_breakpoints(true);
+                e.debug_state().run_to_cycle(e.clock().get() + 300000 + static_cast<uint64_t>(f) * 37);
+                e.run_frame();                       // stops mid-frame
+                if (e.debug_state().paused()) ++*stops;
+                edit(e);
+                e.debug_state().resume();
+                e.debug_state().set_persistent_breakpoints(false);
+            };
+            s.alive = [=](Emulator& e) { return *stops > 0; };
+            return s;
+        };
+        check_poll("RPB-34", "Set PC back to the loop head, and a patch of the loop's JR offset, while paused mid-pass: identical per frame, engaged on the other frames",
+                   {edited("host-set-pc", [](Emulator& e) {
+                        Z80Registers r = e.cpu().get_registers();
+                        if (r.PC > 0xC001 && r.PC < 0xC00F) { r.PC = 0xC001; e.cpu().set_registers(r); }
+                    }),
+                    edited("host-patch-code", [](Emulator& e) {
+                        e.mmu().write(0xC00E, e.mmu().peek(0xC00E) == 0xF2 ? 0x00 : 0xF2);
+                    })});
+    }
+
     // RPB-23: the CPU must be in the state it started the pass in: DJNZ moves B every pass.
     check_poll("RPB-23", "DJNZ-bounded poll (B changes every pass): identical per frame, REFUSED (the state differs)",
                {poll_fx("djnz", 3, 0xFF, djnz_loop())}, Poll::Refused);
@@ -91,10 +122,16 @@ int main() {
 
     // RPB-26: the esxDOS shim and the NMI source react to the address of a fetch (0x3Dxx is a DivMMC automap
     // entry): a pass with one M1 on such an address is refused, whatever the DivMMC's state.
-    check_poll("RPB-26", "guide loop whose wait crosses 0x3D00 (RAM over the ROM slot): identical per frame, REFUSED (an automap address)",
+    // The second variant puts the ED prefix of the wait's IN at 0x04C5 and its second M1 at 0x04C6, a tape trap
+    // address: only the second M1 of a prefixed instruction is a candidate, so it pins that half of the test.
+    check_poll("RPB-26", "guide loop whose wait crosses 0x3D00 (RAM over the ROM slot), and one whose IN A,(C) has its second M1 on 0x04C6 (RAM over slot 0): identical per frame, REFUSED (an automap address)",
                {poll_fx("automap-address", 3, 0xFF, guide_loop(0x3CF8), 30, 0x3CF8, [](Emulator& e) {
                     nr(e, 0x51, 0x10);
                     poke(e, 0x3CF8, guide_loop(0x3CF8));
+                }),
+                poll_fx("automap-second-m1", 3, 0xFF, guide_loop(0x04BC), 30, 0x04BC, [](Emulator& e) {
+                    nr(e, 0x50, 0x12);
+                    poke(e, 0x04BC, guide_loop(0x04BC));
                 })}, Poll::Refused);
 
     // RPB-28: D1 - a read routine called from the loop (PUSH, POP, CALL, RET) is not batched.

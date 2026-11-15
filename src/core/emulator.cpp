@@ -10373,6 +10373,11 @@ void Emulator::run_frame()
     // on the load area must see that exactly as it would without fast-load.
     DebugState::GuestExecutionScope guest_exec(debug_state_);
 
+    // GH #496 - a watched raster-poll pass never outlives a call: between two calls the machine can be
+    // changed from outside (a debugger pause with Set PC or a memory patch, a DZRP write, a script poke),
+    // and the proof of a pass spans several slots, so an edit between them would be absorbed into a batch.
+    poll_stop_();
+
     // GH #25 — ESP service, deliberately FIRST. The replay gate below must be
     // applied before any instruction of a replayed frame executes, and
     // rewind_to_cycle() (called from the branch just after this) re-enters
@@ -12358,9 +12363,6 @@ bool Emulator::poll_start_(uint64_t)
     if (cpu_.last_slot_kind() != Z80Cpu::SlotKind::Opcode || cpu_.last_opcode() != 0x76)
         return master_cycles;
 
-    // Bounds: the batched window [slot_start, slot_start + n * p) must hold no action of anything
-    // that acts at a time of its own; the action then happens in a later slot. `need` is the least
-    // window that is worth a batch (two repeats): every bound returns the moment it falls below it.
     // P3: the PC is not one the DivMMC automap (RST vectors, the NMI vector, the tape traps,
     // 0x1FF8-0x1FFF, 0x3Dxx) or anything else reacts to by address: the esxDOS shim fires on
     // every execute() at 0x0008 and NmiSource watches the 0x0066 fetch. NOT the DivMMC / Multiface

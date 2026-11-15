@@ -69,14 +69,16 @@ same binary, held by the A/B rig (`test/core/batch_ab.h`; see section 4.7 of the
 `src/core/costly_optimizations.h` is the one table. A row is a `CostlyOptId`, a stable lower-case
 `name`, and three one-line texts: `summary` (what it speeds up), `cost` (the measured fixed cost, and
 who pays it) and `benefits` (which programs gain and where it does nothing). The header is Qt-free,
-because `main.cpp`, the SDL-only and headless builds and the tests include it, and holds the parser of
+because `main.cpp` and the SDL-only and headless builds will include it when the flag exists (only the
+tests do today), and holds the parser of
 the flag's value (`parse_costly_optimizations()`, which takes its table as an argument so that its
 rows run against a table of their own).
 
 Adding an optimisation to it is:
 
 1. one `CostlyOptId` and one table row;
-2. one arm of the `switch (CostlyOptId)` in `Emulator::apply_costly_optimizations()`, with **no
+2. one arm of the `switch (CostlyOptId)` in `Emulator::apply_costly_optimizations()` (added with the first
+   member), with **no
    `default`**, so that a row without an arm does not compile (`-Werror=switch`); the arm sets the one
    member the optimisation reads;
 3. its code, which reads only that member; its default is off, and a `_for_test` setter writes the same
@@ -93,8 +95,9 @@ script that generates the command-line chapter. The flag is a command-line setti
 Preferences field, because it is not a setting a GUI user needs to find. In the browser build the
 player's `args` option forwards it.
 
-The table is **empty today**. The first optimisation, the raster-poll batch, measured free (below), so
-it is always on. The flag, its man page items, the generated user guide page and the `cli-check` rows
+The table is **empty today**. The first optimisation, the raster-poll batch, costs a little above the line on two gcc workloads (below)
+and the owner decided (2026-11-15) that it ships always on, so it is not
+registered. The flag, its man page items, the generated user guide page and the `cli-check` rows
 that need them land with the first optimisation that is really costly; what is in the tree now is the
 table type and the parser.
 
@@ -122,5 +125,5 @@ frame) and so pays for the optimisation's observation as well as its test. The o
 on; a later compiler that moves these numbers further is the trigger to register it.
 
 Where it works, it removes most of the host work of a screen that waits for the raster: the NextZXOS
-Guide viewer goes from about 91 M host instructions a frame to a third of that, and the games that poll
-the raster in a tight loop to well under half. It does nothing at 3.5 MHz while contention can apply.
+Guide viewer goes from about 91 M host instructions a frame to 39 M (43 %), and the games that poll
+the raster in a tight loop to 43-50 % (Warhawk 45 %, Revival Survival 45 %, show512 43 %, Shift 50 %). It does nothing at 3.5 MHz while contention can apply.

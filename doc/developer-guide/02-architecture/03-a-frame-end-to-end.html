@@ -3144,7 +3144,7 @@ A <code>.tzx</code> or <code>.wav</code> save also samples the tape-out level
 (<code>Emulator::tape_out_level()</code>) at port 0xFE writes, while a tape plays, and at the
 end of the frame; see
 <a href="../03-subsystems/08-media-and-loaders.html">3.8</a>.</p>
-<p><strong>Then <code>step_one_instruction()</code></strong> (<code>src/core/emulator.cpp:10952</code>), the one shared per-instruction
+<p><strong>Then <code>step_one_instruction()</code></strong> (<code>src/core/emulator.cpp:10957</code>), the one shared per-instruction
 body. It picks exactly one of four things to do:</p>
 <ul>
 <li>If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -3212,7 +3212,8 @@ after the window. Contention must not be able to apply (<code>ContentionModel::c
 T-states, <code>R</code> and <code>execute()</code> serial, the clock and the DMA prescaler timer advance, and the PSG and the
 mixer are replayed slot by slot through <code>halt_batch_replay_()</code>, the HALT batch's own replay, before the
 cluster runs once over the window. Every batch is preceded by its own watched pass: nothing is cached
-between batches. The fixed cost to every program is that one flag test; it was measured against the
+between batches, and <code>run_frame()</code> drops a watched pass on entry, because a debugger pause can be followed
+by an edit of the registers or of memory. The fixed cost to every program is that one flag test; it was measured against the
 branch point on the bench workloads, under gcc and under clang, at 0.03 to 0.23 % of host instructions, so
 the optimisation is always on rather than a costly one (page 2.6).</p>
 <p>Around that choice it also records the trace entry, notes what the end-of-slot
@@ -3224,7 +3225,7 @@ single-step once kept its own copy of this cluster, silently lost the IM2 tick
 and both /INT polls, and so delivered no interrupts at all while you were
 stepping.</p>
 <p><strong>Then a data-breakpoint check</strong>, which returns early if one fired.</p>
-<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:11653</code>), the
+<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:11658</code>), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -3265,7 +3266,7 @@ the interrupt-status NextREGs, the tape EAR bit — first brings them up to the
 edge its bus cycle latches or commits on (<code>Emulator::sync_io_devices_to()</code>),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.</p>
-<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:13911</code>) renders nothing at all. What it does is
+<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:13913</code>) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 <code>snapshot_row_render_state()</code> — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

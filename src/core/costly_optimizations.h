@@ -9,15 +9,17 @@
 // ONE TABLE drives everything user-facing: the names the flag accepts, the error for an unknown name, the
 // `--help` list, the man page check (every row has an item carrying its summary / cost / benefits lines
 // verbatim, and every item names a row) and the startup log line. A row is added with: a CostlyOptId, a
-// table row, one arm of the `switch` in Emulator::apply_costly_optimizations() (no `default`, so a row
-// without an arm does not compile), its code, and its rows.
+// table row, one arm of a `switch` over CostlyOptId in an `Emulator::apply_costly_optimizations()` that is
+// added with the first member (no `default`, so a row without an arm does not compile), its code, and its rows.
 //
-// The table is EMPTY today. The first optimisation of this kind, the raster-poll batch, measured free on the
-// bench workloads and ships always on; the flag, its man page items and the user guide page land with the
+// The table is EMPTY today. The first optimisation of this kind, the raster-poll batch, costs 0.03 to 0.23 %
+// of host instructions on the bench workloads, a little above the +0.2 % line on two gcc ones; the owner
+// decided (2026-11-15) that it ships always on, so it is not registered. The flag, its man page items and the user guide page land with the
 // first optimisation that is really costly. What is here is the part that does not depend on that: the table
 // type and the parser, which takes its table as an argument so that the rows that pin it do not need a member.
 //
-// Qt-free: main.cpp, the SDL-only and headless builds and the tests include it.
+// Qt-free, so that main.cpp, the SDL-only and headless builds can include it when the flag exists; only the
+// tests include it today.
 
 #include <array>
 #include <cstddef>
@@ -32,7 +34,7 @@ enum class CostlyOptId : uint8_t {
 };
 
 struct CostlyOpt {
-    CostlyOptId id;       // the switch it drives (see Emulator::apply_costly_optimizations)
+    CostlyOptId id;       // the switch it drives (see the switch of the first member's Emulator::apply_costly_optimizations)
     const char* name;     // stable, lower-case [a-z0-9-]+; the flag's word; never renamed once shipped
     const char* summary;  // one line: what it speeds up; --help prints it, the man page item starts with it verbatim
     const char* cost;     // one line: the measured fixed cost and who pays it once named

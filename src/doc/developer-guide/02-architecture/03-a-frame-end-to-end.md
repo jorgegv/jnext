@@ -154,7 +154,7 @@ A `.tzx` or `.wav` save also samples the tape-out level
 end of the frame; see
 [3.8](../03-subsystems/08-media-and-loaders.md).
 
-**Then `step_one_instruction()`** (`src/core/emulator.cpp:10952`), the one shared per-instruction
+**Then `step_one_instruction()`** (`src/core/emulator.cpp:10957`), the one shared per-instruction
 body. It picks exactly one of four things to do:
 
 - If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -223,7 +223,8 @@ after the window. Contention must not be able to apply (`ContentionModel::conten
 T-states, `R` and `execute()` serial, the clock and the DMA prescaler timer advance, and the PSG and the
 mixer are replayed slot by slot through `halt_batch_replay_()`, the HALT batch's own replay, before the
 cluster runs once over the window. Every batch is preceded by its own watched pass: nothing is cached
-between batches. The fixed cost to every program is that one flag test; it was measured against the
+between batches, and `run_frame()` drops a watched pass on entry, because a debugger pause can be followed
+by an edit of the registers or of memory. The fixed cost to every program is that one flag test; it was measured against the
 branch point on the bench workloads, under gcc and under clang, at 0.03 to 0.23 % of host instructions, so
 the optimisation is always on rather than a costly one (page 2.6).
 
@@ -238,7 +239,7 @@ stepping.
 
 **Then a data-breakpoint check**, which returns early if one fired.
 
-**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11653`), the
+**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:11658`), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed, stopping at every
 video-row boundary inside that window; the deferred CPU
@@ -283,7 +284,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13911`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:13913`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

@@ -107,9 +107,10 @@ Scenario poll_fx(const char* name, uint8_t speed, uint8_t page6, const Bytes& co
 enum class Poll { Engaged, Refused };
 
 // Identical per frame, alive in both runs, the OFF run really off, and the batch engaged (or refused).
-void check_poll(const char* id, const char* desc, const std::vector<Scenario>& list, Poll expect = Poll::Engaged) {
-    std::string detail;
-    bool ok = true;
+void check_poll(const char* id, const char* desc, const std::vector<Scenario>& list, Poll expect = Poll::Engaged,
+                bool extra_ok = true, const std::string& extra_detail = {}) {
+    std::string detail = extra_ok ? std::string() : extra_detail + "; ";
+    bool ok = extra_ok;
     for (const Scenario& sc : list) {
         const Run a = batch_ab::run(sc, false, false, g_scratch, 0);
         const Run b = batch_ab::run(sc, false, false, g_scratch, 1);
