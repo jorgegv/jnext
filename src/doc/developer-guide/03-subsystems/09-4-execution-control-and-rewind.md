@@ -67,8 +67,8 @@ The hot path pays nothing for any of this: `Mmu::read` and `Mmu::write` compile
 to the same instructions they did without it, every difference being a
 structure offset.
 
-**The HALT batch stands aside for what observes instructions, not for an attached client.**
-`Emulator::halt_batch_after_slot_()` asks `DebugState::halt_batch_blocked()`, one predicate that
+**The HALT batch and the raster-poll batch stand aside for what observes instructions, not for an attached client.**
+`Emulator::batch_window_limit_()`, the gates and bounds both batches share, asks `DebugState::halt_batch_blocked()`, one predicate that
 lists every contributor together. It refuses on `--persistent-breakpoints`, a rewind replay, a
 magic-stop or verify hold, a pause, a step mode, a pending data-breakpoint hit, and on either
 coverage set; and, while a client arms the machine, on any breakpoint or watchpoint in the model
@@ -79,7 +79,7 @@ one breakpoint anywhere keeps the batch off, even when nothing covers the `HALT`
 client that is merely attached (the debugger window open on an idle program, a remote client with
 nothing set) does NOT refuse: with no breakpoint, subscription or step, the armed block, the
 watch gates and the boundary drain of an absorbed repeat are no-ops, the raster walk is advanced
-over the window in one call, and the call-stack tracker learns nothing from a `HALT` repeat. A
+over the window in one call, and the call-stack tracker learns nothing from a `HALT` repeat (nor from a pass of a raster-poll loop: its whitelist has no push, pop, call or return, so the tracker's pre-capture of such a slot is overwritten with the same values). A
 closed window whose breakpoints stay in the backend arms nothing and never refuses. Stepping is
 untouched by construction: `step_frame_slot()` and `execute_single_instruction()` call the shared
 slot body without asking for a batch, so a Step over a `HALT` is one repeat.

@@ -9,8 +9,8 @@ const Program kPrograms[] = {
     {"HBC-20", "00regression/nex/parallax.nex", 0, true, false},
     {"HBC-21", "00regression/nex/red.nex"},
     {"HBC-22", "00regression/nex/santaspressie.nex", 0, false, true},
-    {"HBC-23", "00regression/nex/shift.nex"},
-    {"HBC-24", "00regression/nex/show512.nex", 0, true, false},
+    {"HBC-23", "00regression/nex/shift.nex", 0, false, false, true},
+    {"HBC-24", "00regression/nex/show512.nex", 0, true, false, true},
 };
 } // namespace
 

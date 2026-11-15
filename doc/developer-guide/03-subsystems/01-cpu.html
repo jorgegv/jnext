@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.45</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.45</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -530,6 +530,8 @@
       
         
       
+        
+      
     
     
     
@@ -706,6 +708,34 @@
     
   
     2.5 Save state, rewind and determinism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/06-adding-a-costly-optimisation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.6 Adding a costly optimisation
   
 
     
@@ -3062,6 +3092,14 @@ what they would have added (the T-state counter, <code>R</code>, the <code>execu
 nothing else, and its caller (<code>Emulator::halt_batch_after_slot_()</code>) is the one that proves that no
 other component could have told the repeats apart; <code>last_opcode()</code> lets it check that the
 opcode really was <code>0x76</code>.</p>
+<p><strong>Loops.</strong> <code>Z80Cpu::capture_loop_state()</code> returns everything one pass of a register-only loop
+could change in the CPU except the 7-bit <code>R</code> counter: the registers and their shadows, MEMPTR, <code>Q</code>,
+<code>IncDecZ</code>, IFF1/IFF2/IM, <code>halted</code>, FUSE's <code>iff2_read</code> quirk flag and whether the EI grace is
+pending. Two captures that compare equal mean the CPU is in the same state.
+<code>Z80Cpu::repeat_loop(count, each, slots, dr)</code> accounts <code>count</code> further passes of a pass the caller has
+just run for real and proved periodic: the T-state counter, <code>R</code> (by <code>dr</code> a pass) and the <code>execute()</code>
+serial, like <code>repeat_halt()</code> and for the same reason without a register sync. Its caller
+(<code>Emulator::poll_slot_()</code>) is the one that proves the passes identical.</p>
 <p><code>Z80Registers</code> carries the architectural registers plus MEMPTR, FUSE's <code>Q</code> latch
 and <code>IncDecZ</code>. That last one is a one-bit shadow that exists only in the VHDL
 (<code>t80n.vhd:1358-1367</code>), where it becomes observable through the Z80N <code>LDWS</code>
