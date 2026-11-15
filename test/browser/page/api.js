@@ -1,6 +1,8 @@
 // Test fixture for the JavaScript API rows: never shipped. Query string:
 //   module=<jnext-VERSION.js>   the build output to load
-//   image=<json {url, sha256}>  the SD-card image, for every player
+//   image=<json {url, sha256}>  the SD card for every player: a development card, through the
+//                               localhost-only seam of web/jnext-image.js (a page cannot name a card)
+//   dev=<json>                  the whole development seam (card, distribution, probeTimeoutMs)
 //   players=<json [options]>    one options object per player (callbacks are added here)
 // Every player's events land in window.apiTest.players[i]; a mount failure in .mountError.
 (function () {
@@ -8,6 +10,8 @@
   const q = new URLSearchParams(location.search);
   const t = { players: [], errors: [], loaded: false };
   window.apiTest = t;
+  if (q.get('dev')) window['jnextDev'] = JSON.parse(q.get('dev'));
+  else if (q.get('image')) window['jnextDev'] = { card: JSON.parse(q.get('image')) };
   window.addEventListener('error', (e) => t.errors.push(String(e.message)));
   window.addEventListener('unhandledrejection', (e) => t.errors.push('unhandled: ' + String(e.reason)));
 
@@ -16,12 +20,10 @@
   s.onload = () => {
     t.loaded = true;
     const list = JSON.parse(q.get('players') || '[{}]');
-    const image = q.get('image') ? JSON.parse(q.get('image')) : undefined;
     list.forEach((opts, i) => {
       const rec = { player: null, progress: [], ready: 0, errors: [], mountError: null, order: [], settled: false };
       t.players[i] = rec;
       const o = Object.assign({}, opts);
-      if (image && o.image === undefined) o.image = image;
       if (o.width === undefined) o.width = 320;
       if (o.height === undefined) o.height = 256;
       if (!opts.__raw) {

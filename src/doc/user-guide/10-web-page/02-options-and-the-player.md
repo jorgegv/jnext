@@ -17,7 +17,7 @@
 | `wasmUrl` | string | Where the `.wasm` is served from. Default: beside the script. |
 | `onProgress`, `onReady`, `onError` | functions | Events, below. |
 
-`player.argv` is the equivalent command line, without the program name.
+`player.argv` is the equivalent command line, without the program name; it exists once the visitor has clicked and the player has its SD card (until then it is undefined).
 
 ## Events
 

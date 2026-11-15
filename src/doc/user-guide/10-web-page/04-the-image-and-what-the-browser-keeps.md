@@ -111,8 +111,8 @@ either. Clearing the site's data in the browser makes the next visit a first vis
 ## If it does not start
 
 The page reports these messages through `onError`, and the example pages show them in
-their status line. A message about the visitor's NextZXOS file also appears on the
-player's panel.
+their status line. The exception is a file the visitor chose that is not the official one:
+it is refused on the player's panel only (no `onError`), because the visitor can choose again.
 
 | message | what it means |
 |---|---|

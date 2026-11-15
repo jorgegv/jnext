@@ -45,14 +45,14 @@ export class Harness {
         // so the browser's CORS check is the real one. A response the harness fulfils itself is
         // NOT checked for CORS by Chromium, so a row about a missing header needs this.
         if (o && o.passthrough) {
-          this.originRequests.push({ url: url.href, origin: route.request().headers()['origin'] || null });
+          this.originRequests.push({ url: url.href, method: route.request().method(), origin: route.request().headers()['origin'] || null });
           return route.continue();
         }
         const f = o && path.resolve(o.root, decodeURIComponent(url.pathname.slice(1)));
         if (!f || !f.startsWith(path.resolve(o.root) + path.sep) || !fs.existsSync(f) || !fs.statSync(f).isFile()) {
           this.refused.push(url.href); return route.abort();
         }
-        this.originRequests.push({ url: url.href, origin: route.request().headers()['origin'] || null });
+        this.originRequests.push({ url: url.href, method: route.request().method(), origin: route.request().headers()['origin'] || null });
         const body = fs.readFileSync(f);
         return route.fulfill({ status: 200, body, headers: { 'Content-Type': 'application/octet-stream',
                                                             'Content-Length': String(body.length), ...o.headers } });

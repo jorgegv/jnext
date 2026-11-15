@@ -547,9 +547,10 @@
         var fetchIt = function () {
           return JnextImage.fetchDistribution(mod, pins, progress).catch(function (e) {
             if (source === 'fetch') {
-              throw new Error('cannot read the NextZXOS distribution from specnext.com (' + pins.url + '): ' +
+              throw new Error('cannot read the NextZXOS distribution from specnext.com: ' + pins.url + ': ' +
                               (e && e.message ? e.message : String(e)) +
-                              (e instanceof TypeError ? ' (no Access-Control-Allow-Origin header?)' : ''));
+                              (e instanceof TypeError ? ' (a network error, or the server does not allow cross-origin ' +
+                                                         'reads: no Access-Control-Allow-Origin header)' : ''));
             }
             return pickPanel(pins, e && e.message ? e.message : String(e));
           });
