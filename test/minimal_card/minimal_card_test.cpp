@@ -9,8 +9,7 @@
 // The card the builder writes is read back with the vendored FatFs (f_mount/f_stat/f_read:
 // third-party code, not our reader); the boot sectors are read raw.
 // The expected values come from the fixture's declared contents.
-//
-// See test/minimal_card/MINIMAL-CARD-TEST-PLAN-DESIGN.md.
+// The row MCARD-17 (recipe 3 unchanged) lives in test/fat32_image/fat32_image_test.cpp.
 
 #include "core/fat32_image.h"
 #include "core/fatfs_diskio.h"

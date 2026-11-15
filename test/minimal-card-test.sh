@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Contract test for the make-minimal-card tool (core/minimal_card.cpp, the minimal NextZXOS
-# boot card; replaces test/minimal-sdcard-image-test.sh and the mtools script it tested).
+# boot card; replaces the earlier mtools shell script and its suite).
 # Builds cards from the cached distribution image into a scratch directory under mktemp,
 # reads them back with FOREIGN readers (mtools, sfdisk, python zipfile), and never writes the
 # source. No image is ever kept: the scratch directory is removed on exit.
