@@ -334,6 +334,7 @@ selftest() {
         0 'brace in s RE (escaped)'   "sed 's/a\\{2\\}/b/' f"
         0 'brace in s RE (-E)'        "sed -E 's/^(P[0-9]{2}):/\\1/' f"
         0 'dquote ${var}p'            'sed -n "${first}p" f'
+        0 'dquote ${n}p (n is a command)' 'sed -n "${n}p" f'
         0 'dquote $(( ))p'            'sed -n "$(( a + 1 ))p" f'
         0 'brace in an address RE'    "sed -n '/^menu_index() {/,/^}/p' f"
         0 'braces in y'               "sed 'y/{}/()/' f"
