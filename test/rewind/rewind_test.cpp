@@ -84,11 +84,6 @@ static int fail_count = 0;
 // Skip helper — mirrors test/sdcard/sdcard_test.cpp:48-80 shape.
 struct SkipNote { const char* id; const char* reason; };
 static std::vector<SkipNote> g_skipped;
-static void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skipped.push_back({id, reason});
-    fprintf(stdout, "SKIP %-16s %s\n", id, reason);
-}
 
 // One row: a literal ID, the condition, a literal description, and an
 // optional detail carrying measured values (printed, never part of the ID).
@@ -3798,6 +3793,29 @@ static int test_s4_restore_behaviour()
               "control byte beside it IS restored, and the stream still ends "
               "exactly where it should — the byte was consumed either way");
     }
+    // The OFFSET row `kPalPriorityOff` was declared for ("each pinned by its own
+    // OFFSET row") and never got (GH #418): the 2 x 256 layer2_priority bytes
+    // start right after the 14 scalars. Oracle: NR 0x44's second write latches
+    // b7 as nr_palette_priority(1) (zxnext.vhd:4920, :7039); layer2_priority_ is
+    // bank-major, so entry 0x30 of bank 0 is the byte at kPalPriorityOff + 0x30.
+    {
+        PaletteManager pal;
+        pal.write_control(0x10);          // target LAYER2_FIRST
+        pal.set_index(0x30);
+        pal.write_9bit(0xAA);
+        pal.write_9bit(0x80);             // second write: b7 = priority
+        const std::vector<uint8_t> buf = s4::save_bytes(pal);
+        check("S4-PALETTE-PRIORITY-OFFSET",
+              buf.size() == 4622 && s4::kPalPriorityOff == 4110 &&
+                  pal.layer2_priority_high(false, 0x30) &&
+                  (buf[s4::kPalPriorityOff + 0x30] & 0x02) != 0 &&
+                  buf[s4::kPalPriorityOff + 0x2F] == 0 &&
+                  buf[s4::kPalPriorityOff + 0x31] == 0 &&
+                  buf[s4::kPalPriorityOff + 256 + 0x30] == 0,
+              "the layer2 priority bytes start at offset 4 110 (bank-major, 256 per "
+              "bank, ending the 4 622-byte save): an NR 0x44 priority write to "
+              "bank 0 entry 0x30 is the byte at 4 110 + 0x30 and no neighbour");
+    }
 
     // ── Ula: screen_mode is an enum8 WITH HOLES ───────────────────────────
     //
@@ -5357,7 +5375,7 @@ static int test_s8_jns_roundtrip()
             for (const auto& e : r.entries()) {
                 std::vector<uint8_t> bytes;
                 if (e.name == member) {
-                    bytes.assign(body.begin(), body.end());
+                    bytes = std::vector<uint8_t>(body.begin(), body.end());
                 } else if (!r.read(e.name, bytes, why)) {
                     return false;
                 }
@@ -5616,7 +5634,7 @@ static int test_s8_jns_roundtrip()
             jnext::zip::Writer w{jnext::jns::kArchiveComment};
             for (const auto& e : r.entries()) {
                 std::vector<uint8_t> bytes;
-                if (e.name == member) bytes.assign(body.begin(), body.end());
+                if (e.name == member) bytes = std::vector<uint8_t>(body.begin(), body.end());
                 else if (!r.read(e.name, bytes, why)) return false;
                 if (!w.add(e.name, bytes.data(), bytes.size(),
                            jnext::zip::Method::Deflate, why)) {
@@ -6103,7 +6121,7 @@ static int test_s8_jns_roundtrip()
                 jnext::zip::Writer w{jnext::jns::kArchiveComment};
                 for (const auto& e : r.entries()) {
                     std::vector<uint8_t> bytes;
-                    if (e.name == member) bytes.assign(body.begin(), body.end());
+                    if (e.name == member) bytes = std::vector<uint8_t>(body.begin(), body.end());
                     else if (!r.read(e.name, bytes, why)) return false;
                     if (!w.add(e.name, bytes.data(), bytes.size(),
                                jnext::zip::Method::Deflate, why)) {
@@ -6575,7 +6593,7 @@ static int test_s8_jns_roundtrip()
                 if (e.name == drop) continue;
                 std::vector<uint8_t> bytes;
                 if (e.name == jnext::jns::kManifestMember) {
-                    bytes.assign(manifest_text.begin(), manifest_text.end());
+                    bytes = std::vector<uint8_t>(manifest_text.begin(), manifest_text.end());
                 } else if (!r.read(e.name, bytes, why)) {
                     return false;
                 }

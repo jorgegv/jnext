@@ -317,7 +317,7 @@ void VariablesPanel::sync(QTreeWidgetItem* parent, const std::vector<Node>& node
     for (int i = 0; same && i < parent->childCount(); ++i) same = key_of(parent->child(i)) == nodes[static_cast<size_t>(i)].key;
     if (!same) {
         qDeleteAll(parent->takeChildren());
-        for (const Node& n : nodes) parent->addChild(new QTreeWidgetItem());
+        for ([[maybe_unused]] const Node& n : nodes) parent->addChild(new QTreeWidgetItem());
     }
     for (int i = 0; i < parent->childCount(); ++i) {
         QTreeWidgetItem* item = parent->child(i);

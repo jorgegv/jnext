@@ -191,6 +191,12 @@ std::string transport_reason(long code);
 std::string fetch_failure(const std::string& what, const std::string& url,
                           const std::string& reason, const std::string& next);
 
+// Backoff seam (GH #497): wait `ms` milliseconds between two download attempts.
+// `note` says why and for how long ("Download attempt 1 failed: <reason>\nRetry 1 of 3
+// in 2 s"), for a GUI to show while it waits (and keep its window alive, Cancel
+// included). Empty in ProvisionOptions = really sleep; tests pass a recorder.
+using SleepFn = std::function<void(unsigned ms, const std::string& note)>;
+
 // Confirmation seam: returns true if the user agrees to download.
 using ConfirmFn = std::function<bool(const std::string& message)>;
 
@@ -503,6 +509,19 @@ struct ProvisionOptions {
     DownloadFn  download;           // defaults to default_http_download
     ConfirmFn   confirm;            // defaults to cli_confirm
     ProgressFn  progress;           // optional; passed into the download
+    // GH #497: a download whose attempt fails (transport error, or a body that does
+    // not unzip) is retried `retries` more times, waiting 2 s, then twice
+    // that, four times that... between attempts (2 s, 4 s, 8 s; the first wait is
+    // $JNEXT_SDCARD_RETRY_BACKOFF_MS when set, a test seam like $JNEXT_SDCARD_DISTRO_URL,
+    // never documented to users). A cancel is not retried.
+#ifdef __EMSCRIPTEN__
+    // The browser build has no download at all (sdcard_provisioner_net_web.cpp declines at once):
+    // a retry would only block the page's thread for 14 s of backoff before the same refusal.
+    int         retries = 0;
+#else
+    int         retries = 3;
+#endif
+    SleepFn     sleep;              // defaults to a real sleep
     CopyFn      copy;               // defaults to default_copy_file
     BusyFn      busy;               // optional; wraps the copy+patch step
     UpgradeFn   upgrade;            // the offer of a newer distribution; empty = never ask

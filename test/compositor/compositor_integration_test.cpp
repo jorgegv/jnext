@@ -1372,7 +1372,6 @@ namespace {
 constexpr int kResetCvc = 100;
 constexpr int kResetRow = kResetCvc + Renderer::DISP_Y;   // 132
 constexpr int kDispCol  = Renderer::DISP_X + 20;          // inside the paper
-constexpr uint32_t P_BLACK = 0xFF000000u;
 } // namespace
 
 // DI; HALT at the start of the ROM window a soft reset jumps into, or the

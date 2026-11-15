@@ -49,7 +49,6 @@
 static int g_pass = 0;
 static int g_fail = 0;
 static int g_stub = 0;
-static int g_total = 0;  // pass + fail (stubs excluded)
 
 struct TestResult {
     std::string group;
@@ -67,7 +66,6 @@ static void set_group(const char* name) { g_group = name; }
 static void check(const char* id, const char* desc, bool cond,
                   const char* detail = "") {
     report_row_id(id);
-    g_total++;
     TestResult r{g_group, id, desc, cond, false, detail};
     g_results.push_back(r);
     if (cond) ++g_pass;
@@ -77,13 +75,6 @@ static void check(const char* id, const char* desc, bool cond,
         if (detail[0]) printf(" [%s]", detail);
         printf("\n");
     }
-}
-
-static void stub(const char* id, const char* desc, const char* reason) {
-    ++g_stub;
-    TestResult r{g_group, id, desc, false, true, reason};
-    g_results.push_back(r);
-    printf("  STUB %s: %s [%s]\n", id, desc, reason);
 }
 
 static char g_buf[512];

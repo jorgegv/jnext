@@ -114,7 +114,7 @@ everything look as though it were registered twice. It refuses when:
   build registers `NAME.exe`: the harness strips the suffix to match the
   manifest, checks for the `.exe`, and prefixes every suite with
   `JNEXT_TEST_RUNNER` (wine, see [5.1](../05-building/01-make-targets.md#test)),
-  and `JNEXT_UNIT_TEST_JOBS` caps how many run at once (unset: all of them).
+  and `JNEXT_UNIT_TEST_JOBS` caps how many run at once (unset: one per CPU, from `nproc`; `0`: no cap). Starting every suite at once made the 300 s per-suite bound measure the host's queue, not the suite: on a 4-vCPU macOS Intel runner the longest suite took 89% of the bound, and new work pushed fourteen over it. Each suite's wall time is printed at the end of its result row.
 - the run cannot make its **private clone of the SD master** under
   `~/.jnext/runs/` (no space, no permission): the run fails naming the cause,
   and never falls back to reading the shared master, which every other run

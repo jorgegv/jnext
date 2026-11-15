@@ -32,6 +32,7 @@ bool EventTable::erase(EventId id) {
     for (auto& e : subs_) {
         if (e.id != id || e.removed) continue;
         e.removed = true;
+        ++tombstones_;
         // The closures go NOW rather than at compact(): a DSL interpreter's
         // handler captures its own state, and holding it alive after the
         // subscriber asked for the removal is a lifetime surprise waiting to
@@ -65,6 +66,7 @@ size_t EventTable::clear_transient() {
         e.handler   = nullptr;
         ++n;
     }
+    tombstones_ += n;
     if (n) refresh();
     return n;
 }
@@ -78,6 +80,7 @@ size_t EventTable::clear_transient(ClientId owner) {
         e.handler   = nullptr;
         ++n;
     }
+    tombstones_ += n;
     if (n) refresh();
     return n;
 }
@@ -91,6 +94,7 @@ size_t EventTable::erase_client(ClientId cid) {
         e.handler   = nullptr;
         ++n;
     }
+    tombstones_ += n;
     if (n) refresh();
     return n;
 }
@@ -248,6 +252,7 @@ bool EventTable::set_slot_page(int slot, uint16_t page) {
 
 void EventTable::compact() {
     ++compactions_;
+    tombstones_ = 0;
     subs_.erase(std::remove_if(subs_.begin(), subs_.end(),
                                [](const Entry& e) { return e.removed; }),
                 subs_.end());

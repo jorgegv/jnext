@@ -73,7 +73,6 @@ uint32_t r32(const std::vector<uint8_t>& v, size_t off) {
 std::string lower(std::string s) { for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return s; }
 
 std::string sha_of(const std::vector<uint8_t>& v) { return sdcard::sha256_hex(v); }
-std::string sha_file(const std::string& p) { return sdcard::sha256_file(p); }
 
 // A reproducible byte pattern (an LCG), so that deflate has real work to do.
 std::vector<uint8_t> pattern(size_t n, uint32_t seed) {

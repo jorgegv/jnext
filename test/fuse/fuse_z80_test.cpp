@@ -308,7 +308,7 @@ int main(int argc, char* argv[]) {
             for (auto& mb : input.mem_blocks) {
                 if (mb.addr <= pc && pc < mb.addr + mb.data.size())
                     op0 = mb.data[pc - mb.addr];
-                if (mb.addr <= pc+1 && pc+1 < mb.addr + mb.data.size())
+                if (mb.addr <= pc+1 && static_cast<size_t>(pc+1) < mb.addr + mb.data.size())
                     op1 = mb.data[pc+1 - mb.addr];
             }
             is_repeating = (op0 == 0xED && (op1 == 0xB0 || op1 == 0xB1 ||

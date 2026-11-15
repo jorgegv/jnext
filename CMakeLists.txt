@@ -259,10 +259,36 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/spdlog/CMakeLists.txt")
         "From a source archive: use jnext-<version>-src.zip from the release page; "
         "GitHub's auto-generated source archives do not include submodule content.")
 endif()
+# spdlog's own knob (third_party/spdlog/CMakeLists.txt, option SPDLOG_SYSTEM_INCLUDES):
+# its include dir becomes -isystem, so our -Wall -Wextra below never reports a
+# line of spdlog/fmt, which reaches nearly every TU. It is an option() read when
+# spdlog's CMakeLists runs, so it must be set BEFORE add_subdirectory (GH #418).
+set(SPDLOG_SYSTEM_INCLUDES ON CACHE BOOL "" FORCE)
 add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
 
 # ZOT TZX/TAP player by antirez — MIT License.
 add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
+
+# GH #418: -Wall -Wextra on every first-party C++ target (and Objective-C++),
+# -Werror too unless JNEXT_WERROR=OFF. Packaging builds pass OFF: a release must
+# not fail on a warning a distro's newer compiler adds, which no gate of ours
+# runs. add_compile_options() initialises the COMPILE_OPTIONS of every target
+# created AFTER it, here and in every subdirectory added after it (src/*, tools/,
+# test/, and jnext_web on the WebAssembly epic), so nobody lists targets. spdlog
+# and zot_tzx are created above and never get it; the third-party C inside our
+# own targets (fuse-z80, FatFs, the generated boot ROM) is C, which the generator
+# expression leaves out. The warnings are COMPILE-time only, not on the link line:
+# under LTO + PGO the flow-sensitive ones would depend on the trained profile.
+# The self-check at the end of this file fails the configure if this block is
+# moved or deleted.
+option(JNEXT_WERROR "Treat compiler warnings as errors (packaging builds set OFF)" ON)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(JNEXT_WARNINGS -Wall -Wextra)
+    if(JNEXT_WERROR)
+        list(APPEND JNEXT_WARNINGS -Werror)
+    endif()
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:${JNEXT_WARNINGS}>")
+endif()
 
 # Every src/<subsystem>/CMakeLists.txt below collects its sources with
 # file(GLOB_RECURSE ... CONFIGURE_DEPENDS "*.cpp"). CONFIGURE_DEPENDS is not
@@ -567,6 +593,20 @@ endif()
 # build/gui-release/jnext. Only the shipped package needs to be relocatable; a
 # developer's own Mac build keeps the plain executable and its Homebrew libs.
 if(APPLE AND MACOS_APP_BUNDLE)
+    # When the build names a deployment target (make package-macos passes
+    # MACOS_DEPLOYMENT_TARGET), say so in the bundle: on an older macOS the Finder
+    # then refuses with "requires macOS N or later" instead of the app dying in
+    # dyld. Unset, no key is written (an empty <string/> would read as "any").
+    # A plain DIRECTORY variable, not a target property: CMake's Info.plist
+    # generation turns only its 8 named MACOSX_BUNDLE_* properties into variables,
+    # then substitutes the template from the directory's variables. verify-bundle.sh
+    # checks the key is really there when it is given a floor.
+    if(CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(MACOSX_BUNDLE_MIN_SYSTEM_VERSION_ENTRY
+            "<key>LSMinimumSystemVersion</key>\n\t<string>${CMAKE_OSX_DEPLOYMENT_TARGET}</string>")
+    else()
+        set(MACOSX_BUNDLE_MIN_SYSTEM_VERSION_ENTRY "")
+    endif()
     set_target_properties(jnext PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_BUNDLE_NAME "jnext"
@@ -978,6 +1018,16 @@ if(APPLE AND MACOS_APP_BUNDLE)
     # would bury jnext.app under usr/ inside the disk image (GH #46 — what the
     # reporter dragged to /Applications was that buried bare binary).
     set(CPACK_PACKAGING_INSTALL_PREFIX "/")
+    # jnext-<version>-macos-arm64.dmg / -macos-x64.dmg. CPack's default name
+    # ("-Darwin") is the same for both architectures, which would collide in the
+    # release assets and tell an Intel user nothing (GH #494).
+    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+        set(CPACK_SYSTEM_NAME "macos-arm64")
+    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+        set(CPACK_SYSTEM_NAME "macos-x64")
+    else()
+        message(FATAL_ERROR "macOS package: unsupported CMAKE_SYSTEM_PROCESSOR '${CMAKE_SYSTEM_PROCESSOR}' (expected arm64 or x86_64)")
+    endif()
 else()
     set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 endif()
@@ -1047,3 +1097,29 @@ set(CPACK_DMG_VOLUME_NAME "jnext")
 set(CPACK_DMG_SLA_USE_RESOURCE_FILE_LICENSE OFF)
 
 include(CPack)
+
+# GH #418 self-check, in the spirit of the frame gate's FATAL_ERROR: the warning
+# block must have reached the first-party targets and must NOT have reached the
+# third-party ones created above it. A future add_subdirectory(third_party/x)
+# below the block, or the block moved or deleted, fails here rather than
+# silently changing what a build reports.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    foreach(_t jnext_core jnext fuse_z80_test)
+        if(TARGET ${_t})
+            get_target_property(_o ${_t} COMPILE_OPTIONS)
+            string(FIND "${_o}" "-Wextra" _pos)
+            if(_pos EQUAL -1)
+                message(FATAL_ERROR "GH #418: target ${_t} lacks -Wextra: the warning block in CMakeLists.txt no longer precedes it.")
+            endif()
+        endif()
+    endforeach()
+    foreach(_t spdlog zot_tzx)
+        if(TARGET ${_t})
+            get_target_property(_o ${_t} COMPILE_OPTIONS)
+            string(FIND "${_o}" "-Wextra" _pos)
+            if(NOT _pos EQUAL -1)
+                message(FATAL_ERROR "GH #418: third-party target ${_t} got -Wextra: the warning block moved above its add_subdirectory().")
+            endif()
+        endif()
+    endforeach()
+endif()

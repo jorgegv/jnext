@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4671,6 +4671,17 @@ caught after the download: the NextPi MD5, the zip entry CRC. One classifier
 only the final rename failed) is finished with no request and never refetched; an
 Oversize or Stale one is discarded; a Resumable one is continued, appended at an
 explicit 64-bit offset.</p>
+<p><code>provision_sd_card</code> wraps the SD distro zip in a retry loop: one attempt is the
+<code>DownloadFn</code> call plus the extraction of the image from the zip, because the
+distribution server sometimes answers with a short page that "downloads" fine and
+only fails to unzip. A failed attempt (not a user cancel) is repeated up to
+<code>ProvisionOptions::retries</code> (3) more times, after 2, 4 and 8 s, each retry noted
+on stderr and in the log (the GUI also in the dialog, which stays alive through the wait:
+<code>SdcardGuiProvisioner::retry_wait</code> pumps the event loop, Cancel works, and the next
+attempt gets a stall watch of its own); the last failure is the one reported. A partial kept by
+a failed attempt is continued by the next one, by the contract above. The wait is
+the <code>SleepFn</code> seam (<code>ProvisionOptions::sleep</code>); <code>$JNEXT_SDCARD_RETRY_BACKOFF_MS</code>
+replaces the 2 s base for test processes.</p>
 <p>A dropped network must neither freeze the window nor take minutes to be noticed. The same contract on <code>DownloadFn</code> says how both backends behave while a
 transfer is under way. They call the <code>ProgressFn</code> at least every <code>tick_ms</code> (200),
 whatever the network does: connecting, waiting for headers, a silent body. A

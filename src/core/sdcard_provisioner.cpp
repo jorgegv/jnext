@@ -5,6 +5,7 @@
 
 #include <zlib.h>
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstdio>
@@ -13,7 +14,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <chrono>
 #include <string>
+#include <thread>
 #include <sys/types.h>
 
 namespace sdcard {
@@ -118,6 +121,7 @@ std::string sandbox_network_note(const ProvisionOptions& opts) {
            "\n    flatpak info --show-permissions io.github.zxjogv.jnext"
            "\n    flatpak override --user --share=network io.github.zxjogv.jnext";
 }
+void real_sleep_ms(unsigned ms, const std::string&) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 std::string basename_of(const std::string& p) {
     auto pos = p.find_last_of("/\\");
     return pos == std::string::npos ? p : p.substr(pos + 1);
@@ -1182,23 +1186,47 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
 
         // A failed fetch names the address, the reason in plain words and what
         // happens next (GH #385); the sandbox note, when there is one, comes last.
-        if (!download(distro_url, zip_tmp, opts.progress, err)) {
-            uint64_t h2 = 0, t2 = 0;
-            const PartialState ps = partial_state(zip_tmp, distro_url, h2, t2);
-            const char* next =
-                ps == PartialState::Resumable ? "the part fetched so far is kept and the next start continues it"
-              : ps == PartialState::Complete  ? "the complete download is kept and the next start uses it"
-              : "nothing was kept, so the next start downloads it from the beginning";
-            return fail(fetch_failure("download failed", distro_url, err, next) + sandbox_network_note(opts));
+        //
+        // One attempt is the download AND the extraction of the image from it:
+        // a server that answers with a short or wrong body (GH #497: a ~12 KB page
+        // instead of the zip) "downloads" fine and only fails to unzip. Either
+        // failure is retried up to opts.retries more times, waiting
+        // 2 s, then twice that, ... between them. A user cancel is
+        // not retried. A kept partial is continued by the next attempt (GH #358).
+        const SleepFn sleep = opts.sleep ? opts.sleep : SleepFn(real_sleep_ms);
+        unsigned backoff_ms = 2000;
+        if (const char* e = std::getenv("JNEXT_SDCARD_RETRY_BACKOFF_MS"); e && *e)
+            backoff_ms = static_cast<unsigned>(std::strtoul(e, nullptr, 10));
+        std::string why;
+        bool fetched = false;
+        for (int attempt = 0;; ++attempt) {
+            if (download(distro_url, zip_tmp, opts.progress, err)) {
+                if (unzip_entry(zip_tmp, kImageFileName, raw_out, err)) { fetched = true; break; }
+                std::remove(zip_tmp.c_str());
+                std::remove(raw_out.c_str()); // never trust a partial raw
+                why = fetch_failure("unzip failed", distro_url, err,
+                                    "the download was removed, so the next start downloads it from the beginning");
+            } else {
+                uint64_t h2 = 0, t2 = 0;
+                const PartialState ps = partial_state(zip_tmp, distro_url, h2, t2);
+                const char* next =
+                    ps == PartialState::Resumable ? "the part fetched so far is kept and the next start continues it"
+                  : ps == PartialState::Complete  ? "the complete download is kept and the next start uses it"
+                  : "nothing was kept, so the next start downloads it from the beginning";
+                why = fetch_failure("download failed", distro_url, err, next) + sandbox_network_note(opts);
+            }
+            if (err == "cancelled by user" || attempt >= opts.retries) break;
+            const unsigned wait_ms = backoff_ms << attempt;
+            const std::string note = "Download attempt " + std::to_string(attempt + 1) + " failed: " + err +
+                                     "\nRetry " + std::to_string(attempt + 1) + " of " +
+                                     std::to_string(opts.retries) + " in " + std::to_string(wait_ms / 1000) + " s";
+            std::fputs(("\n" + note + "...\n").c_str(), stderr);
+            std::string one_line = note;
+            std::replace(one_line.begin(), one_line.end(), '\n', ';');
+            Log::emulator()->warn("sdcard: {}", one_line);
+            sleep(wait_ms, note);
         }
-
-        // Extract the OFFICIAL image to the raw path and keep it pristine.
-        if (!unzip_entry(zip_tmp, kImageFileName, raw_out, err)) {
-            std::remove(zip_tmp.c_str());
-            std::remove(raw_out.c_str()); // never trust a partial raw
-            return fail(fetch_failure("unzip failed", distro_url, err,
-                                      "the download was removed, so the next start downloads it from the beginning"));
-        }
+        if (!fetched) return fail(why);
         std::remove(zip_tmp.c_str());
         raw_downloaded = true;
 

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3038,8 +3038,9 @@ would have caught, and then it reports a pass it never earned.</p>
 the suites at all.</p>
 <h2 id="layer-1-the-unit-suites">Layer 1 — the unit suites<a class="headerlink" href="#layer-1-the-unit-suites" title="Permanent link">&para;</a></h2>
 <p><code>make unit-test</code> does not go looking for test binaries. It runs exactly the
-suites declared in <code>test/unit-tests.conf</code>, in parallel, each one bounded by a
-300 s timeout. That manifest currently declares <strong>90 suites totalling 6610
+suites declared in <code>test/unit-tests.conf</code>, in parallel (by default one suite
+per CPU), each one bounded by a 300 s timeout that measures the suite, not the
+host's queue. That manifest currently declares <strong>90 suites totalling 6610
 rows</strong>: the suite count is pinned in the file's own <code># expect: 90</code> line, and the
 row total is the sum of the per-suite counts in that same file. The committed
 dashboard, <code>test/SUBSYSTEM-TESTS-STATUS.md</code>, reports the same 6610.

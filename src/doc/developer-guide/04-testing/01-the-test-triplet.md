@@ -54,8 +54,9 @@ the suites at all.
 ## Layer 1 — the unit suites
 
 `make unit-test` does not go looking for test binaries. It runs exactly the
-suites declared in `test/unit-tests.conf`, in parallel, each one bounded by a
-300 s timeout. That manifest currently declares **90 suites totalling 6610
+suites declared in `test/unit-tests.conf`, in parallel (by default one suite
+per CPU), each one bounded by a 300 s timeout that measures the suite, not the
+host's queue. That manifest currently declares **90 suites totalling 6610
 rows**: the suite count is pinned in the file's own `# expect: 90` line, and the
 row total is the sum of the per-suite counts in that same file. The committed
 dashboard, `test/SUBSYSTEM-TESTS-STATUS.md`, reports the same 6610.

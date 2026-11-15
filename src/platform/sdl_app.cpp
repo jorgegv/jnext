@@ -38,7 +38,7 @@ static void real_sleep_ms(uint32_t ms) { SDL_Delay(ms); }
 #define SDL_DelayNS      DO_NOT_CALL_SDL_DelayNS_HERE_USE_pacing_sleep
 #define SDL_DelayPrecise DO_NOT_CALL_SDL_DelayPrecise_HERE_USE_pacing_sleep
 
-bool SdlApp::init(int argc, char* argv[]) {
+bool SdlApp::init(int /*argc*/, char* /*argv*/[]) {
     // SDL3 SDL_Init returns bool (true = success); SDL2 returned 0 on
     // success and a negative on failure, so the SENSE of this test is
     // inverted, not just the spelling.

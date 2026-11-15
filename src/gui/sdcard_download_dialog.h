@@ -68,6 +68,12 @@ public:
     // seconds counting up, until bytes come again.
     bool progress(uint64_t downloaded, uint64_t total);
 
+    // SleepFn seam (GH #497): the wait between two download attempts. Runs the event
+    // loop for `ms`, so the dialog keeps repainting and its Cancel works (a click ends
+    // the wait at once; the next progress() then returns false), and the label says
+    // `note` ("Retry 1 of 3 in 2 s"). The next attempt gets a stall watch of its own.
+    void retry_wait(unsigned ms, const std::string& note);
+
     // BusyFn seam: run `work` (the multi-second copy+FAT32-patch) on a worker
     // thread while a modal, indeterminate "<phase>…" progress dialog animates
     // on the GUI thread — so the user sees jnext is busy, not hung. Not

@@ -1937,6 +1937,7 @@ int main(int argc, char* argv[]) {
             opts.upgrade  = [&](const std::string& f, const std::string& t, const std::string& m) {
                 return gui_prov.offer_upgrade(f, t, m);
             };
+            opts.sleep    = [&](unsigned ms, const std::string& n) { gui_prov.retry_wait(ms, n); };
         } else {
             opts.confirm  = sdcard::cli_confirm;
             opts.progress = sdcard::make_cli_progress();
@@ -2761,7 +2762,7 @@ int main(int argc, char* argv[]) {
                                     audio_recorder.last_error());
                 return 1;
             }
-            cfg.audio_capture_callback = [&audio_recorder](const int16_t* samples,
+            cfg.audio_capture_callback = [&](const int16_t* samples,
                                                            int count) {
                 audio_recorder.capture(samples, count);
             };
@@ -2773,7 +2774,7 @@ int main(int argc, char* argv[]) {
                 audio_recorder.stop();
                 return 1;
             }
-            cfg.dac_write_callback = [&dac_trace_recorder]
+            cfg.dac_write_callback = [&]
                                      (uint64_t tstate, int channel, uint8_t value) {
                 dac_trace_recorder.capture(tstate, channel, value);
             };
@@ -3031,7 +3032,7 @@ int main(int argc, char* argv[]) {
         // The run's teardown: recorders, app.shutdown() and the exit status.
         // A function of its own because the browser frontend runs it from the
         // page's loop, after main() has returned.
-        auto finish = [&app, record_file, &audio_recorder, &dac_trace_recorder]() -> int {
+        auto finish = [&, record_file]() -> int {
             // Capture requests are part of the CLI contract: if one cannot start
             // or finalize, an otherwise-clean run must not report success.
             bool capture_ok = true;

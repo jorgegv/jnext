@@ -91,11 +91,6 @@ void check(const char* id, const char* desc, bool cond,
     }
 }
 
-void skip(const char* id, const char* reason) {
-    report_row_id(id);
-    g_skipped.push_back({id, reason});
-}
-
 // Deterministic AY tick helper: tick enough master ticks to let the /8
 // divider and update_output settle on the current register state.
 void settle(AyChip& ay, int n = 16) {
