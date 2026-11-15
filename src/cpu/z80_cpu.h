@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <tuple>
 
 struct Z80Registers {
     uint16_t AF, BC, DE, HL;
@@ -356,6 +357,34 @@ public:
     /// iff2_read are already 0 after the real repeat. Precondition (checked by the caller):
     /// halted, last_slot_kind() == Opcode with last_opcode() == 0x76, no INT or NMI pending.
     void repeat_halt(uint32_t count, uint32_t each);
+
+    /// GH #496 - everything one pass of a register-only loop could change in the CPU, except the
+    /// 7-bit R counter (which every instruction advances): the registers and their shadows, the
+    /// hidden MEMPTR / Q / IncDecZ latches, IFF1/IFF2/IM, `halted`, FUSE's iff2_read quirk flag
+    /// and whether the EI grace is pending at this boundary. Two captures that compare equal mean the
+    /// CPU is in the same state; with the same bytes fetched and the same values read, the next pass
+    /// does what the last one did.
+    struct LoopState {
+        uint16_t af, bc, de, hl, af2, bc2, de2, hl2, ix, iy, sp, pc, memptr;
+        uint8_t  i, r7, iff1, iff2, im, q, incdecz;
+        bool     halted, ei_grace;
+        int      iff2_read;
+        auto tie_() const {
+            return std::tie(af, bc, de, hl, af2, bc2, de2, hl2, ix, iy, sp, pc, memptr, i, r7, iff1, iff2, im,
+                            q, incdecz, halted, ei_grace, iff2_read);
+        }
+        bool operator==(const LoopState& o) const { return tie_() == o.tie_(); }
+    };
+    LoopState capture_loop_state() const;
+    /// The 7-bit R counter (bits 6:0 of R).
+    uint8_t r_counter() const { return regs_.R & 0x7f; }
+
+    /// GH #496 - account `count` MORE passes of a loop after one the caller has just run for real, each
+    /// pass costing `each` T-states, executing `slots` instructions and advancing R by `dr` (mod 128).
+    /// Precondition (proved by the caller): the pass left the CPU in the state it started in (see
+    /// LoopState), so the only things `count` further passes change are the T-state counter, R and
+    /// the execute() serial. Like repeat_halt(), it does not call sync_regs_from_fuse().
+    void repeat_loop(uint32_t count, uint32_t each, uint32_t slots, uint32_t dr);
     bool executing() const { return executing_; }
 
     /// GH #265 follow-up — where clock @p io_clock (0..3: T1, the automatic

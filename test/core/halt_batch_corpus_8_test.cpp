@@ -7,9 +7,9 @@ namespace {
 const Program kPrograms[] = {
     {"HBC-42", "nex-nonworking/nextoid.nex", 0, true, true},
     {"HBC-43", "nex-nonworking/night-knight-demo.nex"},
-    {"HBC-44", "nex-nonworking/revivalsurvival.nex"},
+    {"HBC-44", "nex-nonworking/revivalsurvival.nex", 0, false, false, true},
     {"HBC-45", "nex-nonworking/TX-1696.nex"},
-    {"HBC-46", "nex-nonworking/warhawk.nex"},
+    {"HBC-46", "nex-nonworking/warhawk.nex", 0, false, false, true},
 };
 } // namespace
 

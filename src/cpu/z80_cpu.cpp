@@ -1457,6 +1457,34 @@ void Z80Cpu::repeat_halt(uint32_t count, uint32_t each) {
     regs_.R = static_cast<uint8_t>((z80.r7 & 0x80) | (z80.r & 0x7f));
 }
 
+Z80Cpu::LoopState Z80Cpu::capture_loop_state() const {
+    LoopState s{};
+    s.af = z80.af.w;   s.bc = z80.bc.w;   s.de = z80.de.w;   s.hl = z80.hl.w;
+    s.af2 = z80.af_.w; s.bc2 = z80.bc_.w; s.de2 = z80.de_.w; s.hl2 = z80.hl_.w;
+    s.ix = z80.ix.w;   s.iy = z80.iy.w;   s.sp = z80.sp.w;   s.pc = z80.pc.w;
+    s.memptr = z80.memptr.w;
+    s.i = z80.i; s.r7 = z80.r7; s.iff1 = z80.iff1; s.iff2 = z80.iff2; s.im = z80.im; s.q = z80.q;
+    s.incdecz = regs_.IncDecZ;
+    s.halted = z80.halted != 0;
+    // fuse_z80_core.c:135 - the grace applies at the boundary whose T-state count equals the stamp.
+    s.ei_grace = static_cast<libspectrum_signed_dword>(tstates) == z80.interrupts_enabled_at;
+    s.iff2_read = z80.iff2_read;
+    return s;
+}
+
+void Z80Cpu::repeat_loop(uint32_t count, uint32_t each, uint32_t slots, uint32_t dr) {
+    tstates += count * each;
+    z80.r = static_cast<libspectrum_word>(z80.r + count * dr);   // as repeat_halt(): only bits 6:0 are read
+    // The serial is advanced for its contract ("incremented on every entry"), but nothing can tell if it is not
+    // (a mutation that drops this line survives every row, by this argument): its only readers compare a
+    // value recorded inside an execute() with the serial of the call still running (the tape's sync stamp,
+    // while a tape plays, which the batch's gates refuse; the device sync stamp of sync_io_devices_to(),
+    // whose validity the device cluster clears after every slot) or with the previous slot's (the raster-poll
+    // watch, which starts a fresh pass after every batch); none holds a value this advance would make equal.
+    execute_serial_ += static_cast<uint64_t>(count) * slots;
+    regs_.R = static_cast<uint8_t>((z80.r7 & 0x80) | (z80.r & 0x7f));
+}
+
 void Z80Cpu::request_interrupt(uint8_t vector) {
     const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
     request_interrupt(vector, now_ts,

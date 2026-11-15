@@ -1436,11 +1436,16 @@ public:
     /// key), not machine state (never saved). The counters say how much each
     /// optimisation engaged: HALT repeats absorbed into a batched slot, and
     /// Copper master cycles skipped, since the Emulator was built.
-    void set_cycle_batching_for_test(bool halt, bool copper) {
+    void set_cycle_batching_for_test(bool halt, bool copper, bool poll = true) {
         batch_halt_enabled_ = halt;
         batch_copper_enabled_ = copper;
+        batch_poll_enabled_ = poll;
+        if (!poll) poll_stop_();
     }
     uint64_t halt_repeats_batched_for_test() const { return halt_repeats_batched_; }
+    /// GH #496 - raster-poll passes absorbed into batched windows since the Emulator was built.
+    uint64_t poll_passes_batched_for_test() const { return poll_passes_batched_; }
+    bool batch_poll_enabled() const { return batch_poll_enabled_; }
     /// GH #489 - how many slots predicted the fetch space for the call-stack tracker: only a slot
     /// that may accept an interrupt (an NMI pending, or an INT pending with IFF1 set).
     uint64_t call_stack_predictions_for_test() const { return call_stack_predictions_; }
@@ -2338,11 +2343,14 @@ private:
     // hooks; see set_cycle_batching_for_test). Not saved, not machine state.
     bool     batch_halt_enabled_   = true;
     bool     batch_copper_enabled_ = true;
+    bool     batch_poll_enabled_   = true;
+    bool     poll_watch_ = false;     // GH #496: a raster register was read; run_frame() calls poll_slot_()
     uint64_t halt_repeats_batched_ = 0;
     uint64_t call_stack_predictions_ = 0;
     uint64_t halt_repeats_batched_dma_wait_ = 0;
     uint64_t halt_repeats_batched_hw_mode_ = 0;
     uint64_t copper_cycles_skipped_ = 0;
+    uint64_t poll_passes_batched_ = 0;
 
     /// GH #290 — the compare positions (master cycles) of the live line-int
     /// events of the current generation, so a reschedule can keep the ones a
@@ -3044,11 +3052,50 @@ private:
     uint64_t halted_slot_(uint64_t master_cycles);
     uint64_t halt_batch_after_slot_(uint64_t master_cycles, bool& batched);
     void halt_batch_replay_(uint64_t master_cycles);
+    void poll_replay_(uint64_t master_cycles);
     void halt_batch_end_();
+    uint64_t batch_window_limit_(uint64_t slot_start, uint64_t slot_mc, uint64_t need, bool& dma_waiting);
+
+    /// GH #496 - the raster-poll batch. A read of NR 0x1E/0x1F (the handlers) notes the read in
+    /// `poll_reads_` and raises `poll_watch_`; run_frame() then calls poll_slot_() after every slot,
+    /// which watches ONE real pass of the loop the read belongs to (every instruction on a whitelist of
+    /// side-effect-free ones, the CPU back in the state it started the pass in) and, with the shared
+    /// batch gates, absorbs the further passes whose raster reads would return the same values. Returns
+    /// the master cycles of the whole window, 0 when the slot is not batched. Transient: never saved.
+    uint64_t poll_slot_(uint64_t master_cycles);
+    void poll_note_read_(uint8_t reg, uint64_t sample, uint8_t value);
+    uint8_t raster_reg_value_at_(uint8_t reg, uint64_t master_cycle) const;
+    void poll_stop_() { poll_watch_ = false; poll_obs_.observing = false; poll_nreads_ = 0; }
+    bool poll_start_(uint64_t master_cycles);
+
+    static constexpr unsigned kPollMaxReads = 8;     ///< raster reads of one pass
+    static constexpr unsigned kPollMaxSlots = 16;    ///< instructions of one pass (batch_pat_ holds them)
+    struct PollRead { uint64_t sample; uint64_t serial; uint8_t reg; uint8_t value; };
+    PollRead poll_reads_[kPollMaxReads] = {};        ///< the reads of the slot just executed (serial-stamped)
+    unsigned poll_nreads_ = 0;
+    bool     poll_read_overflow_ = false;
+    struct PollObs {
+        bool        observing = false;
+        Z80Cpu::LoopState start{};      ///< the CPU after the anchor slot
+        uint8_t     nr_selected = 0;
+        uint8_t     r_start = 0;
+        uint16_t    anchor_pc = 0;      ///< PC after the anchor slot (an IN of a raster register)
+        uint16_t    prev_pc = 0;        ///< PC after the previous slot: where the next one starts
+        uint64_t    prev_end = 0;       ///< master clock after the previous slot
+        uint64_t    prev_serial = 0;    ///< execute serial of the previous slot
+        unsigned    nslots = 0;
+        unsigned    nreads = 0;
+        PollRead    reads[kPollMaxReads] = {};
+        uint64_t    pat[kPollMaxSlots] = {};
+    } poll_obs_;
     static void pi_sample_thunk_(void* self);
 
-    /// GH #452 - master cycles of ONE repeat of a batched HALT slot while one is in flight, else 0.
-    uint64_t slot_repeat_mc_ = 0;
+    /// GH #452 - what a batched window replays: the real slot that decided the batch (`batch_first_mc_`, 0 when
+    /// no batch is in flight) and then the slots `batch_pat_[0 .. batch_pat_n_)`, repeated. A HALT repeat
+    /// is a pattern of one.
+    uint64_t batch_first_mc_ = 0;
+    uint64_t batch_pat_[16] = {};
+    unsigned batch_pat_n_ = 0;
     bool     batch_silenced_ = false;   // a HALT batch's window is running with the cluster's PSG / audio block off
     bool     audio_off_ = false;        // what the device cluster tests: config_.silent, or batch_silenced_
 
