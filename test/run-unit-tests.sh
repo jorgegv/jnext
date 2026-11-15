@@ -566,6 +566,7 @@ for name in "${RUNNABLE[@]}"; do
         # below would then abort the whole run, dropping every suite after it. That
         # bug shipped once; test/harness-selftest.sh now proves it cannot come back.
         rc=0
+        t0=$SECONDS
         # Created empty HERE; every process that reports only APPENDS to it
         # (test/row_id.h opens it "a"), so a suite that fork()s cannot have one
         # process truncate another's rows (self-test HS-62). $TMPDIR_RUN is fresh,
@@ -577,6 +578,7 @@ for name in "${RUNNABLE[@]}"; do
                XDG_STATE_HOME="$TEST_HOME/.local/state"
         JNEXT_TEST_ROW_IDS="$TMPDIR_RUN/$name.ids" timeout --kill-after=5s "${SUITE_TIMEOUT}s" \
             ${JNEXT_TEST_RUNNER:-} "$BUILD/test/$name$EXE_SUFFIX" ${ARGS["$name"]} >"$TMPDIR_RUN/$name.out" 2>&1 || rc=$?
+        echo "$((SECONDS - t0))" >"$TMPDIR_RUN/$name.secs"
         echo "$rc" >"$TMPDIR_RUN/$name.rc"
     ) &
 done
@@ -587,8 +589,15 @@ printf "\n${BOLD}Subsystem unit test results:${RESET}\n\n"
 suites_pass=0; suites_fail=0; suites_skip=0
 sum_total=0; sum_passed=0; sum_failed=0; sum_skipped=0
 
+# suite_secs <name> - the suite's wall time as " (N s)", appended to its result row so a
+# near miss of SUITE_TIMEOUT shows in a green log (it used to need the failing job's artefacts).
+suite_secs() { printf ' (%s s)' "$(cat "$TMPDIR_RUN/$1.secs" 2>/dev/null || echo '?')"; }
+
 fail_row() {   # fail_row <name> <message>
-    printf "  ${CYAN}%-34s${RESET} ${BADGE_FAIL} FAIL ${RESET}  %b\n" "$1" "$2"
+    local msg=$2 t
+    t=$(suite_secs "$1")
+    if [[ "$msg" == *'\n'* ]]; then msg=${msg/'\n'/"$t\n"}; else msg="$msg$t"; fi
+    printf "  ${CYAN}%-34s${RESET} ${BADGE_FAIL} FAIL ${RESET}  %b\n" "$1" "$msg"
     # The suite's own FAIL lines (up to 20). When it has none -- it crashed, hung or
     # exited before saying anything -- the last lines of its output are the only
     # evidence there is, so they are printed too: a CI log (macOS, Windows under
@@ -686,12 +695,12 @@ for name in "${RUNNABLE[@]}"; do
     elif [[ "$t_skipped" -gt 0 ]]; then
         # A SKIP is a row that was NOT tested. It keeps its own badge (it says what
         # to install or fix) but does not count as a pass and fails the run below.
-        printf "  ${CYAN}%-34s${RESET} ${BADGE_SKIP} SKIP ${RESET}  %s\n" "$name" "$line"
+        printf "  ${CYAN}%-34s${RESET} ${BADGE_SKIP} SKIP ${RESET}  %s%s\n" "$name" "$line" "$(suite_secs "$name")"
         grep -E '^\s*\[?SKIP' "$TMPDIR_RUN/$name.out" 2>/dev/null | head -5 | sed -E 's/^/      /' || true
         printf "      full log: %s\n" "$LOG_DIR/$name.log"
         suites_skip=$((suites_skip + 1))
     else
-        printf "  ${CYAN}%-34s${RESET} ${BADGE_PASS} PASS ${RESET}  %s\n" "$name" "$line"
+        printf "  ${CYAN}%-34s${RESET} ${BADGE_PASS} PASS ${RESET}  %s%s\n" "$name" "$line" "$(suite_secs "$name")"
         suites_pass=$((suites_pass + 1))
     fi
 done
