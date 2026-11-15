@@ -74,7 +74,7 @@ else bad "CIKEY-02 the macOS keys are not one key: $(tr '\n' ' ' <<<"$macos")"; 
 
 # CIKEY-03: fixtures. A source and workflows that agree parse and pass; a stale key, a
 # source with no definition, and a directory with no keys are each refused.
-mkdir -p "$tmp/wf-ok" "$tmp/wf-stale" "$tmp/wf-none"
+mkdir -p "$tmp/wf-ok" "$tmp/wf-stale" "$tmp/wf-none" "$tmp/wf-digit"
 cat > "$tmp/src-ok.cpp" <<'CPP'
 const char* const kDistroUrl =
     "https://www.specnext.com/distro/99.12/sn-emulator-99.12.zip";
@@ -83,6 +83,7 @@ CPP
 printf 'x: sdcard-image-distro-99.12-recipe7-macos\ny: sdcard-image-distro-99.12-recipe7-fedora44\n' > "$tmp/wf-ok/a.yml"
 printf 'x: sdcard-image-distro-99.12-recipe7-macos\ny: sdcard-image-distro-99.11-recipe7-macos\n' > "$tmp/wf-stale/a.yml"
 printf 'nothing: here\n' > "$tmp/wf-none/a.yml"
+printf 'x: sdcard-image-distro-99.12-recipe70-macos\n' > "$tmp/wf-digit/a.yml"   # recipe 7 must not accept recipe 70
 printf 'const int kFixedImageRecipe = 7;\n' > "$tmp/src-nodef.cpp"
 msg=""
 [ "$(read_expected "$tmp/src-ok.cpp")" = "99.12 7" ] || msg="$msg reader-wrong;"
@@ -90,6 +91,7 @@ check_keys "$tmp/wf-ok" "$tmp/src-ok.cpp" >/dev/null || msg="$msg agreeing-fixtu
 check_keys "$tmp/wf-stale" "$tmp/src-ok.cpp" >/dev/null && msg="$msg stale-key-accepted;"
 check_keys "$tmp/wf-ok" "$tmp/src-nodef.cpp" >/dev/null && msg="$msg missing-definition-accepted;"
 check_keys "$tmp/wf-none" "$tmp/src-ok.cpp" >/dev/null && msg="$msg no-keys-accepted;"
+check_keys "$tmp/wf-digit" "$tmp/src-ok.cpp" >/dev/null && msg="$msg recipe70-accepted-for-recipe7;"
 if [ -z "$msg" ]; then ok "CIKEY-03 the parser reads a fixture source, and refuses a stale key, a missing definition and a directory with no keys"
 else bad "CIKEY-03 $msg"; fi
 
