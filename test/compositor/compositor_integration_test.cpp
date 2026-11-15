@@ -1875,9 +1875,11 @@ static void test_srst_integration(Emulator& emu) {
 
     // SRST-17 — the flash phase runs on through a soft reset. flash_cnt is a
     // 5-bit counter bumped once a frame with no reset (zxula.vhd:474-480);
-    // bit 4 swaps ink and paper of a FLASH cell (:470). Frame k is drawn
-    // with bit 4 of k: frames 16..31 swapped. A reset after frame 19 must
-    // leave frames 20..31 swapped and frame 32 back to normal.
+    // bit 4 swaps ink and paper of a FLASH cell (:470). The counter is bumped at
+    // the start of each frame's display, the first one in frame 0 (zxula_timing
+    // :111-125), so frame k is drawn with bit 4 of k + 1: frames 15..30
+    // swapped. A reset after frame 19 must leave frames 20..30 swapped and
+    // frame 31 back to normal.
     {
         ula_fixture(emu, 0x87);           // FLASH, paper 0, ink 7; pixels 0
         nr_write_port(emu, 0x05, 0x41);
@@ -1890,15 +1892,15 @@ static void test_srst_integration(Emulator& emu) {
         int bad = 0, first_bad = -1;
         for (int f = 20; f <= 32; ++f) {
             emu.run_frame();
-            const uint32_t want = f < 32 ? ink : paper;
+            const uint32_t want = f < 31 ? ink : paper;
             if (fb_pixel(emu, kResetRow, kDispCol) != want) {
                 if (first_bad < 0) first_bad = f;
                 ++bad;
             }
         }
         check("SRST-17",
-              "A soft reset leaves the FLASH phase running: frames 20..31 "
-              "after a reset at frame 20 stay swapped, frame 32 is not "
+              "A soft reset leaves the FLASH phase running: frames 20..30 "
+              "after a reset at frame 20 stay swapped, frame 31 is not "
               "(zxula.vhd:470,474-480 — no reset)",
               pre && ink != paper && bad == 0,
               fmt("frame 19 swapped=%d; %d wrong frames of 20..32, first %d",

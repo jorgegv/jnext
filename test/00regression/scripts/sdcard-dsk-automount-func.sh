@@ -110,12 +110,15 @@ PY
         # 600. (The existing boot-nextzxos-menu row uses 400/450 on a card with
         # no disk images; mounting one costs NextZXOS extra frames before the
         # welcome appears, which is why this row waits longer.)
+        # boot-timeline frames (bf)
+        da_shot=$(bf 777); da_exit=$(bf 797)
+        bf_keys 677 space
         JNEXT_CONFIG_DIR="$cfg" timeout --foreground --kill-after=5s 180s \
             "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
-                     --delayed-keypress-frames 500 space \
+                     "${BF_KEYS[@]}" \
                      --delayed-screenshot "$W/$name.png" \
-                     --delayed-screenshot-frames 600 \
-                     --delayed-automatic-exit-frames 620 \
+                     --delayed-screenshot-frames "$da_shot" \
+                     --delayed-automatic-exit-frames "$da_exit" \
             > "$W/boot-$name.log" 2>&1 || rc=$?
         [[ $rc -eq 0 ]] || faults+=("$name: the NextZXOS boot exited $rc (log: $(tail -n 2 "$W/boot-$name.log" 2>/dev/null | tr '\n' ' ' || true))")
         [[ -f "$W/$name.png" ]] || faults+=("$name: no screenshot was produced")

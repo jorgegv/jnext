@@ -212,7 +212,7 @@ public:
     uint8_t sync(uint8_t handle);
 
     // ── Calls that change the host folder (GH #457) ─────────────────────────
-    // Each answers as NextZXOS 2.09 was MEASURED to answer (test/fixtures/
+    // Each answers as NextZXOS 2.10 was MEASURED to answer (test/fixtures/
     // esxdos-write-probe/nextzxos.txt), and changes the host only when the root
     // is writable. A write-protected root answers every call that would write
     // with esx_edevicebusy, after every check that does not write.
@@ -225,6 +225,19 @@ public:
     /// F_CHMOD: `values` (B) and `mask` (C). Only the A_WRITE, A_READ and
     /// A_ARCH bits are served, and only where the result is what F_STAT and
     /// F_READDIR will then report; anything else is esx_enosys.
+    ///
+    /// The archive bit of a FILE follows NextZXOS 2.10, which a host file cannot store: jnext
+    /// keeps it per file for the life of the mount (`archive_clear_`), so it is LOST when jnext
+    /// exits (on the card it lives in the directory entry). A file reads as archive-set until an
+    /// F_CHMOD; any F_CHMOD of it (a mask of 0 too) then leaves the bit CLEAR unless that call
+    /// cleared A_ARCH (mask bit 5 set, value bit 5 clear), which leaves it SET: the 2.10
+    /// behaviour measured in the `[chmod]` and `[arch]` groups of the recording. Closing a handle
+    /// opened for writing, F_TRUNCATE and F_FTRUNCATE set it again, a rename moves it with the
+    /// file, and a file jnext did not change but whose size, modification time or inode differs
+    /// from what the entry recorded (changed or re-created on the host) is archive-set. (A host that
+    /// stamps a re-create in the same timestamp tick and has no inode, Windows, cannot tell a same-size
+    /// re-create from the file; jnext's own unlink and rmdir drop the entry, so only a host-side
+    /// delete and re-create inside one tick is missed.)
     uint8_t chmod(const std::string& guest_path, uint8_t values, uint8_t mask);
 
     /// NextZXOS's name matcher for F_UNLINK / F_CHMOD / F_TRUNCATE wildcards,
@@ -355,6 +368,17 @@ private:
     /// directory component holds a wildcard.
     uint8_t wild_lookup(const std::string& guest, std::vector<Listed>& hits) const;
     uint8_t unlink_file(const std::filesystem::path& host);
+    /// The archive bit F_STAT, F_FSTAT and F_READDIR report for a regular file (see chmod()).
+    bool archive_of(const std::filesystem::path& host) const;
+    /// Records the archive bit of `host` as clear (`set` false) or forgets the record (true).
+    void archive_record(const std::filesystem::path& host, bool set);
+    /// The file was changed by one of our own handles; `was_clear` is what archive_of() said BEFORE the
+    /// change. A valid "clear" follows the file (new identity); anything else leaves it archive-set.
+    void archive_refresh(const std::filesystem::path& host, bool was_clear);
+    /// A file or directory moved from `from` to `to`: its entries (and those under a directory) follow it.
+    void archive_move(const std::filesystem::path& from, const std::filesystem::path& to);
+    /// The entries of `host` and of everything under it are dropped (the file or directory is gone).
+    void archive_forget(const std::filesystem::path& host);
     uint8_t truncate_file(const std::filesystem::path& host, uint32_t size);
     uint8_t chmod_file(const std::filesystem::path& host, uint8_t values, uint8_t mask);
     /// A directory rename: the streams under `dir` are closed first (Windows
@@ -391,6 +415,14 @@ private:
     /// list_host_dir()). Never in a rewind snapshot: it follows host changes that
     /// no rewind undoes.
     mutable std::map<std::string, std::map<std::string, std::string>> aliases_;
+    /// Files whose archive bit is CLEAR (the default is set), by host path, with the identity of
+    /// the file when the bit was cleared: an entry whose file differs is stale and means "set".
+    struct ArchiveClear {
+        std::uintmax_t size = 0;
+        std::filesystem::file_time_type mtime{};
+        std::uintmax_t inode = 0;
+    };
+    std::map<std::string, ArchiveClear> archive_clear_;
 };
 
 #endif  // JNEXT_CORE_ESXDOS_HOSTFS_H

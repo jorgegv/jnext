@@ -40,7 +40,7 @@ CP/M started from the NextZXOS menu — the `.COM` import log (31 files imported
 <img src="../../test/00regression/img/boot-nextzxos-cpm-reference.png" width="384" alt="boot-nextzxos-cpm reference"/>
 
 ### `boot-fwmenu-zx81`
-The firmware boot menu's ZX81 entry (SPACE during the firmware boot, eight times DOWN, ENTER) booting into Paul Farrow's ZX81 emulator menu. The 24.11 distribution ships `zx81.rom` as one 16 KB page where the entry needs two, which stopped this boot on `zx81.rom...error reading!`; jnext's image recipe doubles the file, as upstream tbblue did (GH #284). Runs against a private copy of the SD image (`@private-sd`), because the firmware saves the choice to `config.ini`.
+The firmware boot menu's ZX81 entry (SPACE during the firmware boot, eight times DOWN, ENTER) booting into Paul Farrow's ZX81 emulator menu. The 24.11 distribution shipped `zx81.rom` as one 16 KB page where the entry needs two, which stopped this boot on `zx81.rom...error reading!`; jnext's image recipe doubles that file on a 24.11 card, as upstream tbblue did (GH #284), and the 26.11 distribution ships it at 32 KB. Runs against a private copy of the SD image (`@private-sd`), because the firmware saves the choice to `config.ini`.
 
 <img src="../../test/00regression/img/boot-fwmenu-zx81-reference.png" width="384" alt="boot-fwmenu-zx81 reference"/>
 

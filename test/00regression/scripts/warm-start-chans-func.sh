@@ -182,9 +182,10 @@ PY
             > "$wc_w/$2.log" 2>&1 || true
     }
     # wc_keys <frame> <key>... : --delayed-keypress-frames pairs
-    wc_press() {   # wc_press <var> <frame> <key>
+    wc_press() {   # wc_press <var> <frame> <key>   (the frame is a boot-timeline frame: bf)
         local -n arr=$1
-        arr+=(--delayed-keypress-frames "$2" "$3")
+        local v; v=$(bf "$2") || exit 2
+        arr+=(--delayed-keypress-frames "$v" "$3")
     }
 
     # ---- A. warm, and B. the real chain, on card "ab" ------------------------
@@ -199,12 +200,12 @@ PY
     grep -q "recorded a NextZXOS-resident machine" "$wc_w/a.log" \
         || wc_faults+=("A: the warm start did not record")
     # The recipe's length on this card is a deterministic function of the card
-    # and the recipe's idle/state rules (605 frames on the distribution card);
+    # and the recipe's idle/state rules (777 frames on the distribution card);
     # a change to any of them moves it, so it is pinned here, not only through
     # the pixels of an R-seeded program.
     wc_n=$(sed -n 's/.*recorded a NextZXOS-resident machine ([0-9]* KB, \([0-9]*\) frames).*/\1/p' "$wc_w/a.log" | head -1)
-    [[ "$wc_n" == 605 ]] \
-        || wc_faults+=("A: the recording took ${wc_n:-?} frames, not the 605 measured on the distribution card")
+    [[ "$wc_n" == 777 ]] \
+        || wc_faults+=("A: the recording took ${wc_n:-?} frames, not the 777 measured on the distribution card")
     wc_v=$(python3 -I "$wc_w/fields.py" a A "$wc_w/a.log")
     [[ -z "$wc_v" ]] || wc_faults+=("$wc_v")
 
@@ -317,18 +318,19 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
         || wc_faults+=("F: the load went on with a recorded NextZXOS machine instead of falling back")
 
     wc_keys=()
-    wc_press wc_keys 400 space; wc_press wc_keys 470 down; wc_press wc_keys 500 enter
-    wc_f=600; wc_cmd=".nexload probe.nex"
+    wc_press wc_keys 577 space; wc_press wc_keys 647 down; wc_press wc_keys 677 enter
+    wc_f=777; wc_cmd=".nexload probe.nex"
     for (( i = 0; i < ${#wc_cmd}; i++ )); do
         wc_ch=${wc_cmd:i:1}; [[ "$wc_ch" == " " ]] && wc_ch=space
         wc_press wc_keys "$wc_f" "$wc_ch"; wc_f=$((wc_f + 15))
     done
     wc_press wc_keys "$wc_f" enter
+    wc_b_shot=$(bf $((wc_f + 300))); wc_b_exit=$(bf $((wc_f + 320)))   # boot-timeline frames (bf)
     JNEXT_CONFIG_DIR="$wc_w/ab-real" timeout --foreground --kill-after=5s 300s "$JNEXT" \
         "${wc_args[@]}" --sdcard "$wc_w/ab/sdcard/cspect-next-1gb-fixed.img" \
         "${wc_keys[@]}" --delayed-screenshot "$wc_w/b.png" \
-        --delayed-screenshot-frames $((wc_f + 300)) \
-        --delayed-automatic-exit-frames $((wc_f + 320)) > "$wc_w/b.log" 2>&1 || true
+        --delayed-screenshot-frames "$wc_b_shot" \
+        --delayed-automatic-exit-frames "$wc_b_exit" > "$wc_w/b.log" 2>&1 || true
     wc_v=$(python3 -I "$wc_w/fields.py" cmp "$wc_w/a.log" "$wc_w/b.log")
     [[ -z "$wc_v" ]] || wc_faults+=("B: $wc_v")
     if [[ -f "$wc_w/a.png" && -f "$wc_w/b.png" ]]; then
@@ -341,10 +343,11 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
 
     # ---- C. NextZXOS's own welcome disabled ----------------------------------
     wc_card c
+    wc_c_key=$(bf 577); wc_c_exit=$(bf 777)   # boot-timeline frames (bf)
     JNEXT_CONFIG_DIR="$wc_w/c" timeout --foreground --kill-after=5s 120s "$JNEXT" \
         --headless --machine next --rtc "$NEXTZXOS_RTC" \
         --sdcard "$wc_w/c/sdcard/cspect-next-1gb-fixed.img" \
-        --delayed-keypress-frames 400 d --delayed-automatic-exit-frames 600 \
+        --delayed-keypress-frames "$wc_c_key" d --delayed-automatic-exit-frames "$wc_c_exit" \
         > "$wc_w/c-welcome.log" 2>&1 || true
     wc_warm c c-run
     grep -q "recorded a NextZXOS-resident machine" "$wc_w/c-run.log" \

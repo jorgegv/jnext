@@ -157,6 +157,21 @@ Also discards a half\-finished download.
 Ignored when \f[B]\-\-sdcard\f[R] is given: an explicit path always
 wins.
 .TP
+\f[B]\-\-sdcard\-upgrade\f[R] \f[I]MODE\f[R]
+What to do when the default\-location card is of an older NextZXOS
+distribution than the one jnext downloads now.
+\f[I]MODE\f[R] is \f[B]ask\f[R] (the default in the GUI: forget any
+\(lqdo not ask again\(rq and ask), \f[B]yes\f[R] (replace the card
+without asking: everything saved on it is lost), \f[B]no\f[R] (keep the
+card for this run, no question) or \f[B]never\f[R] (keep it and do not
+offer this distribution again).
+Without the option, the GUI asks (once, unless \(lqDo not ask me
+again\(rq was ticked) and \f[B]\-\-headless\f[R] keeps the card and logs
+one line.
+Refused together with \f[B]\-\-sdcard\f[R]: an explicit card is never
+offered an upgrade.
+See \f[B]SD CARD AND ROMS\f[R].
+.TP
 \f[B]\-\-sdcard\-readonly\f[R]
 Open the SD image read\-only, so the host file is never modified.
 The emulated machine sees a write\-protected card: writes are rejected
@@ -1762,6 +1777,25 @@ without data) is kept (\f[CR]sn\-emulator.zip.part\f[R]) and continues
 on the next run.
 An explicit \f[B]\-\-sdcard\f[R] always wins over both.
 .PP
+When the default card is of an older NextZXOS distribution than the one
+jnext downloads now, jnext tells you a newer one is available, and in
+the GUI asks what to do.
+\f[B]Download and replace\f[R] downloads the new image and replaces the
+card: \f[B]everything you saved on the old card is lost\f[R], and the
+old card stays untouched until the new one is complete, so a failed
+download or patch changes nothing.
+\f[B]Keep my card\f[R] goes on using the old one, and asks again next
+time; ticking \f[B]Do not ask me again\f[R] stops the offer for this
+distribution (a later one asks once more).
+A terminal or scripted run (\f[B]\-\-headless\f[R],
+\f[B]\-\-sdcard\-file\-add\f[R]) never asks: it keeps the card and logs
+one line.
+The choice can be made without the GUI with
+\f[B]\-\-sdcard\-upgrade\f[R].
+A card you name yourself, with \f[B]\-\-sdcard\f[R] or in Preferences,
+is never offered an upgrade.
+Each distribution\(cqs card has its own FAT32 volume serial.
+.PP
 Note that jnext opens the image \f[B]read\-write\f[R] by default, and
 writes the emulated machine makes to the SD card are persisted to the
 file.
@@ -2056,7 +2090,7 @@ files: \f[CR]F_UNLINK\f[R] (wildcards too), \f[CR]F_RENAME\f[R],
 \f[CR]F_MKDIR\f[R], \f[CR]F_RMDIR\f[R], \f[CR]F_TRUNCATE\f[R],
 \f[CR]F_FTRUNCATE\f[R] and \f[CR]F_CHMOD\f[R], and \f[CR]M_GETERR\f[R]
 gives the text of an error code.
-Each answers as NextZXOS 2.09 was measured to answer it (the probe and
+Each answers as NextZXOS 2.10 was measured to answer it (the probe and
 its recording are in the source tree), including which error code a
 refusal carries.
 A write\-protected root (no \f[B]\-\-esxdos\-stub\-writable\f[R])
@@ -2128,6 +2162,15 @@ permission is read\-only for \f[CR]F_STAT\f[R], \f[CR]F_FSTAT\f[R],
 \f[CR]F_READDIR\f[R], \f[CR]F_OPEN\f[R] for writing, \f[CR]F_UNLINK\f[R]
 and \f[CR]F_TRUNCATE\f[R], and \f[CR]F_CHMOD\f[R] with
 \f[CR]A_WRITE\f[R] changes that permission.
+The archive bit of a file answers as NextZXOS 2.10\(cqs does: set until
+an \f[CR]F_CHMOD\f[R], then clear after any \f[CR]F_CHMOD\f[R] of that
+file (set when the call itself cleared \f[CR]A_ARCH\f[R], which 2.10
+reads that way), and set again by closing a handle opened for writing,
+by \f[CR]F_TRUNCATE\f[R], and by creating the file anew; a rename keeps
+it.
+A host file has no such bit, so JNEXT keeps it while it runs and
+\f[B]forgets it when it exits\f[R] (on a card it would be in the
+directory entry), and a file changed on the host reads as set again.
 An 8.3 short name (\f[CR]LONGNA\(ti1.TXT\f[R]) keeps naming the same
 file after others are deleted, as on FAT, and a name the host answers to
 that the directory listing does not hold (an NTFS short name, a
@@ -2135,17 +2178,16 @@ differently normalised spelling) is refused rather than reaching another
 file.
 .PP
 Where it differs from NextZXOS, deliberately: \f[CR]F_CHMOD\f[R] of the
-hidden and system bits, of the archive bit cleared, and of a directory
-is refused with \f[CR]esx_enosys\f[R] (a host file has no such
-attributes; faking it would make \f[CR]F_STAT\f[R] contradict the
-answer); a name ending in a space is refused with \f[CR]esx_einval\f[R]
-(NextZXOS keeps the space, a host may strip it); a renamed current
-directory shows its new name in \f[CR]F_GETCWD\f[R];
-\f[CR]F_TRUNCATE\f[R] on a write\-protected root is refused where
-NextZXOS answers success and loses the write; \f[CR]F_OPEN\f[R] for
-writing on a write\-protected root is \f[CR]esx_erdonly\f[R]; an
-\f[CR]F_OPEN\f[R] mode with neither the read nor the write bit
-(\f[CR]$04\f[R], \f[CR]$08\f[R], \f[CR]$0C\f[R]) is
+hidden and system bits, and of a directory is refused with
+\f[CR]esx_enosys\f[R] (a host file has no such attributes; faking it
+would make \f[CR]F_STAT\f[R] contradict the answer); a name ending in a
+space is refused with \f[CR]esx_einval\f[R] (NextZXOS keeps the space, a
+host may strip it); a renamed current directory shows its new name in
+\f[CR]F_GETCWD\f[R]; \f[CR]F_TRUNCATE\f[R] on a write\-protected root is
+refused where NextZXOS answers success and loses the write;
+\f[CR]F_OPEN\f[R] for writing on a write\-protected root is
+\f[CR]esx_erdonly\f[R]; an \f[CR]F_OPEN\f[R] mode with neither the read
+nor the write bit (\f[CR]$04\f[R], \f[CR]$08\f[R], \f[CR]$0C\f[R]) is
 \f[CR]esx_einval\f[R] where NextZXOS opens or creates; and creating a
 file through the 8.3 short name of an existing long\-named file
 truncates that file and keeps its name, where a FAT volume rewrites the
@@ -3978,6 +4020,18 @@ The default SD\-card image, used when \f[B]\-\-sdcard\f[R] is not given.
 .TP
 \f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb.img\f[R]
 The canonical distribution image the patched one above is produced from.
+.TP
+\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img.distro\f[R], \f[CR]cspect\-next\-1gb.img.distro\f[R]
+The distribution (the zip file name,
+e.g.\ \f[CR]sn\-emulator\-24.11.zip\f[R]) each of the two images came
+from.
+Without one, the image is taken to be 24.11.
+.TP
+\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img.distro\-declined\f[R]
+The distribution whose upgrade offer you turned down with \(lqDo not ask
+me again\(rq (or \f[B]\-\-sdcard\-upgrade\f[R] \f[CR]never\f[R]).
+Delete it, or use \f[B]\-\-sdcard\-upgrade\f[R] \f[CR]ask\f[R], to be
+asked again.
 .TP
 \f[CR]\(ti/.jnext/nextpi/\f[R]
 The NextPi directory: \f[CR]nextpi.img\f[R] (the release\(cqs SD\-card

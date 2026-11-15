@@ -1779,7 +1779,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         return done(0x00);
                     // The calls that change the host folder (GH #457). Registers
                     // from the z88dk asm_esx_f_*.asm headers; the answers are
-                    // NextZXOS 2.09's, measured (esxdos_hostfs.h). On success A
+                    // NextZXOS 2.10's, measured (esxdos_hostfs.h). On success A
                     // is whatever it was (NextZXOS leaves junk there): 0 here.
                     case 0xAD:    // F_UNLINK: A=drive, IX=filespec (wildcards)
                         if (const uint8_t err = esxdos_hostfs_.unlink(read_filespec(r.IX)))
@@ -1881,7 +1881,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     // behind a direct load, so it, and any other B, get the
                     // default refusal below. B=1 copies the message into the
                     // 32-byte buffer at DE, the last character with bit 7 set.
-                    // Measured under NextZXOS 2.09: Fc=0 and A=$02 for every code,
+                    // Measured under NextZXOS 2.10: Fc=0 and A=$02 for every code,
                     // the texts in esxdos_error_message(), "Unknown error" above
                     // 31 (GH #457).
                     if (!direct_nex_esxdos_ && !esxdos_hostfs_.active())
@@ -7730,8 +7730,6 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
     constexpr int kHold = 5;   // frames each typed key is held
     WsRecipe& r = rec.ws_recipe_;
 
-    const bool t0 = before < kWarmStartT0Units && kWarmStartT0Units <= after;
-
     // Idle = the same PC and SP at this frame boundary as at the last one, with
     // no auto-typed key queued. NextZXOS waits for a key in a HALT loop (every
     // wait on the measured cards is a HALT at one instruction) and the sample
@@ -7744,9 +7742,29 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
     r.last_sp = sp;
     if (rec.keyboard_.auto_typing() || !same) r.calm = 0; else ++r.calm;
 
-    if (after < kWarmStartT0Units || r.phase == WsPhase::kDone || r.phase == WsPhase::kGaveUp)
-        return t0;
-    if (r.phase_start == 0) r.phase_start = after;   // the first look at the machine
+    // The commit wait. Before T0 nothing is looked at. From T0 the recipe stays in
+    // kCommit while the firmware is loading (overlay off, config mode still set:
+    // zxnext.vhd:5681-5711, any NR 0x03 write clears the overlay and any value in
+    // bits 2:0 other than 000 and 111 clears config mode), up to T0 + one per-state budget. The first frame that is not
+    // loading, or the deadline, is the checkpoint, reported once. `calm` is NOT
+    // reset here: it has been counting through the wait, as it counted from T0 on.
+    bool checkpoint = false;
+    if (r.phase == WsPhase::kCommit) {
+        if (after < kWarmStartT0Units) return false;
+        const bool loading = !rec.mmu_.boot_rom_enabled() && rec.nextreg_.nr_03_config_mode();
+        if (loading && after < kWarmStartT0Units + kWarmStartPhaseUnits) return false;
+        checkpoint = true;
+        if (loading) {
+            r.stuck = WsPhase::kCommit;
+            r.phase = WsPhase::kGaveUp;
+            return true;
+        }
+        r.phase = WsPhase::kMenu;
+        r.phase_start = after;   // the first look at the machine
+    }
+    if (r.phase == WsPhase::kDone || r.phase == WsPhase::kGaveUp)
+        return checkpoint;
+    if (r.phase_start == 0) r.phase_start = after;
 
     const uint8_t* b5 = rec.mmu_.bank5_vram();
     auto b = [&](uint16_t a) { return b5[a - 0x4000]; };
@@ -7819,13 +7837,29 @@ bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t a
         r.stuck = r.phase;
         r.phase = WsPhase::kGaveUp;
     }
-    return t0;
+    return checkpoint;
+}
+
+std::string Emulator::warm_start_refusal_message(uint32_t frames, const std::string& why) const
+{
+    // At the commit deadline the recorder had been waiting since T0 (frame 400 at
+    // 50 Hz, 480 at 60 Hz: T0 is emulated time): say so.
+    std::string waited;
+    if (ws_recipe_.phase == WsPhase::kGaveUp && ws_recipe_.stuck == WsPhase::kCommit) {
+        const uint32_t per = video_timing().refresh_60hz() ? kWarmStartUnitsPer60HzFrame
+                                                           : kWarmStartUnitsPer50HzFrame;
+        waited = fmt::format(" (the recorder waited from frame {} for the firmware to commit one)",
+                             kWarmStartT0Units / per);
+    }
+    return fmt::format("warm start: after {} frames of boot, {}{}. Not recording; this load "
+                       "falls back to the synthetic machine.", frames, why, waited);
 }
 
 std::string Emulator::warm_start_recipe_waiting_for() const
 {
     const WsPhase p = ws_recipe_.phase == WsPhase::kGaveUp ? ws_recipe_.stuck : ws_recipe_.phase;
     switch (p) {
+    case WsPhase::kCommit:    return "the firmware to commit a machine type (NextREG 0x03)";
     case WsPhase::kMenu:      return "the welcome program or the menu to be idle";
     case WsPhase::kDown:      return "the menu to be idle after the cursor key";
     case WsPhase::kEnter:     return "the Command Line to be idle";
@@ -7975,10 +8009,7 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
         units += warm_start_frame_units(rec->video_timing().refresh_60hz());
         if (warm_start_recipe_tick(*rec, before, units) &&
             !rec->nextzxos_resident(why)) {
-            Log::emulator()->error(
-                "warm start: after {} frames of boot, {}. Not recording; this load "
-                "falls back to the synthetic machine.",
-                frames, why);
+            Log::emulator()->error("{}", rec->warm_start_refusal_message(frames, why));
             return false;
         }
     }
@@ -11202,20 +11233,26 @@ uint64_t Emulator::step_one_instruction()
                 }
             }
         }
-        // Call stack tracking (debugger only, gated by enabled flag).
-        if (call_stack_.enabled()) {
-            // Same shape as the trace record above: three bytes are
-            // read at PC whatever the instruction's length, so PC+1 and PC+2
-            // are the debugger's reads and must not fire the user's
-            // watchpoints. The call-stack tracker is switched on by the
-            // debugger, so this too only ever hurt the user who had it open.
-            DebugState::InspectionScope inspect(debug_state_);
+        // Call stack tracking (debugger only, gated by enabled flag). GH #489: nothing is
+        // PREDICTED per instruction any more. The tracker is fed after execute() from what the
+        // CPU fetched (see the post block); only the pre-slot state is captured here, and the
+        // fetch space only for a slot that may take an INT or NMI, whose frame records the
+        // interrupted PC's space (nothing is fetched there). execute() takes an NMI if one is
+        // pending when it starts, and an INT if one is pending with IFF1 set (Z80Cpu::execute():
+        // the request stays pending for its pulse whatever IFF1 says, but is accepted only with
+        // IFF1); nothing between here and there raises either or sets IFF1.
+        const bool cs_on = call_stack_.enabled();
+        uint16_t cs_pc = 0, cs_sp = 0;
+        jnext::dbg::MemSpace cs_space = jnext::dbg::MemSpace::cpu();
+        if (cs_on) {
             const Z80Registers& regs2 = cpu_.registers();
-            // Through the overlay the M1 selects, like the trace record above.
-            const PredictedInstr pi = predict_instruction_(regs2.PC);
-            call_stack_.on_instruction_pre(
-                regs2.PC, regs2.SP, pi.b[0], pi.b[1], pi.b[2],
-                pi.first.space);
+            cs_pc = regs2.PC;
+            cs_sp = regs2.SP;
+            if (cpu_.nmi_pending() || (cpu_.int_pending() && regs2.IFF1)) {
+                ++call_stack_predictions_;
+                DebugState::InspectionScope inspect(debug_state_);
+                cs_space = predict_fetch(cs_pc);
+            }
         }
 
         // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
@@ -11384,8 +11421,17 @@ uint64_t Emulator::step_one_instruction()
         // ASKED of the CPU: such a slot fetches no opcode, so the pre-slot
         // capture names an instruction that did not run, and a CALL or RST
         // waiting at PC would otherwise be recorded as taken.
-        if (call_stack_.enabled()) {
+        if (cs_on) {
             const Z80Registers& post = cpu_.registers();
+            // The pre-slot capture, completed with what the CPU fetched. The tracker reads the
+            // second byte only after a prefix, and the operand only for a CALL that pushed
+            // (a taken CALL), whose operand is the PC it jumped to; nothing else reads it.
+            const uint8_t cs_b0 = cpu_.last_m1_byte(0);
+            const bool prefixed = cs_b0 == 0xCB || cs_b0 == 0xED || cs_b0 == 0xDD || cs_b0 == 0xFD;
+            call_stack_.on_instruction_pre(
+                cs_pc, cs_sp, cs_b0,
+                prefixed ? cpu_.last_m1_byte(1) : uint8_t(post.PC & 0xFF),
+                prefixed ? uint8_t(0) : uint8_t(post.PC >> 8), cs_space);
             switch (cpu_.last_slot_kind()) {
                 case Z80Cpu::SlotKind::Int:
                     call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::INT);

@@ -77,9 +77,18 @@ public:
             border_per_line_.fill(0);
         // The flash counter has no reset: zxula.vhd:474-480 only ever
         // increments flash_cnt, once a frame, and the zxula entity has no
-        // reset input at all. A soft reset leaves the flash phase running.
+        // reset input at all, so a soft reset leaves the flash phase running.
+        // A hard `reset()` here is Emulator::init() building a machine, i.e.
+        // POWER-ON: the counter takes its power-on value (see flash_counter_
+        // below). That is also what the FPGA does on a HARD reset: NR 0x02
+        // bit 1 or the hotkey assert o_RESET_HARD (zxnext.vhd:6959), and
+        // zxnext_top_issue2.vhd:1236-1241 answers it with flashboot_start, a
+        // multiboot RELOAD of the core from flash, so every register, flash_cnt
+        // and the timing counters included, takes its power-on value again
+        // (zxula.vhd:473-480 itself has no reset input). Only a soft reset
+        // leaves the flash phase running.
         if (hard) {
-            flash_counter_ = 0;
+            flash_counter_ = 1;
             flash_phase_ = false;
         }
         screen_mode_reg_ = 0;
@@ -844,8 +853,13 @@ private:
     uint8_t          clip_y2_        = 191;
     uint8_t          border_colour_   = 7;     ///< ZX colour index 0–7 (white = 7)
     std::array<uint8_t, FB_HEIGHT> border_per_line_; ///< Per-scanline border colour snapshots
-    int              flash_counter_   = 0;     ///< Incremented once per frame
-    bool             flash_phase_     = false; ///< Toggles every 16 frames
+    /// flash_cnt(3:0), flash_cnt(4) = flash_phase_. flash_cnt increments at the START of a
+    /// frame's display (hc_ula = vc_ula = 0, zxula.vhd:472-480), and the first of those is
+    /// in frame 0 (the timing counters power up at raw (0,0), zxula_timing.vhd:111-125), so
+    /// frame F displays count F + 1: the counter starts at 1 and advance_flash() runs after
+    /// each frame. flash_cnt(4) is then 1 for frames 15-30, 47-62, ...
+    int              flash_counter_   = 1;     ///< flash_cnt(3:0): incremented once per frame
+    bool             flash_phase_     = false; ///< flash_cnt(4): toggles every 16 frames
     uint8_t          screen_mode_reg_ = 0;     ///< Raw value last written to port 0xFF
     TimexScreenMode  mode_            = TimexScreenMode::STANDARD;
 

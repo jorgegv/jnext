@@ -185,19 +185,13 @@ if want nextsync-func; then
         # RTC is pinned for the same reason it is there — a reproducible boot.
         # 4000 frames = 80 s of emulated time for a ~20 KB transfer measured at
         # ~1.5 s emulated, so the budget is ~50x the work.
+        # boot-timeline key frames (bf)
+        bf_keys 577 space 647 down 677 enter 737 . 752 s 767 y 782 n 797 c 812 enter
         timeout --foreground --kill-after=5s 300s "$JNEXT" --headless --machine next \
             "${SD_CARD_ARGS[@]}" \
             --esp --esp-allow "$peer_ip" \
             --rtc 2026-07-30T12:00:00 \
-            --delayed-keypress-frames 400 space \
-            --delayed-keypress-frames 470 down \
-            --delayed-keypress-frames 500 enter \
-            --delayed-keypress-frames 560 . \
-            --delayed-keypress-frames 575 s \
-            --delayed-keypress-frames 590 y \
-            --delayed-keypress-frames 605 n \
-            --delayed-keypress-frames 620 c \
-            --delayed-keypress-frames 635 enter \
+            "${BF_KEYS[@]}" \
             --log-level info,esp01=debug,uart=debug \
             --delayed-automatic-exit-frames 4000 \
             >"$run_log" 2>&1 || true

@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -904,6 +904,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Letting JNEXT fetch one
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="02-letting-jnext-fetch-one.html" class="md-nav__link md-nav__link--active">
         
   
@@ -920,6 +938,47 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#nextzxos-2611-and-the-fpga-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NextZXOS 26.11 and the FPGA core
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-newer-distribution-is-available" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a newer distribution is available
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -4145,11 +4204,12 @@ SD card image</strong>. Answer yes and JNEXT will:</p>
   Next's firmware refuses such a card, as the real machine does;</li>
 <li>it gets a default <code>/MACHINES/NEXT/config.ini</code>, the firmware's settings
   file;</li>
-<li><code>/MACHINES/NEXT/zx81.rom</code> is made 32 KB long: the same 16 KB ROM, twice.
-  The distribution ships it as 16 KB, but the firmware's boot menu loads
-  the ZX81 entry as 32 KB and stops on <code>zx81.rom...error reading!</code>. The
-  ZX Spectrum Next team made the same change after that distribution was
-  released. JNEXT makes it only when the file is exactly the one the
+<li><code>/MACHINES/NEXT/zx81.rom</code> is made 32 KB long, the same 16 KB ROM twice,
+  when the distribution ships it as 16 KB (NextZXOS 24.11 did; 26.11 already
+  ships 32 KB and is left alone). The firmware's boot menu loads the ZX81
+  entry as 32 KB and stops on <code>zx81.rom...error reading!</code> otherwise. The
+  ZX Spectrum Next team made the same change after the 24.11 distribution
+  was released. JNEXT makes it only when the file is exactly the one that
   distribution ships. A working copy prepared by an earlier version of
   JNEXT is not fixed automatically; see
   <a href="06-if-something-goes-wrong.html">If something goes wrong</a>.</li>
@@ -4172,6 +4232,34 @@ fetched was kept. The address can be selected and copied from the message: try i
 browser to see whether the file can be reached at all.</p>
 <p>Answering no leaves JNEXT with nothing to boot from, so it explains the problem
 and exits.</p>
+<h2 id="nextzxos-2611-and-the-fpga-core">NextZXOS 26.11 and the FPGA core<a class="headerlink" href="#nextzxos-2611-and-the-fpga-core" title="Permanent link">&para;</a></h2>
+<p>The distribution JNEXT downloads is NextZXOS 26.11. It ships FPGA core 3.03.00 in
+its <code>TBBLUE.TBU</code> update file, while JNEXT emulates core 3.02.03, the one it follows.
+NextZXOS 2.10 boots and runs on it, and the firmware shows core 3.02.03 on its
+splash screen. Whatever core 3.03.00 adds over 3.02.03 is not emulated.</p>
+<h2 id="when-a-newer-distribution-is-available">When a newer distribution is available<a class="headerlink" href="#when-a-newer-distribution-is-available" title="Permanent link">&para;</a></h2>
+<p>JNEXT remembers which distribution each image came from. When a version of JNEXT
+downloads a newer distribution than the one your image came from, it tells you so
+and, in the graphical version, asks what to do:</p>
+<ul>
+<li><strong>Download and replace</strong> downloads the new distribution and replaces your image
+  with it. <strong>Everything you saved on the old image is lost</strong>: your programs, your
+  files and NextZXOS's settings. Nothing is changed until the new image is
+  complete, so a download or a preparation that fails leaves your image exactly as
+  it was.</li>
+<li><strong>Keep my card</strong> (also what closing the question means) goes on with your image
+  and asks again the next time.</li>
+<li>Ticking <strong>Do not ask me again</strong> with Keep stops the question for this
+  distribution. The question comes back once for the next one.</li>
+</ul>
+<p>Without a window (<code>--headless</code>, or <code>--sdcard-file-add</code>) JNEXT never asks. It keeps
+your image and writes one line to the log saying how to upgrade. You can answer
+without the dialog with <code>--sdcard-upgrade</code>: <code>yes</code> replaces the image, <code>no</code> keeps
+it for this run, <code>never</code> keeps it and records "do not ask again", and <code>ask</code>
+forgets that record and asks.</p>
+<p>An image you name yourself (<code>--sdcard FILE</code>, or an image path in Preferences) is
+never offered an upgrade, and <code>--sdcard-upgrade</code> is refused with <code>--sdcard</code>. Each
+distribution's image also has its own FAT32 volume serial.</p>
 
 
 

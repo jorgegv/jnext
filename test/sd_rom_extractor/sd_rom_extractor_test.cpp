@@ -10,7 +10,7 @@
 //              size and content differ from SD-EXT-01.
 //   SD-EXT-04  Discriminative: extract /MACHINES/NEXT/enNextMf.rom (8192 B);
 //              same size as SD-EXT-01 but different content.
-//   SD-EXT-05  Root-level file: /TBBLUE.FW (304640 B). Confirms root-
+//   SD-EXT-05  Root-level file: /TBBLUE.FW (635904 B). Confirms root-
 //              directory parsing without any descent.
 //   SD-EXT-06  Not found: /MACHINES/NEXT/nonexistent.rom returns false,
 //              `out` empty.
@@ -110,7 +110,7 @@ std::string hex_prefix(const std::vector<uint8_t>& v, size_t n) {
 constexpr uint8_t kEnNxtmmcMagic[4] = { 0xF3, 0xC3, 0x6A, 0x00 };
 constexpr uint8_t kEnNextMfMagic[4] = { 0xF5, 0x3E, 0x02, 0xCD };
 constexpr uint8_t k48RomMagic[4]    = { 0xF3, 0xAF, 0x11, 0xFF };
-constexpr uint8_t kTbblueFwMagic[4] = { 0x00, 0x00, 0x36, 0x00 };
+constexpr uint8_t kTbblueFwMagic[4] = { 0x00, 0x00, 0x40, 0x00 };
 
 bool first4_eq(const std::vector<uint8_t>& v, const uint8_t (&ref)[4]) {
     if (v.size() < 4) return false;
@@ -206,14 +206,14 @@ int main() {
     }
 
     // ------------------------------------------------------------------
-    // SD-EXT-05 — root-level file: TBBLUE.FW (304640 B), starts 00 00 36 00.
+    // SD-EXT-05 — root-level file: TBBLUE.FW (635904 B), starts 00 00 40 00.
     // ------------------------------------------------------------------
     {
         std::vector<uint8_t> v;
         size_t n = 0;
         const bool ok = extract_sd_rom(img, "/TBBLUE.FW", v, &n);
         check("SD-EXT-05", "extract /TBBLUE.FW returns true", ok);
-        check("SD-EXT-05b", "TBBLUE.FW size is 304640", v.size() == 304640,
+        check("SD-EXT-05b", "TBBLUE.FW size is 635904", v.size() == 635904,
               "size=" + std::to_string(v.size()));
         check("SD-EXT-05c", "TBBLUE.FW bytes_read_out matches", n == v.size(),
               "out=" + std::to_string(n));

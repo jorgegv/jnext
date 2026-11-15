@@ -70,9 +70,10 @@ if want sdcard-readonly-func; then
     # regression_tests.conf (400 frames, same --rtc). A seconds-based capture
     # lands on a different frame and diffs against the reference for reasons
     # that have nothing to do with this flag — measured, it does.
+    ro_shot=$(bf 577)   # boot-timeline frame (bf)
     timeout --foreground --kill-after=5s 90s "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
         --sdcard-readonly --delayed-screenshot "$W/welcome.png" \
-        --delayed-screenshot-frames 400 --delayed-automatic-exit 21 \
+        --delayed-screenshot-frames "$ro_shot" --delayed-automatic-exit 21 \
         > "$W/shot.log" 2>&1 || true
     if [[ ! -s "$W/welcome.png" ]]; then
         faults+=("D: no screenshot written — a read-only card broke the boot")

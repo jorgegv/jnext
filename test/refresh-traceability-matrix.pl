@@ -971,6 +971,7 @@ my %NO_MATRIX_SECTION = (
     'halt_batch_equiv_test'   => 'cycle-batching equivalence (GH #452): the oracle is the unbatched path of the same emulator, held to the VHDL by the other suites; each row cites the hardware behaviour a batch span must not move in its own source (jnext-internal)',
     'halt_batch_periph_test'  => 'cycle-batching equivalence on peripheral, observer and host-input fixtures (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'halt_batch_observer_test'=> 'cycle-batching equivalence with an ESP-01 or a debugger client attached (GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
+    'call_stack_fetch_test'   => 'debugger call-stack tracker fed from the CPU\'s M1 fetch buffer (GH #489): frames through the emulator path; the oracle is Z80/Z80N instruction semantics and the interrupt response, the tracker itself being jnext-internal',
     'halt_batch_boot_test'    => 'cycle-batching equivalence on the NextZXOS cold boot (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'halt_batch_corpus_1_test'=> 'cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal)',
     'halt_batch_corpus_2_test'=> 'cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal)',
@@ -1106,6 +1107,7 @@ my %NO_MATRIX_SECTION = (
     'color_scheme_test'   => 'GUI light/dark scheme from the desktop portal (host GUI, GH #363)',
     'color_scheme_linux_test' => 'GH #414: the private dbus-daemon of color_scheme_test dies with a SIGKILLed or normally exiting suite; Linux-only test infrastructure (guard process, /proc), the FPGA core has no counterpart',
     'sdcard_dialog_test'  => 'SD-card/NextPi download dialog through a dropped network (host GUI, GH #358)',
+    'sdcard_upgrade_box_test' => 'SDL message box offering a newer NextZXOS image (host UI, GH #476)',
     'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',
 

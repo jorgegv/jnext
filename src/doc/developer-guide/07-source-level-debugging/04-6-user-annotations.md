@@ -9,8 +9,8 @@ fills a third store, `UserAnnotations`, which sits beside the toolchain's
 ## 1. The producer
 
 JNEXT. The Qt Map menu opens and saves it (section 10); `--annotations FILE`
-loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:881` and copies
-it to the configuration at `src/main.cpp:2194`, and `ScriptHost::start()` loads it (`annotations_file`,
+loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:893` and copies
+it to the configuration at `src/main.cpp:2231`, and `ScriptHost::start()` loads it (`annotations_file`,
 `src/script/script_host.cpp:201-215`), after `--map` and before the scripts, so a
 script's `@name` of the file resolves). `replace_annotations()` is the
 primitive an import builds on.
@@ -100,7 +100,7 @@ tag, version or escape refuses the file.
 
 ## 8. Excerpt
 
-From the writer's row `JDP-01` (`test/debug/source_map_test.cpp:1344-1350`), the
+From the writer's row `JDP-01` (`test/debug/source_map_test.cpp:1349-1355`), the
 bytes of a store inserted in a shuffled order:
 
 ```

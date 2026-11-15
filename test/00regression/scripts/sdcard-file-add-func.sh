@@ -290,7 +290,7 @@ if want sdcard-file-add-func; then
     # lowercase" flags set, so mdir prints `48       rom`, not `48  ROM`.
     grep -qiE '^48 +rom +16384 ' "$W/mdir-machines.txt" \
         || faults+=("48.rom vanished from /MACHINES/NEXT after the writes")
-    grep -qiE '^TBBLUE +FW +304640 ' "$W/mdir-root.txt" \
+    grep -qiE '^TBBLUE +FW +635904 ' "$W/mdir-root.txt" \
         || faults+=("TBBLUE.FW vanished from the card root after the writes")
 
     # --- 6. the failure statuses a script branches on -------------------------

@@ -1,0 +1,8 @@
+# Prints the frame at which the firmware commits a machine type: the first NR 0x03 write
+# whose bits 2:0 are 001..100 (zxnext.vhd:5708-5712: the write that clears config mode).
+# Used by the regression harness (boot_shift in test-functions.inc) to anchor every
+# boot-timeline frame of a row to the card's own boot.
+on nextreg 0x03 once when (VALUE & 7) >= 1 and (VALUE & 7) <= 4 do
+    log "BOOT-COMMIT FRAME=${FRAME} NR03=${VALUE:x2}"
+    exit 0
+end

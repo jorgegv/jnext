@@ -51,6 +51,7 @@ if want sdcard-swap-func; then
     clone_a() {   # clone_a <name> — a config dir whose fallback card is a clone of A
         mkdir -p "$BASE/$1/sdcard"
         cp --reflink=auto "$MASTER" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
+        sd_card_sidecars "$MASTER" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
     }
     clone_a swap
     clone_a control
@@ -72,17 +73,20 @@ if want sdcard-swap-func; then
     # the command line (as boot-nextzxos-dotls), REMOUNT is typed from 560 and
     # its prompt is up by 700; the card goes in at 720 and Y at 760. The re-read
     # takes ~280 frames; `.nexload magic.nex` is typed from 1100.
-    keys=(--delayed-keypress-frames 400 space --delayed-keypress-frames 470 down
-          --delayed-keypress-frames 500 enter)
-    f=560
+    # Every frame here is a boot-timeline frame (bf).
+    keys=()
+    kadd() { local v; v=$(bf "$1") || exit 2; keys+=(--delayed-keypress-frames "$v" "$2"); }
+    kadd 577 space; kadd 647 down; kadd 677 enter
+    f=737
     for k in r e m o u n t enter; do
-        keys+=(--delayed-keypress-frames "$f" "$k"); f=$((f + 15))
+        kadd "$f" "$k"; f=$((f + 15))
     done
-    keys+=(--delayed-keypress-frames 760 y)
-    f=1100
+    kadd 937 y
+    f=1277
     for k in . n e x l o a d space m a g i c . n e x enter; do
-        keys+=(--delayed-keypress-frames "$f" "$k"); f=$((f + 15))
+        kadd "$f" "$k"; f=$((f + 15))
     done
+    sw_insert=$(bf 897); sw_exit=$(bf 1677)
 
     remount_run() {   # remount_run <name> [extra args...]
         local name=$1 rc=0; shift
@@ -90,11 +94,11 @@ if want sdcard-swap-func; then
             "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
                      --magic-port 0xCAFE --magic-port-mode line \
                      "${keys[@]}" "$@" \
-                     --delayed-automatic-exit-frames 1500 \
+                     --delayed-automatic-exit-frames "$sw_exit" \
             > "$W/$name.log" 2>&1 || rc=$?
         [[ $rc -eq 0 ]] || faults+=("$name: the NextZXOS run exited $rc")
     }
-    remount_run swap --delayed-sdcard-insert-frames 720 "$CARD_B"
+    remount_run swap --delayed-sdcard-insert-frames "$sw_insert" "$CARD_B"
     remount_run control
 
     grep -qF "SD card inserted: '$CARD_B'" "$W/swap.log" \

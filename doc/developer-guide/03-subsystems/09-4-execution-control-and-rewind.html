@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.2.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3059,10 +3059,14 @@ fire a watchpoint whatever it calls, because it cannot make <code>guest_access_<
 The gate is in <code>Mmu</code>, not around panel refreshes, so it does not depend on the
 caller.</p>
 <p>Its counterpart <code>DebugState::InspectionScope</code> covers the debugger readers that
-run <em>inside</em> execution. The trace log captures four opcode bytes at PC and the
-call-stack tracker three, whatever the instruction's real length, so both read
-bytes the CPU never fetches. An event delivery, <code>Mmu::peek()</code> and
-<code>poke(MemSpace::cpu())</code> take the same scope.</p>
+run <em>inside</em> execution. The trace log captures four opcode bytes at PC,
+whatever the instruction's real length, so it reads bytes the CPU never fetches.
+The call-stack tracker reads no memory per instruction: it is fed after
+<code>execute()</code> from the M1 bytes the CPU fetched (<code>Z80Cpu::last_m1_byte()</code>) and the
+PC it ended on, which is a taken <code>CALL</code>'s operand. Only a slot that may accept an
+interrupt (an NMI pending, or an INT pending with IFF1 set) predicts the fetch
+space, under this scope, for the frame's <code>caller_space</code>. An event delivery,
+<code>Mmu::peek()</code> and <code>poke(MemSpace::cpu())</code> take the same scope.</p>
 <p><code>DebugState::SuspendScope</code> clears every arm bit for its lifetime. A save that
 has to advance to a frame boundary runs under it, so the advance does not stop
 on a breakpoint.</p>
