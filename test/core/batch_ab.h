@@ -59,6 +59,7 @@ struct Run {
     std::vector<FrameHash> frames;
     uint64_t               halt_batched = 0;     // Emulator::halt_repeats_batched_for_test()
     uint64_t               copper_skipped = 0;   // Emulator::copper_cycles_skipped_for_test()
+    uint64_t               poll_batched = 0;     // Emulator::poll_passes_batched_for_test() (GH #496)
     uint64_t               audio_pairs = 0;      // total over the run
 };
 
@@ -116,7 +117,9 @@ struct Scenario {
     std::function<bool(Emulator&)>         alive;
 };
 
-inline Run run(const Scenario& sc, bool halt_batch, bool copper_skip, Scratch& scratch) {
+// `poll` is the raster-poll batch's switch (GH #496): -1 = the same as `halt_batch`, so the
+// existing "off" and "on" pairs switch all the batches together.
+inline Run run(const Scenario& sc, bool halt_batch, bool copper_skip, Scratch& scratch, int poll = -1) {
     Run r;
     auto emu = std::make_unique<Emulator>();
     EmulatorConfig cfg;
@@ -124,7 +127,7 @@ inline Run run(const Scenario& sc, bool halt_batch, bool copper_skip, Scratch& s
     cfg.rewind_buffer_frames = 0;
     if (sc.config) sc.config(cfg);
     if (!emu->init(cfg)) return r;
-    emu->set_cycle_batching_for_test(halt_batch, copper_skip);
+    emu->set_cycle_batching_for_test(halt_batch, copper_skip, poll < 0 ? halt_batch : poll != 0);
     if (sc.setup) sc.setup(*emu);
     r.built = true;
     r.frames.reserve(static_cast<size_t>(sc.frames));
@@ -139,6 +142,7 @@ inline Run run(const Scenario& sc, bool halt_batch, bool copper_skip, Scratch& s
     r.alive = sc.alive ? sc.alive(*emu) : true;
     r.halt_batched = emu->halt_repeats_batched_for_test();
     r.copper_skipped = emu->copper_cycles_skipped_for_test();
+    r.poll_batched = emu->poll_passes_batched_for_test();
     return r;
 }
 
