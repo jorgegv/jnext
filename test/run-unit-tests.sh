@@ -40,7 +40,8 @@
 # Env:   JNEXT_UNIT_TEST_CONF   override the manifest path (the self-test uses this)
 #        JNEXT_TEST_RUNNER      a program prefixed to every suite (the Windows
 #                               suites run under wine: test/wine-run.sh)
-#        JNEXT_UNIT_TEST_JOBS   cap on suites running at once (default: no cap)
+#        JNEXT_UNIT_TEST_JOBS   cap on suites running at once (default: one per CPU;
+#                               0 = no cap)
 
 set -euo pipefail
 
@@ -542,11 +543,17 @@ esac
 rm -f "$SUMMARY"
 rm -rf "$LOG_DIR"; mkdir -p "$LOG_DIR"
 
-# JNEXT_UNIT_TEST_JOBS caps how many suites run at once (default: all of them).
-# `make unit-test-win` sets it to the CPU count: ~100 wine processes started in
-# one burst made a timing row (XPT-NET-05, 100 ms bound) measure the host, not
-# the code. Unset on Linux and macOS, where the burst has always been fine.
-MAX_JOBS="${JNEXT_UNIT_TEST_JOBS:-0}"
+# JNEXT_UNIT_TEST_JOBS caps how many suites run at once (default: one per CPU, from
+# nproc, else getconf, else 1; 0 means no cap). Starting every suite at once makes
+# the per-suite SUITE_TIMEOUT measure the host's queue, not the suite: ~150 suites
+# on a 4-vCPU macOS Intel runner took 272 s for the longest, 89% of the bound, and
+# 26.11-era work pushed 14 of them over it (GH #494). One per CPU makes a suite's
+# wall time about its own CPU time, and the phase is no longer. `make unit-test-win`
+# sets it to the CPU count too: ~100 wine processes started in one burst made a timing
+# row (XPT-NET-05, 100 ms bound) measure the host.
+default_jobs=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+[[ "$default_jobs" =~ ^[1-9][0-9]*$ ]] || default_jobs=1
+MAX_JOBS="${JNEXT_UNIT_TEST_JOBS:-$default_jobs}"
 [[ "$MAX_JOBS" =~ ^[0-9]+$ ]] || die "JNEXT_UNIT_TEST_JOBS must be a number, not '${BOLD}$MAX_JOBS${RESET}'."
 for name in "${RUNNABLE[@]}"; do
     if (( MAX_JOBS > 0 )); then
