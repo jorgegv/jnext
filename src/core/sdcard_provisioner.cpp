@@ -526,6 +526,14 @@ std::string http_status_reason(long status) {
     return std::string(words) + " (HTTP " + std::to_string(status) + ")";
 }
 
+// True when `err` ends in "(HTTP NNN)" with NNN a 4xx other than 408 (timeout) and 429 (rate limit).
+static bool permanent_http_refusal(const std::string& err) {
+    const size_t p = err.rfind("(HTTP ");
+    if (p == std::string::npos || err.back() != ')') return false;
+    const long st = std::strtol(err.c_str() + p + 6, nullptr, 10);
+    return st >= 400 && st <= 499 && st != 408 && st != 429;
+}
+
 std::string fetch_failure(const std::string& what, const std::string& url,
                           const std::string& reason, const std::string& next) {
     std::string m = what + ": " + reason + "\n  URL: " + url;
@@ -1192,7 +1200,8 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
         // instead of the zip) "downloads" fine and only fails to unzip. Either
         // failure is retried up to opts.retries more times, waiting
         // 2 s, then twice that, ... between them. A user cancel is
-        // not retried. A kept partial is continued by the next attempt (GH #358).
+        // not retried; neither is an HTTP 4xx answer (not 408/429): the server refused,
+        // asking again only delays the same failure. A kept partial is continued by the next attempt (GH #358).
         const SleepFn sleep = opts.sleep ? opts.sleep : SleepFn(real_sleep_ms);
         unsigned backoff_ms = 2000;
         if (const char* e = std::getenv("JNEXT_SDCARD_RETRY_BACKOFF_MS"); e && *e)
@@ -1215,7 +1224,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
                   : "nothing was kept, so the next start downloads it from the beginning";
                 why = fetch_failure("download failed", distro_url, err, next) + sandbox_network_note(opts);
             }
-            if (err == "cancelled by user" || attempt >= opts.retries) break;
+            if (err == "cancelled by user" || attempt >= opts.retries || permanent_http_refusal(err)) break;
             const unsigned wait_ms = backoff_ms << attempt;
             const std::string note = "Download attempt " + std::to_string(attempt + 1) + " failed: " + err +
                                      "\nRetry " + std::to_string(attempt + 1) + " of " +
