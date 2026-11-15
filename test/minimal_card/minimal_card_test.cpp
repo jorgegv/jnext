@@ -311,7 +311,9 @@ FNode fixture(bool with_sys = true, bool big = false) {
     FNode next = dirn("next", 0x00, 0x5A23, 0x7200);
     next.kids.push_back(file("48.rom", pattern(16384, 2), 0x21, 0x5A24, 0x7400));
     next.kids.push_back(file("zx81.rom", pattern(16384, 3), 0x20, 0x5A25, 0x7600));
-    for (int i = 0; i < 124; ++i) {
+    // 2 (. and ..) + 2 + 122 entries fill the first 128-entry cluster up to the long name, whose
+    // two LFN slots then end it and whose short entry starts the second one (it straddles).
+    for (int i = 0; i < 122; ++i) {
         char nm[16];
         std::snprintf(nm, sizeof nm, "F%03d.BIN", i);
         next.kids.push_back(file(nm, {}, 0x20, 0x5A26, static_cast<uint16_t>(0x1000 + i)));
