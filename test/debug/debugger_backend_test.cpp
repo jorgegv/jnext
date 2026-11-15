@@ -15457,6 +15457,50 @@ int main() {
               "rows=" + std::to_string(tbl->entries().size()));
     }
 
+    {
+        // The siblings of unsubscribe(): the three bulk removals also leave tombstones, and each
+        // must be compacted by the next pump() (a remote client's step clears its transient, a
+        // stop clears every transient, a detach erases the client's rows).
+        Emulator emu;
+        build_armed(emu, { 0x18, 0xFE });
+        Debugger dbg(emu);
+        jnext::dbg::EventTable* tbl = emu.debug_state().event_table();
+        Subscription bp;
+        bp.kind = EventKind::Mem; bp.access = Access::Write;
+        bp.filter.lo = 0x9000; bp.filter.hi = 0x9000;
+        bp.action = Action::Continue;
+        bp.transient = true;
+        const auto pump_once = [&dbg] { dbg.pump(jnext::dbg::PumpBudget{}); };
+
+        for (int i = 0; i < 50; ++i) tbl->add(7, bp);
+        const size_t cleared = tbl->clear_transient(7);
+        const bool held_a = tbl->has_tombstones();
+        pump_once();
+        check("EVT-DEL-88", "clear_transient(owner): its tombstones are compacted by the next pump",
+              cleared == 50 && held_a && tbl->entries().empty() && !tbl->has_tombstones(),
+              "cleared=" + std::to_string(cleared) + " held=" + std::to_string(held_a) +
+                  " rows=" + std::to_string(tbl->entries().size()));
+
+        for (int i = 0; i < 50; ++i) tbl->add(7, bp);
+        const size_t cleared_all = tbl->clear_transient();
+        const bool held_b = tbl->has_tombstones();
+        pump_once();
+        check("EVT-DEL-89", "clear_transient(): its tombstones are compacted by the next pump",
+              cleared_all == 50 && held_b && tbl->entries().empty() && !tbl->has_tombstones(),
+              "cleared=" + std::to_string(cleared_all) + " held=" + std::to_string(held_b) +
+                  " rows=" + std::to_string(tbl->entries().size()));
+
+        bp.transient = false;
+        for (int i = 0; i < 50; ++i) tbl->add(7, bp);
+        const size_t erased = tbl->erase_client(7);
+        const bool held_c = tbl->has_tombstones();
+        pump_once();
+        check("EVT-DEL-90", "erase_client(): its tombstones are compacted by the next pump",
+              erased == 50 && held_c && tbl->entries().empty() && !tbl->has_tombstones(),
+              "erased=" + std::to_string(erased) + " held=" + std::to_string(held_c) +
+                  " rows=" + std::to_string(tbl->entries().size()));
+    }
+
     // ── EVT-ST-01..12 — SAVE / LOAD / REWIND against the new event state ────
     //
     // THE LARGEST UNTESTED SURFACE IN THE PACKAGE, and the decision is written at
