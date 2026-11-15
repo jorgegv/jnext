@@ -1475,6 +1475,11 @@ Z80Cpu::LoopState Z80Cpu::capture_loop_state() const {
 void Z80Cpu::repeat_loop(uint32_t count, uint32_t each, uint32_t slots, uint32_t dr) {
     tstates += count * each;
     z80.r = static_cast<libspectrum_word>(z80.r + count * dr);   // as repeat_halt(): only bits 6:0 are read
+    // The serial is advanced for its contract ("incremented on every entry"), but nothing can tell if it is not
+    // (a mutation that drops this line survives every row, by this argument): its only readers compare a
+    // value recorded inside an execute() with the serial of the call still running (the tape's sync stamp,
+    // while a tape plays, which the batch's gates refuse) or with the previous slot's (the raster-poll
+    // watch, which starts a fresh pass after every batch); none holds a value this advance would make equal.
     execute_serial_ += static_cast<uint64_t>(count) * slots;
     regs_.R = static_cast<uint8_t>((z80.r7 & 0x80) | (z80.r & 0x7f));
 }

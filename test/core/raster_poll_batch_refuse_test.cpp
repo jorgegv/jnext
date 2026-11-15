@@ -70,6 +70,12 @@ int main() {
     check_poll("RPB-22", "guide loop that also writes the sprite attribute port 0x57: identical per frame, REFUSED (another OUT)",
                {poll_fx("other-out", 3, 0xFF, guide_loop(0xC000, kCount, {0x57, 0x3E, 0x05, 0xD3, 0x57, 0x7A}))}, Poll::Refused);
 
+    // RPB-33: an OUT (C),r that is not the select: through the shadow BC the pass writes to the sprite attribute
+    // port 0x57 (EXX; LD BC,$0057; LD A,5; OUT (C),A; EXX), a write whose index advance a skipped pass would
+    // not make. Only the select of NR 0x1E / 0x1F is allowed.
+    check_poll("RPB-33", "guide loop that also does OUT (C),A to the sprite attribute port 0x57 through BC': identical per frame, REFUSED (an OUT (C),r that is not the select)",
+               {poll_fx("out-c-other", 3, 0xFF, guide_loop(0xC000, kCount, {0x57, 0xD9, 0x01, 0x57, 0x00, 0x3E, 0x05, 0xED, 0x79, 0xD9, 0x7A}))}, Poll::Refused);
+
     // RPB-23: the CPU must be in the state it started the pass in: DJNZ moves B every pass.
     check_poll("RPB-23", "DJNZ-bounded poll (B changes every pass): identical per frame, REFUSED (the state differs)",
                {poll_fx("djnz", 3, 0xFF, djnz_loop())}, Poll::Refused);
