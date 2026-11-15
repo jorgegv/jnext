@@ -100,7 +100,7 @@ tag, version or escape refuses the file.
 
 ## 8. Excerpt
 
-From the writer's row `JDP-01` (`test/debug/source_map_test.cpp:1344-1350`), the
+From the writer's row `JDP-01` (`test/debug/source_map_test.cpp:1349-1355`), the
 bytes of a store inserted in a shuffled order:
 
 ```

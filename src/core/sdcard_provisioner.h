@@ -192,8 +192,10 @@ std::string fetch_failure(const std::string& what, const std::string& url,
                           const std::string& reason, const std::string& next);
 
 // Backoff seam (GH #497): wait `ms` milliseconds between two download attempts.
-// Empty in ProvisionOptions = really sleep; tests pass a recorder.
-using SleepFn = std::function<void(unsigned ms)>;
+// `note` says why and for how long ("Download attempt 1 failed: <reason>\nRetry 1 of 3
+// in 2 s"), for a GUI to show while it waits (and keep its window alive, Cancel
+// included). Empty in ProvisionOptions = really sleep; tests pass a recorder.
+using SleepFn = std::function<void(unsigned ms, const std::string& note)>;
 
 // Confirmation seam: returns true if the user agrees to download.
 using ConfirmFn = std::function<bool(const std::string& message)>;
@@ -508,7 +510,7 @@ struct ProvisionOptions {
     ConfirmFn   confirm;            // defaults to cli_confirm
     ProgressFn  progress;           // optional; passed into the download
     // GH #497: a download whose attempt fails (transport error, or a body that does
-    // not unzip) is retried `retries` more times, waiting retry_backoff_ms, twice
+    // not unzip) is retried `retries` more times, waiting 2 s, then twice
     // that, four times that... between attempts (2 s, 4 s, 8 s; the first wait is
     // $JNEXT_SDCARD_RETRY_BACKOFF_MS when set, a test seam like $JNEXT_SDCARD_DISTRO_URL,
     // never documented to users). A cancel is not retried.

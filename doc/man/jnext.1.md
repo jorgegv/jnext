@@ -1420,7 +1420,7 @@ scripts; **\--sdcard-download-force** re-downloads and re-patches a corrupted
 cached image. An interrupted download (Cancel, a dropped connection, or 30
 seconds without data) is kept (`sn-emulator.zip.part`) and continues on the next
 run. A download that fails, or whose file is no zip, is retried up to three times,
-after 2, 4 and 8 seconds, each retry noted on the terminal; Cancel is not retried.
+after 2, 4 and 8 seconds, each retry noted on the terminal and in the download window; Cancel is not retried.
 An explicit **\--sdcard** always wins over both.
 
 When the default card is of an older NextZXOS distribution than the one jnext

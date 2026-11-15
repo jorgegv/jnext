@@ -395,6 +395,31 @@ FAKE_STATE="$WORK/pfs" FAKE_BAD=0 FAKE_GOOD="$good" PREFETCH_FETCH="$WORK/fakefe
 if [ "$(cat "$WORK/pfs/n")" -eq 1 ]; then
     ok FPKP-20 "prefetch: a source already cached with the right sha256 is not fetched again"
 else bad FPKP-20 "prefetch re-fetched a cached source (calls=$(cat "$WORK/pfs/n"))"; fi
+# --- FPKP-22: a WRONG file already in the cache is refetched and replaced
+# (flatpak-builder itself accepts a corrupt cache entry, so this check is the guard).
+rm -rf "$WORK/pfs" "$WORK/pfc"; mkdir -p "$WORK/pfs" "$WORK/pfc/downloads/$gsum"
+echo '<html>busy</html>' > "$WORK/pfc/downloads/$gsum/x.zip"
+FAKE_STATE="$WORK/pfs" FAKE_BAD=0 FAKE_GOOD="$good" PREFETCH_FETCH="$WORK/fakefetch" \
+    PREFETCH_SLEEP="$WORK/fakesleep" bash "$PF" "$pfm" "$WORK/pfc" >/dev/null 2>&1
+if [ "$(cat "$WORK/pfs/n" 2>/dev/null || echo 0)" -eq 1 ] \
+   && [ "$(sha256sum "$WORK/pfc/downloads/$gsum/x.zip" | cut -d' ' -f1)" = "$gsum" ]; then
+    ok FPKP-22 "prefetch: a wrong file already in the cache is refetched and replaced"
+else bad FPKP-22 "prefetch kept a wrong cached file (calls=$(cat "$WORK/pfs/n" 2>/dev/null))"; fi
+# --- FPKP-23: the real curl runs with a time bound (a stall must not hold the job), via a stub curl
+rm -rf "$WORK/pfs" "$WORK/pfc" "$WORK/cbin"; mkdir -p "$WORK/pfs" "$WORK/cbin"
+printf '#!/usr/bin/env bash\necho "$*" >> "$WORK_ARGS"; exit 28\n' > "$WORK/cbin/curl"; chmod +x "$WORK/cbin/curl"
+WORK_ARGS="$WORK/pfs/curl-args" FAKE_STATE="$WORK/pfs" PREFETCH_SLEEP="$WORK/fakesleep" PATH="$WORK/cbin:$PATH" \
+    bash "$PF" "$pfm" "$WORK/pfc" >/dev/null 2>&1; pf_rc=$?
+cargs=$(cat "$WORK/pfs/curl-args" 2>/dev/null)
+if [ "$pf_rc" -eq 0 ] && grep -q -- '--connect-timeout' <<<"$cargs" && grep -q -- '--speed-limit' <<<"$cargs" \
+   && grep -q -- '--speed-time' <<<"$cargs" && [ "$(wc -l < "$WORK/pfs/curl-args")" -eq 4 ]; then
+    ok FPKP-23 "prefetch: curl gets --connect-timeout/--speed-limit/--speed-time; a timed-out curl is retried (4 calls) then handed back (exit 0)"
+else bad FPKP-23 "prefetch curl options/retry: rc=$pf_rc args='$cargs'"; fi
+# --- FPKP-24: local `make package-flatpak` prefetches too (same targets as CI)
+mk_pf=$(awk '/^package-flatpak:/{inr=1;next} inr && /^[a-zA-Z0-9_.-]+:/{exit} inr && /^\t/{l=$0; sub(/^\t+/,"",l); while(l ~ /^[@+-]/) sub(/^[@+-]/,"",l); if(l !~ /^#/) print l}' Makefile)
+if grep -q 'flatpak-prefetch' <<<"$mk_pf" && awk '/flatpak-prefetch/{a=NR} /^flatpak-builder /{b=NR} END{exit !(a&&b&&a<b)}' <<<"$mk_pf"; then
+    ok FPKP-24 "make package-flatpak runs flatpak-prefetch before flatpak-builder"
+else bad FPKP-24 "package-flatpak does not run flatpak-prefetch before flatpak-builder"; fi
 # --- FPKP-21: the shared workflow RUNS the prefetch, BEFORE the builder action
 # (commented-out steps do not count: same extractor as FPKP-15).
 wfa=$(yml_active .github/workflows/flatpak-build.yml flatpak-build run)

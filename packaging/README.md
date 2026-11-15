@@ -36,7 +36,7 @@ freedesktop), `jnext.ico` (embedded into `jnext.exe` on Windows via `jnext.rc`
 unverified on the Linux dev host).
 
 ```sh
-cmake -B build -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
+cmake -B build -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release -DJNEXT_WERROR=OFF
 cmake --build build -j"$(nproc)"
 cd build && cpack -G TGZ        # or: cpack -G "TGZ;DEB;RPM"
 ```
@@ -303,7 +303,7 @@ without the generation step has no changelog and the build stops instead of
 packaging a stale version.
 
 `debian/rules` passes `-DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
--DCMAKE_BUILD_TYPE=Release` to the CMake configure step, matching how the
+-DCMAKE_BUILD_TYPE=Release -DJNEXT_WERROR=OFF` to the CMake configure step, matching how the
 project actually builds its release binary (`make gui-release`).
 `${shlibs:Depends}` in `debian/control` lets `dpkg-shlibdeps` compute the
 real runtime dependency list from the built binary at package time.

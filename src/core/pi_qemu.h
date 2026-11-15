@@ -263,9 +263,9 @@ private:
     std::uint16_t     tcp_port_ = 0;
     // Windows only (pi_qemu_win.cpp): HANDLEs, spelled void* so no header here
     // needs <windows.h>.
-    void*             process_    = nullptr;
-    void*             job_        = nullptr;
-    void*             stdin_write_ = nullptr;
+    [[maybe_unused]] void* process_    = nullptr;
+    [[maybe_unused]] void* job_        = nullptr;
+    [[maybe_unused]] void* stdin_write_ = nullptr;
     std::string       runtime_dir_;   ///< holds the FIFOs; removed on stop
     std::string       rx_path_;
     std::string       tx_path_;

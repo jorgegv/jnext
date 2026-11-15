@@ -4788,7 +4788,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //
     // (G162 closure — MF-G162-02 in nmi_test plan.)
     port_.register_handler(0xF003, 0x2001,
-        [this](uint16_t port) -> uint8_t {
+        [this](uint16_t) -> uint8_t {
             // 0x2FFD READ — trap (VHDL:3835 port_2ffd_rd term).
             // When NR 0xD8 bit 0 is off, VHDL's `port_2ffd` decode is
             // false, no other internal decode responds at this address,
@@ -4808,7 +4808,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         },
         nullptr);  // 0x2FFD WRITE: VHDL-only port_2ffd_wr is NOT an iotrap source.
     port_.register_handler(0xF003, 0x3001,
-        [this](uint16_t port) -> uint8_t {
+        [this](uint16_t) -> uint8_t {
             // 0x3FFD READ — trap (VHDL:3835 port_3ffd_rd term).
             if (nr_d8_io_trap_fdc_en_) {
                 nmi_source_.strobe_iotrap();
@@ -5318,7 +5318,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if ((effective_internal_port_enable(0x84) & 0x01) == 0) return 0xFF;  // gated off
             return turbosound_.reg_read(false);
         },
-        [this](uint16_t port, uint8_t val) {
+        [this](uint16_t, uint8_t val) {
             if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
             // VHDL 2773: NOT port_dffd gate is handled by exclusive dispatch —
             // the 0xDFFD handler (mask 0xF003, more specific than this
@@ -7725,9 +7725,8 @@ std::string hex4(unsigned v) { char t[8]; std::snprintf(t, sizeof t, "%04X", v);
 std::string hex2(unsigned v) { char t[8]; std::snprintf(t, sizeof t, "%02X", v); return t; }
 }  // namespace
 
-bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t before, uint32_t after)
+bool Emulator::warm_start_recipe_tick(Emulator& rec, uint32_t /*before*/, uint32_t after)
 {
-    using AutoKey = Keyboard::AutoKey;
     constexpr int kHold = 5;   // frames each typed key is held
     WsRecipe& r = rec.ws_recipe_;
 

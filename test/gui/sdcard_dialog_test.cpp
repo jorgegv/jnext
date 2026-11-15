@@ -538,6 +538,76 @@ void test_upgrade_offer() {
               has(a.text, "DELETES everything you saved"), a.text);
 }
 
+// -- SDD-RETRY: the wait between two download attempts (GH #497) ------------------------------
+
+void test_retry_wait() {
+    using namespace std::chrono;
+    const std::string plain = "Downloading the retry image";
+    const std::string note = "Download attempt 1 failed: stub\nRetry 1 of 3 in 2 s";
+
+    {   // 01: the wait pumps the event loop (a timer fires inside it), shows the note, and lasts as asked
+        SdcardGuiProvisioner gui;
+        gui.set_texts("jnext - test", "headline", "busy", plain);
+        gui.progress(0, 300000);
+        int fires = 0;
+        std::string label_in_wait;
+        QTimer tick;
+        QObject::connect(&tick, &QTimer::timeout, [&] { ++fires; if (label_in_wait.empty()) label_in_wait = label(); });
+        tick.start(20);
+        const Clk::time_point t0 = Clk::now();
+        gui.retry_wait(400, note);
+        const double took = since(t0);
+        tick.stop();
+        check("SDD-RETRY-01",
+              "retry_wait(400 ms) runs the event loop for the whole wait (an application timer fires at least 8 times), "
+              "the label says the retry note meanwhile, and the wait lasts 0.38 to 1.5 s",
+              fires >= 8 && has(label_in_wait, "Retry 1 of 3 in 2 s") && has(label_in_wait, plain.c_str()) && took >= 0.38 && took < 1.5,
+              "fires=" + std::to_string(fires) + " took=" + std::to_string(took) + " label='" + label_in_wait + "'");
+    }
+    {   // 02: Cancel clicked during the wait ends it at once, and the next attempt's first tick says false
+        SdcardGuiProvisioner gui;
+        gui.set_texts("jnext - test", "headline", "busy", plain);
+        gui.progress(0, 300000);
+        QTimer click;
+        click.setSingleShot(true);
+        bool clicked = false;
+        QObject::connect(&click, &QTimer::timeout, [&] { clicked = click_cancel(); });
+        click.start(100);
+        const Clk::time_point t0 = Clk::now();
+        gui.retry_wait(8000, note);
+        const double took = since(t0);
+        const bool next_false = !gui.progress(0, 300000);
+        check("SDD-RETRY-02",
+              "a click on Cancel 100 ms into an 8 s wait ends the wait within 1.5 s, and the next progress() returns false",
+              clicked && took < 1.5 && next_false, "clicked=" + std::to_string(clicked) + " took=" + std::to_string(took));
+    }
+    {   // 03: the next attempt's stall is counted from the wait's end, and its label is the plain one again
+        const Clk::time_point base = Clk::now();
+        Clk::duration offset = Clk::duration::zero();
+        SdcardGuiProvisioner gui([&] { return base + offset; });
+        gui.set_texts("jnext - test", "headline", "busy", plain);
+        gui.progress(0, 300000);
+        offset += seconds(12);
+        gui.progress(0, 300000);
+        const std::string stalled = label();
+        offset += seconds(1);
+        gui.retry_wait(30, note);
+        offset += seconds(1);
+        gui.progress(0, 300000);
+        const std::string after = label();
+        check("SDD-RETRY-03",
+              "after a stall to 12 s and a retry wait, the next attempt's first tick shows the plain label (no 'Stalled', "
+              "which an unrestarted watch would give as 14 s)",
+              has(stalled, "Stalled: no data received for 12 s") && after == plain, "after='" + after + "'");
+    }
+    // 04: main.cpp wires the GUI's wait into the provisioner, or none of the above reaches a user
+    {
+        const std::string m = code_of(JNEXT_MAIN_CPP);
+        check("SDD-RETRY-04", "main.cpp gives the provisioner the GUI's retry_wait as its SleepFn (opts.sleep)",
+              has(m, "opts.sleep") && has(m, "gui_prov.retry_wait"));
+    }
+}
+
 int main(int argc, char** argv) {
     // The helper builds its dialogs on a QApplication it finds; give it one, on
     // the offscreen platform (no display needed).
@@ -557,6 +627,7 @@ int main(int argc, char** argv) {
     test_short_fetch_cancel_is_local();
     test_short_fetch_through_the_backend();
     test_upgrade_offer();
+    test_retry_wait();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n", g_total, g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

@@ -1926,7 +1926,7 @@ namespace dbg {
 namespace {
 
 // `d` in the layout of `f`, rounded to nearest, into `out` (n bytes, the bytes outside the layout already in place). False: `why`.
-bool fp_encode(const CFloatFormat& f, int n, double d, std::vector<uint8_t>& out, std::string* why)
+bool fp_encode(const CFloatFormat& f, int /*n*/, double d, std::vector<uint8_t>& out, std::string* why)
 {
     const int ms = f.mantissa_size;
     const std::string name = f.mode == 0 && f.exponent_bias == 128 && ms == 5 ? "z88dk 48-bit" : fp_mode_name(f.mode);

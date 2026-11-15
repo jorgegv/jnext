@@ -106,12 +106,13 @@
 //                  why, "URL: <the address asked for>", what happens next, for each
 //                  state of the partial (01-03), a download that is no zip (04),
 //                  the shape itself (05) and the sandbox note coming last (06).
-//   PROV-RETRY-01..09  GH #497 - a failed attempt (transport error, or a body that
-//                  does not unzip) is retried up to 3 more times, waiting 2 s, 4 s, 8 s;
-//                  success on the 2nd / 3rd attempt (01, 03), giving up after the
-//                  limit with the last error (02, 04), the cancel not retried (06),
-//                  retries=0 (07), the first-wait env seam (08), and a kept partial
-//                  surviving into the next attempt (05, GH #358 resume).
+//   PROV-RETRY-01..12  GH #497 - a failed attempt (transport error, or a body that
+//                  does not unzip) is retried up to 3 more times, waiting 2 s, 4 s, 8 s:
+//                  success on the 2nd / 3rd attempt (02, 03), giving up after the limit
+//                  with the error of the last attempt (04, 05, 11), a kept partial
+//                  surviving into the next attempt (06), the cancel not retried (07),
+//                  retries=0 (08), the first-wait env seam (09), the DEFAULT options
+//                  retrying 3 times (10), the retry note on stderr (12).
 //   PROV-UNZIP-01  Extract a STORED entry from a crafted zip.
 //   PROV-UNZIP-02  Extract a DEFLATED entry from a crafted zip.
 //   PROV-UNZIP-03  Missing entry → false.
@@ -159,6 +160,7 @@
 #include <vector>
 
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include "../row_id.h"
 #include "../test_portable.h"
@@ -2449,7 +2451,7 @@ void test_retry_rows() {
         o.auto_confirm = true;
         o.download = dl;
         o.retries = retries;
-        o.sleep = [&](unsigned ms) { waits.push_back(ms); };
+        o.sleep = [&](unsigned ms, const std::string&) { waits.push_back(ms); };
         o.sandbox_marker = tp("no-such-flatpak-info-retry");
         return sdcard::provision_sd_card(o);
     };
@@ -2510,10 +2512,56 @@ void test_retry_rows() {
     {   // 09: the first-wait seam
         jtp::set_env("JNEXT_SDCARD_RETRY_BACKOFF_MS", "5");
         (void)run(server(99, "net"));
-        jtp::set_env("JNEXT_SDCARD_RETRY_BACKOFF_MS", "0");
+        jtp::unset_env("JNEXT_SDCARD_RETRY_BACKOFF_MS");   // rows 10-12 want the real 2 s base
         check("PROV-RETRY-09", "$JNEXT_SDCARD_RETRY_BACKOFF_MS sets the first wait; each later one doubles it",
               waits == std::vector<unsigned>({5, 10, 20}));
     }
+    {   // 10: nothing set but the seams: the DEFAULT is 3 retries
+        clean(); calls = 0; waits.clear();
+        sdcard::ProvisionOptions o;   // retries NOT assigned
+        o.auto_confirm = true;
+        o.download = server(99, "net");
+        o.sleep = [&](unsigned ms, const std::string&) { waits.push_back(ms); };
+        o.sandbox_marker = tp("no-such-flatpak-info-retry");
+        (void)sdcard::provision_sd_card(o);
+        check("PROV-RETRY-10", "default-constructed ProvisionOptions retry 3 times: 4 attempts, waits 2 s, 4 s, 8 s",
+              calls == 4 && waits == w3);
+    }
+    {   // 11: attempts that fail DIFFERENTLY: the error reported is the last one's
+        const auto r = run([&](const std::string&, const std::string& dst, const sdcard::ProgressFn&, std::string& err) {
+            ++calls;
+            if (calls == 1) { err = "stub: first no network"; return false; }
+            write_file(dst, std::vector<uint8_t>(12288, '<'));   // later attempts: a body that is no zip
+            return true;
+        });
+        check("PROV-RETRY-11", "when the attempts fail differently the error reported is the LAST attempt's, not the first's",
+              r.status == sdcard::ProvisionStatus::Failed && calls == 4 && r.error.find("unzip failed") == 0 &&
+              r.error.find("first no network") == std::string::npos, r.error);
+        const auto r2 = run([&](const std::string&, const std::string& dst, const sdcard::ProgressFn&, std::string& err) {
+            ++calls;
+            if (calls == 1) { write_file(dst, std::vector<uint8_t>(12288, '<')); return true; }
+            err = "stub: last no network"; return false;
+        });
+        check("PROV-RETRY-11b", "and the other way round: a transport error last replaces an unzip failure first",
+              r2.status == sdcard::ProvisionStatus::Failed && calls == 4 &&
+              r2.error.find("download failed: stub: last no network") == 0, r2.error);
+    }
+    {   // 12: the terminal says so, on stderr (the man page's promise)
+        const std::string cap = tp("retry-stderr.txt");
+        std::fflush(stderr);
+        const int saved = dup(2);
+        const int fd = open(cap.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        dup2(fd, 2); close(fd);
+        (void)run(server(2, "net"));
+        std::fflush(stderr);
+        dup2(saved, 2); close(saved);
+        const std::string text = slurp_text(cap);
+        check("PROV-RETRY-12", "each retry is noted on stderr: 'Retry 1 of 3 in 2 s' then 'Retry 2 of 3 in 4 s', with the reason",
+              text.find("\nRetry 1 of 3 in 2 s...\n") != std::string::npos &&   // the terminal line, not the log record's copy
+              text.find("\nRetry 2 of 3 in 4 s...\n") != std::string::npos &&
+              text.find("Retry 3 of 3") == std::string::npos && text.find("stub: no network") != std::string::npos, text);
+    }
+    jtp::set_env("JNEXT_SDCARD_RETRY_BACKOFF_MS", "0");   // back to the suite's no-wait setting
     clean();
     std::remove(src.c_str());
     std::remove(good_zip.c_str());

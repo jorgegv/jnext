@@ -1897,7 +1897,7 @@ static void test_gh386_rom_keys() {
 // uncontended bank 2 at $8000 so every timing below is the interrupt's alone.
 namespace gh450_hic {
 
-constexpr uint16_t TICK = 0x9000, SEEN = 0x9001, ISR_READ = 0x9002,
+[[maybe_unused]] constexpr uint16_t TICK = 0x9000, SEEN = 0x9001, ISR_READ = 0x9002,
                    ISR_PREV = 0x9003, LASTMAIN = 0x9004, DONE = 0x9005,
                    MARKER = 0x9006, ISR_A = 0x9007, SEEN_ITER = 0x9008, ISR_E = 0x900A;
 

@@ -440,8 +440,9 @@ static void test_nextpi_qemu_args(QTemporaryDir& dir) {
     const QString none = fresh_ini_path(dir, "qemuargs-none");
     AppConfig absent(none);
     absent.load();
+    const AppConfigData kDefaults{};   // a named value: the temporary form trips -Wdangling-pointer
     check("AC-91", "nextpi_qemu_args defaults to empty (no extra QEMU arguments), in a fresh struct and after load()",
-          AppConfigData{}.nextpi_qemu_args.isEmpty() && absent.data().nextpi_qemu_args.isEmpty());
+          kDefaults.nextpi_qemu_args.isEmpty() && absent.data().nextpi_qemu_args.isEmpty());
 
     const QString p = fresh_ini_path(dir, "qemuargs-rt");
     const QString text = QStringLiteral("-serial telnet::2357,server,nowait -name \"my pi\" 'x' -drive file=C:\\pi\\x.img;y");
@@ -571,8 +572,9 @@ static void test_mouse_release(QTemporaryDir& dir) {
         const QString none = fresh_ini_path(dir, "mouserel-none");
         AppConfig absent(none);
         absent.load();
+        const AppConfigData kDefaults{};
         check("AC-84", "mouse_release defaults to ctrl-alt, in the struct and from an empty file",
-              AppConfigData{}.mouse_release == RM::CtrlAlt && absent.data().mouse_release == RM::CtrlAlt);
+              kDefaults.mouse_release == RM::CtrlAlt && absent.data().mouse_release == RM::CtrlAlt);
     }
     const QString pe = fresh_ini_path(dir, "mouserel-esc");
     const QString pm = fresh_ini_path(dir, "mouserel-mid");
@@ -1682,7 +1684,7 @@ static void test_source_dirs(QTemporaryDir& dir) {
         w.data().source_dirs = dirs;
         w.save();
     }
-    const QString sep(QLatin1Char(source_search::kListSeparator));
+    const QString sep{QLatin1Char(source_search::kListSeparator)};
     bool present = false;
     const std::string raw = raw_text(p, "paths/source_dirs", &present);
     AppConfig r(p);

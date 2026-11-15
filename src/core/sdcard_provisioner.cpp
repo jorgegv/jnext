@@ -4,6 +4,7 @@
 
 #include <zlib.h>
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstdio>
@@ -98,7 +99,7 @@ std::string sandbox_network_note(const ProvisionOptions& opts) {
            "\n    flatpak info --show-permissions io.github.zxjogv.jnext"
            "\n    flatpak override --user --share=network io.github.zxjogv.jnext";
 }
-void real_sleep_ms(unsigned ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
+void real_sleep_ms(unsigned ms, const std::string&) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 std::string basename_of(const std::string& p) {
     auto pos = p.find_last_of("/\\");
     return pos == std::string::npos ? p : p.substr(pos + 1);
@@ -1194,12 +1195,14 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             }
             if (err == "cancelled by user" || attempt >= opts.retries) break;
             const unsigned wait_ms = backoff_ms << attempt;
-            const std::string note = "\nDownload attempt " + std::to_string(attempt + 1) + " failed: " + err +
+            const std::string note = "Download attempt " + std::to_string(attempt + 1) + " failed: " + err +
                                      "\nRetry " + std::to_string(attempt + 1) + " of " +
-                                     std::to_string(opts.retries) + " in " + std::to_string(wait_ms / 1000) + " s...\n";
-            std::fputs(note.c_str(), stderr);
-            Log::emulator()->warn("sdcard: {}", note);
-            sleep(wait_ms);
+                                     std::to_string(opts.retries) + " in " + std::to_string(wait_ms / 1000) + " s";
+            std::fputs(("\n" + note + "...\n").c_str(), stderr);
+            std::string one_line = note;
+            std::replace(one_line.begin(), one_line.end(), '\n', ';');
+            Log::emulator()->warn("sdcard: {}", one_line);
+            sleep(wait_ms, note);
         }
         if (!fetched) return fail(why);
         std::remove(zip_tmp.c_str());

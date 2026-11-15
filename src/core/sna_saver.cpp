@@ -271,7 +271,6 @@ std::vector<uint8_t> SnaSaver::save_48k(Emulator& emu) {
     // 48K SNA: 27-byte header + 49152 bytes RAM
     static constexpr size_t SNA_48K_SIZE = 49179;
     static constexpr size_t HEADER_SIZE = 27;
-    static constexpr size_t RAM_SIZE = 49152;
 
     std::vector<uint8_t> data(SNA_48K_SIZE, 0);
 

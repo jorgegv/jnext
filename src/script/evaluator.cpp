@@ -32,7 +32,6 @@ std::string hex(int64_t v) {
 
 /// The 32-bit two's-complement value of `v` — the wrap of §2.1.
 int32_t wrap(uint64_t v) { return static_cast<int32_t>(static_cast<uint32_t>(v)); }
-int32_t wrap(int64_t v) { return wrap(static_cast<uint64_t>(v)); }
 
 int32_t flag(uint16_t af, int bit) { return (af >> bit) & 1; }
 

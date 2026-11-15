@@ -33,7 +33,12 @@ retries=3
 if [ -z "$fetch" ]; then
     if command -v curl >/dev/null 2>&1; then
         fetch=default_curl
-        default_curl() { curl --fail --silent --show-error --location --output "$2" "$1"; }
+        # A stall must end the attempt (and be retried, then handed to flatpak-builder), not hold the job:
+        # no connection in 30 s, or under 1 KB/s for 30 s, aborts the transfer.
+        default_curl() {
+            curl --fail --silent --show-error --location --connect-timeout 30 \
+                 --speed-limit 1024 --speed-time 30 --output "$2" "$1"
+        }
     else
         echo "prefetch-sources: curl not found; flatpak-builder will download the sources itself" >&2
         exit 0
